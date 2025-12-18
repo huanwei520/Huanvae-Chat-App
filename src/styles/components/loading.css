@@ -1,0 +1,91 @@
+/**
+ * ========================================
+ * Huanvae Chat - 加载状态组件
+ * ========================================
+ * 
+ * @description 加载指示器和全屏遮罩样式
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 提供加载中的视觉反馈
+ * - 全屏遮罩阻止用户操作
+ * - 配合 Framer Motion 实现旋转动画
+ * 
+ * ## 包含类名
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .loading-spinner | 加载指示器容器 |
+ * | .spinner-icon | 旋转图标 |
+ * | .spinner-icon.large | 大尺寸图标 |
+ * | .loading-overlay | 全屏加载遮罩 |
+ * 
+ * ## 使用示例
+ * ```jsx
+ * // 内联加载
+ * <div className="loading-spinner">
+ *   <motion.div className="spinner-icon" animate={{ rotate: 360 }}>
+ *     ⟳
+ *   </motion.div>
+ *   <p>加载中...</p>
+ * </div>
+ * 
+ * // 全屏遮罩
+ * {isLoading && (
+ *   <motion.div className="loading-overlay">
+ *     <motion.div className="spinner-icon large">⟳</motion.div>
+ *   </motion.div>
+ * )}
+ * ```
+ */
+
+/* ============================================
+   加载指示器容器
+   ============================================ */
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 10;
+}
+
+.loading-spinner p {
+  font-size: 16px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* ============================================
+   旋转图标
+   ============================================ */
+.spinner-icon {
+  font-size: 48px;
+  color: #3b82f6;
+}
+
+/* 大尺寸变体 - 用于全屏遮罩 */
+.spinner-icon.large {
+  font-size: 64px;
+}
+
+/* ============================================
+   全屏加载遮罩
+   ============================================
+   半透明毛玻璃背景
+   阻止用户在加载期间操作
+*/
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}

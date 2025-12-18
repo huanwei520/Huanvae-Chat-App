@@ -1,0 +1,117 @@
+/**
+ * ========================================
+ * Huanvae Chat - 提示消息组件
+ * ========================================
+ * 
+ * @description 错误提示、成功提示等反馈消息样式
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 显示操作反馈信息
+ * - 内联错误提示
+ * - 浮动 Toast 提示
+ * 
+ * ## 包含类名
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .error-message | 内联错误提示 |
+ * | .error-toast | 浮动错误 Toast |
+ * | .error-icon | 错误图标 |
+ * 
+ * ## 使用示例
+ * ```jsx
+ * // 内联错误
+ * {error && (
+ *   <div className="error-message">{error}</div>
+ * )}
+ * 
+ * // 浮动 Toast
+ * <motion.div className="error-toast" onClick={onClose}>
+ *   <span className="error-icon">⚠</span>
+ *   <span>{message}</span>
+ *   <button>✕</button>
+ * </motion.div>
+ * ```
+ * 
+ * ## 扩展建议
+ * 可添加 success-toast、warning-toast 等变体
+ */
+
+/* ============================================
+   内联错误提示
+   ============================================
+   显示在表单内部的错误信息
+*/
+.error-message {
+  background: linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.15) 0%,
+    rgba(239, 68, 68, 0.1) 100%
+  );
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  color: #dc2626;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ============================================
+   浮动错误 Toast
+   ============================================
+   固定在页面底部的错误提示
+   点击可关闭
+*/
+.error-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  
+  /* 渐变红色背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.95) 0%,
+    rgba(220, 38, 38, 0.95) 100%
+  );
+  backdrop-filter: blur(10px);
+  
+  color: white;
+  padding: 14px 24px;
+  border-radius: 14px;
+  
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1000;
+  
+  box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3);
+  cursor: pointer;
+}
+
+/* 错误图标 */
+.error-toast .error-icon {
+  font-size: 18px;
+}
+
+/* 关闭按钮 */
+.error-toast button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.error-toast button:hover {
+  opacity: 1;
+}

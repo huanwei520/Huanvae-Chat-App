@@ -1,0 +1,189 @@
+/**
+ * ========================================
+ * Huanvae Chat - 基础样式
+ * ========================================
+ * 
+ * @description 基础布局层，定义全局容器和装饰元素
+ * @layer       第二层 - 基础布局
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 定义全屏布局容器
+ * - 创建丰富的渐变背景
+ * - 添加浮动装饰元素增强视觉层次
+ * - 定义全局动画关键帧
+ * - 处理响应式断点
+ * 
+ * ## 包含元素
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .login-container | 全屏登录容器 |
+ * | .floating-orb | 浮动装饰圆 |
+ * | .orb-1/2/3 | 三个不同位置的装饰圆 |
+ * 
+ * ## 设计理念
+ * - 多层渐变叠加创造丰富的背景色彩
+ * - 浮动装饰增加页面动感和深度
+ * - 丰富的背景让毛玻璃效果更加明显
+ * - 所有装饰元素设置 pointer-events: none 不影响交互
+ */
+
+/* ============================================
+   主容器
+   ============================================
+   全屏居中布局，多层渐变背景
+   让毛玻璃效果更加明显
+*/
+.login-container {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 多层渐变叠加，创造丰富的背景色彩 */
+  background: 
+    linear-gradient(135deg, 
+      rgba(59, 130, 246, 0.12) 0%, 
+      rgba(147, 197, 253, 0.08) 50%,
+      rgba(219, 234, 254, 0.15) 100%
+    ),
+    linear-gradient(45deg, 
+      #e0f2fe 0%, 
+      #f8fafc 30%,
+      #ffffff 50%, 
+      #f0f9ff 70%,
+      #dbeafe 100%
+    );
+  position: relative;
+  overflow: hidden;
+}
+
+/* ============================================
+   装饰性背景元素
+   ============================================
+   使用伪元素创建额外的渐变层
+   增强背景的色彩丰富度
+*/
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(
+      ellipse at 25% 15%,
+      rgba(59, 130, 246, 0.18) 0%,
+      transparent 45%
+    ),
+    radial-gradient(
+      ellipse at 75% 85%,
+      rgba(14, 165, 233, 0.15) 0%,
+      transparent 45%
+    ),
+    radial-gradient(
+      ellipse at 50% 50%,
+      rgba(99, 102, 241, 0.08) 0%,
+      transparent 50%
+    );
+  animation: float 20s ease-in-out infinite;
+}
+
+/* 背景浮动动画 */
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(2%, 2%) rotate(1deg); }
+  66% { transform: translate(-1%, 1%) rotate(-1deg); }
+}
+
+/* ============================================
+   浮动装饰圆
+   ============================================
+   三个不同大小和位置的模糊圆形
+   增加页面的视觉层次和动感
+*/
+.floating-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none; /* 不影响交互 */
+}
+
+/* 装饰圆 1 - 右上角蓝色 */
+.orb-1 {
+  width: 450px;
+  height: 450px;
+  top: -180px;
+  right: -120px;
+  background: radial-gradient(circle, 
+    rgba(59, 130, 246, 0.4) 0%,
+    rgba(147, 197, 253, 0.25) 40%,
+    transparent 70%
+  );
+  filter: blur(60px);
+  animation: orb-float-1 15s ease-in-out infinite;
+}
+
+/* 装饰圆 2 - 左下角天蓝色 */
+.orb-2 {
+  width: 400px;
+  height: 400px;
+  bottom: -150px;
+  left: -120px;
+  background: radial-gradient(circle, 
+    rgba(14, 165, 233, 0.35) 0%,
+    rgba(56, 189, 248, 0.2) 40%,
+    transparent 70%
+  );
+  filter: blur(55px);
+  animation: orb-float-2 18s ease-in-out infinite;
+}
+
+/* 装饰圆 3 - 左侧靛蓝色 */
+.orb-3 {
+  width: 320px;
+  height: 320px;
+  top: 35%;
+  left: 5%;
+  background: radial-gradient(circle, 
+    rgba(99, 102, 241, 0.3) 0%,
+    rgba(139, 92, 246, 0.15) 40%,
+    transparent 70%
+  );
+  filter: blur(50px);
+  animation: orb-float-3 12s ease-in-out infinite;
+}
+
+/* ============================================
+   装饰圆浮动动画
+   ============================================ */
+@keyframes orb-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30px, 30px) scale(1.1); }
+}
+
+@keyframes orb-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, -20px) scale(1.05); }
+}
+
+@keyframes orb-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
+  50% { transform: translate(20px, -40px) scale(1.15); opacity: 0.8; }
+}
+
+/* ============================================
+   响应式调整
+   ============================================
+   移动端适配
+*/
+@media (max-width: 480px) {
+  .glass-card {
+    margin: 16px;
+    padding: 32px 24px;
+  }
+  
+  .login-title {
+    font-size: 24px;
+  }
+}

@@ -1,0 +1,494 @@
+/**
+ * ========================================
+ * Huanvae Chat - 堆叠卡片账号选择器组件
+ * ========================================
+ *
+ * @description 使用 Framer Motion 实现的垂直堆叠卡片选择器
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ *
+ * ## 作用
+ * - 提供垂直堆叠的卡片轮播效果
+ * - 同时显示上、中、下三张卡片
+ * - 支持鼠标滚轮流畅滚动
+ * - 支持点击上下卡片切换
+ * - 无限循环滚动
+ *
+ * ## 堆叠效果说明
+ * ```
+ *      ┌──────────────┐     ← 上一个卡片（缩小 88%，透明度 50%）
+ *    ┌──────────────────┐
+ *    │   当前选中卡片    │   ← 主卡片（原始大小，完全不透明）
+ *    └──────────────────┘
+ *      └──────────────┘     ← 下一个卡片（缩小 88%，透明度 50%）
+ * ```
+ *
+ * ## 包含类名
+ * ### 容器
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .stack-selector | 选择器主容器 |
+ * | .stack-container | 卡片堆叠容器 |
+ * | .stack-counter | 计数器 |
+ *
+ * ### 卡片样式
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .stack-card | 卡片外层包装 |
+ * | .stack-card-prev | 上一个卡片 |
+ * | .stack-card-current | 当前卡片 |
+ * | .stack-card-next | 下一个卡片 |
+ * | .stack-account-card | 账户卡片内容 |
+ * | .stack-card-avatar | 头像区域 |
+ * | .stack-card-info | 信息区域 |
+ *
+ * ## 交互方式
+ * - 鼠标滚轮：上下滚动切换
+ * - 点击上方卡片：切换到上一个
+ * - 点击下方卡片：切换到下一个
+ * - 点击当前卡片：选择登录
+ */
+
+/* ============================================
+   堆叠选择器容器
+   ============================================ */
+.stack-selector {
+  position: relative;
+  width: 100%;
+  margin: 20px 0;
+  padding: 50px 0;
+  cursor: grab;
+
+  /* 禁止文字选中，防止拖动时选中文字 */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.stack-selector:active {
+  cursor: grabbing;
+}
+
+/* ============================================
+   堆叠容器
+   ============================================ */
+.stack-container {
+  position: relative;
+  width: 100%;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================
+   卡片外层包装
+   ============================================ */
+.stack-card {
+  position: absolute;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  will-change: transform, opacity;
+
+  /* 禁止文字选中 */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* 上一个卡片 */
+.stack-card-prev {
+  filter: blur(0.5px);
+}
+
+/* 当前卡片 */
+.stack-card-current {
+  filter: none;
+}
+
+/* 下一个卡片 */
+.stack-card-next {
+  filter: blur(0.5px);
+}
+
+/* ============================================
+   账户卡片内容
+   ============================================ */
+.stack-account-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+
+  /* 毛玻璃背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.35) 100%
+  );
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+
+  box-shadow:
+    0 0 30px rgba(255, 255, 255, 0.4),
+    0 8px 24px rgba(59, 130, 246, 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9);
+}
+
+/* 当前卡片强调 */
+.stack-card-current .stack-account-card {
+  border-color: rgba(147, 197, 253, 0.8);
+  box-shadow:
+    0 0 40px rgba(147, 197, 253, 0.35),
+    0 12px 32px rgba(59, 130, 246, 0.18),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+/* 当前卡片悬停 */
+.stack-card-current .stack-account-card:hover {
+  border-color: rgba(96, 165, 250, 0.9);
+  box-shadow:
+    0 0 50px rgba(147, 197, 253, 0.4),
+    0 16px 40px rgba(59, 130, 246, 0.22),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+/* 上下卡片悬停 */
+.stack-card-prev:hover .stack-account-card,
+.stack-card-next:hover .stack-account-card {
+  border-color: rgba(147, 197, 253, 0.5);
+}
+
+/* ============================================
+   头像区域
+   ============================================ */
+.stack-card-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.5) 100%
+  );
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 4px 16px rgba(59, 130, 246, 0.15),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+.stack-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 默认头像 */
+.stack-card-avatar .default-avatar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.15) 0%,
+    rgba(148, 163, 184, 0.08) 100%
+  );
+}
+
+.stack-card-avatar .default-avatar.hidden {
+  display: none;
+}
+
+.stack-card-avatar .default-avatar-icon {
+  width: 26px;
+  height: 26px;
+  color: #94a3b8;
+}
+
+/* ============================================
+   信息区域
+   ============================================ */
+.stack-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.stack-card-nickname {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e3a5f;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-card-id {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-card-server {
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================
+   计数器
+   ============================================ */
+.stack-counter {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 3px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(147, 197, 253, 0.3);
+}
+
+/* ============================================
+   操作按钮区域
+   ============================================ */
+.wheel-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+/* 删除文字按钮 */
+.delete-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.delete-text-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.delete-text-btn:hover {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.delete-text-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   删除确认
+   ============================================ */
+.delete-confirm-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.delete-confirm-row span {
+  font-size: 14px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.delete-confirm-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* 确认删除按钮 */
+.confirm-delete-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.confirm-delete-btn:hover {
+  background: linear-gradient(135deg, #b91c1c, #991b1b);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+
+/* 取消按钮 */
+.cancel-delete-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  backdrop-filter: blur(10px);
+  color: #475569;
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancel-delete-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+}
+
+/* ============================================
+   导航按钮
+   ============================================ */
+.stack-nav-btn {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.5) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 4px 16px rgba(59, 130, 246, 0.12),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  transition: all 0.2s ease;
+}
+
+.stack-nav-btn:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.7) 100%
+  );
+  border-color: rgba(147, 197, 253, 0.6);
+  color: #3b82f6;
+  box-shadow:
+    0 6px 20px rgba(59, 130, 246, 0.2),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+.stack-nav-up {
+  top: 0;
+}
+
+.stack-nav-down {
+  bottom: 0;
+}
+
+/* ============================================
+   主卡片（带动画效果）
+   ============================================ */
+.stack-card-main {
+  z-index: 10;
+}
+
+.stack-card-main .stack-account-card {
+  border-color: rgba(147, 197, 253, 0.8);
+  box-shadow:
+    0 0 40px rgba(147, 197, 253, 0.35),
+    0 12px 32px rgba(59, 130, 246, 0.18),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+.stack-card-main:hover .stack-account-card {
+  border-color: rgba(96, 165, 250, 0.9);
+  box-shadow:
+    0 0 50px rgba(147, 197, 253, 0.4),
+    0 16px 40px rgba(59, 130, 246, 0.22),
+    inset 0 1px 2px rgba(255, 255, 255, 1);
+}
+
+/* ============================================
+   背景卡片（静态装饰）
+   ============================================ */
+.stack-card-background {
+  pointer-events: none;
+  filter: blur(0.5px);
+}
+
+/* ============================================
+   幽灵卡片（单账号时的装饰）
+   ============================================ */
+.stack-card-ghost {
+  pointer-events: none;
+}
+
+.stack-card-ghost .stack-account-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(255, 255, 255, 0.15) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: none;
+}
+
+.stack-card-ghost .stack-card-nickname,
+.stack-card-ghost .stack-card-id {
+  color: #94a3b8;
+}
+
+.stack-card-ghost .stack-card-avatar {
+  opacity: 0.5;
+}

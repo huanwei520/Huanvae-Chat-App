@@ -1,0 +1,258 @@
+/**
+ * ========================================
+ * Huanvae Chat - 毛玻璃按钮组件
+ * ========================================
+ * 
+ * @description 微透明渐变蓝色毛玻璃按钮，带顺滑动画
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * @reference   基于社区最佳实践设计
+ * 
+ * ## 作用
+ * - 提供主要操作按钮样式
+ * - 实现渐变蓝色毛玻璃效果
+ * - 丰富的交互动画反馈
+ * 
+ * ## 包含类名
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .glass-button | 主按钮样式 |
+ * | .button-content | 按钮内容容器（图标+文字） |
+ * 
+ * ## 交互状态
+ * | 状态 | 效果 |
+ * |------|------|
+ * | 默认 | 微透明渐变蓝色，柔和阴影 |
+ * | :hover | 上浮3px，放大2%，增强发光 |
+ * | :active | 下压，缩小2% |
+ * | :disabled | 降低透明度，禁用交互 |
+ * 
+ * ## 动画效果
+ * - ::before - 顶部高光层，hover 时增强
+ * - ::after - 扫光动画，hover 时从左到右
+ * - transform - 弹性缓动函数
+ * 
+ * ## 使用示例
+ * ```jsx
+ * <motion.button className="glass-button">
+ *   <span className="button-content">
+ *     登录
+ *     <ArrowIcon />
+ *   </span>
+ * </motion.button>
+ * ```
+ */
+
+/* ============================================
+   主按钮样式
+   ============================================ */
+.glass-button {
+  /* 尺寸与排版 */
+  width: 100%;
+  padding: 16px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  
+  /* 文字样式 */
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(37, 99, 235, 0.3);
+  
+  /* 微透明渐变蓝色背景 - 约50%透明度 */
+  background: linear-gradient(
+    135deg, 
+    rgba(96, 165, 250, 0.55) 0%,      /* blue-400 */
+    rgba(59, 130, 246, 0.6) 50%,       /* blue-500 */
+    rgba(37, 99, 235, 0.55) 100%       /* blue-600 */
+  );
+  
+  /* 毛玻璃效果 */
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  
+  /* 玻璃边框 - 白色半透明 */
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 16px;
+  
+  /* 交互 */
+  cursor: pointer;
+  outline: none;
+  position: relative;
+  overflow: hidden;
+  
+  /* 顺滑过渡动画 - 使用弹性缓动 */
+  transition: 
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.3s ease,
+    border-color 0.3s ease;
+  
+  /* 多层阴影 - 外发光 + 内高光 */
+  box-shadow: 
+    /* 外发光 - 柔和蓝色光晕 */
+    0 0 30px rgba(96, 165, 250, 0.25),
+    /* 主阴影 */
+    0 8px 20px rgba(59, 130, 246, 0.25),
+    0 4px 8px rgba(37, 99, 235, 0.15),
+    /* 内部顶部高光 - 玻璃反射 */
+    inset 0 1px 1px rgba(255, 255, 255, 0.5),
+    /* 内部左侧高光 */
+    inset 1px 0 1px rgba(255, 255, 255, 0.25),
+    /* 底部微弱阴影 */
+    inset 0 -1px 1px rgba(37, 99, 235, 0.2);
+  
+  margin-top: 12px;
+}
+
+/* ============================================
+   顶部高光层
+   ============================================
+   模拟玻璃顶部的光线反射
+*/
+.glass-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.35) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  border-radius: 16px 16px 0 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* ============================================
+   扫光动画层
+   ============================================
+   hover 时从左到右的光扫过效果
+*/
+.glass-button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+/* ============================================
+   悬停状态
+   ============================================ */
+.glass-button:hover {
+  /* 上浮 + 放大 */
+  transform: translateY(-3px) scale(1.02);
+  border-color: rgba(255, 255, 255, 0.6);
+  
+  /* 略微增强透明度 */
+  background: linear-gradient(
+    135deg, 
+    rgba(96, 165, 250, 0.65) 0%,
+    rgba(59, 130, 246, 0.7) 50%,
+    rgba(37, 99, 235, 0.65) 100%
+  );
+  
+  /* 增强阴影 */
+  box-shadow: 
+    0 0 40px rgba(96, 165, 250, 0.35),
+    0 0 60px rgba(59, 130, 246, 0.15),
+    0 12px 28px rgba(59, 130, 246, 0.3),
+    0 6px 12px rgba(37, 99, 235, 0.2),
+    inset 0 1px 2px rgba(255, 255, 255, 0.6),
+    inset 1px 0 1px rgba(255, 255, 255, 0.3),
+    inset 0 -1px 1px rgba(37, 99, 235, 0.15);
+}
+
+/* 悬停时顶部高光增强 */
+.glass-button:hover::before {
+  opacity: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 100%
+  );
+}
+
+/* 悬停时扫光动画触发 */
+.glass-button:hover::after {
+  left: 100%;
+}
+
+/* ============================================
+   点击/激活状态
+   ============================================ */
+.glass-button:active {
+  transform: translateY(-1px) scale(0.98);
+  transition: 
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+  background: linear-gradient(
+    135deg, 
+    rgba(96, 165, 250, 0.5) 0%,
+    rgba(59, 130, 246, 0.55) 50%,
+    rgba(37, 99, 235, 0.5) 100%
+  );
+  box-shadow: 
+    0 0 20px rgba(96, 165, 250, 0.2),
+    0 4px 12px rgba(59, 130, 246, 0.2),
+    0 2px 4px rgba(37, 99, 235, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.4),
+    inset 0 2px 4px rgba(37, 99, 235, 0.1);
+}
+
+/* ============================================
+   禁用状态
+   ============================================ */
+.glass-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 
+    0 0 15px rgba(96, 165, 250, 0.1),
+    0 4px 8px rgba(59, 130, 246, 0.1);
+}
+
+.glass-button:disabled:hover {
+  transform: none;
+  background: linear-gradient(
+    135deg, 
+    rgba(96, 165, 250, 0.55) 0%,
+    rgba(59, 130, 246, 0.6) 50%,
+    rgba(37, 99, 235, 0.55) 100%
+  );
+}
+
+/* ============================================
+   按钮内容容器
+   ============================================
+   用于包含图标和文字
+*/
+.button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.button-content svg {
+  transition: transform 0.3s ease;
+}
+
+/* 悬停时图标右移 */
+.glass-button:hover .button-content svg {
+  transform: translateX(4px);
+}

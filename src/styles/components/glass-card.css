@@ -1,0 +1,168 @@
+/**
+ * ========================================
+ * Huanvae Chat - 毛玻璃卡片组件
+ * ========================================
+ * 
+ * @description 核心毛玻璃卡片组件，承载主要内容
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 提供主要的内容容器
+ * - 实现高质感毛玻璃效果
+ * - 支持多种卡片变体
+ * 
+ * ## 包含类名
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .glass-card | 基础毛玻璃卡片 |
+ * | .auth-card | 认证页面专用卡片（固定最小高度） |
+ * | .auth-form-content | 表单内容容器 |
+ * | .account-selector-content | 账号选择器内容容器 |
+ * 
+ * ## 毛玻璃效果实现原理
+ * 1. 半透明渐变背景 - 让背景色彩透出
+ * 2. backdrop-filter - 模糊 + 饱和度增强
+ * 3. 多层 box-shadow - 模拟玻璃光泽和深度
+ * 4. ::before 伪元素 - 顶部高光条
+ * 5. ::after 伪元素 - 底部反射线
+ * 
+ * ## 使用示例
+ * ```jsx
+ * <motion.div className="glass-card auth-card">
+ *   <div className="auth-form-content">
+ *     {children}
+ *   </div>
+ * </motion.div>
+ * ```
+ */
+
+/* ============================================
+   基础毛玻璃卡片
+   ============================================
+   核心样式，实现透亮的玻璃质感
+*/
+.glass-card {
+  /* 半透明渐变背景 - 让背景色彩透出来 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.35) 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  
+  /* 毛玻璃核心效果 - 模糊 + 饱和度提升 */
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  
+  /* 圆角 */
+  border-radius: 28px;
+  
+  /* 玻璃边框 - 模拟边缘折射 */
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  
+  /* 多层阴影 - 创造立体感和光泽 */
+  box-shadow: 
+    /* 外发光 - 玻璃光晕效果 */
+    0 0 60px rgba(255, 255, 255, 0.5),
+    0 0 40px rgba(147, 197, 253, 0.15),
+    /* 主阴影 - 悬浮效果 */
+    0 8px 32px rgba(59, 130, 246, 0.1),
+    0 20px 60px rgba(0, 0, 0, 0.08),
+    /* 内部顶部高光 - 玻璃上边缘 */
+    inset 0 2px 2px rgba(255, 255, 255, 0.8),
+    /* 内部左侧高光 - 玻璃左边缘 */
+    inset 2px 0 2px rgba(255, 255, 255, 0.4),
+    /* 底部微弱反射 */
+    inset 0 -1px 2px rgba(255, 255, 255, 0.3);
+  
+  /* 内边距 */
+  padding: 48px 40px;
+  
+  /* 尺寸 */
+  width: 100%;
+  max-width: 420px;
+  
+  /* 定位上下文 */
+  position: relative;
+  z-index: 10;
+}
+
+/* ============================================
+   卡片顶部高光条
+   ============================================
+   模拟玻璃顶部的光线反射
+*/
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.15) 30%,
+    transparent 100%
+  );
+  border-radius: 28px 28px 0 0;
+  pointer-events: none;
+}
+
+/* ============================================
+   卡片底部反射线
+   ============================================
+   模拟玻璃底部的微弱光线
+*/
+.glass-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.9),
+    transparent
+  );
+  border-radius: 1px;
+}
+
+/* ============================================
+   认证卡片变体
+   ============================================
+   用于登录/注册页面，固定最小高度
+*/
+.auth-card {
+  max-width: 420px;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================
+   表单内容容器
+   ============================================
+   登录/注册表单的内容区域
+*/
+.auth-form-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  position: relative;
+}
+
+/* ============================================
+   账号选择器内容容器
+   ============================================
+   账号选择页面的内容区域
+*/
+.account-selector-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  position: relative;
+}

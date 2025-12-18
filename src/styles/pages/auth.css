@@ -1,0 +1,250 @@
+/**
+ * ========================================
+ * Huanvae Chat - 认证页面样式
+ * ========================================
+ * 
+ * @description 登录、注册页面的特定样式
+ * @layer       第四层 - 页面层
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 定义登录/注册页面的标题、副标题样式
+ * - 页面特有的图标、链接、底部文字
+ * - 分步注册的步骤指示器
+ * - 返回按钮样式
+ * 
+ * ## 包含类名
+ * ### 标题区域
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .login-title | 页面主标题 |
+ * | .login-subtitle | 页面副标题 |
+ * | .icon-wrapper | 顶部图标容器 |
+ * 
+ * ### 导航元素
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .back-button | 返回按钮 |
+ * | .auth-link | 登录/注册切换链接 |
+ * | .footer-text | 底部版权文字 |
+ * 
+ * ### 分步注册
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .step-indicator | 步骤指示器容器 |
+ * | .step-dot | 步骤圆点 |
+ * | .step-dot.active | 当前步骤 |
+ * | .step-dot.completed | 已完成步骤 |
+ * | .step-container | 步骤内容容器 |
+ * 
+ * ## 注意事项
+ * - 这些样式是页面特定的，不应被其他页面复用
+ * - 如需复用，应提取到 components/ 目录
+ */
+
+/* ============================================
+   页面标题
+   ============================================ */
+.login-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e3a5f;
+  text-align: center;
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  color: #64748b;
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+/* ============================================
+   顶部图标容器
+   ============================================
+   毛玻璃效果的图标容器
+*/
+.icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 24px;
+  
+  /* 毛玻璃背景 */
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  
+  border-radius: 22px;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  
+  box-shadow: 
+    0 0 20px rgba(255, 255, 255, 0.4),
+    0 4px 16px rgba(59, 130, 246, 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9);
+}
+
+.icon-wrapper svg {
+  width: 32px;
+  height: 32px;
+  color: #3b82f6;
+  filter: drop-shadow(0 2px 4px rgba(59, 130, 246, 0.2));
+}
+
+/* ============================================
+   底部版权文字
+   ============================================ */
+.footer-text {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* ============================================
+   返回按钮
+   ============================================
+   左上角的返回按钮，毛玻璃效果
+*/
+.back-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  /* 毛玻璃背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  cursor: pointer;
+  z-index: 20;
+  transition: all 0.3s ease;
+  
+  box-shadow: 
+    0 0 15px rgba(255, 255, 255, 0.3),
+    0 2px 8px rgba(59, 130, 246, 0.08);
+}
+
+.back-button svg {
+  width: 20px;
+  height: 20px;
+  color: #475569;
+}
+
+/* 返回按钮悬停 */
+.back-button:hover {
+  border-color: rgba(147, 197, 253, 0.8);
+  box-shadow: 
+    0 0 20px rgba(147, 197, 253, 0.25),
+    0 4px 12px rgba(59, 130, 246, 0.12);
+}
+
+.back-button:hover svg {
+  color: #3b82f6;
+}
+
+/* ============================================
+   认证链接
+   ============================================
+   "还没有账号？注册" / "已有账号？登录"
+*/
+.auth-link {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.auth-link button {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.auth-link button:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.auth-link button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   分步注册 - 步骤指示器
+   ============================================
+   显示注册进度的圆点指示器
+*/
+.step-indicator {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+/* 步骤圆点 - 默认状态 */
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.3);
+  border: 2px solid rgba(148, 163, 184, 0.4);
+  transition: all 0.3s ease;
+}
+
+/* 步骤圆点 - 当前步骤 */
+.step-dot.active {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+  transform: scale(1.2);
+}
+
+/* 步骤圆点 - 已完成 */
+.step-dot.completed {
+  background: linear-gradient(135deg, #34d399, #10b981);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+/* ============================================
+   分步注册 - 步骤容器
+   ============================================
+*/
+.step-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.step-container form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}

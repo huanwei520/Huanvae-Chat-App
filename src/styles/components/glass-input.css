@@ -1,0 +1,229 @@
+/**
+ * ========================================
+ * Huanvae Chat - 毛玻璃输入框组件
+ * ========================================
+ * 
+ * @description 表单输入相关样式，包含输入框和协议选择器
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * 
+ * ## 作用
+ * - 提供表单输入样式
+ * - 实现毛玻璃输入框效果
+ * - 支持协议前缀选择（http/https）
+ * 
+ * ## 包含类名
+ * | 类名 | 说明 |
+ * |------|------|
+ * | .form-group | 表单组容器 |
+ * | .form-label | 表单标签 |
+ * | .glass-input | 毛玻璃输入框 |
+ * | .input-with-prefix | 带前缀的输入框容器 |
+ * | .protocol-toggle | 协议切换按钮 |
+ * | .optional-label | 可选字段标签 |
+ * 
+ * ## 交互状态
+ * | 状态 | 效果 |
+ * |------|------|
+ * | 默认 | 半透明背景，白色边框 |
+ * | :hover | 增强透明度和阴影 |
+ * | :focus | 蓝色边框光环，增强模糊 |
+ * 
+ * ## 使用示例
+ * ```jsx
+ * <div className="form-group">
+ *   <label className="form-label">用户名</label>
+ *   <input className="glass-input" placeholder="请输入" />
+ * </div>
+ * 
+ * // 带协议选择
+ * <div className="input-with-prefix">
+ *   <button className="protocol-toggle">https://</button>
+ *   <input className="glass-input with-prefix" />
+ * </div>
+ * ```
+ */
+
+/* ============================================
+   表单组容器
+   ============================================ */
+.form-group {
+  margin-bottom: 20px;
+}
+
+/* ============================================
+   表单标签
+   ============================================ */
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+/* ============================================
+   毛玻璃输入框
+   ============================================
+   半透明背景 + 模糊效果
+*/
+.glass-input {
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 15px;
+  color: #1e293b;
+  
+  /* 半透明渐变背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  
+  /* 毛玻璃效果 */
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  
+  /* 边框 */
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  outline: none;
+  
+  /* 过渡动画 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* 阴影 */
+  box-shadow: 
+    0 0 20px rgba(255, 255, 255, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.03),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.3);
+}
+
+/* 占位符样式 */
+.glass-input::placeholder {
+  color: #94a3b8;
+}
+
+/* ============================================
+   悬停状态
+   ============================================ */
+.glass-input:hover {
+  border-color: rgba(255, 255, 255, 0.9);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  box-shadow: 
+    0 0 25px rgba(255, 255, 255, 0.4),
+    0 4px 12px rgba(59, 130, 246, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* ============================================
+   聚焦状态
+   ============================================ */
+.glass-input:focus {
+  border-color: rgba(147, 197, 253, 0.8);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  box-shadow: 
+    /* 外围蓝色光环 */
+    0 0 0 4px rgba(59, 130, 246, 0.1),
+    0 0 30px rgba(147, 197, 253, 0.25),
+    0 4px 16px rgba(59, 130, 246, 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* ============================================
+   带协议前缀的输入框容器
+   ============================================ */
+.input-with-prefix {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ============================================
+   协议切换按钮
+   ============================================
+   用于切换 http:// 和 https://
+*/
+.protocol-toggle {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b82f6;
+  
+  /* 浅蓝色背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.1) 0%,
+    rgba(147, 197, 253, 0.15) 100%
+  );
+  
+  border: none;
+  border-right: 1.5px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px 0 0 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  z-index: 1;
+}
+
+/* 协议按钮悬停 */
+.protocol-toggle:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.2) 0%,
+    rgba(147, 197, 253, 0.25) 100%
+  );
+  color: #2563eb;
+}
+
+/* 协议按钮激活 */
+.protocol-toggle:active {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.25) 0%,
+    rgba(147, 197, 253, 0.3) 100%
+  );
+}
+
+/* 协议按钮禁用 */
+.protocol-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   带前缀的输入框
+   ============================================
+   左侧留出协议按钮的空间
+*/
+.glass-input.with-prefix {
+  padding-left: 90px;
+}
+
+/* ============================================
+   可选字段标签
+   ============================================ */
+.optional-label {
+  font-weight: 400;
+  color: #94a3b8;
+}

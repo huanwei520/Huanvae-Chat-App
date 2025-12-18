@@ -1,0 +1,46 @@
+[package]
+name = "huanvae-chat-app"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "huanvae_chat_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+
+# 序列化（与主项目对齐）
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+
+# 异步运行时（与主项目对齐）
+tokio = { version = "1.48.0", features = ["full"] }
+
+# HTTP 客户端（下载头像）
+reqwest = { version = "0.12.14", default-features = false, features = ["json", "rustls-tls"] }
+
+# 系统密钥链（与主项目对齐）
+# 使用 secret-service 作为 Linux 后端（支持 GNOME Keyring 和 KWallet）
+keyring = { version = "3.6.3", features = ["linux-native"] }
+
+# 目录管理
+dirs = "6.0.0"
+
+# 时间（与主项目对齐）
+chrono = { version = "0.4.42", features = ["serde"] }
+
+# 错误处理（与主项目对齐）
+thiserror = "2.0.17"
