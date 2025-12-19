@@ -43,23 +43,19 @@ export function FriendRequestsTab({
     <div className="pending-list">
       {requests.map((request) => (
         <motion.div
-          key={request.applicant_id}
+          key={request.request_id}
           className="pending-item"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
           <div className="pending-avatar">
-            {request.applicant_avatar_url ? (
-              <img src={request.applicant_avatar_url} alt={request.applicant_nickname} />
-            ) : (
-              <UserIcon />
-            )}
+            <UserIcon />
           </div>
           <div className="pending-info">
-            <div className="pending-name">{request.applicant_nickname}</div>
-            <div className="pending-id">@{request.applicant_id}</div>
-            {request.reason && (
-              <div className="pending-reason">{request.reason}</div>
+            <div className="pending-name">{request.request_user_id}</div>
+            <div className="pending-id">@{request.request_user_id}</div>
+            {request.request_message && (
+              <div className="pending-reason">{request.request_message}</div>
             )}
           </div>
           <div className="pending-actions">

@@ -30,6 +30,7 @@ export type NavTab = 'chat' | 'group' | 'friends' | 'settings';
 interface SidebarProps {
     session: SessionInfo;
     activeTab: NavTab;
+    pendingNotificationCount?: number; // 待处理通知数量
     onTabChange: (tab: NavTab) => void;
     onAvatarClick: () => void;
     onAddClick: () => void; // 统一的添加按钮
@@ -39,6 +40,7 @@ interface SidebarProps {
 export function Sidebar({
   session,
   activeTab,
+  pendingNotificationCount = 0,
   onTabChange,
   onAvatarClick,
   onAddClick,
@@ -101,6 +103,11 @@ export function Sidebar({
           title="添加好友/群聊"
         >
           <PlusIcon />
+          {pendingNotificationCount > 0 && (
+            <span className="notification-badge">
+              {pendingNotificationCount > 99 ? '99+' : pendingNotificationCount}
+            </span>
+          )}
         </motion.button>
       </nav>
 

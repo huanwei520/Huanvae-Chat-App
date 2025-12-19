@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../contexts/SessionContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
 import {
   sendFriendRequest,
   getPendingRequests,
@@ -41,6 +42,7 @@ import {
 export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddModalProps) {
   const { session } = useSession();
   const api = useApi();
+  const { onSystemNotification, clearPendingNotification } = useWebSocket();
 
   const [activeTab, setActiveTab] = useState<TabType>('add-friend');
   const [loading, setLoading] = useState(false);
@@ -92,13 +94,45 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
     }
   }, [api]);
 
-  // 初始加载
+  // 初始加载 & 清除待处理通知计数
   useEffect(() => {
     if (isOpen) {
       loadFriendRequests();
       loadGroupInvites();
+      // 清除通知徽章计数
+      clearPendingNotification('friendRequests');
+      clearPendingNotification('groupInvites');
+      clearPendingNotification('groupJoinRequests');
     }
-  }, [isOpen, loadFriendRequests, loadGroupInvites]);
+  }, [isOpen, loadFriendRequests, loadGroupInvites, clearPendingNotification]);
+
+  // 监听 WebSocket 系统通知，实时刷新申请/邀请列表
+  useEffect(() => {
+    if (!isOpen) { return; }
+
+    const unsubscribe = onSystemNotification((msg) => {
+      switch (msg.notification_type) {
+        case 'friend_request':
+          // 收到新的好友申请，刷新列表
+          loadFriendRequests();
+          break;
+        case 'friend_request_approved':
+          // 好友申请被对方通过，刷新好友列表
+          onFriendAdded?.();
+          break;
+        case 'group_invite':
+          // 收到新的群聊邀请，刷新列表
+          loadGroupInvites();
+          break;
+        case 'group_join_approved':
+          // 群聊加入申请被通过，刷新群列表
+          onGroupAdded?.();
+          break;
+      }
+    });
+
+    return unsubscribe;
+  }, [isOpen, onSystemNotification, loadFriendRequests, loadGroupInvites, onFriendAdded, onGroupAdded]);
 
   // 清除消息
   useEffect(() => {
@@ -134,8 +168,8 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
   const handleApproveFriend = async (request: PendingRequest) => {
     if (!session) { return; }
     try {
-      await approveFriendRequest(api, session.userId, request.applicant_id);
-      setFriendRequests((prev) => prev.filter((r) => r.applicant_id !== request.applicant_id));
+      await approveFriendRequest(api, session.userId, request.request_user_id);
+      setFriendRequests((prev) => prev.filter((r) => r.request_id !== request.request_id));
       onFriendAdded?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');
@@ -146,8 +180,8 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
   const handleRejectFriend = async (request: PendingRequest) => {
     if (!session) { return; }
     try {
-      await rejectFriendRequest(api, session.userId, request.applicant_id);
-      setFriendRequests((prev) => prev.filter((r) => r.applicant_id !== request.applicant_id));
+      await rejectFriendRequest(api, session.userId, request.request_user_id);
+      setFriendRequests((prev) => prev.filter((r) => r.request_id !== request.request_id));
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');
     }

@@ -6,6 +6,30 @@
  * - 未读消息摘要
  * - 新消息通知
  * - 标记已读
+ * - 系统通知（好友请求、群邀请等）
+ *
+ * ## 待处理通知 (pendingNotifications)
+ *
+ * 用于跟踪未查看的系统通知数量，在侧边栏显示徽章：
+ * - friendRequests: 待处理的好友请求
+ * - groupInvites: 待处理的群邀请
+ * - groupJoinRequests: 待处理的入群申请（群管理员）
+ *
+ * 当用户打开 AddModal 时，调用 clearPendingNotification 清除计数。
+ *
+ * ## 系统通知类型 (notification_type)
+ *
+ * | 类型                    | 说明                 | 处理位置        |
+ * |------------------------|---------------------|----------------|
+ * | friend_request         | 收到好友请求          | 增加计数 + 通知  |
+ * | friend_request_approved | 好友请求被通过        | 刷新好友列表     |
+ * | friend_request_rejected | 好友请求被拒绝        | 通知监听器       |
+ * | group_invite           | 收到群邀请            | 增加计数 + 通知  |
+ * | group_join_request     | 收到入群申请          | 增加计数 + 通知  |
+ * | group_join_approved    | 入群申请被通过        | 刷新群列表       |
+ * | group_removed          | 被移出群聊            | 刷新群列表       |
+ * | group_disbanded        | 群解散               | 刷新群列表       |
+ * | group_notice_updated   | 群公告更新            | 通知监听器       |
  */
 
 import {
@@ -30,6 +54,13 @@ import type {
 // Context 类型定义
 // ============================================
 
+/** 待处理通知计数 */
+export interface PendingNotifications {
+  friendRequests: number;
+  groupInvites: number;
+  groupJoinRequests: number;
+}
+
 interface WebSocketContextType {
   // 连接状态
   connected: boolean;
@@ -40,6 +71,10 @@ interface WebSocketContextType {
   totalUnread: number;
   getFriendUnread: (friendId: string) => number;
   getGroupUnread: (groupId: string) => number;
+
+  // 待处理通知（好友请求、群邀请等）
+  pendingNotifications: PendingNotifications;
+  clearPendingNotification: (type: keyof PendingNotifications) => void;
 
   // 操作
   markRead: (targetType: 'friend' | 'group', targetId: string) => void;
@@ -83,6 +118,13 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [unreadSummary, setUnreadSummary] = useState<UnreadSummary | null>(null);
+
+  // 待处理通知计数（好友请求、群邀请等）
+  const [pendingNotifications, setPendingNotifications] = useState<PendingNotifications>({
+    friendRequests: 0,
+    groupInvites: 0,
+    groupJoinRequests: 0,
+  });
 
   // 当前活跃的聊天目标（用于判断新消息是否需要增加未读）
   const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
@@ -217,6 +259,28 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           break;
 
         case 'system_notification':
+          // 根据通知类型更新待处理通知计数
+          switch (msg.notification_type) {
+            case 'friend_request':
+              setPendingNotifications(prev => ({
+                ...prev,
+                friendRequests: prev.friendRequests + 1,
+              }));
+              break;
+            case 'group_invite':
+              setPendingNotifications(prev => ({
+                ...prev,
+                groupInvites: prev.groupInvites + 1,
+              }));
+              break;
+            case 'group_join_request':
+              setPendingNotifications(prev => ({
+                ...prev,
+                groupJoinRequests: prev.groupJoinRequests + 1,
+              }));
+              break;
+          }
+          // 通知所有监听器
           notificationListeners.current.forEach(cb => cb(msg));
           break;
 
@@ -477,6 +541,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }
   }, []);
 
+  // 清除待处理通知计数
+  const clearPendingNotification = useCallback((type: keyof PendingNotifications) => {
+    setPendingNotifications(prev => ({
+      ...prev,
+      [type]: 0,
+    }));
+  }, []);
+
   // 事件订阅
   const onNewMessage = useCallback((callback: (msg: WsNewMessage) => void) => {
     newMessageListeners.current.add(callback);
@@ -520,6 +592,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     totalUnread,
     getFriendUnread,
     getGroupUnread,
+    pendingNotifications,
+    clearPendingNotification,
     markRead,
     connect,
     disconnect,

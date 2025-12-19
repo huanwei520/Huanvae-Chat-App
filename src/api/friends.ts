@@ -40,10 +40,9 @@ export function sendFriendRequest(
  * 返回格式：{ items: PendingRequest[] }
  */
 export interface PendingRequest {
-  applicant_id: string;
-  applicant_nickname: string;
-  applicant_avatar_url: string | null;
-  reason: string | null;
+  request_id: string;
+  request_user_id: string;
+  request_message: string | null;
   request_time: string;
 }
 
@@ -67,12 +66,15 @@ export function approveFriendRequest(
   applicantUserId: string,
   approvedReason?: string,
 ): Promise<void> {
-  return api.post('/api/friends/requests/approve', {
+  const body: Record<string, string> = {
     user_id: userId,
     applicant_user_id: applicantUserId,
     approved_time: new Date().toISOString(),
-    approved_reason: approvedReason || '',
-  });
+  };
+  if (approvedReason) {
+    body.approved_reason = approvedReason;
+  }
+  return api.post('/api/friends/requests/approve', body);
 }
 
 /**
@@ -87,11 +89,14 @@ export function rejectFriendRequest(
   applicantUserId: string,
   rejectReason?: string,
 ): Promise<void> {
-  return api.post('/api/friends/requests/reject', {
+  const body: Record<string, string> = {
     user_id: userId,
     applicant_user_id: applicantUserId,
-    reject_reason: rejectReason || '',
-  });
+  };
+  if (rejectReason) {
+    body.reject_reason = rejectReason;
+  }
+  return api.post('/api/friends/requests/reject', body);
 }
 
 /**

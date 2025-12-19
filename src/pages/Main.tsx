@@ -56,6 +56,7 @@ export function Main() {
     getFriendUnread,
     getGroupUnread,
     unreadSummary,
+    pendingNotifications,
     setActiveChat,
     updateLastMessage,
     onNewMessage,
@@ -201,19 +202,37 @@ export function Main() {
   useEffect(() => {
     const unsubscribe = onSystemNotification((msg) => {
       switch (msg.notification_type) {
+        case 'friend_request':
+          // 收到好友请求（可在此显示通知提示）
+          break;
         case 'friend_request_approved':
+          // 好友请求被通过
           refreshFriends();
           break;
+        case 'friend_request_rejected':
+          // 好友请求被拒绝（可在此显示通知提示）
+          break;
+        case 'group_invite':
+          // 收到群邀请（可在此显示通知提示）
+          break;
+        case 'group_join_request':
+          // 群管理员收到入群申请（可在此显示通知提示）
+          break;
         case 'group_join_approved':
+          // 入群申请被通过
           refreshGroups();
           break;
         case 'group_removed':
         case 'group_disbanded':
+          // 被移出群聊或群解散
           refreshGroups();
           if (chatTarget?.type === 'group') {
             setChatTarget(null);
             setActiveChat(null, null);
           }
+          break;
+        case 'group_notice_updated':
+          // 群公告更新（如果当前正在查看该群，可刷新公告）
           break;
       }
     });
@@ -374,6 +393,11 @@ export function Main() {
       <Sidebar
         session={session}
         activeTab={activeTab}
+        pendingNotificationCount={
+          pendingNotifications.friendRequests +
+          pendingNotifications.groupInvites +
+          pendingNotifications.groupJoinRequests
+        }
         onTabChange={handleTabChange}
         onAvatarClick={() => setShowProfileModal(true)}
         onAddClick={() => setShowAddModal(true)}
@@ -583,6 +607,7 @@ export function Main() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onFriendAdded={refreshFriends}
+        onGroupAdded={refreshGroups}
       />
     </div>
   );
