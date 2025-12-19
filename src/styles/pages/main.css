@@ -755,6 +755,17 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
+.menu-item.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 6px 12px;
+  background: rgba(147, 197, 253, 0.3);
+}
+
 .menu-form {
   padding: 12px 16px;
   display: flex;
@@ -1017,8 +1028,9 @@
   overflow-y: auto;
   padding: 24px;
   display: flex;
-  flex-direction: column;
-  scroll-behavior: smooth; /* 平滑滚动 */
+  flex-direction: column-reverse; /* 从下往上显示，最新消息在底部 */
+  /* 使用 Framer Motion layout 动画，不使用 CSS scroll-behavior */
+  gap: 0;
 }
 
 .message-placeholder {
@@ -1049,6 +1061,10 @@
   gap: 10px;
   margin-bottom: 16px;
   max-width: 70%;
+  /* 多选模式切换的过渡动画（位置动画由 Framer Motion layout 处理） */
+  transition: padding 0.35s cubic-bezier(0.25, 0.1, 0.25, 1),
+              background 0.25s ease,
+              border-radius 0.25s ease;
 }
 
 .message-bubble.own {
@@ -1099,6 +1115,7 @@
   font-size: 14px;
   line-height: 1.5;
   word-break: break-word;
+  white-space: pre-wrap; /* 保留换行符 */
 }
 
 .message-bubble.own .bubble-text {
@@ -1150,6 +1167,255 @@
 }
 
 /* ============================================
+   消息右键菜单
+   ============================================ */
+.message-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 120px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  box-shadow: 
+    0 8px 32px rgba(59, 130, 246, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: #374151;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.context-menu-item:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.context-menu-item svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.context-menu-item:hover svg {
+  opacity: 1;
+}
+
+.context-menu-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(147, 197, 253, 0.3);
+}
+
+/* ============================================
+   消息多选模式
+   ============================================ */
+.message-bubble.multi-select-mode {
+  cursor: pointer;
+  padding-left: 40px;
+  position: relative;
+}
+
+.message-bubble.multi-select-mode.own {
+  padding-left: 0;
+  padding-right: 40px;
+}
+
+.message-bubble.multi-select-mode:hover {
+  background: rgba(59, 130, 246, 0.05);
+  border-radius: 12px;
+}
+
+.message-bubble.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 12px;
+}
+
+.message-bubble.selected .bubble-text {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+}
+
+/* 选择指示器 */
+.select-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-bubble.own .select-indicator {
+  left: auto;
+  right: 0;
+}
+
+.select-checkbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(147, 197, 253, 0.6);
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.select-checkbox.checked {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-color: transparent;
+  color: white;
+}
+
+/* ============================================
+   多选操作栏
+   ============================================ */
+.multi-select-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  min-height: 88px; /* 固定高度 */
+  box-sizing: border-box;
+  border-top: 1px solid rgba(147, 197, 253, 0.15);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.action-bar-left,
+.action-bar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.action-bar-center {
+  flex: 1;
+  text-align: center;
+}
+
+.selected-count {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.selected-count strong {
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.action-bar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-bar-btn.cancel {
+  background: rgba(148, 163, 184, 0.15);
+  color: #64748b;
+}
+
+.action-bar-btn.cancel:hover {
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.action-bar-btn.select-all {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.action-bar-btn.select-all:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.action-bar-btn.delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+.action-bar-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.action-bar-btn.delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-bar-btn.recall {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+.action-bar-btn.recall:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.action-bar-btn.recall:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-bar-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================
+   聊天头部操作按钮
+   ============================================ */
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-action-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: rgba(147, 197, 253, 0.15);
+  border-radius: 10px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.header-action-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.header-action-btn.active {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+}
+
+/* ============================================
    列表状态
    ============================================ */
 .list-loading,
@@ -1183,19 +1449,25 @@
 /* 输入区域 */
 .chat-input-area {
   padding: 16px 24px;
+  min-height: 88px; /* 与多选操作栏保持一致 */
+  box-sizing: border-box;
   border-top: 1px solid rgba(147, 197, 253, 0.15);
   background: rgba(255, 255, 255, 0.4);
 }
 
 .input-wrapper {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 12px;
   padding: 8px 16px;
   background: rgba(255, 255, 255, 0.7);
   border: 1.5px solid rgba(255, 255, 255, 0.8);
-  border-radius: 24px;
+  border-radius: 16px;
   transition: all 0.2s ease;
+}
+
+.input-wrapper.multiline {
+  border-radius: 16px;
 }
 
 .input-wrapper:focus-within {
@@ -1203,7 +1475,8 @@
   box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.1);
 }
 
-.input-wrapper input {
+.input-wrapper input,
+.input-wrapper textarea {
   flex: 1;
   border: none;
   background: transparent;
@@ -1211,9 +1484,19 @@
   color: #1e3a5f;
   outline: none;
   padding: 8px 0;
+  font-family: inherit;
+  line-height: 1.5;
 }
 
-.input-wrapper input::placeholder {
+.input-wrapper textarea {
+  resize: none;
+  min-height: 24px;
+  max-height: 20vh; /* 最大高度为视口的 1/5 */
+  overflow-y: auto;
+}
+
+.input-wrapper input::placeholder,
+.input-wrapper textarea::placeholder {
   color: #94a3b8;
 }
 

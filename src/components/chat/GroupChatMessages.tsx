@@ -1,126 +1,55 @@
 /**
  * 群聊消息列表组件
  *
- * 入场动画（方案 A - 简约淡入）：
- * - 自己的消息：从右侧淡入 + 轻微上滑
- * - 对方的消息：从左侧淡入
+ * 使用 flex-direction: column-reverse 实现从下往上显示
+ * 最新消息自然在底部可视区域，无需滚动
+ *
+ * 支持多选模式进行批量操作
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { GroupMessageBubble } from './GroupMessageBubble';
 import { LoadingSpinner } from '../common/LoadingSpinner';
-import { formatMessageTime } from '../../utils/time';
 import type { GroupMessage } from '../../api/groupMessages';
 
 interface GroupChatMessagesProps {
   loading: boolean;
   messages: GroupMessage[];
   currentUserId: string;
-}
-
-// 自己发送的消息入场动画（从右侧淡入 + 轻微上滑）
-const ownMessageVariants = {
-  initial: {
-    opacity: 0,
-    x: 20,
-    y: 10,
-  },
-  animate: {
-    opacity: 1,
-    x: 0,
-    y: 0,
-    transition: {
-      duration: 0.18,
-      ease: [0, 0, 0.2, 1], // ease-out
-    },
-  },
-};
-
-// 接收消息的入场动画（从左侧淡入）
-const receivedMessageVariants = {
-  initial: {
-    opacity: 0,
-    x: -20,
-  },
-  animate: {
-    opacity: 1,
-    x: 0,
-    transition: {
-      duration: 0.18,
-      ease: [0, 0, 0.2, 1], // ease-out
-    },
-  },
-};
-
-// 无动画（用于已存在的消息）
-const noAnimationVariants = {
-  initial: { opacity: 1, x: 0, y: 0 },
-  animate: { opacity: 1, x: 0, y: 0 },
-};
-
-// 群消息气泡组件
-function GroupMessageBubble({
-  message,
-  isOwn,
-  isNew = false,
-}: {
-  message: GroupMessage;
-  isOwn: boolean;
-  isNew?: boolean;
-}) {
-  // 新消息播放入场动画
-  let variants = noAnimationVariants;
-  if (isNew) {
-    variants = isOwn ? ownMessageVariants : receivedMessageVariants;
-  }
-
-  return (
-    <motion.div
-      className={`message-bubble ${isOwn ? 'own' : 'other'}`}
-      variants={variants}
-      initial="initial"
-      animate="animate"
-    >
-      <div className="bubble-avatar">
-        {message.sender_avatar_url ? (
-          <img
-            src={message.sender_avatar_url}
-            alt={message.sender_nickname}
-          />
-        ) : (
-          <div className="avatar-placeholder">
-            {message.sender_nickname.charAt(0).toUpperCase()}
-          </div>
-        )}
-      </div>
-      <div className="bubble-content">
-        {!isOwn && (
-          <div className="bubble-sender">
-            {message.sender_nickname}
-          </div>
-        )}
-        <div className="bubble-text">
-          {message.is_recalled ? (
-            <span className="recalled-message">[消息已撤回]</span>
-          ) : (
-            message.message_content
-          )}
-        </div>
-        <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-      </div>
-    </motion.div>
-  );
+  /** 当前用户在群中的角色 */
+  userRole?: 'owner' | 'admin' | 'member';
+  /** 是否处于多选模式 */
+  isMultiSelectMode?: boolean;
+  /** 已选中的消息 UUID 集合 */
+  selectedMessages?: Set<string>;
+  /** 切换消息选中状态 */
+  onToggleSelect?: (messageUuid: string) => void;
+  /** 撤回消息 */
+  onRecall?: (messageUuid: string) => void;
+  /** 删除消息 */
+  onDelete?: (messageUuid: string) => void;
+  /** 进入多选模式 */
+  onEnterMultiSelect?: () => void;
 }
 
 export function GroupChatMessages({
   loading,
   messages,
   currentUserId,
+  userRole = 'member',
+  isMultiSelectMode = false,
+  selectedMessages = new Set(),
+  onToggleSelect,
+  onRecall,
+  onDelete,
+  onEnterMultiSelect,
 }: GroupChatMessagesProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   // 追踪已渲染的消息 ID
   const [renderedIds, setRenderedIds] = useState<Set<string>>(new Set());
   const initialLoadDone = useRef(false);
+
+  // 是否为管理员或群主
+  const isAdmin = userRole === 'owner' || userRole === 'admin';
 
   // 初次加载完成后，记录所有已有消息
   useEffect(() => {
@@ -139,24 +68,11 @@ export function GroupChatMessages({
       if (hasNew) {
         const timer = setTimeout(() => {
           setRenderedIds(new Set(currentIds));
-        }, 250); // 动画时长后更新
+        }, 250);
         return () => clearTimeout(timer);
       }
     }
   }, [messages, renderedIds]);
-
-  // 新消息时立即开始平滑滚动（与动画同步）
-  useEffect(() => {
-    if (!loading && messages.length > 0) {
-      // 使用 requestAnimationFrame 确保在渲染后立即滚动
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'end',
-        });
-      });
-    }
-  }, [loading, messages.length]);
 
   if (loading) {
     return (
@@ -178,9 +94,10 @@ export function GroupChatMessages({
 
   return (
     <>
-      {[...messages].reverse().map((message) => {
+      {messages.map((message) => {
         const isOwn = message.sender_id === currentUserId;
         const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
+        const isSelected = selectedMessages.has(message.message_uuid);
 
         return (
           <GroupMessageBubble
@@ -188,10 +105,16 @@ export function GroupChatMessages({
             message={message}
             isOwn={isOwn}
             isNew={isNew}
+            isMultiSelectMode={isMultiSelectMode}
+            isSelected={isSelected}
+            onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
+            onRecall={() => onRecall?.(message.message_uuid)}
+            onDelete={() => onDelete?.(message.message_uuid)}
+            onEnterMultiSelect={onEnterMultiSelect}
+            isAdmin={isAdmin}
           />
         );
       })}
-      <div ref={messagesEndRef} />
     </>
   );
 }

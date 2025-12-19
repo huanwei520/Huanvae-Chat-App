@@ -1,24 +1,21 @@
 /**
- * 消息气泡组件
+ * 群消息气泡组件
  *
  * 功能：
- * - 入场动画（方案 A - 简约淡入）
+ * - 入场动画
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
  */
 
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { UserAvatar, FriendAvatar, type SessionInfo } from '../common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from './MessageContextMenu';
-import type { Friend, Message } from '../../types/chat';
+import type { GroupMessage } from '../../api/groupMessages';
 
-interface MessageBubbleProps {
-  message: Message;
+interface GroupMessageBubbleProps {
+  message: GroupMessage;
   isOwn: boolean;
-  session: SessionInfo;
-  friend: Friend;
   /** 是否是新消息（需要播放入场动画） */
   isNew?: boolean;
   /** 是否处于多选模式 */
@@ -33,21 +30,23 @@ interface MessageBubbleProps {
   onDelete?: () => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
+  /** 当前用户是否为管理员/群主（可撤回任意消息） */
+  isAdmin?: boolean;
 }
 
-// 自己发送的消息入场动画（从右侧淡入 + 轻微上滑）
+// 自己发送的消息入场动画
 const ownMessageVariants = {
   initial: { opacity: 0, x: 20, y: 8 },
   animate: { opacity: 1, x: 0, y: 0 },
 };
 
-// 接收消息的入场动画（从左侧淡入）
+// 接收消息的入场动画
 const receivedMessageVariants = {
   initial: { opacity: 0, x: -20 },
   animate: { opacity: 1, x: 0 },
 };
 
-// 无动画（用于已存在的消息）
+// 无动画
 const noAnimationVariants = {
   initial: { opacity: 1 },
   animate: { opacity: 1 },
@@ -61,10 +60,16 @@ const enterTransition = {
 
 /**
  * 检查消息是否可以撤回
- * - 必须是自己发送的消息
- * - 发送时间在 2 分钟内
+ * - 自己发送的消息：2分钟内
+ * - 管理员/群主：可撤回任意消息
  */
-function canRecallMessage(message: Message, isOwn: boolean): boolean {
+function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolean): boolean {
+  if (message.is_recalled) return false;
+  
+  // 管理员可撤回任意消息
+  if (isAdmin) return true;
+  
+  // 普通用户只能撤回自己的消息，且在2分钟内
   if (!isOwn) return false;
   
   const sendTime = new Date(message.send_time).getTime();
@@ -74,11 +79,9 @@ function canRecallMessage(message: Message, isOwn: boolean): boolean {
   return now - sendTime < twoMinutes;
 }
 
-export function MessageBubble({
+export function GroupMessageBubble({
   message,
   isOwn,
-  session,
-  friend,
   isNew = false,
   isMultiSelectMode = false,
   isSelected = false,
@@ -86,7 +89,8 @@ export function MessageBubble({
   onRecall,
   onDelete,
   onEnterMultiSelect,
-}: MessageBubbleProps) {
+  isAdmin = false,
+}: GroupMessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -105,7 +109,7 @@ export function MessageBubble({
   // 右键打开菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    if (isMultiSelectMode) return; // 多选模式下不显示右键菜单
+    if (isMultiSelectMode) return;
     
     setContextMenu({
       isOpen: true,
@@ -113,7 +117,7 @@ export function MessageBubble({
     });
   }, [isMultiSelectMode]);
 
-  // 点击消息（多选模式下切换选中状态）
+  // 点击消息
   const handleClick = useCallback(() => {
     if (isMultiSelectMode && onToggleSelect) {
       onToggleSelect();
@@ -138,7 +142,7 @@ export function MessageBubble({
   // 进入多选模式
   const handleEnterMultiSelect = useCallback(() => {
     onEnterMultiSelect?.();
-    onToggleSelect?.(); // 同时选中当前消息
+    onToggleSelect?.();
   }, [onEnterMultiSelect, onToggleSelect]);
 
   return (
@@ -184,10 +188,25 @@ export function MessageBubble({
         )}
 
         <div className="bubble-avatar">
-          {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} size={32} />}
+          {message.sender_avatar_url ? (
+            <img src={message.sender_avatar_url} alt={message.sender_nickname} />
+          ) : (
+            <div className="avatar-placeholder">
+              {message.sender_nickname.charAt(0).toUpperCase()}
+            </div>
+          )}
         </div>
         <div className="bubble-content">
-          <div className="bubble-text">{message.message_content}</div>
+          {!isOwn && (
+            <div className="bubble-sender">{message.sender_nickname}</div>
+          )}
+          <div className="bubble-text">
+            {message.is_recalled ? (
+              <span className="recalled-message">[消息已撤回]</span>
+            ) : (
+              message.message_content
+            )}
+          </div>
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
         </div>
       </motion.div>
@@ -196,7 +215,7 @@ export function MessageBubble({
       <MessageContextMenu
         isOpen={contextMenu.isOpen}
         position={contextMenu.position}
-        canRecall={canRecallMessage(message, isOwn)}
+        canRecall={canRecallMessage(message, isOwn, isAdmin)}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
@@ -205,3 +224,4 @@ export function MessageBubble({
     </>
   );
 }
+

@@ -1,9 +1,10 @@
 /**
  * 私聊消息列表组件
  *
- * 入场动画（方案 A - 简约淡入）：
- * - 自己的消息：从右侧淡入 + 轻微上滑
- * - 对方的消息：从左侧淡入
+ * 使用 flex-direction: column-reverse 实现从下往上显示
+ * 最新消息自然在底部可视区域，无需滚动
+ *
+ * 支持多选模式进行批量操作
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -17,10 +18,32 @@ interface ChatMessagesProps {
   messages: Message[];
   session: SessionInfo & { userId: string };
   friend: Friend;
+  /** 是否处于多选模式 */
+  isMultiSelectMode?: boolean;
+  /** 已选中的消息 UUID 集合 */
+  selectedMessages?: Set<string>;
+  /** 切换消息选中状态 */
+  onToggleSelect?: (messageUuid: string) => void;
+  /** 撤回消息 */
+  onRecall?: (messageUuid: string) => void;
+  /** 删除消息 */
+  onDelete?: (messageUuid: string) => void;
+  /** 进入多选模式 */
+  onEnterMultiSelect?: () => void;
 }
 
-export function ChatMessages({ loading, messages, session, friend }: ChatMessagesProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+export function ChatMessages({
+  loading,
+  messages,
+  session,
+  friend,
+  isMultiSelectMode = false,
+  selectedMessages = new Set(),
+  onToggleSelect,
+  onRecall,
+  onDelete,
+  onEnterMultiSelect,
+}: ChatMessagesProps) {
   // 追踪已渲染的消息 ID
   const [renderedIds, setRenderedIds] = useState<Set<string>>(new Set());
   const initialLoadDone = useRef(false);
@@ -42,24 +65,11 @@ export function ChatMessages({ loading, messages, session, friend }: ChatMessage
       if (hasNew) {
         const timer = setTimeout(() => {
           setRenderedIds(new Set(currentIds));
-        }, 250); // 动画时长后更新
+        }, 250);
         return () => clearTimeout(timer);
       }
     }
   }, [messages, renderedIds]);
-
-  // 新消息时立即开始平滑滚动（与动画同步）
-  useEffect(() => {
-    if (!loading && messages.length > 0) {
-      // 使用 requestAnimationFrame 确保在渲染后立即滚动
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'end',
-        });
-      });
-    }
-  }, [loading, messages.length]);
 
   if (loading) {
     return (
@@ -81,9 +91,10 @@ export function ChatMessages({ loading, messages, session, friend }: ChatMessage
 
   return (
     <>
-      {[...messages].reverse().map((message) => {
+      {messages.map((message) => {
         const isOwn = message.sender_id === session.userId;
         const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
+        const isSelected = selectedMessages.has(message.message_uuid);
 
         return (
           <MessageBubble
@@ -93,10 +104,15 @@ export function ChatMessages({ loading, messages, session, friend }: ChatMessage
             session={session}
             friend={friend}
             isNew={isNew}
+            isMultiSelectMode={isMultiSelectMode}
+            isSelected={isSelected}
+            onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
+            onRecall={() => onRecall?.(message.message_uuid)}
+            onDelete={() => onDelete?.(message.message_uuid)}
+            onEnterMultiSelect={onEnterMultiSelect}
           />
         );
       })}
-      <div ref={messagesEndRef} />
     </>
   );
 }

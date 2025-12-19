@@ -23,8 +23,9 @@ interface UseGroupMessagesReturn {
   error: string | null;
   loadMessages: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
-  sendTextMessage: (content: string) => Promise<GroupMessage | null>;
+  sendTextMessage: (content: string) => Promise<void>;
   recall: (messageUuid: string) => Promise<void>;
+  removeMessage: (messageUuid: string) => void;
   // WebSocket 事件处理方法
   handleNewMessage: (wsMsg: WsNewMessage) => void;
   handleMessageRecalled: (wsMsg: WsMessageRecalled) => void;
@@ -158,6 +159,11 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
     [api],
   );
 
+  /** 从本地列表移除消息（不调用 API） */
+  const removeMessage = useCallback((messageUuid: string) => {
+    setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
+  }, []);
+
   /**
    * 处理 WebSocket 新消息通知
    * 将新消息实时插入到消息列表头部
@@ -224,6 +230,7 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
     loadMoreMessages,
     sendTextMessage,
     recall,
+    removeMessage,
     // WebSocket 事件处理方法
     handleNewMessage,
     handleMessageRecalled,
