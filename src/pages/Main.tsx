@@ -12,7 +12,7 @@
  * - 标记已读
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
@@ -20,6 +20,7 @@ import { useFriends } from '../hooks/useFriends';
 import { useGroups } from '../hooks/useGroups';
 import { useMessages } from '../hooks/useMessages';
 import { useGroupMessages } from '../hooks/useGroupMessages';
+import { useResizablePanel } from '../hooks/useResizablePanel';
 
 // 组件导入
 import { Sidebar, type NavTab } from '../components/sidebar/Sidebar';
@@ -36,6 +37,10 @@ import { AddModal } from '../components/AddModal';
 
 import type { Friend, Group, ChatTarget } from '../types/chat';
 
+// 侧边栏宽度常量
+const MIN_PANEL_WIDTH = 88; // 最小宽度：头像左右间距对称
+const MAX_PANEL_WIDTH = 280; // 最大宽度：完整显示
+
 // ============================================
 // 主组件
 // ============================================
@@ -48,6 +53,7 @@ export function Main() {
     getGroupUnread,
     unreadSummary,
     onNewMessage,
+    onMessageRecalled,
     onSystemNotification,
   } = useWebSocket();
   const { friends, loading: friendsLoading, error: friendsError, refresh: refreshFriends } = useFriends();
@@ -62,6 +68,12 @@ export function Main() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // 侧边栏宽度调整
+  const { panelWidth, isResizing, handleResizeStart } = useResizablePanel({
+    minWidth: MIN_PANEL_WIDTH,
+    maxWidth: MAX_PANEL_WIDTH,
+  });
+
   // 私聊消息
   const friendId = chatTarget?.type === 'friend' ? chatTarget.data.friend_id : null;
   const {
@@ -70,6 +82,8 @@ export function Main() {
     sending: friendSending,
     sendTextMessage: sendFriendMessage,
     loadMessages: loadFriendMessages,
+    handleNewMessage: handleNewFriendMessage,
+    handleMessageRecalled: handleFriendMessageRecalled,
   } = useMessages(friendId);
 
   // 群聊消息
@@ -80,6 +94,8 @@ export function Main() {
     sending: groupSending,
     sendTextMessage: sendGroupMessage,
     loadMessages: loadGroupMessages,
+    handleNewMessage: handleNewGroupMessage,
+    handleMessageRecalled: handleGroupMessageRecalled,
   } = useGroupMessages(groupId);
 
   // 加载消息并标记已读
@@ -93,26 +109,54 @@ export function Main() {
     }
   }, [chatTarget, loadFriendMessages, loadGroupMessages, markRead]);
 
-  // 订阅新消息事件
+  // 订阅新消息事件 - 实时插入消息而非刷新整个列表
   useEffect(() => {
     const unsubscribe = onNewMessage((msg) => {
-      // 如果正在查看这个会话，自动刷新消息并标记已读
+      // 如果正在查看这个会话，实时插入新消息并标记已读
       if (chatTarget) {
         if (
-          (chatTarget.type === 'friend' && msg.source_type === 'friend' && msg.source_id === chatTarget.data.friend_id) ||
-          (chatTarget.type === 'group' && msg.source_type === 'group' && msg.source_id === chatTarget.data.group_id)
+          chatTarget.type === 'friend' &&
+          msg.source_type === 'friend' &&
+          msg.source_id === chatTarget.data.friend_id
         ) {
-          if (msg.source_type === 'friend') {
-            loadFriendMessages();
-          } else {
-            loadGroupMessages();
-          }
-          markRead(msg.source_type, msg.source_id);
+          // 实时插入私聊消息
+          handleNewFriendMessage(msg);
+          markRead('friend', msg.source_id);
+        } else if (
+          chatTarget.type === 'group' &&
+          msg.source_type === 'group' &&
+          msg.source_id === chatTarget.data.group_id
+        ) {
+          // 实时插入群聊消息
+          handleNewGroupMessage(msg);
+          markRead('group', msg.source_id);
         }
       }
     });
     return unsubscribe;
-  }, [chatTarget, loadFriendMessages, loadGroupMessages, markRead, onNewMessage]);
+  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
+
+  // 订阅消息撤回事件 - 实时更新消息状态
+  useEffect(() => {
+    const unsubscribe = onMessageRecalled((msg) => {
+      if (chatTarget) {
+        if (
+          chatTarget.type === 'friend' &&
+          msg.source_type === 'friend' &&
+          msg.source_id === chatTarget.data.friend_id
+        ) {
+          handleFriendMessageRecalled(msg);
+        } else if (
+          chatTarget.type === 'group' &&
+          msg.source_type === 'group' &&
+          msg.source_id === chatTarget.data.group_id
+        ) {
+          handleGroupMessageRecalled(msg);
+        }
+      }
+    });
+    return unsubscribe;
+  }, [chatTarget, handleFriendMessageRecalled, handleGroupMessageRecalled, onMessageRecalled]);
 
   // 订阅系统通知（好友请求、群邀请等）
   useEffect(() => {
@@ -145,20 +189,19 @@ export function Main() {
     clearSession();
   };
 
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !chatTarget) { return; }
+  // 发送消息
+  const handleSendMessage = useCallback(async () => {
+    if (!messageInput.trim() || !chatTarget) return;
 
-    try {
-      if (chatTarget.type === 'friend') {
-        await sendFriendMessage(messageInput);
-      } else {
-        await sendGroupMessage(messageInput);
-      }
-      setMessageInput('');
-    } catch {
-      // 错误已在 hook 中处理
+    const content = messageInput.trim();
+    setMessageInput('');
+
+    if (chatTarget.type === 'friend') {
+      await sendFriendMessage(content);
+    } else {
+      await sendGroupMessage(content);
     }
-  };
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage]);
 
   const handleSelectFriend = (friend: Friend) => {
     setChatTarget({ type: 'friend', data: friend });
@@ -223,51 +266,65 @@ export function Main() {
         onLogout={handleLogout}
       />
 
-      {/* 中间列表 */}
-      <AnimatePresence mode="wait">
-        {activeTab === 'chat' && (
-          <ConversationList
-            key="conversation-list"
-            friends={friends}
-            groups={groups}
-            friendsLoading={friendsLoading}
-            groupsLoading={groupsLoading}
-            friendsError={friendsError}
-            groupsError={groupsError}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            selectedTarget={chatTarget}
-            onSelectTarget={setChatTarget}
-            unreadSummary={unreadSummary}
-          />
-        )}
-        {activeTab === 'friends' && (
-          <FriendList
-            key="friend-list"
-            friends={friends}
-            loading={friendsLoading}
-            error={friendsError}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            selectedFriendId={chatTarget?.type === 'friend' ? chatTarget.data.friend_id : null}
-            onSelectFriend={handleSelectFriend}
-            getUnreadCount={getFriendUnread}
-          />
-        )}
-        {activeTab === 'group' && (
-          <GroupList
-            key="group-list"
-            groups={groups}
-            loading={groupsLoading}
-            error={groupsError}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            selectedGroupId={chatTarget?.type === 'group' ? chatTarget.data.group_id : null}
-            onSelectGroup={handleSelectGroup}
-            getUnreadCount={getGroupUnread}
-          />
-        )}
-      </AnimatePresence>
+      {/* 中间列表 + 分割线 */}
+      <div 
+        className={`chat-list-container ${isResizing ? 'resizing' : ''}`}
+        style={{ width: panelWidth }}
+      >
+        <AnimatePresence mode="wait">
+          {activeTab === 'chat' && (
+            <ConversationList
+              key="conversation-list"
+              friends={friends}
+              groups={groups}
+              friendsLoading={friendsLoading}
+              groupsLoading={groupsLoading}
+              friendsError={friendsError}
+              groupsError={groupsError}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              selectedTarget={chatTarget}
+              onSelectTarget={setChatTarget}
+              unreadSummary={unreadSummary}
+              panelWidth={panelWidth}
+            />
+          )}
+          {activeTab === 'friends' && (
+            <FriendList
+              key="friend-list"
+              friends={friends}
+              loading={friendsLoading}
+              error={friendsError}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              selectedFriendId={chatTarget?.type === 'friend' ? chatTarget.data.friend_id : null}
+              onSelectFriend={handleSelectFriend}
+              getUnreadCount={getFriendUnread}
+              panelWidth={panelWidth}
+            />
+          )}
+          {activeTab === 'group' && (
+            <GroupList
+              key="group-list"
+              groups={groups}
+              loading={groupsLoading}
+              error={groupsError}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              selectedGroupId={chatTarget?.type === 'group' ? chatTarget.data.group_id : null}
+              onSelectGroup={handleSelectGroup}
+              getUnreadCount={getGroupUnread}
+              panelWidth={panelWidth}
+            />
+          )}
+        </AnimatePresence>
+        
+        {/* 可拖拽分割线 */}
+        <div 
+          className="panel-resizer"
+          onMouseDown={handleResizeStart}
+        />
+      </div>
 
       {/* 右侧聊天窗口 */}
       <motion.section

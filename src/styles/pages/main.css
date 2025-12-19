@@ -188,14 +188,73 @@
 }
 
 /* ============================================
+   中间会话列表容器（支持拖拽调整宽度）
+   ============================================ */
+.chat-list-container {
+  position: relative;
+  height: 100%;
+  display: flex;
+  z-index: 10;
+  transition: width 0.05s ease-out;
+}
+
+.chat-list-container.resizing {
+  transition: none;
+  user-select: none;
+}
+
+/* 可拖拽分割线 */
+.panel-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background-color 0.2s ease;
+}
+
+.panel-resizer:hover,
+.chat-list-container.resizing .panel-resizer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(147, 197, 253, 0.4) 50%,
+    transparent 100%
+  );
+}
+
+.panel-resizer::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 40px;
+  border-radius: 2px;
+  background: rgba(147, 197, 253, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.panel-resizer:hover::before,
+.chat-list-container.resizing .panel-resizer::before {
+  opacity: 1;
+}
+
+/* ============================================
    中间会话列表
    ============================================ */
 .chat-list-panel {
-  width: 280px;
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   z-index: 10;
+  overflow: hidden; /* 让内容自然被裁剪 */
 
   /* 毛玻璃效果 */
   background: linear-gradient(
@@ -211,10 +270,18 @@
 /* 搜索栏 */
 .chat-list-header {
   padding: 16px;
+  min-height: 81px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* 左侧固定 */
   border-bottom: 1px solid rgba(147, 197, 253, 0.15);
+  transition: padding 0.15s ease;
 }
 
-.search-box {
+/* 搜索框包装器 - 支持平滑过渡动画 */
+.search-box-wrapper {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -222,7 +289,83 @@
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 10px;
-  transition: all 0.2s ease;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: text;
+}
+
+/* 折叠状态 - 变成图标按钮形态 */
+.search-box-wrapper.collapsed {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.search-box-wrapper.collapsed:hover {
+  background: rgba(147, 197, 253, 0.2);
+  border-color: rgba(147, 197, 253, 0.4);
+}
+
+.search-box-wrapper.collapsed input {
+  width: 0;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.search-box-wrapper svg {
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.search-box-wrapper.collapsed svg {
+  width: 18px;
+  height: 18px;
+  color: #64748b;
+}
+
+.search-box-wrapper input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #1e3a5f;
+  outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.25s ease;
+}
+
+.search-box-wrapper input::placeholder {
+  color: #94a3b8;
+}
+
+.search-box-wrapper:focus-within {
+  border-color: rgba(147, 197, 253, 0.6);
+  box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.1);
+}
+
+.search-box {
+  flex: 1;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .search-box:focus-within {
@@ -234,19 +377,111 @@
   width: 16px;
   height: 16px;
   color: #94a3b8;
-  flex-shrink: 0;
+  flex-shrink: 0; /* 图标不收缩 */
 }
 
 .search-box input {
   flex: 1;
+  min-width: 0; /* 允许收缩 */
   border: none;
   background: transparent;
   font-size: 13px;
   color: #1e3a5f;
   outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-box input::placeholder {
+  color: #94a3b8;
+}
+
+/* 折叠模式搜索图标按钮 */
+.search-icon-btn {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.search-icon-btn:hover {
+  background: rgba(147, 197, 253, 0.2);
+  border-color: rgba(147, 197, 253, 0.4);
+}
+
+.search-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.search-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  color: #64748b;
+}
+
+/* 弹出式搜索框遮罩层 - 使用 Portal 渲染到 body */
+.search-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999999; /* 确保在所有内容之上 */
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* 弹出式搜索框 */
+.search-popup {
+  position: fixed;
+  top: 24px;
+  left: 80px;
+  z-index: 999999;
+}
+
+.search-popup-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  min-width: 320px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(147, 197, 253, 0.5);
+  border-radius: 16px;
+  box-shadow: 
+    0 25px 80px rgba(0, 0, 0, 0.2),
+    0 10px 30px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+}
+
+.search-popup-box svg {
+  width: 20px;
+  height: 20px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.search-popup-box input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  color: #1e3a5f;
+  outline: none;
+  min-width: 240px;
+}
+
+.search-popup-box input::placeholder {
   color: #94a3b8;
 }
 
@@ -264,7 +499,9 @@
   padding: 12px;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  overflow: hidden; /* 让内容自然被裁剪 */
+  /* 只对 background 使用 CSS transition，避免与 Framer Motion 动画冲突 */
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .conversation-item.active {
@@ -299,6 +536,7 @@
 .conv-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden; /* 让内容自然被裁剪 */
 }
 
 .conv-header {
@@ -395,6 +633,8 @@
 /* 聊天头部 */
 .chat-header {
   padding: 16px 24px;
+  min-height: 81px;
+  box-sizing: border-box;
   border-bottom: 1px solid rgba(147, 197, 253, 0.15);
   background: rgba(255, 255, 255, 0.3);
   display: flex;
@@ -405,6 +645,9 @@
 .chat-header-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .chat-header h2 {
@@ -412,6 +655,7 @@
   font-weight: 600;
   color: #1e3a5f;
   margin: 0;
+  line-height: 1.4;
 }
 
 /* 聊天菜单 */
@@ -774,6 +1018,7 @@
   padding: 24px;
   display: flex;
   flex-direction: column;
+  scroll-behavior: smooth; /* 平滑滚动 */
 }
 
 .message-placeholder {
@@ -931,7 +1176,8 @@
   font-size: 12px;
   color: #94a3b8;
   font-weight: 400;
-  margin-left: 8px;
+  margin-top: 2px;
+  line-height: 1.3;
 }
 
 /* 输入区域 */

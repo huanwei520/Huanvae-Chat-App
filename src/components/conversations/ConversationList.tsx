@@ -8,43 +8,12 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
-import { LoadingSpinner } from '../common/LoadingSpinner';
-import { SearchIcon } from '../common/Icons';
+import { SearchBox } from '../common/SearchBox';
+import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
+import { cardVariants, panelVariants } from '../../constants/listAnimations';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
-
-// 卡片动画变体：从左飞入，向右飞出（流畅舒缓版）
-const cardVariants = {
-  initial: { opacity: 0, x: -60, scale: 0.96 },
-  animate: (index: number) => ({
-    opacity: 1,
-    x: 0,
-    scale: 1,
-    transition: {
-      duration: 0.5,
-      delay: index * 0.04,
-      ease: [0.16, 1, 0.3, 1], // 自然的缓入缓出
-    },
-  }),
-  exit: (index: number) => ({
-    opacity: 0,
-    x: 60,
-    scale: 0.96,
-    transition: {
-      duration: 0.35,
-      delay: index * 0.02,
-      ease: [0.4, 0, 0.2, 1], // Material Design 标准缓动
-    },
-  }),
-};
-
-// 面板动画变体
-const panelVariants = {
-  initial: { opacity: 1 },
-  animate: { opacity: 1 },
-  exit: { opacity: 1 },
-};
 
 // 统一的会话项类型
 interface ConversationItem {
@@ -70,134 +39,7 @@ interface ConversationListProps {
   selectedTarget: ChatTarget | null;
   onSelectTarget: (target: ChatTarget) => void;
   unreadSummary: UnreadSummary | null;
-}
-
-// 会话项组件
-function ConversationItemComponent({
-  item,
-  isSelected,
-  index,
-  onSelect,
-}: {
-  item: ConversationItem;
-  isSelected: boolean;
-  index: number;
-  onSelect: () => void;
-}) {
-  return (
-    <motion.div
-      className={`conversation-item ${isSelected ? 'active' : ''}`}
-      onClick={onSelect}
-      custom={index}
-      variants={cardVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
-    >
-      <div className="conv-avatar">
-        {item.type === 'friend' ? (
-          <FriendAvatar friend={item.data as Friend} size={44} />
-        ) : (
-          <GroupAvatar group={item.data as Group} size={44} />
-        )}
-      </div>
-      <div className="conv-info">
-        <div className="conv-header">
-          <span className="conv-name">
-            {item.type === 'group' && <span className="conv-type-badge">[群]</span>}
-            {item.name}
-          </span>
-          {item.lastMessageTime && (
-            <span className="conv-time">{formatMessageTime(item.lastMessageTime)}</span>
-          )}
-        </div>
-        <div className="conv-preview">
-          <span className="conv-message">
-            {item.lastMessage || (item.type === 'friend' ? `@${item.id}` : '暂无消息')}
-          </span>
-        </div>
-      </div>
-      {item.unreadCount > 0 && (
-        <div className="unread-badge">
-          {item.unreadCount > 99 ? '99+' : item.unreadCount}
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-function ConversationListContent({
-  loading,
-  error,
-  conversations,
-  searchQuery,
-  selectedTarget,
-  onSelectTarget,
-}: {
-  loading: boolean;
-  error: string | null;
-  conversations: ConversationItem[];
-  searchQuery: string;
-  selectedTarget: ChatTarget | null;
-  onSelectTarget: (target: ChatTarget) => void;
-}) {
-  if (loading) {
-    return (
-      <div className="list-loading">
-        <LoadingSpinner />
-        <span>加载中...</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="list-error">
-        <span>加载失败: {error}</span>
-      </div>
-    );
-  }
-
-  if (conversations.length === 0) {
-    const message = searchQuery ? '未找到匹配的会话' : '暂无会话';
-    return (
-      <div className="list-empty">
-        <span>{message}</span>
-      </div>
-    );
-  }
-
-  const isSelected = (item: ConversationItem) => {
-    if (!selectedTarget) { return false; }
-    if (selectedTarget.type === 'friend' && item.type === 'friend') {
-      return selectedTarget.data.friend_id === item.id;
-    }
-    if (selectedTarget.type === 'group' && item.type === 'group') {
-      return selectedTarget.data.group_id === item.id;
-    }
-    return false;
-  };
-
-  return (
-    <>
-      {conversations.map((item, index) => (
-        <ConversationItemComponent
-          key={`${item.type}-${item.id}`}
-          item={item}
-          isSelected={isSelected(item)}
-          index={index}
-          onSelect={() => {
-            if (item.type === 'friend') {
-              onSelectTarget({ type: 'friend', data: item.data as Friend });
-            } else {
-              onSelectTarget({ type: 'group', data: item.data as Group });
-            }
-          }}
-        />
-      ))}
-    </>
-  );
+  panelWidth?: number;
 }
 
 export function ConversationList({
@@ -212,6 +54,7 @@ export function ConversationList({
   selectedTarget,
   onSelectTarget,
   unreadSummary,
+  panelWidth = 280,
 }: ConversationListProps) {
   // 构建并排序会话列表
   const conversations = useMemo(() => {
@@ -275,6 +118,17 @@ export function ConversationList({
   const loading = friendsLoading || groupsLoading;
   const error = friendsError || groupsError;
 
+  const isSelected = (item: ConversationItem) => {
+    if (!selectedTarget) { return false; }
+    if (selectedTarget.type === 'friend' && item.type === 'friend') {
+      return selectedTarget.data.friend_id === item.id;
+    }
+    if (selectedTarget.type === 'group' && item.type === 'group') {
+      return selectedTarget.data.group_id === item.id;
+    }
+    return false;
+  };
+
   return (
     <motion.section
       className="chat-list-panel"
@@ -284,26 +138,71 @@ export function ConversationList({
       exit="exit"
     >
       <div className="chat-list-header">
-        <div className="search-box">
-          <SearchIcon />
-          <input
-            type="text"
-            placeholder="搜索会话"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        </div>
+        <SearchBox
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
+          panelWidth={panelWidth}
+          placeholder="搜索会话"
+        />
       </div>
 
       <div className="conversation-list">
-        <ConversationListContent
-          loading={loading}
-          error={error}
-          conversations={filteredConversations}
-          searchQuery={searchQuery}
-          selectedTarget={selectedTarget}
-          onSelectTarget={onSelectTarget}
-        />
+        {loading ? (
+          <ListLoading />
+        ) : error ? (
+          <ListError error={error} />
+        ) : filteredConversations.length === 0 ? (
+          <ListEmpty message={searchQuery ? '未找到匹配的会话' : '暂无会话'} />
+        ) : (
+          filteredConversations.map((item, index) => (
+            <motion.div
+              key={`${item.type}-${item.id}`}
+              className={`conversation-item ${isSelected(item) ? 'active' : ''}`}
+              onClick={() => {
+                if (item.type === 'friend') {
+                  onSelectTarget({ type: 'friend', data: item.data as Friend });
+                } else {
+                  onSelectTarget({ type: 'group', data: item.data as Group });
+                }
+              }}
+              custom={index}
+              variants={cardVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
+            >
+              <div className="conv-avatar">
+                {item.type === 'friend' ? (
+                  <FriendAvatar friend={item.data as Friend} size={44} />
+                ) : (
+                  <GroupAvatar group={item.data as Group} size={44} />
+                )}
+              </div>
+              <div className="conv-info">
+                <div className="conv-header">
+                  <span className="conv-name">
+                    {item.type === 'group' && <span className="conv-type-badge">[群]</span>}
+                    {item.name}
+                  </span>
+                  {item.lastMessageTime && (
+                    <span className="conv-time">{formatMessageTime(item.lastMessageTime)}</span>
+                  )}
+                </div>
+                <div className="conv-preview">
+                  <span className="conv-message">
+                    {item.lastMessage || (item.type === 'friend' ? `@${item.id}` : '暂无消息')}
+                  </span>
+                </div>
+              </div>
+              {item.unreadCount > 0 && (
+                <div className="unread-badge">
+                  {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                </div>
+              )}
+            </motion.div>
+          ))
+        )}
       </div>
     </motion.section>
   );

@@ -2,16 +2,18 @@
  * 群消息 Hook
  *
  * 提供群消息的状态管理和 API 调用
+ * 支持通过 WebSocket 实时插入新消息
  */
 
-import { useState, useCallback } from 'react';
-import { useApi } from '../contexts/SessionContext';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useApi, useSession } from '../contexts/SessionContext';
 import {
   getGroupMessages,
   sendGroupMessage,
   recallGroupMessage,
   type GroupMessage,
 } from '../api/groupMessages';
+import type { WsNewMessage, WsMessageRecalled } from '../types/websocket';
 
 interface UseGroupMessagesReturn {
   messages: GroupMessage[];
@@ -21,18 +23,34 @@ interface UseGroupMessagesReturn {
   error: string | null;
   loadMessages: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
-  sendTextMessage: (content: string) => Promise<void>;
+  sendTextMessage: (content: string) => Promise<GroupMessage | null>;
   recall: (messageUuid: string) => Promise<void>;
+  // WebSocket 事件处理方法
+  handleNewMessage: (wsMsg: WsNewMessage) => void;
+  handleMessageRecalled: (wsMsg: WsMessageRecalled) => void;
 }
 
 export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn {
   const api = useApi();
+  const { session } = useSession();
 
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 用于追踪当前群组 ID
+  const currentGroupId = useRef<string | null>(null);
+
+  // 切换群组时重置消息
+  useEffect(() => {
+    if (groupId !== currentGroupId.current) {
+      setMessages([]);
+      setHasMore(false);
+      currentGroupId.current = groupId;
+    }
+  }, [groupId]);
 
   // 加载消息
   const loadMessages = useCallback(async () => {
@@ -75,10 +93,12 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
     }
   }, [api, groupId, hasMore, messages]);
 
-  // 发送文本消息
+  /**
+   * 发送文本消息
+   */
   const sendTextMessage = useCallback(
-    async (content: string) => {
-      if (!groupId || !content.trim()) { return; }
+    async (content: string): Promise<void> => {
+      if (!groupId || !content.trim() || !session) return;
 
       setSending(true);
       setError(null);
@@ -90,13 +110,13 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
           message_type: 'text',
         });
 
-        // 添加新消息到列表（需要构造完整的消息对象）
+        // 构建消息对象并添加到列表
         const newMessage: GroupMessage = {
           message_uuid: response.data.message_uuid,
           group_id: groupId,
-          sender_id: '', // 会在刷新时获取
-          sender_nickname: '',
-          sender_avatar_url: '',
+          sender_id: session.userId,
+          sender_nickname: session.profile.user_nickname,
+          sender_avatar_url: session.profile.user_avatar_url ?? '',
           message_content: content.trim(),
           message_type: 'text',
           file_uuid: null,
@@ -110,12 +130,11 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
         setMessages((prev) => [newMessage, ...prev]);
       } catch (err) {
         setError(err instanceof Error ? err.message : '发送失败');
-        throw err;
       } finally {
         setSending(false);
       }
     },
-    [api, groupId],
+    [api, groupId, session],
   );
 
   // 撤回消息
@@ -139,6 +158,62 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
     [api],
   );
 
+  /**
+   * 处理 WebSocket 新消息通知
+   * 将新消息实时插入到消息列表头部
+   */
+  const handleNewMessage = useCallback((wsMsg: WsNewMessage) => {
+    // 只处理当前群组的消息
+    if (wsMsg.source_type !== 'group' || wsMsg.source_id !== groupId) {
+      return;
+    }
+
+    // 检查消息是否已存在（避免重复）
+    setMessages((prev) => {
+      if (prev.some((m) => m.message_uuid === wsMsg.message_uuid)) {
+        return prev;
+      }
+
+      // 将 WebSocket 消息转换为 GroupMessage 类型
+      const newMessage: GroupMessage = {
+        message_uuid: wsMsg.message_uuid,
+        group_id: wsMsg.source_id,
+        sender_id: wsMsg.sender_id,
+        sender_nickname: wsMsg.sender_nickname,
+        sender_avatar_url: '', // WebSocket 通知不包含头像，可以后续加载
+        message_content: wsMsg.preview, // WebSocket 消息的 preview 就是消息内容
+        message_type: wsMsg.message_type,
+        file_uuid: null,
+        file_url: null,
+        file_size: null,
+        reply_to: null,
+        send_time: wsMsg.timestamp,
+        is_recalled: false,
+      };
+
+      return [newMessage, ...prev];
+    });
+  }, [groupId]);
+
+  /**
+   * 处理 WebSocket 消息撤回通知
+   */
+  const handleMessageRecalled = useCallback((wsMsg: WsMessageRecalled) => {
+    // 只处理当前群组的消息
+    if (wsMsg.source_type !== 'group' || wsMsg.source_id !== groupId) {
+      return;
+    }
+
+    // 更新消息为已撤回状态
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.message_uuid === wsMsg.message_uuid
+          ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
+          : m,
+      ),
+    );
+  }, [groupId]);
+
   return {
     messages,
     loading,
@@ -149,5 +224,8 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
     loadMoreMessages,
     sendTextMessage,
     recall,
+    // WebSocket 事件处理方法
+    handleNewMessage,
+    handleMessageRecalled,
   };
 }

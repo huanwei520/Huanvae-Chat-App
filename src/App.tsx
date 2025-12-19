@@ -20,46 +20,13 @@ import { AccountSelector } from './pages/AccountSelector';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Main } from './pages/Main';
+import { LoadingOverlay } from './components/common/LoadingOverlay';
+import { ErrorToast } from './components/common/ErrorToast';
 import { login, register, getProfile } from './api/auth';
+import { cardVariants, cardContentVariants, cardContentTransition } from './constants/authAnimations';
 import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
 import './styles/index.css';
-
-// 卡片内容切换动画（登录和注册之间）
-const cardContentVariants = {
-  enter: (direction: number) => ({
-    x: direction > 0 ? 80 : -80,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-  },
-  exit: (direction: number) => ({
-    x: direction > 0 ? -80 : 80,
-    opacity: 0,
-  }),
-};
-
-const cardContentTransition = {
-  type: 'tween',
-  ease: 'easeInOut',
-  duration: 0.25,
-} as const;
-
-// 卡片动画
-const cardVariants = {
-  hidden: { opacity: 0, scale: 0.95, y: 30 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: {
-      duration: 0.7,
-      ease: [0.4, 0, 0.2, 1] as const,
-    },
-  },
-};
 
 // 认证表单类型：登录或注册
 type AuthFormType = 'login' | 'register';
@@ -357,10 +324,15 @@ function App() {
   // 登录/注册页面（共用外层容器，只切换卡片内容）
   return (
     <div className="login-container">
+      {/* 动态流动背景装饰 */}
+      <div className="flowing-bg" />
+      
       {/* 装饰性浮动元素 */}
       <div className="floating-orb orb-1" />
       <div className="floating-orb orb-2" />
       <div className="floating-orb orb-3" />
+      <div className="floating-orb orb-4" />
+      <div className="floating-orb orb-5" />
 
       <motion.div
         className="glass-card auth-card"
@@ -422,43 +394,6 @@ function App() {
       {/* 全局加载遮罩 */}
       {isLoading && <LoadingOverlay />}
     </div>
-  );
-}
-
-// 加载遮罩组件
-function LoadingOverlay() {
-  return (
-    <motion.div
-      className="loading-overlay"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-        className="spinner-icon large"
-      >
-        ⟳
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// 错误提示组件
-function ErrorToast({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <motion.div
-      className="error-toast"
-      initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 50 }}
-      onClick={onClose}
-    >
-      <span className="error-icon">⚠</span>
-      <span>{message}</span>
-      <button onClick={onClose}>✕</button>
-    </motion.div>
   );
 }
 

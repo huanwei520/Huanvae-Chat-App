@@ -1,33 +1,63 @@
 /**
- * 消息列表组件
+ * 私聊消息列表组件
+ *
+ * 入场动画（方案 A - 简约淡入）：
+ * - 自己的消息：从右侧淡入 + 轻微上滑
+ * - 对方的消息：从左侧淡入
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageBubble } from './MessageBubble';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import type { SessionInfo } from '../common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
 interface ChatMessagesProps {
-    loading: boolean;
-    messages: Message[];
-    session: SessionInfo & { userId: string };
-    friend: Friend;
+  loading: boolean;
+  messages: Message[];
+  session: SessionInfo & { userId: string };
+  friend: Friend;
 }
 
 export function ChatMessages({ loading, messages, session, friend }: ChatMessagesProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 追踪已渲染的消息 ID
+  const [renderedIds, setRenderedIds] = useState<Set<string>>(new Set());
+  const initialLoadDone = useRef(false);
 
-  // 消息加载完成后滚动到底部
+  // 初次加载完成后，记录所有已有消息
+  useEffect(() => {
+    if (!loading && messages.length > 0 && !initialLoadDone.current) {
+      initialLoadDone.current = true;
+      setRenderedIds(new Set(messages.map((m) => m.message_uuid)));
+    }
+  }, [loading, messages]);
+
+  // 当有新消息时，延迟更新已渲染集合（让动画播放）
+  useEffect(() => {
+    if (initialLoadDone.current && messages.length > 0) {
+      const currentIds = messages.map((m) => m.message_uuid);
+      const hasNew = currentIds.some((id) => !renderedIds.has(id));
+      
+      if (hasNew) {
+        const timer = setTimeout(() => {
+          setRenderedIds(new Set(currentIds));
+        }, 250); // 动画时长后更新
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [messages, renderedIds]);
+
+  // 新消息时立即开始平滑滚动（与动画同步）
   useEffect(() => {
     if (!loading && messages.length > 0) {
-      const timer = setTimeout(() => {
+      // 使用 requestAnimationFrame 确保在渲染后立即滚动
+      requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({
           behavior: 'smooth',
-          block: 'nearest', // 只在必要时滚动，避免影响父容器
+          block: 'end',
         });
-      }, 100);
-      return () => clearTimeout(timer);
+      });
     }
   }, [loading, messages.length]);
 
@@ -51,15 +81,21 @@ export function ChatMessages({ loading, messages, session, friend }: ChatMessage
 
   return (
     <>
-      {[...messages].reverse().map((message) => (
-        <MessageBubble
-          key={message.message_uuid}
-          message={message}
-          isOwn={message.sender_id === session.userId}
-          session={session}
-          friend={friend}
-        />
-      ))}
+      {[...messages].reverse().map((message) => {
+        const isOwn = message.sender_id === session.userId;
+        const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
+
+        return (
+          <MessageBubble
+            key={message.message_uuid}
+            message={message}
+            isOwn={isOwn}
+            session={session}
+            friend={friend}
+            isNew={isNew}
+          />
+        );
+      })}
       <div ref={messagesEndRef} />
     </>
   );
