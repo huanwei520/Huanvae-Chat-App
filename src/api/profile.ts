@@ -65,31 +65,53 @@ export function changePassword(
   return api.put('/api/profile/password', data as Record<string, unknown>);
 }
 
+/** 进度回调类型 */
+export type ProgressCallback = (progress: number) => void;
+
 /**
  * 上传头像
- * 注意：此函数需要特殊处理 FormData，不使用标准 API 客户端
+ * 注意：使用 XMLHttpRequest 以获取上传进度
  */
-export async function uploadAvatar(
+export function uploadAvatar(
   serverUrl: string,
   accessToken: string,
   file: File,
+  onProgress?: ProgressCallback,
 ): Promise<UploadAvatarResponse> {
-  const formData = new FormData();
-  formData.append('avatar', file);
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
 
-  const response = await fetch(`${serverUrl}/api/profile/avatar`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
-    body: formData,
+    const xhr = new XMLHttpRequest();
+
+    // 监听上传进度
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        onProgress(progress);
+      }
+    };
+
+    // 完成时处理响应
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data as UploadAvatarResponse);
+        } else {
+          reject(new Error(data.error || data.message || `HTTP ${xhr.status}`));
+        }
+      } catch {
+        reject(new Error('解析响应失败'));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('网络错误'));
+    };
+
+    xhr.open('POST', `${serverUrl}/api/profile/avatar`);
+    xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    xhr.send(formData);
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || data.message || `HTTP ${response.status}`);
-  }
-
-  return data as UploadAvatarResponse;
 }

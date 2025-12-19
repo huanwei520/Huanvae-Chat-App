@@ -17,4 +17,3 @@ export function MenuHeader({ title, onBack }: MenuHeaderProps) {
     </div>
   );
 }
-

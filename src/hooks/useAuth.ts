@@ -1,6 +1,6 @@
 /**
  * 认证相关的 Hook
- * 
+ *
  * 处理登录、注册、账号选择等逻辑
  */
 
@@ -16,17 +16,17 @@ interface UseAuthReturn {
   isLoading: boolean;
   error: string | null;
   selectedAccount: SavedAccount | null;
-  
+
   // 账号管理
   accounts: SavedAccount[];
   accountsLoading: boolean;
-  
+
   // 操作方法
   handleLogin: (serverUrl: string, userId: string, password: string) => Promise<void>;
   handleRegister: (serverUrl: string, userId: string, nickname: string, password: string, email?: string) => Promise<void>;
   handleSelectAccount: (account: SavedAccount) => Promise<void>;
   handleDeleteAccount: (account: SavedAccount) => Promise<void>;
-  
+
   // 状态设置
   setSelectedAccount: (account: SavedAccount | null) => void;
   setError: (error: string | null) => void;
@@ -251,4 +251,3 @@ export function useAuth(): UseAuthReturn {
     clearError,
   };
 }
-

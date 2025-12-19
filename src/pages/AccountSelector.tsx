@@ -320,7 +320,6 @@ export function AccountSelector({
     }
   }, [accountCount, mainIndex]);
 
-
   const goToPrev = useCallback(() => {
     if (animationLock.current || accountCount < 1) { return; }
     animationLock.current = true;
@@ -353,7 +352,7 @@ export function AccountSelector({
   // 这样可以正常调用 preventDefault() 阻止页面滚动
   useEffect(() => {
     const element = stackSelectorRef.current;
-    if (!element) return;
+    if (!element) { return; }
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();

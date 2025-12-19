@@ -9,4 +9,3 @@ export { CreateGroupTab } from './CreateGroupTab';
 export { JoinGroupTab } from './JoinGroupTab';
 export { GroupInvitesTab } from './GroupInvitesTab';
 export { TabNavigation } from './TabNavigation';
-

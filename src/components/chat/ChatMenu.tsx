@@ -34,13 +34,12 @@ import {
   MemberActions,
   MuteSettings,
   ConfirmDialog,
-  isMuted,
 } from './menu';
 
-export function ChatMenuButton({ 
-  target, 
-  onFriendRemoved, 
-  onGroupUpdated, 
+export function ChatMenuButton({
+  target,
+  onFriendRemoved,
+  onGroupUpdated,
   onGroupLeft,
   isMultiSelectMode = false,
   onToggleMultiSelect,
@@ -74,6 +73,10 @@ export function ChatMenuButton({
   // 文件输入引用
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // 群头像上传进度
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // 点击外部关闭
   useEffect(() => {
@@ -113,7 +116,7 @@ export function ChatMenuButton({
 
   // 删除好友
   const handleRemoveFriend = async () => {
-    if (target.type !== 'friend' || !session) return;
+    if (target.type !== 'friend' || !session) { return; }
 
     setLoading(true);
     try {
@@ -130,7 +133,7 @@ export function ChatMenuButton({
 
   // 更新群名称
   const handleUpdateGroupName = async () => {
-    if (target.type !== 'group' || !newGroupName.trim()) return;
+    if (target.type !== 'group' || !newGroupName.trim()) { return; }
 
     setLoading(true);
     try {
@@ -148,7 +151,7 @@ export function ChatMenuButton({
 
   // 上传群头像
   const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (target.type !== 'group' || !e.target.files?.[0]) return;
+    if (target.type !== 'group' || !e.target.files?.[0]) { return; }
 
     const file = e.target.files[0];
     if (file.size > 10 * 1024 * 1024) {
@@ -156,9 +159,16 @@ export function ChatMenuButton({
       return;
     }
 
+    setUploadingAvatar(true);
+    setAvatarUploadProgress(0);
     setLoading(true);
     try {
-      await uploadGroupAvatar(api, target.data.group_id, file);
+      await uploadGroupAvatar(
+        api,
+        target.data.group_id,
+        file,
+        (progress) => setAvatarUploadProgress(progress),
+      );
       setSuccess('群头像已更新');
       onGroupUpdated?.();
       setView('main');
@@ -166,6 +176,8 @@ export function ChatMenuButton({
       setError(err instanceof Error ? err.message : '上传失败');
     } finally {
       setLoading(false);
+      setUploadingAvatar(false);
+      setAvatarUploadProgress(0);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -174,7 +186,7 @@ export function ChatMenuButton({
 
   // 邀请成员
   const handleInviteMember = async () => {
-    if (target.type !== 'group' || !inviteUserId.trim()) return;
+    if (target.type !== 'group' || !inviteUserId.trim()) { return; }
 
     setLoading(true);
     try {
@@ -192,7 +204,7 @@ export function ChatMenuButton({
 
   // 加载成员列表
   const handleLoadMembers = async () => {
-    if (target.type !== 'group') return;
+    if (target.type !== 'group') { return; }
 
     setLoadingMembers(true);
     setView('members');
@@ -208,7 +220,7 @@ export function ChatMenuButton({
 
   // 退出群聊
   const handleLeaveGroup = async () => {
-    if (target.type !== 'group') return;
+    if (target.type !== 'group') { return; }
 
     setLoading(true);
     try {
@@ -225,7 +237,7 @@ export function ChatMenuButton({
 
   // 踢出成员
   const handleKickMember = async () => {
-    if (target.type !== 'group' || !selectedMember) return;
+    if (target.type !== 'group' || !selectedMember) { return; }
 
     setLoading(true);
     try {
@@ -243,7 +255,7 @@ export function ChatMenuButton({
 
   // 设置/取消管理员
   const handleToggleAdmin = async () => {
-    if (target.type !== 'group' || !selectedMember) return;
+    if (target.type !== 'group' || !selectedMember) { return; }
 
     setLoading(true);
     try {
@@ -264,7 +276,7 @@ export function ChatMenuButton({
 
   // 禁言成员
   const handleMuteMember = async () => {
-    if (target.type !== 'group' || !selectedMember) return;
+    if (target.type !== 'group' || !selectedMember) { return; }
 
     setLoading(true);
     try {
@@ -282,7 +294,7 @@ export function ChatMenuButton({
 
   // 解除禁言
   const handleUnmuteMember = async () => {
-    if (target.type !== 'group' || !selectedMember) return;
+    if (target.type !== 'group' || !selectedMember) { return; }
 
     setLoading(true);
     try {
@@ -298,9 +310,9 @@ export function ChatMenuButton({
 
   // 点击成员
   const handleMemberClick = (member: GroupMember) => {
-    if (member.user_id === session?.userId) return;
-    if (member.role === 'owner') return;
-    if (target.type === 'group' && target.data.role === 'admin' && member.role === 'admin') return;
+    if (member.user_id === session?.userId) { return; }
+    if (member.role === 'owner') { return; }
+    if (target.type === 'group' && target.data.role === 'admin' && member.role === 'admin') { return; }
 
     setSelectedMember(member);
     setView('member-action');
@@ -321,6 +333,9 @@ export function ChatMenuButton({
             isOwnerOrAdmin={isGroupOwnerOrAdmin}
             isOwner={isGroupOwner}
             isMultiSelectMode={isMultiSelectMode}
+            group={target.type === 'group' ? target.data : undefined}
+            uploadingAvatar={uploadingAvatar}
+            avatarUploadProgress={avatarUploadProgress}
             onSetView={(v) => {
               if (v === 'edit-name' && target.type === 'group') {
                 setNewGroupName(target.data.group_name);

@@ -49,6 +49,7 @@ export interface WsNewMessage {
   message_uuid: string;
   sender_id: string;
   sender_nickname: string;
+  sender_avatar_url?: string; // 发送者头像（可选，后端可能返回）
   preview: string;
   message_type: 'text' | 'image' | 'video' | 'file';
   timestamp: string;

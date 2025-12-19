@@ -12,9 +12,9 @@
  * - 多选模式批量操作
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSession, useApi } from '../contexts/SessionContext';
+import { useSession } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useFriends } from '../hooks/useFriends';
 import { useGroups } from '../hooks/useGroups';
@@ -22,10 +22,8 @@ import { useMessages } from '../hooks/useMessages';
 import { useGroupMessages } from '../hooks/useGroupMessages';
 import { useResizablePanel } from '../hooks/useResizablePanel';
 import { useFileUpload } from '../hooks/useFileUpload';
-
-// API
-import { deleteMessage, recallMessage } from '../api/messages';
-import { deleteGroupMessage, recallGroupMessage } from '../api/groupMessages';
+import { useChatActions } from '../hooks/useChatActions';
+import { useMultiSelect } from '../hooks/useMultiSelect';
 
 // 组件导入
 import { Sidebar, type NavTab } from '../components/sidebar/Sidebar';
@@ -36,12 +34,10 @@ import { ChatMessages } from '../components/chat/ChatMessages';
 import { GroupChatMessages } from '../components/chat/GroupChatMessages';
 import { ChatMenuButton } from '../components/chat/ChatMenu';
 import { MultiSelectActionBar } from '../components/chat/MultiSelectActionBar';
-import { FileAttachButton, type AttachmentType } from '../components/chat/FileAttachButton';
-import { UploadProgress } from '../components/chat/UploadProgress';
-import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { SendIcon } from '../components/common/Icons';
+import { ChatInputArea } from '../components/chat/ChatInputArea';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
+import type { AttachmentType } from '../components/chat/FileAttachButton';
 
 import type { Friend, Group, ChatTarget } from '../types/chat';
 
@@ -55,12 +51,13 @@ const MAX_PANEL_WIDTH = 280;
 
 export function Main() {
   const { session, clearSession } = useSession();
-  const api = useApi();
   const {
     markRead,
     getFriendUnread,
     getGroupUnread,
     unreadSummary,
+    setActiveChat,
+    updateLastMessage,
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,
@@ -72,10 +69,6 @@ export function Main() {
   const [chatTarget, setChatTarget] = useState<ChatTarget | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // 多选模式状态
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
 
   // 弹窗状态
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -117,18 +110,31 @@ export function Main() {
     removeMessage: removeGroupMessage,
   } = useGroupMessages(groupId);
 
-  // 退出多选模式时清空选中
-  useEffect(() => {
-    if (!isMultiSelectMode) {
-      setSelectedMessages(new Set());
-    }
-  }, [isMultiSelectMode]);
+  // 消息操作 Hook
+  const { handleRecallMessage, handleDeleteMessage } = useChatActions({
+    chatTarget,
+    removeFriendMessage,
+    removeGroupMessage,
+  });
 
-  // 切换聊天对象时退出多选模式
-  useEffect(() => {
-    setIsMultiSelectMode(false);
-    setSelectedMessages(new Set());
-  }, [chatTarget]);
+  // 多选模式 Hook
+  const {
+    isMultiSelectMode,
+    selectedMessages,
+    handleToggleSelect,
+    handleEnterMultiSelect,
+    handleExitMultiSelect,
+    handleSelectAll,
+    handleDeselectAll,
+    handleBatchDelete,
+    handleBatchRecall,
+  } = useMultiSelect({
+    chatTarget,
+    friendMessages,
+    groupMessages,
+    handleRecallMessage,
+    handleDeleteMessage,
+  });
 
   // 加载消息并标记已读
   useEffect(() => {
@@ -159,11 +165,15 @@ export function Main() {
         ) {
           handleNewGroupMessage(msg);
           markRead('group', msg.source_id);
+          // 如果 WebSocket 消息不包含头像，延迟刷新以获取完整数据
+          if (!msg.sender_avatar_url) {
+            setTimeout(() => loadGroupMessages(), 100);
+          }
         }
       }
     });
     return unsubscribe;
-  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
+  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage, loadGroupMessages]);
 
   // 订阅消息撤回事件
   useEffect(() => {
@@ -202,201 +212,73 @@ export function Main() {
           refreshGroups();
           if (chatTarget?.type === 'group') {
             setChatTarget(null);
+            setActiveChat(null, null);
           }
           break;
       }
     });
     return unsubscribe;
-  }, [chatTarget, onSystemNotification, refreshFriends, refreshGroups]);
-
-  if (!session) {
-    return null;
-  }
-
-  const handleLogout = () => {
-    clearSession();
-  };
-
-  // 输入框引用
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // 自动调整输入框高度
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    
-    textarea.style.height = 'auto';
-    const maxHeight = window.innerHeight / 5;
-    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
-    textarea.style.height = `${newHeight}px`;
-  }, []);
+  }, [chatTarget, onSystemNotification, refreshFriends, refreshGroups, setActiveChat]);
 
   // 发送消息
   const handleSendMessage = useCallback(async () => {
-    if (!messageInput.trim() || !chatTarget) return;
+    if (!messageInput.trim() || !chatTarget) { return; }
 
     const content = messageInput.trim();
     setMessageInput('');
-    
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+
+    const timestamp = new Date().toISOString();
 
     if (chatTarget.type === 'friend') {
       await sendFriendMessage(content);
+      updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
       await sendGroupMessage(content);
+      updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage]);
-
-  // 处理键盘事件
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  }, [handleSendMessage]);
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage]);
 
   // 处理文件选择
-  const handleFileSelect = useCallback(async (file: File, _type: AttachmentType) => {
-    if (!chatTarget) return;
+  const handleFileSelect = useCallback(async (file: File, type: AttachmentType) => {
+    if (!chatTarget) { return; }
 
     setUploadingFile(file);
+
+    const messageTypeMap: Record<AttachmentType, 'image' | 'video' | 'file'> = {
+      image: 'image',
+      video: 'video',
+      file: 'file',
+    };
+    const messageType = messageTypeMap[type];
+    const timestamp = new Date().toISOString();
 
     try {
       if (chatTarget.type === 'friend') {
         const result = await uploadFriendFile(file, chatTarget.data.friend_id);
-        if (!result.success) {
-          console.error('文件上传失败:', result.error);
-        }
-        // 上传成功后刷新消息列表
         if (result.success) {
           loadFriendMessages();
+          updateLastMessage('friend', chatTarget.data.friend_id, file.name, messageType, timestamp);
+        } else {
+          console.error('文件上传失败:', result.error);
         }
       } else {
         const result = await uploadGroupFile(file, chatTarget.data.group_id);
-        if (!result.success) {
-          console.error('文件上传失败:', result.error);
-        }
         if (result.success) {
           loadGroupMessages();
+          updateLastMessage('group', chatTarget.data.group_id, file.name, messageType, timestamp);
+        } else {
+          console.error('文件上传失败:', result.error);
         }
       }
     } catch (err) {
       console.error('文件上传失败:', err);
     } finally {
-      // 延迟清除上传状态，让用户看到完成动画
       setTimeout(() => {
         setUploadingFile(null);
         resetUpload();
       }, 1500);
     }
-  }, [chatTarget, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload]);
-
-  // ============================================
-  // 消息操作回调
-  // ============================================
-
-  // 切换消息选中状态
-  const handleToggleSelect = useCallback((messageUuid: string) => {
-    setSelectedMessages((prev) => {
-      const next = new Set(prev);
-      if (next.has(messageUuid)) {
-        next.delete(messageUuid);
-      } else {
-        next.add(messageUuid);
-      }
-      return next;
-    });
-  }, []);
-
-  // 进入多选模式
-  const handleEnterMultiSelect = useCallback(() => {
-    setIsMultiSelectMode(true);
-  }, []);
-
-  // 退出多选模式
-  const handleExitMultiSelect = useCallback(() => {
-    setIsMultiSelectMode(false);
-    setSelectedMessages(new Set());
-  }, []);
-
-  // 全选
-  const handleSelectAll = useCallback(() => {
-    if (chatTarget?.type === 'friend') {
-      setSelectedMessages(new Set(friendMessages.map((m) => m.message_uuid)));
-    } else if (chatTarget?.type === 'group') {
-      setSelectedMessages(new Set(groupMessages.map((m) => m.message_uuid)));
-    }
-  }, [chatTarget, friendMessages, groupMessages]);
-
-  // 取消全选
-  const handleDeselectAll = useCallback(() => {
-    setSelectedMessages(new Set());
-  }, []);
-
-  // 撤回单条消息（只有成功才移除，失败不移除）
-  const handleRecallMessage = useCallback(async (messageUuid: string) => {
-    if (!chatTarget) return;
-
-    try {
-      if (chatTarget.type === 'friend') {
-        await recallMessage(api, messageUuid);
-        // 撤回成功后才移除消息
-        removeFriendMessage(messageUuid);
-      } else {
-        await recallGroupMessage(api, messageUuid);
-        // 撤回成功后才移除消息
-        removeGroupMessage(messageUuid);
-      }
-    } catch (err) {
-      // 撤回失败，不移除消息
-      console.error('撤回失败:', err);
-    }
-  }, [api, chatTarget, removeFriendMessage, removeGroupMessage]);
-
-  // 删除单条消息
-  const handleDeleteMessage = useCallback(async (messageUuid: string) => {
-    if (!chatTarget) return;
-
-    try {
-      if (chatTarget.type === 'friend') {
-        await deleteMessage(api, messageUuid);
-        removeFriendMessage(messageUuid);
-      } else {
-        await deleteGroupMessage(api, messageUuid);
-        removeGroupMessage(messageUuid);
-      }
-    } catch (err) {
-      console.error('删除失败:', err);
-    }
-  }, [api, chatTarget, removeFriendMessage, removeGroupMessage]);
-
-  // 批量删除
-  const handleBatchDelete = useCallback(async () => {
-    if (selectedMessages.size === 0) return;
-
-    const uuids = Array.from(selectedMessages);
-    
-    for (const uuid of uuids) {
-      await handleDeleteMessage(uuid);
-    }
-    
-    handleExitMultiSelect();
-  }, [selectedMessages, handleDeleteMessage, handleExitMultiSelect]);
-
-  // 批量撤回
-  const handleBatchRecall = useCallback(async () => {
-    if (selectedMessages.size === 0) return;
-
-    const uuids = Array.from(selectedMessages);
-    
-    for (const uuid of uuids) {
-      await handleRecallMessage(uuid);
-    }
-    
-    handleExitMultiSelect();
-  }, [selectedMessages, handleRecallMessage, handleExitMultiSelect]);
+  }, [chatTarget, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload, updateLastMessage]);
 
   // ============================================
   // 选择处理
@@ -404,11 +286,26 @@ export function Main() {
 
   const handleSelectFriend = (friend: Friend) => {
     setChatTarget({ type: 'friend', data: friend });
+    setActiveChat('friend', friend.friend_id);
+    markRead('friend', friend.friend_id);
   };
 
   const handleSelectGroup = (group: Group) => {
     setChatTarget({ type: 'group', data: group });
+    setActiveChat('group', group.group_id);
+    markRead('group', group.group_id);
   };
+
+  const handleSelectTarget = useCallback((target: ChatTarget) => {
+    setChatTarget(target);
+    if (target.type === 'friend') {
+      setActiveChat('friend', target.data.friend_id);
+      markRead('friend', target.data.friend_id);
+    } else {
+      setActiveChat('group', target.data.group_id);
+      markRead('group', target.data.group_id);
+    }
+  }, [markRead, setActiveChat]);
 
   const handleTabChange = (tab: NavTab) => {
     setActiveTab(tab);
@@ -419,23 +316,27 @@ export function Main() {
   const isLoading = chatTarget?.type === 'friend' ? friendMessagesLoading : groupMessagesLoading;
   const isSending = chatTarget?.type === 'friend' ? friendSending : groupSending;
 
-  // 当发送状态结束时，重新聚焦输入框
-  useEffect(() => {
-    if (!isSending && chatTarget && !isMultiSelectMode) {
-      textareaRef.current?.focus();
-    }
-  }, [isSending, chatTarget, isMultiSelectMode]);
+  // ============================================
+  // Early return 检查（必须在所有 hooks 之后）
+  // ============================================
+  if (!session) {
+    return null;
+  }
+
+  const handleLogout = () => {
+    clearSession();
+  };
 
   // 获取聊天标题
   const getChatTitle = () => {
-    if (!chatTarget) return '';
+    if (!chatTarget) { return ''; }
     return chatTarget.type === 'friend'
       ? chatTarget.data.friend_nickname
       : chatTarget.data.group_name;
   };
 
   const getChatSubtitle = () => {
-    if (!chatTarget) return '';
+    if (!chatTarget) { return ''; }
     if (chatTarget.type === 'friend') {
       return `@${chatTarget.data.friend_id}`;
     }
@@ -457,11 +358,10 @@ export function Main() {
     return hints[activeTab];
   };
 
-  // 判断是否可以批量撤回（群主/管理员可以撤回任意消息）
-  const canBatchRecall = chatTarget?.type === 'group' && 
+  // 判断是否可以批量撤回
+  const canBatchRecall = chatTarget?.type === 'group' &&
     (chatTarget.data.role === 'owner' || chatTarget.data.role === 'admin');
 
-  // 当前消息总数
   const currentMessages = chatTarget?.type === 'friend' ? friendMessages : groupMessages;
   const totalMessageCount = currentMessages.length;
 
@@ -481,7 +381,7 @@ export function Main() {
       />
 
       {/* 中间列表 + 分割线 */}
-      <div 
+      <div
         className={`chat-list-container ${isResizing ? 'resizing' : ''}`}
         style={{ width: panelWidth }}
       >
@@ -498,7 +398,7 @@ export function Main() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               selectedTarget={chatTarget}
-              onSelectTarget={setChatTarget}
+              onSelectTarget={handleSelectTarget}
               unreadSummary={unreadSummary}
               panelWidth={panelWidth}
             />
@@ -532,9 +432,9 @@ export function Main() {
             />
           )}
         </AnimatePresence>
-        
+
         {/* 可拖拽分割线 */}
-        <div 
+        <div
           className="panel-resizer"
           onMouseDown={handleResizeStart}
         />
@@ -565,14 +465,26 @@ export function Main() {
                   target={chatTarget}
                   onFriendRemoved={() => {
                     setChatTarget(null);
+                    setActiveChat(null, null);
                     refreshFriends();
                   }}
-                  onGroupUpdated={() => {}}
+                  onGroupUpdated={async () => {
+                    const updatedGroups = await refreshGroups();
+                    if (chatTarget?.type === 'group') {
+                      const updatedGroup = updatedGroups.find(
+                        (g) => g.group_id === chatTarget.data.group_id,
+                      );
+                      if (updatedGroup) {
+                        setChatTarget({ type: 'group', data: updatedGroup });
+                      }
+                    }
+                  }}
                   onGroupLeft={() => {
                     setChatTarget(null);
+                    setActiveChat(null, null);
                   }}
                   isMultiSelectMode={isMultiSelectMode}
-                  onToggleMultiSelect={() => setIsMultiSelectMode(!isMultiSelectMode)}
+                  onToggleMultiSelect={handleEnterMultiSelect}
                 />
               </div>
 
@@ -621,59 +533,21 @@ export function Main() {
                     onCancel={handleExitMultiSelect}
                   />
                 ) : (
-                  <motion.div
+                  <ChatInputArea
                     key="input-area"
-                    className="chat-input-area"
-                    initial={{ y: 40, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: 40, opacity: 0 }}
-                    transition={{ type: 'spring', damping: 28, stiffness: 350, mass: 0.8 }}
-                  >
-                    {/* 上传进度条 */}
-                    <AnimatePresence>
-                      {uploading && uploadingFile && progress && (
-                        <UploadProgress
-                          filename={uploadingFile.name}
-                          fileSize={uploadingFile.size}
-                          progress={progress}
-                          onCancel={() => {
-                            setUploadingFile(null);
-                            resetUpload();
-                          }}
-                        />
-                      )}
-                    </AnimatePresence>
-
-                    <div className="input-wrapper multiline">
-                      {/* 文件附件按钮 */}
-                      <FileAttachButton
-                        disabled={isSending || uploading}
-                        onFileSelect={handleFileSelect}
-                      />
-                      
-                      <textarea
-                        ref={textareaRef}
-                        placeholder="输入消息... (Shift+Enter 换行)"
-                        value={messageInput}
-                        onChange={(e) => {
-                          setMessageInput(e.target.value);
-                          adjustTextareaHeight();
-                        }}
-                        onKeyDown={handleKeyDown}
-                        disabled={isSending || uploading}
-                        rows={1}
-                      />
-                      <motion.button
-                        className="send-btn"
-                        onClick={handleSendMessage}
-                        disabled={!messageInput.trim() || isSending || uploading}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {isSending ? <LoadingSpinner /> : <SendIcon />}
-                      </motion.button>
-                    </div>
-                  </motion.div>
+                    messageInput={messageInput}
+                    onMessageChange={setMessageInput}
+                    onSendMessage={handleSendMessage}
+                    onFileSelect={handleFileSelect}
+                    isSending={isSending}
+                    uploading={uploading}
+                    uploadingFile={uploadingFile}
+                    uploadProgress={progress}
+                    onCancelUpload={() => {
+                      setUploadingFile(null);
+                      resetUpload();
+                    }}
+                  />
                 )}
               </AnimatePresence>
             </motion.div>

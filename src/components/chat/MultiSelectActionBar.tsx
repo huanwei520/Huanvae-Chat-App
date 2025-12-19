@@ -38,9 +38,9 @@ export function MultiSelectActionBar({
       initial={{ y: 40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 40, opacity: 0 }}
-      transition={{ 
-        type: 'spring', 
-        damping: 28, 
+      transition={{
+        type: 'spring',
+        damping: 28,
         stiffness: 350,
         mass: 0.8,
       }}
@@ -107,4 +107,3 @@ export function MultiSelectActionBar({
     </motion.div>
   );
 }
-

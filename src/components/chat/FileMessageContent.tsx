@@ -102,14 +102,14 @@ export function FileMessageContent({
 
   // 点击打开预览
   const handleClick = useCallback(() => {
-    if (!fileUuid) return;
+    if (!fileUuid) { return; }
     setShowPreview(true);
   }, [fileUuid]);
 
   // 下载文件
   const handleDownload = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!fileUuid) return;
+    if (!fileUuid) { return; }
 
     try {
       const url = await getPresignedUrl(api, fileUuid);
@@ -195,7 +195,7 @@ export function FileMessageContent({
         </div>
         <div className="document-info">
           <span className="document-name" title={filename}>
-            {filename.length > 20 ? filename.slice(0, 17) + '...' : filename}
+            {filename.length > 20 ? `${filename.slice(0, 17)  }...` : filename}
           </span>
           {fileSize && (
             <span className="document-size">{formatFileSize(fileSize)}</span>
@@ -217,4 +217,3 @@ export function FileMessageContent({
     </>
   );
 }
-

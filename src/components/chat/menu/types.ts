@@ -57,4 +57,3 @@ export interface MenuActions {
   setSelectedMember: (member: GroupMember | null) => void;
   setMuteDuration: (duration: number) => void;
 }
-

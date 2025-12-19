@@ -83,7 +83,7 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
 
   // 打开菜单
   const handleClick = useCallback(() => {
-    if (disabled) return;
+    if (disabled) { return; }
 
     const button = buttonRef.current;
     if (button) {
@@ -118,12 +118,12 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
       // 重置 input 以便再次选择相同文件
       e.target.value = '';
     },
-    [onFileSelect, selectedType]
+    [onFileSelect, selectedType],
   );
 
   // 点击外部关闭菜单
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) { return; }
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -145,7 +145,7 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
 
   // ESC 键关闭
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) { return; }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -209,9 +209,8 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
             </motion.div>
           )}
         </AnimatePresence>,
-        document.body
+        document.body,
       )}
     </>
   );
 }
-

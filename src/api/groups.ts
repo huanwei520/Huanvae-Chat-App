@@ -224,33 +224,56 @@ export function joinGroupByCode(
 // 群头像管理
 // ============================================
 
+/** 进度回调类型 */
+export type ProgressCallback = (progress: number) => void;
+
 /**
  * 上传群头像
  * 权限：群主或管理员
+ * 使用 XMLHttpRequest 以获取上传进度
  */
-export async function uploadGroupAvatar(
+export function uploadGroupAvatar(
   api: ApiClient,
   groupId: string,
   file: File,
+  onProgress?: ProgressCallback,
 ): Promise<{ success: boolean; data: { avatar_url: string } }> {
-  const formData = new FormData();
-  formData.append('avatar', file);
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
 
-  // 使用原生 fetch 处理 FormData
-  const response = await fetch(`${api.getBaseUrl()}/api/groups/${groupId}/avatar`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${api.getAccessToken()}`,
-    },
-    body: formData,
+    const xhr = new XMLHttpRequest();
+
+    // 监听上传进度
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        onProgress(progress);
+      }
+    };
+
+    // 完成时处理响应
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data);
+        } else {
+          reject(new Error(data.error || '上传群头像失败'));
+        }
+      } catch {
+        reject(new Error('解析响应失败'));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('网络错误'));
+    };
+
+    xhr.open('POST', `${api.getBaseUrl()}/api/groups/${groupId}/avatar`);
+    xhr.setRequestHeader('Authorization', `Bearer ${api.getAccessToken()}`);
+    xhr.send(formData);
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || '上传群头像失败');
-  }
-
-  return response.json();
 }
 
 // ============================================

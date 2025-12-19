@@ -129,6 +129,61 @@ export function ConversationList({
     return false;
   };
 
+  // 渲染列表内容（避免嵌套三元表达式）
+  const renderListContent = () => {
+    if (loading) {
+      return <ListLoading />;
+    }
+    if (error) {
+      return <ListError error={error} />;
+    }
+    if (filteredConversations.length === 0) {
+      return <ListEmpty message={searchQuery ? '未找到匹配的会话' : '暂无会话'} />;
+    }
+    return filteredConversations.map((item, index) => (
+      <motion.div
+        key={`${item.type}-${item.id}`}
+        className={`conversation-item ${isSelected(item) ? 'active' : ''}`}
+        onClick={() => {
+          if (item.type === 'friend') {
+            onSelectTarget({ type: 'friend', data: item.data as Friend });
+          } else {
+            onSelectTarget({ type: 'group', data: item.data as Group });
+          }
+        }}
+        variants={cardVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        custom={index}
+      >
+        <div className="conv-avatar">
+          {item.type === 'friend' ? (
+            <FriendAvatar friend={item.data as Friend} />
+          ) : (
+            <GroupAvatar group={item.data as Group} />
+          )}
+        </div>
+        <div className="conv-info">
+          <div className="conv-header">
+            <span className="conv-name">{item.name}</span>
+            {item.lastMessageTime && (
+              <span className="conv-time">{formatMessageTime(item.lastMessageTime)}</span>
+            )}
+          </div>
+          <div className="conv-footer">
+            <span className="conv-preview">
+              {item.lastMessage || '暂无消息'}
+            </span>
+            {item.unreadCount > 0 && (
+              <span className="conv-unread">{item.unreadCount > 99 ? '99+' : item.unreadCount}</span>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    ));
+  };
+
   return (
     <motion.section
       className="chat-list-panel"
@@ -147,62 +202,7 @@ export function ConversationList({
       </div>
 
       <div className="conversation-list">
-        {loading ? (
-          <ListLoading />
-        ) : error ? (
-          <ListError error={error} />
-        ) : filteredConversations.length === 0 ? (
-          <ListEmpty message={searchQuery ? '未找到匹配的会话' : '暂无会话'} />
-        ) : (
-          filteredConversations.map((item, index) => (
-            <motion.div
-              key={`${item.type}-${item.id}`}
-              className={`conversation-item ${isSelected(item) ? 'active' : ''}`}
-              onClick={() => {
-                if (item.type === 'friend') {
-                  onSelectTarget({ type: 'friend', data: item.data as Friend });
-                } else {
-                  onSelectTarget({ type: 'group', data: item.data as Group });
-                }
-              }}
-              custom={index}
-              variants={cardVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
-            >
-              <div className="conv-avatar">
-                {item.type === 'friend' ? (
-                  <FriendAvatar friend={item.data as Friend} size={44} />
-                ) : (
-                  <GroupAvatar group={item.data as Group} size={44} />
-                )}
-              </div>
-              <div className="conv-info">
-                <div className="conv-header">
-                  <span className="conv-name">
-                    {item.type === 'group' && <span className="conv-type-badge">[群]</span>}
-                    {item.name}
-                  </span>
-                  {item.lastMessageTime && (
-                    <span className="conv-time">{formatMessageTime(item.lastMessageTime)}</span>
-                  )}
-                </div>
-                <div className="conv-preview">
-                  <span className="conv-message">
-                    {item.lastMessage || (item.type === 'friend' ? `@${item.id}` : '暂无消息')}
-                  </span>
-                </div>
-              </div>
-              {item.unreadCount > 0 && (
-                <div className="unread-badge">
-                  {item.unreadCount > 99 ? '99+' : item.unreadCount}
-                </div>
-              )}
-            </motion.div>
-          ))
-        )}
+        {renderListContent()}
       </div>
     </motion.section>
   );

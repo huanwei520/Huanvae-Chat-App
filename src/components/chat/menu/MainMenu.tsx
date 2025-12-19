@@ -12,6 +12,9 @@ import {
   ExitIcon,
   MultiSelectIcon,
 } from '../../common/Icons';
+import { CircularProgress } from '../../common/CircularProgress';
+import { GroupAvatar } from '../../common/Avatar';
+import type { Group } from '../../../types/chat';
 import type { MenuView } from './types';
 
 interface MainMenuProps {
@@ -19,6 +22,12 @@ interface MainMenuProps {
   isOwnerOrAdmin: boolean;
   isOwner: boolean;
   isMultiSelectMode: boolean;
+  /** 群信息（用于显示头像） */
+  group?: Group;
+  /** 是否正在上传头像 */
+  uploadingAvatar?: boolean;
+  /** 上传进度 0-100 */
+  avatarUploadProgress?: number;
   onSetView: (view: MenuView) => void;
   onLoadMembers: () => void;
   onUploadAvatar: () => void;
@@ -30,6 +39,9 @@ export function MainMenu({
   isOwnerOrAdmin,
   isOwner,
   isMultiSelectMode,
+  group,
+  uploadingAvatar = false,
+  avatarUploadProgress = 0,
   onSetView,
   onLoadMembers,
   onUploadAvatar,
@@ -40,6 +52,42 @@ export function MainMenu({
   return (
     <>
       <MenuHeader title={title} />
+
+      {/* 群头像显示区域 */}
+      {targetType === 'group' && group && isOwnerOrAdmin && (
+        <div className="menu-avatar-section">
+          <div
+            className="menu-avatar-container"
+            onClick={uploadingAvatar ? undefined : onUploadAvatar}
+            style={{ cursor: uploadingAvatar ? 'default' : 'pointer' }}
+          >
+            {uploadingAvatar ? (
+              <CircularProgress
+                progress={avatarUploadProgress}
+                size={64}
+                strokeWidth={3}
+                progressColor="#3b82f6"
+                backgroundColor="rgba(147, 197, 253, 0.3)"
+              >
+                <div className="menu-avatar-upload-content">
+                  <GroupAvatar group={group} />
+                  <div className="menu-avatar-progress-overlay">
+                    {avatarUploadProgress}%
+                  </div>
+                </div>
+              </CircularProgress>
+            ) : (
+              <div className="menu-avatar-wrapper">
+                <GroupAvatar group={group} />
+                <div className="menu-avatar-overlay">
+                  <CameraIcon />
+                </div>
+              </div>
+            )}
+          </div>
+          <span className="menu-avatar-hint">点击更换头像</span>
+        </div>
+      )}
 
       {/* 多选消息选项 */}
       <button
@@ -72,10 +120,6 @@ export function MainMenu({
               >
                 <EditIcon />
                 <span>修改群名称</span>
-              </button>
-              <button className="menu-item" onClick={onUploadAvatar}>
-                <CameraIcon />
-                <span>更换群头像</span>
               </button>
               <button className="menu-item" onClick={() => onSetView('invite')}>
                 <UserPlusIcon />

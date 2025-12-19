@@ -1,6 +1,6 @@
 /**
  * 搜索弹出框状态管理 Hook
- * 
+ *
  * 用于管理可折叠搜索框的弹出状态
  */
 
@@ -47,15 +47,15 @@ export function useSearchPopup({
 
   // 点击外部关闭弹出框
   useEffect(() => {
-    if (!showSearchPopup) return;
-    
+    if (!showSearchPopup) { return; }
+
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.search-popup') && !target.closest('.search-icon-btn') && !target.closest('.search-box-wrapper')) {
         setShowSearchPopup(false);
       }
     };
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showSearchPopup]);
@@ -77,4 +77,3 @@ export function useSearchPopup({
     closePopup,
   };
 }
-

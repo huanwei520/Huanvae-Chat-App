@@ -1,6 +1,6 @@
 /**
  * 可复用的搜索框组件
- * 
+ *
  * 支持折叠状态下显示为图标按钮，点击后弹出搜索框
  */
 
@@ -85,9 +85,8 @@ export function SearchBox({
             </motion.div>
           </motion.div>
         </AnimatePresence>,
-        document.body
+        document.body,
       )}
     </>
   );
 }
-

@@ -125,7 +125,7 @@ const RETRY_DELAYS = [2000, 4000, 6000]; // 递增延迟
  */
 async function calculateSHA256(
   file: File,
-  onProgress?: (detail: string) => void
+  onProgress?: (detail: string) => void,
 ): Promise<string> {
   // 文件大小信息（确保相同内容产生相同哈希）
   const sizeBuffer = new TextEncoder().encode(`|size:${file.size}|`);
@@ -188,14 +188,15 @@ async function calculateSHA256(
  */
 function getFileType(
   file: File,
-  storageLocation: StorageLocation
+  storageLocation: StorageLocation,
 ): FileType {
-  const prefix =
-    storageLocation === 'friend_messages'
-      ? 'friend'
-      : storageLocation === 'group_files'
-      ? 'group'
-      : 'user';
+  // 确定前缀（避免嵌套三元表达式）
+  let prefix = 'user';
+  if (storageLocation === 'friend_messages') {
+    prefix = 'friend';
+  } else if (storageLocation === 'group_files') {
+    prefix = 'group';
+  }
 
   if (file.type.startsWith('image/')) {
     return `${prefix}_image` as FileType;
@@ -212,7 +213,7 @@ function getFileType(
 async function uploadChunkWithRetry(
   url: string,
   chunk: Blob,
-  retryCount = 0
+  retryCount = 0,
 ): Promise<void> {
   try {
     const response = await fetch(url, {
@@ -226,9 +227,9 @@ async function uploadChunkWithRetry(
   } catch (error) {
     if (retryCount < MAX_RETRIES) {
       // 等待后重试
-      await new Promise((resolve) =>
-        setTimeout(resolve, RETRY_DELAYS[retryCount])
-      );
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, RETRY_DELAYS[retryCount]);
+      });
       return uploadChunkWithRetry(url, chunk, retryCount + 1);
     }
     throw error;
@@ -266,18 +267,16 @@ export function useFileUpload() {
       try {
         // 1. 计算文件哈希（带进度回调）
         const fileHash = await calculateSHA256(file, (detail) => {
-          setProgress((prev) => ({
-            ...prev!,
-            statusDetail: detail,
-          }));
+          setProgress((prev) => {
+            if (!prev) { return prev; }
+            return { ...prev, statusDetail: detail };
+          });
         });
 
-        setProgress((prev) => ({
-          ...prev!,
-          status: 'requesting',
-          percent: 5,
-          statusDetail: '正在请求上传...',
-        }));
+        setProgress((prev) => {
+          if (!prev) { return prev; }
+          return { ...prev, status: 'requesting', percent: 5, statusDetail: '正在请求上传...' };
+        });
 
         // 2. 请求上传
         const uploadInfo = await api.post<UploadRequestResponse>('/api/storage/upload/request', {
@@ -322,24 +321,29 @@ export function useFileUpload() {
         const totalChunks =
           uploadInfo.total_chunks || Math.ceil(file.size / chunkSize);
 
-        setProgress((prev) => ({
-          ...prev!,
-          status: 'uploading',
-          totalChunks,
-          percent: 10,
-          statusDetail: `0 / ${formatFileSize(file.size)}`,
-        }));
+        setProgress((prev) => {
+          if (!prev) { return prev; }
+          return {
+            ...prev,
+            status: 'uploading',
+            totalChunks,
+            percent: 10,
+            statusDetail: `0 / ${formatFileSize(file.size)}`,
+          };
+        });
 
         let totalUploaded = 0;
 
+        // 确保 multipart_upload_id 存在
+        const uploadId = uploadInfo.multipart_upload_id || '';
+
         for (let i = 0; i < totalChunks; i++) {
           // 获取分片预签名 URL
+          // eslint-disable-next-line no-await-in-loop
           const partUrlData = await api.get<{ part_url: string }>(
             `/api/storage/multipart/part_url?file_key=${encodeURIComponent(
-              uploadInfo.file_key
-            )}&upload_id=${encodeURIComponent(
-              uploadInfo.multipart_upload_id!
-            )}&part_number=${i + 1}`
+              uploadInfo.file_key,
+            )}&upload_id=${encodeURIComponent(uploadId)}&part_number=${i + 1}`,
           );
 
           // 切割分片
@@ -348,6 +352,7 @@ export function useFileUpload() {
           const chunk = file.slice(start, end);
 
           // 上传分片
+          // eslint-disable-next-line no-await-in-loop
           await uploadChunkWithRetry(partUrlData.part_url, chunk);
 
           // 更新进度
@@ -365,12 +370,10 @@ export function useFileUpload() {
         }
 
         // 5. 确认上传
-        setProgress((prev) => ({
-          ...prev!,
-          status: 'confirming',
-          percent: 95,
-          statusDetail: '正在确认上传...',
-        }));
+        setProgress((prev) => {
+          if (!prev) { return prev; }
+          return { ...prev, status: 'confirming', percent: 95, statusDetail: '正在确认上传...' };
+        });
 
         const confirmResult = await api.post<ConfirmUploadResponse>('/api/storage/upload/confirm', {
           file_key: uploadInfo.file_key,
@@ -401,10 +404,10 @@ export function useFileUpload() {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : '上传失败';
-        setProgress((prev) => ({
-          ...prev!,
-          status: 'error',
-        }));
+        setProgress((prev) => {
+          if (!prev) { return prev; }
+          return { ...prev, status: 'error' };
+        });
         setUploading(false);
 
         return {
@@ -414,14 +417,14 @@ export function useFileUpload() {
         };
       }
     },
-    [api]
+    [api],
   );
 
   /**
    * 上传好友文件
    */
   const uploadFriendFile = useCallback(
-    async (file: File, friendId: string): Promise<UploadResult> => {
+    (file: File, friendId: string): Promise<UploadResult> => {
       return uploadFile({
         file,
         fileType: getFileType(file, 'friend_messages'),
@@ -429,14 +432,14 @@ export function useFileUpload() {
         relatedId: friendId,
       });
     },
-    [uploadFile]
+    [uploadFile],
   );
 
   /**
    * 上传群聊文件
    */
   const uploadGroupFile = useCallback(
-    async (file: File, groupId: string): Promise<UploadResult> => {
+    (file: File, groupId: string): Promise<UploadResult> => {
       return uploadFile({
         file,
         fileType: getFileType(file, 'group_files'),
@@ -444,7 +447,7 @@ export function useFileUpload() {
         relatedId: groupId,
       });
     },
-    [uploadFile]
+    [uploadFile],
   );
 
   /**
@@ -483,13 +486,13 @@ interface PresignedUrlResponse {
 
 /**
  * 获取文件预签名 URL（带缓存）
- * 
+ *
  * 统一使用 /api/storage/file/{uuid}/presigned_url 接口
  * 该接口会自动检查用户权限（包括好友文件和群文件）
  */
 export async function getPresignedUrl(
   api: ReturnType<typeof useApi>,
-  fileUuid: string
+  fileUuid: string,
 ): Promise<string> {
   // 检查缓存
   const cached = presignedUrlCache.get(fileUuid);
@@ -526,9 +529,8 @@ export function clearPresignedUrlCache(fileUuid?: string) {
  * 格式化文件大小
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
-  return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  if (bytes < 1024) { return `${bytes  } B`; }
+  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)  } KB`; }
+  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)  } MB`; }
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)  } GB`;
 }
-

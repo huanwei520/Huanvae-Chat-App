@@ -1,6 +1,6 @@
 /**
  * 列表状态组件
- * 
+ *
  * 用于显示列表的加载中、错误、空状态
  */
 
@@ -42,4 +42,3 @@ export function ListEmpty({ message }: ListEmptyProps) {
     </div>
   );
 }
-

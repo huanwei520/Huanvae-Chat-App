@@ -91,7 +91,7 @@ export function FilePreviewModal({
 
   // 加载预签名 URL
   useEffect(() => {
-    if (!isOpen || !fileUuid) return;
+    if (!isOpen || !fileUuid) { return; }
 
     setLoading(true);
     setError(null);
@@ -105,7 +105,7 @@ export function FilePreviewModal({
 
   // 下载文件
   const handleDownload = useCallback(() => {
-    if (!url) return;
+    if (!url) { return; }
 
     const a = document.createElement('a');
     a.href = url;
@@ -126,7 +126,7 @@ export function FilePreviewModal({
 
   // ESC 键关闭
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) { return; }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -245,7 +245,6 @@ export function FilePreviewModal({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body
+    document.body,
   );
 }
-

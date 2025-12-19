@@ -65,18 +65,18 @@ const enterTransition = {
  * - 管理员/群主：可撤回任意消息
  */
 function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolean): boolean {
-  if (message.is_recalled) return false;
-  
+  if (message.is_recalled) { return false; }
+
   // 管理员可撤回任意消息
-  if (isAdmin) return true;
-  
+  if (isAdmin) { return true; }
+
   // 普通用户只能撤回自己的消息，且在2分钟内
-  if (!isOwn) return false;
-  
+  if (!isOwn) { return false; }
+
   const sendTime = new Date(message.send_time).getTime();
   const now = Date.now();
   const twoMinutes = 2 * 60 * 1000;
-  
+
   return now - sendTime < twoMinutes;
 }
 
@@ -110,8 +110,8 @@ export function GroupMessageBubble({
   // 右键打开菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    if (isMultiSelectMode) return;
-    
+    if (isMultiSelectMode) { return; }
+
     setContextMenu({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },
@@ -228,4 +228,3 @@ export function GroupMessageBubble({
     </>
   );
 }
-

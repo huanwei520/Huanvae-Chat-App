@@ -1,6 +1,6 @@
 /**
  * 列表组件通用动画配置
- * 
+ *
  * 用于 ConversationList, FriendList, GroupList 等列表组件
  * 确保所有列表有一致的动画效果
  */
@@ -39,4 +39,3 @@ export const panelVariants = {
 
 // 搜索框折叠阈值
 export const SEARCH_COLLAPSE_WIDTH = 120;
-

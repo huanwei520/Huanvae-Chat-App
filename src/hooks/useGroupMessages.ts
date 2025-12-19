@@ -103,7 +103,7 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
    */
   const sendTextMessage = useCallback(
     async (content: string): Promise<void> => {
-      if (!groupId || !content.trim() || !session) return;
+      if (!groupId || !content.trim() || !session) { return; }
 
       setSending(true);
       setError(null);
@@ -190,7 +190,7 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
         group_id: wsMsg.source_id,
         sender_id: wsMsg.sender_id,
         sender_nickname: wsMsg.sender_nickname,
-        sender_avatar_url: '', // WebSocket 通知不包含头像，可以后续加载
+        sender_avatar_url: wsMsg.sender_avatar_url || '', // 使用 WebSocket 返回的头像
         message_content: wsMsg.preview, // WebSocket 消息的 preview 就是消息内容
         message_type: wsMsg.message_type,
         file_uuid: null,

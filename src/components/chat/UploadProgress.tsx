@@ -80,7 +80,7 @@ export function UploadProgress({
       <div className="upload-progress-header">
         <div className="upload-progress-info">
           <span className="upload-filename" title={filename}>
-            {filename.length > 20 ? filename.slice(0, 17) + '...' : filename}
+            {filename.length > 20 ? `${filename.slice(0, 17)  }...` : filename}
           </span>
           <span className="upload-size">{formatFileSize(fileSize)}</span>
         </div>
@@ -119,4 +119,3 @@ export function UploadProgress({
     </motion.div>
   );
 }
-

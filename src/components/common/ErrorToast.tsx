@@ -24,4 +24,3 @@ export function ErrorToast({ message, onClose }: ErrorToastProps) {
     </motion.div>
   );
 }
-

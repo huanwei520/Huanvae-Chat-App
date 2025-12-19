@@ -67,6 +67,60 @@ export function GroupList({
     group.group_name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  // 渲染列表内容（避免嵌套三元表达式）
+  const renderListContent = () => {
+    if (loading) {
+      return <ListLoading />;
+    }
+    if (error) {
+      return <ListError error={error} />;
+    }
+    if (filteredGroups.length === 0) {
+      return <ListEmpty message={searchQuery ? '未找到匹配的群聊' : '暂无群聊'} />;
+    }
+    return filteredGroups.map((group, index) => {
+      const unreadCount = getUnreadCount?.(group.group_id) || 0;
+      return (
+        <motion.div
+          key={group.group_id}
+          className={`conversation-item ${selectedGroupId === group.group_id ? 'active' : ''}`}
+          onClick={() => onSelectGroup(group)}
+          custom={index}
+          variants={cardVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
+        >
+          <div className="conv-avatar">
+            <GroupAvatar group={group} />
+          </div>
+          <div className="conv-info">
+            <div className="conv-header">
+              <span className="conv-name">
+                {group.group_name}
+                <RoleBadge role={group.role} />
+              </span>
+              {group.last_message_time && (
+                <span className="conv-time">{formatMessageTime(group.last_message_time)}</span>
+              )}
+            </div>
+            <div className="conv-preview">
+              <span className="conv-message">
+                {group.last_message_content || '暂无消息'}
+              </span>
+            </div>
+          </div>
+          {unreadCount > 0 && (
+            <div className="unread-badge">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </div>
+          )}
+        </motion.div>
+      );
+    });
+  };
+
   return (
     <motion.section
       className="chat-list-panel"
@@ -85,55 +139,7 @@ export function GroupList({
       </div>
 
       <div className="conversation-list">
-        {loading ? (
-          <ListLoading />
-        ) : error ? (
-          <ListError error={error} />
-        ) : filteredGroups.length === 0 ? (
-          <ListEmpty message={searchQuery ? '未找到匹配的群聊' : '暂无群聊'} />
-        ) : (
-          filteredGroups.map((group, index) => {
-            const unreadCount = getUnreadCount?.(group.group_id) || 0;
-            return (
-              <motion.div
-                key={group.group_id}
-                className={`conversation-item ${selectedGroupId === group.group_id ? 'active' : ''}`}
-                onClick={() => onSelectGroup(group)}
-                custom={index}
-                variants={cardVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
-              >
-                <div className="conv-avatar">
-                  <GroupAvatar group={group} size={44} />
-                </div>
-                <div className="conv-info">
-                  <div className="conv-header">
-                    <span className="conv-name">
-                      {group.group_name}
-                      <RoleBadge role={group.role} />
-                    </span>
-                    {group.last_message_time && (
-                      <span className="conv-time">{formatMessageTime(group.last_message_time)}</span>
-                    )}
-                  </div>
-                  <div className="conv-preview">
-                    <span className="conv-message">
-                      {group.last_message_content || '暂无消息'}
-                    </span>
-                  </div>
-                </div>
-                {unreadCount > 0 && (
-                  <div className="unread-badge">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </div>
-                )}
-              </motion.div>
-            );
-          })
-        )}
+        {renderListContent()}
       </div>
     </motion.section>
   );

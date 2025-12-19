@@ -46,6 +46,18 @@ interface WebSocketContextType {
   connect: () => void;
   disconnect: () => void;
 
+  // 设置当前活跃的聊天目标（用于避免收到当前会话消息时增加未读）
+  setActiveChat: (targetType: 'friend' | 'group' | null, targetId: string | null) => void;
+
+  // 更新消息预览（发送消息后调用）
+  updateLastMessage: (
+    targetType: 'friend' | 'group',
+    targetId: string,
+    preview: string,
+    messageType: 'text' | 'image' | 'video' | 'file',
+    timestamp: string
+  ) => void;
+
   // 事件订阅
   onNewMessage: (callback: (msg: WsNewMessage) => void) => () => void;
   onMessageRecalled: (callback: (msg: WsMessageRecalled) => void) => () => void;
@@ -71,6 +83,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [unreadSummary, setUnreadSummary] = useState<UnreadSummary | null>(null);
+
+  // 当前活跃的聊天目标（用于判断新消息是否需要增加未读）
+  const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
 
   // 事件监听器
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
@@ -104,8 +119,23 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           setUnreadSummary(msg.unread_summary);
           break;
 
-        case 'new_message':
-          // 更新未读计数
+        case 'new_message': {
+          // 根据消息类型生成预览文本
+          let msgPreviewText = '[文件]';
+          if (msg.message_type === 'text') {
+            msgPreviewText = msg.preview;
+          } else if (msg.message_type === 'image') {
+            msgPreviewText = '[图片]';
+          } else if (msg.message_type === 'video') {
+            msgPreviewText = '[视频]';
+          }
+
+          // 检查是否是当前活跃的聊天（如果是则不增加未读计数）
+          const isActiveChat = activeChatRef.current &&
+            activeChatRef.current.type === msg.source_type &&
+            activeChatRef.current.id === msg.source_id;
+
+          // 更新未读计数和消息预览
           setUnreadSummary(prev => {
             if (!prev) { return prev; }
 
@@ -119,8 +149,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
                 newSummary.friend_unreads = [...newSummary.friend_unreads];
                 newSummary.friend_unreads[idx] = {
                   ...newSummary.friend_unreads[idx],
-                  unread_count: newSummary.friend_unreads[idx].unread_count + 1,
-                  last_message_preview: msg.preview,
+                  // 只有非当前聊天才增加未读计数
+                  unread_count: isActiveChat
+                    ? newSummary.friend_unreads[idx].unread_count
+                    : newSummary.friend_unreads[idx].unread_count + 1,
+                  last_message_preview: msgPreviewText,
                   last_message_time: msg.timestamp,
                 };
               } else {
@@ -128,8 +161,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
                   ...newSummary.friend_unreads,
                   {
                     friend_id: msg.source_id,
-                    unread_count: 1,
-                    last_message_preview: msg.preview,
+                    unread_count: isActiveChat ? 0 : 1,
+                    last_message_preview: msgPreviewText,
                     last_message_time: msg.timestamp,
                   },
                 ];
@@ -142,8 +175,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
                 newSummary.group_unreads = [...newSummary.group_unreads];
                 newSummary.group_unreads[idx] = {
                   ...newSummary.group_unreads[idx],
-                  unread_count: newSummary.group_unreads[idx].unread_count + 1,
-                  last_message_preview: msg.preview,
+                  // 只有非当前聊天才增加未读计数
+                  unread_count: isActiveChat
+                    ? newSummary.group_unreads[idx].unread_count
+                    : newSummary.group_unreads[idx].unread_count + 1,
+                  last_message_preview: msgPreviewText,
                   last_message_time: msg.timestamp,
                 };
               } else {
@@ -151,8 +187,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
                   ...newSummary.group_unreads,
                   {
                     group_id: msg.source_id,
-                    unread_count: 1,
-                    last_message_preview: msg.preview,
+                    unread_count: isActiveChat ? 0 : 1,
+                    last_message_preview: msgPreviewText,
                     last_message_time: msg.timestamp,
                   },
                 ];
@@ -170,6 +206,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           // 通知监听器
           newMessageListeners.current.forEach(cb => cb(msg));
           break;
+        }
 
         case 'message_recalled':
           recalledListeners.current.forEach(cb => cb(msg));
@@ -300,17 +337,16 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
   // 标记已读
   const markRead = useCallback((targetType: 'friend' | 'group', targetId: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      return;
+    // 通知服务器（如果 WebSocket 已连接）
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'mark_read',
+        target_type: targetType,
+        target_id: targetId,
+      }));
     }
 
-    wsRef.current.send(JSON.stringify({
-      type: 'mark_read',
-      target_type: targetType,
-      target_id: targetId,
-    }));
-
-    // 更新本地未读数
+    // 无论 WebSocket 是否连接，都更新本地未读数
     setUnreadSummary(prev => {
       if (!prev) { return prev; }
 
@@ -333,6 +369,112 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
       return newSummary;
     });
+  }, []);
+
+  // 更新消息预览（发送消息后调用）
+  const updateLastMessage = useCallback((
+    targetType: 'friend' | 'group',
+    targetId: string,
+    preview: string,
+    messageType: 'text' | 'image' | 'video' | 'file',
+    timestamp: string,
+  ) => {
+    // 根据消息类型生成预览文本
+    let previewText = '[文件]';
+    if (messageType === 'text') {
+      previewText = preview;
+    } else if (messageType === 'image') {
+      previewText = '[图片]';
+    } else if (messageType === 'video') {
+      previewText = '[视频]';
+    }
+
+    setUnreadSummary(prev => {
+      if (!prev) {
+        // 如果还没有 unreadSummary，创建一个初始的
+        if (targetType === 'friend') {
+          return {
+            total_count: 0,
+            friend_unreads: [{
+              friend_id: targetId,
+              unread_count: 0,
+              last_message_preview: previewText,
+              last_message_time: timestamp,
+            }],
+            group_unreads: [],
+          };
+        } else {
+          return {
+            total_count: 0,
+            friend_unreads: [],
+            group_unreads: [{
+              group_id: targetId,
+              unread_count: 0,
+              last_message_preview: previewText,
+              last_message_time: timestamp,
+            }],
+          };
+        }
+      }
+
+      const newSummary = { ...prev };
+
+      if (targetType === 'friend') {
+        const idx = newSummary.friend_unreads.findIndex(u => u.friend_id === targetId);
+        if (idx >= 0) {
+          newSummary.friend_unreads = [...newSummary.friend_unreads];
+          newSummary.friend_unreads[idx] = {
+            ...newSummary.friend_unreads[idx],
+            last_message_preview: previewText,
+            last_message_time: timestamp,
+          };
+        } else {
+          newSummary.friend_unreads = [
+            ...newSummary.friend_unreads,
+            {
+              friend_id: targetId,
+              unread_count: 0,
+              last_message_preview: previewText,
+              last_message_time: timestamp,
+            },
+          ];
+        }
+      } else {
+        const idx = newSummary.group_unreads.findIndex(u => u.group_id === targetId);
+        if (idx >= 0) {
+          newSummary.group_unreads = [...newSummary.group_unreads];
+          newSummary.group_unreads[idx] = {
+            ...newSummary.group_unreads[idx],
+            last_message_preview: previewText,
+            last_message_time: timestamp,
+          };
+        } else {
+          newSummary.group_unreads = [
+            ...newSummary.group_unreads,
+            {
+              group_id: targetId,
+              unread_count: 0,
+              last_message_preview: previewText,
+              last_message_time: timestamp,
+            },
+          ];
+        }
+      }
+
+      return newSummary;
+    });
+  }, []);
+
+  // 设置当前活跃的聊天目标
+  const setActiveChat = useCallback((
+    targetType: 'friend' | 'group' | null,
+    targetId: string | null,
+  ) => {
+    if (targetType && targetId) {
+      activeChatRef.current = { type: targetType, id: targetId };
+    } else {
+      activeChatRef.current = null;
+    }
   }, []);
 
   // 事件订阅
@@ -381,6 +523,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     markRead,
     connect,
     disconnect,
+    setActiveChat,
+    updateLastMessage,
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,

@@ -10,4 +10,3 @@ export interface AddModalProps {
   onFriendAdded?: () => void;
   onGroupAdded?: () => void;
 }
-

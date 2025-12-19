@@ -8,4 +8,3 @@ export { InvitationsListContent } from './InvitationsListContent';
 export { CreateGroupForm } from './CreateGroupForm';
 export { JoinGroupForm } from './JoinGroupForm';
 export { GroupsTabNavigation } from './GroupsTabNavigation';
-

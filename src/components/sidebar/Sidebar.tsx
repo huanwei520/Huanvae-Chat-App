@@ -60,7 +60,7 @@ export function Sidebar({
           style={{ cursor: 'pointer' }}
           title="个人资料"
         >
-          <UserAvatar session={session} size={36} />
+          <UserAvatar session={session} />
         </motion.div>
         <div className="online-indicator" />
       </div>

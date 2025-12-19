@@ -66,12 +66,12 @@ const enterTransition = {
  * - 发送时间在 2 分钟内
  */
 function canRecallMessage(message: Message, isOwn: boolean): boolean {
-  if (!isOwn) return false;
-  
+  if (!isOwn) { return false; }
+
   const sendTime = new Date(message.send_time).getTime();
   const now = Date.now();
   const twoMinutes = 2 * 60 * 1000;
-  
+
   return now - sendTime < twoMinutes;
 }
 
@@ -106,8 +106,8 @@ export function MessageBubble({
   // 右键打开菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    if (isMultiSelectMode) return; // 多选模式下不显示右键菜单
-    
+    if (isMultiSelectMode) { return; } // 多选模式下不显示右键菜单
+
     setContextMenu({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },
@@ -185,7 +185,7 @@ export function MessageBubble({
         )}
 
         <div className="bubble-avatar">
-          {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} size={32} />}
+          {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
         </div>
         <div className="bubble-content">
           {message.message_type === 'text' ? (

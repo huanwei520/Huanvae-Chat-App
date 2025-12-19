@@ -8,7 +8,7 @@ import type { GroupMember } from '../../../api/groups';
  * 检查成员是否被禁言
  */
 export function isMuted(member: GroupMember): boolean {
-  if (!member.muted_until) return false;
+  if (!member.muted_until) { return false; }
   return new Date(member.muted_until) > new Date();
 }
 
@@ -42,4 +42,3 @@ export function formatMuteDuration(mins: number): string {
  * 禁言时长选项（分钟）
  */
 export const MUTE_DURATION_OPTIONS = [10, 30, 60, 1440, 10080];
-

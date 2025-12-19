@@ -35,8 +35,8 @@ export function MembersList({
         )}
         {!loadingMembers && members.length > 0 && (
           members.map((member) => {
-            const canClick = isOwnerOrAdmin && 
-              member.user_id !== currentUserId && 
+            const canClick = isOwnerOrAdmin &&
+              member.user_id !== currentUserId &&
               member.role !== 'owner';
 
             return (
@@ -80,4 +80,3 @@ export function MembersList({
     </>
   );
 }
-

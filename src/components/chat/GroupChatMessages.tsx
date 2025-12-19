@@ -64,7 +64,7 @@ export function GroupChatMessages({
     if (initialLoadDone.current && messages.length > 0) {
       const currentIds = messages.map((m) => m.message_uuid);
       const hasNew = currentIds.some((id) => !renderedIds.has(id));
-      
+
       if (hasNew) {
         const timer = setTimeout(() => {
           setRenderedIds(new Set(currentIds));

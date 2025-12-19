@@ -1,6 +1,6 @@
 /**
  * 可调整大小面板的 Hook
- * 
+ *
  * 用于实现拖拽调整侧边栏宽度
  */
 
@@ -42,10 +42,10 @@ export function useResizablePanel({
 
   // 处理拖拽移动和结束
   useEffect(() => {
-    if (!isResizing) return;
+    if (!isResizing) { return; }
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!resizeRef.current) return;
+      if (!resizeRef.current) { return; }
       const delta = e.clientX - resizeRef.current.startX;
       const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeRef.current.startWidth + delta));
       setPanelWidth(newWidth);
@@ -71,4 +71,3 @@ export function useResizablePanel({
     handleResizeStart,
   };
 }
-

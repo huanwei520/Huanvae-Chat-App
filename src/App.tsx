@@ -326,7 +326,7 @@ function App() {
     <div className="login-container">
       {/* 动态流动背景装饰 */}
       <div className="flowing-bg" />
-      
+
       {/* 装饰性浮动元素 */}
       <div className="floating-orb orb-1" />
       <div className="floating-orb orb-2" />

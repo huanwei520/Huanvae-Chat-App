@@ -15,16 +15,19 @@ export interface SessionInfo {
     avatarPath: string | null;
 }
 
-/** 默认头像 SVG */
-export const DefaultAvatar = ({ size = 40 }: { size?: number }) => (
+/** 默认头像 SVG - 尺寸由外层容器控制 */
+export const DefaultAvatar = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     fill="none"
     viewBox="0 0 24 24"
     strokeWidth={1.5}
     stroke="currentColor"
-    width={size}
-    height={size}
+    style={{
+      width: '60%',
+      height: '60%',
+      color: '#94a3b8',
+    }}
   >
     <path
       strokeLinecap="round"
@@ -34,69 +37,75 @@ export const DefaultAvatar = ({ size = 40 }: { size?: number }) => (
   </svg>
 );
 
-/** 当前用户头像 - 支持本地/服务器回退 */
-export function UserAvatar({ session, size = 32 }: { session: SessionInfo; size?: number }) {
+/** 当前用户头像 - 尺寸由外层容器控制 */
+export function UserAvatar({ session }: { session: SessionInfo }) {
   const [localSrc, setLocalSrc] = useState<string | null>(null);
   const [useLocal, setUseLocal] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  // 加载本地头像
+  // 当服务器 URL 变化时，重置状态
   useEffect(() => {
-    const avatarPath = session.avatarPath;
-    if (avatarPath) {
+    if (session.profile.user_avatar_url) {
+      setLoadFailed(false);
+      setUseLocal(false);
+    }
+  }, [session.profile.user_avatar_url]);
+
+  // 加载本地头像（仅在没有服务器 URL 时使用）
+  useEffect(() => {
+    if (!session.profile.user_avatar_url && session.avatarPath) {
       try {
-        setLocalSrc(convertFileSrc(avatarPath));
+        setLocalSrc(convertFileSrc(session.avatarPath));
         setUseLocal(true);
       } catch {
         setUseLocal(false);
       }
-    } else {
-      setUseLocal(false);
     }
-  }, [session.avatarPath]);
+  }, [session.avatarPath, session.profile.user_avatar_url]);
 
-  // 优先使用本地头像，失败后使用服务器头像
-  if (useLocal && localSrc) {
-    return (
-      <img
-        src={localSrc}
-        alt={session.profile.user_nickname}
-        style={{ width: size, height: size, objectFit: 'cover', borderRadius: '50%' }}
-        onError={() => setUseLocal(false)}
-      />
-    );
-  }
-
-  // 使用服务器头像
+  // 优先使用服务器头像（服务器已返回带时间戳的 URL）
   if (session.profile.user_avatar_url && !loadFailed) {
     return (
       <img
+        key={session.profile.user_avatar_url}
         src={session.profile.user_avatar_url}
         alt={session.profile.user_nickname}
-        style={{ width: size, height: size, objectFit: 'cover', borderRadius: '50%' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         onError={() => setLoadFailed(true)}
       />
     );
   }
 
-  return <DefaultAvatar size={size} />;
+  // 回退到本地头像
+  if (useLocal && localSrc) {
+    return (
+      <img
+        src={localSrc}
+        alt={session.profile.user_nickname}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        onError={() => setUseLocal(false)}
+      />
+    );
+  }
+
+  return <DefaultAvatar />;
 }
 
-/** 好友头像 */
-export function FriendAvatar({ friend, size = 44 }: { friend: Friend; size?: number }) {
+/** 好友头像 - 尺寸由外层容器控制 */
+export function FriendAvatar({ friend }: { friend: Friend }) {
   if (friend.friend_avatar_url) {
     return (
       <img
         src={friend.friend_avatar_url}
         alt={friend.friend_nickname}
-        style={{ width: size, height: size, objectFit: 'cover' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';
         }}
       />
     );
   }
-  return <DefaultAvatar size={size} />;
+  return <DefaultAvatar />;
 }
 
 /** 群聊图标 SVG */
@@ -118,48 +127,52 @@ const GroupIconSvg = ({ size = 20 }: { size?: number }) => (
   </svg>
 );
 
-/** 群聊默认头像 - 带渐变背景的圆形容器 */
-export function GroupDefaultAvatar({ size = 44 }: { size?: number }) {
-  const iconSize = Math.round(size * 0.5); // 图标大小为容器的50%
+/** 群聊默认头像 - 尺寸由外层容器控制 */
+export function GroupDefaultAvatar() {
   return (
     <div
       style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
+        width: '100%',
+        height: '100%',
         background: 'linear-gradient(135deg, #93c5fd, #60a5fa)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         color: 'white',
-        flexShrink: 0,
       }}
     >
-      <GroupIconSvg size={iconSize} />
+      <GroupIconSvg size={20} />
     </div>
   );
 }
 
-/** 群聊头像 */
-export function GroupAvatar({ group, size = 44 }: { group: Group; size?: number }) {
+/** 群聊头像 - 尺寸由外层容器控制 */
+export function GroupAvatar({ group }: { group: Group }) {
   const [loadFailed, setLoadFailed] = useState(false);
 
+  // 当群头像 URL 变化时，重置状态
+  useEffect(() => {
+    if (group.group_avatar_url) {
+      setLoadFailed(false);
+    }
+  }, [group.group_avatar_url]);
+
+  // 服务器已返回带时间戳的 URL，无需额外处理
   if (group.group_avatar_url && !loadFailed) {
     return (
       <img
+        key={group.group_avatar_url}
         src={group.group_avatar_url}
         alt={group.group_name}
         style={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
+          width: '100%',
+          height: '100%',
           objectFit: 'cover',
-          flexShrink: 0,
         }}
         onError={() => setLoadFailed(true)}
       />
     );
   }
 
-  return <GroupDefaultAvatar size={size} />;
+  return <GroupDefaultAvatar />;
 }

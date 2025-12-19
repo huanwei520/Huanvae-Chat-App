@@ -13,7 +13,7 @@ interface UseGroupsReturn {
   groups: Group[];
   loading: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<Group[]>;
 }
 
 export function useGroups(): UseGroupsReturn {
@@ -23,16 +23,19 @@ export function useGroups(): UseGroupsReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadGroups = useCallback(async () => {
+  const loadGroups = useCallback(async (): Promise<Group[]> => {
     setLoading(true);
     setError(null);
 
     try {
       const response = await getMyGroups(api);
-      setGroups(response.data || []);
+      const newGroups = response.data || [];
+      setGroups(newGroups);
+      return newGroups;
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载群聊失败');
       setGroups([]);
+      return [];
     } finally {
       setLoading(false);
     }

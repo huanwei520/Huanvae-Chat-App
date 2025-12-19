@@ -11,4 +11,3 @@ export interface GroupsModalProps {
   onClose: () => void;
   onGroupSelect?: (group: Group) => void;
 }
-

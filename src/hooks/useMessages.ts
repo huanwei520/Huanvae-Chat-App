@@ -81,7 +81,7 @@ export function useMessages(friendId: string | null) {
    * 发送文本消息
    */
   const sendTextMessage = useCallback(async (content: string): Promise<void> => {
-    if (!friendId || !content.trim() || !session) return;
+    if (!friendId || !content.trim() || !session) { return; }
 
     setSending(true);
     setError(null);

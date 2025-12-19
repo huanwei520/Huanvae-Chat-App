@@ -59,7 +59,7 @@ export function MessageContextMenu({
         document.addEventListener('scroll', handleScroll, true);
         document.addEventListener('keydown', handleKeyDown);
       }, 0);
-      
+
       return () => {
         clearTimeout(timer);
         document.removeEventListener('mousedown', handleClickOutside);
@@ -98,9 +98,9 @@ export function MessageContextMenu({
       y = padding;
     }
 
-    return { 
+    return {
       position: 'fixed',
-      left: x, 
+      left: x,
       top: y,
       zIndex: 99999,
     };

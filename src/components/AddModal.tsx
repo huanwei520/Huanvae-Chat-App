@@ -113,7 +113,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
 
   // 发送好友请求
   const handleAddFriend = async () => {
-    if (!friendId.trim() || !session) return;
+    if (!friendId.trim() || !session) { return; }
 
     setLoading(true);
     setError(null);
@@ -132,7 +132,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
 
   // 同意好友申请
   const handleApproveFriend = async (request: PendingRequest) => {
-    if (!session) return;
+    if (!session) { return; }
     try {
       await approveFriendRequest(api, session.userId, request.applicant_id);
       setFriendRequests((prev) => prev.filter((r) => r.applicant_id !== request.applicant_id));
@@ -144,7 +144,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
 
   // 拒绝好友申请
   const handleRejectFriend = async (request: PendingRequest) => {
-    if (!session) return;
+    if (!session) { return; }
     try {
       await rejectFriendRequest(api, session.userId, request.applicant_id);
       setFriendRequests((prev) => prev.filter((r) => r.applicant_id !== request.applicant_id));
