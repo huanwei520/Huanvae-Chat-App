@@ -76,10 +76,11 @@
 .stack-container {
   position: relative;
   width: 100%;
-  height: 90px;
+  height: 120px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: visible;
 }
 
 /* ============================================
@@ -460,35 +461,19 @@
 }
 
 /* ============================================
-   背景卡片（静态装饰）
+   背景卡片（可交互的背景卡片）
    ============================================ */
 .stack-card-background {
-  pointer-events: none;
-  filter: blur(0.5px);
+  /* 模糊效果由JS控制 */
+}
+
+.stack-card-background:hover .stack-account-card {
+  border-color: rgba(147, 197, 253, 0.5);
 }
 
 /* ============================================
-   幽灵卡片（单账号时的装饰）
+   退出状态卡片（淡出效果）
    ============================================ */
-.stack-card-ghost {
+.stack-card-exit {
   pointer-events: none;
-}
-
-.stack-card-ghost .stack-account-card {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.3) 0%,
-    rgba(255, 255, 255, 0.15) 100%
-  );
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: none;
-}
-
-.stack-card-ghost .stack-card-nickname,
-.stack-card-ghost .stack-card-id {
-  color: #94a3b8;
-}
-
-.stack-card-ghost .stack-card-avatar {
-  opacity: 0.5;
 }
