@@ -24,6 +24,7 @@
         "scope": [
           "$DATA/**",
           "$LOCALDATA/**",
+          "$APPDATA/**",
           "$HOME/.local/share/huanvae-chat/**"
         ]
       }

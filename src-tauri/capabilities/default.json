@@ -12,7 +12,15 @@
       "allow": [
         "$DATA/**",
         "$LOCALDATA/**",
+        "$APPDATA/**",
         "$HOME/.local/share/huanvae-chat/**"
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://*" }
       ]
     }
   ]

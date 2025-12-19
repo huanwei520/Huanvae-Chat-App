@@ -101,8 +101,9 @@ interface CardState {
   // 标记是否正在动画中（用于 transition 选择）
   // 'idle': 静止状态，无动画
   // 'animating': 正在执行滚动动画
-  // 'resetting': 正在重置（瞬间完成）
-  phase: 'idle' | 'animating' | 'resetting';
+  phase: 'idle' | 'animating';
+  // 重置计数器：每次动画完成后递增，用于生成新的 key 让 React 重新创建 DOM
+  resetCounter: number;
 }
 
 type CardAction =
@@ -110,7 +111,6 @@ type CardAction =
   | { type: 'START_NEXT' }
   | { type: 'COMPLETE_PREV'; accountCount: number }
   | { type: 'COMPLETE_NEXT'; accountCount: number }
-  | { type: 'FINISH_RESET' }
   | { type: 'SET_INDEX'; index: number };
 
 function getLoopIndex(index: number, length: number): number {
@@ -125,19 +125,21 @@ function cardReducer(state: CardState, action: CardAction): CardState {
     case 'START_NEXT':
       return { ...state, positionOffset: -1, phase: 'animating' };
     case 'COMPLETE_PREV':
+      // 递增 resetCounter 让 React 重新创建 DOM，避免复用导致的位置跳跃
       return {
         mainIndex: getLoopIndex(state.mainIndex - 1, action.accountCount),
         positionOffset: 0,
-        phase: 'resetting',
+        phase: 'idle',
+        resetCounter: state.resetCounter + 1,
       };
     case 'COMPLETE_NEXT':
+      // 递增 resetCounter 让 React 重新创建 DOM，避免复用导致的位置跳跃
       return {
         mainIndex: getLoopIndex(state.mainIndex + 1, action.accountCount),
         positionOffset: 0,
-        phase: 'resetting',
+        phase: 'idle',
+        resetCounter: state.resetCounter + 1,
       };
-    case 'FINISH_RESET':
-      return { ...state, phase: 'idle' };
     case 'SET_INDEX':
       return { ...state, mainIndex: action.index };
     default:
@@ -205,11 +207,10 @@ const TrashIcon = () => (
 interface CardSlotProps {
   account: SavedAccount;
   positionIndex: number;
-  phase: 'idle' | 'animating' | 'resetting';
   onClick?: () => void;
 }
 
-function CardSlot({ account, positionIndex, phase, onClick }: CardSlotProps) {
+function CardSlot({ account, positionIndex, onClick }: CardSlotProps) {
   const avatarSrc = useMemo(() => {
     if (account.avatar_path) {
       try {
@@ -227,14 +228,6 @@ function CardSlot({ account, positionIndex, phase, onClick }: CardSlotProps) {
   const isBgBottom = positionIndex === 3;
   const isInteractive = isBgTop || isBgBottom;
 
-  // 根据 phase 决定 transition
-  // animating: 使用 spring 动画
-  // resetting: 瞬间完成（duration: 0）
-  // idle: 使用 spring 动画（用于后续交互）
-  const transition = phase === 'resetting'
-    ? { type: 'tween' as const, duration: 0 }
-    : cardTransition;
-
   return (
     <motion.div
       className={`stack-card ${isMain ? 'stack-card-main' : 'stack-card-background'}`}
@@ -246,7 +239,7 @@ function CardSlot({ account, positionIndex, phase, onClick }: CardSlotProps) {
         filter: `blur(${style.blur}px)`,
       }}
       initial={false}
-      transition={transition}
+      transition={cardTransition}
       onClick={isInteractive ? onClick : undefined}
       style={{
         pointerEvents: isInteractive || isMain ? 'auto' : 'none',
@@ -283,7 +276,7 @@ interface CardStackProps {
   accounts: SavedAccount[];
   mainIndex: number;
   positionOffset: number;
-  phase: 'idle' | 'animating' | 'resetting';
+  resetCounter: number;
   onPrev: () => void;
   onNext: () => void;
 }
@@ -292,7 +285,7 @@ function CardStack({
   accounts,
   mainIndex,
   positionOffset,
-  phase,
+  resetCounter,
   onPrev,
   onNext,
 }: CardStackProps) {
@@ -325,10 +318,12 @@ function CardStack({
     <div className="stack-container">
       {slots.map((slot) => (
         <CardSlot
-          key={`slot-${slot.slotIdx}`}
+          // 使用 resetCounter 作为 key 的一部分
+          // 当动画完成后 resetCounter 递增，React 会销毁旧 DOM 并创建新 DOM
+          // 新 DOM 因为 initial={false} 会直接以目标位置渲染，不会有闪烁
+          key={`slot-${slot.slotIdx}-${resetCounter}`}
           account={slot.account}
           positionIndex={slot.positionIndex}
-          phase={phase}
           onClick={getClickHandler(slot.positionIndex)}
         />
       ))}
@@ -353,6 +348,7 @@ export function AccountSelector({
     mainIndex: 0,
     positionOffset: 0,
     phase: 'idle',
+    resetCounter: 0,
   });
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useReducer(
@@ -364,7 +360,7 @@ export function AccountSelector({
   const dragStartY = useRef<number | null>(null);
 
   const accountCount = accounts.length;
-  const { mainIndex, positionOffset, phase } = cardState;
+  const { mainIndex, positionOffset, phase, resetCounter } = cardState;
   const currentAccount = accounts[mainIndex];
   const isAnimating = phase !== 'idle';
 
@@ -375,15 +371,6 @@ export function AccountSelector({
     }
   }, [accountCount, mainIndex]);
 
-  // 当 phase 变为 'resetting' 后，下一帧恢复为 'idle'
-  useLayoutEffect(() => {
-    if (phase === 'resetting') {
-      const frameId = requestAnimationFrame(() => {
-        dispatch({ type: 'FINISH_RESET' });
-      });
-      return () => cancelAnimationFrame(frameId);
-    }
-  }, [phase]);
 
   const goToPrev = useCallback(() => {
     if (animationLock.current || accountCount < 1) { return; }
@@ -519,7 +506,7 @@ export function AccountSelector({
           accounts={accounts}
           mainIndex={mainIndex}
           positionOffset={positionOffset}
-          phase={phase}
+          resetCounter={resetCounter}
           onPrev={goToPrev}
           onNext={goToNext}
         />

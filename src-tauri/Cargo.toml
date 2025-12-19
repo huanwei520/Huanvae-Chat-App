@@ -33,8 +33,8 @@ tokio = { version = "1.48.0", features = ["full"] }
 reqwest = { version = "0.12.14", default-features = false, features = ["json", "rustls-tls"] }
 
 # 系统密钥链（与主项目对齐）
-# 使用 secret-service 作为 Linux 后端（支持 GNOME Keyring 和 KWallet）
-keyring = { version = "3.6.3", features = ["linux-native"] }
+# Windows 使用 Windows Credential Manager，Linux 使用 secret-service
+keyring = { version = "3.6.3" }
 
 # 目录管理
 dirs = "6.0.0"
@@ -44,3 +44,4 @@ chrono = { version = "0.4.42", features = ["serde"] }
 
 # 错误处理（与主项目对齐）
 thiserror = "2.0.17"
+tauri-plugin-http = "2.5.4"
