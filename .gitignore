@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 
 # Submodule docs (separate repo)
-Huanvae-Chat-Docs/
+backend-docs/
