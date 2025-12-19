@@ -2239,3 +2239,484 @@
 .nav-btn.add-btn:hover {
   background: rgba(96, 165, 250, 0.25);
 }
+
+/* ============================================
+   文件附件按钮
+   ============================================ */
+.file-attach-button {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.1);
+  border: none;
+  border-radius: 50%;
+  color: #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-attach-button:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.file-attach-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 文件附件菜单 */
+.file-attach-menu {
+  z-index: 10000;
+  min-width: 120px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  box-shadow: 
+    0 8px 32px rgba(59, 130, 246, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.file-attach-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: #374151;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.file-attach-menu-item:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.file-attach-menu-item svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.file-attach-menu-item:hover svg {
+  opacity: 1;
+}
+
+/* ============================================
+   上传进度条
+   ============================================ */
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.upload-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upload-progress-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.upload-filename {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e3a5f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-size {
+  font-size: 11px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.upload-cancel-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all 0.15s ease;
+}
+
+.upload-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.upload-done-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 50%;
+  color: #22c55e;
+}
+
+.upload-progress-bar-container {
+  height: 4px;
+  background: rgba(147, 197, 253, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.upload-progress-bar.error {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.upload-progress-bar.done {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.upload-progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.upload-status {
+  flex: 1;
+}
+
+.upload-chunks {
+  margin-right: 8px;
+}
+
+.upload-percent {
+  font-weight: 500;
+  color: #3b82f6;
+}
+
+/* ============================================
+   文件预览模态框
+   ============================================ */
+.file-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.file-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.file-preview-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-preview-filename {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.file-preview-size {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.file-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-preview-actions button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-preview-actions button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.file-preview-actions .zoom-level {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  min-width: 45px;
+  text-align: center;
+}
+
+.file-preview-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.file-preview-loading,
+.file-preview-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.file-preview-loading .spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.file-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.file-preview-video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+}
+
+.file-preview-download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: white;
+  text-align: center;
+}
+
+.file-preview-download .file-icon-large {
+  font-size: 64px;
+}
+
+.file-preview-download p {
+  margin: 0;
+  font-size: 16px;
+}
+
+.file-preview-download .file-size {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.file-preview-download .download-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: #3b82f6;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-preview-download .download-btn:hover {
+  background: #2563eb;
+}
+
+/* ============================================
+   文件消息样式
+   ============================================ */
+.file-message {
+  cursor: pointer;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.file-message:hover {
+  opacity: 0.9;
+}
+
+.file-message-loading,
+.file-message-error {
+  width: 200px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(147, 197, 253, 0.1);
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* 图片消息 */
+.image-message .message-image {
+  max-width: 280px;
+  max-height: 300px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+/* 视频消息 */
+.video-message {
+  position: relative;
+  max-width: 280px;
+}
+
+.video-message .message-video-thumbnail {
+  width: 100%;
+  max-height: 200px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.video-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+}
+
+.video-play-overlay svg {
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* 文档消息 */
+.document-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  min-width: 200px;
+}
+
+.message-bubble.own .document-message {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.document-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 8px;
+  color: white;
+}
+
+.document-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.document-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e3a5f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-size {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.document-download {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.document-download:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* ============================================
+   输入区域调整（为附件按钮留位置）
+   ============================================ */
+.input-wrapper.multiline {
+  gap: 10px;
+}

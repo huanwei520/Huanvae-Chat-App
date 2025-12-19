@@ -65,7 +65,9 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
 
     try {
       const response = await getGroupMessages(api, groupId, { limit: 50 });
-      setMessages(response.data?.messages || []);
+      // 过滤掉已撤回的消息（不显示"消息已撤回"）
+      const allMessages = response.data?.messages || [];
+      setMessages(allMessages.filter((m) => !m.is_recalled));
       setHasMore(response.data?.has_more || false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载消息失败');
@@ -87,7 +89,9 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
         beforeTime: oldestMessage.send_time,
         limit: 50,
       });
-      setMessages((prev) => [...prev, ...(response.data?.messages || [])]);
+      // 过滤掉已撤回的消息
+      const moreMessages = (response.data?.messages || []).filter((m) => !m.is_recalled);
+      setMessages((prev) => [...prev, ...moreMessages]);
       setHasMore(response.data?.has_more || false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载更多消息失败');
@@ -210,14 +214,8 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
       return;
     }
 
-    // 更新消息为已撤回状态
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.message_uuid === wsMsg.message_uuid
-          ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
-          : m,
-      ),
-    );
+    // 从列表中移除被撤回的消息（与删除一致，不显示"消息已撤回"）
+    setMessages((prev) => prev.filter((m) => m.message_uuid !== wsMsg.message_uuid));
   }, [groupId]);
 
   return {

@@ -12,6 +12,7 @@ import { motion } from 'framer-motion';
 import { UserAvatar, FriendAvatar, type SessionInfo } from '../common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from './MessageContextMenu';
+import { FileMessageContent } from './FileMessageContent';
 import type { Friend, Message } from '../../types/chat';
 
 interface MessageBubbleProps {
@@ -187,7 +188,16 @@ export function MessageBubble({
           {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} size={32} />}
         </div>
         <div className="bubble-content">
-          <div className="bubble-text">{message.message_content}</div>
+          {message.message_type === 'text' ? (
+            <div className="bubble-text">{message.message_content}</div>
+          ) : (
+            <FileMessageContent
+              messageType={message.message_type}
+              messageContent={message.message_content}
+              fileUuid={message.file_uuid}
+              fileSize={message.file_size}
+            />
+          )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
         </div>
       </motion.div>

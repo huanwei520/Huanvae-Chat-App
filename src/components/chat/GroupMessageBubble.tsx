@@ -11,6 +11,7 @@ import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from './MessageContextMenu';
+import { FileMessageContent } from './FileMessageContent';
 import type { GroupMessage } from '../../api/groupMessages';
 
 interface GroupMessageBubbleProps {
@@ -200,13 +201,16 @@ export function GroupMessageBubble({
           {!isOwn && (
             <div className="bubble-sender">{message.sender_nickname}</div>
           )}
-          <div className="bubble-text">
-            {message.is_recalled ? (
-              <span className="recalled-message">[消息已撤回]</span>
-            ) : (
-              message.message_content
-            )}
-          </div>
+          {message.message_type === 'text' || message.message_type === 'system' ? (
+            <div className="bubble-text">{message.message_content}</div>
+          ) : (
+            <FileMessageContent
+              messageType={message.message_type as 'image' | 'video' | 'file'}
+              messageContent={message.message_content}
+              fileUuid={message.file_uuid}
+              fileSize={message.file_size}
+            />
+          )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
         </div>
       </motion.div>

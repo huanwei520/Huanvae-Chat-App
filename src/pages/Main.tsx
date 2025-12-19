@@ -21,6 +21,7 @@ import { useGroups } from '../hooks/useGroups';
 import { useMessages } from '../hooks/useMessages';
 import { useGroupMessages } from '../hooks/useGroupMessages';
 import { useResizablePanel } from '../hooks/useResizablePanel';
+import { useFileUpload } from '../hooks/useFileUpload';
 
 // API
 import { deleteMessage, recallMessage } from '../api/messages';
@@ -35,6 +36,8 @@ import { ChatMessages } from '../components/chat/ChatMessages';
 import { GroupChatMessages } from '../components/chat/GroupChatMessages';
 import { ChatMenuButton } from '../components/chat/ChatMenu';
 import { MultiSelectActionBar } from '../components/chat/MultiSelectActionBar';
+import { FileAttachButton, type AttachmentType } from '../components/chat/FileAttachButton';
+import { UploadProgress } from '../components/chat/UploadProgress';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { SendIcon } from '../components/common/Icons';
 import { ProfileModal } from '../components/ProfileModal';
@@ -77,6 +80,10 @@ export function Main() {
   // 弹窗状态
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // 文件上传
+  const { uploading, progress, uploadFriendFile, uploadGroupFile, resetUpload } = useFileUpload();
+  const [uploadingFile, setUploadingFile] = useState<File | null>(null);
 
   // 侧边栏宽度调整
   const { panelWidth, isResizing, handleResizeStart } = useResizablePanel({
@@ -250,6 +257,42 @@ export function Main() {
     }
   }, [handleSendMessage]);
 
+  // 处理文件选择
+  const handleFileSelect = useCallback(async (file: File, _type: AttachmentType) => {
+    if (!chatTarget) return;
+
+    setUploadingFile(file);
+
+    try {
+      if (chatTarget.type === 'friend') {
+        const result = await uploadFriendFile(file, chatTarget.data.friend_id);
+        if (!result.success) {
+          console.error('文件上传失败:', result.error);
+        }
+        // 上传成功后刷新消息列表
+        if (result.success) {
+          loadFriendMessages();
+        }
+      } else {
+        const result = await uploadGroupFile(file, chatTarget.data.group_id);
+        if (!result.success) {
+          console.error('文件上传失败:', result.error);
+        }
+        if (result.success) {
+          loadGroupMessages();
+        }
+      }
+    } catch (err) {
+      console.error('文件上传失败:', err);
+    } finally {
+      // 延迟清除上传状态，让用户看到完成动画
+      setTimeout(() => {
+        setUploadingFile(null);
+        resetUpload();
+      }, 1500);
+    }
+  }, [chatTarget, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload]);
+
   // ============================================
   // 消息操作回调
   // ============================================
@@ -292,19 +335,22 @@ export function Main() {
     setSelectedMessages(new Set());
   }, []);
 
-  // 撤回单条消息
+  // 撤回单条消息（只有成功才移除，失败不移除）
   const handleRecallMessage = useCallback(async (messageUuid: string) => {
     if (!chatTarget) return;
 
     try {
       if (chatTarget.type === 'friend') {
         await recallMessage(api, messageUuid);
+        // 撤回成功后才移除消息
         removeFriendMessage(messageUuid);
       } else {
         await recallGroupMessage(api, messageUuid);
+        // 撤回成功后才移除消息
         removeGroupMessage(messageUuid);
       }
     } catch (err) {
+      // 撤回失败，不移除消息
       console.error('撤回失败:', err);
     }
   }, [api, chatTarget, removeFriendMessage, removeGroupMessage]);
@@ -583,7 +629,28 @@ export function Main() {
                     exit={{ y: 40, opacity: 0 }}
                     transition={{ type: 'spring', damping: 28, stiffness: 350, mass: 0.8 }}
                   >
+                    {/* 上传进度条 */}
+                    <AnimatePresence>
+                      {uploading && uploadingFile && progress && (
+                        <UploadProgress
+                          filename={uploadingFile.name}
+                          fileSize={uploadingFile.size}
+                          progress={progress}
+                          onCancel={() => {
+                            setUploadingFile(null);
+                            resetUpload();
+                          }}
+                        />
+                      )}
+                    </AnimatePresence>
+
                     <div className="input-wrapper multiline">
+                      {/* 文件附件按钮 */}
+                      <FileAttachButton
+                        disabled={isSending || uploading}
+                        onFileSelect={handleFileSelect}
+                      />
+                      
                       <textarea
                         ref={textareaRef}
                         placeholder="输入消息... (Shift+Enter 换行)"
@@ -593,13 +660,13 @@ export function Main() {
                           adjustTextareaHeight();
                         }}
                         onKeyDown={handleKeyDown}
-                        disabled={isSending}
+                        disabled={isSending || uploading}
                         rows={1}
                       />
                       <motion.button
                         className="send-btn"
                         onClick={handleSendMessage}
-                        disabled={!messageInput.trim() || isSending}
+                        disabled={!messageInput.trim() || isSending || uploading}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
