@@ -3,11 +3,11 @@
  *
  * 类似微信的三栏布局：
  * - 左侧：侧边栏（头像 + 导航图标）
- * - 中间：会话列表（好友/群聊切换）
+ * - 中间：统一列表（通过 tab 切换显示不同数据）
  * - 右侧：聊天窗口
  *
- * 状态管理已提取到 useMainPage Hook
- * 本组件仅负责组合布局和渲染 UI
+ * 使用 UnifiedList 组件实现单卡片级别的动画效果
+ * 切换 tab 时旧卡片飞出、新卡片飞入
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,9 +15,7 @@ import { useMainPage } from '../hooks/useMainPage';
 
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
-import { ConversationList } from '../components/conversations/ConversationList';
-import { FriendList } from '../components/friends/FriendList';
-import { GroupList } from '../components/groups/GroupList';
+import { UnifiedList } from '../components/unified/UnifiedList';
 import { ChatPanel, EmptyChat } from '../components/chat/ChatPanel';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
@@ -51,53 +49,22 @@ export function Main() {
         className={`chat-list-container ${page.isResizing ? 'resizing' : ''}`}
         style={{ width: page.panelWidth }}
       >
-        <AnimatePresence mode="wait">
-          {page.activeTab === 'chat' && (
-            <ConversationList
-              key="conversation-list"
-              friends={page.friends}
-              groups={page.groups}
-              friendsLoading={page.friendsLoading}
-              groupsLoading={page.groupsLoading}
-              friendsError={page.friendsError}
-              groupsError={page.groupsError}
-              searchQuery={page.searchQuery}
-              onSearchChange={page.setSearchQuery}
-              selectedTarget={page.chatTarget}
-              onSelectTarget={page.handleSelectTarget}
-              unreadSummary={page.unreadSummary}
-              panelWidth={page.panelWidth}
-            />
-          )}
-          {page.activeTab === 'friends' && (
-            <FriendList
-              key="friend-list"
-              friends={page.friends}
-              loading={page.friendsLoading}
-              error={page.friendsError}
-              searchQuery={page.searchQuery}
-              onSearchChange={page.setSearchQuery}
-              selectedFriendId={page.chatTarget?.type === 'friend' ? page.chatTarget.data.friend_id : null}
-              onSelectFriend={page.handleSelectFriend}
-              getUnreadCount={page.getFriendUnread}
-              panelWidth={page.panelWidth}
-            />
-          )}
-          {page.activeTab === 'group' && (
-            <GroupList
-              key="group-list"
-              groups={page.groups}
-              loading={page.groupsLoading}
-              error={page.groupsError}
-              searchQuery={page.searchQuery}
-              onSearchChange={page.setSearchQuery}
-              selectedGroupId={page.chatTarget?.type === 'group' ? page.chatTarget.data.group_id : null}
-              onSelectGroup={page.handleSelectGroup}
-              getUnreadCount={page.getGroupUnread}
-              panelWidth={page.panelWidth}
-            />
-          )}
-        </AnimatePresence>
+        {/* 统一列表：通过 activeTab 切换数据，单卡片级别动画 */}
+        <UnifiedList
+          activeTab={page.activeTab}
+          friends={page.friends}
+          groups={page.groups}
+          friendsLoading={page.friendsLoading}
+          groupsLoading={page.groupsLoading}
+          friendsError={page.friendsError}
+          groupsError={page.groupsError}
+          searchQuery={page.searchQuery}
+          onSearchChange={page.setSearchQuery}
+          selectedTarget={page.chatTarget}
+          onSelectTarget={page.handleSelectTarget}
+          unreadSummary={page.unreadSummary}
+          panelWidth={page.panelWidth}
+        />
 
         {/* 可拖拽分割线 */}
         <div

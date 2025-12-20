@@ -5,6 +5,7 @@
  * - 群聊列表加载和刷新
  * - 增量添加群聊（配合 WebSocket 通知）
  * - 增量移除群聊（配合 AnimatePresence 触发退出动画）
+ * - 增量更新群聊信息（群名、头像、角色等）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -19,6 +20,7 @@ interface UseGroupsReturn {
   refresh: () => Promise<Group[]>;
   addGroup: (group: Group) => void;
   removeGroup: (groupId: string) => void;
+  updateGroup: (groupId: string, updates: Partial<Group>) => void;
 }
 
 export function useGroups(): UseGroupsReturn {
@@ -70,6 +72,16 @@ export function useGroups(): UseGroupsReturn {
     setGroups((prev) => prev.filter((g) => g.group_id !== groupId));
   }, []);
 
+  /**
+   * 增量更新群聊信息
+   * 用于 WebSocket 收到 group_info_updated/group_avatar_updated/角色变更等通知时更新
+   */
+  const updateGroup = useCallback((groupId: string, updates: Partial<Group>) => {
+    setGroups((prev) => prev.map((g) =>
+      g.group_id === groupId ? { ...g, ...updates } : g,
+    ));
+  }, []);
+
   useEffect(() => {
     loadGroups();
   }, [loadGroups]);
@@ -81,5 +93,6 @@ export function useGroups(): UseGroupsReturn {
     refresh: loadGroups,
     addGroup,
     removeGroup,
+    updateGroup,
   };
 }

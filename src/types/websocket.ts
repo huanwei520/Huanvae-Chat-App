@@ -1,7 +1,24 @@
 /**
  * WebSocket 消息类型定义
  *
- * 基于 test-web 实现和后端 API 文档
+ * 基于后端 API 文档定义
+ *
+ * 支持的消息类型：
+ * - connected: 连接成功，返回未读消息摘要
+ * - new_message: 新消息通知
+ * - message_recalled: 消息撤回通知
+ * - read_sync: 已读同步通知
+ * - system_notification: 系统通知（好友/群聊相关）
+ * - heartbeat: 心跳
+ * - error: 错误消息
+ *
+ * 系统通知类型（notification_type）：
+ * 第一批：friend_request, friend_request_approved/rejected,
+ *        group_invite, group_join_request/approved,
+ *        group_removed, group_disbanded, group_notice_updated
+ * 第二批（2025-12-21）：friend_deleted, owner_transferred,
+ *        admin_set/removed, member_muted/unmuted,
+ *        group_info_updated, group_avatar_updated, group_member_joined
  */
 
 // ============================================
@@ -83,6 +100,7 @@ export interface WsReadSync {
 export interface WsSystemNotification {
   type: 'system_notification';
   notification_type:
+    // 第一批通知类型
     | 'friend_request'
     | 'friend_request_approved'
     | 'friend_request_rejected'
@@ -91,7 +109,17 @@ export interface WsSystemNotification {
     | 'group_join_approved'
     | 'group_removed'
     | 'group_disbanded'
-    | 'group_notice_updated';
+    | 'group_notice_updated'
+    // 第二批通知类型（2025-12-21 新增）
+    | 'friend_deleted'
+    | 'owner_transferred'
+    | 'admin_set'
+    | 'admin_removed'
+    | 'member_muted'
+    | 'member_unmuted'
+    | 'group_info_updated'
+    | 'group_avatar_updated'
+    | 'group_member_joined';
   data: Record<string, unknown>;
 }
 
@@ -125,6 +153,108 @@ export interface GroupRemovedData {
   removed_by?: string;
   disbanded_by?: string;
   reason?: string;
+}
+
+/**
+ * 好友被删除通知数据
+ */
+export interface FriendDeletedData {
+  friend_id: string;
+  friend_nickname: string;
+  deleted_at: string;
+}
+
+/**
+ * 群主转让通知数据
+ */
+export interface OwnerTransferredData {
+  group_id: string;
+  group_name: string;
+  old_owner_id: string;
+  old_owner_nickname: string;
+  new_owner_id: string;
+  new_owner_nickname: string;
+  transferred_at: string;
+}
+
+/**
+ * 管理员变更通知数据（设置/取消）
+ */
+export interface AdminChangedData {
+  group_id: string;
+  group_name: string;
+  target_user_id: string;
+  target_nickname: string;
+  operator_id: string;
+  operator_nickname: string;
+  set_at?: string;
+  removed_at?: string;
+}
+
+/**
+ * 成员禁言通知数据
+ */
+export interface MemberMutedData {
+  group_id: string;
+  group_name: string;
+  target_user_id: string;
+  target_nickname: string;
+  operator_id: string;
+  operator_nickname: string;
+  mute_until: string;
+  reason?: string;
+  muted_at: string;
+}
+
+/**
+ * 成员解除禁言通知数据
+ */
+export interface MemberUnmutedData {
+  group_id: string;
+  group_name: string;
+  target_user_id: string;
+  target_nickname: string;
+  operator_id: string;
+  operator_nickname: string;
+  unmuted_at: string;
+}
+
+/**
+ * 群信息更新通知数据
+ */
+export interface GroupInfoUpdatedData {
+  group_id: string;
+  group_name: string;
+  new_name: string | null;
+  new_description: string | null;
+  operator_id: string;
+  operator_nickname: string;
+  updated_at: string;
+}
+
+/**
+ * 群头像更新通知数据
+ */
+export interface GroupAvatarUpdatedData {
+  group_id: string;
+  group_name: string;
+  new_avatar_url: string;
+  operator_id: string;
+  operator_nickname: string;
+  updated_at: string;
+}
+
+/**
+ * 新成员加入通知数据
+ */
+export interface GroupMemberJoinedData {
+  group_id: string;
+  group_name: string;
+  new_member_id: string;
+  new_member_nickname: string;
+  new_member_avatar_url: string;
+  join_method: string;
+  joined_at: string;
 }
 
 /**

@@ -274,9 +274,15 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  justify-content: flex-start; /* 左侧固定 */
+  justify-content: flex-start;
   border-bottom: 1px solid rgba(147, 197, 253, 0.15);
   transition: padding 0.15s ease;
+}
+
+/* 折叠时调整 header padding 使搜索图标与下方头像对齐 */
+.chat-list-header:has(.search-box-wrapper.collapsed) {
+  /* 头像 48px，搜索图标 48px，卡片 padding 12px，需要 header padding 也是 12px */
+  padding: 16px 12px;
 }
 
 /* 搜索框包装器 - 支持平滑过渡动画 */
@@ -296,9 +302,9 @@
 
 /* 折叠状态 - 变成图标按钮形态，与下方头像对齐 */
 .search-box-wrapper.collapsed {
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   justify-content: center;
   border-radius: 12px;
@@ -490,6 +496,18 @@
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  position: relative; /* 为绝对定位的覆盖层提供定位上下文 */
+}
+
+/* 列表状态覆盖层：绝对定位，不影响卡片布局 */
+.list-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: inherit;
+  z-index: 5;
 }
 
 .conversation-item {
