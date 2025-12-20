@@ -1,7 +1,10 @@
 /**
  * 群聊列表 Hook
  *
- * 提供群聊列表的状态管理和 API 调用
+ * 功能：
+ * - 群聊列表加载和刷新
+ * - 增量添加群聊（配合 WebSocket 通知）
+ * - 增量移除群聊（配合 AnimatePresence 触发退出动画）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -14,6 +17,8 @@ interface UseGroupsReturn {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<Group[]>;
+  addGroup: (group: Group) => void;
+  removeGroup: (groupId: string) => void;
 }
 
 export function useGroups(): UseGroupsReturn {
@@ -41,6 +46,30 @@ export function useGroups(): UseGroupsReturn {
     }
   }, [api]);
 
+  /**
+   * 增量添加群聊
+   * 用于 WebSocket 收到 group_join_approved 通知时直接插入新群聊
+   */
+  const addGroup = useCallback((newGroup: Group) => {
+    setGroups((prev) => {
+      // 避免重复添加
+      if (prev.some((g) => g.group_id === newGroup.group_id)) {
+        return prev;
+      }
+      // 插入到列表头部
+      return [newGroup, ...prev];
+    });
+  }, []);
+
+  /**
+   * 增量移除群聊
+   * 用于 WebSocket 收到 group_removed/group_disbanded 通知时直接移除
+   * 配合 AnimatePresence 触发退出动画
+   */
+  const removeGroup = useCallback((groupId: string) => {
+    setGroups((prev) => prev.filter((g) => g.group_id !== groupId));
+  }, []);
+
   useEffect(() => {
     loadGroups();
   }, [loadGroups]);
@@ -50,5 +79,7 @@ export function useGroups(): UseGroupsReturn {
     loading,
     error,
     refresh: loadGroups,
+    addGroup,
+    removeGroup,
   };
 }

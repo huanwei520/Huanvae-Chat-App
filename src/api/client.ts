@@ -146,8 +146,8 @@ export function createApiClient(config: ApiClientConfig) {
     /**
      * DELETE 请求
      */
-    delete<T>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
-      return request<T>(path, { ...options, method: 'DELETE' });
+    delete<T>(path: string, body?: Record<string, unknown>, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<T> {
+      return request<T>(path, { ...options, method: 'DELETE', body });
     },
 
     /**

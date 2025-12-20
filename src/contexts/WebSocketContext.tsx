@@ -4,9 +4,25 @@
  * 提供 WebSocket 实时通信功能：
  * - 连接管理（自动连接、断线重连）
  * - 未读消息摘要
- * - 新消息通知
+ * - 新消息通知（new_message）
+ * - 消息撤回通知（message_recalled）
  * - 标记已读
  * - 系统通知（好友请求、群邀请等）
+ *
+ * ## 消息撤回通知 (message_recalled)
+ *
+ * 当好友或群成员撤回消息时，服务器推送撤回通知：
+ * ```json
+ * {
+ *   "type": "message_recalled",
+ *   "source_type": "friend" | "group",
+ *   "source_id": "对方用户ID或群组ID",
+ *   "message_uuid": "被撤回的消息UUID",
+ *   "recalled_by": "撤回者ID"
+ * }
+ * ```
+ *
+ * 前端通过 `onMessageRecalled` 订阅此事件，配合 AnimatePresence 触发退出动画。
  *
  * ## 待处理通知 (pendingNotifications)
  *
@@ -15,21 +31,23 @@
  * - groupInvites: 待处理的群邀请
  * - groupJoinRequests: 待处理的入群申请（群管理员）
  *
- * 当用户打开 AddModal 时，调用 clearPendingNotification 清除计数。
+ * 通知管理方法：
+ * - initPendingNotifications: 主页面加载时调用，获取离线期间的通知数量
+ * - clearPendingNotification: 用户打开 AddModal 时调用，清除对应类型的计数
  *
  * ## 系统通知类型 (notification_type)
  *
- * | 类型                    | 说明                 | 处理位置        |
- * |------------------------|---------------------|----------------|
- * | friend_request         | 收到好友请求          | 增加计数 + 通知  |
- * | friend_request_approved | 好友请求被通过        | 刷新好友列表     |
- * | friend_request_rejected | 好友请求被拒绝        | 通知监听器       |
- * | group_invite           | 收到群邀请            | 增加计数 + 通知  |
- * | group_join_request     | 收到入群申请          | 增加计数 + 通知  |
- * | group_join_approved    | 入群申请被通过        | 刷新群列表       |
- * | group_removed          | 被移出群聊            | 刷新群列表       |
- * | group_disbanded        | 群解散               | 刷新群列表       |
- * | group_notice_updated   | 群公告更新            | 通知监听器       |
+ * | 类型                    | 说明                 | 处理方式（增量操作）              |
+ * |------------------------|---------------------|--------------------------------|
+ * | friend_request         | 收到好友请求          | 增加计数 + 通知                  |
+ * | friend_request_approved | 好友请求被通过        | 增量插入新好友（带入场动画）       |
+ * | friend_request_rejected | 好友请求被拒绝        | 通知监听器                       |
+ * | group_invite           | 收到群邀请            | 增加计数 + 通知                  |
+ * | group_join_request     | 收到入群申请          | 增加计数 + 通知                  |
+ * | group_join_approved    | 入群申请被通过        | 增量插入新群聊（带入场动画）       |
+ * | group_removed          | 被移出群聊            | 增量移除群聊（带退出动画）         |
+ * | group_disbanded        | 群解散               | 增量移除群聊（带退出动画）         |
+ * | group_notice_updated   | 群公告更新            | 通知监听器                       |
  */
 
 import {
@@ -75,6 +93,7 @@ interface WebSocketContextType {
   // 待处理通知（好友请求、群邀请等）
   pendingNotifications: PendingNotifications;
   clearPendingNotification: (type: keyof PendingNotifications) => void;
+  initPendingNotifications: (counts: Partial<PendingNotifications>) => void;
 
   // 操作
   markRead: (targetType: 'friend' | 'group', targetId: string) => void;
@@ -549,6 +568,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }));
   }, []);
 
+  // 初始化待处理通知计数（主页面加载时调用，获取离线期间的通知）
+  const initPendingNotifications = useCallback((counts: Partial<PendingNotifications>) => {
+    setPendingNotifications(prev => ({
+      ...prev,
+      ...counts,
+    }));
+  }, []);
+
   // 事件订阅
   const onNewMessage = useCallback((callback: (msg: WsNewMessage) => void) => {
     newMessageListeners.current.add(callback);
@@ -594,6 +621,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     getGroupUnread,
     pendingNotifications,
     clearPendingNotification,
+    initPendingNotifications,
     markRead,
     connect,
     disconnect,

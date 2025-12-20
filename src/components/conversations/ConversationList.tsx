@@ -3,10 +3,15 @@
  *
  * 混合显示好友和群聊，按未读数和最后消息时间排序
  * 类似微信的消息列表
+ *
+ * 功能：
+ * - 群聊卡片显示 [群聊] 标记以区分好友会话
+ * - 按未读消息数和最后消息时间排序
+ * - 搜索过滤
  */
 
 import { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
@@ -166,7 +171,10 @@ export function ConversationList({
         </div>
         <div className="conv-info">
           <div className="conv-header">
-            <span className="conv-name">{item.name}</span>
+            <span className="conv-name">
+              {item.type === 'group' && <span className="conv-tag">[群聊]</span>}
+              {item.name}
+            </span>
             {item.lastMessageTime && (
               <span className="conv-time">{formatMessageTime(item.lastMessageTime)}</span>
             )}
@@ -202,7 +210,9 @@ export function ConversationList({
       </div>
 
       <div className="conversation-list">
-        {renderListContent()}
+        <AnimatePresence mode="popLayout">
+          {renderListContent()}
+        </AnimatePresence>
       </div>
     </motion.section>
   );

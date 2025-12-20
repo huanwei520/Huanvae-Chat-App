@@ -5,12 +5,13 @@
  * - 显示当前用户信息
  * - 修改邮箱/签名
  * - 修改密码
- * - 上传头像
+ * - 上传头像（同时更新本地账号缓存，确保退出后账户选择页面显示最新头像）
  */
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../contexts/SessionContext';
+import { useAccounts } from '../hooks/useAccounts';
 import { uploadAvatar, getProfile } from '../api/profile';
 import { AvatarUploader, ProfileInfoForm, PasswordForm, CloseIcon } from './profile';
 
@@ -32,6 +33,7 @@ type TabType = 'info' | 'password';
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const { session, setSession } = useSession();
   const api = useApi();
+  const { updateAvatar } = useAccounts();
 
   const [activeTab, setActiveTab] = useState<TabType>('info');
   const [error, setError] = useState<string | null>(null);
@@ -72,15 +74,25 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
       // 从服务器重新获取最新资料
       const profileResult = await getProfile(api);
+      const newAvatarUrl = profileResult.data.user_avatar_url;
 
       // 更新 session 中的头像 URL
       setSession({
         ...session,
         profile: {
           ...session.profile,
-          user_avatar_url: profileResult.data.user_avatar_url,
+          user_avatar_url: newAvatarUrl,
         },
       });
+
+      // 更新本地账号缓存（确保退出后账户选择页面显示最新头像）
+      if (newAvatarUrl) {
+        try {
+          await updateAvatar(session.serverUrl, session.userId, newAvatarUrl);
+        } catch {
+          // 本地缓存更新失败不影响使用
+        }
+      }
 
       setSuccess('头像已更新');
     } catch (err) {

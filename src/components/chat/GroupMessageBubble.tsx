@@ -3,6 +3,7 @@
  *
  * 功能：
  * - 入场动画
+ * - 退出动画（撤回时反向播放，配合 AnimatePresence 使用）
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
  */
@@ -36,27 +37,44 @@ interface GroupMessageBubbleProps {
 }
 
 // 自己发送的消息入场动画
+// exit 动画为入场动画的反向播放（向右滑出 + 轻微下滑）
 const ownMessageVariants = {
   initial: { opacity: 0, x: 20, y: 8 },
   animate: { opacity: 1, x: 0, y: 0 },
+  exit: { opacity: 0, x: 20, y: 8, scale: 0.95 },
 };
 
 // 接收消息的入场动画
+// exit 动画为入场动画的反向播放（向左滑出）
 const receivedMessageVariants = {
   initial: { opacity: 0, x: -20 },
   animate: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -20, scale: 0.95 },
 };
 
-// 无动画
-const noAnimationVariants = {
+// 无动画（用于已存在的消息，但保留 exit 动画）
+const noAnimationOwnVariants = {
   initial: { opacity: 1 },
   animate: { opacity: 1 },
+  exit: { opacity: 0, x: 20, y: 8, scale: 0.95 },
+};
+
+const noAnimationReceivedVariants = {
+  initial: { opacity: 1 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, x: -20, scale: 0.95 },
 };
 
 // 入场动画的 transition 配置
 const enterTransition = {
   duration: 0.35,
   ease: [0.25, 0.1, 0.25, 1],
+};
+
+// 退出动画的 transition 配置（稍快，更流畅）
+const exitTransition = {
+  duration: 0.25,
+  ease: [0.4, 0, 1, 1],
 };
 
 /**
@@ -101,10 +119,14 @@ export function GroupMessageBubble({
     position: { x: 0, y: 0 },
   });
 
-  // 新消息播放入场动画
-  let variants = noAnimationVariants;
+  // 选择动画变体
+  // - 新消息：使用完整的入场/退出动画
+  // - 已存在的消息：无入场动画，但保留退出动画（用于撤回）
+  let variants;
   if (isNew) {
     variants = isOwn ? ownMessageVariants : receivedMessageVariants;
+  } else {
+    variants = isOwn ? noAnimationOwnVariants : noAnimationReceivedVariants;
   }
 
   // 右键打开菜单
@@ -156,8 +178,10 @@ export function GroupMessageBubble({
         animate="animate"
         transition={{
           ...enterTransition,
+          exit: exitTransition,
           layout: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
         }}
+        exit="exit"
         onContextMenu={handleContextMenu}
         onClick={handleClick}
       >

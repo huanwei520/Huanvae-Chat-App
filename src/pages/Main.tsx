@@ -10,11 +10,19 @@
  * - WebSocket 实时消息推送
  * - 消息右键菜单（撤回/删除）
  * - 多选模式批量操作
+ * - 增量列表更新（好友/群聊）：
+ *   - friend_request_approved: 增量插入新好友（带入场动画）
+ *   - group_join_approved: 增量插入新群聊（带入场动画）
+ *   - group_removed/group_disbanded: 增量移除群聊（带退出动画）
+ *   - 删除好友: 增量移除好友（带退出动画）
+ * - 初始化待处理通知：
+ *   - 主页面加载时主动获取好友申请和群聊邀请数量
+ *   - 确保离线期间的通知能够正确显示徽章
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSession } from '../contexts/SessionContext';
+import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useFriends } from '../hooks/useFriends';
 import { useGroups } from '../hooks/useGroups';
@@ -40,6 +48,13 @@ import { AddModal } from '../components/AddModal';
 import type { AttachmentType } from '../components/chat/FileAttachButton';
 
 import type { Friend, Group, ChatTarget } from '../types/chat';
+import type {
+  FriendApprovedData,
+  GroupJoinApprovedData,
+  GroupRemovedData,
+} from '../types/websocket';
+import { getPendingRequests } from '../api/friends';
+import { getGroupInvitations } from '../api/groups';
 
 // 侧边栏宽度常量
 const MIN_PANEL_WIDTH = 88;
@@ -51,20 +66,36 @@ const MAX_PANEL_WIDTH = 280;
 
 export function Main() {
   const { session, clearSession } = useSession();
+  const api = useApi();
   const {
     markRead,
     getFriendUnread,
     getGroupUnread,
     unreadSummary,
     pendingNotifications,
+    initPendingNotifications,
     setActiveChat,
     updateLastMessage,
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,
   } = useWebSocket();
-  const { friends, loading: friendsLoading, error: friendsError, refresh: refreshFriends } = useFriends();
-  const { groups, loading: groupsLoading, error: groupsError, refresh: refreshGroups } = useGroups();
+  const {
+    friends,
+    loading: friendsLoading,
+    error: friendsError,
+    refresh: refreshFriends,
+    addFriend,
+    removeFriend,
+  } = useFriends();
+  const {
+    groups,
+    loading: groupsLoading,
+    error: groupsError,
+    refresh: refreshGroups,
+    addGroup,
+    removeGroup,
+  } = useGroups();
 
   const [activeTab, setActiveTab] = useState<NavTab>('chat');
   const [chatTarget, setChatTarget] = useState<ChatTarget | null>(null);
@@ -137,6 +168,34 @@ export function Main() {
     handleDeleteMessage,
   });
 
+  // 主页面加载时初始化待处理通知（获取离线期间的好友申请/群聊邀请）
+  const initDone = useRef(false);
+  useEffect(() => {
+    if (initDone.current) { return; }
+    initDone.current = true;
+
+    const loadPendingNotifications = async () => {
+      try {
+        const [friendRequestsRes, groupInvitesRes] = await Promise.all([
+          getPendingRequests(api),
+          getGroupInvitations(api),
+        ]);
+
+        const friendRequestsCount = friendRequestsRes.items?.length || 0;
+        const groupInvitesCount = groupInvitesRes.data?.invitations?.length || 0;
+
+        initPendingNotifications({
+          friendRequests: friendRequestsCount,
+          groupInvites: groupInvitesCount,
+        });
+      } catch {
+        // 初始化失败不影响使用
+      }
+    };
+
+    loadPendingNotifications();
+  }, [api, initPendingNotifications]);
+
   // 加载消息并标记已读
   useEffect(() => {
     if (chatTarget?.type === 'friend') {
@@ -164,17 +223,14 @@ export function Main() {
           msg.source_type === 'group' &&
           msg.source_id === chatTarget.data.group_id
         ) {
+          // 直接插入新消息，不刷新整个列表
           handleNewGroupMessage(msg);
           markRead('group', msg.source_id);
-          // 如果 WebSocket 消息不包含头像，延迟刷新以获取完整数据
-          if (!msg.sender_avatar_url) {
-            setTimeout(() => loadGroupMessages(), 100);
-          }
         }
       }
     });
     return unsubscribe;
-  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage, loadGroupMessages]);
+  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
 
   // 订阅消息撤回事件
   useEffect(() => {
@@ -198,46 +254,81 @@ export function Main() {
     return unsubscribe;
   }, [chatTarget, handleFriendMessageRecalled, handleGroupMessageRecalled, onMessageRecalled]);
 
-  // 订阅系统通知
+  // 订阅系统通知（使用增量操作替代全量刷新）
   useEffect(() => {
     const unsubscribe = onSystemNotification((msg) => {
       switch (msg.notification_type) {
         case 'friend_request':
           // 收到好友请求（可在此显示通知提示）
           break;
-        case 'friend_request_approved':
-          // 好友请求被通过
-          refreshFriends();
+
+        case 'friend_request_approved': {
+          // 好友请求被通过 - 增量插入新好友
+          const friendData = msg.data as FriendApprovedData;
+          if (friendData.friend_id) {
+            const newFriend: Friend = {
+              friend_id: friendData.friend_id,
+              friend_nickname: friendData.friend_nickname,
+              friend_avatar_url: friendData.friend_avatar_url || null,
+              add_time: friendData.add_time,
+            };
+            addFriend(newFriend);
+          }
           break;
+        }
+
         case 'friend_request_rejected':
           // 好友请求被拒绝（可在此显示通知提示）
           break;
+
         case 'group_invite':
           // 收到群邀请（可在此显示通知提示）
           break;
+
         case 'group_join_request':
           // 群管理员收到入群申请（可在此显示通知提示）
           break;
-        case 'group_join_approved':
-          // 入群申请被通过
-          refreshGroups();
-          break;
-        case 'group_removed':
-        case 'group_disbanded':
-          // 被移出群聊或群解散
-          refreshGroups();
-          if (chatTarget?.type === 'group') {
-            setChatTarget(null);
-            setActiveChat(null, null);
+
+        case 'group_join_approved': {
+          // 入群申请被通过 - 增量插入新群聊
+          const groupData = msg.data as GroupJoinApprovedData;
+          if (groupData.group_id) {
+            const newGroup: Group = {
+              group_id: groupData.group_id,
+              group_name: groupData.group_name,
+              group_avatar_url: groupData.group_avatar_url || null,
+              role: groupData.role || 'member',
+              unread_count: 0,
+              last_message_content: null,
+              last_message_time: null,
+            };
+            addGroup(newGroup);
           }
           break;
+        }
+
+        case 'group_removed':
+        case 'group_disbanded': {
+          // 被移出群聊或群解散 - 增量移除群聊
+          const removedData = msg.data as GroupRemovedData;
+          if (removedData.group_id) {
+            removeGroup(removedData.group_id);
+            // 如果当前正在查看该群，清除聊天目标
+            if (chatTarget?.type === 'group' && chatTarget.data.group_id === removedData.group_id) {
+              setChatTarget(null);
+              setActiveChat(null, null);
+            }
+          }
+          break;
+        }
+
         case 'group_notice_updated':
           // 群公告更新（如果当前正在查看该群，可刷新公告）
           break;
       }
     });
     return unsubscribe;
-  }, [chatTarget, onSystemNotification, refreshFriends, refreshGroups, setActiveChat]);
+  }, [chatTarget, onSystemNotification, addFriend, addGroup, removeGroup, setActiveChat]);
 
   // 发送消息
   const handleSendMessage = useCallback(async () => {
@@ -488,9 +579,12 @@ export function Main() {
                 <ChatMenuButton
                   target={chatTarget}
                   onFriendRemoved={() => {
+                    // 使用增量移除替代全量刷新
+                    if (chatTarget?.type === 'friend') {
+                      removeFriend(chatTarget.data.friend_id);
+                    }
                     setChatTarget(null);
                     setActiveChat(null, null);
-                    refreshFriends();
                   }}
                   onGroupUpdated={async () => {
                     const updatedGroups = await refreshGroups();
@@ -504,6 +598,10 @@ export function Main() {
                     }
                   }}
                   onGroupLeft={() => {
+                    // 使用增量移除替代全量刷新，触发退出动画
+                    if (chatTarget?.type === 'group') {
+                      removeGroup(chatTarget.data.group_id);
+                    }
                     setChatTarget(null);
                     setActiveChat(null, null);
                   }}
@@ -607,7 +705,8 @@ export function Main() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onFriendAdded={refreshFriends}
-        onGroupAdded={refreshGroups}
+        addGroup={addGroup}
+        refreshGroups={refreshGroups}
       />
     </div>
   );

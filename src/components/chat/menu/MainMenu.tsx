@@ -11,6 +11,10 @@ import {
   UsersIcon,
   ExitIcon,
   MultiSelectIcon,
+  MegaphoneIcon,
+  ArrowsRightLeftIcon,
+  XCircleIcon,
+  QrCodeIcon,
 } from '../../common/Icons';
 import { CircularProgress } from '../../common/CircularProgress';
 import { GroupAvatar } from '../../common/Avatar';
@@ -112,6 +116,12 @@ export function MainMenu({
 
       {targetType === 'group' && (
         <>
+          {/* 群公告 - 所有成员可查看 */}
+          <button className="menu-item" onClick={() => onSetView('notices')}>
+            <MegaphoneIcon />
+            <span>群公告</span>
+          </button>
+
           {isOwnerOrAdmin && (
             <>
               <button
@@ -125,12 +135,40 @@ export function MainMenu({
                 <UserPlusIcon />
                 <span>邀请成员</span>
               </button>
+              <button className="menu-item" onClick={() => onSetView('invite-codes')}>
+                <QrCodeIcon />
+                <span>邀请码管理</span>
+              </button>
             </>
           )}
+
           <button className="menu-item" onClick={onLoadMembers}>
             <UsersIcon />
             <span>查看成员</span>
           </button>
+
+          {/* 群主专属功能 */}
+          {isOwner && (
+            <>
+              <div className="menu-divider" />
+              <button
+                className="menu-item"
+                onClick={() => onSetView('transfer-owner')}
+              >
+                <ArrowsRightLeftIcon />
+                <span>转让群主</span>
+              </button>
+              <button
+                className="menu-item danger"
+                onClick={() => onSetView('confirm-disband')}
+              >
+                <XCircleIcon />
+                <span>解散群聊</span>
+              </button>
+            </>
+          )}
+
+          {/* 非群主可退出 */}
           {!isOwner && (
             <button
               className="menu-item danger"

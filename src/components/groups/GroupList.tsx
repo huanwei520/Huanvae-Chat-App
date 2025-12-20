@@ -1,10 +1,14 @@
 /**
  * 群聊列表组件
  *
- * 与 FriendList 保持一致的风格
+ * 功能：
+ * - 与 FriendList 保持一致的风格
+ * - 使用 AnimatePresence 支持群聊增删时的入场/退出动画
+ * - 加入新群时从左侧淡入
+ * - 被移出群或群解散时向右滑出
  */
 
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
@@ -139,7 +143,9 @@ export function GroupList({
       </div>
 
       <div className="conversation-list">
-        {renderListContent()}
+        <AnimatePresence mode="popLayout">
+          {renderListContent()}
+        </AnimatePresence>
       </div>
     </motion.section>
   );

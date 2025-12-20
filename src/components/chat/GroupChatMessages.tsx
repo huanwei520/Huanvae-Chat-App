@@ -4,10 +4,24 @@
  * 使用 flex-direction: column-reverse 实现从下往上显示
  * 最新消息自然在底部可视区域，无需滚动
  *
- * 支持多选模式进行批量操作
+ * 功能：
+ * - 使用 AnimatePresence 支持消息入场/撤回退出动画
+ * - 支持多选模式进行批量操作
+ *
+ * 动画机制：
+ * - initialLoadDone: 标记初始加载是否完成（即使消息列表为空也会标记）
+ * - renderedIds: 已渲染过的消息 ID 集合
+ * - isNew: 判断消息是否需要入场动画（初始加载完成后的新消息）
+ *
+ * 占位符动画（解决布局变化导致的抽搐问题）：
+ * - 占位符始终存在于 DOM 中，使用 position: absolute 脱离文档流
+ * - 通过 opacity 和 pointerEvents 控制显示/隐藏
+ * - 淡入时延迟 0.25s（等待消息退出动画完成），淡出时立即开始
+ * - 这样消息删除/撤回时不会触发布局重排，避免视觉跳动
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -52,9 +66,11 @@ export function GroupChatMessages({
   const isAdmin = userRole === 'owner' || userRole === 'admin';
 
   // 初次加载完成后，记录所有已有消息
+  // 注意：即使消息列表为空，也要标记初始加载完成，这样后续发送的第一条消息才会有动画
   useEffect(() => {
-    if (!loading && messages.length > 0 && !initialLoadDone.current) {
+    if (!loading && !initialLoadDone.current) {
       initialLoadDone.current = true;
+      // 只记录当前已有的消息（可能为空集合）
       setRenderedIds(new Set(messages.map((m) => m.message_uuid)));
     }
   }, [loading, messages]);
@@ -83,38 +99,54 @@ export function GroupChatMessages({
     );
   }
 
-  if (messages.length === 0) {
-    return (
-      <div className="message-placeholder">
-        <p>暂无消息</p>
-        <span>发送一条消息开始群聊吧</span>
-      </div>
-    );
-  }
+  // 占位符始终存在于DOM中，使用 absolute 定位脱离文档流
+  // 通过 opacity 控制显示/隐藏，避免布局变化导致的抽搐
+  const isEmpty = messages.length === 0;
 
   return (
     <>
-      {messages.map((message) => {
-        const isOwn = message.sender_id === currentUserId;
-        const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
-        const isSelected = selectedMessages.has(message.message_uuid);
+      {/* 暂无消息占位符 - 始终存在，通过透明度控制 */}
+      <motion.div
+        className="message-placeholder message-placeholder-absolute"
+        initial={false}
+        animate={{
+          opacity: isEmpty ? 1 : 0,
+          pointerEvents: isEmpty ? 'auto' : 'none',
+        }}
+        transition={{
+          duration: 0.3,
+          ease: 'easeOut',
+          delay: isEmpty ? 0.25 : 0, // 淡入时延迟，淡出时立即
+        }}
+      >
+        <p>暂无消息</p>
+        <span>发送一条消息开始群聊吧</span>
+      </motion.div>
 
-        return (
-          <GroupMessageBubble
-            key={message.message_uuid}
-            message={message}
-            isOwn={isOwn}
-            isNew={isNew}
-            isMultiSelectMode={isMultiSelectMode}
-            isSelected={isSelected}
-            onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
-            onRecall={() => onRecall?.(message.message_uuid)}
-            onDelete={() => onDelete?.(message.message_uuid)}
-            onEnterMultiSelect={onEnterMultiSelect}
-            isAdmin={isAdmin}
-          />
-        );
-      })}
+      {/* 消息列表 */}
+      <AnimatePresence mode="popLayout">
+        {messages.map((message) => {
+          const isOwn = message.sender_id === currentUserId;
+          const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
+          const isSelected = selectedMessages.has(message.message_uuid);
+
+          return (
+            <GroupMessageBubble
+              key={message.message_uuid}
+              message={message}
+              isOwn={isOwn}
+              isNew={isNew}
+              isMultiSelectMode={isMultiSelectMode}
+              isSelected={isSelected}
+              onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
+              onRecall={() => onRecall?.(message.message_uuid)}
+              onDelete={() => onDelete?.(message.message_uuid)}
+              onEnterMultiSelect={onEnterMultiSelect}
+              isAdmin={isAdmin}
+            />
+          );
+        })}
+      </AnimatePresence>
     </>
   );
 }

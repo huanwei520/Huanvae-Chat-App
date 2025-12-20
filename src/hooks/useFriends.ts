@@ -1,5 +1,10 @@
 /**
  * 好友管理 Hook
+ *
+ * 功能：
+ * - 好友列表加载和刷新
+ * - 增量添加好友（配合 WebSocket 通知）
+ * - 增量移除好友（配合 AnimatePresence 触发退出动画）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -35,6 +40,29 @@ export function useFriends() {
     return loadFriends();
   }, [loadFriends]);
 
+  /**
+   * 增量添加好友
+   * 用于 WebSocket 收到 friend_request_approved 通知时直接插入新好友
+   */
+  const addFriend = useCallback((newFriend: Friend) => {
+    setFriends((prev) => {
+      // 避免重复添加
+      if (prev.some((f) => f.friend_id === newFriend.friend_id)) {
+        return prev;
+      }
+      // 插入到列表头部
+      return [newFriend, ...prev];
+    });
+  }, []);
+
+  /**
+   * 增量移除好友
+   * 用于删除好友后直接从列表移除，配合 AnimatePresence 触发退出动画
+   */
+  const removeFriend = useCallback((friendId: string) => {
+    setFriends((prev) => prev.filter((f) => f.friend_id !== friendId));
+  }, []);
+
   // 初始加载
   useEffect(() => {
     loadFriends();
@@ -45,5 +73,7 @@ export function useFriends() {
     loading,
     error,
     refresh,
+    addFriend,
+    removeFriend,
   };
 }

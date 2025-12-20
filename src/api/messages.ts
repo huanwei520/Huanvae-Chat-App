@@ -65,7 +65,7 @@ export function deleteMessage(
 ): Promise<{ success: boolean; message: string }> {
   return api.delete<{ success: boolean; message: string }>(
     '/api/messages/delete',
-    { body: { message_uuid: messageUuid } } as never,
+    { message_uuid: messageUuid },
   );
 }
 

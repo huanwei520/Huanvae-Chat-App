@@ -1,8 +1,13 @@
 /**
  * 好友列表组件
+ *
+ * 功能：
+ * - 使用 AnimatePresence 支持好友增删时的入场/退出动画
+ * - 新好友插入时从左侧淡入
+ * - 删除好友时向右滑出
  */
 
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
@@ -106,7 +111,9 @@ export function FriendList({
       </div>
 
       <div className="conversation-list">
-        {renderListContent()}
+        <AnimatePresence mode="popLayout">
+          {renderListContent()}
+        </AnimatePresence>
       </div>
     </motion.section>
   );

@@ -96,6 +96,38 @@ export interface WsSystemNotification {
 }
 
 /**
+ * 好友申请通过通知数据
+ */
+export interface FriendApprovedData {
+  friend_id: string;
+  friend_nickname: string;
+  friend_avatar_url: string;
+  add_time: string;
+}
+
+/**
+ * 入群申请通过通知数据
+ */
+export interface GroupJoinApprovedData {
+  group_id: string;
+  group_name: string;
+  group_avatar_url: string;
+  role: 'owner' | 'admin' | 'member';
+  approved_by?: string;
+}
+
+/**
+ * 被移出群聊/群解散通知数据
+ */
+export interface GroupRemovedData {
+  group_id: string;
+  group_name: string;
+  removed_by?: string;
+  disbanded_by?: string;
+  reason?: string;
+}
+
+/**
  * 心跳消息
  */
 export interface WsHeartbeat {

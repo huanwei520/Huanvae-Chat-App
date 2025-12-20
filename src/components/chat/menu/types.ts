@@ -26,7 +26,13 @@ export type MenuView =
   | 'mute-member'
   | 'confirm-delete'
   | 'confirm-leave'
-  | 'confirm-kick';
+  | 'confirm-kick'
+  | 'notices'
+  | 'create-notice'
+  | 'transfer-owner'
+  | 'confirm-disband'
+  | 'invite-codes'
+  | 'generate-code';
 
 export interface MenuState {
   isOpen: boolean;

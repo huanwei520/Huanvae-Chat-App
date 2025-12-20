@@ -217,7 +217,7 @@ export function joinGroupByCode(
   api: ApiClient,
   code: string,
 ): Promise<{ success: boolean; message: string }> {
-  return api.post('/api/groups/join-by-code', { code });
+  return api.post('/api/groups/join_by_code', { code });
 }
 
 // ============================================
@@ -369,4 +369,150 @@ export function disbandGroup(
   groupId: string,
 ): Promise<{ success: boolean; message: string }> {
   return api.delete(`/api/groups/${groupId}`);
+}
+
+// ============================================
+// 群公告管理
+// ============================================
+
+/** 群公告 */
+export interface GroupNotice {
+  id: string;
+  title: string;
+  content: string;
+  publisher_id: string;
+  publisher_nickname: string;
+  published_at: string;
+  is_pinned: boolean;
+  updated_at: string;
+}
+
+/** 群公告列表响应 */
+export interface GroupNoticesResponse {
+  success: boolean;
+  code: number;
+  data: {
+    notices: GroupNotice[];
+  };
+}
+
+/**
+ * 获取群公告列表
+ */
+export function getGroupNotices(
+  api: ApiClient,
+  groupId: string,
+): Promise<GroupNoticesResponse> {
+  return api.get(`/api/groups/${groupId}/notices`);
+}
+
+/**
+ * 发布群公告
+ * 权限：群主或管理员
+ */
+export function createGroupNotice(
+  api: ApiClient,
+  groupId: string,
+  data: { title: string; content: string; is_pinned?: boolean },
+): Promise<{ success: boolean; data: { id: string; published_at: string } }> {
+  return api.post(`/api/groups/${groupId}/notices`, data as Record<string, unknown>);
+}
+
+/**
+ * 更新群公告
+ * 权限：群主或管理员
+ */
+export function updateGroupNotice(
+  api: ApiClient,
+  groupId: string,
+  noticeId: string,
+  data: { title?: string; content?: string; is_pinned?: boolean },
+): Promise<{ success: boolean }> {
+  return api.put(`/api/groups/${groupId}/notices/${noticeId}`, data);
+}
+
+/**
+ * 删除群公告
+ * 权限：群主或管理员
+ */
+export function deleteGroupNotice(
+  api: ApiClient,
+  groupId: string,
+  noticeId: string,
+): Promise<{ success: boolean }> {
+  return api.delete(`/api/groups/${groupId}/notices/${noticeId}`);
+}
+
+// ============================================
+// 邀请码管理
+// ============================================
+
+/** 邀请码 */
+export interface InviteCode {
+  id: string;
+  code: string;
+  code_type: 'direct' | 'normal';
+  creator_id: string;
+  max_uses: number;
+  used_count: number;
+  expires_at: string;
+  created_at: string;
+}
+
+/** 邀请码列表响应 */
+export interface InviteCodesResponse {
+  success: boolean;
+  code: number;
+  data: {
+    codes: InviteCode[];
+  };
+}
+
+/** 生成邀请码响应 */
+export interface GenerateInviteCodeResponse {
+  success: boolean;
+  code: number;
+  data: {
+    id: string;
+    code: string;
+    code_type: 'direct' | 'normal';
+    expires_at: string;
+  };
+}
+
+/**
+ * 生成邀请码
+ * 权限：
+ * - 群主/管理员：生成"直通"邀请码（direct），使用者可直接入群
+ * - 普通成员：生成"普通"邀请码（normal），使用者需审核
+ */
+export function generateInviteCode(
+  api: ApiClient,
+  groupId: string,
+  options?: { max_uses?: number; expires_in_hours?: number },
+): Promise<GenerateInviteCodeResponse> {
+  return api.post(`/api/groups/${groupId}/invite_codes`, options || {});
+}
+
+/**
+ * 获取邀请码列表
+ * 权限：群主或管理员
+ */
+export function getInviteCodes(
+  api: ApiClient,
+  groupId: string,
+): Promise<InviteCodesResponse> {
+  return api.get(`/api/groups/${groupId}/invite_codes`);
+}
+
+/**
+ * 撤销邀请码
+ * 权限：邀请码创建者或群主/管理员
+ */
+export function revokeInviteCode(
+  api: ApiClient,
+  groupId: string,
+  codeId: string,
+): Promise<{ success: boolean }> {
+  return api.delete(`/api/groups/${groupId}/invite_codes/${codeId}`);
 }

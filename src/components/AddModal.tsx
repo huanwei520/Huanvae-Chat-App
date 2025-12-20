@@ -39,7 +39,7 @@ import {
   GroupInvitesTab,
 } from './modals/add';
 
-export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddModalProps) {
+export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGroups }: AddModalProps) {
   const { session } = useSession();
   const api = useApi();
   const { onSystemNotification, clearPendingNotification } = useWebSocket();
@@ -125,14 +125,14 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
           loadGroupInvites();
           break;
         case 'group_join_approved':
-          // 群聊加入申请被通过，刷新群列表
-          onGroupAdded?.();
+          // 群聊加入申请被通过，刷新群列表（备用，Main.tsx 已有增量处理）
+          refreshGroups?.();
           break;
       }
     });
 
     return unsubscribe;
-  }, [isOpen, onSystemNotification, loadFriendRequests, loadGroupInvites, onFriendAdded, onGroupAdded]);
+  }, [isOpen, onSystemNotification, loadFriendRequests, loadGroupInvites, onFriendAdded, refreshGroups]);
 
   // 清除消息
   useEffect(() => {
@@ -198,14 +198,23 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
     setError(null);
 
     try {
-      await createGroup(api, {
+      const result = await createGroup(api, {
         group_name: groupName.trim(),
         group_description: groupDesc.trim() || undefined,
       });
       setSuccess('群聊创建成功');
       setGroupName('');
       setGroupDesc('');
-      onGroupAdded?.();
+      // 构建 Group 对象进行增量添加（无需全量刷新）
+      addGroup?.({
+        group_id: result.data.group_id,
+        group_name: result.data.group_name,
+        group_avatar_url: '',
+        role: 'owner',
+        unread_count: 0,
+        last_message_content: null,
+        last_message_time: null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建失败');
     } finally {
@@ -227,7 +236,8 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
       await joinGroupByCode(api, inviteCode.trim());
       setSuccess('已成功加入群聊');
       setInviteCode('');
-      onGroupAdded?.();
+      // API 不返回完整 Group 信息，使用全量刷新
+      refreshGroups?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : '加入失败');
     } finally {
@@ -240,7 +250,16 @@ export function AddModal({ isOpen, onClose, onFriendAdded, onGroupAdded }: AddMo
     try {
       await acceptGroupInvitation(api, invite.request_id);
       setGroupInvites((prev) => prev.filter((i) => i.request_id !== invite.request_id));
-      onGroupAdded?.();
+      // 从邀请信息构建 Group 对象进行增量添加
+      addGroup?.({
+        group_id: invite.group_id,
+        group_name: invite.group_name,
+        group_avatar_url: invite.group_avatar_url,
+        role: 'member',
+        unread_count: 0,
+        last_message_content: null,
+        last_message_time: null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');
     }

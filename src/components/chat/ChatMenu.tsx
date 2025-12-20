@@ -21,7 +21,17 @@ import {
   removeAdmin,
   muteMember,
   unmuteMember,
+  disbandGroup,
+  transferOwner,
+  getGroupNotices,
+  createGroupNotice,
+  deleteGroupNotice,
+  generateInviteCode,
+  getInviteCodes,
+  revokeInviteCode,
   type GroupMember,
+  type GroupNotice,
+  type InviteCode,
 } from '../../api/groups';
 import { MenuIcon } from '../common/Icons';
 import {
@@ -34,6 +44,11 @@ import {
   MemberActions,
   MuteSettings,
   ConfirmDialog,
+  NoticesList,
+  CreateNoticeForm,
+  TransferOwner,
+  InviteCodeList,
+  GenerateCodeForm,
 } from './menu';
 
 export function ChatMenuButton({
@@ -69,6 +84,14 @@ export function ChatMenuButton({
 
   // 禁言时长
   const [muteDuration, setMuteDuration] = useState<number>(60);
+
+  // 群公告
+  const [notices, setNotices] = useState<GroupNotice[]>([]);
+  const [loadingNotices, setLoadingNotices] = useState(false);
+
+  // 邀请码
+  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
+  const [loadingCodes, setLoadingCodes] = useState(false);
 
   // 文件输入引用
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -308,6 +331,150 @@ export function ChatMenuButton({
     }
   };
 
+  // 加载群公告
+  const handleLoadNotices = async () => {
+    if (target.type !== 'group') { return; }
+
+    setLoadingNotices(true);
+    setView('notices');
+    try {
+      const response = await getGroupNotices(api, target.data.group_id);
+      setNotices(response.data?.notices || []);
+    } catch {
+      setNotices([]);
+    } finally {
+      setLoadingNotices(false);
+    }
+  };
+
+  // 创建群公告
+  const handleCreateNotice = async (title: string, content: string, isPinned: boolean) => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await createGroupNotice(api, target.data.group_id, { title, content, is_pinned: isPinned });
+      setSuccess('公告已发布');
+      handleLoadNotices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '发布失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 删除群公告
+  const handleDeleteNotice = async (noticeId: string) => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await deleteGroupNotice(api, target.data.group_id, noticeId);
+      setSuccess('公告已删除');
+      setNotices((prev) => prev.filter((n) => n.id !== noticeId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 解散群聊
+  const handleDisbandGroup = async () => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await disbandGroup(api, target.data.group_id);
+      setSuccess('群聊已解散');
+      onGroupLeft?.();
+      setIsOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 转让群主
+  const handleTransferOwner = async (newOwnerId: string) => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await transferOwner(api, target.data.group_id, newOwnerId);
+      setSuccess('群主已转让');
+      onGroupUpdated?.();
+      setView('main');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '转让失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 加载邀请码列表
+  const handleLoadInviteCodes = async () => {
+    if (target.type !== 'group') { return; }
+
+    setLoadingCodes(true);
+    setView('invite-codes');
+    try {
+      const response = await getInviteCodes(api, target.data.group_id);
+      setInviteCodes(response.data?.codes || []);
+    } catch {
+      setInviteCodes([]);
+    } finally {
+      setLoadingCodes(false);
+    }
+  };
+
+  // 生成邀请码
+  const handleGenerateCode = async (maxUses: number, expiresInHours: number) => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      const result = await generateInviteCode(api, target.data.group_id, {
+        max_uses: maxUses,
+        expires_in_hours: expiresInHours,
+      });
+      setSuccess(`邀请码已生成: ${result.data.code}`);
+      // 重新加载列表
+      handleLoadInviteCodes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '生成失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 撤销邀请码
+  const handleRevokeCode = async (codeId: string) => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await revokeInviteCode(api, target.data.group_id, codeId);
+      setSuccess('邀请码已撤销');
+      setInviteCodes((prev) => prev.filter((c) => c.id !== codeId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '撤销失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 复制邀请码
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setSuccess('已复制到剪贴板');
+    } catch {
+      setError('复制失败');
+    }
+  };
+
   // 点击成员
   const handleMemberClick = (member: GroupMember) => {
     if (member.user_id === session?.userId) { return; }
@@ -339,6 +506,19 @@ export function ChatMenuButton({
             onSetView={(v) => {
               if (v === 'edit-name' && target.type === 'group') {
                 setNewGroupName(target.data.group_name);
+              }
+              if (v === 'notices') {
+                handleLoadNotices();
+                return;
+              }
+              if (v === 'transfer-owner') {
+                handleLoadMembers();
+                setView('transfer-owner');
+                return;
+              }
+              if (v === 'invite-codes') {
+                handleLoadInviteCodes();
+                return;
               }
               setView(v);
             }}
@@ -450,6 +630,74 @@ export function ChatMenuButton({
             loading={loading}
             onConfirm={handleKickMember}
             onCancel={() => setView('member-action')}
+          />
+        );
+
+      case 'notices':
+        return (
+          <NoticesList
+            notices={notices}
+            loading={loadingNotices}
+            isOwnerOrAdmin={isGroupOwnerOrAdmin}
+            onBack={() => setView('main')}
+            onCreateNotice={() => setView('create-notice')}
+            onDeleteNotice={handleDeleteNotice}
+          />
+        );
+
+      case 'create-notice':
+        return (
+          <CreateNoticeForm
+            loading={loading}
+            onBack={() => setView('notices')}
+            onSubmit={handleCreateNotice}
+          />
+        );
+
+      case 'transfer-owner':
+        return (
+          <TransferOwner
+            members={members}
+            loading={loading}
+            loadingMembers={loadingMembers}
+            currentUserId={session?.userId}
+            onBack={() => setView('main')}
+            onTransfer={handleTransferOwner}
+          />
+        );
+
+      case 'confirm-disband':
+        return (
+          <ConfirmDialog
+            title="确认解散"
+            message={<>确定要解散群聊 <strong>{target.type === 'group' ? target.data.group_name : ''}</strong> 吗？</>}
+            warning="此操作无法撤销，所有成员将被移出群聊"
+            confirmText="确认解散"
+            loadingText="解散中..."
+            loading={loading}
+            onConfirm={handleDisbandGroup}
+            onCancel={() => setView('main')}
+          />
+        );
+
+      case 'invite-codes':
+        return (
+          <InviteCodeList
+            codes={inviteCodes}
+            loading={loadingCodes}
+            onBack={() => setView('main')}
+            onGenerate={() => setView('generate-code')}
+            onRevoke={handleRevokeCode}
+            onCopy={handleCopyCode}
+          />
+        );
+
+      case 'generate-code':
+        return (
+          <GenerateCodeForm
+            loading={loading}
+            onBack={() => setView('invite-codes')}
+            onSubmit={handleGenerateCode}
           />
         );
 

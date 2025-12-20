@@ -86,7 +86,7 @@ export function getGroupMessages(
     params.append('limit', options.limit.toString());
   }
 
-  return api.get<GroupMessagesResponse>(`/api/group-messages?${params.toString()}`);
+  return api.get<GroupMessagesResponse>(`/api/group_messages?${params.toString()}`);
 }
 
 /**
@@ -96,7 +96,7 @@ export function sendGroupMessage(
   api: ApiClient,
   data: SendGroupMessageRequest,
 ): Promise<SendGroupMessageResponse> {
-  return api.post<SendGroupMessageResponse>('/api/group-messages', data as Record<string, unknown>);
+  return api.post<SendGroupMessageResponse>('/api/group_messages', data as Record<string, unknown>);
 }
 
 /**
@@ -106,7 +106,10 @@ export function deleteGroupMessage(
   api: ApiClient,
   messageUuid: string,
 ): Promise<{ success: boolean; message: string }> {
-  return api.delete('/api/group-messages/delete', { message_uuid: messageUuid });
+  return api.delete<{ success: boolean; message: string }>(
+    '/api/group_messages/delete',
+    { message_uuid: messageUuid },
+  );
 }
 
 /**
@@ -116,5 +119,5 @@ export function recallGroupMessage(
   api: ApiClient,
   messageUuid: string,
 ): Promise<{ success: boolean; message: string }> {
-  return api.post('/api/group-messages/recall', { message_uuid: messageUuid });
+  return api.post('/api/group_messages/recall', { message_uuid: messageUuid });
 }

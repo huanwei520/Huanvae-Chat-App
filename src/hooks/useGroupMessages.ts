@@ -2,7 +2,13 @@
  * 群消息 Hook
  *
  * 提供群消息的状态管理和 API 调用
- * 支持通过 WebSocket 实时插入新消息
+ *
+ * 功能：
+ * - 消息加载、发送、撤回
+ * - 通过 WebSocket 实时插入新消息
+ * - 通过 WebSocket 处理消息撤回通知（message_recalled）
+ *   - 收到撤回通知后从本地列表移除消息
+ *   - 配合 AnimatePresence 触发退出动画
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
