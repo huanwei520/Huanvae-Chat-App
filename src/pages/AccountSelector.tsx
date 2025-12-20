@@ -10,14 +10,18 @@
  * 4. 位置变化触发动画
  * 5. 动画完成后，重置 positionOffset，更新 mainIndex
  *
- * 使用 useReducer 确保状态原子更新，避免中间状态
+ * 卡片组件已提取到 components/account/
  */
 
-import { useCallback, useRef, useMemo, useLayoutEffect, useReducer, useEffect } from 'react';
+import { useCallback, useRef, useLayoutEffect, useReducer, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { DefaultAvatarIcon, UserIcon, TrashIcon } from '../components/common/Icons';
+import { UserIcon, TrashIcon } from '../components/common/Icons';
+import { CardStack, getLoopIndex } from '../components/account';
 import type { SavedAccount } from '../types/account';
+
+// ============================================
+// 类型定义
+// ============================================
 
 interface AccountSelectorProps {
   accounts: SavedAccount[];
@@ -26,9 +30,9 @@ interface AccountSelectorProps {
   onDeleteAccount: (account: SavedAccount) => void;
 }
 
-// ============================================================================
+// ============================================
 // 动画配置
-// ============================================================================
+// ============================================
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -53,57 +57,17 @@ const itemVariants = {
   },
 };
 
-// 位置样式配置
-interface PositionStyle {
-  y: number;
-  scale: number;
-  opacity: number;
-  zIndex: number;
-  blur: number;
-}
-
-function getPositionStyle(positionIndex: number): PositionStyle {
-  const coreStyles: PositionStyle[] = [
-    { y: -140, scale: 0.65, opacity: 0, zIndex: 0, blur: 2 },      // 0: exit-top
-    { y: -75, scale: 0.82, opacity: 0.45, zIndex: 2, blur: 0.5 },  // 1: bg-top
-    { y: 0, scale: 1, opacity: 1, zIndex: 10, blur: 0 },           // 2: main
-    { y: 75, scale: 0.82, opacity: 0.45, zIndex: 2, blur: 0.5 },   // 3: bg-bottom
-    { y: 140, scale: 0.65, opacity: 0, zIndex: 0, blur: 2 },       // 4: exit-bottom
-  ];
-
-  if (positionIndex < 0) {
-    return { y: -200, scale: 0.5, opacity: 0, zIndex: 0, blur: 3 };
-  }
-  if (positionIndex > 4) {
-    return { y: 200, scale: 0.5, opacity: 0, zIndex: 0, blur: 3 };
-  }
-
-  return coreStyles[positionIndex];
-}
-
-// 卡片过渡动画配置
-const cardTransition = {
-  type: 'spring',
-  stiffness: 200,
-  damping: 24,
-  mass: 0.9,
-} as const;
-
-// 动画持续时间（毫秒）
 const ANIMATION_DURATION = 400;
+const DRAG_THRESHOLD = 30;
 
-// ============================================================================
-// 状态管理 - 使用 useReducer 确保原子更新
-// ============================================================================
+// ============================================
+// 状态管理
+// ============================================
 
 interface CardState {
   mainIndex: number;
   positionOffset: number;
-  // 标记是否正在动画中（用于 transition 选择）
-  // 'idle': 静止状态，无动画
-  // 'animating': 正在执行滚动动画
   phase: 'idle' | 'animating';
-  // 重置计数器：每次动画完成后递增，用于生成新的 key 让 React 重新创建 DOM
   resetCounter: number;
 }
 
@@ -114,11 +78,6 @@ type CardAction =
   | { type: 'COMPLETE_NEXT'; accountCount: number }
   | { type: 'SET_INDEX'; index: number };
 
-function getLoopIndex(index: number, length: number): number {
-  if (length === 0) { return 0; }
-  return ((index % length) + length) % length;
-}
-
 function cardReducer(state: CardState, action: CardAction): CardState {
   switch (action.type) {
     case 'START_PREV':
@@ -126,7 +85,6 @@ function cardReducer(state: CardState, action: CardAction): CardState {
     case 'START_NEXT':
       return { ...state, positionOffset: -1, phase: 'animating' };
     case 'COMPLETE_PREV':
-      // 递增 resetCounter 让 React 重新创建 DOM，避免复用导致的位置跳跃
       return {
         mainIndex: getLoopIndex(state.mainIndex - 1, action.accountCount),
         positionOffset: 0,
@@ -134,7 +92,6 @@ function cardReducer(state: CardState, action: CardAction): CardState {
         resetCounter: state.resetCounter + 1,
       };
     case 'COMPLETE_NEXT':
-      // 递增 resetCounter 让 React 重新创建 DOM，避免复用导致的位置跳跃
       return {
         mainIndex: getLoopIndex(state.mainIndex + 1, action.accountCount),
         positionOffset: 0,
@@ -148,142 +105,9 @@ function cardReducer(state: CardState, action: CardAction): CardState {
   }
 }
 
-// ============================================================================
-// 单个卡片组件
-// ============================================================================
-
-interface CardSlotProps {
-  account: SavedAccount;
-  positionIndex: number;
-  onClick?: () => void;
-}
-
-function CardSlot({ account, positionIndex, onClick }: CardSlotProps) {
-  const avatarSrc = useMemo(() => {
-    if (account.avatar_path) {
-      try {
-        return convertFileSrc(account.avatar_path);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }, [account.avatar_path]);
-
-  const style = getPositionStyle(positionIndex);
-  const isMain = positionIndex === 2;
-  const isBgTop = positionIndex === 1;
-  const isBgBottom = positionIndex === 3;
-  const isInteractive = isBgTop || isBgBottom;
-
-  return (
-    <motion.div
-      className={`stack-card ${isMain ? 'stack-card-main' : 'stack-card-background'}`}
-      animate={{
-        y: style.y,
-        scale: style.scale,
-        opacity: style.opacity,
-        zIndex: style.zIndex,
-        filter: `blur(${style.blur}px)`,
-      }}
-      initial={false}
-      transition={cardTransition}
-      onClick={isInteractive ? onClick : undefined}
-      style={{
-        pointerEvents: isInteractive || isMain ? 'auto' : 'none',
-        cursor: isInteractive ? 'pointer' : 'default',
-      }}
-    >
-      <div className="stack-account-card">
-        <div className="stack-card-avatar">
-          {avatarSrc ? (
-            <img
-              src={avatarSrc}
-              alt={account.nickname}
-              draggable={false}
-            />
-          ) : (
-            <DefaultAvatarIcon />
-          )}
-        </div>
-        <div className="stack-card-info">
-          <div className="stack-card-nickname">{account.nickname}</div>
-          <div className="stack-card-id">{account.user_id}</div>
-          <div className="stack-card-server">{account.server_url}</div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ============================================================================
-// 卡片堆叠组件
-// ============================================================================
-
-interface CardStackProps {
-  accounts: SavedAccount[];
-  mainIndex: number;
-  positionOffset: number;
-  resetCounter: number;
-  onPrev: () => void;
-  onNext: () => void;
-}
-
-function CardStack({
-  accounts,
-  mainIndex,
-  positionOffset,
-  resetCounter,
-  onPrev,
-  onNext,
-}: CardStackProps) {
-  const accountCount = accounts.length;
-
-  const slots = useMemo(() => {
-    const result = [];
-    for (let slotIdx = 0; slotIdx < 5; slotIdx++) {
-      const basePosition = slotIdx;
-      const actualPosition = basePosition + positionOffset;
-      const accountOffset = slotIdx - 2;
-      const accountIndex = getLoopIndex(mainIndex + accountOffset, accountCount);
-
-      result.push({
-        slotIdx,
-        account: accounts[accountIndex],
-        positionIndex: actualPosition,
-      });
-    }
-    return result;
-  }, [accounts, mainIndex, accountCount, positionOffset]);
-
-  const getClickHandler = useCallback((posIndex: number) => {
-    if (posIndex === 1) { return onPrev; }
-    if (posIndex === 3) { return onNext; }
-    return undefined;
-  }, [onPrev, onNext]);
-
-  return (
-    <div className="stack-container">
-      {slots.map((slot) => (
-        <CardSlot
-          // 使用 resetCounter 作为 key 的一部分
-          // 当动画完成后 resetCounter 递增，React 会销毁旧 DOM 并创建新 DOM
-          // 新 DOM 因为 initial={false} 会直接以目标位置渲染，不会有闪烁
-          key={`slot-${slot.slotIdx}-${resetCounter}`}
-          account={slot.account}
-          positionIndex={slot.positionIndex}
-          onClick={getClickHandler(slot.positionIndex)}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ============================================================================
+// ============================================
 // 主组件
-// ============================================================================
-
-const DRAG_THRESHOLD = 30;
+// ============================================
 
 export function AccountSelector({
   accounts,
@@ -291,7 +115,6 @@ export function AccountSelector({
   onAddAccount,
   onDeleteAccount,
 }: AccountSelectorProps) {
-  // 使用 useReducer 确保状态原子更新
   const [cardState, dispatch] = useReducer(cardReducer, {
     mainIndex: 0,
     positionOffset: 0,
@@ -348,8 +171,7 @@ export function AccountSelector({
     setShowDeleteConfirm(false);
   }, [accountCount]);
 
-  // 使用 useEffect 添加非 passive 的 wheel 事件监听器
-  // 这样可以正常调用 preventDefault() 阻止页面滚动
+  // 滚轮事件处理
   useEffect(() => {
     const element = stackSelectorRef.current;
     if (!element) { return; }
@@ -363,14 +185,11 @@ export function AccountSelector({
       }
     };
 
-    // 添加非 passive 的事件监听器
     element.addEventListener('wheel', handleWheel, { passive: false });
-
-    return () => {
-      element.removeEventListener('wheel', handleWheel);
-    };
+    return () => { element.removeEventListener('wheel', handleWheel); };
   }, [goToNext, goToPrev]);
 
+  // 拖拽事件处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     dragStartY.current = e.clientY;
   }, []);
@@ -426,7 +245,7 @@ export function AccountSelector({
     }
   }, [currentAccount, onDeleteAccount]);
 
-  // 显示的 mainIndex
+  // 计算显示的索引
   const getDisplayMainIndex = (): number => {
     if (positionOffset === 0) { return mainIndex; }
     if (positionOffset === -1) { return mainIndex; }

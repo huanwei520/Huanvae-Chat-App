@@ -81,6 +81,7 @@ export function ConversationList({
     });
 
     // 添加群聊会话
+    // 注意：使用 ?? 而不是 ||，因为 unread_count 为 0 时不应该 fallback
     (groups || []).forEach((group) => {
       const unread = unreadSummary?.group_unreads.find(u => u.group_id === group.group_id);
       items.push({
@@ -88,9 +89,10 @@ export function ConversationList({
         type: 'group',
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage: unread?.last_message_preview || group.last_message_content,
-        lastMessageTime: unread?.last_message_time || group.last_message_time,
-        unreadCount: unread?.unread_count || group.unread_count || 0,
+        lastMessage: unread?.last_message_preview ?? group.last_message_content,
+        lastMessageTime: unread?.last_message_time ?? group.last_message_time,
+        // 如果 WebSocket 有该群的未读数据，使用它；否则 fallback 到群聊对象的数据
+        unreadCount: unread !== undefined ? unread.unread_count : (group.unread_count ?? 0),
         data: group,
       });
     });

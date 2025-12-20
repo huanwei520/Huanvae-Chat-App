@@ -1,0 +1,281 @@
+/**
+ * WebSocket 消息处理器
+ *
+ * 从 WebSocketContext.tsx 中提取的消息处理逻辑
+ * 负责解析和处理各种 WebSocket 消息类型
+ */
+
+import type {
+  UnreadSummary,
+  WsServerMessage,
+  WsNewMessage,
+} from '../types/websocket';
+import type { PendingNotifications } from './WebSocketContext';
+
+// ============================================
+// 类型定义
+// ============================================
+
+export interface MessageHandlerContext {
+  activeChatRef: React.RefObject<{ type: 'friend' | 'group'; id: string } | null>;
+  setUnreadSummary: React.Dispatch<React.SetStateAction<UnreadSummary | null>>;
+  setPendingNotifications: React.Dispatch<React.SetStateAction<PendingNotifications>>;
+  newMessageListeners: React.RefObject<Set<(msg: WsNewMessage) => void>>;
+  recalledListeners: React.RefObject<Set<(msg: import('../types/websocket').WsMessageRecalled) => void>>;
+  notificationListeners: React.RefObject<Set<(msg: import('../types/websocket').WsSystemNotification) => void>>;
+}
+
+// ============================================
+// 辅助函数
+// ============================================
+
+/**
+ * 生成消息预览文本
+ */
+export function getMessagePreviewText(
+  messageType: 'text' | 'image' | 'video' | 'file',
+  preview: string,
+): string {
+  switch (messageType) {
+    case 'text':
+      return preview;
+    case 'image':
+      return '[图片]';
+    case 'video':
+      return '[视频]';
+    default:
+      return '[文件]';
+  }
+}
+
+/**
+ * 更新好友未读摘要
+ */
+export function updateFriendUnread(
+  summary: UnreadSummary,
+  friendId: string,
+  previewText: string,
+  timestamp: string,
+  incrementCount: boolean,
+): UnreadSummary {
+  const newSummary = { ...summary };
+  const idx = newSummary.friend_unreads.findIndex(u => u.friend_id === friendId);
+
+  if (idx >= 0) {
+    newSummary.friend_unreads = [...newSummary.friend_unreads];
+    newSummary.friend_unreads[idx] = {
+      ...newSummary.friend_unreads[idx],
+      unread_count: incrementCount
+        ? newSummary.friend_unreads[idx].unread_count + 1
+        : newSummary.friend_unreads[idx].unread_count,
+      last_message_preview: previewText,
+      last_message_time: timestamp,
+    };
+  } else {
+    newSummary.friend_unreads = [
+      ...newSummary.friend_unreads,
+      {
+        friend_id: friendId,
+        unread_count: incrementCount ? 1 : 0,
+        last_message_preview: previewText,
+        last_message_time: timestamp,
+      },
+    ];
+  }
+
+  // 重新计算总数
+  newSummary.total_count =
+    newSummary.friend_unreads.reduce((sum, u) => sum + u.unread_count, 0) +
+    newSummary.group_unreads.reduce((sum, u) => sum + u.unread_count, 0);
+
+  return newSummary;
+}
+
+/**
+ * 更新群聊未读摘要
+ */
+export function updateGroupUnread(
+  summary: UnreadSummary,
+  groupId: string,
+  previewText: string,
+  timestamp: string,
+  incrementCount: boolean,
+): UnreadSummary {
+  const newSummary = { ...summary };
+  const idx = newSummary.group_unreads.findIndex(u => u.group_id === groupId);
+
+  if (idx >= 0) {
+    newSummary.group_unreads = [...newSummary.group_unreads];
+    newSummary.group_unreads[idx] = {
+      ...newSummary.group_unreads[idx],
+      unread_count: incrementCount
+        ? newSummary.group_unreads[idx].unread_count + 1
+        : newSummary.group_unreads[idx].unread_count,
+      last_message_preview: previewText,
+      last_message_time: timestamp,
+    };
+  } else {
+    newSummary.group_unreads = [
+      ...newSummary.group_unreads,
+      {
+        group_id: groupId,
+        unread_count: incrementCount ? 1 : 0,
+        last_message_preview: previewText,
+        last_message_time: timestamp,
+      },
+    ];
+  }
+
+  // 重新计算总数
+  newSummary.total_count =
+    newSummary.friend_unreads.reduce((sum, u) => sum + u.unread_count, 0) +
+    newSummary.group_unreads.reduce((sum, u) => sum + u.unread_count, 0);
+
+  return newSummary;
+}
+
+/**
+ * 创建初始未读摘要
+ * @param incrementCount - 是否增加未读计数（新消息时为 true，发送消息时为 false）
+ */
+export function createInitialUnreadSummary(
+  targetType: 'friend' | 'group',
+  targetId: string,
+  previewText: string,
+  timestamp: string,
+  incrementCount: boolean = false,
+): UnreadSummary {
+  const unreadCount = incrementCount ? 1 : 0;
+
+  if (targetType === 'friend') {
+    return {
+      total_count: unreadCount,
+      friend_unreads: [{
+        friend_id: targetId,
+        unread_count: unreadCount,
+        last_message_preview: previewText,
+        last_message_time: timestamp,
+      }],
+      group_unreads: [],
+    };
+  }
+  return {
+    total_count: unreadCount,
+    friend_unreads: [],
+    group_unreads: [{
+      group_id: targetId,
+      unread_count: unreadCount,
+      last_message_preview: previewText,
+      last_message_time: timestamp,
+    }],
+  };
+}
+
+/**
+ * 处理 WebSocket 消息
+ */
+export function handleWebSocketMessage(
+  data: string,
+  ctx: MessageHandlerContext,
+): void {
+  try {
+    const msg = JSON.parse(data) as WsServerMessage;
+
+    switch (msg.type) {
+      case 'connected':
+        ctx.setUnreadSummary(msg.unread_summary);
+        break;
+
+      case 'new_message': {
+        const previewText = getMessagePreviewText(msg.message_type, msg.preview);
+
+        // 检查是否是当前活跃的聊天
+        const isActiveChat = ctx.activeChatRef.current &&
+          ctx.activeChatRef.current.type === msg.source_type &&
+          ctx.activeChatRef.current.id === msg.source_id;
+
+        // 是否增加未读计数：非活跃聊天时增加
+        const shouldIncrement = !isActiveChat;
+
+        // 更新未读计数和消息预览
+        ctx.setUnreadSummary(prev => {
+          // 修复：当 prev 为 null 时，创建初始未读摘要
+          if (!prev) {
+            return createInitialUnreadSummary(
+              msg.source_type,
+              msg.source_id,
+              previewText,
+              msg.timestamp,
+              shouldIncrement,
+            );
+          }
+
+          if (msg.source_type === 'friend') {
+            return updateFriendUnread(
+              prev,
+              msg.source_id,
+              previewText,
+              msg.timestamp,
+              shouldIncrement,
+            );
+          }
+          return updateGroupUnread(
+            prev,
+            msg.source_id,
+            previewText,
+            msg.timestamp,
+            shouldIncrement,
+          );
+        });
+
+        // 通知监听器
+        ctx.newMessageListeners.current.forEach(cb => cb(msg));
+        break;
+      }
+
+      case 'message_recalled':
+        ctx.recalledListeners.current.forEach(cb => cb(msg));
+        break;
+
+      case 'read_sync':
+        // 可以在这里更新 UI 显示对方已读状态
+        break;
+
+      case 'system_notification':
+        // 根据通知类型更新待处理通知计数
+        switch (msg.notification_type) {
+          case 'friend_request':
+            ctx.setPendingNotifications(prev => ({
+              ...prev,
+              friendRequests: prev.friendRequests + 1,
+            }));
+            break;
+          case 'group_invite':
+            ctx.setPendingNotifications(prev => ({
+              ...prev,
+              groupInvites: prev.groupInvites + 1,
+            }));
+            break;
+          case 'group_join_request':
+            ctx.setPendingNotifications(prev => ({
+              ...prev,
+              groupJoinRequests: prev.groupJoinRequests + 1,
+            }));
+            break;
+        }
+        // 通知所有监听器
+        ctx.notificationListeners.current.forEach(cb => cb(msg));
+        break;
+
+      case 'heartbeat':
+        // 服务器心跳，保持连接活跃
+        break;
+
+      case 'error':
+        console.error('📡 WebSocket 错误:', msg.code, msg.message);
+        break;
+    }
+  } catch (err) {
+    console.error('📡 解析消息失败:', err);
+  }
+}

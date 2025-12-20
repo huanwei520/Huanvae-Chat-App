@@ -4,39 +4,16 @@
  * 显示当前聊天对象（好友/群聊）的操作菜单
  * 支持：删除好友、群名称修改、群头像上传、邀请成员、查看成员、
  *       设置/取消管理员、禁言/解除禁言、踢出成员、退出群聊
+ *
+ * 状态管理已提取到 useChatMenu Hook
+ * 本组件仅负责渲染 UI
  */
 
-import { useState, useRef, useEffect, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSession, useApi } from '../../contexts/SessionContext';
-import { removeFriend } from '../../api/friends';
-import {
-  updateGroup,
-  inviteToGroup,
-  leaveGroup,
-  getGroupMembers,
-  uploadGroupAvatar,
-  removeMember,
-  setAdmin,
-  removeAdmin,
-  muteMember,
-  unmuteMember,
-  disbandGroup,
-  transferOwner,
-  getGroupNotices,
-  createGroupNotice,
-  deleteGroupNotice,
-  generateInviteCode,
-  getInviteCodes,
-  revokeInviteCode,
-  type GroupMember,
-  type GroupNotice,
-  type InviteCode,
-} from '../../api/groups';
+import { useChatMenu } from '../../hooks/useChatMenu';
 import { MenuIcon } from '../common/Icons';
 import {
   type ChatMenuProps,
-  type MenuView,
   MainMenu,
   EditNameForm,
   InviteForm,
@@ -59,474 +36,32 @@ export function ChatMenuButton({
   isMultiSelectMode = false,
   onToggleMultiSelect,
 }: ChatMenuProps) {
-  const { session } = useSession();
-  const api = useApi();
-
-  const [isOpen, setIsOpen] = useState(false);
-  const [view, setView] = useState<MenuView>('main');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // 编辑群名称
-  const [newGroupName, setNewGroupName] = useState('');
-
-  // 邀请成员
-  const [inviteUserId, setInviteUserId] = useState('');
-  const [inviteMessage, setInviteMessage] = useState('');
-
-  // 成员列表
-  const [members, setMembers] = useState<GroupMember[]>([]);
-  const [loadingMembers, setLoadingMembers] = useState(false);
-
-  // 选中的成员（用于操作）
-  const [selectedMember, setSelectedMember] = useState<GroupMember | null>(null);
-
-  // 禁言时长
-  const [muteDuration, setMuteDuration] = useState<number>(60);
-
-  // 群公告
-  const [notices, setNotices] = useState<GroupNotice[]>([]);
-  const [loadingNotices, setLoadingNotices] = useState(false);
-
-  // 邀请码
-  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
-  const [loadingCodes, setLoadingCodes] = useState(false);
-
-  // 文件输入引用
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // 群头像上传进度
-  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-
-  // 点击外部关闭
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-        setView('main');
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  // 清除消息
-  useEffect(() => {
-    if (error || success) {
-      const timer = setTimeout(() => {
-        setError(null);
-        setSuccess(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [error, success]);
-
-  const handleToggle = () => {
-    setIsOpen(!isOpen);
-    if (!isOpen) {
-      setView('main');
-      setError(null);
-      setSuccess(null);
-      setSelectedMember(null);
-    }
-  };
-
-  // 删除好友
-  const handleRemoveFriend = async () => {
-    if (target.type !== 'friend' || !session) { return; }
-
-    setLoading(true);
-    try {
-      await removeFriend(api, session.userId, target.data.friend_id);
-      setSuccess('已删除好友');
-      onFriendRemoved?.();
-      setIsOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 更新群名称
-  const handleUpdateGroupName = async () => {
-    if (target.type !== 'group' || !newGroupName.trim()) { return; }
-
-    setLoading(true);
-    try {
-      await updateGroup(api, target.data.group_id, { group_name: newGroupName.trim() });
-      setSuccess('群名称已更新');
-      onGroupUpdated?.();
-      setView('main');
-      setNewGroupName('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 上传群头像
-  const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (target.type !== 'group' || !e.target.files?.[0]) { return; }
-
-    const file = e.target.files[0];
-    if (file.size > 10 * 1024 * 1024) {
-      setError('图片大小不能超过 10MB');
-      return;
-    }
-
-    setUploadingAvatar(true);
-    setAvatarUploadProgress(0);
-    setLoading(true);
-    try {
-      await uploadGroupAvatar(
-        api,
-        target.data.group_id,
-        file,
-        (progress) => setAvatarUploadProgress(progress),
-      );
-      setSuccess('群头像已更新');
-      onGroupUpdated?.();
-      setView('main');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '上传失败');
-    } finally {
-      setLoading(false);
-      setUploadingAvatar(false);
-      setAvatarUploadProgress(0);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  // 邀请成员
-  const handleInviteMember = async () => {
-    if (target.type !== 'group' || !inviteUserId.trim()) { return; }
-
-    setLoading(true);
-    try {
-      await inviteToGroup(api, target.data.group_id, [inviteUserId.trim()], inviteMessage.trim() || undefined);
-      setSuccess('邀请已发送');
-      setInviteUserId('');
-      setInviteMessage('');
-      setView('main');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 加载成员列表
-  const handleLoadMembers = async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoadingMembers(true);
-    setView('members');
-    try {
-      const response = await getGroupMembers(api, target.data.group_id);
-      setMembers(response.data?.members || []);
-    } catch {
-      setMembers([]);
-    } finally {
-      setLoadingMembers(false);
-    }
-  };
-
-  // 退出群聊
-  const handleLeaveGroup = async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await leaveGroup(api, target.data.group_id);
-      setSuccess('已退出群聊');
-      onGroupLeft?.();
-      setIsOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 踢出成员
-  const handleKickMember = async () => {
-    if (target.type !== 'group' || !selectedMember) { return; }
-
-    setLoading(true);
-    try {
-      await removeMember(api, target.data.group_id, selectedMember.user_id);
-      setSuccess(`已移除 ${selectedMember.user_nickname}`);
-      setSelectedMember(null);
-      setView('main');
-      handleLoadMembers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 设置/取消管理员
-  const handleToggleAdmin = async () => {
-    if (target.type !== 'group' || !selectedMember) { return; }
-
-    setLoading(true);
-    try {
-      if (selectedMember.role === 'admin') {
-        await removeAdmin(api, target.data.group_id, selectedMember.user_id);
-        setSuccess(`已取消 ${selectedMember.user_nickname} 的管理员`);
-      } else {
-        await setAdmin(api, target.data.group_id, selectedMember.user_id);
-        setSuccess(`已设置 ${selectedMember.user_nickname} 为管理员`);
-      }
-      handleLoadMembers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 禁言成员
-  const handleMuteMember = async () => {
-    if (target.type !== 'group' || !selectedMember) { return; }
-
-    setLoading(true);
-    try {
-      await muteMember(api, target.data.group_id, selectedMember.user_id, muteDuration);
-      setSuccess(`已禁言 ${selectedMember.user_nickname} ${muteDuration} 分钟`);
-      setSelectedMember(null);
-      setView('main');
-      handleLoadMembers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 解除禁言
-  const handleUnmuteMember = async () => {
-    if (target.type !== 'group' || !selectedMember) { return; }
-
-    setLoading(true);
-    try {
-      await unmuteMember(api, target.data.group_id, selectedMember.user_id);
-      setSuccess(`已解除 ${selectedMember.user_nickname} 的禁言`);
-      handleLoadMembers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 加载群公告
-  const handleLoadNotices = async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoadingNotices(true);
-    setView('notices');
-    try {
-      const response = await getGroupNotices(api, target.data.group_id);
-      setNotices(response.data?.notices || []);
-    } catch {
-      setNotices([]);
-    } finally {
-      setLoadingNotices(false);
-    }
-  };
-
-  // 创建群公告
-  const handleCreateNotice = async (title: string, content: string, isPinned: boolean) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await createGroupNotice(api, target.data.group_id, { title, content, is_pinned: isPinned });
-      setSuccess('公告已发布');
-      handleLoadNotices();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '发布失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 删除群公告
-  const handleDeleteNotice = async (noticeId: string) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await deleteGroupNotice(api, target.data.group_id, noticeId);
-      setSuccess('公告已删除');
-      setNotices((prev) => prev.filter((n) => n.id !== noticeId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '删除失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 解散群聊
-  const handleDisbandGroup = async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await disbandGroup(api, target.data.group_id);
-      setSuccess('群聊已解散');
-      onGroupLeft?.();
-      setIsOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 转让群主
-  const handleTransferOwner = async (newOwnerId: string) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await transferOwner(api, target.data.group_id, newOwnerId);
-      setSuccess('群主已转让');
-      onGroupUpdated?.();
-      setView('main');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '转让失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 加载邀请码列表
-  const handleLoadInviteCodes = async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoadingCodes(true);
-    setView('invite-codes');
-    try {
-      const response = await getInviteCodes(api, target.data.group_id);
-      setInviteCodes(response.data?.codes || []);
-    } catch {
-      setInviteCodes([]);
-    } finally {
-      setLoadingCodes(false);
-    }
-  };
-
-  // 生成邀请码
-  const handleGenerateCode = async (maxUses: number, expiresInHours: number) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      const result = await generateInviteCode(api, target.data.group_id, {
-        max_uses: maxUses,
-        expires_in_hours: expiresInHours,
-      });
-      setSuccess(`邀请码已生成: ${result.data.code}`);
-      // 重新加载列表
-      handleLoadInviteCodes();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '生成失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 撤销邀请码
-  const handleRevokeCode = async (codeId: string) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await revokeInviteCode(api, target.data.group_id, codeId);
-      setSuccess('邀请码已撤销');
-      setInviteCodes((prev) => prev.filter((c) => c.id !== codeId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '撤销失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 复制邀请码
-  const handleCopyCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setSuccess('已复制到剪贴板');
-    } catch {
-      setError('复制失败');
-    }
-  };
-
-  // 点击成员
-  const handleMemberClick = (member: GroupMember) => {
-    if (member.user_id === session?.userId) { return; }
-    if (member.role === 'owner') { return; }
-    if (target.type === 'group' && target.data.role === 'admin' && member.role === 'admin') { return; }
-
-    setSelectedMember(member);
-    setView('member-action');
-  };
-
-  const isGroupOwnerOrAdmin = target.type === 'group' &&
-    (target.data.role === 'owner' || target.data.role === 'admin');
-
-  const isGroupOwner = target.type === 'group' && target.data.role === 'owner';
+  const menu = useChatMenu({
+    target,
+    onFriendRemoved,
+    onGroupUpdated,
+    onGroupLeft,
+  });
 
   // 渲染视图内容
   const renderViewContent = () => {
-    switch (view) {
+    switch (menu.view) {
       case 'main':
         return (
           <MainMenu
             targetType={target.type}
-            isOwnerOrAdmin={isGroupOwnerOrAdmin}
-            isOwner={isGroupOwner}
+            isOwnerOrAdmin={menu.isGroupOwnerOrAdmin}
+            isOwner={menu.isGroupOwner}
             isMultiSelectMode={isMultiSelectMode}
             group={target.type === 'group' ? target.data : undefined}
-            uploadingAvatar={uploadingAvatar}
-            avatarUploadProgress={avatarUploadProgress}
-            onSetView={(v) => {
-              if (v === 'edit-name' && target.type === 'group') {
-                setNewGroupName(target.data.group_name);
-              }
-              if (v === 'notices') {
-                handleLoadNotices();
-                return;
-              }
-              if (v === 'transfer-owner') {
-                handleLoadMembers();
-                setView('transfer-owner');
-                return;
-              }
-              if (v === 'invite-codes') {
-                handleLoadInviteCodes();
-                return;
-              }
-              setView(v);
-            }}
-            onLoadMembers={handleLoadMembers}
-            onUploadAvatar={() => fileInputRef.current?.click()}
+            uploadingAvatar={menu.uploadingAvatar}
+            avatarUploadProgress={menu.avatarUploadProgress}
+            onSetView={menu.handleSetView}
+            onLoadMembers={menu.handleLoadMembers}
+            onUploadAvatar={() => menu.fileInputRef.current?.click()}
             onToggleMultiSelect={() => {
               onToggleMultiSelect?.();
-              setIsOpen(false);
+              menu.handleCloseMenu();
             }}
           />
         );
@@ -534,62 +69,62 @@ export function ChatMenuButton({
       case 'edit-name':
         return (
           <EditNameForm
-            value={newGroupName}
-            loading={loading}
-            onChange={setNewGroupName}
-            onSubmit={handleUpdateGroupName}
-            onBack={() => setView('main')}
+            value={menu.newGroupName}
+            loading={menu.loading}
+            onChange={menu.setNewGroupName}
+            onSubmit={menu.handleUpdateGroupName}
+            onBack={() => menu.handleSetView('main')}
           />
         );
 
       case 'invite':
         return (
           <InviteForm
-            userId={inviteUserId}
-            message={inviteMessage}
-            loading={loading}
-            onUserIdChange={setInviteUserId}
-            onMessageChange={setInviteMessage}
-            onSubmit={handleInviteMember}
-            onBack={() => setView('main')}
+            userId={menu.inviteUserId}
+            message={menu.inviteMessage}
+            loading={menu.loading}
+            onUserIdChange={menu.setInviteUserId}
+            onMessageChange={menu.setInviteMessage}
+            onSubmit={menu.handleInviteMember}
+            onBack={() => menu.handleSetView('main')}
           />
         );
 
       case 'members':
         return (
           <MembersList
-            members={members}
-            loadingMembers={loadingMembers}
-            currentUserId={session?.userId}
-            isOwnerOrAdmin={isGroupOwnerOrAdmin}
-            onBack={() => setView('main')}
-            onMemberClick={handleMemberClick}
+            members={menu.members}
+            loadingMembers={menu.loadingMembers}
+            currentUserId={undefined}
+            isOwnerOrAdmin={menu.isGroupOwnerOrAdmin}
+            onBack={() => menu.handleSetView('main')}
+            onMemberClick={menu.handleMemberClick}
           />
         );
 
       case 'member-action':
-        return selectedMember && (
+        return menu.selectedMember && (
           <MemberActions
-            member={selectedMember}
-            isOwner={isGroupOwner}
-            loading={loading}
-            onBack={() => setView('members')}
-            onToggleAdmin={handleToggleAdmin}
-            onMute={() => setView('mute-member')}
-            onUnmute={handleUnmuteMember}
-            onKick={() => setView('confirm-kick')}
+            member={menu.selectedMember}
+            isOwner={menu.isGroupOwner}
+            loading={menu.loading}
+            onBack={() => menu.handleSetView('members')}
+            onToggleAdmin={menu.handleToggleAdmin}
+            onMute={() => menu.handleSetView('mute-member')}
+            onUnmute={menu.handleUnmuteMember}
+            onKick={() => menu.handleSetView('confirm-kick')}
           />
         );
 
       case 'mute-member':
-        return selectedMember && (
+        return menu.selectedMember && (
           <MuteSettings
-            member={selectedMember}
-            duration={muteDuration}
-            loading={loading}
-            onBack={() => setView('member-action')}
-            onDurationChange={setMuteDuration}
-            onConfirm={handleMuteMember}
+            member={menu.selectedMember}
+            duration={menu.muteDuration}
+            loading={menu.loading}
+            onBack={() => menu.handleSetView('member-action')}
+            onDurationChange={menu.setMuteDuration}
+            onConfirm={menu.handleMuteMember}
           />
         );
 
@@ -597,13 +132,19 @@ export function ChatMenuButton({
         return (
           <ConfirmDialog
             title="确认删除"
-            message={<>确定要删除好友 <strong>{target.type === 'friend' ? target.data.friend_nickname : ''}</strong> 吗？</>}
+            message={
+              <>
+                确定要删除好友{' '}
+                <strong>{target.type === 'friend' ? target.data.friend_nickname : ''}</strong>{' '}
+                吗？
+              </>
+            }
             warning="此操作无法撤销"
             confirmText="确认删除"
             loadingText="删除中..."
-            loading={loading}
-            onConfirm={handleRemoveFriend}
-            onCancel={() => setView('main')}
+            loading={menu.loading}
+            onConfirm={menu.handleRemoveFriend}
+            onCancel={() => menu.handleSetView('main')}
           />
         );
 
@@ -611,58 +152,68 @@ export function ChatMenuButton({
         return (
           <ConfirmDialog
             title="确认退出"
-            message={<>确定要退出群聊 <strong>{target.type === 'group' ? target.data.group_name : ''}</strong> 吗？</>}
+            message={
+              <>
+                确定要退出群聊{' '}
+                <strong>{target.type === 'group' ? target.data.group_name : ''}</strong>{' '}
+                吗？
+              </>
+            }
             confirmText="确认退出"
             loadingText="退出中..."
-            loading={loading}
-            onConfirm={handleLeaveGroup}
-            onCancel={() => setView('main')}
+            loading={menu.loading}
+            onConfirm={menu.handleLeaveGroup}
+            onCancel={() => menu.handleSetView('main')}
           />
         );
 
       case 'confirm-kick':
-        return selectedMember && (
+        return menu.selectedMember && (
           <ConfirmDialog
             title="确认移除"
-            message={<>确定要将 <strong>{selectedMember.user_nickname}</strong> 移出群聊吗？</>}
+            message={
+              <>
+                确定要将 <strong>{menu.selectedMember.user_nickname}</strong> 移出群聊吗？
+              </>
+            }
             confirmText="确认移除"
             loadingText="处理中..."
-            loading={loading}
-            onConfirm={handleKickMember}
-            onCancel={() => setView('member-action')}
+            loading={menu.loading}
+            onConfirm={menu.handleKickMember}
+            onCancel={() => menu.handleSetView('member-action')}
           />
         );
 
       case 'notices':
         return (
           <NoticesList
-            notices={notices}
-            loading={loadingNotices}
-            isOwnerOrAdmin={isGroupOwnerOrAdmin}
-            onBack={() => setView('main')}
-            onCreateNotice={() => setView('create-notice')}
-            onDeleteNotice={handleDeleteNotice}
+            notices={menu.notices}
+            loading={menu.loadingNotices}
+            isOwnerOrAdmin={menu.isGroupOwnerOrAdmin}
+            onBack={() => menu.handleSetView('main')}
+            onCreateNotice={() => menu.handleSetView('create-notice')}
+            onDeleteNotice={menu.handleDeleteNotice}
           />
         );
 
       case 'create-notice':
         return (
           <CreateNoticeForm
-            loading={loading}
-            onBack={() => setView('notices')}
-            onSubmit={handleCreateNotice}
+            loading={menu.loading}
+            onBack={() => menu.handleSetView('notices')}
+            onSubmit={menu.handleCreateNotice}
           />
         );
 
       case 'transfer-owner':
         return (
           <TransferOwner
-            members={members}
-            loading={loading}
-            loadingMembers={loadingMembers}
-            currentUserId={session?.userId}
-            onBack={() => setView('main')}
-            onTransfer={handleTransferOwner}
+            members={menu.members}
+            loading={menu.loading}
+            loadingMembers={menu.loadingMembers}
+            currentUserId={undefined}
+            onBack={() => menu.handleSetView('main')}
+            onTransfer={menu.handleTransferOwner}
           />
         );
 
@@ -670,34 +221,40 @@ export function ChatMenuButton({
         return (
           <ConfirmDialog
             title="确认解散"
-            message={<>确定要解散群聊 <strong>{target.type === 'group' ? target.data.group_name : ''}</strong> 吗？</>}
+            message={
+              <>
+                确定要解散群聊{' '}
+                <strong>{target.type === 'group' ? target.data.group_name : ''}</strong>{' '}
+                吗？
+              </>
+            }
             warning="此操作无法撤销，所有成员将被移出群聊"
             confirmText="确认解散"
             loadingText="解散中..."
-            loading={loading}
-            onConfirm={handleDisbandGroup}
-            onCancel={() => setView('main')}
+            loading={menu.loading}
+            onConfirm={menu.handleDisbandGroup}
+            onCancel={() => menu.handleSetView('main')}
           />
         );
 
       case 'invite-codes':
         return (
           <InviteCodeList
-            codes={inviteCodes}
-            loading={loadingCodes}
-            onBack={() => setView('main')}
-            onGenerate={() => setView('generate-code')}
-            onRevoke={handleRevokeCode}
-            onCopy={handleCopyCode}
+            codes={menu.inviteCodes}
+            loading={menu.loadingCodes}
+            onBack={() => menu.handleSetView('main')}
+            onGenerate={() => menu.handleSetView('generate-code')}
+            onRevoke={menu.handleRevokeCode}
+            onCopy={menu.handleCopyCode}
           />
         );
 
       case 'generate-code':
         return (
           <GenerateCodeForm
-            loading={loading}
-            onBack={() => setView('invite-codes')}
-            onSubmit={handleGenerateCode}
+            loading={menu.loading}
+            onBack={() => menu.handleSetView('invite-codes')}
+            onSubmit={menu.handleGenerateCode}
           />
         );
 
@@ -707,10 +264,10 @@ export function ChatMenuButton({
   };
 
   return (
-    <div className="chat-menu-container" ref={menuRef}>
+    <div className="chat-menu-container" ref={menu.menuRef}>
       <motion.button
         className="chat-menu-btn"
-        onClick={handleToggle}
+        onClick={menu.handleToggle}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         title="更多操作"
@@ -720,15 +277,15 @@ export function ChatMenuButton({
 
       {/* 隐藏的文件输入 */}
       <input
-        ref={fileInputRef}
+        ref={menu.fileInputRef}
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp"
         style={{ display: 'none' }}
-        onChange={handleAvatarUpload}
+        onChange={menu.handleAvatarUpload}
       />
 
       <AnimatePresence>
-        {isOpen && (
+        {menu.isOpen && (
           <motion.div
             className="chat-menu-dropdown"
             initial={{ opacity: 0, scale: 0.95, y: -10 }}
@@ -739,9 +296,9 @@ export function ChatMenuButton({
             {renderViewContent()}
 
             {/* 错误/成功提示 */}
-            {(error || success) && (
-              <div className={`menu-message ${error ? 'error' : 'success'}`}>
-                {error || success}
+            {(menu.error || menu.success) && (
+              <div className={`menu-message ${menu.error ? 'error' : 'success'}`}>
+                {menu.error || menu.success}
               </div>
             )}
           </motion.div>
