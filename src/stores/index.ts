@@ -1,0 +1,16 @@
+/**
+ * 状态管理导出
+ *
+ * 统一导出所有 Zustand stores
+ */
+
+export {
+  useChatStore,
+  selectGroupRole,
+  selectFriend,
+  selectGroup,
+  selectIsGroupOwnerOrAdmin,
+  selectIsGroupOwner,
+  selectCurrentMuteStatus,
+  type ChatStore,
+} from './chatStore';

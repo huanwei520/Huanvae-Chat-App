@@ -20,6 +20,7 @@ export type MenuView =
   | 'main'
   | 'edit-name'
   | 'edit-avatar'
+  | 'edit-nickname'
   | 'invite'
   | 'members'
   | 'member-action'

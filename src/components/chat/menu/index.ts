@@ -10,6 +10,7 @@ export { MembersList } from './MembersList';
 export { MemberActions } from './MemberActions';
 export { MuteSettings } from './MuteSettings';
 export { EditNameForm } from './EditNameForm';
+export { EditNicknameForm } from './EditNicknameForm';
 export { InviteForm } from './InviteForm';
 export { MainMenu } from './MainMenu';
 export { NoticesList, CreateNoticeForm } from './NoticesList';

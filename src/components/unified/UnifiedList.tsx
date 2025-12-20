@@ -82,31 +82,59 @@ interface UnifiedListProps {
 // 辅助函数
 // ============================================
 
-/** 角色标签组件 */
+/** 角色标签配置 */
+const ROLE_CONFIG = {
+  owner: { text: '群主', bg: 'rgba(234, 179, 8, 0.2)', color: '#ca8a04' },
+  admin: { text: '管理', bg: 'rgba(59, 130, 246, 0.2)', color: '#2563eb' },
+} as const;
+
+/** 角色标签动画变体 */
+const roleBadgeVariants = {
+  initial: { opacity: 0, scale: 0.6 },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    transition: { type: 'spring' as const, stiffness: 400, damping: 20 },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.6,
+    transition: { duration: 0.15 },
+  },
+};
+
+/**
+ * 角色标签组件
+ * 带有淡入淡出+弹性缩放动画，当身份变化时平滑过渡
+ * 使用 initial={false} 避免首次渲染时播放动画
+ */
 function RoleBadge({ role }: { role?: 'owner' | 'admin' | 'member' }) {
-  if (!role || role === 'member') { return null; }
-
-  const config = {
-    owner: { text: '群主', bg: 'rgba(234, 179, 8, 0.2)', color: '#ca8a04' },
-    admin: { text: '管理', bg: 'rgba(59, 130, 246, 0.2)', color: '#2563eb' },
-  };
-
-  const { text, bg, color } = config[role];
+  const config = role && role !== 'member' ? ROLE_CONFIG[role] : null;
 
   return (
-    <span
-      className="role-badge"
-      style={{
-        fontSize: '10px',
-        padding: '1px 4px',
-        borderRadius: '3px',
-        background: bg,
-        color: color,
-        marginLeft: '4px',
-      }}
-    >
-      {text}
-    </span>
+    <AnimatePresence mode="wait" initial={false}>
+      {config && (
+        <motion.span
+          key={role}
+          className="role-badge"
+          variants={roleBadgeVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          style={{
+            fontSize: '10px',
+            padding: '1px 4px',
+            borderRadius: '3px',
+            background: config.bg,
+            color: config.color,
+            marginLeft: '4px',
+            display: 'inline-block',
+          }}
+        >
+          {config.text}
+        </motion.span>
+      )}
+    </AnimatePresence>
   );
 }
 

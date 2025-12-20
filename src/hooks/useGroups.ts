@@ -1,35 +1,56 @@
 /**
  * 群聊列表 Hook
  *
+ * 基于 Zustand store 的群聊状态管理
+ *
  * 功能：
- * - 群聊列表加载和刷新
- * - 增量添加群聊（配合 WebSocket 通知）
- * - 增量移除群聊（配合 AnimatePresence 触发退出动画）
- * - 增量更新群聊信息（群名、头像、角色等）
+ * - 群聊列表加载和刷新（调用 API 并更新 store）
+ * - 提供 store 中群聊操作方法的便捷访问
+ *
+ * 状态存储在 useChatStore 中，本 hook 主要负责：
+ * 1. 初始化时加载群聊列表
+ * 2. 提供 refresh 方法重新加载
+ * 3. 代理 store 中的操作方法
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
+import { useChatStore } from '../stores';
 import { getMyGroups } from '../api/groups';
 import type { Group } from '../types/chat';
 
 interface UseGroupsReturn {
+  /** 群聊列表 */
   groups: Group[];
+  /** 加载中状态 */
   loading: boolean;
+  /** 错误信息 */
   error: string | null;
+  /** 刷新群聊列表 */
   refresh: () => Promise<Group[]>;
+  /** 添加群聊（WebSocket 通知时使用） */
   addGroup: (group: Group) => void;
+  /** 移除群聊（WebSocket 通知时使用） */
   removeGroup: (groupId: string) => void;
+  /** 更新群聊信息（WebSocket 通知时使用） */
   updateGroup: (groupId: string, updates: Partial<Group>) => void;
 }
 
 export function useGroups(): UseGroupsReturn {
   const api = useApi();
 
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 从 store 获取状态和操作方法
+  const groups = useChatStore((state) => state.groups);
+  const loading = useChatStore((state) => state.groupsLoading);
+  const error = useChatStore((state) => state.groupsError);
+  const setGroups = useChatStore((state) => state.setGroups);
+  const setLoading = useChatStore((state) => state.setGroupsLoading);
+  const setError = useChatStore((state) => state.setGroupsError);
+  const addGroup = useChatStore((state) => state.addGroup);
+  const removeGroup = useChatStore((state) => state.removeGroup);
+  const updateGroup = useChatStore((state) => state.updateGroup);
 
+  // 加载群聊列表
   const loadGroups = useCallback(async (): Promise<Group[]> => {
     setLoading(true);
     setError(null);
@@ -40,49 +61,20 @@ export function useGroups(): UseGroupsReturn {
       setGroups(newGroups);
       return newGroups;
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载群聊失败');
+      const errorMsg = err instanceof Error ? err.message : '加载群聊失败';
+      setError(errorMsg);
       setGroups([]);
       return [];
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, setGroups, setLoading, setError]);
 
-  /**
-   * 增量添加群聊
-   * 用于 WebSocket 收到 group_join_approved 通知时直接插入新群聊
-   */
-  const addGroup = useCallback((newGroup: Group) => {
-    setGroups((prev) => {
-      // 避免重复添加
-      if (prev.some((g) => g.group_id === newGroup.group_id)) {
-        return prev;
-      }
-      // 插入到列表头部
-      return [newGroup, ...prev];
-    });
-  }, []);
-
-  /**
-   * 增量移除群聊
-   * 用于 WebSocket 收到 group_removed/group_disbanded 通知时直接移除
-   * 配合 AnimatePresence 触发退出动画
-   */
-  const removeGroup = useCallback((groupId: string) => {
-    setGroups((prev) => prev.filter((g) => g.group_id !== groupId));
-  }, []);
-
-  /**
-   * 增量更新群聊信息
-   * 用于 WebSocket 收到 group_info_updated/group_avatar_updated/角色变更等通知时更新
-   */
-  const updateGroup = useCallback((groupId: string, updates: Partial<Group>) => {
-    setGroups((prev) => prev.map((g) =>
-      g.group_id === groupId ? { ...g, ...updates } : g,
-    ));
-  }, []);
-
+  // 初始化加载（只执行一次）
+  const initRef = useRef(false);
   useEffect(() => {
+    if (initRef.current) { return; }
+    initRef.current = true;
     loadGroups();
   }, [loadGroups]);
 

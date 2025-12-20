@@ -9,10 +9,15 @@
  * - 群公告管理
  * - 邀请码管理
  * - 上传进度跟踪
+ *
+ * 权限判断直接订阅 Zustand store 中的角色状态
+ * 这样可以在 WebSocket 推送角色变化时实时更新权限
+ * 而无需等待 target prop 变化，避免组件重新挂载
  */
 
 import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
+import { useChatStore } from '../stores';
 import { removeFriend } from '../api/friends';
 import {
   updateGroup,
@@ -33,6 +38,7 @@ import {
   generateInviteCode,
   getInviteCodes,
   revokeInviteCode,
+  updateGroupNickname,
   type GroupMember,
   type GroupNotice,
   type InviteCode,
@@ -78,6 +84,10 @@ export interface UseChatMenuReturn {
   muteDuration: number;
   setMuteDuration: (duration: number) => void;
 
+  // 群内昵称
+  groupNickname: string;
+  setGroupNickname: (nickname: string) => void;
+
   // 群公告
   notices: GroupNotice[];
   loadingNotices: boolean;
@@ -122,6 +132,8 @@ export interface UseChatMenuReturn {
   handleCopyCode: (code: string) => Promise<void>;
   handleMemberClick: (member: GroupMember) => void;
   handleCloseMenu: () => void;
+  handleUpdateGroupNickname: () => Promise<void>;
+  handleClearGroupNickname: () => Promise<void>;
 }
 
 // ============================================
@@ -159,6 +171,9 @@ export function useChatMenu({
   // 禁言时长
   const [muteDuration, setMuteDuration] = useState<number>(60);
 
+  // 群内昵称
+  const [groupNickname, setGroupNickname] = useState('');
+
   // 群公告
   const [notices, setNotices] = useState<GroupNotice[]>([]);
   const [loadingNotices, setLoadingNotices] = useState(false);
@@ -175,10 +190,18 @@ export function useChatMenu({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // 权限判断
+  // 从 store 订阅角色状态，避免因 target prop 变化导致组件重新挂载
+  // 只在 target 是群聊时从 store 中获取最新角色
+  const groupId = target.type === 'group' ? target.data.group_id : null;
+  const storeRole = useChatStore((state) =>
+    groupId ? state.groups.find((g) => g.group_id === groupId)?.role : undefined,
+  );
+
+  // 权限判断：优先使用 store 中的角色（实时更新），回退到 target.data.role
+  const currentRole = storeRole ?? (target.type === 'group' ? target.data.role : undefined);
   const isGroupOwnerOrAdmin = target.type === 'group' &&
-    (target.data.role === 'owner' || target.data.role === 'admin');
-  const isGroupOwner = target.type === 'group' && target.data.role === 'owner';
+    (currentRole === 'owner' || currentRole === 'admin');
+  const isGroupOwner = target.type === 'group' && currentRole === 'owner';
 
   // 点击外部关闭
   useEffect(() => {
@@ -524,6 +547,10 @@ export function useChatMenu({
   }, [api, target, onGroupLeft]);
 
   // 转让群主
+  // 转让群主
+  // 注意：不调用 onGroupUpdated()，因为：
+  // 1. WebSocket 会推送 owner_transferred 事件自动更新角色
+  // 2. 调用 onGroupUpdated 会触发 refreshGroups 导致所有卡片重载
   const handleTransferOwner = useCallback(async (newOwnerId: string) => {
     if (target.type !== 'group') { return; }
 
@@ -531,14 +558,14 @@ export function useChatMenu({
     try {
       await transferOwner(api, target.data.group_id, newOwnerId);
       setSuccess('群主已转让');
-      onGroupUpdated?.();
+      // 不调用 onGroupUpdated()，角色更新由 WebSocket 推送处理
       setView('main');
     } catch (err) {
       setError(err instanceof Error ? err.message : '转让失败');
     } finally {
       setLoading(false);
     }
-  }, [api, target, onGroupUpdated]);
+  }, [api, target]);
 
   // 生成邀请码
   const handleGenerateCode = useCallback(async (maxUses: number, expiresInHours: number) => {
@@ -595,6 +622,40 @@ export function useChatMenu({
     setView('member-action');
   }, [session?.userId, target]);
 
+  // 更新群内昵称
+  const handleUpdateGroupNickname = useCallback(async () => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await updateGroupNickname(api, target.data.group_id, groupNickname.trim());
+      setSuccess('群内昵称已更新');
+      setView('main');
+      setGroupNickname('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, target, groupNickname]);
+
+  // 清除群内昵称
+  const handleClearGroupNickname = useCallback(async () => {
+    if (target.type !== 'group') { return; }
+
+    setLoading(true);
+    try {
+      await updateGroupNickname(api, target.data.group_id, null);
+      setSuccess('群内昵称已清除');
+      setView('main');
+      setGroupNickname('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '清除失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, target]);
+
   return {
     // 状态
     isOpen,
@@ -621,6 +682,10 @@ export function useChatMenu({
     // 禁言时长
     muteDuration,
     setMuteDuration,
+
+    // 群内昵称
+    groupNickname,
+    setGroupNickname,
 
     // 群公告
     notices,
@@ -666,5 +731,7 @@ export function useChatMenu({
     handleCopyCode,
     handleMemberClick,
     handleCloseMenu,
+    handleUpdateGroupNickname,
+    handleClearGroupNickname,
   };
 }

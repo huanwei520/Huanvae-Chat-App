@@ -173,6 +173,18 @@ export function inviteToGroup(
 }
 
 /**
+ * 修改我的群内昵称
+ * @param nickname 新昵称，传空字符串或 null 清除昵称
+ */
+export function updateGroupNickname(
+  api: ApiClient,
+  groupId: string,
+  nickname: string | null,
+): Promise<{ success: boolean; message: string }> {
+  return api.put(`/api/groups/${groupId}/nickname`, { nickname: nickname || null });
+}
+
+/**
  * 退出群聊
  */
 export function leaveGroup(

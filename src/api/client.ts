@@ -77,7 +77,8 @@ export function createApiClient(config: ApiClientConfig) {
 
     const headers: Record<string, string> = { ...extraHeaders };
 
-    if (body) {
+    // 对于非 GET 请求，始终设置 Content-Type
+    if (method !== 'GET') {
       headers['Content-Type'] = 'application/json';
     }
 
@@ -85,10 +86,15 @@ export function createApiClient(config: ApiClientConfig) {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
+    // 对于非 GET 请求，如果没有 body 则发送空对象（后端要求）
+    const requestBody = method !== 'GET'
+      ? JSON.stringify(body ?? {})
+      : undefined;
+
     let response = await fetch(`${baseUrl}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: requestBody,
     });
 
     // 如果返回 401，尝试刷新 Token
@@ -101,7 +107,7 @@ export function createApiClient(config: ApiClientConfig) {
         response = await fetch(`${baseUrl}${path}`, {
           method,
           headers,
-          body: body ? JSON.stringify(body) : undefined,
+          body: requestBody,
         });
       } else {
         // 刷新失败，触发会话过期回调

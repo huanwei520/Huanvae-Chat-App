@@ -1,13 +1,19 @@
 /**
  * 主页面状态管理 Hook
  *
- * 从 Main.tsx 中提取的状态和逻辑
+ * 基于 Zustand store 重构的主页面状态管理
+ *
  * 负责：
- * - 聊天目标管理
+ * - 聊天目标管理（通过 Zustand store）
  * - 消息发送
  * - 文件上传
  * - 系统通知处理（好友/群聊相关实时通知）
  * - WebSocket 订阅
+ *
+ * 重构要点：
+ * - chatTarget 状态迁移到 Zustand store
+ * - WebSocket 回调中使用 store.getState() 获取最新状态，避免依赖数组问题
+ * - 群角色更新使用 store 的 updateGroup 和 updateChatTargetRole 方法
  *
  * 支持的系统通知类型：
  * - friend_request_approved: 好友请求通过，添加好友到列表
@@ -16,6 +22,8 @@
  * - group_removed/disbanded: 被移出群/群解散，从列表移除
  * - owner_transferred: 群主转让，更新角色
  * - admin_set/removed: 管理员变更，更新角色
+ * - member_muted: 成员被禁言，存储禁言状态
+ * - member_unmuted: 成员被解禁，清除禁言状态
  * - group_info_updated: 群名称更新
  * - group_avatar_updated: 群头像更新
  */
@@ -23,6 +31,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
+import { useChatStore } from '../stores';
 import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
 import { useMessages } from './useMessages';
@@ -44,11 +53,10 @@ import type {
   FriendDeletedData,
   OwnerTransferredData,
   AdminChangedData,
-  MemberMutedData,
-  MemberUnmutedData,
   GroupInfoUpdatedData,
   GroupAvatarUpdatedData,
-  GroupMemberJoinedData,
+  MemberMutedData,
+  MemberUnmutedData,
 } from '../types/websocket';
 
 // 侧边栏宽度常量
@@ -70,12 +78,22 @@ export function useMainPage() {
     onSystemNotification,
   } = useWebSocket();
 
+  // ============================================
+  // Zustand Store - 聊天目标状态
+  // ============================================
+  const chatTarget = useChatStore((state) => state.chatTarget);
+  const setChatTarget = useChatStore((state) => state.setChatTarget);
+  // 注意：updateChatTargetRole 在 WebSocket 回调中通过 store.getState() 使用
+
+  // ============================================
+  // 好友/群聊 Hooks（内部使用 Zustand store）
+  // ============================================
   const {
     friends,
     loading: friendsLoading,
     error: friendsError,
     refresh: refreshFriends,
-    addFriend,
+    // addFriend 在 WebSocket 回调中通过 store.getState() 使用
     removeFriend,
   } = useFriends();
 
@@ -86,12 +104,11 @@ export function useMainPage() {
     refresh: refreshGroups,
     addGroup,
     removeGroup,
-    updateGroup,
+    // updateGroup 在 WebSocket 回调中通过 store.getState() 使用
   } = useGroups();
 
   // 基础状态
   const [activeTab, setActiveTab] = useState<NavTab>('chat');
-  const [chatTarget, setChatTarget] = useState<ChatTarget | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -209,18 +226,20 @@ export function useMainPage() {
   // ============================================
   useEffect(() => {
     const unsubscribe = onNewMessage((msg) => {
-      if (chatTarget) {
+      // 使用 store.getState() 获取最新的 chatTarget，避免闭包问题
+      const currentTarget = useChatStore.getState().chatTarget;
+      if (currentTarget) {
         if (
-          chatTarget.type === 'friend' &&
+          currentTarget.type === 'friend' &&
           msg.source_type === 'friend' &&
-          msg.source_id === chatTarget.data.friend_id
+          msg.source_id === currentTarget.data.friend_id
         ) {
           handleNewFriendMessage(msg);
           markRead('friend', msg.source_id);
         } else if (
-          chatTarget.type === 'group' &&
+          currentTarget.type === 'group' &&
           msg.source_type === 'group' &&
-          msg.source_id === chatTarget.data.group_id
+          msg.source_id === currentTarget.data.group_id
         ) {
           handleNewGroupMessage(msg);
           markRead('group', msg.source_id);
@@ -228,52 +247,59 @@ export function useMainPage() {
       }
     });
     return unsubscribe;
-  }, [chatTarget, handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
+  }, [handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
 
   // ============================================
   // 订阅消息撤回事件
   // ============================================
   useEffect(() => {
     const unsubscribe = onMessageRecalled((msg) => {
-      if (chatTarget) {
+      const currentTarget = useChatStore.getState().chatTarget;
+      if (currentTarget) {
         if (
-          chatTarget.type === 'friend' &&
+          currentTarget.type === 'friend' &&
           msg.source_type === 'friend' &&
-          msg.source_id === chatTarget.data.friend_id
+          msg.source_id === currentTarget.data.friend_id
         ) {
           handleFriendMessageRecalled(msg);
         } else if (
-          chatTarget.type === 'group' &&
+          currentTarget.type === 'group' &&
           msg.source_type === 'group' &&
-          msg.source_id === chatTarget.data.group_id
+          msg.source_id === currentTarget.data.group_id
         ) {
           handleGroupMessageRecalled(msg);
         }
       }
     });
     return unsubscribe;
-  }, [chatTarget, handleFriendMessageRecalled, handleGroupMessageRecalled, onMessageRecalled]);
+  }, [handleFriendMessageRecalled, handleGroupMessageRecalled, onMessageRecalled]);
 
   // ============================================
-  // 订阅系统通知
+  // 订阅系统通知（关键重构：移除 groups 依赖）
   // ============================================
   useEffect(() => {
     const unsubscribe = onSystemNotification((msg) => {
+      // 使用 store.getState() 获取最新状态，避免依赖数组问题
+      const store = useChatStore.getState();
+      const currentTarget = store.chatTarget;
+
       switch (msg.notification_type) {
         // ==================== 好友相关通知 ====================
         case 'friend_request':
           break;
 
         case 'friend_request_approved': {
-          const friendData = msg.data as FriendApprovedData;
+          const friendData = msg.data as unknown as FriendApprovedData;
           if (friendData.friend_id) {
             const newFriend: Friend = {
               friend_id: friendData.friend_id,
               friend_nickname: friendData.friend_nickname,
               friend_avatar_url: friendData.friend_avatar_url || null,
               add_time: friendData.add_time,
+              approve_reason: null,
             };
-            addFriend(newFriend);
+            // 直接调用 store 方法
+            store.addFriend(newFriend);
           }
           break;
         }
@@ -282,13 +308,11 @@ export function useMainPage() {
           break;
 
         case 'friend_deleted': {
-          // 被好友删除时，从列表中移除该好友
-          const deletedData = msg.data as FriendDeletedData;
+          const deletedData = msg.data as unknown as FriendDeletedData;
           if (deletedData.friend_id) {
-            removeFriend(deletedData.friend_id);
-            // 如果当前正在和该好友聊天，清空聊天目标
-            if (chatTarget?.type === 'friend' && chatTarget.data.friend_id === deletedData.friend_id) {
-              setChatTarget(null);
+            store.removeFriend(deletedData.friend_id);
+            if (currentTarget?.type === 'friend' && currentTarget.data.friend_id === deletedData.friend_id) {
+              store.setChatTarget(null);
               setActiveChat(null, null);
             }
           }
@@ -303,18 +327,18 @@ export function useMainPage() {
           break;
 
         case 'group_join_approved': {
-          const groupData = msg.data as GroupJoinApprovedData;
+          const groupData = msg.data as unknown as GroupJoinApprovedData;
           if (groupData.group_id) {
             const newGroup: Group = {
               group_id: groupData.group_id,
               group_name: groupData.group_name,
-              group_avatar_url: groupData.group_avatar_url || null,
+              group_avatar_url: groupData.group_avatar_url ?? null,
               role: groupData.role || 'member',
               unread_count: 0,
               last_message_content: null,
               last_message_time: null,
             };
-            addGroup(newGroup);
+            store.addGroup(newGroup);
           }
           break;
         }
@@ -322,39 +346,34 @@ export function useMainPage() {
         // ==================== 群聊移除/解散通知 ====================
         case 'group_removed':
         case 'group_disbanded': {
-          const removedData = msg.data as GroupRemovedData;
+          const removedData = msg.data as unknown as GroupRemovedData;
           if (removedData.group_id) {
-            removeGroup(removedData.group_id);
-            if (chatTarget?.type === 'group' && chatTarget.data.group_id === removedData.group_id) {
-              setChatTarget(null);
+            store.removeGroup(removedData.group_id);
+            if (currentTarget?.type === 'group' && currentTarget.data.group_id === removedData.group_id) {
+              store.setChatTarget(null);
               setActiveChat(null, null);
             }
           }
           break;
         }
 
-        // ==================== 群主转让通知 ====================
+        // ==================== 群主转让通知（关键修复） ====================
         case 'owner_transferred': {
-          const transferData = msg.data as OwnerTransferredData;
+          const transferData = msg.data as unknown as OwnerTransferredData;
           if (transferData.group_id && session) {
             // 判断当前用户的新角色
-            let newRole: 'owner' | 'admin' | 'member' = 'member';
+            let newRole: 'owner' | 'admin' | 'member' | null = null;
             if (transferData.new_owner_id === session.userId) {
               newRole = 'owner';
             } else if (transferData.old_owner_id === session.userId) {
-              newRole = 'member'; // 原群主变为普通成员
+              newRole = 'member';
             }
-            // 只有当角色发生变化时才更新
-            const currentGroup = groups.find(g => g.group_id === transferData.group_id);
-            if (currentGroup && (
-              transferData.new_owner_id === session.userId ||
-              transferData.old_owner_id === session.userId
-            )) {
-              updateGroup(transferData.group_id, { role: newRole });
-              // 如果当前正在查看该群，更新 chatTarget
-              if (chatTarget?.type === 'group' && chatTarget.data.group_id === transferData.group_id) {
-                setChatTarget({ type: 'group', data: { ...chatTarget.data, role: newRole } });
-              }
+
+            if (newRole) {
+              // 使用 store 方法更新群角色（不触发整个列表重渲染）
+              store.updateGroup(transferData.group_id, { role: newRole });
+              // 同时更新 chatTarget（如果当前正在查看该群）
+              store.updateChatTargetRole(transferData.group_id, newRole);
             }
           }
           break;
@@ -362,70 +381,66 @@ export function useMainPage() {
 
         // ==================== 管理员变更通知 ====================
         case 'admin_set': {
-          const adminData = msg.data as AdminChangedData;
+          const adminData = msg.data as unknown as AdminChangedData;
           if (adminData.group_id && session && adminData.target_user_id === session.userId) {
-            // 当前用户被设置为管理员
-            updateGroup(adminData.group_id, { role: 'admin' });
-            if (chatTarget?.type === 'group' && chatTarget.data.group_id === adminData.group_id) {
-              setChatTarget({ type: 'group', data: { ...chatTarget.data, role: 'admin' } });
-            }
+            store.updateGroup(adminData.group_id, { role: 'admin' });
+            store.updateChatTargetRole(adminData.group_id, 'admin');
           }
           break;
         }
 
         case 'admin_removed': {
-          const adminData = msg.data as AdminChangedData;
+          const adminData = msg.data as unknown as AdminChangedData;
           if (adminData.group_id && session && adminData.target_user_id === session.userId) {
-            // 当前用户被取消管理员
-            updateGroup(adminData.group_id, { role: 'member' });
-            if (chatTarget?.type === 'group' && chatTarget.data.group_id === adminData.group_id) {
-              setChatTarget({ type: 'group', data: { ...chatTarget.data, role: 'member' } });
-            }
+            store.updateGroup(adminData.group_id, { role: 'member' });
+            store.updateChatTargetRole(adminData.group_id, 'member');
           }
           break;
         }
 
-        // ==================== 禁言通知（可用于UI提示） ====================
+        // ==================== 禁言通知 ====================
         case 'member_muted': {
-          const _muteData = msg.data as MemberMutedData;
-          // 可以在此处添加禁言状态的本地存储，用于发送消息时检查
+          const muteData = msg.data as unknown as MemberMutedData;
+          // 只处理当前用户被禁言的情况
+          if (muteData.group_id && session && muteData.target_user_id === session.userId) {
+            store.setMuteStatus(muteData.group_id, muteData.mute_until, muteData.reason);
+          }
           break;
         }
 
         case 'member_unmuted': {
-          const _unmuteData = msg.data as MemberUnmutedData;
-          // 可以在此处清除禁言状态
+          const unmuteData = msg.data as unknown as MemberUnmutedData;
+          // 只处理当前用户被解除禁言的情况
+          if (unmuteData.group_id && session && unmuteData.target_user_id === session.userId) {
+            store.clearMuteStatus(unmuteData.group_id);
+          }
           break;
         }
 
         // ==================== 群信息更新通知 ====================
         case 'group_info_updated': {
-          const infoData = msg.data as GroupInfoUpdatedData;
-          if (infoData.group_id) {
-            const updates: Partial<Group> = {};
-            if (infoData.new_name) {
-              updates.group_name = infoData.new_name;
-            }
-            if (Object.keys(updates).length > 0) {
-              updateGroup(infoData.group_id, updates);
-              // 更新 chatTarget
-              if (chatTarget?.type === 'group' && chatTarget.data.group_id === infoData.group_id) {
-                setChatTarget({ type: 'group', data: { ...chatTarget.data, ...updates } });
-              }
+          const infoData = msg.data as unknown as GroupInfoUpdatedData;
+          if (infoData.group_id && infoData.new_name) {
+            store.updateGroup(infoData.group_id, { group_name: infoData.new_name });
+            // 更新 chatTarget
+            if (currentTarget?.type === 'group' && currentTarget.data.group_id === infoData.group_id) {
+              store.setChatTarget({
+                type: 'group',
+                data: { ...currentTarget.data, group_name: infoData.new_name },
+              });
             }
           }
           break;
         }
 
         case 'group_avatar_updated': {
-          const avatarData = msg.data as GroupAvatarUpdatedData;
+          const avatarData = msg.data as unknown as GroupAvatarUpdatedData;
           if (avatarData.group_id) {
-            updateGroup(avatarData.group_id, { group_avatar_url: avatarData.new_avatar_url });
-            // 更新 chatTarget
-            if (chatTarget?.type === 'group' && chatTarget.data.group_id === avatarData.group_id) {
-              setChatTarget({
+            store.updateGroup(avatarData.group_id, { group_avatar_url: avatarData.new_avatar_url });
+            if (currentTarget?.type === 'group' && currentTarget.data.group_id === avatarData.group_id) {
+              store.setChatTarget({
                 type: 'group',
-                data: { ...chatTarget.data, group_avatar_url: avatarData.new_avatar_url },
+                data: { ...currentTarget.data, group_avatar_url: avatarData.new_avatar_url },
               });
             }
           }
@@ -433,31 +448,19 @@ export function useMainPage() {
         }
 
         // ==================== 新成员加入通知 ====================
-        case 'group_member_joined': {
-          const _joinData = msg.data as GroupMemberJoinedData;
-          // 成员列表的实时更新可以在 ChatMenu 组件中通过监听此通知实现
+        case 'group_member_joined':
+          // 成员列表的实时更新可以在 ChatMenu 组件中实现
           break;
-        }
 
         // ==================== 群公告更新通知 ====================
         case 'group_notice_updated':
-          // 公告更新可以在 ChatMenu 组件中处理
           break;
       }
     });
     return unsubscribe;
-  }, [
-    chatTarget,
-    session,
-    groups,
-    onSystemNotification,
-    addFriend,
-    removeFriend,
-    addGroup,
-    removeGroup,
-    updateGroup,
-    setActiveChat,
-  ]);
+  }, [session, onSystemNotification, setActiveChat]);
+  // 注意：依赖数组中移除了 groups、chatTarget、addFriend 等
+  // 因为我们在回调中使用 store.getState() 获取最新值
 
   // ============================================
   // 消息发送
@@ -535,7 +538,7 @@ export function useMainPage() {
       setActiveChat('group', target.data.group_id);
       markRead('group', target.data.group_id);
     }
-  }, [markRead, setActiveChat]);
+  }, [markRead, setActiveChat, setChatTarget]);
 
   const handleTabChange = useCallback((tab: NavTab) => {
     setActiveTab(tab);
@@ -551,19 +554,20 @@ export function useMainPage() {
     }
     setChatTarget(null);
     setActiveChat(null, null);
-  }, [chatTarget, removeFriend, setActiveChat]);
+  }, [chatTarget, removeFriend, setActiveChat, setChatTarget]);
 
   const handleGroupUpdated = useCallback(async () => {
     const updatedGroups = await refreshGroups();
-    if (chatTarget?.type === 'group') {
+    const currentTarget = useChatStore.getState().chatTarget;
+    if (currentTarget?.type === 'group') {
       const updatedGroup = updatedGroups.find(
-        (g) => g.group_id === chatTarget.data.group_id,
+        (g) => g.group_id === currentTarget.data.group_id,
       );
       if (updatedGroup) {
         setChatTarget({ type: 'group', data: updatedGroup });
       }
     }
-  }, [chatTarget, refreshGroups]);
+  }, [refreshGroups, setChatTarget]);
 
   const handleGroupLeft = useCallback(() => {
     if (chatTarget?.type === 'group') {
@@ -571,7 +575,7 @@ export function useMainPage() {
     }
     setChatTarget(null);
     setActiveChat(null, null);
-  }, [chatTarget, removeGroup, setActiveChat]);
+  }, [chatTarget, removeGroup, setActiveChat, setChatTarget]);
 
   const handleLogout = useCallback(() => {
     clearSession();

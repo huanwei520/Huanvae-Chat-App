@@ -1,25 +1,54 @@
 /**
  * 好友管理 Hook
  *
+ * 基于 Zustand store 的好友状态管理
+ *
  * 功能：
- * - 好友列表加载和刷新
- * - 增量添加好友（配合 WebSocket 通知）
- * - 增量移除好友（配合 AnimatePresence 触发退出动画）
+ * - 好友列表加载和刷新（调用 API 并更新 store）
+ * - 提供 store 中好友操作方法的便捷访问
+ *
+ * 状态存储在 useChatStore 中，本 hook 主要负责：
+ * 1. 初始化时加载好友列表
+ * 2. 提供 refresh 方法重新加载
+ * 3. 代理 store 中的操作方法
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
+import { useChatStore } from '../stores';
 import { getFriends } from '../api/friends';
 import type { Friend } from '../types/chat';
 
-export function useFriends() {
-  const api = useApi();
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface UseFriendsReturn {
+  /** 好友列表 */
+  friends: Friend[];
+  /** 加载中状态 */
+  loading: boolean;
+  /** 错误信息 */
+  error: string | null;
+  /** 刷新好友列表 */
+  refresh: () => Promise<void>;
+  /** 添加好友（WebSocket 通知时使用） */
+  addFriend: (friend: Friend) => void;
+  /** 移除好友（WebSocket 通知时使用） */
+  removeFriend: (friendId: string) => void;
+}
 
-  /** 加载好友列表 */
-  const loadFriends = useCallback(async () => {
+export function useFriends(): UseFriendsReturn {
+  const api = useApi();
+
+  // 从 store 获取状态和操作方法
+  const friends = useChatStore((state) => state.friends);
+  const loading = useChatStore((state) => state.friendsLoading);
+  const error = useChatStore((state) => state.friendsError);
+  const setFriends = useChatStore((state) => state.setFriends);
+  const setLoading = useChatStore((state) => state.setFriendsLoading);
+  const setError = useChatStore((state) => state.setFriendsError);
+  const addFriend = useChatStore((state) => state.addFriend);
+  const removeFriend = useChatStore((state) => state.removeFriend);
+
+  // 加载好友列表
+  const loadFriends = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
 
@@ -28,43 +57,19 @@ export function useFriends() {
       // 服务器返回格式: { items: Friend[] }
       setFriends(response.items || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(errorMsg);
       setFriends([]);
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, setFriends, setLoading, setError]);
 
-  /** 刷新好友列表 */
-  const refresh = useCallback(() => {
-    return loadFriends();
-  }, [loadFriends]);
-
-  /**
-   * 增量添加好友
-   * 用于 WebSocket 收到 friend_request_approved 通知时直接插入新好友
-   */
-  const addFriend = useCallback((newFriend: Friend) => {
-    setFriends((prev) => {
-      // 避免重复添加
-      if (prev.some((f) => f.friend_id === newFriend.friend_id)) {
-        return prev;
-      }
-      // 插入到列表头部
-      return [newFriend, ...prev];
-    });
-  }, []);
-
-  /**
-   * 增量移除好友
-   * 用于删除好友后直接从列表移除，配合 AnimatePresence 触发退出动画
-   */
-  const removeFriend = useCallback((friendId: string) => {
-    setFriends((prev) => prev.filter((f) => f.friend_id !== friendId));
-  }, []);
-
-  // 初始加载
+  // 初始化加载（只执行一次）
+  const initRef = useRef(false);
   useEffect(() => {
+    if (initRef.current) { return; }
+    initRef.current = true;
     loadFriends();
   }, [loadFriends]);
 
@@ -72,7 +77,7 @@ export function useFriends() {
     friends,
     loading,
     error,
-    refresh,
+    refresh: loadFriends,
     addFriend,
     removeFriend,
   };

@@ -16,6 +16,7 @@ import {
   type ChatMenuProps,
   MainMenu,
   EditNameForm,
+  EditNicknameForm,
   InviteForm,
   MembersList,
   MemberActions,
@@ -57,7 +58,6 @@ export function ChatMenuButton({
             uploadingAvatar={menu.uploadingAvatar}
             avatarUploadProgress={menu.avatarUploadProgress}
             onSetView={menu.handleSetView}
-            onLoadMembers={menu.handleLoadMembers}
             onUploadAvatar={() => menu.fileInputRef.current?.click()}
             onToggleMultiSelect={() => {
               onToggleMultiSelect?.();
@@ -73,6 +73,18 @@ export function ChatMenuButton({
             loading={menu.loading}
             onChange={menu.setNewGroupName}
             onSubmit={menu.handleUpdateGroupName}
+            onBack={() => menu.handleSetView('main')}
+          />
+        );
+
+      case 'edit-nickname':
+        return (
+          <EditNicknameForm
+            value={menu.groupNickname}
+            loading={menu.loading}
+            onChange={menu.setGroupNickname}
+            onSubmit={menu.handleUpdateGroupNickname}
+            onClear={menu.handleClearGroupNickname}
             onBack={() => menu.handleSetView('main')}
           />
         );
