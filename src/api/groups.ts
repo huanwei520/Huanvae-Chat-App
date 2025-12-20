@@ -21,19 +21,6 @@ export interface Group {
   last_message_time: string | null;
 }
 
-/** 群聊详情 */
-export interface GroupDetail {
-  group_id: string;
-  group_name: string;
-  group_avatar_url: string;
-  group_description: string | null;
-  creator_id: string;
-  created_at: string;
-  join_mode: string;
-  status: string;
-  member_count: number;
-}
-
 /** 群成员 */
 export interface GroupMember {
   user_id: string;
@@ -69,13 +56,6 @@ export interface MyGroupsResponse {
   success: boolean;
   code: number;
   data: Group[];
-}
-
-/** 群聊详情响应 */
-export interface GroupDetailResponse {
-  success: boolean;
-  code: number;
-  data: GroupDetail;
 }
 
 /** 群成员列表响应 */
@@ -119,13 +99,6 @@ export interface GroupInvitationsResponse {
  */
 export function getMyGroups(api: ApiClient): Promise<MyGroupsResponse> {
   return api.get<MyGroupsResponse>('/api/groups/my');
-}
-
-/**
- * 获取群聊详情
- */
-export function getGroupDetail(api: ApiClient, groupId: string): Promise<GroupDetailResponse> {
-  return api.get<GroupDetailResponse>(`/api/groups/${groupId}`);
 }
 
 /**
@@ -428,19 +401,6 @@ export function createGroupNotice(
   data: { title: string; content: string; is_pinned?: boolean },
 ): Promise<{ success: boolean; data: { id: string; published_at: string } }> {
   return api.post(`/api/groups/${groupId}/notices`, data as Record<string, unknown>);
-}
-
-/**
- * 更新群公告
- * 权限：群主或管理员
- */
-export function updateGroupNotice(
-  api: ApiClient,
-  groupId: string,
-  noticeId: string,
-  data: { title?: string; content?: string; is_pinned?: boolean },
-): Promise<{ success: boolean }> {
-  return api.put(`/api/groups/${groupId}/notices/${noticeId}`, data);
 }
 
 /**
