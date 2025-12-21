@@ -10,6 +10,7 @@
  * 切换 tab 时旧卡片飞出、新卡片飞入
  */
 
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
 
@@ -17,11 +18,13 @@ import { useMainPage } from '../hooks/useMainPage';
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { UnifiedList } from '../components/unified/UnifiedList';
 import { ChatPanel, EmptyChat } from '../components/chat/ChatPanel';
+import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
 
 export function Main() {
   const page = useMainPage();
+  const [showFilesModal, setShowFilesModal] = useState(false);
 
   // Early return 检查
   if (!page.session) {
@@ -41,6 +44,7 @@ export function Main() {
         onTabChange={page.handleTabChange}
         onAvatarClick={() => page.setShowProfileModal(true)}
         onAddClick={() => page.setShowAddModal(true)}
+        onFilesClick={() => setShowFilesModal(true)}
         onLogout={page.handleLogout}
       />
 
@@ -134,6 +138,10 @@ export function Main() {
         onFriendAdded={page.refreshFriends}
         addGroup={page.addGroup}
         refreshGroups={page.refreshGroups}
+      />
+      <FilesModal
+        isOpen={showFilesModal}
+        onClose={() => setShowFilesModal(false)}
       />
     </div>
   );

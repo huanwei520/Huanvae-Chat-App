@@ -2,6 +2,7 @@
  * 成员操作菜单组件
  */
 
+import { motion, AnimatePresence } from 'framer-motion';
 import { MenuHeader } from './MenuHeader';
 import { ShieldIcon, MuteIcon, TrashIcon } from '../../common/Icons';
 import { isMuted } from './utils';
@@ -18,6 +19,36 @@ interface MemberActionsProps {
   onKick: () => void;
 }
 
+/** 禁言按钮动画变体 */
+const muteButtonVariants = {
+  initial: { opacity: 0, scale: 0.9 },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    transition: { type: 'spring', stiffness: 400, damping: 25 },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.9,
+    transition: { duration: 0.15 },
+  },
+};
+
+/** 图标动画变体 */
+const iconVariants = {
+  initial: { rotate: -90, opacity: 0 },
+  animate: {
+    rotate: 0,
+    opacity: 1,
+    transition: { type: 'spring', stiffness: 500, damping: 25 },
+  },
+  exit: {
+    rotate: 90,
+    opacity: 0,
+    transition: { duration: 0.15 },
+  },
+};
+
 export function MemberActions({
   member,
   isOwner,
@@ -28,6 +59,8 @@ export function MemberActions({
   onUnmute,
   onKick,
 }: MemberActionsProps) {
+  const memberIsMuted = isMuted(member);
+
   return (
     <>
       <MenuHeader title={member.user_nickname} onBack={onBack} />
@@ -44,24 +77,52 @@ export function MemberActions({
             </span>
           </button>
         )}
-        {isMuted(member) ? (
-          <button
-            className="menu-item"
-            onClick={onUnmute}
-            disabled={loading}
-          >
-            <MuteIcon />
-            <span>解除禁言</span>
-          </button>
-        ) : (
-          <button
-            className="menu-item"
-            onClick={onMute}
-          >
-            <MuteIcon />
-            <span>禁言</span>
-          </button>
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          {memberIsMuted ? (
+            <motion.button
+              key="unmute"
+              className="menu-item"
+              onClick={onUnmute}
+              disabled={loading}
+              variants={muteButtonVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+            >
+              <motion.span
+                variants={iconVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                style={{ display: 'inline-flex' }}
+              >
+                <MuteIcon />
+              </motion.span>
+              <span>解除禁言</span>
+            </motion.button>
+          ) : (
+            <motion.button
+              key="mute"
+              className="menu-item"
+              onClick={onMute}
+              variants={muteButtonVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+            >
+              <motion.span
+                variants={iconVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                style={{ display: 'inline-flex' }}
+              >
+                <MuteIcon />
+              </motion.span>
+              <span>禁言</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
         <button
           className="menu-item danger"
           onClick={onKick}

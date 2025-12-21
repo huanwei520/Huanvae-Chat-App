@@ -135,6 +135,7 @@ export function GroupChatMessages({
               key={message.message_uuid}
               message={message}
               isOwn={isOwn}
+              currentUserId={currentUserId}
               isNew={isNew}
               isMultiSelectMode={isMultiSelectMode}
               isSelected={isSelected}

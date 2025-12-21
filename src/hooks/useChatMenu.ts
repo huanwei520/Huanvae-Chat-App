@@ -471,8 +471,11 @@ export function useChatMenu({
     try {
       await muteMember(api, target.data.group_id, selectedMember.user_id, muteDuration);
       setSuccess(`已禁言 ${selectedMember.user_nickname} ${muteDuration} 分钟`);
-      setSelectedMember(null);
-      setView('main');
+      // 计算禁言结束时间并更新 selectedMember
+      const mutedUntil = new Date(Date.now() + muteDuration * 60 * 1000).toISOString();
+      setSelectedMember({ ...selectedMember, muted_until: mutedUntil });
+      // 返回到成员操作页面而不是主菜单
+      setView('member-action');
       handleLoadMembers();
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');
@@ -489,6 +492,8 @@ export function useChatMenu({
     try {
       await unmuteMember(api, target.data.group_id, selectedMember.user_id);
       setSuccess(`已解除 ${selectedMember.user_nickname} 的禁言`);
+      // 更新 selectedMember 状态以立即反映解除禁言
+      setSelectedMember({ ...selectedMember, muted_until: null });
       handleLoadMembers();
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败');

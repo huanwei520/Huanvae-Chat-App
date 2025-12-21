@@ -6,18 +6,23 @@
  * - 退出动画（撤回时反向播放，配合 AnimatePresence 使用）
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
+ * - 点击头像显示用户信息弹出框
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from './MessageContextMenu';
 import { FileMessageContent } from './FileMessageContent';
+import { UserProfilePopup, type UserInfo } from './UserProfilePopup';
+import { useChatStore } from '../../stores';
 import type { GroupMessage } from '../../api/groupMessages';
 
 interface GroupMessageBubbleProps {
   message: GroupMessage;
   isOwn: boolean;
+  /** 当前用户 ID */
+  currentUserId?: string;
   /** 是否是新消息（需要播放入场动画） */
   isNew?: boolean;
   /** 是否处于多选模式 */
@@ -101,6 +106,7 @@ function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolea
 export function GroupMessageBubble({
   message,
   isOwn,
+  currentUserId,
   isNew = false,
   isMultiSelectMode = false,
   isSelected = false,
@@ -118,6 +124,58 @@ export function GroupMessageBubble({
     isOpen: false,
     position: { x: 0, y: 0 },
   });
+
+  // 用户信息弹出框状态
+  const avatarRef = useRef<HTMLDivElement>(null);
+  const [profilePopup, setProfilePopup] = useState<{
+    isOpen: boolean;
+    user: UserInfo | null;
+    anchorRect: DOMRect | null;
+  }>({
+    isOpen: false,
+    user: null,
+    anchorRect: null,
+  });
+
+  // 点击头像显示/隐藏用户信息
+  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isMultiSelectMode) { return; }
+
+    // 如果弹出框已打开且是同一用户，则关闭
+    if (profilePopup.isOpen && profilePopup.user?.userId === message.sender_id) {
+      setProfilePopup((prev) => ({ ...prev, isOpen: false }));
+      return;
+    }
+
+    const rect = avatarRef.current?.getBoundingClientRect() || null;
+    setProfilePopup({
+      isOpen: true,
+      user: {
+        userId: message.sender_id,
+        nickname: message.sender_nickname,
+        avatarUrl: message.sender_avatar_url || null,
+      },
+      anchorRect: rect,
+    });
+  }, [isMultiSelectMode, message, profilePopup.isOpen, profilePopup.user?.userId]);
+
+  // 关闭用户信息弹出框
+  const handleCloseProfile = useCallback(() => {
+    setProfilePopup((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
+  // 获取 store 方法和好友列表
+  const setChatTarget = useChatStore((state) => state.setChatTarget);
+  const friends = useChatStore((state) => state.friends);
+
+  // 发送消息（切换到好友私聊）
+  const handleSendMessage = useCallback((userId: string) => {
+    const friend = friends.find((f) => f.friend_id === userId);
+    if (friend) {
+      setChatTarget({ type: 'friend', data: friend });
+    }
+  }, [friends, setChatTarget]);
 
   // 选择动画变体
   // - 新消息：使用完整的入场/退出动画
@@ -212,7 +270,11 @@ export function GroupMessageBubble({
           </motion.div>
         )}
 
-        <div className="bubble-avatar">
+        <div
+          ref={avatarRef}
+          className="bubble-avatar clickable"
+          onClick={handleAvatarClick}
+        >
           {message.sender_avatar_url ? (
             <img src={message.sender_avatar_url} alt={message.sender_nickname} />
           ) : (
@@ -249,6 +311,18 @@ export function GroupMessageBubble({
         onMultiSelect={handleEnterMultiSelect}
         onClose={handleCloseMenu}
       />
+
+      {/* 用户信息弹出框 */}
+      {profilePopup.user && (
+        <UserProfilePopup
+          user={profilePopup.user}
+          anchorRect={profilePopup.anchorRect}
+          isOpen={profilePopup.isOpen}
+          onClose={handleCloseProfile}
+          isSelf={currentUserId === profilePopup.user.userId}
+          onSendMessage={handleSendMessage}
+        />
+      )}
     </>
   );
 }

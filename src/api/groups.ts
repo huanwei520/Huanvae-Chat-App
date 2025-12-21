@@ -105,7 +105,7 @@ export function getMyGroups(api: ApiClient): Promise<MyGroupsResponse> {
  * 创建群聊
  */
 export function createGroup(api: ApiClient, data: CreateGroupRequest): Promise<CreateGroupResponse> {
-  return api.post<CreateGroupResponse>('/api/groups', data as Record<string, unknown>);
+  return api.post<CreateGroupResponse>('/api/groups', data as unknown as Record<string, unknown>);
 }
 
 /**

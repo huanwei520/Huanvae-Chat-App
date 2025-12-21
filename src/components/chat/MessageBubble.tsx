@@ -6,20 +6,22 @@
  * - 退出动画（撤回时反向播放，配合 AnimatePresence 使用）
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
+ * - 点击头像显示用户信息弹出框
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { UserAvatar, FriendAvatar, type SessionInfo } from '../common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from './MessageContextMenu';
 import { FileMessageContent } from './FileMessageContent';
+import { UserProfilePopup, type UserInfo } from './UserProfilePopup';
 import type { Friend, Message } from '../../types/chat';
 
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
-  session: SessionInfo;
+  session: SessionInfo & { userId: string };
   friend: Friend;
   /** 是否是新消息（需要播放入场动画） */
   isNew?: boolean;
@@ -115,6 +117,67 @@ export function MessageBubble({
     position: { x: 0, y: 0 },
   });
 
+  // 用户信息弹出框状态
+  const avatarRef = useRef<HTMLDivElement>(null);
+  const [profilePopup, setProfilePopup] = useState<{
+    isOpen: boolean;
+    user: UserInfo | null;
+    anchorRect: DOMRect | null;
+    isSelf: boolean;
+  }>({
+    isOpen: false,
+    user: null,
+    anchorRect: null,
+    isSelf: false,
+  });
+
+  // 点击头像显示/隐藏用户信息
+  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isMultiSelectMode) { return; }
+
+    const targetUserId = isOwn ? session.userId : friend.friend_id;
+
+    // 如果弹出框已打开且是同一用户，则关闭
+    if (profilePopup.isOpen && profilePopup.user?.userId === targetUserId) {
+      setProfilePopup((prev) => ({ ...prev, isOpen: false }));
+      return;
+    }
+
+    const rect = avatarRef.current?.getBoundingClientRect() || null;
+
+    if (isOwn) {
+      // 点击自己的头像
+      setProfilePopup({
+        isOpen: true,
+        user: {
+          userId: session.userId,
+          nickname: session.profile.user_nickname,
+          avatarUrl: session.profile.user_avatar_url,
+        },
+        anchorRect: rect,
+        isSelf: true,
+      });
+    } else {
+      // 点击好友的头像
+      setProfilePopup({
+        isOpen: true,
+        user: {
+          userId: friend.friend_id,
+          nickname: friend.friend_nickname,
+          avatarUrl: friend.friend_avatar_url,
+        },
+        anchorRect: rect,
+        isSelf: false,
+      });
+    }
+  }, [isMultiSelectMode, isOwn, session, friend, profilePopup.isOpen, profilePopup.user?.userId]);
+
+  // 关闭用户信息弹出框
+  const handleCloseProfile = useCallback(() => {
+    setProfilePopup((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
   // 选择动画变体
   // - 新消息：使用完整的入场/退出动画
   // - 已存在的消息：无入场动画，但保留退出动画（用于撤回）
@@ -208,7 +271,11 @@ export function MessageBubble({
           </motion.div>
         )}
 
-        <div className="bubble-avatar">
+        <div
+          ref={avatarRef}
+          className="bubble-avatar clickable"
+          onClick={handleAvatarClick}
+        >
           {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
         </div>
         <div className="bubble-content">
@@ -236,6 +303,17 @@ export function MessageBubble({
         onMultiSelect={handleEnterMultiSelect}
         onClose={handleCloseMenu}
       />
+
+      {/* 用户信息弹出框 */}
+      {profilePopup.user && (
+        <UserProfilePopup
+          user={profilePopup.user}
+          anchorRect={profilePopup.anchorRect}
+          isOpen={profilePopup.isOpen}
+          onClose={handleCloseProfile}
+          isSelf={profilePopup.isSelf}
+        />
+      )}
     </>
   );
 }
