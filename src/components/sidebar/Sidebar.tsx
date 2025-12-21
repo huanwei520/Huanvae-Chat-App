@@ -9,6 +9,7 @@ import {
   SettingsIcon,
   LogoutIcon,
   GroupIcon,
+  VideoMeetingIcon,
 } from '../common/Icons';
 
 // 好友图标（单人 + 小人 = 通讯录风格）
@@ -42,6 +43,7 @@ interface SidebarProps {
     onAvatarClick: () => void;
     onAddClick: () => void; // 统一的添加按钮
     onFilesClick: () => void; // 打开文件弹窗
+    onMeetingClick: () => void; // 打开会议弹窗
     onLogout: () => void;
 }
 
@@ -53,6 +55,7 @@ export function Sidebar({
   onAvatarClick,
   onAddClick,
   onFilesClick,
+  onMeetingClick,
   onLogout,
 }: SidebarProps) {
   return (
@@ -112,6 +115,15 @@ export function Sidebar({
           title="我的文件"
         >
           <FolderIcon />
+        </motion.button>
+        <motion.button
+          className="nav-btn"
+          onClick={onMeetingClick}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          title="视频会议"
+        >
+          <VideoMeetingIcon />
         </motion.button>
         <motion.button
           className="nav-btn add-btn"

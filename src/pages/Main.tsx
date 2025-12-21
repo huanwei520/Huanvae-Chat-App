@@ -21,10 +21,12 @@ import { ChatPanel, EmptyChat } from '../components/chat/ChatPanel';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
+import { MeetingEntryModal } from '../components/meeting/MeetingEntryModal';
 
 export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
 
   // Early return 检查
   if (!page.session) {
@@ -45,6 +47,7 @@ export function Main() {
         onAvatarClick={() => page.setShowProfileModal(true)}
         onAddClick={() => page.setShowAddModal(true)}
         onFilesClick={() => setShowFilesModal(true)}
+        onMeetingClick={() => setShowMeetingModal(true)}
         onLogout={page.handleLogout}
       />
 
@@ -142,6 +145,10 @@ export function Main() {
       <FilesModal
         isOpen={showFilesModal}
         onClose={() => setShowFilesModal(false)}
+      />
+      <MeetingEntryModal
+        isOpen={showMeetingModal}
+        onClose={() => setShowMeetingModal(false)}
       />
     </div>
   );
