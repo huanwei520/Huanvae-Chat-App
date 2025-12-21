@@ -62,7 +62,7 @@ export function changePassword(
   api: ApiClient,
   data: ChangePasswordRequest,
 ): Promise<{ message: string }> {
-  return api.put('/api/profile/password', data as Record<string, unknown>);
+  return api.put('/api/profile/password', data as unknown as Record<string, unknown>);
 }
 
 /** 进度回调类型 */

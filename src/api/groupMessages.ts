@@ -96,7 +96,7 @@ export function sendGroupMessage(
   api: ApiClient,
   data: SendGroupMessageRequest,
 ): Promise<SendGroupMessageResponse> {
-  return api.post<SendGroupMessageResponse>('/api/group_messages', data as Record<string, unknown>);
+  return api.post<SendGroupMessageResponse>('/api/group_messages', data as unknown as Record<string, unknown>);
 }
 
 /**

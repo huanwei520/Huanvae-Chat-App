@@ -44,20 +44,20 @@ const stepVariants = {
   }),
 };
 
-const stepTransition = { type: 'tween', ease: 'easeInOut', duration: 0.3 };
+const stepTransition = { type: 'tween' as const, ease: 'easeInOut' as const, duration: 0.3 };
 
 const itemVariants = {
   hidden: { opacity: 0, y: 15 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] },
+    transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] as const },
   },
 };
 
 const buttonVariants = {
-  hover: { scale: 1.02, y: -3, transition: { type: 'spring', stiffness: 400, damping: 25 } },
-  tap: { scale: 0.98, y: -1, transition: { type: 'spring', stiffness: 500, damping: 30 } },
+  hover: { scale: 1.02, y: -3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } },
+  tap: { scale: 0.98, y: -1, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } },
 };
 
 // ============================================

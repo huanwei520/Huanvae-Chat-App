@@ -12,10 +12,10 @@ import { motion } from 'framer-motion';
 import { CircularProgress } from '../common/CircularProgress';
 import { UserAvatar } from '../common/Avatar';
 import { CameraIcon } from './ProfileIcons';
-import type { SessionInfo } from '../../types/session';
+import type { Session } from '../../types/session';
 
 interface AvatarUploaderProps {
-  session: SessionInfo;
+  session: Session;
   uploading: boolean;
   uploadProgress: number;
   onFileSelect: (file: File) => void;

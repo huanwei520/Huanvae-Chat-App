@@ -42,10 +42,10 @@ const menuItemVariants = {
   visible: {
     opacity: 1,
     x: 0,
-    height: 'auto',
+    height: 'auto' as const,
     paddingTop: 12,
     paddingBottom: 12,
-    transition: { duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] },
+    transition: { duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] as const },
   },
   hidden: (isEntering: boolean) => ({
     opacity: 0,
@@ -53,7 +53,7 @@ const menuItemVariants = {
     height: 0,
     paddingTop: 0,
     paddingBottom: 0,
-    transition: { duration: 0.15, ease: [0.55, 0.06, 0.68, 0.19] },
+    transition: { duration: 0.15, ease: [0.55, 0.06, 0.68, 0.19] as const },
   }),
 };
 
@@ -65,7 +65,7 @@ const dividerVariants = {
     height: 1,
     marginTop: 6,
     marginBottom: 6,
-    transition: { duration: 0.2, ease: 'easeOut' },
+    transition: { duration: 0.2, ease: 'easeOut' as const },
   },
   hidden: {
     opacity: 0,
@@ -73,7 +73,7 @@ const dividerVariants = {
     height: 0,
     marginTop: 0,
     marginBottom: 0,
-    transition: { duration: 0.15, ease: 'easeIn' },
+    transition: { duration: 0.15, ease: 'easeIn' as const },
   },
 };
 

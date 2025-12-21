@@ -13,6 +13,7 @@ import type { Session } from '../../types/session';
 import type { Friend, Group, ChatTarget, Message } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
 import type { AttachmentType } from '../chat/FileAttachButton';
+import type { UploadProgress } from '../../hooks/useFileUpload';
 
 import { ChatMessages } from './ChatMessages';
 import { GroupChatMessages } from './GroupChatMessages';
@@ -44,7 +45,7 @@ interface ChatPanelProps {
   // 文件上传
   uploading: boolean;
   uploadingFile: File | null;
-  uploadProgress: { percent: number };
+  uploadProgress: UploadProgress | null;
   onCancelUpload: () => void;
 
   // 多选模式

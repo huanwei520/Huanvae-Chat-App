@@ -25,7 +25,7 @@ const muteButtonVariants = {
   animate: {
     opacity: 1,
     scale: 1,
-    transition: { type: 'spring', stiffness: 400, damping: 25 },
+    transition: { type: 'spring' as const, stiffness: 400, damping: 25 },
   },
   exit: {
     opacity: 0,
@@ -40,7 +40,7 @@ const iconVariants = {
   animate: {
     rotate: 0,
     opacity: 1,
-    transition: { type: 'spring', stiffness: 500, damping: 25 },
+    transition: { type: 'spring' as const, stiffness: 500, damping: 25 },
   },
   exit: {
     rotate: 90,

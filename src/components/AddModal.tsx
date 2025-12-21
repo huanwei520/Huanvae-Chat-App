@@ -288,7 +288,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
       opacity: 1,
       scale: 1,
       y: 0,
-      transition: { type: 'spring', damping: 25, stiffness: 300 },
+      transition: { type: 'spring' as const, damping: 25, stiffness: 300 },
     },
     exit: { opacity: 0, scale: 0.95, y: 20 },
   };

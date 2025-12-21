@@ -31,7 +31,7 @@ const itemVariants = {
     y: 0,
     transition: {
       duration: 0.5,
-      ease: [0.4, 0, 0.2, 1],
+      ease: [0.4, 0, 0.2, 1] as const,
     },
   },
 };
@@ -41,7 +41,7 @@ const buttonVariants = {
     scale: 1.02,
     y: -3,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 400,
       damping: 25,
     },
@@ -50,7 +50,7 @@ const buttonVariants = {
     scale: 0.98,
     y: -1,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 500,
       damping: 30,
     },

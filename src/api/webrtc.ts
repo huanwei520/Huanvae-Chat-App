@@ -215,8 +215,9 @@ export async function getIceServers(
   api: ApiClient,
   region?: string,
 ): Promise<IceConfigResponse> {
-  const params = region ? { region } : undefined;
-  const response = await api.get<ApiResponse<IceConfigResponse>>('/api/webrtc/ice_servers', params);
+  const response = await api.get<ApiResponse<IceConfigResponse>>(
+    region ? `/api/webrtc/ice_servers?region=${encodeURIComponent(region)}` : '/api/webrtc/ice_servers',
+  );
   return response.data;
 }
 
@@ -229,7 +230,7 @@ export async function createRoom(
   api: ApiClient,
   options: CreateRoomRequest = {},
 ): Promise<CreateRoomResponse> {
-  const response = await api.post<ApiResponse<CreateRoomResponse>>('/api/webrtc/rooms', options);
+  const response = await api.post<ApiResponse<CreateRoomResponse>>('/api/webrtc/rooms', options as unknown as Record<string, unknown>);
   return response.data;
 }
 

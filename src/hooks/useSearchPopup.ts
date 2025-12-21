@@ -19,7 +19,7 @@ interface UseSearchPopupReturn {
   /** 设置弹出状态 */
   setShowSearchPopup: (show: boolean) => void;
   /** 搜索输入框 ref */
-  searchInputRef: React.RefObject<HTMLInputElement>;
+  searchInputRef: React.RefObject<HTMLInputElement | null>;
   /** 是否处于折叠状态 */
   isCollapsed: boolean;
   /** 打开弹出框 */
