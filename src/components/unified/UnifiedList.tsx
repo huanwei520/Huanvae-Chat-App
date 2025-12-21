@@ -82,6 +82,13 @@ interface UnifiedListProps {
 // 辅助函数
 // ============================================
 
+/** 格式化未读数（避免嵌套三元表达式） */
+function formatUnreadCount(count: number): string {
+  if (count <= 0) { return ''; }
+  if (count > 99) { return '99+'; }
+  return String(count);
+}
+
 /** 角色标签配置 */
 const ROLE_CONFIG = {
   owner: { text: '群主', bg: 'rgba(234, 179, 8, 0.2)', color: '#ca8a04' },
@@ -344,11 +351,10 @@ export function UnifiedList({
                 : card.lastMessage || '暂无消息'
               }
             </span>
-            {card.unreadCount > 0 && (
-              <span className="conv-unread">
-                {card.unreadCount > 99 ? '99+' : card.unreadCount}
-              </span>
-            )}
+            {/* 未读红点：始终渲染，通过 CSS 控制显示，避免 layout 动画抖动 */}
+            <span className={`conv-unread ${card.unreadCount > 0 ? 'visible' : 'hidden'}`}>
+              {formatUnreadCount(card.unreadCount)}
+            </span>
           </div>
         </div>
       </>

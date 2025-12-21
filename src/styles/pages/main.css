@@ -628,6 +628,22 @@
   justify-content: center;
   flex-shrink: 0;
   margin-left: 8px;
+  /* 过渡动画 */
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* 未读红点显示状态 */
+.conv-unread.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+}
+
+/* 未读红点隐藏状态 - 保持占位，避免 layout 抖动 */
+.conv-unread.hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.5);
 }
 
 /* ============================================
