@@ -5,13 +5,34 @@
  * - 图片：缩略图预览，点击放大
  * - 视频：视频缩略图，点击播放
  * - 文件：文件图标和名称，点击下载
+ *
+ * 本地优先加载：
+ * - 如果有 file_hash，先检查本地是否有该文件
+ * - 有本地文件则直接显示，无则从服务器获取
+ *
+ * 调试功能：
+ * - [FileLoad] 前缀的日志用于跟踪文件加载过程
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from '../../contexts/SessionContext';
 import { getPresignedUrl, formatFileSize } from '../../hooks/useFileUpload';
+import { getFileSource, type FileSource } from '../../services/fileService';
 import { FilePreviewModal } from './FilePreviewModal';
 import type { MessageType } from '../../types/chat';
+
+// ============================================
+// 调试日志
+// ============================================
+
+const DEBUG = true;
+
+function logFileLoad(action: string, data?: unknown) {
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[FileLoad] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
+  }
+}
 
 // ============================================
 // 类型定义
@@ -26,6 +47,8 @@ export interface FileMessageContentProps {
   fileUuid: string | null;
   /** 文件大小 */
   fileSize: number | null;
+  /** 文件哈希（用于本地识别） */
+  fileHash?: string | null;
 }
 
 // ============================================
@@ -62,12 +85,15 @@ export function FileMessageContent({
   messageContent,
   fileUuid,
   fileSize,
+  fileHash,
 }: FileMessageContentProps) {
   const api = useApi();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [source, setSource] = useState<FileSource>('checking');
+  const [localPath, setLocalPath] = useState<string | null>(null);
 
   // 从消息内容中提取文件名
   const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
@@ -84,7 +110,7 @@ export function FileMessageContent({
     }
   };
 
-  // 加载缩略图
+  // 本地优先加载文件
   useEffect(() => {
     if (!fileUuid || messageType === 'file') {
       setLoading(false);
@@ -93,12 +119,84 @@ export function FileMessageContent({
 
     setLoading(true);
     setError(false);
+    setSource('checking');
 
-    getPresignedUrl(api, fileUuid)
-      .then(setThumbnailUrl)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [api, fileUuid, messageType]);
+    const loadFile = async () => {
+      try {
+        logFileLoad('开始加载文件', {
+          fileUuid,
+          fileHash,
+          messageType,
+          fileName: filename,
+        });
+
+        // 尝试获取 fileHash（如果没有的话，从本地数据库查找）
+        let effectiveFileHash = fileHash;
+        if (!effectiveFileHash) {
+          try {
+            const { getFileHashByUuid } = await import('../../db');
+            effectiveFileHash = await getFileHashByUuid(fileUuid);
+            if (effectiveFileHash) {
+              logFileLoad('从 UUID 映射查找到 fileHash', {
+                fileUuid,
+                fileHash: effectiveFileHash,
+              });
+            }
+          } catch {
+            // 查找失败，继续使用远程
+          }
+        }
+
+        // 1. 如果有 fileHash，先检查本地
+        if (effectiveFileHash) {
+          logFileLoad('检查本地文件', { fileHash: effectiveFileHash });
+
+          // 先获取远程 URL 作为备用
+          const remoteUrl = await getPresignedUrl(api, fileUuid);
+
+          // 检查本地是否有该文件
+          const result = await getFileSource(effectiveFileHash, remoteUrl, fileSize ?? undefined);
+
+          setSource(result.source);
+          setLocalPath(result.localPath || null);
+          setThumbnailUrl(result.url);
+
+          if (result.source === 'local') {
+            logFileLoad('✓ 使用本地文件', {
+              fileHash: effectiveFileHash,
+              localPath: result.localPath,
+              fileName: filename,
+            });
+          } else {
+            logFileLoad('✗ 本地无此文件，使用远程', {
+              fileHash: effectiveFileHash,
+              remoteUrl: `${result.url.substring(0, 100)}...`,
+            });
+          }
+        } else {
+          // 2. 没有 fileHash，直接从服务器获取
+          logFileLoad('无 fileHash，从服务器获取', { fileUuid });
+
+          const url = await getPresignedUrl(api, fileUuid);
+          setThumbnailUrl(url);
+          setSource('remote');
+
+          logFileLoad('远程文件加载完成', {
+            fileUuid,
+            url: `${url.substring(0, 100)}...`,
+          });
+        }
+      } catch (err) {
+        console.error('[FileLoad] 加载失败:', err);
+        setError(true);
+        setSource('remote');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFile();
+  }, [api, fileUuid, fileHash, fileSize, messageType, filename]);
 
   // 点击打开预览
   const handleClick = useCallback(() => {
@@ -132,12 +230,15 @@ export function FileMessageContent({
           {loading && <div className="file-message-loading">加载中...</div>}
           {error && <div className="file-message-error">加载失败</div>}
           {!loading && !error && thumbnailUrl && (
-            <img
-              src={thumbnailUrl}
-              alt={filename}
-              className="message-image"
-              draggable={false}
-            />
+            <>
+              {source === 'local' && <LocalBadge />}
+              <img
+                src={thumbnailUrl}
+                alt={filename}
+                className="message-image"
+                draggable={false}
+              />
+            </>
           )}
         </div>
 
@@ -148,6 +249,7 @@ export function FileMessageContent({
           filename={filename}
           contentType={getContentType()}
           fileSize={fileSize || undefined}
+          localPath={localPath}
         />
       </>
     );
@@ -162,6 +264,7 @@ export function FileMessageContent({
           {error && <div className="file-message-error">加载失败</div>}
           {!loading && !error && thumbnailUrl && (
             <>
+              {source === 'local' && <LocalBadge />}
               <video
                 src={thumbnailUrl}
                 className="message-video-thumbnail"
@@ -181,6 +284,7 @@ export function FileMessageContent({
           filename={filename}
           contentType={getContentType()}
           fileSize={fileSize || undefined}
+          localPath={localPath}
         />
       </>
     );
@@ -190,15 +294,21 @@ export function FileMessageContent({
   return (
     <>
       <div className="file-message document-message" onClick={handleClick}>
+        {source === 'local' && <LocalBadge />}
         <div className="document-icon">
           <FileIcon />
         </div>
         <div className="document-info">
           <span className="document-name" title={filename}>
-            {filename.length > 20 ? `${filename.slice(0, 17)  }...` : filename}
+            {filename.length > 20 ? `${filename.slice(0, 17)}...` : filename}
           </span>
           {fileSize && (
             <span className="document-size">{formatFileSize(fileSize)}</span>
+          )}
+          {localPath && (
+            <span className="document-local-path" title={localPath}>
+              📁 {localPath.split(/[/\\]/).pop()}
+            </span>
           )}
         </div>
         <button className="document-download" onClick={handleDownload} title="下载">
@@ -213,7 +323,20 @@ export function FileMessageContent({
         filename={filename}
         contentType={getContentType()}
         fileSize={fileSize || undefined}
+        localPath={localPath}
       />
     </>
+  );
+}
+
+// ============================================
+// 本地文件标识
+// ============================================
+
+function LocalBadge() {
+  return (
+    <span className="file-local-badge" title="本地文件">
+      📁
+    </span>
   );
 }

@@ -63,6 +63,19 @@ export function useAuth(): UseAuthReturn {
     const profileResponse = await getProfile(serverUrl, accessToken);
     const profile = profileResponse.data;
 
+    // 设置当前用户数据目录（这会创建目录结构）
+    console.log('[Auth] 开始初始化用户数据目录...');
+    const { setCurrentUser, initDatabase } = await import('../db');
+    
+    console.log('[Auth] 调用 setCurrentUser:', userId, serverUrl);
+    await setCurrentUser(userId, serverUrl);
+    console.log('[Auth] setCurrentUser 完成');
+    
+    // 初始化用户数据库
+    console.log('[Auth] 调用 initDatabase...');
+    await initDatabase();
+    console.log('[Auth] initDatabase 完成');
+
     // 创建会话
     const newSession: Session = {
       serverUrl,

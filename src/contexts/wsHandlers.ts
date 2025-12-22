@@ -3,6 +3,7 @@
  *
  * 从 WebSocketContext.tsx 中提取的消息处理逻辑
  * 负责解析和处理各种 WebSocket 消息类型
+ * 新增：将实时消息同步保存到本地数据库
  */
 
 import type {
@@ -11,6 +12,8 @@ import type {
   WsNewMessage,
 } from '../types/websocket';
 import type { PendingNotifications } from './WebSocketContext';
+import * as db from '../db';
+import { getFriendConversationId } from '../utils/conversationId';
 
 // ============================================
 // 类型定义
@@ -18,6 +21,7 @@ import type { PendingNotifications } from './WebSocketContext';
 
 export interface MessageHandlerContext {
   activeChatRef: React.RefObject<{ type: 'friend' | 'group'; id: string } | null>;
+  currentUserId: string | null; // 当前用户 ID，用于生成 conversation_id
   setUnreadSummary: React.Dispatch<React.SetStateAction<UnreadSummary | null>>;
   setPendingNotifications: React.Dispatch<React.SetStateAction<PendingNotifications>>;
   newMessageListeners: React.RefObject<Set<(msg: WsNewMessage) => void>>;
@@ -135,6 +139,61 @@ export function updateGroupUnread(
 }
 
 /**
+ * 保存 WebSocket 推送的新消息到本地数据库
+ * @param msg WebSocket 消息
+ * @param currentUserId 当前用户 ID，用于生成正确的 conversation_id
+ */
+async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | null): Promise<void> {
+  if (!currentUserId) {
+    console.warn('[WS] 无法保存消息：currentUserId 未设置');
+    return;
+  }
+
+  try {
+    // 根据消息类型生成正确的 conversation_id
+    // 好友消息：conv-user1-user2 格式（按字典序排序）
+    // 群消息：group_id
+    const conversationId = msg.source_type === 'friend'
+      ? getFriendConversationId(currentUserId, msg.source_id)
+      : msg.source_id;
+
+    // 构建本地消息对象
+    // 使用 content（完整内容）而非 preview（预览）
+    const localMessage: Omit<db.LocalMessage, 'created_at'> = {
+      message_uuid: msg.message_uuid,
+      conversation_id: conversationId,
+      conversation_type: msg.source_type,
+      sender_id: msg.sender_id,
+      sender_name: msg.sender_nickname || null,
+      sender_avatar: msg.sender_avatar_url || null,
+      content: msg.content || msg.preview || '', // 优先使用 content，兼容旧版 preview
+      content_type: msg.message_type,
+      file_uuid: msg.file_uuid || null,
+      file_url: msg.file_url || null,
+      file_size: msg.file_size || null,
+      file_hash: msg.file_hash || null,
+      seq: msg.seq || 0,
+      reply_to: null,
+      is_recalled: false,
+      is_deleted: false,
+      send_time: msg.timestamp,
+    };
+
+    await db.saveMessage(localMessage);
+
+    // 更新会话的 last_seq
+    if (msg.seq) {
+      await db.updateConversationLastSeq(conversationId, msg.seq);
+    }
+
+    console.log('[WS] 消息已保存到本地', { messageUuid: msg.message_uuid, conversationId });
+  } catch (error) {
+    console.error('[WS] 保存消息到本地失败:', error);
+    throw error;
+  }
+}
+
+/**
  * 创建初始未读摘要
  * @param incrementCount - 是否增加未读计数（新消息时为 true，发送消息时为 false）
  */
@@ -187,7 +246,7 @@ export function handleWebSocketMessage(
         break;
 
       case 'new_message': {
-        const previewText = getMessagePreviewText(msg.message_type, msg.preview);
+        const previewText = getMessagePreviewText(msg.message_type, msg.content || msg.preview || '');
 
         // 检查是否是当前活跃的聊天
         const isActiveChat = ctx.activeChatRef.current &&
@@ -228,12 +287,21 @@ export function handleWebSocketMessage(
           );
         });
 
+        // 异步保存消息到本地数据库
+        saveMessageToLocal(msg, ctx.currentUserId).catch(err => {
+          console.error('[WS] 保存消息到本地失败:', err);
+        });
+
         // 通知监听器
         ctx.newMessageListeners.current.forEach(cb => cb(msg));
         break;
       }
 
       case 'message_recalled':
+        // 在本地数据库中标记消息为已撤回
+        db.markMessageRecalled(msg.message_uuid).catch(err => {
+          console.error('[WS] 标记消息撤回失败:', err);
+        });
         ctx.recalledListeners.current.forEach(cb => cb(msg));
         break;
 

@@ -58,6 +58,11 @@ export interface GroupUnread {
 
 /**
  * 新消息通知
+ *
+ * 根据后端文档 (2025-12-23 更新):
+ * - `content`: 消息完整内容
+ * - `seq`: 会话内序列号（用于增量同步）
+ * - `file_uuid`/`file_url`/`file_size`/`file_hash`: 文件类消息字段
  */
 export interface WsNewMessage {
   type: 'new_message';
@@ -66,10 +71,23 @@ export interface WsNewMessage {
   message_uuid: string;
   sender_id: string;
   sender_nickname: string;
-  sender_avatar_url?: string; // 发送者头像（可选，后端可能返回）
-  preview: string;
+  sender_avatar_url?: string;
+  /** 消息完整内容 */
+  content: string;
+  /** 消息预览（兼容旧版本，可能为空） */
+  preview?: string;
   message_type: 'text' | 'image' | 'video' | 'file';
+  /** 会话内序列号（用于增量同步） */
+  seq: number;
   timestamp: string;
+  /** 文件 UUID（仅文件类消息） */
+  file_uuid?: string;
+  /** 文件访问 URL（仅文件类消息） */
+  file_url?: string;
+  /** 文件大小（字节，仅文件类消息） */
+  file_size?: number;
+  /** 文件哈希（用于本地文件链接，仅上传接口发送时提供） */
+  file_hash?: string;
 }
 
 /**

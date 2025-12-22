@@ -14,6 +14,8 @@ export interface ChatMenuProps {
   isMultiSelectMode?: boolean;
   /** 切换多选模式 */
   onToggleMultiSelect?: () => void;
+  /** 历史记录加载完成后的回调（用于刷新消息列表） */
+  onHistoryLoaded?: () => void;
 }
 
 export type MenuView =

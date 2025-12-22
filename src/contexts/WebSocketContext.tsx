@@ -130,13 +130,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const handleMessage = useCallback((data: string) => {
     handleWebSocketMessage(data, {
       activeChatRef,
+      currentUserId: session?.userId ?? null,
       setUnreadSummary,
       setPendingNotifications,
       newMessageListeners,
       recalledListeners,
       notificationListeners,
     });
-  }, []);
+  }, [session?.userId]);
 
   // ============================================
   // 连接管理

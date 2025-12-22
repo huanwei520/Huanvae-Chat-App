@@ -120,6 +120,7 @@ export function Main() {
               onFriendRemoved={page.handleFriendRemoved}
               onGroupUpdated={page.handleGroupUpdated}
               onGroupLeft={page.handleGroupLeft}
+              onHistoryLoaded={page.handleHistoryLoaded}
             />
           ) : (
             <EmptyChat

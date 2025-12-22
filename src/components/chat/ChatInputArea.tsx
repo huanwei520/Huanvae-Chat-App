@@ -22,7 +22,7 @@ interface ChatInputAreaProps {
   messageInput: string;
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
-  onFileSelect: (file: File, type: AttachmentType) => void;
+  onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
   isSending: boolean;
   uploading: boolean;
   uploadingFile: File | null;

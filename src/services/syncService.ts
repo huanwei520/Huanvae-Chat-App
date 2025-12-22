@@ -1,0 +1,338 @@
+/**
+ * 消息同步服务
+ *
+ * 实现离线优先加载 + 增量同步策略
+ */
+
+import type { ApiClient } from '../api/client';
+import * as db from '../db';
+import type { ConversationType, LocalConversation, LocalMessage } from '../db';
+
+// ============================================================================
+// 类型定义
+// ============================================================================
+
+/** 同步请求项 */
+interface SyncRequestItem {
+  conversation_id: string;
+  conversation_type: ConversationType;
+  last_seq: number;
+}
+
+/** 服务器返回的同步消息 */
+interface ServerMessage {
+  message_uuid: string;
+  sender_id: string;
+  sender_nickname?: string;
+  sender_avatar_url?: string;
+  message_content: string;
+  message_type: string;
+  file_uuid?: string | null;
+  file_url?: string | null;
+  file_size?: number | null;
+  file_hash?: string | null;
+  seq: number;
+  reply_to?: string | null;
+  send_time: string;
+  is_recalled?: boolean;
+}
+
+/** 服务器返回的同步结果 */
+interface SyncConversationResult {
+  conversation_id: string;
+  conversation_type: ConversationType;
+  messages: ServerMessage[];
+  latest_seq: number;
+  has_more: boolean;
+}
+
+/** 同步响应 */
+interface SyncResponse {
+  code: number;
+  message: string;
+  data: {
+    conversations: SyncConversationResult[];
+  };
+}
+
+/** 同步状态 */
+export interface SyncState {
+  isSyncing: boolean;
+  lastSyncTime: Date | null;
+  error: string | null;
+}
+
+// ============================================================================
+// 同步服务类
+// ============================================================================
+
+export class SyncService {
+  private api: ApiClient;
+  private state: SyncState = {
+    isSyncing: false,
+    lastSyncTime: null,
+    error: null,
+  };
+  private listeners: Set<(state: SyncState) => void> = new Set();
+
+  constructor(api: ApiClient) {
+    this.api = api;
+  }
+
+  /** 获取同步状态 */
+  getState(): SyncState {
+    return { ...this.state };
+  }
+
+  /** 订阅状态变化 */
+  subscribe(listener: (state: SyncState) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** 通知状态变化 */
+  private notifyListeners(): void {
+    const state = this.getState();
+    this.listeners.forEach(listener => listener(state));
+  }
+
+  /** 更新状态 */
+  private updateState(partial: Partial<SyncState>): void {
+    this.state = { ...this.state, ...partial };
+    this.notifyListeners();
+  }
+
+  /**
+   * 执行增量同步
+   * @param conversations 需要同步的会话列表（来自本地数据库）
+   * @returns 有新消息的会话 ID 列表
+   */
+  async syncMessages(
+    conversations: LocalConversation[],
+  ): Promise<{ updatedConversations: string[]; newMessagesCount: number }> {
+    if (this.state.isSyncing) {
+      console.log('[Sync] 同步正在进行中，跳过');
+      return { updatedConversations: [], newMessagesCount: 0 };
+    }
+
+    this.updateState({ isSyncing: true, error: null });
+
+    try {
+      // 构建同步请求
+      const syncRequest: SyncRequestItem[] = conversations.map(conv => ({
+        conversation_id: conv.id,
+        conversation_type: conv.type,
+        last_seq: conv.last_seq,
+      }));
+
+      if (syncRequest.length === 0) {
+        console.log('[Sync] 没有需要同步的会话');
+        this.updateState({ isSyncing: false, lastSyncTime: new Date() });
+        return { updatedConversations: [], newMessagesCount: 0 };
+      }
+
+      console.log('[Sync] 开始同步', { conversationsCount: syncRequest.length });
+
+      // 发送同步请求
+      const response = await this.api.post<SyncResponse>('/api/messages/sync', {
+        conversations: syncRequest,
+      });
+
+      const updatedConversations: string[] = [];
+      let newMessagesCount = 0;
+
+      // 处理同步结果
+      for (const convResult of response.data.conversations) {
+        if (convResult.messages.length > 0) {
+          // 转换并保存消息
+          const localMessages: Omit<LocalMessage, 'created_at'>[] =
+            convResult.messages.map(msg => ({
+              message_uuid: msg.message_uuid,
+              conversation_id: convResult.conversation_id,
+              conversation_type: convResult.conversation_type,
+              sender_id: msg.sender_id,
+              sender_name: msg.sender_nickname || null,
+              sender_avatar: msg.sender_avatar_url || null,
+              content: msg.message_content,
+              content_type: msg.message_type,
+              file_uuid: msg.file_uuid || null,
+              file_url: msg.file_url || null,
+              file_size: msg.file_size || null,
+              file_hash: msg.file_hash || null,
+              seq: msg.seq,
+              reply_to: msg.reply_to || null,
+              is_recalled: msg.is_recalled || false,
+              is_deleted: false,
+              send_time: msg.send_time,
+            }));
+
+          await db.saveMessages(localMessages);
+          newMessagesCount += localMessages.length;
+          updatedConversations.push(convResult.conversation_id);
+
+          console.log('[Sync] 保存新消息', {
+            conversationId: convResult.conversation_id,
+            count: localMessages.length,
+          });
+        }
+
+        // 更新会话的 last_seq
+        if (convResult.latest_seq > 0) {
+          await db.updateConversationLastSeq(
+            convResult.conversation_id,
+            convResult.latest_seq,
+          );
+        }
+
+        // 如果有更多消息，继续同步（分页）
+        if (convResult.has_more) {
+          await this.syncConversationFully(
+            convResult.conversation_id,
+            convResult.conversation_type,
+            convResult.latest_seq,
+          );
+        }
+      }
+
+      this.updateState({ isSyncing: false, lastSyncTime: new Date() });
+      console.log('[Sync] 同步完成', { updatedConversations, newMessagesCount });
+
+      return { updatedConversations, newMessagesCount };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '同步失败';
+      console.error('[Sync] 同步失败', error);
+      this.updateState({ isSyncing: false, error: errorMessage });
+      throw error;
+    }
+  }
+
+  /**
+   * 完整同步单个会话（处理 has_more 分页）
+   */
+  private async syncConversationFully(
+    conversationId: string,
+    conversationType: ConversationType,
+    lastSeq: number,
+  ): Promise<void> {
+    let currentSeq = lastSeq;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await this.api.post<SyncResponse>('/api/messages/sync', {
+        conversations: [
+          {
+            conversation_id: conversationId,
+            conversation_type: conversationType,
+            last_seq: currentSeq,
+          },
+        ],
+      });
+
+      const convResult = response.data.conversations[0];
+      if (!convResult || convResult.messages.length === 0) { break; }
+
+      // 保存消息
+      const localMessages: Omit<LocalMessage, 'created_at'>[] =
+        convResult.messages.map(msg => ({
+          message_uuid: msg.message_uuid,
+          conversation_id: conversationId,
+          conversation_type: conversationType,
+          sender_id: msg.sender_id,
+          sender_name: msg.sender_nickname || null,
+          sender_avatar: msg.sender_avatar_url || null,
+          content: msg.message_content,
+          content_type: msg.message_type,
+          file_uuid: msg.file_uuid || null,
+          file_url: msg.file_url || null,
+          file_size: msg.file_size || null,
+          file_hash: msg.file_hash || null,
+          seq: msg.seq,
+          reply_to: msg.reply_to || null,
+          is_recalled: msg.is_recalled || false,
+          is_deleted: false,
+          send_time: msg.send_time,
+        }));
+
+      await db.saveMessages(localMessages);
+      currentSeq = convResult.latest_seq;
+      hasMore = convResult.has_more;
+
+      // 更新 last_seq
+      await db.updateConversationLastSeq(conversationId, currentSeq);
+    }
+  }
+
+  /**
+   * 处理 WebSocket 实时消息
+   * @param message WebSocket 推送的新消息
+   */
+  async handleRealtimeMessage(message: {
+    source_type: 'friend' | 'group';
+    source_id: string;
+    message_uuid: string;
+    sender_id: string;
+    sender_nickname?: string;
+    sender_avatar_url?: string;
+    preview: string;
+    message_type: string;
+    timestamp: string;
+    seq?: number;
+    file_uuid?: string;
+    file_url?: string;
+    file_size?: number;
+    file_hash?: string;
+  }): Promise<void> {
+    // 保存消息到本地
+    const localMessage: Omit<LocalMessage, 'created_at'> = {
+      message_uuid: message.message_uuid,
+      conversation_id: message.source_id,
+      conversation_type: message.source_type,
+      sender_id: message.sender_id,
+      sender_name: message.sender_nickname || null,
+      sender_avatar: message.sender_avatar_url || null,
+      content: message.preview,
+      content_type: message.message_type,
+      file_uuid: message.file_uuid || null,
+      file_url: message.file_url || null,
+      file_size: message.file_size || null,
+      file_hash: message.file_hash || null,
+      seq: message.seq || 0,
+      reply_to: null,
+      is_recalled: false,
+      is_deleted: false,
+      send_time: message.timestamp,
+    };
+
+    await db.saveMessage(localMessage);
+
+    // 更新会话的 last_seq
+    if (message.seq) {
+      await db.updateConversationLastSeq(message.source_id, message.seq);
+    }
+
+    console.log('[Sync] 保存实时消息', { messageUuid: message.message_uuid });
+  }
+
+  /**
+   * 处理消息撤回
+   */
+  async handleMessageRecalled(messageUuid: string): Promise<void> {
+    await db.markMessageRecalled(messageUuid);
+    console.log('[Sync] 消息已撤回', { messageUuid });
+  }
+}
+
+// ============================================================================
+// 单例导出
+// ============================================================================
+
+let syncServiceInstance: SyncService | null = null;
+
+export function initSyncService(api: ApiClient): SyncService {
+  syncServiceInstance = new SyncService(api);
+  return syncServiceInstance;
+}
+
+export function getSyncService(): SyncService | null {
+  return syncServiceInstance;
+}

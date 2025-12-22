@@ -36,12 +36,14 @@ export function ChatMenuButton({
   onGroupLeft,
   isMultiSelectMode = false,
   onToggleMultiSelect,
+  onHistoryLoaded,
 }: ChatMenuProps) {
   const menu = useChatMenu({
     target,
     onFriendRemoved,
     onGroupUpdated,
     onGroupLeft,
+    onHistoryLoaded,
   });
 
   // 渲染视图内容
@@ -57,12 +59,15 @@ export function ChatMenuButton({
             group={target.type === 'group' ? target.data : undefined}
             uploadingAvatar={menu.uploadingAvatar}
             avatarUploadProgress={menu.avatarUploadProgress}
+            loadingHistory={menu.loadingHistory}
+            historyProgress={menu.historyProgress}
             onSetView={menu.handleSetView}
             onUploadAvatar={() => menu.fileInputRef.current?.click()}
             onToggleMultiSelect={() => {
               onToggleMultiSelect?.();
               menu.handleCloseMenu();
             }}
+            onLoadAllHistory={menu.handleLoadAllHistory}
           />
         );
 

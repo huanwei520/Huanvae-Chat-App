@@ -26,7 +26,14 @@
           "$DATA/**",
           "$LOCALDATA/**",
           "$APPDATA/**",
-          "$HOME/.local/share/huanvae-chat/**"
+          "$HOME/.local/share/huanvae-chat/**",
+          "$PICTURE/**",
+          "$VIDEO/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$HOME/**",
+          "**"
         ]
       }
     }

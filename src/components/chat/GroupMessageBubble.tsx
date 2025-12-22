@@ -293,6 +293,7 @@ export function GroupMessageBubble({
               messageContent={message.message_content}
               fileUuid={message.file_uuid}
               fileSize={message.file_size}
+              fileHash={message.file_hash}
             />
           )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>

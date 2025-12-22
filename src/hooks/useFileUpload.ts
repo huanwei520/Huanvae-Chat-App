@@ -70,6 +70,8 @@ export interface UploadResult {
   fileUrl?: string;
   /** 文件 UUID */
   fileUuid?: string;
+  /** 文件哈希（用于本地识别） */
+  fileHash?: string;
   /** 消息 UUID（好友/群聊文件自动发送消息时返回） */
   messageUuid?: string;
   /** 消息发送时间 */
@@ -306,11 +308,19 @@ export function useFileUpload() {
           // 从 URL 中提取 UUID
           const fileUuid = uploadInfo.existing_file_url?.split('/').pop();
 
+          console.log('%c[Upload] 秒传成功', 'color: #4CAF50; font-weight: bold', {
+            fileName: file.name,
+            fileHash,
+            fileUuid,
+            instant: true,
+          });
+
           return {
             success: true,
             instant: true,
             fileUrl: uploadInfo.existing_file_url || undefined,
             fileUuid,
+            fileHash,
             messageUuid: uploadInfo.message_uuid,
             messageSendTime: uploadInfo.message_send_time,
           };
@@ -393,11 +403,19 @@ export function useFileUpload() {
         });
         setUploading(false);
 
+        console.log('%c[Upload] 上传完成', 'color: #4CAF50; font-weight: bold', {
+          fileName: file.name,
+          fileHash,
+          fileUuid,
+          fileSize: file.size,
+        });
+
         return {
           success: true,
           instant: false,
           fileUrl: confirmResult.file_url,
           fileUuid,
+          fileHash,
           messageUuid: confirmResult.message_uuid,
           messageSendTime: confirmResult.message_send_time,
         };

@@ -30,6 +30,8 @@ export interface FilePreviewModalProps {
   contentType: string;
   /** 文件大小 */
   fileSize?: number;
+  /** 本地文件路径（如果有） */
+  localPath?: string | null;
 }
 
 // ============================================
@@ -79,17 +81,19 @@ export function FilePreviewModal({
   filename,
   contentType,
   fileSize,
+  localPath,
 }: FilePreviewModalProps) {
   const api = useApi();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
+  const [isLocalFile, setIsLocalFile] = useState(false);
 
   const isImage = contentType.startsWith('image/');
   const isVideo = contentType.startsWith('video/');
 
-  // 加载预签名 URL
+  // 加载预签名 URL（优先使用本地路径）
   useEffect(() => {
     if (!isOpen || !fileUuid) { return; }
 
@@ -97,11 +101,31 @@ export function FilePreviewModal({
     setError(null);
     setScale(1);
 
-    getPresignedUrl(api, fileUuid)
-      .then(setUrl)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [isOpen, fileUuid, api]);
+    const loadUrl = async () => {
+      try {
+        // 如果有本地路径，优先使用
+        if (localPath) {
+          const { convertFileSrc } = await import('@tauri-apps/api/core');
+          const localUrl = convertFileSrc(localPath);
+          setUrl(localUrl);
+          setIsLocalFile(true);
+          console.log('[FilePreview] 使用本地文件', { localPath });
+        } else {
+          const remoteUrl = await getPresignedUrl(api, fileUuid);
+          setUrl(remoteUrl);
+          setIsLocalFile(false);
+          console.log('[FilePreview] 使用远程文件', { fileUuid });
+        }
+      } catch (err) {
+        console.error('[FilePreview] 加载失败:', err);
+        setError(err instanceof Error ? err.message : '加载失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUrl();
+  }, [isOpen, fileUuid, api, localPath]);
 
   // 下载文件
   const handleDownload = useCallback(() => {
@@ -163,6 +187,9 @@ export function FilePreviewModal({
           {/* 工具栏 */}
           <div className="file-preview-toolbar" onClick={(e) => e.stopPropagation()}>
             <div className="file-preview-info">
+              {isLocalFile && (
+                <span className="file-preview-local-badge" title="本地文件">📁 本地</span>
+              )}
               <span className="file-preview-filename">{filename}</span>
               {fileSize && (
                 <span className="file-preview-size">{formatFileSize(fileSize)}</span>

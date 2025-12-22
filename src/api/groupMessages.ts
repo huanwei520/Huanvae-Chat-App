@@ -25,9 +25,12 @@ export interface GroupMessage {
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
+  file_hash: string | null;
   reply_to: string | null;
   send_time: string;
   is_recalled: boolean;
+  /** 消息序号（用于增量同步） */
+  seq: number;
 }
 
 /** 群消息列表响应 */

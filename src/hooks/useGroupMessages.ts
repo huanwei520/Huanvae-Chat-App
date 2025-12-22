@@ -133,9 +133,11 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
           file_uuid: null,
           file_url: null,
           file_size: null,
+          file_hash: null,
           reply_to: null,
           send_time: response.data.send_time,
           is_recalled: false,
+          seq: 0,
         };
 
         setMessages((prev) => [newMessage, ...prev]);
@@ -190,21 +192,23 @@ export function useGroupMessages(groupId: string | null): UseGroupMessagesReturn
         return prev;
       }
 
-      // 将 WebSocket 消息转换为 GroupMessage 类型
+      // 将 WebSocket 消息转换为 GroupMessage 类型（使用完整字段）
       const newMessage: GroupMessage = {
         message_uuid: wsMsg.message_uuid,
         group_id: wsMsg.source_id,
         sender_id: wsMsg.sender_id,
         sender_nickname: wsMsg.sender_nickname,
-        sender_avatar_url: wsMsg.sender_avatar_url || '', // 使用 WebSocket 返回的头像
-        message_content: wsMsg.preview, // WebSocket 消息的 preview 就是消息内容
+        sender_avatar_url: wsMsg.sender_avatar_url || '',
+        message_content: wsMsg.content || wsMsg.preview || '',
         message_type: wsMsg.message_type,
-        file_uuid: null,
-        file_url: null,
-        file_size: null,
+        file_uuid: wsMsg.file_uuid ?? null,
+        file_url: wsMsg.file_url ?? null,
+        file_size: wsMsg.file_size ?? null,
+        file_hash: wsMsg.file_hash ?? null,
         reply_to: null,
         send_time: wsMsg.timestamp,
         is_recalled: false,
+        seq: wsMsg.seq || 0,
       };
 
       return [newMessage, ...prev];

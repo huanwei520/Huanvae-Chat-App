@@ -34,8 +34,8 @@ import { useWebSocket } from '../contexts/WebSocketContext';
 import { useChatStore } from '../stores';
 import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
-import { useMessages } from './useMessages';
-import { useGroupMessages } from './useGroupMessages';
+import { useLocalFriendMessages } from './useLocalFriendMessages';
+import { useLocalGroupMessages } from './useLocalGroupMessages';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -126,31 +126,35 @@ export function useMainPage() {
     maxWidth: MAX_PANEL_WIDTH,
   });
 
-  // 私聊消息
+  // 私聊消息（本地优先）
   const friendId = chatTarget?.type === 'friend' ? chatTarget.data.friend_id : null;
   const {
     messages: friendMessages,
     loading: friendMessagesLoading,
     sending: friendSending,
+    // syncing: friendSyncing, // 后台同步状态（用于 UI 指示）
     sendTextMessage: sendFriendMessage,
+    // sendMediaMessage: sendFriendMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadFriendMessages,
     handleNewMessage: handleNewFriendMessage,
     handleMessageRecalled: handleFriendMessageRecalled,
     removeMessage: removeFriendMessage,
-  } = useMessages(friendId);
+  } = useLocalFriendMessages(friendId);
 
-  // 群聊消息
+  // 群聊消息（本地优先）
   const groupId = chatTarget?.type === 'group' ? chatTarget.data.group_id : null;
   const {
     messages: groupMessages,
     loading: groupMessagesLoading,
     sending: groupSending,
+    // syncing: groupSyncing, // 后台同步状态（用于 UI 指示）
     sendTextMessage: sendGroupMessage,
+    // sendMediaMessage: sendGroupMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadGroupMessages,
     handleNewMessage: handleNewGroupMessage,
     handleMessageRecalled: handleGroupMessageRecalled,
     removeMessage: removeGroupMessage,
-  } = useGroupMessages(groupId);
+  } = useLocalGroupMessages(groupId);
 
   // 消息操作 Hook
   const { handleRecallMessage, handleDeleteMessage } = useChatActions({
@@ -485,7 +489,7 @@ export function useMainPage() {
   // ============================================
   // 文件上传
   // ============================================
-  const handleFileSelect = useCallback(async (file: File, type: AttachmentType) => {
+  const handleFileSelect = useCallback(async (file: File, type: AttachmentType, localPath?: string) => {
     if (!chatTarget) { return; }
 
     setUploadingFile(file);
@@ -498,33 +502,175 @@ export function useMainPage() {
     const messageType = messageTypeMap[type];
     const timestamp = new Date().toISOString();
 
+    // eslint-disable-next-line no-console
+    console.log('%c[FileUpload] 开始上传文件', 'color: #FF9800; font-weight: bold', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: messageType,
+      localPath: localPath || '(无)',
+    });
+
     try {
       if (chatTarget.type === 'friend') {
         const result = await uploadFriendFile(file, chatTarget.data.friend_id);
         if (result.success) {
+          // eslint-disable-next-line no-console
+          console.log('%c[FileUpload] 好友文件上传成功', 'color: #4CAF50; font-weight: bold', {
+            fileName: file.name,
+            fileHash: result.fileHash,
+            fileUuid: result.fileUuid,
+            messageUuid: result.messageUuid,
+            instant: result.instant,
+          });
+
+          // 保存 file_uuid 到 file_hash 的映射，用于后续消息显示时查找本地文件
+          if (result.fileUuid && result.fileHash) {
+            const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
+            await saveFileUuidHash(result.fileUuid, result.fileHash);
+            
+            // 如果有本地路径，保存 file_hash -> local_path 的映射
+            if (localPath) {
+              await saveFileMapping({
+                file_hash: result.fileHash,
+                local_path: localPath,
+                file_size: file.size,
+                file_name: file.name,
+                content_type: file.type || 'application/octet-stream',
+                source: 'uploaded',
+                last_verified: new Date().toISOString(),
+              });
+              // eslint-disable-next-line no-console
+              console.log('%c[FileUpload] 保存文件本地映射', 'color: #2196F3; font-weight: bold', {
+                fileHash: result.fileHash,
+                localPath,
+              });
+            }
+            
+            // 保存消息到本地数据库（后端上传时会自动发送消息）
+            if (result.messageUuid && session) {
+              await saveMessage({
+                message_uuid: result.messageUuid,
+                conversation_id: chatTarget.data.friend_id,
+                conversation_type: 'friend',
+                sender_id: session.userId,
+                sender_name: session.profile.user_nickname,
+                sender_avatar: session.profile.user_avatar_url,
+                content: file.name,
+                content_type: messageType,
+                file_uuid: result.fileUuid,
+                file_url: result.fileUrl || null,
+                file_size: file.size,
+                file_hash: result.fileHash,
+                seq: 0,
+                reply_to: null,
+                is_recalled: false,
+                is_deleted: false,
+                send_time: result.messageSendTime || timestamp,
+              });
+              // eslint-disable-next-line no-console
+              console.log('%c[FileUpload] 保存消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
+                messageUuid: result.messageUuid,
+                fileName: file.name,
+              });
+            }
+            
+            // eslint-disable-next-line no-console
+            console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
+              fileUuid: result.fileUuid,
+              fileHash: result.fileHash,
+            });
+          }
+
           loadFriendMessages();
           updateLastMessage('friend', chatTarget.data.friend_id, file.name, messageType, timestamp);
         } else {
-          console.error('文件上传失败:', result.error);
+          console.error('[FileUpload] 文件上传失败:', result.error);
         }
       } else {
         const result = await uploadGroupFile(file, chatTarget.data.group_id);
         if (result.success) {
+          // eslint-disable-next-line no-console
+          console.log('%c[FileUpload] 群文件上传成功', 'color: #4CAF50; font-weight: bold', {
+            fileName: file.name,
+            fileHash: result.fileHash,
+            fileUuid: result.fileUuid,
+            messageUuid: result.messageUuid,
+            instant: result.instant,
+          });
+
+          // 保存 file_uuid 到 file_hash 的映射
+          if (result.fileUuid && result.fileHash) {
+            const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
+            await saveFileUuidHash(result.fileUuid, result.fileHash);
+            
+            // 如果有本地路径，保存 file_hash -> local_path 的映射
+            if (localPath) {
+              await saveFileMapping({
+                file_hash: result.fileHash,
+                local_path: localPath,
+                file_size: file.size,
+                file_name: file.name,
+                content_type: file.type || 'application/octet-stream',
+                source: 'uploaded',
+                last_verified: new Date().toISOString(),
+              });
+              // eslint-disable-next-line no-console
+              console.log('%c[FileUpload] 保存文件本地映射', 'color: #2196F3; font-weight: bold', {
+                fileHash: result.fileHash,
+                localPath,
+              });
+            }
+            
+            // 保存消息到本地数据库（后端上传时会自动发送消息）
+            if (result.messageUuid && session) {
+              await saveMessage({
+                message_uuid: result.messageUuid,
+                conversation_id: chatTarget.data.group_id,
+                conversation_type: 'group',
+                sender_id: session.userId,
+                sender_name: session.profile.user_nickname,
+                sender_avatar: session.profile.user_avatar_url,
+                content: file.name,
+                content_type: messageType,
+                file_uuid: result.fileUuid,
+                file_url: result.fileUrl || null,
+                file_size: file.size,
+                file_hash: result.fileHash,
+                seq: 0,
+                reply_to: null,
+                is_recalled: false,
+                is_deleted: false,
+                send_time: result.messageSendTime || timestamp,
+              });
+              // eslint-disable-next-line no-console
+              console.log('%c[FileUpload] 保存群消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
+                messageUuid: result.messageUuid,
+                fileName: file.name,
+              });
+            }
+            
+            // eslint-disable-next-line no-console
+            console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
+              fileUuid: result.fileUuid,
+              fileHash: result.fileHash,
+            });
+          }
+
           loadGroupMessages();
           updateLastMessage('group', chatTarget.data.group_id, file.name, messageType, timestamp);
         } else {
-          console.error('文件上传失败:', result.error);
+          console.error('[FileUpload] 文件上传失败:', result.error);
         }
       }
     } catch (err) {
-      console.error('文件上传失败:', err);
+      console.error('[FileUpload] 文件上传异常:', err);
     } finally {
       setTimeout(() => {
         setUploadingFile(null);
         resetUpload();
       }, 1500);
     }
-  }, [chatTarget, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload, updateLastMessage]);
+  }, [chatTarget, session, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload, updateLastMessage]);
 
   // ============================================
   // 选择处理
@@ -577,7 +723,11 @@ export function useMainPage() {
     setActiveChat(null, null);
   }, [chatTarget, removeGroup, setActiveChat, setChatTarget]);
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
+    // 清除当前用户数据目录上下文
+    const { clearCurrentUser } = await import('../db');
+    await clearCurrentUser();
+    // 清除会话
     clearSession();
   }, [clearSession]);
 
@@ -585,6 +735,15 @@ export function useMainPage() {
     setUploadingFile(null);
     resetUpload();
   }, [resetUpload]);
+
+  // 历史记录加载完成后刷新消息列表
+  const handleHistoryLoaded = useCallback(() => {
+    if (chatTarget?.type === 'friend') {
+      loadFriendMessages();
+    } else if (chatTarget?.type === 'group') {
+      loadGroupMessages();
+    }
+  }, [chatTarget, loadFriendMessages, loadGroupMessages]);
 
   // ============================================
   // 计算属性
@@ -680,6 +839,7 @@ export function useMainPage() {
     handleFriendRemoved,
     handleGroupUpdated,
     handleGroupLeft,
+    handleHistoryLoaded,
     handleLogout,
   };
 }

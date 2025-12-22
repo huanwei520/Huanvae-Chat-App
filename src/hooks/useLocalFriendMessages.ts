@@ -1,0 +1,672 @@
+/**
+ * 本地优先私聊消息 Hook
+ *
+ * 实现离线优先策略：
+ * 1. 先从本地 SQLite 加载消息并立即显示
+ * 2. 后台与服务器同步增量消息
+ * 3. 新消息通过 WebSocket 实时更新
+ * 4. 发送消息时先乐观更新本地
+ *
+ * 调试功能：
+ * - [LocalMessages] 前缀的日志用于跟踪本地消息加载
+ * - [Sync] 前缀的日志用于跟踪服务器同步
+ * - [FileLink] 前缀的日志用于跟踪文件本地链接
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import * as db from '../db';
+import type { LocalMessage, LocalConversation } from '../db';
+import { initSyncService, getSyncService, SyncService } from '../services/syncService';
+import { useSession, useApi } from '../contexts/SessionContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import { getFriendConversationId } from '../utils/conversationId';
+import type { Message } from '../types/chat';
+import type { WsNewMessage, WsMessageRecalled } from '../types/websocket';
+
+// ============================================================================
+// 调试日志
+// ============================================================================
+
+const DEBUG = true;
+
+function logLocal(action: string, data?: unknown) {
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[LocalMessages] ${action}`, 'color: #4CAF50; font-weight: bold', data ?? '');
+  }
+}
+
+function logSync(action: string, data?: unknown) {
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[Sync] ${action}`, 'color: #2196F3; font-weight: bold', data ?? '');
+  }
+}
+
+function logFileLink(action: string, data?: unknown) {
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[FileLink] ${action}`, 'color: #FF9800; font-weight: bold', data ?? '');
+  }
+}
+
+function logError(action: string, error: unknown) {
+  console.error(`%c[Error] ${action}`, 'color: #f44336; font-weight: bold', error);
+}
+
+// ============================================================================
+// 类型转换
+// ============================================================================
+
+/**
+ * 将本地消息转换为 UI Message 类型
+ */
+function localMessageToMessage(local: LocalMessage, friendId: string): Message {
+  return {
+    message_uuid: local.message_uuid,
+    sender_id: local.sender_id,
+    receiver_id: local.sender_id === friendId ? local.conversation_id : friendId,
+    message_content: local.content,
+    message_type: local.content_type as Message['message_type'],
+    file_uuid: local.file_uuid,
+    file_url: local.file_url,
+    file_size: local.file_size,
+    file_hash: local.file_hash,
+    send_time: local.send_time,
+    seq: local.seq,
+  };
+}
+
+// ============================================================================
+// Hook 实现
+// ============================================================================
+
+export function useLocalFriendMessages(friendId: string | null) {
+  const api = useApi();
+  const { session } = useSession();
+  const ws = useWebSocket();
+
+  // 状态
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // Refs
+  const syncServiceRef = useRef<SyncService | null>(null);
+  const conversationRef = useRef<LocalConversation | null>(null);
+  const currentFriendId = useRef<string | null>(null);
+  const dbInitialized = useRef(false);
+
+  // ============================================
+  // 数据库初始化检查
+  // ============================================
+  // 注意：数据库在登录时已由 useAuth 初始化
+  // 这里只标记为已初始化（当有 session 时）
+
+  useEffect(() => {
+    if (session && !dbInitialized.current) {
+      dbInitialized.current = true;
+      logLocal('数据库已就绪（由登录流程初始化）');
+    }
+  }, [session]);
+
+  // ============================================
+  // 切换好友时重置
+  // ============================================
+
+  useEffect(() => {
+    if (friendId !== currentFriendId.current) {
+      logLocal('切换好友', { from: currentFriendId.current, to: friendId });
+      setMessages([]);
+      setHasMore(true);
+      setError(null);
+      conversationRef.current = null;
+      currentFriendId.current = friendId;
+    }
+  }, [friendId]);
+
+  // ============================================
+  // 加载本地消息
+  // ============================================
+
+  const loadMessages = useCallback(async (limit = 50) => {
+    if (!friendId || !session || !dbInitialized.current) {
+      return;
+    }
+
+    // 生成正确的 conversation_id（格式: conv-user1-user2）
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      logLocal('开始加载本地消息', { friendId, conversationId, limit });
+
+      // 1. 从本地数据库加载（使用正确的 conversation_id）
+      const localMessages = await db.getMessages(conversationId, limit);
+
+      logLocal('本地消息加载完成', {
+        count: localMessages.length,
+        hasMore: localMessages.length >= limit,
+        firstSeq: localMessages[0]?.seq,
+        lastSeq: localMessages[localMessages.length - 1]?.seq,
+      });
+
+      // 2. 转换为 UI Message 类型
+      const uiMessages = localMessages.map((m) => localMessageToMessage(m, friendId));
+      setMessages(uiMessages);
+      setHasMore(localMessages.length >= limit);
+
+      // 3. 获取会话信息
+      conversationRef.current = await db.getConversation(conversationId);
+
+      // 4. 记录文件链接状态
+      const filesWithHash = localMessages.filter((m) => m.file_hash);
+      if (filesWithHash.length > 0) {
+        logFileLink('检测到带哈希的文件消息', {
+          count: filesWithHash.length,
+          files: filesWithHash.map((m) => ({
+            uuid: m.message_uuid,
+            hash: m.file_hash,
+            type: m.content_type,
+          })),
+        });
+      }
+    } catch (err) {
+      logError('加载本地消息失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+
+    // 5. 触发后台同步
+    syncMessagesInBackground();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friendId]);
+
+  // ============================================
+  // 后台同步服务器消息
+  // ============================================
+
+  const syncMessagesInBackground = useCallback(async () => {
+    if (!friendId || !session || syncing) {
+      return;
+    }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    setSyncing(true);
+
+    try {
+      // 初始化同步服务
+      if (!syncServiceRef.current) {
+        syncServiceRef.current = initSyncService(api);
+        logSync('同步服务初始化完成');
+      }
+
+      const syncService = getSyncService();
+      if (!syncService) {
+        return;
+      }
+
+      // 获取或创建会话记录
+      let conversation = conversationRef.current;
+      if (!conversation) {
+        conversation = {
+          id: conversationId, // 使用正确的 conversation_id 格式
+          type: 'friend',
+          name: '',
+          avatar_url: null,
+          last_message: null,
+          last_message_time: null,
+          last_seq: 0,
+          unread_count: 0,
+          is_muted: false,
+          is_pinned: false,
+          updated_at: new Date().toISOString(),
+          synced_at: null,
+        };
+        await db.saveConversation(conversation);
+        conversationRef.current = conversation;
+        logSync('创建新会话记录', { conversationId });
+      }
+
+      logSync('开始增量同步', {
+        conversationId,
+        friendId,
+        lastSeq: conversation.last_seq,
+      });
+
+      // 执行增量同步
+      const result = await syncService.syncMessages([conversation]);
+
+      if (result.updatedConversations.includes(conversationId)) {
+        logSync('同步完成，发现新消息', {
+          newCount: result.newMessagesCount,
+        });
+
+        // 重新加载本地消息
+        const updatedMessages = await db.getMessages(conversationId, 50);
+        const uiMessages = updatedMessages.map((m) => localMessageToMessage(m, friendId));
+        setMessages(uiMessages);
+        setHasMore(updatedMessages.length >= 50);
+
+        logLocal('同步后重新加载消息', { count: uiMessages.length });
+      } else {
+        logSync('同步完成，无新消息');
+      }
+    } catch (err) {
+      logError('后台同步失败', err);
+      // 同步失败不影响本地消息显示
+    } finally {
+      setSyncing(false);
+    }
+  }, [friendId, session, syncing, api]);
+
+  // ============================================
+  // 加载更多历史消息
+  // ============================================
+
+  const loadMoreMessages = useCallback(async (limit = 50) => {
+    if (!friendId || !session || !hasMore || messages.length === 0) {
+      return;
+    }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    setLoadingMore(true);
+
+    try {
+      // 消息按倒序排列 [新→旧]，最后一个是最旧的
+      const oldestMessage = messages[messages.length - 1];
+      const oldestSeq = oldestMessage.seq;
+
+      logLocal('加载更多历史消息', { beforeSeq: oldestSeq });
+
+      const olderMessages = await db.getMessages(conversationId, limit, oldestSeq);
+
+      if (olderMessages.length > 0) {
+        const uiMessages = olderMessages.map((m) => localMessageToMessage(m, friendId));
+        // 更老的消息添加到数组末尾
+        setMessages((prev) => [...prev, ...uiMessages]);
+        logLocal('加载更多完成', { count: olderMessages.length });
+      }
+
+      setHasMore(olderMessages.length >= limit);
+    } catch (err) {
+      logError('加载更多失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [friendId, session, hasMore, messages]);
+
+  // ============================================
+  // 发送文本消息
+  // ============================================
+
+  const sendTextMessage = useCallback(async (content: string): Promise<void> => {
+    if (!friendId || !content.trim() || !session) {
+      return;
+    }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    setSending(true);
+    setError(null);
+
+    try {
+      logLocal('发送文本消息', { content: content.substring(0, 50) });
+
+      // 调用 API 发送
+      const { sendMessage } = await import('../api/messages');
+      const response = await sendMessage(api, {
+        receiver_id: friendId,
+        message_content: content,
+        message_type: 'text',
+      });
+
+      // 构建消息对象
+      const newMessage: Message = {
+        message_uuid: response.message_uuid,
+        sender_id: session.userId,
+        receiver_id: friendId,
+        message_content: content,
+        message_type: 'text',
+        file_uuid: null,
+        file_url: null,
+        file_size: null,
+        file_hash: null,
+        send_time: response.send_time,
+        seq: 0,
+      };
+
+      // 乐观更新 UI（新消息添加到数组开头，配合 column-reverse 显示在底部）
+      setMessages((prev) => [newMessage, ...prev]);
+
+      // 保存到本地数据库（使用正确的 conversation_id）
+      const localMessage: Omit<LocalMessage, 'created_at'> = {
+        message_uuid: response.message_uuid,
+        conversation_id: conversationId,
+        conversation_type: 'friend',
+        sender_id: session.userId,
+        sender_name: session.profile.user_nickname,
+        sender_avatar: session.profile.user_avatar_url,
+        content,
+        content_type: 'text',
+        file_uuid: null,
+        file_url: null,
+        file_size: null,
+        file_hash: null,
+        seq: 0,
+        reply_to: null,
+        is_recalled: false,
+        is_deleted: false,
+        send_time: response.send_time,
+      };
+      await db.saveMessage(localMessage);
+
+      logLocal('消息发送成功并保存到本地', { uuid: response.message_uuid });
+
+      // 发送成功后触发后台同步，获取正确的 seq
+      setTimeout(() => {
+        syncMessagesInBackground();
+      }, 500);
+    } catch (err) {
+      logError('发送消息失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  }, [api, friendId, session, syncMessagesInBackground]);
+
+  // ============================================
+  // 发送媒体消息
+  // ============================================
+
+  const sendMediaMessage = useCallback(async (
+    content: string,
+    messageType: Message['message_type'],
+    fileUuid?: string,
+    fileUrl?: string,
+    fileSize?: number,
+    fileHash?: string,
+    localPath?: string,
+  ) => {
+    if (!friendId || !session) {
+      return null;
+    }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    setSending(true);
+    setError(null);
+
+    try {
+      logLocal('发送媒体消息', { type: messageType, fileName: content, fileHash });
+
+      // 如果有本地路径和哈希，记录文件映射
+      if (fileHash && localPath) {
+        const { recordUploadedFile } = await import('../services/fileService');
+        // 确定 content type
+        let contentType = 'application/octet-stream';
+        if (messageType === 'image') {
+          contentType = 'image/jpeg';
+        } else if (messageType === 'video') {
+          contentType = 'video/mp4';
+        }
+        await recordUploadedFile(
+          fileHash,
+          localPath,
+          fileSize || 0,
+          content,
+          contentType,
+        );
+        logFileLink('记录上传文件映射', { fileHash, localPath });
+      }
+
+      // 调用 API 发送
+      const { sendMessage } = await import('../api/messages');
+      const response = await sendMessage(api, {
+        receiver_id: friendId,
+        message_content: content,
+        message_type: messageType,
+        file_uuid: fileUuid,
+        file_url: fileUrl,
+        file_size: fileSize,
+      });
+
+      // 构建消息对象
+      const newMessage: Message = {
+        message_uuid: response.message_uuid,
+        sender_id: session.userId,
+        receiver_id: friendId,
+        message_content: content,
+        message_type: messageType,
+        file_uuid: fileUuid ?? null,
+        file_url: fileUrl ?? null,
+        file_size: fileSize ?? null,
+        file_hash: fileHash ?? null,
+        send_time: response.send_time,
+        seq: 0,
+      };
+
+      // 乐观更新 UI（新消息添加到数组开头，配合 column-reverse 显示在底部）
+      setMessages((prev) => [newMessage, ...prev]);
+
+      // 保存到本地数据库（使用正确的 conversation_id）
+      const localMessage: Omit<LocalMessage, 'created_at'> = {
+        message_uuid: response.message_uuid,
+        conversation_id: conversationId,
+        conversation_type: 'friend',
+        sender_id: session.userId,
+        sender_name: session.profile.user_nickname,
+        sender_avatar: session.profile.user_avatar_url,
+        content,
+        content_type: messageType,
+        file_uuid: fileUuid || null,
+        file_url: fileUrl || null,
+        file_size: fileSize || null,
+        file_hash: fileHash || null,
+        seq: 0,
+        reply_to: null,
+        is_recalled: false,
+        is_deleted: false,
+        send_time: response.send_time,
+      };
+      await db.saveMessage(localMessage);
+
+      logLocal('媒体消息发送成功', { uuid: response.message_uuid, hasFileLink: !!fileHash });
+      logFileLink('媒体消息已链接到本地', { uuid: response.message_uuid, fileHash, localPath });
+
+      // 发送成功后触发后台同步，获取正确的 seq
+      setTimeout(() => {
+        syncMessagesInBackground();
+      }, 500);
+
+      return response;
+    } catch (err) {
+      logError('发送媒体消息失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    } finally {
+      setSending(false);
+    }
+  }, [api, friendId, session, syncMessagesInBackground]);
+
+  // ============================================
+  // 撤回消息
+  // ============================================
+
+  const recall = useCallback(async (messageUuid: string) => {
+    try {
+      const { recallMessage } = await import('../api/messages');
+      await recallMessage(api, messageUuid);
+
+      // 从 UI 移除
+      setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
+
+      // 标记本地已撤回
+      await db.markMessageRecalled(messageUuid);
+
+      logLocal('消息撤回成功', { uuid: messageUuid });
+      return true;
+    } catch (err) {
+      logError('撤回消息失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }, [api]);
+
+  // ============================================
+  // 刷新消息
+  // ============================================
+
+  const refresh = useCallback(() => {
+    return loadMessages();
+  }, [loadMessages]);
+
+  // ============================================
+  // 从本地列表移除消息
+  // ============================================
+
+  const removeMessage = useCallback((messageUuid: string) => {
+    setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
+  }, []);
+
+  // ============================================
+  // 处理 WebSocket 新消息
+  // ============================================
+
+  const handleNewMessage = useCallback((wsMsg: WsNewMessage) => {
+    if (wsMsg.source_type !== 'friend' || wsMsg.source_id !== friendId || !session) {
+      return;
+    }
+
+    logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid });
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
+
+    // 检查是否已存在
+    setMessages((prev) => {
+      if (prev.some((m) => m.message_uuid === wsMsg.message_uuid)) {
+        return prev;
+      }
+
+      // 使用完整字段构建消息（包括文件信息）
+      const newMessage: Message = {
+        message_uuid: wsMsg.message_uuid,
+        sender_id: wsMsg.sender_id,
+        receiver_id: session.userId,
+        message_content: wsMsg.content || wsMsg.preview || '',
+        message_type: wsMsg.message_type as Message['message_type'],
+        file_uuid: wsMsg.file_uuid ?? null,
+        file_url: wsMsg.file_url ?? null,
+        file_size: wsMsg.file_size ?? null,
+        file_hash: wsMsg.file_hash ?? null,
+        send_time: wsMsg.timestamp,
+        seq: wsMsg.seq || 0,
+      };
+
+      // 新消息添加到数组开头，配合 column-reverse 显示在底部
+      return [newMessage, ...prev];
+    });
+
+    // 保存到本地数据库（使用正确的 conversation_id 和完整文件信息）
+    const localMessage: Omit<LocalMessage, 'created_at'> = {
+      message_uuid: wsMsg.message_uuid,
+      conversation_id: conversationId,
+      conversation_type: 'friend',
+      sender_id: wsMsg.sender_id,
+      sender_name: wsMsg.sender_nickname || null,
+      sender_avatar: wsMsg.sender_avatar_url || null,
+      content: wsMsg.content || wsMsg.preview || '',
+      content_type: wsMsg.message_type,
+      file_uuid: wsMsg.file_uuid || null,
+      file_url: wsMsg.file_url || null,
+      file_size: wsMsg.file_size || null,
+      file_hash: wsMsg.file_hash || null,
+      seq: wsMsg.seq || 0,
+      reply_to: null,
+      is_recalled: false,
+      is_deleted: false,
+      send_time: wsMsg.timestamp,
+    };
+    db.saveMessage(localMessage).catch((err) => {
+      logError('保存 WebSocket 消息到本地失败', err);
+    });
+  }, [friendId, session]);
+
+  // ============================================
+  // 处理 WebSocket 消息撤回
+  // ============================================
+
+  const handleMessageRecalled = useCallback((wsMsg: WsMessageRecalled) => {
+    if (wsMsg.source_type !== 'friend' || wsMsg.source_id !== friendId) {
+      return;
+    }
+
+    logLocal('收到 WebSocket 消息撤回', { uuid: wsMsg.message_uuid });
+
+    // 从 UI 移除
+    setMessages((prev) => prev.filter((m) => m.message_uuid !== wsMsg.message_uuid));
+
+    // 标记本地已撤回
+    db.markMessageRecalled(wsMsg.message_uuid).catch((err) => {
+      logError('标记消息撤回失败', err);
+    });
+  }, [friendId]);
+
+  // ============================================
+  // 监听 WebSocket 事件
+  // ============================================
+
+  useEffect(() => {
+    const unsubscribeNew = ws.onNewMessage((msg) => {
+      if (msg.source_type === 'friend' && msg.source_id === friendId) {
+        handleNewMessage(msg);
+      }
+    });
+
+    const unsubscribeRecalled = ws.onMessageRecalled((msg) => {
+      if (msg.source_type === 'friend' && msg.source_id === friendId) {
+        handleMessageRecalled(msg);
+      }
+    });
+
+    return () => {
+      unsubscribeNew();
+      unsubscribeRecalled();
+    };
+  }, [ws, friendId, handleNewMessage, handleMessageRecalled]);
+
+  return {
+    messages,
+    loading,
+    loadingMore,
+    hasMore,
+    error,
+    sending,
+    syncing,
+    loadMessages,
+    loadMoreMessages,
+    sendTextMessage,
+    sendMediaMessage,
+    recall,
+    refresh,
+    removeMessage,
+    // 兼容旧接口
+    handleNewMessage,
+    handleMessageRecalled,
+  };
+}

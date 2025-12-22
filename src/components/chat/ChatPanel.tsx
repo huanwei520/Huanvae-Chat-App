@@ -40,7 +40,7 @@ interface ChatPanelProps {
   messageInput: string;
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
-  onFileSelect: (file: File, type: AttachmentType) => void;
+  onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
 
   // 文件上传
   uploading: boolean;
@@ -66,6 +66,7 @@ interface ChatPanelProps {
   onFriendRemoved: () => void;
   onGroupUpdated: () => void;
   onGroupLeft: () => void;
+  onHistoryLoaded?: () => void;
 }
 
 // ============================================
@@ -125,6 +126,7 @@ export function ChatPanel({
   onFriendRemoved,
   onGroupUpdated,
   onGroupLeft,
+  onHistoryLoaded,
 }: ChatPanelProps) {
   const chatKey = chatTarget.type === 'friend'
     ? chatTarget.data.friend_id
@@ -151,6 +153,7 @@ export function ChatPanel({
           onGroupLeft={onGroupLeft}
           isMultiSelectMode={isMultiSelectMode}
           onToggleMultiSelect={onEnterMultiSelect}
+          onHistoryLoaded={onHistoryLoaded}
         />
       </div>
 

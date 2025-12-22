@@ -9,9 +9,11 @@
  * - 文件上传（复用聊天上传进度条）
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { readFile, stat } from '@tauri-apps/plugin-fs';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
 import { useFileUpload, getPresignedUrl } from '../../hooks/useFileUpload';
 import { useApi } from '../../contexts/SessionContext';
@@ -59,18 +61,19 @@ function FileIcon({ contentType }: { contentType: string }) {
   return <span className="file-icon document">📄</span>;
 }
 
-/** 缩略图 - 按照好友/群聊消息的方式加载预签名 URL */
-function FileThumbnail({ file }: { file: FileItem }) {
+/** 缩略图 - 本地优先加载（与好友/群聊消息一致） */
+function FileThumbnail({ file, onLocalPathFound }: { file: FileItem; onLocalPathFound?: (path: string | null) => void }) {
   const api = useApi();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [isLocal, setIsLocal] = useState(false);
 
   const category = getFileCategory(file.content_type);
   const isImage = category === 'image';
   const isVideo = category === 'video';
 
-  // 加载缩略图预签名 URL（与 FileMessageContent 一致）
+  // 本地优先加载（与 FileMessageContent 一致）
   useEffect(() => {
     // 只有图片和视频需要加载缩略图
     if (!isImage && !isVideo) {
@@ -81,11 +84,39 @@ function FileThumbnail({ file }: { file: FileItem }) {
     setLoading(true);
     setError(false);
 
-    getPresignedUrl(api, file.file_uuid)
-      .then(setThumbnailUrl)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [api, file.file_uuid, isImage, isVideo]);
+    const loadFile = async () => {
+      try {
+        // 1. 尝试从本地数据库获取 file_hash
+        const { getFileHashByUuid } = await import('../../db');
+        const fileHash = await getFileHashByUuid(file.file_uuid);
+
+        if (fileHash) {
+          // 2. 获取远程 URL 作为备用
+          const remoteUrl = await getPresignedUrl(api, file.file_uuid);
+
+          // 3. 检查本地文件
+          const { getFileSource } = await import('../../services/fileService');
+          const result = await getFileSource(fileHash, remoteUrl, file.file_size);
+
+          setThumbnailUrl(result.url);
+          setIsLocal(result.source === 'local');
+          onLocalPathFound?.(result.localPath || null);
+        } else {
+          // 无 file_hash，直接使用远程
+          const url = await getPresignedUrl(api, file.file_uuid);
+          setThumbnailUrl(url);
+          setIsLocal(false);
+          onLocalPathFound?.(null);
+        }
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFile();
+  }, [api, file.file_uuid, file.file_size, isImage, isVideo, onLocalPathFound]);
 
   // 加载中
   if (loading) {
@@ -109,6 +140,7 @@ function FileThumbnail({ file }: { file: FileItem }) {
   if (isImage && thumbnailUrl) {
     return (
       <div className="thumbnail-image">
+        {isLocal && <span className="file-local-badge" title="本地文件">📁</span>}
         <img src={thumbnailUrl} alt={file.filename} draggable={false} />
       </div>
     );
@@ -118,6 +150,7 @@ function FileThumbnail({ file }: { file: FileItem }) {
   if (isVideo && thumbnailUrl) {
     return (
       <div className="thumbnail-video">
+        {isLocal && <span className="file-local-badge" title="本地文件">📁</span>}
         <video src={thumbnailUrl} preload="metadata" />
         <div className="video-play-icon">▶</div>
       </div>
@@ -205,8 +238,6 @@ const cardVariants = {
 // ============================================
 
 export function FilesModal({ isOpen, onClose }: FilesModalProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // 文件列表 hook
   const {
     files,
@@ -232,57 +263,154 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
   // 预览状态 - 存储文件信息用于 FilePreviewModal
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [previewLocalPath, setPreviewLocalPath] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
 
-  // 预览文件
-  const handlePreview = useCallback((file: FileItem) => {
+  // 预览文件 - 先查找本地路径
+  const handlePreview = useCallback(async (file: FileItem) => {
     setPreviewFile(file);
+    
+    // 尝试获取本地路径
+    try {
+      const { getFileHashByUuid, getFileMapping } = await import('../../db');
+      const fileHash = await getFileHashByUuid(file.file_uuid);
+      
+      if (fileHash) {
+        const mapping = await getFileMapping(fileHash);
+        if (mapping?.local_path) {
+          setPreviewLocalPath(mapping.local_path);
+          // eslint-disable-next-line no-console
+          console.log('[PersonalFiles] 预览使用本地文件', {
+            fileUuid: file.file_uuid,
+            fileHash,
+            localPath: mapping.local_path,
+          });
+          return;
+        }
+      }
+    } catch {
+      // 查找失败，使用远程
+    }
+    
+    setPreviewLocalPath(null);
   }, []);
 
   // 关闭预览
   const closePreview = useCallback(() => {
     setPreviewFile(null);
+    setPreviewLocalPath(null);
   }, []);
 
-  // 触发文件选择
-  const handleUploadClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  // 触发文件选择 - 使用 Tauri 原生对话框获取本地路径
+  const handleUploadClick = useCallback(async () => {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        filters: [
+          {
+            name: '所有支持的文件',
+            extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'zip', 'rar'],
+          },
+          { name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
+          { name: '视频', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] },
+          { name: '文档', extensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt'] },
+        ],
+      });
 
-  // 处理文件选择
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) { return; }
+      if (!selected) { return; }
 
-    // 重置 input 以便可以重复选择同一文件
-    e.target.value = '';
+      // Tauri 2.x 返回的是字符串路径
+      const localPath = selected as unknown as string;
+      const fileName = localPath.split(/[/\\]/).pop() || 'file';
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-    setUploadingFile(file);
+      // 读取文件内容
+      const fileBytes = await readFile(localPath);
+      const fileStat = await stat(localPath);
+      const fileSize = fileStat.size;
 
-    // 根据文件类型自动判断 fileType
-    let fileType: 'user_image' | 'user_video' | 'user_document' = 'user_document';
-    if (file.type.startsWith('image/')) {
-      fileType = 'user_image';
-    } else if (file.type.startsWith('video/')) {
-      fileType = 'user_video';
-    }
+      // 判断 MIME 类型
+      let mimeType = 'application/octet-stream';
+      if (['jpg', 'jpeg'].includes(ext)) { mimeType = 'image/jpeg'; }
+      else if (ext === 'png') { mimeType = 'image/png'; }
+      else if (ext === 'gif') { mimeType = 'image/gif'; }
+      else if (ext === 'webp') { mimeType = 'image/webp'; }
+      else if (ext === 'mp4') { mimeType = 'video/mp4'; }
+      else if (ext === 'mov') { mimeType = 'video/quicktime'; }
+      else if (['avi', 'mkv', 'webm'].includes(ext)) { mimeType = `video/${ext}`; }
+      else if (ext === 'pdf') { mimeType = 'application/pdf'; }
 
-    const result = await uploadFile({
-      file,
-      fileType,
-      storageLocation: 'user_files',
-    });
+      // 创建 File 对象
+      const file = new File([fileBytes], fileName, { type: mimeType });
 
-    if (result.success) {
-      // 刷新文件列表
-      await refresh();
-    }
+      setUploadingFile(file);
 
-    // 延迟清除上传状态，让用户看到完成提示
-    setTimeout(() => {
+      // 根据文件类型自动判断 fileType
+      let fileType: 'user_image' | 'user_video' | 'user_document' = 'user_document';
+      if (mimeType.startsWith('image/')) {
+        fileType = 'user_image';
+      } else if (mimeType.startsWith('video/')) {
+        fileType = 'user_video';
+      }
+
+      const result = await uploadFile({
+        file,
+        fileType,
+        storageLocation: 'user_files',
+      });
+
+      if (result.success) {
+        // eslint-disable-next-line no-console
+        console.log('%c[PersonalFiles] 个人文件上传成功', 'color: #4CAF50; font-weight: bold', {
+          fileName: file.name,
+          fileHash: result.fileHash,
+          fileUuid: result.fileUuid,
+          instant: result.instant,
+          localPath,
+        });
+
+        // 保存 file_uuid 到 file_hash 的映射
+        if (result.fileUuid && result.fileHash) {
+          const { saveFileUuidHash, saveFileMapping } = await import('../../db');
+          await saveFileUuidHash(result.fileUuid, result.fileHash);
+          
+          // 保存 file_hash -> local_path 的映射（与好友/群聊文件一致）
+          await saveFileMapping({
+            file_hash: result.fileHash,
+            local_path: localPath,
+            file_size: fileSize,
+            file_name: fileName,
+            content_type: mimeType,
+            source: 'uploaded',
+            last_verified: new Date().toISOString(),
+          });
+          
+          // eslint-disable-next-line no-console
+          console.log('%c[PersonalFiles] 保存本地文件映射', 'color: #2196F3; font-weight: bold', {
+            fileHash: result.fileHash,
+            localPath,
+          });
+          // eslint-disable-next-line no-console
+          console.log('%c[PersonalFiles] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
+            fileUuid: result.fileUuid,
+            fileHash: result.fileHash,
+          });
+        }
+
+        // 刷新文件列表
+        await refresh();
+      }
+
+      // 延迟清除上传状态
+      setTimeout(() => {
+        setUploadingFile(null);
+        resetUpload();
+      }, 1500);
+    } catch (err) {
+      console.error('[PersonalFiles] 文件选择失败:', err);
       setUploadingFile(null);
       resetUpload();
-    }, 1500);
+    }
   }, [uploadFile, refresh, resetUpload]);
 
   // 取消上传
@@ -349,14 +477,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
               </div>
             </div>
 
-            {/* 隐藏的文件输入 */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              style={{ display: 'none' }}
-              onChange={handleFileSelect}
-              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
-            />
 
             {/* 上传进度条 */}
             <AnimatePresence>
@@ -473,6 +593,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         filename={previewFile?.filename || ''}
         contentType={previewFile?.content_type || ''}
         fileSize={previewFile?.file_size}
+        localPath={previewLocalPath || undefined}
       />
     </>
   );

@@ -55,6 +55,7 @@ export interface UseChatMenuProps {
   onFriendRemoved?: () => void;
   onGroupUpdated?: () => void;
   onGroupLeft?: () => void;
+  onHistoryLoaded?: () => void;
 }
 
 export interface UseChatMenuReturn {
@@ -100,6 +101,10 @@ export interface UseChatMenuReturn {
   avatarUploadProgress: number;
   uploadingAvatar: boolean;
 
+  // 加载历史记录
+  loadingHistory: boolean;
+  historyProgress: string;
+
   // Refs
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   menuRef: React.RefObject<HTMLDivElement | null>;
@@ -134,6 +139,7 @@ export interface UseChatMenuReturn {
   handleCloseMenu: () => void;
   handleUpdateGroupNickname: () => Promise<void>;
   handleClearGroupNickname: () => Promise<void>;
+  handleLoadAllHistory: () => Promise<void>;
 }
 
 // ============================================
@@ -145,6 +151,7 @@ export function useChatMenu({
   onFriendRemoved,
   onGroupUpdated,
   onGroupLeft,
+  onHistoryLoaded,
 }: UseChatMenuProps): UseChatMenuReturn {
   const { session } = useSession();
   const api = useApi();
@@ -185,6 +192,10 @@ export function useChatMenu({
   // 上传进度
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  // 加载历史记录
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyProgress, setHistoryProgress] = useState('');
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -661,6 +672,45 @@ export function useChatMenu({
     }
   }, [api, target]);
 
+  // 加载全部聊天记录
+  const handleLoadAllHistory = useCallback(async () => {
+    if (loadingHistory || !session) return;
+
+    setLoadingHistory(true);
+    setHistoryProgress('准备加载...');
+    setError(null);
+
+    try {
+      const { loadAllHistoryMessages } = await import('../services/historyService');
+      
+      const targetId = target.type === 'friend' 
+        ? target.data.friend_id 
+        : target.data.group_id;
+      const targetType = target.type;
+
+      await loadAllHistoryMessages(
+        api,
+        targetId,
+        targetType,
+        session.userId, // 传入当前用户 ID
+        (progress) => {
+          setHistoryProgress(progress);
+        }
+      );
+
+      setSuccess('聊天记录加载完成');
+      setHistoryProgress('');
+      
+      // 触发消息列表刷新
+      onHistoryLoaded?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+      setHistoryProgress('');
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [api, session, target, loadingHistory, onHistoryLoaded]);
+
   return {
     // 状态
     isOpen,
@@ -704,6 +754,10 @@ export function useChatMenu({
     avatarUploadProgress,
     uploadingAvatar,
 
+    // 加载历史记录
+    loadingHistory,
+    historyProgress,
+
     // Refs
     fileInputRef,
     menuRef,
@@ -738,5 +792,6 @@ export function useChatMenu({
     handleCloseMenu,
     handleUpdateGroupNickname,
     handleClearGroupNickname,
+    handleLoadAllHistory,
   };
 }

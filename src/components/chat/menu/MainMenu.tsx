@@ -22,6 +22,7 @@ import {
   XCircleIcon,
   QrCodeIcon,
   UserIcon,
+  CloudDownloadIcon,
 } from '../../common/Icons';
 import { CircularProgress } from '../../common/CircularProgress';
 import { GroupAvatar } from '../../common/Avatar';
@@ -174,9 +175,15 @@ interface MainMenuProps {
   uploadingAvatar?: boolean;
   /** 上传进度 0-100 */
   avatarUploadProgress?: number;
+  /** 是否正在加载历史记录 */
+  loadingHistory?: boolean;
+  /** 加载历史记录进度信息 */
+  historyProgress?: string;
   onSetView: (view: MenuView) => void;
   onUploadAvatar: () => void;
   onToggleMultiSelect: () => void;
+  /** 加载全部聊天记录 */
+  onLoadAllHistory?: () => void;
 }
 
 export function MainMenu({
@@ -187,9 +194,12 @@ export function MainMenu({
   group,
   uploadingAvatar = false,
   avatarUploadProgress = 0,
+  loadingHistory = false,
+  historyProgress = '',
   onSetView,
   onUploadAvatar,
   onToggleMultiSelect,
+  onLoadAllHistory,
 }: MainMenuProps) {
   const title = targetType === 'friend' ? '好友设置' : '群聊设置';
   const isGroup = targetType === 'group';
@@ -242,6 +252,22 @@ export function MainMenu({
         <MultiSelectIcon />
         <span>{isMultiSelectMode ? '退出多选' : '多选消息'}</span>
       </button>
+
+      {/* 加载全部聊天记录 */}
+      {onLoadAllHistory && (
+        <button
+          className={`menu-item ${loadingHistory ? 'loading' : ''}`}
+          onClick={onLoadAllHistory}
+          disabled={loadingHistory}
+        >
+          <CloudDownloadIcon />
+          <span>
+            {loadingHistory
+              ? historyProgress || '加载中...'
+              : '加载全部记录'}
+          </span>
+        </button>
+      )}
 
       <div className="menu-divider" />
 

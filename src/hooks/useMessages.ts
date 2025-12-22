@@ -109,6 +109,7 @@ export function useMessages(friendId: string | null) {
         file_uuid: null,
         file_url: null,
         file_size: null,
+        file_hash: null,
         send_time: response.send_time,
       };
 
@@ -155,6 +156,7 @@ export function useMessages(friendId: string | null) {
         file_uuid: fileUuid ?? null,
         file_url: fileUrl ?? null,
         file_size: fileSize ?? null,
+        file_hash: null,
         send_time: response.send_time,
       };
 
@@ -208,17 +210,19 @@ export function useMessages(friendId: string | null) {
         return prev;
       }
 
-      // 将 WebSocket 消息转换为 Message 类型
+      // 将 WebSocket 消息转换为 Message 类型（使用完整字段）
       const newMessage: Message = {
         message_uuid: wsMsg.message_uuid,
         sender_id: wsMsg.sender_id,
         receiver_id: session?.userId ?? '',
-        message_content: wsMsg.preview, // WebSocket 消息的 preview 就是消息内容
+        message_content: wsMsg.content || wsMsg.preview || '',
         message_type: wsMsg.message_type,
-        file_uuid: null, // WebSocket 通知不包含文件信息，需要时可以加载
-        file_url: null,
-        file_size: null,
+        file_uuid: wsMsg.file_uuid ?? null,
+        file_url: wsMsg.file_url ?? null,
+        file_size: wsMsg.file_size ?? null,
+        file_hash: wsMsg.file_hash ?? null,
         send_time: wsMsg.timestamp,
+        seq: wsMsg.seq || 0,
       };
 
       return [newMessage, ...prev];
