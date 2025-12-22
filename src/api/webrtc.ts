@@ -35,12 +35,26 @@ export interface IceConfigResponse {
 // 房间管理相关类型
 // ============================================
 
+/** 用户信息（用于显示头像等） */
+export interface UserInfo {
+  /** 用户ID（登录用户有值，访客为null） */
+  user_id: string | null;
+  /** 昵称 */
+  nickname: string;
+  /** 头像URL（登录用户有值，访客可能为null） */
+  avatar_url: string | null;
+  /** 是否已登录 */
+  is_authenticated: boolean;
+}
+
 /** 创建房间请求 */
 export interface CreateRoomRequest {
   /** 房间名称（可选） */
   name?: string;
   /** 创建者显示名称（可选，用于信令中显示） */
   display_name?: string;
+  /** 创建者头像URL（可选） */
+  avatar_url?: string;
   /** 6位密码（可选，不填自动生成） */
   password?: string;
   /** 最大人数（默认10，最大50） */
@@ -62,12 +76,16 @@ export interface CreateRoomResponse {
   ws_token: string;
   /** Token 过期时间 */
   token_expires_at: string;
+  /** 创建者的用户信息 */
+  user_info: UserInfo;
 }
 
 /** 加入房间请求 */
 export interface JoinRoomRequest {
   password: string;
   display_name: string;
+  /** 头像URL（可选） */
+  avatar_url?: string;
 }
 
 /** 加入房间响应 */
@@ -77,6 +95,8 @@ export interface JoinRoomResponse {
   room_name: string;
   ice_servers: IceServer[];
   token_expires_at: string;
+  /** 用户信息 */
+  user_info: UserInfo;
 }
 
 /** 参与者信息 */
@@ -84,6 +104,8 @@ export interface Participant {
   id: string;
   name: string;
   is_creator: boolean;
+  /** 用户详细信息（包含头像等） */
+  user_info?: UserInfo;
 }
 
 // ============================================
@@ -147,6 +169,12 @@ export interface ErrorMessage {
   message: string;
 }
 
+/** 心跳响应消息（服务器→客户端） */
+export interface PongMessage {
+  type: 'pong';
+  timestamp: string;
+}
+
 /** 所有服务器→客户端消息类型 */
 export type ServerMessage =
   | JoinedMessage
@@ -156,7 +184,8 @@ export type ServerMessage =
   | AnswerMessage
   | CandidateMessage
   | RoomClosedMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | PongMessage;
 
 /** 客户端发送的 Offer 消息 */
 export interface ClientOfferMessage {
@@ -246,11 +275,19 @@ export async function joinRoom(
   roomId: string,
   password: string,
   displayName: string,
+  avatarUrl?: string,
 ): Promise<JoinRoomResponse> {
-  const response = await api.post<ApiResponse<JoinRoomResponse>>(`/api/webrtc/rooms/${roomId}/join`, {
+  const body: JoinRoomRequest = {
     password,
     display_name: displayName,
-  });
+  };
+  if (avatarUrl) {
+    body.avatar_url = avatarUrl;
+  }
+  const response = await api.post<ApiResponse<JoinRoomResponse>>(
+    `/api/webrtc/rooms/${roomId}/join`,
+    body as unknown as Record<string, unknown>,
+  );
   return response.data;
 }
 
@@ -280,6 +317,8 @@ export interface MeetingWindowData {
   token: string;
   /** ICE 服务器配置（参与者加入时返回，创建者需要单独获取） */
   iceServers?: IceServer[];
+  /** 用户信息（包含头像等） */
+  userInfo?: UserInfo;
 }
 
 const MEETING_DATA_KEY = 'huanvae_meeting_data';

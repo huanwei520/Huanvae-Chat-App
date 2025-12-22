@@ -36,11 +36,14 @@ function ParticipantVideo({
   participant,
   isLocal,
   roomName,
+  isSpeaking,
 }: {
   participant?: RemoteParticipant;
   isLocal?: boolean;
   stream?: MediaStream | null;
   roomName?: string;
+  /** 是否正在说话（本地用户使用此属性） */
+  isSpeaking?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stream = participant?.stream;
@@ -118,9 +121,12 @@ function ParticipantVideo({
   // 是否显示视频（有流且有活跃的视频轨道）
   const showVideo = stream && hasActiveVideo;
 
+  // 确定是否正在说话：本地用户用 isSpeaking prop，远程用户用 participant.isSpeaking
+  const speaking = isLocal ? isSpeaking : participant?.isSpeaking;
+
   return (
     <motion.div
-      className={`participant-video ${isLocal ? 'local' : ''}`}
+      className={`participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
@@ -134,9 +140,18 @@ function ParticipantVideo({
         />
       ) : (
         <div className="participant-placeholder">
-          <div className="avatar-placeholder">
-            {displayName.charAt(0)}
-          </div>
+          {/* 如果有头像URL（登录用户），显示头像图片；否则显示首字母 */}
+          {participant?.user_info?.avatar_url ? (
+            <img
+              className="avatar-image"
+              src={participant.user_info.avatar_url}
+              alt={displayName}
+            />
+          ) : (
+            <div className="avatar-placeholder">
+              {displayName.charAt(0)}
+            </div>
+          )}
         </div>
       )}
       <div className="participant-name">
@@ -148,26 +163,91 @@ function ParticipantVideo({
 }
 
 /** 本地视频预览组件 */
-function LocalVideo({ stream }: { stream: MediaStream | null }) {
+function LocalVideo({
+  stream,
+  isSpeaking,
+  avatarUrl,
+}: {
+  stream: MediaStream | null;
+  isSpeaking: boolean;
+  /** 本地用户头像URL */
+  avatarUrl?: string | null;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [hasActiveVideo, setHasActiveVideo] = useState(false);
+
+  // 检查视频轨道状态
+  useEffect(() => {
+    if (!stream) {
+      setHasActiveVideo(false);
+      return;
+    }
+
+    const checkVideoTrack = () => {
+      const videoTracks = stream.getVideoTracks();
+      const hasLiveVideo = videoTracks.some(
+        (track) => track.readyState === 'live' && track.enabled && !track.muted,
+      );
+      setHasActiveVideo(hasLiveVideo);
+    };
+
+    checkVideoTrack();
+
+    const videoTracks = stream.getVideoTracks();
+    const handleTrackChange = () => checkVideoTrack();
+
+    videoTracks.forEach((track) => {
+      track.addEventListener('ended', handleTrackChange);
+      track.addEventListener('mute', handleTrackChange);
+      track.addEventListener('unmute', handleTrackChange);
+    });
+
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+
+    // 监听 enabled 属性变化（需要轮询，因为没有原生事件）
+    const interval = setInterval(checkVideoTrack, 500);
+
+    return () => {
+      videoTracks.forEach((track) => {
+        track.removeEventListener('ended', handleTrackChange);
+        track.removeEventListener('mute', handleTrackChange);
+        track.removeEventListener('unmute', handleTrackChange);
+      });
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+      clearInterval(interval);
+    };
+  }, [stream]);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    if (videoRef.current) {
+      if (stream && hasActiveVideo) {
+        videoRef.current.srcObject = stream;
+      } else {
+        videoRef.current.srcObject = null;
+      }
     }
-  }, [stream]);
+  }, [stream, hasActiveVideo]);
+
+  const showVideo = stream && hasActiveVideo;
 
   return (
     <motion.div
-      className="participant-video local"
+      className={`participant-video local ${isSpeaking ? 'speaking' : ''}`}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
     >
-      {stream ? (
+      {showVideo ? (
         <video ref={videoRef} autoPlay playsInline muted />
       ) : (
         <div className="participant-placeholder">
-          <div className="avatar-placeholder">我</div>
+          {/* 如果有头像URL，显示头像图片；否则显示"我" */}
+          {avatarUrl ? (
+            <img className="avatar-image" src={avatarUrl} alt="我" />
+          ) : (
+            <div className="avatar-placeholder">我</div>
+          )}
         </div>
       )}
       <div className="participant-name">我</div>
@@ -305,7 +385,11 @@ export default function MeetingPage() {
       <main className="meeting-main">
         <div className={`video-grid ${showParticipants ? 'with-sidebar' : ''}`}>
           {/* 本地视频 */}
-          <LocalVideo stream={webrtc.localStream} />
+          <LocalVideo
+            stream={webrtc.localStream}
+            isSpeaking={webrtc.isSpeaking}
+            avatarUrl={meetingData?.userInfo?.avatar_url}
+          />
 
           {/* 远程参与者视频 */}
           <AnimatePresence>
@@ -314,6 +398,7 @@ export default function MeetingPage() {
                 key={participant.id}
                 participant={participant}
                 roomName={meetingData.roomName}
+                isSpeaking={participant.isSpeaking}
               />
             ))}
           </AnimatePresence>
@@ -331,7 +416,16 @@ export default function MeetingPage() {
               <h3>参与者 ({webrtc.participants.length + 1})</h3>
               <ul className="participants-list">
                 <li className="participant-item">
-                  <div className="participant-avatar">{meetingData.displayName.charAt(0)}</div>
+                  {/* 本地用户头像 */}
+                  {meetingData.userInfo?.avatar_url ? (
+                    <img
+                      className="participant-avatar-img"
+                      src={meetingData.userInfo.avatar_url}
+                      alt={meetingData.displayName}
+                    />
+                  ) : (
+                    <div className="participant-avatar">{meetingData.displayName.charAt(0)}</div>
+                  )}
                   <span className="participant-name">{meetingData.displayName}</span>
                   <span className="participant-badge self">我</span>
                   {meetingData.role === 'creator' && (
@@ -346,7 +440,16 @@ export default function MeetingPage() {
                     : p.name;
                   return (
                     <li key={p.id} className="participant-item">
-                      <div className="participant-avatar">{displayName.charAt(0)}</div>
+                      {/* 远程参与者头像 */}
+                      {p.user_info?.avatar_url ? (
+                        <img
+                          className="participant-avatar-img"
+                          src={p.user_info.avatar_url}
+                          alt={displayName}
+                        />
+                      ) : (
+                        <div className="participant-avatar">{displayName.charAt(0)}</div>
+                      )}
                       <span className="participant-name">{displayName}</span>
                       {p.is_creator && <span className="participant-badge host">主持人</span>}
                     </li>

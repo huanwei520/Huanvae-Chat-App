@@ -141,7 +141,8 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     try {
       const room = await createRoom(api, {
         name: roomName || undefined,
-        display_name: session?.profile.user_nickname || undefined, // 传入创建者显示名称
+        display_name: session?.profile.user_nickname || undefined,
+        avatar_url: session?.profile.user_avatar_url || undefined, // 传入创建者头像URL
         password: roomPassword || undefined,
         max_participants: maxParticipants,
       });
@@ -184,6 +185,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         roomName: createdRoom.name,
         displayName: session?.profile.user_nickname || '会议主持人',
         token: createdRoom.ws_token,
+        userInfo: createdRoom.user_info, // 保存创建者用户信息
       });
 
       // 打开会议窗口（使用 Tauri WebviewWindow）
@@ -210,7 +212,9 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     setError(null);
 
     try {
-      const response = await joinRoom(api, joinRoomId, joinPassword, displayName);
+      // 如果用户已登录，传入头像URL
+      const avatarUrl = session?.profile.user_avatar_url || undefined;
+      const response = await joinRoom(api, joinRoomId, joinPassword, displayName, avatarUrl);
 
       // 保存会议数据到 localStorage
       saveMeetingData({
@@ -221,6 +225,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         displayName,
         token: response.ws_token,
         iceServers: response.ice_servers,
+        userInfo: response.user_info, // 保存用户信息
       });
 
       // 打开会议窗口（使用 Tauri WebviewWindow）
@@ -234,7 +239,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     } finally {
       setIsJoining(false);
     }
-  }, [api, joinRoomId, joinPassword, displayName, resetState, onClose]);
+  }, [api, joinRoomId, joinPassword, displayName, session, resetState, onClose]);
 
   // 复制房间信息
   const handleCopy = useCallback(() => {

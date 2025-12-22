@@ -145,6 +145,8 @@ export interface MediaDeviceState {
 export interface RemoteParticipant extends Participant {
   stream?: MediaStream;
   connectionState: ConnectionState;
+  /** 是否正在说话 */
+  isSpeaking?: boolean;
 }
 
 /** Hook 返回值 */
@@ -156,6 +158,8 @@ export interface UseWebRTCReturn {
   localStream: MediaStream | null;
   error: string | null;
   mediaState: MediaDeviceState;
+  /** 本地用户是否正在说话 */
+  isSpeaking: boolean;
 
   // 操作
   connect: (roomId: string, token: string, iceServers: IceServer[]) => void;
@@ -180,9 +184,10 @@ export function useWebRTC(): UseWebRTCReturn {
   const [error, setError] = useState<string | null>(null);
   const [mediaState, setMediaState] = useState<MediaDeviceState>({
     micEnabled: true,
-    cameraEnabled: true,
+    cameraEnabled: false, // 默认关闭摄像头
     screenSharing: false,
   });
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // ========== Refs ==========
   const wsRef = useRef<WebSocket | null>(null);
@@ -191,6 +196,27 @@ export function useWebRTC(): UseWebRTCReturn {
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const myIdRef = useRef<string | null>(null);
+
+  // DataChannel refs：用于传输说话状态
+  const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
+
+  // 音频分析 refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const speakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // closePeerConnection ref（用于在回调中访问最新的函数）
+  const closePeerConnectionRef = useRef<(peerId: string) => void>(() => {});
+
+  // meetingState ref（用于在回调中访问最新状态）
+  const meetingStateRef = useRef<MeetingState>('idle');
+
+  // 心跳机制 refs
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPongTimeRef = useRef<number>(Date.now());
+  const HEARTBEAT_INTERVAL = 25000; // 25秒发送一次心跳（比服务端30秒间隔略短）
+  const HEARTBEAT_TIMEOUT = 90000; // 90秒无响应视为断线
 
   // ICE 候选者类型
   type IceCandidateData = { candidate: string; sdpMLineIndex: number | null; sdpMid: string | null };
@@ -224,6 +250,162 @@ export function useWebRTC(): UseWebRTCReturn {
       tracks: stream?.getTracks().map((t) => ({ kind: t.kind, id: t.id, enabled: t.enabled })),
     });
     return stream;
+  }, []);
+
+  // ========== 音频活动检测 ==========
+
+  /** DataChannel 消息类型 */
+  type DataChannelMessage = {
+    type: 'speaking';
+    isSpeaking: boolean;
+  };
+
+  /** 广播说话状态给所有 peer */
+  const broadcastSpeakingState = useCallback((speaking: boolean) => {
+    const message: DataChannelMessage = { type: 'speaking', isSpeaking: speaking };
+    const messageStr = JSON.stringify(message);
+
+    dataChannelsRef.current.forEach((dc, peerId) => {
+      if (dc.readyState === 'open') {
+        dc.send(messageStr);
+        logPC(peerId, `发送说话状态: ${speaking}`);
+      }
+    });
+  }, []);
+
+  /** 处理收到的 DataChannel 消息 */
+  const handleDataChannelMessage = useCallback((peerId: string, data: string) => {
+    try {
+      const msg = JSON.parse(data) as DataChannelMessage;
+      if (msg.type === 'speaking') {
+        logPC(peerId, `收到说话状态: ${msg.isSpeaking}`);
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === peerId ? { ...p, isSpeaking: msg.isSpeaking } : p)),
+        );
+      }
+    } catch (err) {
+      logError(`解析 DataChannel 消息失败 [${peerId}]`, err);
+    }
+  }, []);
+
+  /** 设置 DataChannel 事件处理 */
+  const setupDataChannel = useCallback((dc: RTCDataChannel, peerId: string) => {
+    dc.onopen = () => {
+      logPC(peerId, 'DataChannel 已打开');
+      dataChannelsRef.current.set(peerId, dc);
+    };
+
+    dc.onclose = () => {
+      logPC(peerId, 'DataChannel 已关闭');
+      dataChannelsRef.current.delete(peerId);
+    };
+
+    dc.onmessage = (event) => {
+      handleDataChannelMessage(peerId, event.data);
+    };
+
+    dc.onerror = (err) => {
+      logError(`DataChannel 错误 [${peerId}]`, err);
+    };
+
+    // 如果 DataChannel 已经是 open 状态（可能在 ondatachannel 时已经 open）
+    // 直接添加到 Map 中，因为 onopen 不会再次触发
+    if (dc.readyState === 'open') {
+      logPC(peerId, 'DataChannel 已经是打开状态，直接添加');
+      dataChannelsRef.current.set(peerId, dc);
+    }
+  }, [handleDataChannelMessage]);
+
+  /** 启动音频分析 */
+  const startAudioAnalysis = useCallback((stream: MediaStream) => {
+    // 检查是否有音频轨道
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      logMedia('没有音频轨道，跳过音频分析');
+      return;
+    }
+
+    try {
+      // 创建音频上下文
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const SPEAKING_THRESHOLD = 20; // 音量阈值
+      const SPEAKING_DEBOUNCE_MS = 300; // 停止说话的延迟
+
+      let wasAboveThreshold = false;
+
+      const checkAudioLevel = () => {
+        if (!analyserRef.current) {
+          return;
+        }
+
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        const isAboveThreshold = average > SPEAKING_THRESHOLD;
+
+        if (isAboveThreshold && !wasAboveThreshold) {
+          // 开始说话
+          wasAboveThreshold = true;
+          setIsSpeaking(true);
+          broadcastSpeakingState(true);
+
+          // 清除之前的超时
+          if (speakingTimeoutRef.current) {
+            clearTimeout(speakingTimeoutRef.current);
+            speakingTimeoutRef.current = null;
+          }
+        } else if (!isAboveThreshold && wasAboveThreshold) {
+          // 可能停止说话，设置延迟
+          if (!speakingTimeoutRef.current) {
+            speakingTimeoutRef.current = setTimeout(() => {
+              wasAboveThreshold = false;
+              setIsSpeaking(false);
+              broadcastSpeakingState(false);
+              speakingTimeoutRef.current = null;
+            }, SPEAKING_DEBOUNCE_MS);
+          }
+        }
+
+        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+      };
+
+      checkAudioLevel();
+      logMedia('音频分析已启动');
+    } catch (err) {
+      logError('启动音频分析失败', err);
+    }
+  }, [broadcastSpeakingState]);
+
+  /** 停止音频分析 */
+  const stopAudioAnalysis = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    if (speakingTimeoutRef.current) {
+      clearTimeout(speakingTimeoutRef.current);
+      speakingTimeoutRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    analyserRef.current = null;
+    setIsSpeaking(false);
+    logMedia('音频分析已停止');
   }, []);
 
   // ========== PeerConnection 管理 ==========
@@ -314,7 +496,39 @@ export function useWebRTC(): UseWebRTCReturn {
 
     // ICE 连接状态变化
     pc.oniceconnectionstatechange = () => {
-      logPC(peerId, 'ICE 连接状态变化', { iceConnectionState: pc.iceConnectionState });
+      const state = pc.iceConnectionState;
+      logPC(peerId, 'ICE 连接状态变化', { iceConnectionState: state });
+
+      // 处理连接失败或断开的情况
+      if (state === 'failed') {
+        logPC(peerId, 'ICE 连接失败，尝试 ICE 重启');
+        // 尝试 ICE 重启：只有发起方（ID 较小的一方）执行重启
+        if (myIdRef.current && myIdRef.current < peerId) {
+          pc.restartIce();
+          // 创建新的 offer 并发送
+          pc.createOffer({ iceRestart: true })
+            .then((offer) => pc.setLocalDescription(offer))
+            .then(() => {
+              if (pc.localDescription) {
+                sendMessage({
+                  type: 'offer',
+                  to: peerId,
+                  sdp: pc.localDescription.sdp,
+                });
+              }
+            })
+            .catch((err) => logError(`ICE 重启失败 [${peerId}]`, err));
+        }
+      } else if (state === 'disconnected') {
+        logPC(peerId, 'ICE 连接断开，等待恢复...');
+        // disconnected 状态可能会自动恢复，设置超时检查
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            logPC(peerId, 'ICE 连接未恢复，关闭连接');
+            closePeerConnectionRef.current(peerId);
+          }
+        }, 10000); // 10秒后检查
+      }
     };
 
     // ICE 收集状态变化
@@ -448,10 +662,25 @@ export function useWebRTC(): UseWebRTCReturn {
       }
     };
 
+    // 创建 DataChannel（用于传输说话状态等数据）
+    // 只有一方创建 DataChannel，另一方通过 ondatachannel 接收
+    // 使用 ID 较小的一方创建，确保不会重复创建
+    if ((myIdRef.current || '') < peerId) {
+      const dc = pc.createDataChannel('speaking', { ordered: true });
+      logPC(peerId, '创建 DataChannel');
+      setupDataChannel(dc, peerId);
+    }
+
+    // 接收对方创建的 DataChannel
+    pc.ondatachannel = (event) => {
+      logPC(peerId, '收到远程 DataChannel', { label: event.channel.label });
+      setupDataChannel(event.channel, peerId);
+    };
+
     // 存储并返回
     peerConnectionsRef.current.set(peerId, pc);
     return pc;
-  }, [sendMessage]);
+  }, [sendMessage, setupDataChannel]);
 
   /**
    * 关闭并移除指定的 PeerConnection
@@ -463,9 +692,26 @@ export function useWebRTC(): UseWebRTCReturn {
       pc.close();
       peerConnectionsRef.current.delete(peerId);
     }
+    // 清理 DataChannel
+    const dc = dataChannelsRef.current.get(peerId);
+    if (dc) {
+      dc.close();
+      dataChannelsRef.current.delete(peerId);
+    }
     pendingCandidatesRef.current.delete(peerId);
     negotiationStateRef.current.delete(peerId);
+    // 从参与者列表中移除
+    setParticipants((prev) => prev.filter((p) => p.id !== peerId));
   }, []);
+
+  // 更新 refs 以便在回调中使用最新的值
+  useEffect(() => {
+    closePeerConnectionRef.current = closePeerConnection;
+  }, [closePeerConnection]);
+
+  useEffect(() => {
+    meetingStateRef.current = meetingState;
+  }, [meetingState]);
 
   /**
    * 添加缓存的 ICE 候选者
@@ -765,6 +1011,12 @@ export function useWebRTC(): UseWebRTCReturn {
         setMeetingState('error');
         break;
 
+      case 'pong':
+        // 收到心跳响应，更新最后活跃时间
+        lastPongTimeRef.current = Date.now();
+        logWS('收到心跳响应', { timestamp: (msg as { timestamp?: string }).timestamp });
+        break;
+
       case 'error':
         logError('服务器错误', { code: (msg as { code?: string }).code, message: msg.message });
         setError(msg.message);
@@ -782,9 +1034,10 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 初始化本地媒体流
+   * 默认只开启麦克风，摄像头关闭
    */
   const initLocalStream = useCallback(async (): Promise<MediaStream | null> => {
-    logMedia('初始化本地媒体流');
+    logMedia('初始化本地媒体流（默认仅开启麦克风）');
     try {
       // 枚举设备
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -793,17 +1046,16 @@ export function useWebRTC(): UseWebRTCReturn {
 
       logMedia('设备检测', { hasVideo, hasAudio, devices: devices.map((d) => ({ kind: d.kind, label: d.label })) });
 
-      if (!hasVideo && !hasAudio) {
-        logMedia('没有检测到音视频设备');
+      if (!hasAudio) {
+        logMedia('没有检测到音频设备');
         return null;
       }
 
-      const constraints: { video?: boolean; audio?: boolean } = {};
+      // 默认只请求音频，摄像头稍后按需开启
+      // 但同时请求视频权限（如果有摄像头），以便后续可以快速切换
+      const constraints: { video?: boolean; audio?: boolean } = { audio: true };
       if (hasVideo) {
         constraints.video = true;
-      }
-      if (hasAudio) {
-        constraints.audio = true;
       }
 
       logMedia('请求媒体权限', constraints);
@@ -814,13 +1066,22 @@ export function useWebRTC(): UseWebRTCReturn {
         tracks: stream.getTracks().map((t) => ({ kind: t.kind, id: t.id, label: t.label })),
       });
 
+      // 默认关闭摄像头（禁用视频轨道）
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = false;
+        logMedia('默认关闭摄像头', { trackId: track.id });
+      });
+
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMediaState({
-        micEnabled: hasAudio,
-        cameraEnabled: hasVideo,
+        micEnabled: true,
+        cameraEnabled: false, // 默认关闭摄像头
         screenSharing: false,
       });
+
+      // 启动音频分析（用于检测说话状态）
+      startAudioAnalysis(stream);
 
       return stream;
     } catch (err) {
@@ -837,25 +1098,30 @@ export function useWebRTC(): UseWebRTCReturn {
           cameraEnabled: false,
           screenSharing: false,
         });
+        // 启动音频分析
+        startAudioAnalysis(stream);
         return stream;
       } catch (audioErr) {
         logError('音频设备也获取失败', audioErr);
         return null;
       }
     }
-  }, []);
+  }, [startAudioAnalysis]);
 
   /**
    * 停止本地媒体流
    */
   const stopLocalStream = useCallback(() => {
+    // 停止音频分析
+    stopAudioAnalysis();
+
     if (localStreamRef.current) {
       logMedia('停止本地媒体流');
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
       setLocalStream(null);
     }
-  }, []);
+  }, [stopAudioAnalysis]);
 
   // ========== 连接管理 ==========
 
@@ -864,6 +1130,22 @@ export function useWebRTC(): UseWebRTCReturn {
    */
   const cleanup = useCallback(() => {
     logMedia('清理所有资源');
+
+    // 停止心跳定时器
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    // 停止音频分析
+    stopAudioAnalysis();
+
+    // 关闭所有 DataChannel
+    dataChannelsRef.current.forEach((dc, peerId) => {
+      logPC(peerId, '关闭 DataChannel');
+      dc.close();
+    });
+    dataChannelsRef.current.clear();
 
     // 关闭所有 PeerConnection
     peerConnectionsRef.current.forEach((pc, peerId) => {
@@ -894,7 +1176,7 @@ export function useWebRTC(): UseWebRTCReturn {
     setParticipants([]);
     setError(null);
     myIdRef.current = null;
-  }, []);
+  }, [stopAudioAnalysis]);
 
   /**
    * 连接信令服务器
@@ -916,6 +1198,30 @@ export function useWebRTC(): UseWebRTCReturn {
 
     ws.onopen = () => {
       logWS('连接已建立');
+
+      // 初始化最后 pong 时间
+      lastPongTimeRef.current = Date.now();
+
+      // 启动心跳定时器
+      heartbeatIntervalRef.current = setInterval(() => {
+        // 检查是否超时
+        const timeSinceLastPong = Date.now() - lastPongTimeRef.current;
+        if (timeSinceLastPong > HEARTBEAT_TIMEOUT) {
+          logWS('心跳超时，连接可能已断开');
+          // 触发断线处理
+          if (meetingStateRef.current === 'connected') {
+            setError('连接超时，请检查网络');
+            setMeetingState('error');
+          }
+          return;
+        }
+
+        // 发送心跳 ping
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+          logWS('发送心跳');
+        }
+      }, HEARTBEAT_INTERVAL);
     };
 
     ws.onmessage = (event) => {
@@ -935,6 +1241,16 @@ export function useWebRTC(): UseWebRTCReturn {
 
     ws.onclose = (event) => {
       logWS('连接已关闭', { code: event.code, reason: event.reason });
+
+      // 判断是否是意外断开（非正常关闭码）
+      // 1000: 正常关闭, 1001: 离开页面
+      const isAbnormalClose = event.code !== 1000 && event.code !== 1001;
+
+      if (isAbnormalClose && meetingStateRef.current === 'connected') {
+        logWS('WebSocket 意外断开，更新状态');
+        setError('信令连接已断开');
+        setMeetingState('error');
+      }
     };
   }, []);
 
@@ -1151,6 +1467,7 @@ export function useWebRTC(): UseWebRTCReturn {
     localStream,
     error,
     mediaState,
+    isSpeaking,
     connect,
     disconnect,
     toggleMic,
