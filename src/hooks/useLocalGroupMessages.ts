@@ -90,7 +90,8 @@ export function useLocalGroupMessages(groupId: string | null) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  // sending 状态保留用于向后兼容，但不再使用发送锁
+  const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   // Refs
@@ -247,7 +248,19 @@ export function useLocalGroupMessages(groupId: string | null) {
         const uiMessages = updatedMessages
           .filter((m) => !m.is_recalled)
           .map((m) => localMessageToGroupMessage(m));
-        setMessages(uiMessages);
+
+        // 智能合并：保留现有消息的 clientId 和 sendStatus，避免触发不必要的动画
+        setMessages((prev) => {
+          const existingMap = new Map(prev.map((m) => [m.message_uuid, m]));
+          return uiMessages.map((newMsg) => {
+            const existing = existingMap.get(newMsg.message_uuid);
+            if (existing) {
+              // 保留 clientId 和 sendStatus
+              return { ...newMsg, clientId: existing.clientId, sendStatus: existing.sendStatus };
+            }
+            return newMsg;
+          });
+        });
         setHasMore(updatedMessages.length >= 50);
 
         logLocal('同步后重新加载消息', { count: uiMessages.length });
@@ -300,7 +313,7 @@ export function useLocalGroupMessages(groupId: string | null) {
   }, [groupId, hasMore, messages]);
 
   // ============================================
-  // 发送文本消息
+  // 发送文本消息（乐观更新）
   // ============================================
 
   const sendTextMessage = useCallback(async (content: string): Promise<void> => {
@@ -308,12 +321,39 @@ export function useLocalGroupMessages(groupId: string | null) {
       return;
     }
 
-    setSending(true);
+    // 生成临时 UUID 和稳定的 clientId
+    const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const tempUuid = clientId; // 临时 UUID 使用 clientId
+    const tempSendTime = new Date().toISOString();
+
+    // 构建临时消息对象（乐观更新）
+    const tempMessage: GroupMessage = {
+      message_uuid: tempUuid,
+      group_id: groupId,
+      sender_id: session.userId,
+      sender_nickname: session.profile.user_nickname,
+      sender_avatar_url: session.profile.user_avatar_url ?? '',
+      message_content: content,
+      message_type: 'text',
+      file_uuid: null,
+      file_url: null,
+      file_size: null,
+      file_hash: null,
+      reply_to: null,
+      send_time: tempSendTime,
+      is_recalled: false,
+      seq: 0,
+      sendStatus: 'sending',
+      clientId, // 稳定的客户端 ID，用于 React key
+    };
+
+    // 立即添加到 UI（乐观更新）
+    setMessages((prev) => [tempMessage, ...prev]);
     setError(null);
 
-    try {
-      logLocal('发送文本消息', { content: content.substring(0, 50) });
+    logLocal('发送文本消息（乐观更新）', { clientId, content: content.substring(0, 50) });
 
+    try {
       // 调用 API 发送
       const { sendGroupMessage } = await import('../api/groupMessages');
       const response = await sendGroupMessage(api, {
@@ -322,27 +362,17 @@ export function useLocalGroupMessages(groupId: string | null) {
         message_type: 'text',
       });
 
-      // 构建消息对象
-      const newMessage: GroupMessage = {
-        message_uuid: response.data.message_uuid,
-        group_id: groupId,
-        sender_id: session.userId,
-        sender_nickname: session.profile.user_nickname,
-        sender_avatar_url: session.profile.user_avatar_url ?? '',
-        message_content: content,
-        message_type: 'text',
-        file_uuid: null,
-        file_url: null,
-        file_size: null,
-        file_hash: null,
-        reply_to: null,
-        send_time: response.data.send_time,
-        is_recalled: false,
-        seq: 0,
-      };
-
-      // 乐观更新 UI
-      setMessages((prev) => [newMessage, ...prev]);
+      // 更新消息状态：用真正的 UUID 替换临时 UUID，标记为已发送（保留 clientId）
+      setMessages((prev) => prev.map((msg) =>
+        msg.clientId === clientId
+          ? {
+            ...msg,
+            message_uuid: response.data.message_uuid,
+            send_time: response.data.send_time,
+            sendStatus: 'sent',
+          }
+          : msg,
+      ));
 
       // 保存到本地数据库
       const localMessage: Omit<LocalMessage, 'created_at'> = {
@@ -375,13 +405,18 @@ export function useLocalGroupMessages(groupId: string | null) {
     } catch (err) {
       logError('发送消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSending(false);
+
+      // 标记消息发送失败
+      setMessages((prev) => prev.map((msg) =>
+        msg.clientId === clientId
+          ? { ...msg, sendStatus: 'failed' }
+          : msg,
+      ));
     }
   }, [api, groupId, session, syncMessagesInBackground]);
 
   // ============================================
-  // 发送媒体消息
+  // 发送媒体消息（乐观更新）
   // ============================================
 
   const sendMediaMessage = useCallback(async (
@@ -397,12 +432,39 @@ export function useLocalGroupMessages(groupId: string | null) {
       return null;
     }
 
-    setSending(true);
+    // 生成临时 UUID 和稳定的 clientId
+    const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const tempUuid = clientId; // 临时 UUID 使用 clientId
+    const tempSendTime = new Date().toISOString();
+
+    // 构建临时消息对象（乐观更新）
+    const tempMessage: GroupMessage = {
+      message_uuid: tempUuid,
+      group_id: groupId,
+      sender_id: session.userId,
+      sender_nickname: session.profile.user_nickname,
+      sender_avatar_url: session.profile.user_avatar_url ?? '',
+      message_content: content,
+      message_type: messageType,
+      file_uuid: fileUuid ?? null,
+      file_url: fileUrl ?? null,
+      file_size: fileSize ?? null,
+      file_hash: fileHash ?? null,
+      reply_to: null,
+      send_time: tempSendTime,
+      is_recalled: false,
+      seq: 0,
+      sendStatus: 'sending',
+      clientId, // 稳定的客户端 ID，用于 React key
+    };
+
+    // 立即添加到 UI（乐观更新）
+    setMessages((prev) => [tempMessage, ...prev]);
     setError(null);
 
-    try {
-      logLocal('发送媒体消息', { type: messageType, fileName: content, fileHash });
+    logLocal('发送媒体消息（乐观更新）', { clientId, type: messageType, fileName: content, fileHash });
 
+    try {
       // 如果有本地路径和哈希，记录文件映射
       if (fileHash && localPath) {
         const { recordUploadedFile } = await import('../services/fileService');
@@ -433,27 +495,17 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_size: fileSize,
       });
 
-      // 构建消息对象
-      const newMessage: GroupMessage = {
-        message_uuid: response.data.message_uuid,
-        group_id: groupId,
-        sender_id: session.userId,
-        sender_nickname: session.profile.user_nickname,
-        sender_avatar_url: session.profile.user_avatar_url ?? '',
-        message_content: content,
-        message_type: messageType,
-        file_uuid: fileUuid ?? null,
-        file_url: fileUrl ?? null,
-        file_size: fileSize ?? null,
-        file_hash: fileHash ?? null,
-        reply_to: null,
-        send_time: response.data.send_time,
-        is_recalled: false,
-        seq: 0,
-      };
-
-      // 乐观更新 UI
-      setMessages((prev) => [newMessage, ...prev]);
+      // 更新消息状态：用真正的 UUID 替换临时 UUID，标记为已发送（保留 clientId）
+      setMessages((prev) => prev.map((msg) =>
+        msg.clientId === clientId
+          ? {
+            ...msg,
+            message_uuid: response.data.message_uuid,
+            send_time: response.data.send_time,
+            sendStatus: 'sent',
+          }
+          : msg,
+      ));
 
       // 保存到本地数据库
       const localMessage: Omit<LocalMessage, 'created_at'> = {
@@ -489,9 +541,15 @@ export function useLocalGroupMessages(groupId: string | null) {
     } catch (err) {
       logError('发送媒体消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
+
+      // 标记消息发送失败
+      setMessages((prev) => prev.map((msg) =>
+        msg.clientId === clientId
+          ? { ...msg, sendStatus: 'failed' }
+          : msg,
+      ));
+
       return null;
-    } finally {
-      setSending(false);
     }
   }, [api, groupId, session, syncMessagesInBackground]);
 
@@ -507,10 +565,10 @@ export function useLocalGroupMessages(groupId: string | null) {
       // 从 UI 移除
       setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
 
-      // 标记本地已撤回
-      await db.markMessageRecalled(messageUuid);
+      // 删除本地消息（确保切换会话后不再显示）
+      await db.markMessageDeleted(messageUuid);
 
-      logLocal('消息撤回成功', { uuid: messageUuid });
+      logLocal('消息撤回成功并从本地删除', { uuid: messageUuid });
       return true;
     } catch (err) {
       logError('撤回消息失败', err);

@@ -2,12 +2,14 @@
  * 聊天操作 Hook
  *
  * 封装消息的撤回、删除等操作逻辑
+ * 同时处理远程 API 和本地数据库
  */
 
 import { useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { deleteMessage, recallMessage } from '../api/messages';
 import { deleteGroupMessage, recallGroupMessage } from '../api/groupMessages';
+import * as db from '../db';
 import type { ChatTarget } from '../types/chat';
 
 interface UseChatActionsParams {
@@ -43,6 +45,8 @@ export function useChatActions({
         await recallGroupMessage(api, messageUuid);
         removeGroupMessage(messageUuid);
       }
+      // 远程撤回成功后，删除本地数据库中的消息
+      await db.markMessageDeleted(messageUuid);
     } catch (err) {
       console.error('撤回失败:', err);
     }
@@ -60,6 +64,8 @@ export function useChatActions({
         await deleteGroupMessage(api, messageUuid);
         removeGroupMessage(messageUuid);
       }
+      // 远程删除成功后，删除本地数据库中的消息
+      await db.markMessageDeleted(messageUuid);
     } catch (err) {
       console.error('删除失败:', err);
     }

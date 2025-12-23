@@ -13,7 +13,6 @@ import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileAttachButton, type AttachmentType } from './FileAttachButton';
 import { UploadProgress } from './UploadProgress';
-import { LoadingSpinner } from '../common/LoadingSpinner';
 import { SendIcon, MuteIcon } from '../common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
@@ -23,7 +22,8 @@ interface ChatInputAreaProps {
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
   onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
-  isSending: boolean;
+  /** @deprecated 不再使用发送锁定逻辑 */
+  isSending?: boolean;
   uploading: boolean;
   uploadingFile: File | null;
   uploadProgress: UploadProgressType | null;
@@ -60,7 +60,7 @@ export function ChatInputArea({
   onMessageChange,
   onSendMessage,
   onFileSelect,
-  isSending,
+  // isSending 已废弃，不再使用发送锁定逻辑
   uploading,
   uploadingFile,
   uploadProgress,
@@ -135,12 +135,12 @@ export function ChatInputArea({
     }
   }, [onSendMessage, isMuted]);
 
-  // 发送完成后重新聚焦
+  // 禁言状态变化后重新聚焦
   useEffect(() => {
-    if (!isSending && !isMuted) {
+    if (!isMuted) {
       textareaRef.current?.focus();
     }
-  }, [isSending, isMuted]);
+  }, [isMuted]);
 
   // 禁言状态下的输入区域
   if (isMuted) {
@@ -185,7 +185,7 @@ export function ChatInputArea({
       <div className="input-wrapper multiline">
         {/* 文件附件按钮 */}
         <FileAttachButton
-          disabled={isSending || uploading}
+          disabled={uploading}
           onFileSelect={onFileSelect}
         />
 
@@ -198,17 +198,17 @@ export function ChatInputArea({
             adjustTextareaHeight();
           }}
           onKeyDown={handleKeyDown}
-          disabled={isSending || uploading}
+          disabled={uploading}
           rows={1}
         />
         <motion.button
           className="send-btn"
           onClick={onSendMessage}
-          disabled={!messageInput.trim() || isSending || uploading}
+          disabled={!messageInput.trim() || uploading}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          {isSending ? <LoadingSpinner /> : <SendIcon />}
+          <SendIcon />
         </motion.button>
       </div>
     </motion.div>

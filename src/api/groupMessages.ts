@@ -5,6 +5,7 @@
  */
 
 import type { ApiClient } from './client';
+import type { MessageSendStatus } from '../types/chat';
 
 // ============================================
 // 类型定义
@@ -31,6 +32,10 @@ export interface GroupMessage {
   is_recalled: boolean;
   /** 消息序号（用于增量同步） */
   seq: number;
+  /** 消息发送状态（仅客户端使用） */
+  sendStatus?: MessageSendStatus;
+  /** 客户端稳定 ID，用于 React key（避免 UUID 变化导致重新渲染） */
+  clientId?: string;
 }
 
 /** 群消息列表响应 */

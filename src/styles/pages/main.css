@@ -1601,6 +1601,7 @@
    消息气泡
    ============================================ */
 .message-bubble {
+  position: relative;
   display: flex;
   gap: 10px;
   margin-bottom: 16px;
@@ -1702,6 +1703,73 @@
   color: white;
   font-size: 14px;
   font-weight: 600;
+}
+
+/* ============================================
+   发送状态指示器（不影响布局）
+   ============================================ */
+.send-status-indicator {
+  position: absolute;
+  left: -28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  pointer-events: none; /* 不阻挡点击 */
+  z-index: 1;
+}
+
+/* 自己发送的消息：指示器在左侧（头像左边） */
+.message-bubble.own .send-status-indicator {
+  left: -28px;
+  right: auto;
+}
+
+/* 发送中 - 旋转的圆圈 */
+.send-status-indicator.sending {
+  color: #60a5fa;
+}
+
+.send-status-indicator.sending .sending-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 发送失败 - 红色感叹号 */
+.send-status-indicator.failed {
+  color: #ef4444;
+  cursor: pointer;
+  pointer-events: auto; /* 允许点击重试 */
+}
+
+.send-status-indicator.failed:hover {
+  color: #dc2626;
+  transform: translateY(-50%) scale(1.1);
+}
+
+/* 发送中消息的透明度 */
+.message-bubble.sending .bubble-content {
+  opacity: 0.7;
+}
+
+/* 发送失败消息的样式 */
+.message-bubble.send-failed .bubble-content {
+  opacity: 0.9;
+}
+
+.message-bubble.send-failed .bubble-text {
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 /* 撤回消息样式 */

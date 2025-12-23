@@ -2,11 +2,15 @@
  * 群消息气泡组件
  *
  * 功能：
- * - 入场动画
- * - 退出动画（撤回时反向播放，配合 AnimatePresence 使用）
+ * - 简化的入场动画（仅淡入）
+ * - 退出动画（撤回时淡出 + 缩小）
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
  * - 点击头像显示用户信息弹出框
+ *
+ * 动画机制：
+ * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
+ * - 入场/退出仅处理 opacity，不含 x/y 偏移，避免与 layout 动画冲突
  */
 
 import { useState, useCallback, useRef } from 'react';
@@ -23,8 +27,6 @@ interface GroupMessageBubbleProps {
   isOwn: boolean;
   /** 当前用户 ID */
   currentUserId?: string;
-  /** 是否是新消息（需要播放入场动画） */
-  isNew?: boolean;
   /** 是否处于多选模式 */
   isMultiSelectMode?: boolean;
   /** 是否被选中 */
@@ -41,44 +43,17 @@ interface GroupMessageBubbleProps {
   isAdmin?: boolean;
 }
 
-// 自己发送的消息入场动画
-// exit 动画为入场动画的反向播放（向右滑出 + 轻微下滑）
-const ownMessageVariants = {
-  initial: { opacity: 0, x: 20, y: 8 },
-  animate: { opacity: 1, x: 0, y: 0 },
-  exit: { opacity: 0, x: 20, y: 8, scale: 0.95 },
-};
-
-// 入场/退出动画的 transition 配置
-const enterTransition = {
-  duration: 0.35,
-  ease: [0.25, 0.1, 0.25, 1] as const,
-};
-
-const exitTransition = {
-  duration: 0.25,
-  ease: [0.4, 0, 1, 1] as const,
-};
-
-// 接收消息的入场动画
-// exit 动画为入场动画的反向播放（向左滑出）
-const receivedMessageVariants = {
-  initial: { opacity: 0, x: -20 },
-  animate: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: -20, scale: 0.95, transition: exitTransition },
-};
-
-// 无动画（用于已存在的消息，但保留 exit 动画）
-const noAnimationOwnVariants = {
-  initial: { opacity: 1 },
+// 简化的动画变体 - 仅处理 opacity，位置变化由 layout="position" 处理
+const messageVariants = {
+  initial: { opacity: 0 },
   animate: { opacity: 1 },
-  exit: { opacity: 0, x: 20, y: 8, scale: 0.95, transition: exitTransition },
+  exit: { opacity: 0, scale: 0.95 },
 };
 
-const noAnimationReceivedVariants = {
-  initial: { opacity: 1 },
-  animate: { opacity: 1 },
-  exit: { opacity: 0, x: -20, scale: 0.95, transition: exitTransition },
+// 动画过渡配置（使用 as const 确保类型正确）
+const transition = {
+  opacity: { duration: 0.2, ease: [0.0, 0.0, 0.2, 1] as const },
+  layout: { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const },
 };
 
 /**
@@ -102,11 +77,64 @@ function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolea
   return now - sendTime < twoMinutes;
 }
 
+/**
+ * 发送状态指示器
+ * - sending: 旋转的圆圈
+ * - failed: 红色感叹号
+ */
+function SendStatusIndicator({ status }: { status?: GroupMessage['sendStatus'] }) {
+  if (!status || status === 'sent') {
+    return null;
+  }
+
+  if (status === 'sending') {
+    return (
+      <motion.div
+        className="send-status-indicator sending"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        title="发送中..."
+      >
+        <svg className="sending-spinner" viewBox="0 0 24 24" width={16} height={16}>
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeDasharray="31.4 31.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </motion.div>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <motion.div
+        className="send-status-indicator failed"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        title="发送失败"
+      >
+        <svg viewBox="0 0 24 24" width={16} height={16} fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+        </svg>
+      </motion.div>
+    );
+  }
+
+  return null;
+}
+
 export function GroupMessageBubble({
   message,
   isOwn,
   currentUserId,
-  isNew = false,
   isMultiSelectMode = false,
   isSelected = false,
   onToggleSelect,
@@ -176,16 +204,6 @@ export function GroupMessageBubble({
     }
   }, [friends, setChatTarget]);
 
-  // 选择动画变体
-  // - 新消息：使用完整的入场/退出动画
-  // - 已存在的消息：无入场动画，但保留退出动画（用于撤回）
-  let variants;
-  if (isNew) {
-    variants = isOwn ? ownMessageVariants : receivedMessageVariants;
-  } else {
-    variants = isOwn ? noAnimationOwnVariants : noAnimationReceivedVariants;
-  }
-
   // 右键打开菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -228,19 +246,20 @@ export function GroupMessageBubble({
   return (
     <>
       <motion.div
-        className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
-        layout
-        variants={variants}
-        initial="initial"
+        className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
+        layout="position"
+        variants={messageVariants}
+        // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
+        initial={message.clientId ? 'initial' : false}
         animate="animate"
-        transition={{
-          ...enterTransition,
-          layout: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const },
-        }}
         exit="exit"
+        transition={transition}
         onContextMenu={handleContextMenu}
         onClick={handleClick}
       >
+        {/* 发送状态指示器（在左侧显示） */}
+        {isOwn && <SendStatusIndicator status={message.sendStatus} />}
+
         {/* 多选模式下的选择指示器 */}
         {isMultiSelectMode && (
           <motion.div

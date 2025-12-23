@@ -21,6 +21,9 @@ export interface FriendsResponse {
 /** 消息类型 */
 export type MessageType = 'text' | 'image' | 'video' | 'file';
 
+/** 消息发送状态 */
+export type MessageSendStatus = 'sending' | 'sent' | 'failed';
+
 /** 消息 */
 export interface Message {
   message_uuid: string;
@@ -35,6 +38,10 @@ export interface Message {
   send_time: string;
   /** 序列号（用于增量同步） */
   seq?: number;
+  /** 消息发送状态（仅客户端使用） */
+  sendStatus?: MessageSendStatus;
+  /** 客户端稳定 ID，用于 React key（避免 UUID 变化导致重新渲染） */
+  clientId?: string;
 }
 
 /** 消息列表响应 */

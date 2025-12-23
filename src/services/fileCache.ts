@@ -203,8 +203,8 @@ export async function getFileSourceWithAutoCache(
   api: ApiClient,
   fileUuid: string,
   fileHash: string | null | undefined,
-  fileName: string,
-  fileType: 'image' | 'video' | 'document',
+  _fileName: string,
+  _fileType: 'image' | 'video' | 'document',
   urlType: 'user' | 'friend' | 'group' = 'user',
 ): Promise<FileSourceResult & { shouldCache: boolean; presignedUrl?: string }> {
   const result = await getFileSource(api, fileUuid, fileHash, urlType);

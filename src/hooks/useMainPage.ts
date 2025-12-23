@@ -43,6 +43,7 @@ import { useMultiSelect } from './useMultiSelect';
 import { getPendingRequests } from '../api/friends';
 import { getGroupInvitations } from '../api/groups';
 
+import { getFriendConversationId } from '../utils/conversationId';
 import type { NavTab } from '../components/sidebar/Sidebar';
 import type { AttachmentType } from '../components/chat/FileAttachButton';
 import type { Friend, Group, ChatTarget } from '../types/chat';
@@ -548,9 +549,11 @@ export function useMainPage() {
 
             // 保存消息到本地数据库（后端上传时会自动发送消息）
             if (result.messageUuid && session) {
+              // 使用正确的 conversation_id 格式
+              const conversationId = getFriendConversationId(session.userId, chatTarget.data.friend_id);
               await saveMessage({
                 message_uuid: result.messageUuid,
-                conversation_id: chatTarget.data.friend_id,
+                conversation_id: conversationId,
                 conversation_type: 'friend',
                 sender_id: session.userId,
                 sender_name: session.profile.user_nickname,
@@ -571,6 +574,7 @@ export function useMainPage() {
               console.log('%c[FileUpload] 保存消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
                 messageUuid: result.messageUuid,
                 fileName: file.name,
+                conversationId,
               });
             }
 

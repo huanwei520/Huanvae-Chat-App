@@ -8,20 +8,17 @@
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
  *
- * 动画机制：
- * - initialLoadDone: 标记初始加载是否完成（即使消息列表为空也会标记）
- * - renderedIds: 已渲染过的消息 ID 集合
- * - isNew: 判断消息是否需要入场动画（初始加载完成后的新消息）
+ * 消息排序机制：
+ * - 发送中的消息始终排在最前面（column-reverse 显示为最下方）
+ * - 发送完成后自动通过 layout 动画平滑移动到正确位置
  *
  * 占位符动画（解决布局变化导致的抽搐问题）：
  * - 占位符始终存在于 DOM 中，使用 position: absolute 脱离文档流
  * - 通过 opacity 和 pointerEvents 控制显示/隐藏
- * - 淡入时延迟 0.25s（等待消息退出动画完成），淡出时立即开始
- * - 这样消息删除/撤回时不会触发布局重排，避免视觉跳动
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useMemo } from 'react';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -58,37 +55,23 @@ export function GroupChatMessages({
   onDelete,
   onEnterMultiSelect,
 }: GroupChatMessagesProps) {
-  // 追踪已渲染的消息 ID
-  const [renderedIds, setRenderedIds] = useState<Set<string>>(new Set());
-  const initialLoadDone = useRef(false);
-
   // 是否为管理员或群主
   const isAdmin = userRole === 'owner' || userRole === 'admin';
 
-  // 初次加载完成后，记录所有已有消息
-  // 注意：即使消息列表为空，也要标记初始加载完成，这样后续发送的第一条消息才会有动画
-  useEffect(() => {
-    if (!loading && !initialLoadDone.current) {
-      initialLoadDone.current = true;
-      // 只记录当前已有的消息（可能为空集合）
-      setRenderedIds(new Set(messages.map((m) => m.message_uuid)));
-    }
-  }, [loading, messages]);
+  // 获取消息的稳定 key（优先使用 clientId）
+  const getStableKey = (msg: GroupMessage) => msg.clientId || msg.message_uuid;
 
-  // 当有新消息时，延迟更新已渲染集合（让动画播放）
-  useEffect(() => {
-    if (initialLoadDone.current && messages.length > 0) {
-      const currentIds = messages.map((m) => m.message_uuid);
-      const hasNew = currentIds.some((id) => !renderedIds.has(id));
-
-      if (hasNew) {
-        const timer = setTimeout(() => {
-          setRenderedIds(new Set(currentIds));
-        }, 250);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [messages, renderedIds]);
+  // 消息排序：发送中的消息排在最前面（column-reverse 显示为最下方）
+  // 其他消息按时间倒序排列
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      // 发送中的消息优先
+      if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return -1; }
+      if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return 1; }
+      // 其他按时间倒序
+      return new Date(b.send_time).getTime() - new Date(a.send_time).getTime();
+    });
+  }, [messages]);
 
   if (loading) {
     return (
@@ -123,31 +106,32 @@ export function GroupChatMessages({
         <span>发送一条消息开始群聊吧</span>
       </motion.div>
 
-      {/* 消息列表 */}
-      <AnimatePresence mode="popLayout">
-        {messages.map((message) => {
-          const isOwn = message.sender_id === currentUserId;
-          const isNew = initialLoadDone.current && !renderedIds.has(message.message_uuid);
-          const isSelected = selectedMessages.has(message.message_uuid);
+      {/* 消息列表 - LayoutGroup 确保消息间布局动画协调 */}
+      <LayoutGroup>
+        <AnimatePresence mode="popLayout">
+          {sortedMessages.map((message) => {
+            const isOwn = message.sender_id === currentUserId;
+            const stableKey = getStableKey(message);
+            const isSelected = selectedMessages.has(message.message_uuid);
 
-          return (
-            <GroupMessageBubble
-              key={message.message_uuid}
-              message={message}
-              isOwn={isOwn}
-              currentUserId={currentUserId}
-              isNew={isNew}
-              isMultiSelectMode={isMultiSelectMode}
-              isSelected={isSelected}
-              onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
-              onRecall={() => onRecall?.(message.message_uuid)}
-              onDelete={() => onDelete?.(message.message_uuid)}
-              onEnterMultiSelect={onEnterMultiSelect}
-              isAdmin={isAdmin}
-            />
-          );
-        })}
-      </AnimatePresence>
+            return (
+              <GroupMessageBubble
+                key={stableKey}
+                message={message}
+                isOwn={isOwn}
+                currentUserId={currentUserId}
+                isMultiSelectMode={isMultiSelectMode}
+                isSelected={isSelected}
+                onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
+                onRecall={() => onRecall?.(message.message_uuid)}
+                onDelete={() => onDelete?.(message.message_uuid)}
+                onEnterMultiSelect={onEnterMultiSelect}
+                isAdmin={isAdmin}
+              />
+            );
+          })}
+        </AnimatePresence>
+      </LayoutGroup>
     </>
   );
 }

@@ -13,6 +13,8 @@ export interface FileItem {
   preview_support: 'inline_preview' | 'download_only';
   created_at: string;
   file_url: string;
+  /** 文件哈希（用于本地缓存） */
+  file_hash?: string;
 }
 
 /** 文件列表响应 */
