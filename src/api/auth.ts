@@ -1,13 +1,15 @@
 /**
  * 认证 API 封装
  *
+ * 使用 Tauri HTTP 插件绕过 CORS 限制
  * 调用服务器格式使用下划线 "_"
  */
 
+import { fetch } from '@tauri-apps/plugin-http';
 import type { LoginResponse, ProfileResponse, RegisterData } from '../types/account';
 
 /**
- * 通用 API 请求封装
+ * 通用 API 请求封装（使用 Tauri HTTP 插件）
  */
 async function api<T>(
   baseUrl: string,

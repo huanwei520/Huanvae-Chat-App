@@ -4,9 +4,12 @@
  * 功能：
  * - SHA-256 采样哈希计算（小文件完整哈希，大文件采样哈希）
  * - 预签名分片上传到 MinIO
- * - 上传进度跟踪
+ * - 上传进度跟踪（使用 XMLHttpRequest 实现真实进度）
  * - 秒传支持（基于 UUID 映射）
  * - 自动重试机制
+ *
+ * 分片上传使用 XMLHttpRequest 直传 MinIO（支持上传进度事件）
+ * API 请求使用 Tauri HTTP 插件绕过 CORS 限制
  */
 
 import { useState, useCallback } from 'react';
@@ -210,29 +213,69 @@ function getFileType(
 }
 
 /**
- * 上传单个分片（带重试）
+ * 上传单个分片（使用 XMLHttpRequest 实现真实进度）
+ */
+function uploadChunk(
+  url: string,
+  chunk: Blob,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    // 上传进度事件
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(event.loaded, event.total);
+      }
+    };
+
+    // 完成事件
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`分片上传失败: HTTP ${xhr.status}`));
+      }
+    };
+
+    // 错误事件
+    xhr.onerror = () => {
+      reject(new Error('网络错误'));
+    };
+
+    // 超时事件
+    xhr.ontimeout = () => {
+      reject(new Error('上传超时'));
+    };
+
+    // 设置超时时间（90秒，兼容 Cloudflare 100秒限制）
+    xhr.timeout = 90000;
+
+    xhr.open('PUT', url);
+    xhr.send(chunk);
+  });
+}
+
+/**
+ * 上传单个分片（带重试和进度回调）
  */
 async function uploadChunkWithRetry(
   url: string,
   chunk: Blob,
+  onProgress?: (loaded: number, total: number) => void,
   retryCount = 0,
 ): Promise<void> {
   try {
-    const response = await fetch(url, {
-      method: 'PUT',
-      body: chunk,
-    });
-
-    if (!response.ok) {
-      throw new Error(`分片上传失败: HTTP ${response.status}`);
-    }
+    await uploadChunk(url, chunk, onProgress);
   } catch (error) {
     if (retryCount < MAX_RETRIES) {
+      console.warn(`[Upload] 分片上传失败，${RETRY_DELAYS[retryCount] / 1000}秒后重试...`, error);
       // 等待后重试
       await new Promise<void>((resolve) => {
         setTimeout(resolve, RETRY_DELAYS[retryCount]);
       });
-      return uploadChunkWithRetry(url, chunk, retryCount + 1);
+      return uploadChunkWithRetry(url, chunk, onProgress, retryCount + 1);
     }
     throw error;
   }
@@ -342,7 +385,7 @@ export function useFileUpload() {
           };
         });
 
-        let totalUploaded = 0;
+        let completedChunksSize = 0; // 已完成分片的总大小
 
         // 确保 multipart_upload_id 存在
         const uploadId = uploadInfo.multipart_upload_id || '';
@@ -361,22 +404,29 @@ export function useFileUpload() {
           const end = Math.min(start + chunkSize, file.size);
           const chunk = file.slice(start, end);
 
-          // 上传分片
+          // 上传分片（带实时进度回调）
           // eslint-disable-next-line no-await-in-loop
-          await uploadChunkWithRetry(partUrlData.part_url, chunk);
+          await uploadChunkWithRetry(
+            partUrlData.part_url,
+            chunk,
+            (chunkLoaded, _chunkTotal) => {
+              // 计算总进度：已完成分片 + 当前分片已上传
+              const totalUploaded = completedChunksSize + chunkLoaded;
+              const uploadPercent = 10 + (totalUploaded / file.size) * 80; // 10%-90%
+              setProgress({
+                percent: uploadPercent,
+                loaded: totalUploaded,
+                total: file.size,
+                currentChunk: i + 1,
+                totalChunks,
+                status: 'uploading',
+                statusDetail: `${formatFileSize(totalUploaded)} / ${formatFileSize(file.size)}`,
+              });
+            },
+          );
 
-          // 更新进度
-          totalUploaded += chunk.size;
-          const uploadPercent = 10 + (totalUploaded / file.size) * 80; // 10%-90%
-          setProgress({
-            percent: uploadPercent,
-            loaded: totalUploaded,
-            total: file.size,
-            currentChunk: i + 1,
-            totalChunks,
-            status: 'uploading',
-            statusDetail: `${formatFileSize(totalUploaded)} / ${formatFileSize(file.size)}`,
-          });
+          // 分片完成，累加到已完成大小
+          completedChunksSize += chunk.size;
         }
 
         // 5. 确认上传

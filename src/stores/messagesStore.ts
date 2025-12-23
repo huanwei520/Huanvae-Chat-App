@@ -208,7 +208,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   updateMessage: (conversationId, messageUuid, updates) => set((state) => {
     const existing = state.cache[conversationId];
-    if (!existing) return state;
+    if (!existing) { return state; }
 
     return {
       cache: {
@@ -216,7 +216,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         [conversationId]: {
           ...existing,
           messages: existing.messages.map((m) =>
-            m.message_uuid === messageUuid ? { ...m, ...updates } : m
+            m.message_uuid === messageUuid ? { ...m, ...updates } : m,
           ),
         },
       },
@@ -225,7 +225,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   removeMessage: (conversationId, messageUuid) => set((state) => {
     const existing = state.cache[conversationId];
-    if (!existing) return state;
+    if (!existing) { return state; }
 
     return {
       cache: {
@@ -240,7 +240,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   markRecalled: (conversationId, messageUuid) => set((state) => {
     const existing = state.cache[conversationId];
-    if (!existing) return state;
+    if (!existing) { return state; }
 
     return {
       cache: {
@@ -264,7 +264,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   isCacheStale: (conversationId, maxAge = 5 * 60 * 1000) => {
     const cache = get().cache[conversationId];
-    if (!cache) return true;
+    if (!cache) { return true; }
     return Date.now() - cache.lastLoadTime > maxAge;
   },
 
@@ -315,4 +315,3 @@ export const selectHasMore = (conversationId: string) => (state: MessagesStore) 
 /** 获取会话加载状态 */
 export const selectLoading = (conversationId: string) => (state: MessagesStore) =>
   state.cache[conversationId]?.loading ?? false;
-

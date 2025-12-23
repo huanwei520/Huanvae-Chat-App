@@ -662,4 +662,3 @@ export function useLocalGroupMessages(groupId: string | null) {
     handleMessageRecalled,
   };
 }
-

@@ -3,11 +3,12 @@
 //! 本地调用格式使用短横线 "-"（如 get-saved-accounts）
 //! 调用服务器格式使用下划线 "_"（如 user_id）
 
-mod database;
+mod db;
+mod download;
 mod storage;
 mod user_data;
 
-use database::{LocalConversation, LocalFileMapping, LocalMessage};
+use db::{LocalConversation, LocalFileMapping, LocalMessage};
 use storage::SavedAccount;
 
 /// 获取所有已保存的账号
@@ -61,7 +62,7 @@ async fn update_account_avatar(
 #[tauri::command]
 fn db_init() -> Result<(), String> {
     println!("[Command] db_init 被调用");
-    let result = database::init_database();
+    let result = db::init_database();
     match &result {
         Ok(_) => println!("[Command] db_init 成功"),
         Err(e) => println!("[Command] db_init 失败: {}", e),
@@ -72,37 +73,37 @@ fn db_init() -> Result<(), String> {
 /// 获取所有会话
 #[tauri::command]
 fn db_get_conversations() -> Result<Vec<LocalConversation>, String> {
-    database::get_conversations()
+    db::get_conversations()
 }
 
 /// 获取单个会话
 #[tauri::command]
 fn db_get_conversation(id: String) -> Result<Option<LocalConversation>, String> {
-    database::get_conversation(&id)
+    db::get_conversation(&id)
 }
 
 /// 保存会话
 #[tauri::command]
 fn db_save_conversation(conversation: LocalConversation) -> Result<(), String> {
-    database::save_conversation(conversation)
+    db::save_conversation(conversation)
 }
 
 /// 更新会话的最后序列号
 #[tauri::command(rename_all = "camelCase")]
 fn db_update_conversation_last_seq(id: String, last_seq: i64) -> Result<(), String> {
-    database::update_conversation_last_seq(&id, last_seq)
+    db::update_conversation_last_seq(&id, last_seq)
 }
 
 /// 更新会话未读数
 #[tauri::command(rename_all = "camelCase")]
 fn db_update_conversation_unread(id: String, unread_count: i64) -> Result<(), String> {
-    database::update_conversation_unread(&id, unread_count)
+    db::update_conversation_unread(&id, unread_count)
 }
 
 /// 清零会话未读数
 #[tauri::command]
 fn db_clear_conversation_unread(id: String) -> Result<(), String> {
-    database::clear_conversation_unread(&id)
+    db::clear_conversation_unread(&id)
 }
 
 /// 获取消息列表
@@ -112,73 +113,73 @@ fn db_get_messages(
     limit: i64,
     before_seq: Option<i64>,
 ) -> Result<Vec<LocalMessage>, String> {
-    database::get_messages(&conversation_id, limit, before_seq)
+    db::get_messages(&conversation_id, limit, before_seq)
 }
 
 /// 保存消息
 #[tauri::command]
 fn db_save_message(message: LocalMessage) -> Result<(), String> {
-    database::save_message(message)
+    db::save_message(message)
 }
 
 /// 批量保存消息
 #[tauri::command]
 fn db_save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
-    database::save_messages(messages)
+    db::save_messages(messages)
 }
 
 /// 标记消息为已撤回
 #[tauri::command(rename_all = "camelCase")]
 fn db_mark_message_recalled(message_uuid: String) -> Result<(), String> {
-    database::mark_message_recalled(&message_uuid)
+    db::mark_message_recalled(&message_uuid)
 }
 
 /// 标记消息为已删除
 #[tauri::command(rename_all = "camelCase")]
 fn db_mark_message_deleted(message_uuid: String) -> Result<(), String> {
-    database::mark_message_deleted(&message_uuid)
+    db::mark_message_deleted(&message_uuid)
 }
 
 /// 获取文件映射
 #[tauri::command(rename_all = "camelCase")]
 fn db_get_file_mapping(file_hash: String) -> Result<Option<LocalFileMapping>, String> {
-    database::get_file_mapping(&file_hash)
+    db::get_file_mapping(&file_hash)
 }
 
 /// 保存文件映射
 #[tauri::command]
 fn db_save_file_mapping(mapping: LocalFileMapping) -> Result<(), String> {
-    database::save_file_mapping(mapping)
+    db::save_file_mapping(mapping)
 }
 
 /// 删除文件映射
 #[tauri::command(rename_all = "camelCase")]
 fn db_delete_file_mapping(file_hash: String) -> Result<(), String> {
-    database::delete_file_mapping(&file_hash)
+    db::delete_file_mapping(&file_hash)
 }
 
 /// 更新文件映射验证时间
 #[tauri::command(rename_all = "camelCase")]
 fn db_update_file_mapping_verified(file_hash: String) -> Result<(), String> {
-    database::update_file_mapping_verified(&file_hash)
+    db::update_file_mapping_verified(&file_hash)
 }
 
 /// 清空所有本地数据
 #[tauri::command]
 fn db_clear_all_data() -> Result<(), String> {
-    database::clear_all_data()
+    db::clear_all_data()
 }
 
 /// 保存 file_uuid 到 file_hash 的映射
 #[tauri::command(rename_all = "camelCase")]
 fn db_save_file_uuid_hash(file_uuid: String, file_hash: String) -> Result<(), String> {
-    database::save_file_uuid_hash(&file_uuid, &file_hash)
+    db::save_file_uuid_hash(&file_uuid, &file_hash)
 }
 
 /// 通过 file_uuid 获取 file_hash
 #[tauri::command(rename_all = "camelCase")]
 fn db_get_file_hash_by_uuid(file_uuid: String) -> Result<Option<String>, String> {
-    database::get_file_hash_by_uuid(&file_uuid)
+    db::get_file_hash_by_uuid(&file_uuid)
 }
 
 // ============================================================================
@@ -271,6 +272,10 @@ pub fn run() {
             db_clear_all_data,
             db_save_file_uuid_hash,
             db_get_file_hash_by_uuid,
+            // 文件下载
+            download::download_and_save_file,
+            download::is_file_cached,
+            download::get_cached_file_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

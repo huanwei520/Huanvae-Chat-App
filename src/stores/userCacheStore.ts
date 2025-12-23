@@ -82,7 +82,7 @@ export const useUserCacheStore = create<UserCacheStore>((set, get) => ({
 
   updateUser: (userId, updates) => set((state) => {
     const existing = state.users[userId];
-    if (!existing) return state;
+    if (!existing) { return state; }
     return {
       users: {
         ...state.users,
@@ -93,12 +93,12 @@ export const useUserCacheStore = create<UserCacheStore>((set, get) => ({
 
   setOnlineStatus: (userId, isOnline) => set((state) => {
     const existing = state.users[userId];
-    if (!existing) return state;
+    if (!existing) { return state; }
     return {
       users: {
         ...state.users,
-        [userId]: { 
-          ...existing, 
+        [userId]: {
+          ...existing,
           isOnline,
           lastSeen: isOnline ? undefined : new Date().toISOString(),
         },
@@ -121,7 +121,7 @@ export const useUserCacheStore = create<UserCacheStore>((set, get) => ({
 
   isUserStale: (userId, maxAge = 10 * 60 * 1000) => {
     const user = get().users[userId];
-    if (!user) return true;
+    if (!user) { return true; }
     return Date.now() - user.cachedAt > maxAge;
   },
 
@@ -153,4 +153,3 @@ export const selectAvatar = (userId: string) => (state: UserCacheStore) =>
 /** 获取用户在线状态 */
 export const selectOnlineStatus = (userId: string) => (state: UserCacheStore) =>
   state.users[userId]?.isOnline ?? false;
-

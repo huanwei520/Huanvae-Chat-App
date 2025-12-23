@@ -66,7 +66,7 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
   initialized: false,
 
   // 设置会话列表
-  setConversations: (conversations) => set({ 
+  setConversations: (conversations) => set({
     conversations,
     initialized: true,
   }),
@@ -77,7 +77,7 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
     if (state.conversations.some((c) => c.id === conversation.id)) {
       return state;
     }
-    return { 
+    return {
       conversations: [conversation, ...state.conversations],
     };
   }),
@@ -85,7 +85,7 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
   // 更新会话
   updateConversation: (id, updates) => set((state) => ({
     conversations: state.conversations.map((c) =>
-      c.id === id ? { ...c, ...updates } : c
+      c.id === id ? { ...c, ...updates } : c,
     ),
   })),
 
@@ -98,25 +98,25 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
   updateLastMessage: (id, message, messageType, time) => set((state) => {
     // 格式化消息预览
     let preview = message;
-    if (messageType === 'image') preview = '[图片]';
-    else if (messageType === 'video') preview = '[视频]';
-    else if (messageType === 'file') preview = '[文件]';
+    if (messageType === 'image') { preview = '[图片]'; }
+    else if (messageType === 'video') { preview = '[视频]'; }
+    else if (messageType === 'file') { preview = '[文件]'; }
 
     const updatedConversations = state.conversations.map((c) =>
       c.id === id
         ? {
-            ...c,
-            last_message: preview,
-            last_message_time: time,
-            updated_at: time,
-          }
-        : c
+          ...c,
+          last_message: preview,
+          last_message_time: time,
+          updated_at: time,
+        }
+        : c,
     );
 
     // 按更新时间排序（置顶的在前，然后按时间）
     updatedConversations.sort((a, b) => {
-      if (a.is_pinned && !b.is_pinned) return -1;
-      if (!a.is_pinned && b.is_pinned) return 1;
+      if (a.is_pinned && !b.is_pinned) { return -1; }
+      if (!a.is_pinned && b.is_pinned) { return 1; }
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     });
 
@@ -126,14 +126,14 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
   // 增加未读数
   incrementUnread: (id) => set((state) => ({
     conversations: state.conversations.map((c) =>
-      c.id === id ? { ...c, unread_count: c.unread_count + 1 } : c
+      c.id === id ? { ...c, unread_count: c.unread_count + 1 } : c,
     ),
   })),
 
   // 清零未读数
   clearUnread: (id) => set((state) => ({
     conversations: state.conversations.map((c) =>
-      c.id === id ? { ...c, unread_count: 0 } : c
+      c.id === id ? { ...c, unread_count: 0 } : c,
     ),
   })),
 
@@ -152,8 +152,8 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => ({
   // 按更新时间排序
   sortByUpdateTime: () => set((state) => {
     const sorted = [...state.conversations].sort((a, b) => {
-      if (a.is_pinned && !b.is_pinned) return -1;
-      if (!a.is_pinned && b.is_pinned) return 1;
+      if (a.is_pinned && !b.is_pinned) { return -1; }
+      if (!a.is_pinned && b.is_pinned) { return 1; }
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     });
     return { conversations: sorted };
@@ -179,4 +179,3 @@ export const selectFriendConversations = (state: ConversationsStore) =>
 /** 获取群聊会话列表 */
 export const selectGroupConversations = (state: ConversationsStore) =>
   state.conversations.filter((c) => c.type === 'group');
-

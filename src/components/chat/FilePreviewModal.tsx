@@ -2,16 +2,21 @@
  * 文件预览模态框组件
  *
  * 功能：
- * - 图片全屏预览（支持缩放）
- * - 视频在线播放
+ * - 图片全屏预览（支持缩放），加载后自动缓存
+ * - 视频在线播放，边播边缓存，完成后保存本地
  * - 文件下载
+ *
+ * 使用 useFileCache Hook 实现本地优先和自动缓存
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { useApi } from '../../contexts/SessionContext';
-import { getPresignedUrl, formatFileSize } from '../../hooks/useFileUpload';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { useImageCache, useFileCache } from '../../hooks/useFileCache';
+import { triggerBackgroundDownload } from '../../services/fileCache';
+import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
+import { formatFileSize } from '../../hooks/useFileUpload';
 
 // ============================================
 // 类型定义
@@ -32,6 +37,10 @@ export interface FilePreviewModalProps {
   fileSize?: number;
   /** 本地文件路径（如果有） */
   localPath?: string | null;
+  /** 文件哈希 */
+  fileHash?: string | null;
+  /** URL 类型 */
+  urlType?: 'user' | 'friend' | 'group';
 }
 
 // ============================================
@@ -71,7 +80,288 @@ const ZoomOutIcon = () => (
 );
 
 // ============================================
-// 组件实现
+// 图片预览组件
+// ============================================
+
+function ImagePreview({
+  fileUuid,
+  fileHash,
+  filename,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  urlType: 'user' | 'friend' | 'group';
+}) {
+  const [scale, setScale] = useState(1);
+  const { src, isLocal, loading, error, onLoad } = useImageCache(
+    fileUuid,
+    fileHash,
+    filename,
+    urlType,
+  );
+
+  const handleZoomIn = useCallback(() => {
+    setScale((prev) => Math.min(prev + 0.25, 3));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setScale((prev) => Math.max(prev - 0.25, 0.5));
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    if (!src) { return; }
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [src, filename]);
+
+  return (
+    <>
+      {/* 工具栏扩展 */}
+      <div className="file-preview-zoom-controls">
+        <button onClick={handleZoomOut} title="缩小">
+          <ZoomOutIcon />
+        </button>
+        <span className="zoom-level">{Math.round(scale * 100)}%</span>
+        <button onClick={handleZoomIn} title="放大">
+          <ZoomInIcon />
+        </button>
+        <button onClick={handleDownload} title="下载">
+          <DownloadIcon />
+        </button>
+      </div>
+
+      {/* 内容 */}
+      <div className="file-preview-content">
+        {loading && (
+          <div className="file-preview-loading">
+            <div className="spinner" />
+            <span>加载中...</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="file-preview-error">
+            <span>加载失败: {error}</span>
+          </div>
+        )}
+
+        {!loading && !error && src && (
+          <motion.img
+            src={src}
+            alt={filename}
+            className="file-preview-image"
+            style={{ transform: `scale(${scale})` }}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: scale }}
+            transition={{ duration: 0.2 }}
+            draggable={false}
+            onLoad={onLoad}
+          />
+        )}
+      </div>
+
+      {isLocal && <div className="file-preview-local-indicator">📁 本地文件</div>}
+    </>
+  );
+}
+
+// ============================================
+// 视频预览组件（边播边缓存）
+// ============================================
+
+function VideoPreview({
+  fileUuid,
+  fileHash,
+  filename,
+  fileSize,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize: number | undefined;
+  urlType: 'user' | 'friend' | 'group';
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const downloadTriggeredRef = useRef(false);
+
+  const { src, isLocal, loading, error } = useFileCache({
+    fileUuid,
+    fileHash,
+    fileName: filename,
+    fileType: 'video',
+    fileSize,
+    urlType,
+    autoCache: false, // 手动控制缓存
+  });
+
+  // 监听下载进度
+  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+
+  // 视频开始播放时，启动后台下载
+  const handlePlay = useCallback(() => {
+    if (isLocal || !fileHash || downloadTriggeredRef.current || !src) {
+      return;
+    }
+
+    downloadTriggeredRef.current = true;
+    console.log('[VideoPreview] 开始后台下载:', filename);
+
+    triggerBackgroundDownload(src, fileHash, filename, 'video', fileSize);
+  }, [isLocal, fileHash, src, filename, fileSize]);
+
+  // 下载完成后，如果本地文件可用，更新视频源
+  useEffect(() => {
+    if (downloadTask?.status === 'completed' && downloadTask.localPath && videoRef.current) {
+      const currentTime = videoRef.current.currentTime;
+      const wasPlaying = !videoRef.current.paused;
+
+      // 切换到本地文件
+      videoRef.current.src = convertFileSrc(downloadTask.localPath);
+      videoRef.current.currentTime = currentTime;
+
+      if (wasPlaying) {
+        videoRef.current.play();
+      }
+
+      console.log('[VideoPreview] 已切换到本地文件:', downloadTask.localPath);
+    }
+  }, [downloadTask?.status, downloadTask?.localPath]);
+
+  const handleDownload = useCallback(() => {
+    if (!src) { return; }
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [src, filename]);
+
+  return (
+    <>
+      {/* 工具栏扩展 */}
+      <div className="file-preview-zoom-controls">
+        <button onClick={handleDownload} title="下载">
+          <DownloadIcon />
+        </button>
+      </div>
+
+      {/* 下载进度条 */}
+      {downloadTask && downloadTask.status === 'downloading' && (
+        <div className="video-download-progress">
+          <div
+            className="video-download-progress-bar"
+            style={{ width: `${downloadTask.percent}%` }}
+          />
+          <span className="video-download-progress-text">
+            缓存中 {downloadTask.percent.toFixed(0)}%
+          </span>
+        </div>
+      )}
+
+      {/* 内容 */}
+      <div className="file-preview-content">
+        {loading && (
+          <div className="file-preview-loading">
+            <div className="spinner" />
+            <span>加载中...</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="file-preview-error">
+            <span>加载失败: {error}</span>
+          </div>
+        )}
+
+        {!loading && !error && src && (
+          <video
+            ref={videoRef}
+            src={src}
+            className="file-preview-video"
+            controls
+            autoPlay
+            onPlay={handlePlay}
+          />
+        )}
+      </div>
+
+      {isLocal && <div className="file-preview-local-indicator">📁 本地文件</div>}
+      {downloadTask?.status === 'completed' && (
+        <div className="file-preview-cached-indicator">✓ 已缓存</div>
+      )}
+    </>
+  );
+}
+
+// ============================================
+// 文件预览组件
+// ============================================
+
+function DocumentPreview({
+  fileUuid,
+  fileHash,
+  filename,
+  fileSize,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize: number | undefined;
+  urlType: 'user' | 'friend' | 'group';
+}) {
+  const { src, isLocal, cacheFile } = useFileCache({
+    fileUuid,
+    fileHash,
+    fileName: filename,
+    fileType: 'document',
+    fileSize,
+    urlType,
+    autoCache: false,
+  });
+
+  const handleDownload = useCallback(() => {
+    if (!src) { return; }
+
+    // 下载时触发缓存
+    if (fileHash && !isLocal) {
+      cacheFile();
+    }
+
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [src, fileHash, isLocal, cacheFile, filename]);
+
+  return (
+    <div className="file-preview-content">
+      <div className="file-preview-download">
+        <div className="file-icon-large">📄</div>
+        <p>{filename}</p>
+        {fileSize && <p className="file-size">{formatFileSize(fileSize)}</p>}
+        {isLocal && <p className="file-local-note">📁 本地文件</p>}
+        <button className="download-btn" onClick={handleDownload}>
+          <DownloadIcon />
+          下载文件
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// 主组件
 // ============================================
 
 export function FilePreviewModal({
@@ -81,72 +371,12 @@ export function FilePreviewModal({
   filename,
   contentType,
   fileSize,
-  localPath,
+  localPath: _localPath, // 保留接口兼容性，实际使用 Hook 获取
+  fileHash,
+  urlType = 'friend',
 }: FilePreviewModalProps) {
-  const api = useApi();
-  const [url, setUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [scale, setScale] = useState(1);
-  const [isLocalFile, setIsLocalFile] = useState(false);
-
   const isImage = contentType.startsWith('image/');
   const isVideo = contentType.startsWith('video/');
-
-  // 加载预签名 URL（优先使用本地路径）
-  useEffect(() => {
-    if (!isOpen || !fileUuid) { return; }
-
-    setLoading(true);
-    setError(null);
-    setScale(1);
-
-    const loadUrl = async () => {
-      try {
-        // 如果有本地路径，优先使用
-        if (localPath) {
-          const { convertFileSrc } = await import('@tauri-apps/api/core');
-          const localUrl = convertFileSrc(localPath);
-          setUrl(localUrl);
-          setIsLocalFile(true);
-          console.log('[FilePreview] 使用本地文件', { localPath });
-        } else {
-          const remoteUrl = await getPresignedUrl(api, fileUuid);
-          setUrl(remoteUrl);
-          setIsLocalFile(false);
-          console.log('[FilePreview] 使用远程文件', { fileUuid });
-        }
-      } catch (err) {
-        console.error('[FilePreview] 加载失败:', err);
-        setError(err instanceof Error ? err.message : '加载失败');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadUrl();
-  }, [isOpen, fileUuid, api, localPath]);
-
-  // 下载文件
-  const handleDownload = useCallback(() => {
-    if (!url) { return; }
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }, [url, filename]);
-
-  // 缩放控制
-  const handleZoomIn = useCallback(() => {
-    setScale((prev) => Math.min(prev + 0.25, 3));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setScale((prev) => Math.max(prev - 0.25, 0.5));
-  }, []);
 
   // ESC 键关闭
   useEffect(() => {
@@ -184,32 +414,15 @@ export function FilePreviewModal({
           exit={{ opacity: 0 }}
           onClick={onClose}
         >
-          {/* 工具栏 */}
+          {/* 顶部工具栏 */}
           <div className="file-preview-toolbar" onClick={(e) => e.stopPropagation()}>
             <div className="file-preview-info">
-              {isLocalFile && (
-                <span className="file-preview-local-badge" title="本地文件">📁 本地</span>
-              )}
               <span className="file-preview-filename">{filename}</span>
               {fileSize && (
                 <span className="file-preview-size">{formatFileSize(fileSize)}</span>
               )}
             </div>
             <div className="file-preview-actions">
-              {isImage && (
-                <>
-                  <button onClick={handleZoomOut} title="缩小">
-                    <ZoomOutIcon />
-                  </button>
-                  <span className="zoom-level">{Math.round(scale * 100)}%</span>
-                  <button onClick={handleZoomIn} title="放大">
-                    <ZoomInIcon />
-                  </button>
-                </>
-              )}
-              <button onClick={handleDownload} title="下载">
-                <DownloadIcon />
-              </button>
               <button onClick={onClose} title="关闭">
                 <CloseIcon />
               </button>
@@ -217,56 +430,34 @@ export function FilePreviewModal({
           </div>
 
           {/* 内容区域 */}
-          <div className="file-preview-content" onClick={(e) => e.stopPropagation()}>
-            {loading && (
-              <div className="file-preview-loading">
-                <div className="spinner" />
-                <span>加载中...</span>
-              </div>
+          <div className="file-preview-wrapper" onClick={(e) => e.stopPropagation()}>
+            {isImage && (
+              <ImagePreview
+                fileUuid={fileUuid}
+                fileHash={fileHash}
+                filename={filename}
+                urlType={urlType}
+              />
             )}
 
-            {error && (
-              <div className="file-preview-error">
-                <span>加载失败: {error}</span>
-              </div>
+            {isVideo && (
+              <VideoPreview
+                fileUuid={fileUuid}
+                fileHash={fileHash}
+                filename={filename}
+                fileSize={fileSize}
+                urlType={urlType}
+              />
             )}
 
-            {!loading && !error && url && (
-              <>
-                {isImage && (
-                  <motion.img
-                    src={url}
-                    alt={filename}
-                    className="file-preview-image"
-                    style={{ transform: `scale(${scale})` }}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: scale }}
-                    transition={{ duration: 0.2 }}
-                    draggable={false}
-                  />
-                )}
-
-                {isVideo && (
-                  <video
-                    src={url}
-                    className="file-preview-video"
-                    controls
-                    autoPlay
-                  />
-                )}
-
-                {!isImage && !isVideo && (
-                  <div className="file-preview-download">
-                    <div className="file-icon-large">📄</div>
-                    <p>{filename}</p>
-                    {fileSize && <p className="file-size">{formatFileSize(fileSize)}</p>}
-                    <button className="download-btn" onClick={handleDownload}>
-                      <DownloadIcon />
-                      下载文件
-                    </button>
-                  </div>
-                )}
-              </>
+            {!isImage && !isVideo && (
+              <DocumentPreview
+                fileUuid={fileUuid}
+                fileHash={fileHash}
+                filename={filename}
+                fileSize={fileSize}
+                urlType={urlType}
+              />
             )}
           </div>
         </motion.div>

@@ -110,7 +110,7 @@ const MENU_ITEMS: MenuItem[] = [
  */
 function getMimeType(filename: string, typeHint: AttachmentType): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
-  
+
   const mimeMap: Record<string, string> = {
     // 图片
     jpg: 'image/jpeg',
@@ -193,9 +193,9 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
         multiple: false,
         filters: item.extensions.length > 0
           ? [{
-              name: item.label,
-              extensions: item.extensions,
-            }]
+            name: item.label,
+            extensions: item.extensions,
+          }]
           : undefined,
       });
 
@@ -203,15 +203,15 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
         // 获取文件路径
         const localPath = selected;
         const fileName = localPath.split(/[/\\]/).pop() || 'file';
-        
+
         console.info('[FileAttach] 选择文件', { localPath, fileName });
 
         // 获取文件信息
         const fileStat = await stat(localPath);
-        
+
         // 读取文件内容
         const fileContent = await readFile(localPath);
-        
+
         // 创建 File 对象
         const mimeType = getMimeType(fileName, item.type);
         const blob = new Blob([fileContent], { type: mimeType });

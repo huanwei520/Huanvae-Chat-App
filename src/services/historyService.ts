@@ -52,7 +52,7 @@ export async function loadAllHistoryMessages(
         });
 
         const messages = response.messages || [];
-        
+
         if (messages.length === 0) {
           hasMore = false;
           break;
@@ -101,7 +101,7 @@ export async function loadAllHistoryMessages(
         });
 
         const messages = response.data?.messages || [];
-        
+
         if (messages.length === 0) {
           hasMore = false;
           break;
@@ -144,7 +144,9 @@ export async function loadAllHistoryMessages(
       }
 
       // 添加小延迟，避免请求过快
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise<void>(resolve => {
+        setTimeout(resolve, 100);
+      });
 
     } catch (err) {
       console.error('[HistoryService] 加载失败:', err);
@@ -162,4 +164,3 @@ export async function loadAllHistoryMessages(
 
   return { totalLoaded };
 }
-

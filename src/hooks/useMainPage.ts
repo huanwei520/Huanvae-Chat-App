@@ -527,7 +527,7 @@ export function useMainPage() {
           if (result.fileUuid && result.fileHash) {
             const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
-            
+
             // 如果有本地路径，保存 file_hash -> local_path 的映射
             if (localPath) {
               await saveFileMapping({
@@ -545,7 +545,7 @@ export function useMainPage() {
                 localPath,
               });
             }
-            
+
             // 保存消息到本地数据库（后端上传时会自动发送消息）
             if (result.messageUuid && session) {
               await saveMessage({
@@ -573,7 +573,7 @@ export function useMainPage() {
                 fileName: file.name,
               });
             }
-            
+
             // eslint-disable-next-line no-console
             console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
               fileUuid: result.fileUuid,
@@ -602,7 +602,7 @@ export function useMainPage() {
           if (result.fileUuid && result.fileHash) {
             const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
-            
+
             // 如果有本地路径，保存 file_hash -> local_path 的映射
             if (localPath) {
               await saveFileMapping({
@@ -620,7 +620,7 @@ export function useMainPage() {
                 localPath,
               });
             }
-            
+
             // 保存消息到本地数据库（后端上传时会自动发送消息）
             if (result.messageUuid && session) {
               await saveMessage({
@@ -648,7 +648,7 @@ export function useMainPage() {
                 fileName: file.name,
               });
             }
-            
+
             // eslint-disable-next-line no-console
             console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
               fileUuid: result.fileUuid,

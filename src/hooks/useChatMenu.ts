@@ -674,7 +674,7 @@ export function useChatMenu({
 
   // 加载全部聊天记录
   const handleLoadAllHistory = useCallback(async () => {
-    if (loadingHistory || !session) return;
+    if (loadingHistory || !session) { return; }
 
     setLoadingHistory(true);
     setHistoryProgress('准备加载...');
@@ -682,9 +682,9 @@ export function useChatMenu({
 
     try {
       const { loadAllHistoryMessages } = await import('../services/historyService');
-      
-      const targetId = target.type === 'friend' 
-        ? target.data.friend_id 
+
+      const targetId = target.type === 'friend'
+        ? target.data.friend_id
         : target.data.group_id;
       const targetType = target.type;
 
@@ -695,12 +695,12 @@ export function useChatMenu({
         session.userId, // 传入当前用户 ID
         (progress) => {
           setHistoryProgress(progress);
-        }
+        },
       );
 
       setSuccess('聊天记录加载完成');
       setHistoryProgress('');
-      
+
       // 触发消息列表刷新
       onHistoryLoaded?.();
     } catch (err) {

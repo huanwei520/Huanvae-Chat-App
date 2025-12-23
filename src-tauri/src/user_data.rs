@@ -44,27 +44,35 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 /// 生产模式：可执行文件旁边的 data 目录
 fn get_app_root() -> PathBuf {
     // 获取可执行文件所在目录
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            // 检查是否在 target/debug 或 target/release 目录（开发模式）
-            let exe_dir_str = exe_dir.to_string_lossy();
-            if exe_dir_str.contains("target\\debug") || exe_dir_str.contains("target/debug")
-                || exe_dir_str.contains("target\\release") || exe_dir_str.contains("target/release")
-            {
-                // 开发模式：往上跳到项目根目录
-                // src-tauri/target/debug -> src-tauri -> 项目根目录
-                if let Some(tauri_dir) = exe_dir.parent().and_then(|p| p.parent()) {
-                    if let Some(project_root) = tauri_dir.parent() {
-                        return project_root.join("data");
-                    }
-                }
-            }
-            // 生产模式：可执行文件旁边的 data 目录
-            return exe_dir.join("data");
+    let Ok(exe_path) = std::env::current_exe() else {
+        return PathBuf::from("data");
+    };
+
+    let Some(exe_dir) = exe_path.parent() else {
+        return PathBuf::from("data");
+    };
+
+    // 检查是否在 target/debug 或 target/release 目录（开发模式）
+    let exe_dir_str = exe_dir.to_string_lossy();
+    let is_dev_mode = exe_dir_str.contains("target\\debug")
+        || exe_dir_str.contains("target/debug")
+        || exe_dir_str.contains("target\\release")
+        || exe_dir_str.contains("target/release");
+
+    if is_dev_mode {
+        // 开发模式：往上跳到项目根目录
+        // src-tauri/target/debug -> src-tauri -> 项目根目录
+        if let Some(project_root) = exe_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
+            return project_root.join("data");
         }
     }
-    // 回退：使用当前工作目录
-    PathBuf::from("data")
+
+    // 生产模式：可执行文件旁边的 data 目录
+    exe_dir.join("data")
 }
 
 /// 清理服务器地址，生成安全的目录名

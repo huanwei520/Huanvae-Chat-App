@@ -56,4 +56,3 @@ export function isFriendConversationId(conversationId: string): boolean {
 export function getGroupConversationId(groupId: string): string {
   return groupId;
 }
-

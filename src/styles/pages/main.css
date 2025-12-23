@@ -3195,6 +3195,121 @@
   background: #2563eb;
 }
 
+.file-preview-download .file-local-note {
+  color: #4CAF50;
+  font-size: 12px;
+}
+
+/* 视频预览包装器 */
+.file-preview-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(100% - 60px);
+  margin-top: 60px;
+}
+
+/* 缩放控制工具栏 */
+.file-preview-zoom-controls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 8px 16px;
+  border-radius: 24px;
+  z-index: 10002;
+}
+
+.file-preview-zoom-controls button {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-preview-zoom-controls button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.file-preview-zoom-controls .zoom-level {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  min-width: 45px;
+  text-align: center;
+}
+
+/* 本地文件指示器 */
+.file-preview-local-indicator {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #4CAF50, #8BC34A);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 16px;
+  z-index: 10002;
+}
+
+/* 已缓存指示器 */
+.file-preview-cached-indicator {
+  position: fixed;
+  top: 70px;
+  right: 120px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #2196F3, #03A9F4);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 16px;
+  z-index: 10002;
+}
+
+/* 视频下载进度条 */
+.video-download-progress {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 10002;
+}
+
+.video-download-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4CAF50, #8BC34A);
+  transition: width 0.3s ease;
+}
+
+.video-download-progress-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* ============================================
    文件消息样式
    ============================================ */
@@ -3761,6 +3876,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
+  position: relative;
 }
 
 .thumbnail-placeholder.image {
@@ -3780,6 +3896,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .thumbnail-image img {

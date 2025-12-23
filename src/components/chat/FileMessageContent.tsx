@@ -2,37 +2,18 @@
  * 文件消息内容组件
  *
  * 根据消息类型（图片/视频/文件）渲染不同的内容
- * - 图片：缩略图预览，点击放大
- * - 视频：视频缩略图，点击播放
+ * - 图片：缩略图预览，点击放大，加载后自动缓存到本地
+ * - 视频：视频缩略图，点击播放，播放时后台下载缓存
  * - 文件：文件图标和名称，点击下载
  *
- * 本地优先加载：
- * - 如果有 file_hash，先检查本地是否有该文件
- * - 有本地文件则直接显示，无则从服务器获取
- *
- * 调试功能：
- * - [FileLoad] 前缀的日志用于跟踪文件加载过程
+ * 使用 useFileCache Hook 实现本地优先加载和自动缓存
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { useApi } from '../../contexts/SessionContext';
-import { getPresignedUrl, formatFileSize } from '../../hooks/useFileUpload';
-import { getFileSource, type FileSource } from '../../services/fileService';
+import { useState, useCallback } from 'react';
+import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
+import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import type { MessageType } from '../../types/chat';
-
-// ============================================
-// 调试日志
-// ============================================
-
-const DEBUG = true;
-
-function logFileLoad(action: string, data?: unknown) {
-  if (DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log(`%c[FileLoad] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
-  }
-}
 
 // ============================================
 // 类型定义
@@ -49,6 +30,8 @@ export interface FileMessageContentProps {
   fileSize: number | null;
   /** 文件哈希（用于本地识别） */
   fileHash?: string | null;
+  /** URL 类型（用于预签名 URL 请求） */
+  urlType?: 'user' | 'friend' | 'group';
 }
 
 // ============================================
@@ -77,224 +60,190 @@ const DownloadIcon = () => (
 );
 
 // ============================================
-// 组件实现
+// 本地文件标识
 // ============================================
 
-export function FileMessageContent({
-  messageType,
-  messageContent,
+function LocalBadge() {
+  return (
+    <span className="file-local-badge" title="本地文件">
+      📁
+    </span>
+  );
+}
+
+// ============================================
+// 图片消息组件
+// ============================================
+
+function ImageMessage({
   fileUuid,
-  fileSize,
   fileHash,
-}: FileMessageContentProps) {
-  const api = useApi();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  filename,
+  fileSize,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize: number | null;
+  urlType: 'user' | 'friend' | 'group';
+}) {
   const [showPreview, setShowPreview] = useState(false);
-  const [source, setSource] = useState<FileSource>('checking');
-  const [localPath, setLocalPath] = useState<string | null>(null);
+  const { src, isLocal, loading, error, onLoad, localPath } = useImageCache(
+    fileUuid,
+    fileHash,
+    filename,
+    urlType,
+  );
 
-  // 从消息内容中提取文件名
-  const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
+  return (
+    <>
+      <div className="file-message image-message" onClick={() => setShowPreview(true)}>
+        {loading && <div className="file-message-loading">加载中...</div>}
+        {error && <div className="file-message-error">加载失败</div>}
+        {!loading && !error && src && (
+          <>
+            {isLocal && <LocalBadge />}
+            <img
+              src={src}
+              alt={filename}
+              className="message-image"
+              draggable={false}
+              onLoad={onLoad}
+            />
+          </>
+        )}
+      </div>
 
-  // 获取内容类型
-  const getContentType = () => {
-    switch (messageType) {
-      case 'image':
-        return 'image/jpeg';
-      case 'video':
-        return 'video/mp4';
-      default:
-        return 'application/octet-stream';
-    }
-  };
+      <FilePreviewModal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        fileUuid={fileUuid}
+        filename={filename}
+        contentType="image/jpeg"
+        fileSize={fileSize ?? undefined}
+        localPath={localPath}
+        fileHash={fileHash}
+        urlType={urlType}
+      />
+    </>
+  );
+}
 
-  // 本地优先加载文件
-  useEffect(() => {
-    if (!fileUuid || messageType === 'file') {
-      setLoading(false);
-      return;
-    }
+// ============================================
+// 视频消息组件
+// ============================================
 
-    setLoading(true);
-    setError(false);
-    setSource('checking');
+function VideoMessage({
+  fileUuid,
+  fileHash,
+  filename,
+  fileSize,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize: number | null;
+  urlType: 'user' | 'friend' | 'group';
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const { src, isLocal, loading, error, onPlay, localPath } = useVideoCache(
+    fileUuid,
+    fileHash,
+    filename,
+    fileSize ?? undefined,
+    urlType,
+  );
 
-    const loadFile = async () => {
-      try {
-        logFileLoad('开始加载文件', {
-          fileUuid,
-          fileHash,
-          messageType,
-          fileName: filename,
-        });
+  return (
+    <>
+      <div className="file-message video-message" onClick={() => setShowPreview(true)}>
+        {loading && <div className="file-message-loading">加载中...</div>}
+        {error && <div className="file-message-error">加载失败</div>}
+        {!loading && !error && src && (
+          <>
+            {isLocal && <LocalBadge />}
+            <video
+              src={src}
+              className="message-video-thumbnail"
+              preload="metadata"
+              onPlay={onPlay}
+            />
+            <div className="video-play-overlay">
+              <PlayIcon />
+            </div>
+          </>
+        )}
+      </div>
 
-        // 尝试获取 fileHash（如果没有的话，从本地数据库查找）
-        let effectiveFileHash = fileHash;
-        if (!effectiveFileHash) {
-          try {
-            const { getFileHashByUuid } = await import('../../db');
-            effectiveFileHash = await getFileHashByUuid(fileUuid);
-            if (effectiveFileHash) {
-              logFileLoad('从 UUID 映射查找到 fileHash', {
-                fileUuid,
-                fileHash: effectiveFileHash,
-              });
-            }
-          } catch {
-            // 查找失败，继续使用远程
-          }
-        }
+      <FilePreviewModal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        fileUuid={fileUuid}
+        filename={filename}
+        contentType="video/mp4"
+        fileSize={fileSize ?? undefined}
+        localPath={localPath}
+        fileHash={fileHash}
+        urlType={urlType}
+      />
+    </>
+  );
+}
 
-        // 1. 如果有 fileHash，先检查本地
-        if (effectiveFileHash) {
-          logFileLoad('检查本地文件', { fileHash: effectiveFileHash });
+// ============================================
+// 文件消息组件
+// ============================================
 
-          // 先获取远程 URL 作为备用
-          const remoteUrl = await getPresignedUrl(api, fileUuid);
-
-          // 检查本地是否有该文件
-          const result = await getFileSource(effectiveFileHash, remoteUrl, fileSize ?? undefined);
-
-          setSource(result.source);
-          setLocalPath(result.localPath || null);
-          setThumbnailUrl(result.url);
-
-          if (result.source === 'local') {
-            logFileLoad('✓ 使用本地文件', {
-              fileHash: effectiveFileHash,
-              localPath: result.localPath,
-              fileName: filename,
-            });
-          } else {
-            logFileLoad('✗ 本地无此文件，使用远程', {
-              fileHash: effectiveFileHash,
-              remoteUrl: `${result.url.substring(0, 100)}...`,
-            });
-          }
-        } else {
-          // 2. 没有 fileHash，直接从服务器获取
-          logFileLoad('无 fileHash，从服务器获取', { fileUuid });
-
-          const url = await getPresignedUrl(api, fileUuid);
-          setThumbnailUrl(url);
-          setSource('remote');
-
-          logFileLoad('远程文件加载完成', {
-            fileUuid,
-            url: `${url.substring(0, 100)}...`,
-          });
-        }
-      } catch (err) {
-        console.error('[FileLoad] 加载失败:', err);
-        setError(true);
-        setSource('remote');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadFile();
-  }, [api, fileUuid, fileHash, fileSize, messageType, filename]);
-
-  // 点击打开预览
-  const handleClick = useCallback(() => {
-    if (!fileUuid) { return; }
-    setShowPreview(true);
-  }, [fileUuid]);
+function DocumentMessage({
+  fileUuid,
+  fileHash,
+  filename,
+  fileSize,
+  urlType,
+}: {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize: number | null;
+  urlType: 'user' | 'friend' | 'group';
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const { src, isLocal, localPath, cacheFile } = useFileCache({
+    fileUuid,
+    fileHash,
+    fileName: filename,
+    fileType: 'document',
+    urlType,
+    autoCache: false,
+  });
 
   // 下载文件
-  const handleDownload = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!fileUuid) { return; }
+  const handleDownload = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!src) { return; }
 
-    try {
-      const url = await getPresignedUrl(api, fileUuid);
+      // 如果有本地文件，触发缓存（确保映射正确）
+      if (fileHash && !isLocal) {
+        cacheFile();
+      }
+
       const a = document.createElement('a');
-      a.href = url;
+      a.href = src;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
-      console.error('下载失败:', err);
-    }
-  }, [api, fileUuid, filename]);
+    },
+    [src, fileHash, isLocal, cacheFile, filename],
+  );
 
-  // 渲染图片消息
-  if (messageType === 'image') {
-    return (
-      <>
-        <div className="file-message image-message" onClick={handleClick}>
-          {loading && <div className="file-message-loading">加载中...</div>}
-          {error && <div className="file-message-error">加载失败</div>}
-          {!loading && !error && thumbnailUrl && (
-            <>
-              {source === 'local' && <LocalBadge />}
-              <img
-                src={thumbnailUrl}
-                alt={filename}
-                className="message-image"
-                draggable={false}
-              />
-            </>
-          )}
-        </div>
-
-        <FilePreviewModal
-          isOpen={showPreview}
-          onClose={() => setShowPreview(false)}
-          fileUuid={fileUuid || ''}
-          filename={filename}
-          contentType={getContentType()}
-          fileSize={fileSize || undefined}
-          localPath={localPath}
-        />
-      </>
-    );
-  }
-
-  // 渲染视频消息
-  if (messageType === 'video') {
-    return (
-      <>
-        <div className="file-message video-message" onClick={handleClick}>
-          {loading && <div className="file-message-loading">加载中...</div>}
-          {error && <div className="file-message-error">加载失败</div>}
-          {!loading && !error && thumbnailUrl && (
-            <>
-              {source === 'local' && <LocalBadge />}
-              <video
-                src={thumbnailUrl}
-                className="message-video-thumbnail"
-                preload="metadata"
-              />
-              <div className="video-play-overlay">
-                <PlayIcon />
-              </div>
-            </>
-          )}
-        </div>
-
-        <FilePreviewModal
-          isOpen={showPreview}
-          onClose={() => setShowPreview(false)}
-          fileUuid={fileUuid || ''}
-          filename={filename}
-          contentType={getContentType()}
-          fileSize={fileSize || undefined}
-          localPath={localPath}
-        />
-      </>
-    );
-  }
-
-  // 渲染普通文件消息
   return (
     <>
-      <div className="file-message document-message" onClick={handleClick}>
-        {source === 'local' && <LocalBadge />}
+      <div className="file-message document-message" onClick={() => setShowPreview(true)}>
+        {isLocal && <LocalBadge />}
         <div className="document-icon">
           <FileIcon />
         </div>
@@ -302,9 +251,7 @@ export function FileMessageContent({
           <span className="document-name" title={filename}>
             {filename.length > 20 ? `${filename.slice(0, 17)}...` : filename}
           </span>
-          {fileSize && (
-            <span className="document-size">{formatFileSize(fileSize)}</span>
-          )}
+          {fileSize && <span className="document-size">{formatFileSize(fileSize)}</span>}
           {localPath && (
             <span className="document-local-path" title={localPath}>
               📁 {localPath.split(/[/\\]/).pop()}
@@ -319,24 +266,75 @@ export function FileMessageContent({
       <FilePreviewModal
         isOpen={showPreview}
         onClose={() => setShowPreview(false)}
-        fileUuid={fileUuid || ''}
+        fileUuid={fileUuid}
         filename={filename}
-        contentType={getContentType()}
-        fileSize={fileSize || undefined}
+        contentType="application/octet-stream"
+        fileSize={fileSize ?? undefined}
         localPath={localPath}
+        fileHash={fileHash}
+        urlType={urlType}
       />
     </>
   );
 }
 
 // ============================================
-// 本地文件标识
+// 主组件
 // ============================================
 
-function LocalBadge() {
-  return (
-    <span className="file-local-badge" title="本地文件">
-      📁
-    </span>
-  );
+export function FileMessageContent({
+  messageType,
+  messageContent,
+  fileUuid,
+  fileSize,
+  fileHash,
+  urlType = 'friend',
+}: FileMessageContentProps) {
+  // 从消息内容中提取文件名
+  const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
+
+  // 没有 fileUuid 无法加载
+  if (!fileUuid) {
+    return (
+      <div className="file-message file-message-error">
+        文件不可用
+      </div>
+    );
+  }
+
+  // 根据消息类型渲染不同组件
+  switch (messageType) {
+    case 'image':
+      return (
+        <ImageMessage
+          fileUuid={fileUuid}
+          fileHash={fileHash}
+          filename={filename}
+          fileSize={fileSize}
+          urlType={urlType}
+        />
+      );
+
+    case 'video':
+      return (
+        <VideoMessage
+          fileUuid={fileUuid}
+          fileHash={fileHash}
+          filename={filename}
+          fileSize={fileSize}
+          urlType={urlType}
+        />
+      );
+
+    default:
+      return (
+        <DocumentMessage
+          fileUuid={fileUuid}
+          fileHash={fileHash}
+          filename={filename}
+          fileSize={fileSize}
+          urlType={urlType}
+        />
+      );
+  }
 }

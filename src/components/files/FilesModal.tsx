@@ -5,8 +5,10 @@
  * - 文件列表展示（网格视图）
  * - 分类筛选：总览、图片、视频、文件
  * - 文件名搜索
- * - 文件预览和下载
+ * - 文件预览和下载（本地优先）
  * - 文件上传（复用聊天上传进度条）
+ *
+ * 使用 useFileCache 服务实现本地优先和自动缓存
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -15,8 +17,8 @@ import { createPortal } from 'react-dom';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
-import { useFileUpload, getPresignedUrl } from '../../hooks/useFileUpload';
-import { useApi } from '../../contexts/SessionContext';
+import { useFileUpload } from '../../hooks/useFileUpload';
+import { useImageCache, useVideoCache } from '../../hooks/useFileCache';
 import { formatFileSize, getFileCategory } from '../../api/storage';
 import { SearchIcon, CloseIcon, UploadIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
@@ -61,64 +63,34 @@ function FileIcon({ contentType }: { contentType: string }) {
   return <span className="file-icon document">📄</span>;
 }
 
-/** 缩略图 - 本地优先加载（与好友/群聊消息一致） */
-function FileThumbnail({ file, onLocalPathFound }: { file: FileItem; onLocalPathFound?: (path: string | null) => void }) {
-  const api = useApi();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [isLocal, setIsLocal] = useState(false);
+/** 本地文件标识 */
+function LocalBadge() {
+  return (
+    <span className="file-local-badge" title="本地文件">
+      📁
+    </span>
+  );
+}
 
-  const category = getFileCategory(file.content_type);
-  const isImage = category === 'image';
-  const isVideo = category === 'video';
+/** 图片缩略图 - 使用 useImageCache */
+function ImageThumbnail({
+  file,
+  onLocalPathFound,
+}: {
+  file: FileItem;
+  onLocalPathFound?: (path: string | null, hash: string | null) => void;
+}) {
+  const { src, isLocal, loading, error, onLoad, localPath } = useImageCache(
+    file.file_uuid,
+    file.file_hash ?? null,
+    file.filename,
+    'user',
+  );
 
-  // 本地优先加载（与 FileMessageContent 一致）
   useEffect(() => {
-    // 只有图片和视频需要加载缩略图
-    if (!isImage && !isVideo) {
-      setLoading(false);
-      return;
-    }
+    onLocalPathFound?.(localPath, file.file_hash ?? null);
+  }, [localPath, file.file_hash, onLocalPathFound]);
 
-    setLoading(true);
-    setError(false);
-
-    const loadFile = async () => {
-      try {
-        // 1. 尝试从本地数据库获取 file_hash
-        const { getFileHashByUuid } = await import('../../db');
-        const fileHash = await getFileHashByUuid(file.file_uuid);
-
-        if (fileHash) {
-          // 2. 获取远程 URL 作为备用
-          const remoteUrl = await getPresignedUrl(api, file.file_uuid);
-
-          // 3. 检查本地文件
-          const { getFileSource } = await import('../../services/fileService');
-          const result = await getFileSource(fileHash, remoteUrl, file.file_size);
-
-          setThumbnailUrl(result.url);
-          setIsLocal(result.source === 'local');
-          onLocalPathFound?.(result.localPath || null);
-        } else {
-          // 无 file_hash，直接使用远程
-          const url = await getPresignedUrl(api, file.file_uuid);
-          setThumbnailUrl(url);
-          setIsLocal(false);
-          onLocalPathFound?.(null);
-        }
-      } catch {
-        setError(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadFile();
-  }, [api, file.file_uuid, file.file_size, isImage, isVideo, onLocalPathFound]);
-
-  // 加载中
   if (loading) {
     return (
       <div className="thumbnail-placeholder loading">
@@ -127,8 +99,7 @@ function FileThumbnail({ file, onLocalPathFound }: { file: FileItem; onLocalPath
     );
   }
 
-  // 加载失败
-  if (error) {
+  if (error || !src) {
     return (
       <div className="thumbnail-placeholder error">
         <FileIcon contentType={file.content_type} />
@@ -136,28 +107,78 @@ function FileThumbnail({ file, onLocalPathFound }: { file: FileItem; onLocalPath
     );
   }
 
-  // 图片缩略图
-  if (isImage && thumbnailUrl) {
+  return (
+    <div className="thumbnail-image">
+      {isLocal && <LocalBadge />}
+      <img src={src} alt={file.filename} draggable={false} onLoad={onLoad} />
+    </div>
+  );
+}
+
+/** 视频缩略图 - 使用 useVideoCache */
+function VideoThumbnail({
+  file,
+  onLocalPathFound,
+}: {
+  file: FileItem;
+  onLocalPathFound?: (path: string | null, hash: string | null) => void;
+}) {
+  const { src, isLocal, loading, error, localPath } = useVideoCache(
+    file.file_uuid,
+    file.file_hash ?? null,
+    file.filename,
+    file.file_size,
+    'user',
+  );
+
+  useEffect(() => {
+    onLocalPathFound?.(localPath, file.file_hash ?? null);
+  }, [localPath, file.file_hash, onLocalPathFound]);
+
+  if (loading) {
     return (
-      <div className="thumbnail-image">
-        {isLocal && <span className="file-local-badge" title="本地文件">📁</span>}
-        <img src={thumbnailUrl} alt={file.filename} draggable={false} />
+      <div className="thumbnail-placeholder loading">
+        <LoadingSpinner />
       </div>
     );
   }
 
-  // 视频缩略图
-  if (isVideo && thumbnailUrl) {
+  if (error || !src) {
     return (
-      <div className="thumbnail-video">
-        {isLocal && <span className="file-local-badge" title="本地文件">📁</span>}
-        <video src={thumbnailUrl} preload="metadata" />
-        <div className="video-play-icon">▶</div>
+      <div className="thumbnail-placeholder error">
+        <FileIcon contentType={file.content_type} />
       </div>
     );
   }
 
-  // 文件图标（默认）
+  return (
+    <div className="thumbnail-video">
+      {isLocal && <LocalBadge />}
+      <video src={src} preload="metadata" />
+      <div className="video-play-icon">▶</div>
+    </div>
+  );
+}
+
+/** 文件缩略图分发器 */
+function FileThumbnail({
+  file,
+  onLocalPathFound,
+}: {
+  file: FileItem;
+  onLocalPathFound?: (path: string | null, hash: string | null) => void;
+}) {
+  const category = getFileCategory(file.content_type);
+
+  if (category === 'image') {
+    return <ImageThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
+  }
+
+  if (category === 'video') {
+    return <VideoThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
+  }
+
+  // 普通文件
   return (
     <div className="thumbnail-placeholder">
       <FileIcon contentType={file.content_type} />
@@ -254,51 +275,43 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
   } = useFiles();
 
   // 文件上传 hook
-  const {
-    uploading,
-    progress,
-    uploadFile,
-    resetUpload,
-  } = useFileUpload();
+  const { uploading, progress, uploadFile, resetUpload } = useFileUpload();
 
-  // 预览状态 - 存储文件信息用于 FilePreviewModal
+  // 预览状态
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [previewLocalPath, setPreviewLocalPath] = useState<string | null>(null);
+  const [previewFileHash, setPreviewFileHash] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
 
-  // 预览文件 - 先查找本地路径
-  const handlePreview = useCallback(async (file: FileItem) => {
-    setPreviewFile(file);
-    
-    // 尝试获取本地路径
-    try {
-      const { getFileHashByUuid, getFileMapping } = await import('../../db');
-      const fileHash = await getFileHashByUuid(file.file_uuid);
-      
-      if (fileHash) {
-        const mapping = await getFileMapping(fileHash);
-        if (mapping?.local_path) {
-          setPreviewLocalPath(mapping.local_path);
-          // eslint-disable-next-line no-console
-          console.log('[PersonalFiles] 预览使用本地文件', {
-            fileUuid: file.file_uuid,
-            fileHash,
-            localPath: mapping.local_path,
-          });
-          return;
-        }
-      }
-    } catch {
-      // 查找失败，使用远程
-    }
-    
-    setPreviewLocalPath(null);
-  }, []);
+  // 缓存每个文件的本地信息
+  const [localInfoCache] = useState<Map<string, { path: string | null; hash: string | null }>>(
+    new Map(),
+  );
+
+  // 更新文件本地信息
+  const handleLocalPathFound = useCallback(
+    (fileUuid: string, path: string | null, hash: string | null) => {
+      localInfoCache.set(fileUuid, { path, hash });
+    },
+    [localInfoCache],
+  );
+
+  // 预览文件
+  const handlePreview = useCallback(
+    (file: FileItem) => {
+      setPreviewFile(file);
+      const cached = localInfoCache.get(file.file_uuid);
+      setPreviewLocalPath(cached?.path ?? null);
+      setPreviewFileHash(cached?.hash ?? file.file_hash ?? null);
+    },
+    [localInfoCache],
+  );
 
   // 关闭预览
   const closePreview = useCallback(() => {
     setPreviewFile(null);
     setPreviewLocalPath(null);
+    setPreviewFileHash(null);
   }, []);
 
   // 触发文件选择 - 使用 Tauri 原生对话框获取本地路径
@@ -309,7 +322,28 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         filters: [
           {
             name: '所有支持的文件',
-            extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'zip', 'rar'],
+            extensions: [
+              'jpg',
+              'jpeg',
+              'png',
+              'gif',
+              'webp',
+              'mp4',
+              'mov',
+              'avi',
+              'mkv',
+              'webm',
+              'pdf',
+              'doc',
+              'docx',
+              'xls',
+              'xlsx',
+              'ppt',
+              'pptx',
+              'txt',
+              'zip',
+              'rar',
+            ],
           },
           { name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
           { name: '视频', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] },
@@ -317,7 +351,9 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         ],
       });
 
-      if (!selected) { return; }
+      if (!selected) {
+        return;
+      }
 
       // Tauri 2.x 返回的是字符串路径
       const localPath = selected as unknown as string;
@@ -331,14 +367,23 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
       // 判断 MIME 类型
       let mimeType = 'application/octet-stream';
-      if (['jpg', 'jpeg'].includes(ext)) { mimeType = 'image/jpeg'; }
-      else if (ext === 'png') { mimeType = 'image/png'; }
-      else if (ext === 'gif') { mimeType = 'image/gif'; }
-      else if (ext === 'webp') { mimeType = 'image/webp'; }
-      else if (ext === 'mp4') { mimeType = 'video/mp4'; }
-      else if (ext === 'mov') { mimeType = 'video/quicktime'; }
-      else if (['avi', 'mkv', 'webm'].includes(ext)) { mimeType = `video/${ext}`; }
-      else if (ext === 'pdf') { mimeType = 'application/pdf'; }
+      if (['jpg', 'jpeg'].includes(ext)) {
+        mimeType = 'image/jpeg';
+      } else if (ext === 'png') {
+        mimeType = 'image/png';
+      } else if (ext === 'gif') {
+        mimeType = 'image/gif';
+      } else if (ext === 'webp') {
+        mimeType = 'image/webp';
+      } else if (ext === 'mp4') {
+        mimeType = 'video/mp4';
+      } else if (ext === 'mov') {
+        mimeType = 'video/quicktime';
+      } else if (['avi', 'mkv', 'webm'].includes(ext)) {
+        mimeType = `video/${ext}`;
+      } else if (ext === 'pdf') {
+        mimeType = 'application/pdf';
+      }
 
       // 创建 File 对象
       const file = new File([fileBytes], fileName, { type: mimeType });
@@ -373,7 +418,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         if (result.fileUuid && result.fileHash) {
           const { saveFileUuidHash, saveFileMapping } = await import('../../db');
           await saveFileUuidHash(result.fileUuid, result.fileHash);
-          
+
           // 保存 file_hash -> local_path 的映射（与好友/群聊文件一致）
           await saveFileMapping({
             file_hash: result.fileHash,
@@ -383,17 +428,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
             content_type: mimeType,
             source: 'uploaded',
             last_verified: new Date().toISOString(),
-          });
-          
-          // eslint-disable-next-line no-console
-          console.log('%c[PersonalFiles] 保存本地文件映射', 'color: #2196F3; font-weight: bold', {
-            fileHash: result.fileHash,
-            localPath,
-          });
-          // eslint-disable-next-line no-console
-          console.log('%c[PersonalFiles] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
-            fileUuid: result.fileUuid,
-            fileHash: result.fileHash,
           });
         }
 
@@ -477,7 +511,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
               </div>
             </div>
 
-
             {/* 上传进度条 */}
             <AnimatePresence>
               {uploading && uploadingFile && progress && (
@@ -544,7 +577,12 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
                           onClick={() => handlePreview(file)}
                         >
                           <div className="file-thumbnail">
-                            <FileThumbnail file={file} />
+                            <FileThumbnail
+                              file={file}
+                              onLocalPathFound={(path, hash) =>
+                                handleLocalPathFound(file.file_uuid, path, hash)
+                              }
+                            />
                           </div>
                           <div className="file-info">
                             <div className="file-name" title={file.filename}>
@@ -562,11 +600,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
                   {hasMore && (
                     <div className="files-load-more">
-                      <button
-                        className="load-more-btn"
-                        onClick={loadMore}
-                        disabled={loading}
-                      >
+                      <button className="load-more-btn" onClick={loadMore} disabled={loading}>
                         {loading ? '加载中...' : '加载更多'}
                       </button>
                     </div>
@@ -574,7 +608,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
                 </>
               )}
             </div>
-
           </motion.div>
         </motion.div>
       )}
@@ -585,7 +618,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
     <>
       {createPortal(content, document.body)}
 
-      {/* 文件预览模态框 - 与群聊/好友界面一致，使用 createPortal 独立渲染 */}
+      {/* 文件预览模态框 */}
       <FilePreviewModal
         isOpen={!!previewFile}
         onClose={closePreview}
@@ -593,7 +626,9 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         filename={previewFile?.filename || ''}
         contentType={previewFile?.content_type || ''}
         fileSize={previewFile?.file_size}
-        localPath={previewLocalPath || undefined}
+        localPath={previewLocalPath ?? undefined}
+        fileHash={previewFileHash}
+        urlType="user"
       />
     </>
   );

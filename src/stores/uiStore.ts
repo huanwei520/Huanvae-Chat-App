@@ -110,8 +110,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleGroupsPanel: () => set((state) => ({ groupsPanelExpanded: !state.groupsPanelExpanded })),
 
   // 全局加载
-  setGlobalLoading: (loading, text) => set({ 
-    globalLoading: loading, 
+  setGlobalLoading: (loading, text) => set({
+    globalLoading: loading,
     globalLoadingText: text || null,
   }),
 
@@ -122,7 +122,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   showToast: (toast) => {
     const id = `toast-${++toastIdCounter}`;
     const newToast: Toast = { ...toast, id };
-    
+
     set((state) => ({
       toasts: [...state.toasts, newToast],
     }));
@@ -143,13 +143,13 @@ export const useUIStore = create<UIStore>((set, get) => ({
   clearToasts: () => set({ toasts: [] }),
 
   // 模态框
-  openModal: (modalId, data) => set({ 
-    activeModal: modalId, 
+  openModal: (modalId, data) => set({
+    activeModal: modalId,
     modalData: data || null,
   }),
 
-  closeModal: () => set({ 
-    activeModal: null, 
+  closeModal: () => set({
+    activeModal: null,
     modalData: null,
   }),
 
@@ -194,4 +194,3 @@ export const selectActiveModal = (state: UIStore) => ({
   id: state.activeModal,
   data: state.modalData,
 });
-

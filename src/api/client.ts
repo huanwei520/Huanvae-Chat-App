@@ -2,8 +2,11 @@
  * API 客户端
  *
  * 提供绑定了 serverUrl 和 token 的 API 请求方法
+ * 使用 Tauri HTTP 插件绕过 CORS 限制
  * 使用时无需手动传入这些参数
  */
+
+import { fetch } from '@tauri-apps/plugin-http';
 
 export interface ApiClientConfig {
   /** 服务器 URL */
