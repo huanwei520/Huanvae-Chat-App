@@ -47,16 +47,16 @@ jobs:
             args: ''
             name: linux-x86_64
           
-          # macOS Intel
-          - platform: macos-latest
+          # macOS Intel (macos-13 仍然是 Intel 机器)
+          - platform: macos-13
             target: x86_64-apple-darwin
-            args: '--target x86_64-apple-darwin'
+            args: ''
             name: darwin-x86_64
           
-          # macOS Apple Silicon
-          - platform: macos-latest
+          # macOS Apple Silicon (macos-14 是 ARM64 机器)
+          - platform: macos-14
             target: aarch64-apple-darwin
-            args: '--target aarch64-apple-darwin'
+            args: ''
             name: darwin-aarch64
 
     runs-on: ${{ matrix.platform }}
