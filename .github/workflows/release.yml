@@ -1,0 +1,266 @@
+# Huanvae Chat 自动发布工作流
+#
+# 触发条件：推送 v* 标签（如 v1.0.0）
+# 功能：
+# - 构建 Windows (NSIS + MSI)
+# - 构建 Linux (AppImage + .deb)
+# - 构建 macOS (DMG, x64 + ARM64)
+# - 自动生成带代理 URL 的 latest.json
+# - 上传到 GitHub Releases
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 代理源配置
+env:
+  PROXY_URLS: |
+    https://edgeone.gh-proxy.org/
+    https://cdn.gh-proxy.org/
+    https://hk.gh-proxy.org/
+    https://gh-proxy.org/
+
+jobs:
+  # ============================================
+  # 构建任务
+  # ============================================
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+            name: windows-x86_64
+          
+          # Linux x64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ''
+            name: linux-x86_64
+          
+          # macOS Intel
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin'
+            name: darwin-x86_64
+          
+          # macOS Apple Silicon
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+            name: darwin-aarch64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux 依赖
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      # 安装前端依赖
+      - name: Install dependencies
+        run: pnpm install
+
+      # 构建 Tauri 应用
+      - name: Build Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Huanvae Chat ${{ github.ref_name }}'
+          releaseBody: |
+            ## 更新内容
+            
+            查看完整更新日志：https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}
+            
+            ## 下载说明
+            
+            | 平台 | 推荐格式 |
+            |------|---------|
+            | Windows | `.nsis.zip` (安装包) 或 `.msi` |
+            | Linux | `.AppImage` (免安装) 或 `.deb` |
+            | macOS Intel | `_x64.dmg` |
+            | macOS M1/M2 | `_aarch64.dmg` |
+            
+            > 💡 国内用户如下载缓慢，可使用代理链接（Release 附件中的 `latest.json` 包含加速链接）
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # ============================================
+  # 生成更新清单
+  # ============================================
+  generate-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Wait for release assets
+        run: sleep 30
+
+      - name: Download release info
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取 release 信息
+          RELEASE_INFO=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }})
+          echo "Release ID: $(echo $RELEASE_INFO | jq -r '.id')"
+          
+          # 获取所有资产
+          ASSETS=$(echo $RELEASE_INFO | jq -r '.assets')
+          echo "Assets: $ASSETS"
+          
+          # 保存到文件
+          echo "$ASSETS" > assets.json
+
+      - name: Generate latest.json with proxy URLs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          TAG="${{ github.ref_name }}"
+          
+          # 代理源列表（使用第一个作为默认）
+          PROXY="https://edgeone.gh-proxy.org/"
+          
+          # 读取签名文件内容（如果存在）
+          get_signature() {
+            local pattern=$1
+            local sig_file=$(ls -1 src-tauri/target/release/bundle/*/${pattern}.sig 2>/dev/null | head -1 || echo "")
+            if [ -f "$sig_file" ]; then
+              cat "$sig_file"
+            else
+              echo ""
+            fi
+          }
+          
+          # 构建 JSON
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Huanvae Chat ${TAG} 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_x64-setup.nsis.zip"
+              },
+              "darwin-x86_64": {
+                "signature": "",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_x64.app.tar.gz"
+              },
+              "darwin-aarch64": {
+                "signature": "",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
+              },
+              "linux-x86_64": {
+                "signature": "",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_amd64.AppImage.tar.gz"
+              }
+            }
+          }
+          EOF
+          
+          echo "Generated latest.json:"
+          cat latest.json
+
+      - name: Upload latest.json to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} latest.json --clobber
+          echo "✅ Uploaded latest.json to release"
+
+      - name: Create latest.json with all proxy URLs (for reference)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          TAG="${{ github.ref_name }}"
+          
+          # 生成包含所有代理的参考文件
+          cat > latest-all-proxies.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Huanvae Chat ${TAG}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "proxy_urls": {
+              "edgeone": "https://edgeone.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
+              "cdn": "https://cdn.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
+              "hk": "https://hk.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
+              "default": "https://gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
+              "direct": "https://github.com/${REPO}/releases/download/${TAG}/"
+            },
+            "files": {
+              "windows-nsis": "huanvae-chat-app_${VERSION}_x64-setup.nsis.zip",
+              "windows-msi": "huanvae-chat-app_${VERSION}_x64_en-US.msi",
+              "linux-appimage": "huanvae-chat-app_${VERSION}_amd64.AppImage.tar.gz",
+              "linux-deb": "huanvae-chat-app_${VERSION}_amd64.deb",
+              "macos-x64": "huanvae-chat-app_${VERSION}_x64.app.tar.gz",
+              "macos-arm64": "huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
+            }
+          }
+          EOF
+          
+          echo "Generated proxy reference file:"
+          cat latest-all-proxies.json
+
+      - name: Upload proxy reference file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} latest-all-proxies.json --clobber
+          echo "✅ Uploaded proxy reference file"
+

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "huanvae-chat-app",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.github.huanwei520.huanvae-chat-app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -13,9 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "huanvae-chat-app",
-        "width": 800,
-        "height": 600
+        "title": "Huanvae Chat",
+        "width": 1024,
+        "height": 820,
+        "minWidth": 600,
+        "minHeight": 400
       }
     ],
     "security": {
@@ -40,13 +42,53 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi", "appimage", "deb"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine"
+      },
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "section": "net"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOTFDMzBGQTkxQTc1NUEKUldSYWRScXBEOE9SUDVCWUJjZnYvaHBSdzNkbk5PTWRmUzNkVjdlamtDK2xTOXI4UmVZYUhDbGMK",
+      "endpoints": [
+        "https://edgeone.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://cdn.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
