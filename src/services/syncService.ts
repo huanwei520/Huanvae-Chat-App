@@ -111,7 +111,6 @@ export class SyncService {
     conversations: LocalConversation[],
   ): Promise<{ updatedConversations: string[]; newMessagesCount: number }> {
     if (this.state.isSyncing) {
-      console.log('[Sync] 同步正在进行中，跳过');
       return { updatedConversations: [], newMessagesCount: 0 };
     }
 
@@ -126,12 +125,9 @@ export class SyncService {
       }));
 
       if (syncRequest.length === 0) {
-        console.log('[Sync] 没有需要同步的会话');
         this.updateState({ isSyncing: false, lastSyncTime: new Date() });
         return { updatedConversations: [], newMessagesCount: 0 };
       }
-
-      console.log('[Sync] 开始同步', { conversationsCount: syncRequest.length });
 
       // 发送同步请求
       const response = await this.api.post<SyncResponse>('/api/messages/sync', {
@@ -142,6 +138,7 @@ export class SyncService {
       let newMessagesCount = 0;
 
       // 处理同步结果
+
       for (const convResult of response.data.conversations) {
         if (convResult.messages.length > 0) {
           // 转换并保存消息
@@ -166,18 +163,15 @@ export class SyncService {
               send_time: msg.send_time,
             }));
 
+          // eslint-disable-next-line no-await-in-loop
           await db.saveMessages(localMessages);
           newMessagesCount += localMessages.length;
           updatedConversations.push(convResult.conversation_id);
-
-          console.log('[Sync] 保存新消息', {
-            conversationId: convResult.conversation_id,
-            count: localMessages.length,
-          });
         }
 
         // 更新会话的 last_seq
         if (convResult.latest_seq > 0) {
+          // eslint-disable-next-line no-await-in-loop
           await db.updateConversationLastSeq(
             convResult.conversation_id,
             convResult.latest_seq,
@@ -186,6 +180,7 @@ export class SyncService {
 
         // 如果有更多消息，继续同步（分页）
         if (convResult.has_more) {
+          // eslint-disable-next-line no-await-in-loop
           await this.syncConversationFully(
             convResult.conversation_id,
             convResult.conversation_type,
@@ -195,8 +190,6 @@ export class SyncService {
       }
 
       this.updateState({ isSyncing: false, lastSyncTime: new Date() });
-      console.log('[Sync] 同步完成', { updatedConversations, newMessagesCount });
-
       return { updatedConversations, newMessagesCount };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '同步失败';
@@ -218,6 +211,7 @@ export class SyncService {
     let hasMore = true;
 
     while (hasMore) {
+      // eslint-disable-next-line no-await-in-loop
       const response = await this.api.post<SyncResponse>('/api/messages/sync', {
         conversations: [
           {
@@ -253,11 +247,13 @@ export class SyncService {
           send_time: msg.send_time,
         }));
 
+      // eslint-disable-next-line no-await-in-loop
       await db.saveMessages(localMessages);
       currentSeq = convResult.latest_seq;
       hasMore = convResult.has_more;
 
       // 更新 last_seq
+      // eslint-disable-next-line no-await-in-loop
       await db.updateConversationLastSeq(conversationId, currentSeq);
     }
   }
@@ -310,7 +306,6 @@ export class SyncService {
       await db.updateConversationLastSeq(message.source_id, message.seq);
     }
 
-    console.log('[Sync] 保存实时消息', { messageUuid: message.message_uuid });
   }
 
   /**
@@ -318,7 +313,6 @@ export class SyncService {
    */
   async handleMessageRecalled(messageUuid: string): Promise<void> {
     await db.markMessageRecalled(messageUuid);
-    console.log('[Sync] 消息已撤回', { messageUuid });
   }
 }
 

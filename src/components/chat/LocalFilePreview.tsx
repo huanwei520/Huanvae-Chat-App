@@ -74,9 +74,6 @@ export function LocalFilePreview({
       setDisplayUrl(result.url);
       setLocalPath(result.localPath || null);
 
-      if (result.source === 'local') {
-        console.log('[FilePreview] 使用本地文件', { fileHash, localPath: result.localPath });
-      }
     } catch (err) {
       console.error('[FilePreview] 检测文件来源失败:', err);
       setSource('remote');

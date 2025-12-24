@@ -204,8 +204,6 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
         const localPath = selected;
         const fileName = localPath.split(/[/\\]/).pop() || 'file';
 
-        console.info('[FileAttach] 选择文件', { localPath, fileName });
-
         // 获取文件信息
         const fileStat = await stat(localPath);
 
@@ -220,21 +218,12 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
           lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
         });
 
-        console.info('[FileAttach] 文件已加载', {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          localPath,
-        });
-
         // 回调，带上本地路径
         onFileSelect(file, item.type, localPath);
       }
     } catch (error) {
       // 用户取消选择时会抛出错误，这是正常的
-      if (String(error).includes('cancelled') || String(error).includes('Canceled')) {
-        console.info('[FileAttach] 用户取消选择');
-      } else {
+      if (!String(error).includes('cancelled') && !String(error).includes('Canceled')) {
         console.error('[FileAttach] 选择文件失败:', error);
       }
     } finally {

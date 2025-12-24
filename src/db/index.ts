@@ -78,27 +78,25 @@ export interface LocalFileMapping {
  */
 export async function setCurrentUser(userId: string, serverUrl: string): Promise<void> {
   await invoke('set_current_user', { userId, serverUrl });
-  console.log('[UserData] 设置当前用户:', userId, '@', serverUrl);
 }
 
 /** 清除当前用户（登出时调用） */
 export async function clearCurrentUser(): Promise<void> {
   await invoke('clear_current_user');
-  console.log('[UserData] 已清除当前用户');
 }
 
 /** 获取当前用户的文件下载目录 */
-export async function getUserFileDir(): Promise<string> {
+export function getUserFileDir(): Promise<string> {
   return invoke<string>('get_user_file_dir');
 }
 
 /** 根据文件类型获取下载目录 */
-export async function getDownloadDir(fileType: 'video' | 'image' | 'document'): Promise<string> {
+export function getDownloadDir(fileType: 'video' | 'image' | 'document'): Promise<string> {
   return invoke<string>('get_download_dir', { fileType });
 }
 
 /** 列出当前用户的所有下载文件 */
-export async function listUserFiles(): Promise<string[]> {
+export function listUserFiles(): Promise<string[]> {
   return invoke<string[]>('list_user_files');
 }
 
@@ -109,7 +107,6 @@ export async function listUserFiles(): Promise<string[]> {
 /** 初始化数据库连接并创建表（需要先调用 setCurrentUser） */
 export async function initDatabase(): Promise<void> {
   await invoke('db_init');
-  console.log('[DB] 数据库初始化完成（Rust 后端）');
 }
 
 // ============================================================================
@@ -117,12 +114,12 @@ export async function initDatabase(): Promise<void> {
 // ============================================================================
 
 /** 获取所有会话列表 */
-export async function getConversations(): Promise<LocalConversation[]> {
+export function getConversations(): Promise<LocalConversation[]> {
   return invoke<LocalConversation[]>('db_get_conversations');
 }
 
 /** 获取单个会话 */
-export async function getConversation(
+export function getConversation(
   id: string,
 ): Promise<LocalConversation | null> {
   return invoke<LocalConversation | null>('db_get_conversation', { id });
@@ -171,9 +168,9 @@ export async function incrementConversationUnread(id: string): Promise<void> {
 }
 
 /** 删除会话（通过清空数据实现） */
-export async function deleteConversation(id: string): Promise<void> {
+export function deleteConversation(_id: string): Promise<void> {
   // 暂时使用 clear 方式，后续可以在 Rust 端添加专门的删除方法
-  console.log('[DB] 删除会话:', id);
+  return Promise.resolve();
 }
 
 // ============================================================================
@@ -181,7 +178,7 @@ export async function deleteConversation(id: string): Promise<void> {
 // ============================================================================
 
 /** 获取会话的消息列表 */
-export async function getMessages(
+export function getMessages(
   conversationId: string,
   limit: number = 50,
   beforeSeq?: number,
@@ -238,7 +235,7 @@ export async function markMessageRecalled(messageUuid: string): Promise<void> {
 // ============================================================================
 
 /** 获取文件的本地映射 */
-export async function getFileMapping(
+export function getFileMapping(
   fileHash: string,
 ): Promise<LocalFileMapping | null> {
   return invoke<LocalFileMapping | null>('db_get_file_mapping', { fileHash });
@@ -275,7 +272,7 @@ export async function saveFileUuidHash(fileUuid: string, fileHash: string): Prom
 }
 
 /** 通过 file_uuid 获取 file_hash */
-export async function getFileHashByUuid(fileUuid: string): Promise<string | null> {
+export function getFileHashByUuid(fileUuid: string): Promise<string | null> {
   return invoke<string | null>('db_get_file_hash_by_uuid', { fileUuid });
 }
 
@@ -286,35 +283,10 @@ export async function getFileHashByUuid(fileUuid: string): Promise<string | null
 /** 清空所有本地数据（登出时调用） */
 export async function clearAllData(): Promise<void> {
   await invoke('db_clear_all_data');
-  console.log('[DB] 已清空所有本地数据');
 }
 
 /** 清理过期的文件映射（文件不存在的） */
-export async function cleanupInvalidFileMappings(): Promise<{ removed: number; total: number }> {
+export function cleanupInvalidFileMappings(): Promise<{ removed: number; total: number }> {
   // 这个功能需要配合文件系统检查，在调用处实现
-  return { removed: 0, total: 0 };
-}
-
-// ============================================================================
-// 头像缓存操作（暂时保留接口，后续实现）
-// ============================================================================
-
-/** 头像缓存 */
-export interface LocalAvatar {
-  user_id: string;
-  avatar_url: string;
-  local_path: string;
-  etag: string | null;
-  updated_at: string;
-}
-
-/** 获取头像缓存 */
-export async function getAvatarCache(_userId: string): Promise<LocalAvatar | null> {
-  // TODO: 在 Rust 端实现
-  return null;
-}
-
-/** 保存头像缓存 */
-export async function saveAvatarCache(_avatar: LocalAvatar): Promise<void> {
-  // TODO: 在 Rust 端实现
+  return Promise.resolve({ removed: 0, total: 0 });
 }

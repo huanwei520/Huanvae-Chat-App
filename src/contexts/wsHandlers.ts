@@ -186,7 +186,6 @@ async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | nul
       await db.updateConversationLastSeq(conversationId, msg.seq);
     }
 
-    console.log('[WS] 消息已保存到本地', { messageUuid: msg.message_uuid, conversationId });
   } catch (error) {
     console.error('[WS] 保存消息到本地失败:', error);
     throw error;

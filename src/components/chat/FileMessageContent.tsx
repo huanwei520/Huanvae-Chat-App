@@ -221,7 +221,7 @@ function DocumentMessage({
 
   // 下载文件
   const handleDownload = useCallback(
-    async (e: React.MouseEvent) => {
+    (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!src) { return; }
 

@@ -351,13 +351,6 @@ export function useFileUpload() {
           // 从 URL 中提取 UUID
           const fileUuid = uploadInfo.existing_file_url?.split('/').pop();
 
-          console.log('%c[Upload] 秒传成功', 'color: #4CAF50; font-weight: bold', {
-            fileName: file.name,
-            fileHash,
-            fileUuid,
-            instant: true,
-          });
-
           return {
             success: true,
             instant: true,
@@ -452,13 +445,6 @@ export function useFileUpload() {
           statusDetail: '上传完成！',
         });
         setUploading(false);
-
-        console.log('%c[Upload] 上传完成', 'color: #4CAF50; font-weight: bold', {
-          fileName: file.name,
-          fileHash,
-          fileUuid,
-          fileSize: file.size,
-        });
 
         return {
           success: true,

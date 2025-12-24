@@ -46,6 +46,7 @@ export async function loadAllHistoryMessages(
     try {
       if (targetType === 'friend') {
         // 加载好友消息
+        // eslint-disable-next-line no-await-in-loop
         const response = await getMessages(api, targetId, {
           beforeTime,
           limit: BATCH_SIZE,
@@ -79,6 +80,7 @@ export async function loadAllHistoryMessages(
           send_time: msg.send_time,
         }));
 
+        // eslint-disable-next-line no-await-in-loop
         await db.saveMessages(localMessages);
         totalLoaded += messages.length;
 
@@ -95,6 +97,7 @@ export async function loadAllHistoryMessages(
 
       } else {
         // 加载群聊消息
+        // eslint-disable-next-line no-await-in-loop
         const response = await getGroupMessages(api, targetId, {
           beforeTime,
           limit: BATCH_SIZE,
@@ -128,6 +131,7 @@ export async function loadAllHistoryMessages(
           send_time: msg.send_time,
         }));
 
+        // eslint-disable-next-line no-await-in-loop
         await db.saveMessages(localMessages);
         totalLoaded += messages.length;
 
@@ -144,6 +148,7 @@ export async function loadAllHistoryMessages(
       }
 
       // 添加小延迟，避免请求过快
+      // eslint-disable-next-line no-await-in-loop
       await new Promise<void>(resolve => {
         setTimeout(resolve, 100);
       });

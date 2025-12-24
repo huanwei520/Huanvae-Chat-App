@@ -337,6 +337,7 @@ export function MessageBubble({
               fileUuid={message.file_uuid}
               fileSize={message.file_size}
               fileHash={message.file_hash}
+              urlType="friend"
             />
           )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>

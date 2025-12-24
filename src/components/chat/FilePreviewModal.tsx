@@ -211,8 +211,6 @@ function VideoPreview({
     }
 
     downloadTriggeredRef.current = true;
-    console.log('[VideoPreview] 开始后台下载:', filename);
-
     triggerBackgroundDownload(src, fileHash, filename, 'video', fileSize);
   }, [isLocal, fileHash, src, filename, fileSize]);
 
@@ -229,8 +227,6 @@ function VideoPreview({
       if (wasPlaying) {
         videoRef.current.play();
       }
-
-      console.log('[VideoPreview] 已切换到本地文件:', downloadTask.localPath);
     }
   }, [downloadTask?.status, downloadTask?.localPath]);
 
