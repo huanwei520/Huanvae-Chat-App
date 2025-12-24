@@ -2,15 +2,17 @@
  * 群消息气泡组件
  *
  * 功能：
- * - 简化的入场动画（仅淡入）
- * - 退出动画（撤回时淡出 + 缩小）
+ * - 类似 Telegram 的入场动画（从侧边滑入 + 从下往上 + 淡入）
+ * - 退出动画（反方向滑出）
  * - 右键菜单（撤回/删除）
  * - 多选模式选中效果
  * - 点击头像显示用户信息弹出框
  *
  * 动画机制：
+ * - 自己的消息：从右往左、从下往上滑入
+ * - 对方的消息：从左往右、从下往上滑入
+ * - 撤回/删除：反方向播放退出动画
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
- * - 入场/退出仅处理 opacity，不含 x/y 偏移，避免与 layout 动画冲突
  */
 
 import { useState, useCallback, useRef } from 'react';
@@ -43,16 +45,46 @@ interface GroupMessageBubbleProps {
   isAdmin?: boolean;
 }
 
-// 简化的动画变体 - 仅处理 opacity，位置变化由 layout="position" 处理
-const messageVariants = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1 },
-  exit: { opacity: 0, scale: 0.95 },
-};
+/**
+ * 生成消息动画变体（类似 Telegram）
+ * - 自己的消息：从右往左、从下往上滑入
+ * - 对方的消息：从左往右、从下往上滑入
+ * - 退出时反方向播放
+ */
+function getMessageVariants(isOwn: boolean) {
+  const xOffset = isOwn ? 20 : -20; // 自己的消息从右边来，对方的从左边来
+  const yOffset = 10; // 从下往上
+
+  return {
+    initial: {
+      opacity: 0,
+      x: xOffset,
+      y: yOffset,
+      scale: 0.98,
+    },
+    animate: {
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+    },
+    exit: {
+      opacity: 0,
+      x: xOffset, // 退出时往原方向滑出
+      y: yOffset,
+      scale: 0.98,
+    },
+  };
+}
 
 // 动画过渡配置（使用 as const 确保类型正确）
 const transition = {
+  // 入场/退出动画
   opacity: { duration: 0.2, ease: [0.0, 0.0, 0.2, 1] as const },
+  x: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] as const },
+  y: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] as const },
+  scale: { duration: 0.2, ease: [0.2, 0.8, 0.2, 1] as const },
+  // 布局动画（消息位置变化时）
   layout: { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const },
 };
 
@@ -248,7 +280,7 @@ export function GroupMessageBubble({
       <motion.div
         className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
         layout="position"
-        variants={messageVariants}
+        variants={getMessageVariants(isOwn)}
         // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
         initial={message.clientId ? 'initial' : false}
         animate="animate"

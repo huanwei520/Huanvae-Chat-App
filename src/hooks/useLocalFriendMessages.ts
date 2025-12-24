@@ -3,14 +3,23 @@
  *
  * 实现离线优先策略：
  * 1. 先从本地 SQLite 加载消息并立即显示
- * 2. 后台与服务器同步增量消息
- * 3. 新消息通过 WebSocket 实时更新
- * 4. 发送消息时先乐观更新本地
+ * 2. 新消息通过 WebSocket 实时推送更新（包括 seq 序列号）
+ * 3. 发送消息时先乐观更新本地，API 响应后更新 uuid
+ * 4. WebSocket 断线重连时执行增量同步，获取断线期间的消息
  *
- * 调试功能：
- * - [LocalMessages] 前缀的日志用于跟踪本地消息加载
- * - [Sync] 前缀的日志用于跟踪服务器同步
- * - [FileLink] 前缀的日志用于跟踪文件本地链接
+ * 消息同步策略（类似 Telegram）：
+ * - 发送消息后不再主动触发同步，依赖 WebSocket 推送
+ * - WebSocket 推送的消息包含 seq，会自动更新本地
+ * - 只有在 WebSocket 连接建立时（首次连接或重连）才执行同步
+ * - handleNewMessage 智能处理：
+ *   1. message_uuid 已存在 → 更新 seq
+ *   2. 自己发送的消息且 WebSocket 比 API 快 → 替换 sending 消息
+ *   3. 其他情况 → 添加新消息
+ *
+ * 调试日志前缀：
+ * - [LocalMessages] 本地消息加载
+ * - [Sync] 服务器同步
+ * - [FileLink] 文件本地链接
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -257,9 +266,13 @@ export function useLocalFriendMessages(friendId: string | null) {
         const uiMessages = updatedMessages.map((m) => localMessageToMessage(m, friendId));
 
         // 智能合并：保留现有消息的 clientId 和 sendStatus，避免触发不必要的动画
+        // 同时保留正在发送中的消息（sendStatus 为 'sending'）
         setMessages((prev) => {
           const existingMap = new Map(prev.map((m) => [m.message_uuid, m]));
-          return uiMessages.map((newMsg) => {
+          // 保留正在发送中的消息（这些消息还没保存到数据库）
+          const sendingMessages = prev.filter((m) => m.sendStatus === 'sending');
+
+          const mergedMessages = uiMessages.map((newMsg) => {
             const existing = existingMap.get(newMsg.message_uuid);
             if (existing) {
               // 保留 clientId 和 sendStatus
@@ -267,6 +280,21 @@ export function useLocalFriendMessages(friendId: string | null) {
             }
             return newMsg;
           });
+
+          // 如果有正在发送的消息，确保它们不被覆盖
+          if (sendingMessages.length > 0) {
+            const mergedUuids = new Set(mergedMessages.map((m) => m.message_uuid));
+            // 添加那些不在合并结果中的发送中消息
+            const missingMessages = sendingMessages.filter(
+              (m) => !mergedUuids.has(m.message_uuid),
+            );
+            if (missingMessages.length > 0) {
+              logSync('保留发送中的消息', { count: missingMessages.length });
+              return [...missingMessages, ...mergedMessages];
+            }
+          }
+
+          return mergedMessages;
         });
         setHasMore(updatedMessages.length >= 50);
 
@@ -405,11 +433,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       await db.saveMessage(localMessage);
 
       logLocal('消息发送成功并保存到本地', { uuid: response.message_uuid });
-
-      // 发送成功后触发后台同步，获取正确的 seq
-      setTimeout(() => {
-        syncMessagesInBackground();
-      }, 500);
+      // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
     } catch (err) {
       logError('发送消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -421,7 +445,7 @@ export function useLocalFriendMessages(friendId: string | null) {
           : msg,
       ));
     }
-  }, [api, friendId, session, syncMessagesInBackground]);
+  }, [api, friendId, session]);
 
   // ============================================
   // 发送媒体消息（乐观更新）
@@ -539,11 +563,7 @@ export function useLocalFriendMessages(friendId: string | null) {
 
       logLocal('媒体消息发送成功', { uuid: response.message_uuid, hasFileLink: !!fileHash });
       logFileLink('媒体消息已链接到本地', { uuid: response.message_uuid, fileHash, localPath });
-
-      // 发送成功后触发后台同步，获取正确的 seq
-      setTimeout(() => {
-        syncMessagesInBackground();
-      }, 500);
+      // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
 
       return response;
     } catch (err) {
@@ -559,7 +579,7 @@ export function useLocalFriendMessages(friendId: string | null) {
 
       return null;
     }
-  }, [api, friendId, session, syncMessagesInBackground]);
+  }, [api, friendId, session]);
 
   // ============================================
   // 撤回消息
@@ -610,18 +630,51 @@ export function useLocalFriendMessages(friendId: string | null) {
       return;
     }
 
-    logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid });
+    logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid, sender: wsMsg.sender_id });
 
     // 生成正确的 conversation_id
     const conversationId = getFriendConversationId(session.userId, friendId);
 
-    // 检查是否已存在
+    // 智能处理消息：
+    // 1. 如果 message_uuid 已存在 → 更新 seq
+    // 2. 如果是自己发送的且有 sendStatus='sending' → 替换为服务器确认的消息
+    // 3. 否则 → 添加新消息
     setMessages((prev) => {
-      if (prev.some((m) => m.message_uuid === wsMsg.message_uuid)) {
-        return prev;
+      // 情况 1：message_uuid 已存在（API 响应比 WebSocket 快）
+      const existingIndex = prev.findIndex((m) => m.message_uuid === wsMsg.message_uuid);
+      if (existingIndex >= 0) {
+        // 更新 seq 和 sendStatus
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          seq: wsMsg.seq || updated[existingIndex].seq,
+          sendStatus: 'sent', // 确保标记为已发送
+        };
+        logLocal('消息已存在，更新 seq', { uuid: wsMsg.message_uuid, seq: wsMsg.seq });
+        return updated;
       }
 
-      // 使用完整字段构建消息（包括文件信息）
+      // 情况 2：WebSocket 比 API 响应快（自己发送的消息）
+      // 查找是否有正在发送中的消息（sender_id 是自己）
+      if (wsMsg.sender_id === session.userId) {
+        const sendingIndex = prev.findIndex((m) => m.sendStatus === 'sending');
+        if (sendingIndex >= 0) {
+          // 替换发送中的消息（更新 uuid、seq、sendStatus）
+          const updated = [...prev];
+          updated[sendingIndex] = {
+            ...updated[sendingIndex],
+            message_uuid: wsMsg.message_uuid,
+            seq: wsMsg.seq || 0,
+            send_time: wsMsg.timestamp,
+            sendStatus: 'sent',
+          };
+          logLocal('WebSocket 比 API 快，替换发送中消息', { uuid: wsMsg.message_uuid });
+          return updated;
+        }
+      }
+
+      // 情况 3：新消息（对方发送的）
+      // 添加 clientId 以触发入场动画
       const newMessage: Message = {
         message_uuid: wsMsg.message_uuid,
         sender_id: wsMsg.sender_id,
@@ -634,13 +687,14 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_hash: wsMsg.file_hash ?? null,
         send_time: wsMsg.timestamp,
         seq: wsMsg.seq || 0,
+        clientId: `ws_${wsMsg.message_uuid}`, // 用于触发入场动画
       };
 
       // 新消息添加到数组开头，配合 column-reverse 显示在底部
       return [newMessage, ...prev];
     });
 
-    // 保存到本地数据库（使用正确的 conversation_id 和完整文件信息）
+    // 保存/更新到本地数据库（使用正确的 conversation_id 和完整文件信息）
     const localMessage: Omit<LocalMessage, 'created_at'> = {
       message_uuid: wsMsg.message_uuid,
       conversation_id: conversationId,
@@ -707,6 +761,22 @@ export function useLocalFriendMessages(friendId: string | null) {
       unsubscribeRecalled();
     };
   }, [ws, friendId, handleNewMessage, handleMessageRecalled]);
+
+  // ============================================
+  // WebSocket 重连时触发同步
+  // ============================================
+  // 只在连接建立后（特别是重连时）执行一次同步，以获取断线期间的消息
+
+  const wasConnectedRef = useRef(false);
+
+  useEffect(() => {
+    if (ws.connected && !wasConnectedRef.current) {
+      // 连接刚建立，触发同步
+      logSync('WebSocket 连接建立，触发增量同步');
+      syncMessagesInBackground();
+    }
+    wasConnectedRef.current = ws.connected;
+  }, [ws.connected, syncMessagesInBackground]);
 
   return {
     messages,
