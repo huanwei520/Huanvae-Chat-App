@@ -10,10 +10,16 @@ import type {
   UnreadSummary,
   WsServerMessage,
   WsNewMessage,
+  WsSystemNotification,
 } from '../types/websocket';
 import type { PendingNotifications } from './WebSocketContext';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
+import {
+  notifyNewMessage,
+  notifySystemEvent,
+  type SystemNotificationType,
+} from '../services/notificationService';
 
 // ============================================
 // 类型定义
@@ -291,6 +297,24 @@ export function handleWebSocketMessage(
           console.error('[WS] 保存消息到本地失败:', err);
         });
 
+        // 发送系统通知（非自己发送的消息）
+        if (msg.sender_id !== ctx.currentUserId) {
+          // 群消息使用"群聊"作为标题，好友消息无群名
+          const groupName = msg.source_type === 'group' ? '群聊' : undefined;
+
+          notifyNewMessage({
+            sourceType: msg.source_type,
+            sourceId: msg.source_id,
+            senderName: msg.sender_nickname || msg.sender_id,
+            groupName,
+            messageType: msg.message_type,
+            content: msg.content || msg.preview || '',
+            activeChat: ctx.activeChatRef.current,
+          }).catch(err => {
+            console.warn('[WS] 发送通知失败:', err);
+          });
+        }
+
         // 通知监听器
         ctx.newMessageListeners.current.forEach(cb => cb(msg));
         break;
@@ -330,6 +354,10 @@ export function handleWebSocketMessage(
             }));
             break;
         }
+
+        // 发送系统通知
+        sendSystemNotification(msg);
+
         // 通知所有监听器
         ctx.notificationListeners.current.forEach(cb => cb(msg));
         break;
@@ -345,4 +373,57 @@ export function handleWebSocketMessage(
   } catch (err) {
     console.error('📡 解析消息失败:', err);
   }
+}
+
+// ============================================
+// 系统通知处理
+// ============================================
+
+/**
+ * 支持发送通知的系统通知类型
+ */
+const NOTIFIABLE_TYPES: SystemNotificationType[] = [
+  'friend_request',
+  'friend_request_approved',
+  'friend_request_rejected',
+  'friend_deleted',
+  'group_invite',
+  'group_join_request',
+  'group_join_approved',
+  'group_removed',
+  'group_disbanded',
+  'group_notice_updated',
+];
+
+/**
+ * 发送系统通知
+ */
+function sendSystemNotification(msg: WsSystemNotification): void {
+  // 检查是否是需要通知的类型
+  if (!NOTIFIABLE_TYPES.includes(msg.notification_type as SystemNotificationType)) {
+    return;
+  }
+
+  // 转换数据格式
+  const data: Record<string, string | number | undefined> = {};
+  const rawData = msg.data as Record<string, unknown>;
+
+  // 提取常用字段
+  if (rawData.from_id) { data.from_id = String(rawData.from_id); }
+  if (rawData.from_nickname) { data.from_nickname = String(rawData.from_nickname); }
+  if (rawData.friend_id) { data.from_id = String(rawData.friend_id); }
+  if (rawData.friend_nickname) { data.from_nickname = String(rawData.friend_nickname); }
+  if (rawData.group_id) { data.group_id = String(rawData.group_id); }
+  if (rawData.group_name) { data.group_name = String(rawData.group_name); }
+  if (rawData.inviter_id) { data.inviter_id = String(rawData.inviter_id); }
+  if (rawData.inviter_nickname) { data.inviter_nickname = String(rawData.inviter_nickname); }
+  if (rawData.applicant_id) { data.applicant_id = String(rawData.applicant_id); }
+  if (rawData.applicant_nickname) { data.applicant_nickname = String(rawData.applicant_nickname); }
+
+  notifySystemEvent({
+    type: msg.notification_type as SystemNotificationType,
+    data,
+  }).catch(err => {
+    console.warn('[WS] 发送系统通知失败:', err);
+  });
 }
