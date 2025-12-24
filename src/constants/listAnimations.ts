@@ -33,3 +33,5 @@ export const cardVariants = {
 
 // 搜索框折叠阈值
 export const SEARCH_COLLAPSE_WIDTH = 120;
+
+
