@@ -1,8 +1,19 @@
 /**
  * 文件缓存 Hook
  *
- * 为 React 组件提供文件缓存功能的便捷接口
- * 自动处理本地优先加载和后台缓存
+ * 为 React 组件提供文件缓存功能的便捷接口：
+ * - 本地优先加载（检查 file_mappings 表）
+ * - 远程文件自动缓存到 data/file/{type}/ 目录
+ * - 图片加载完成后自动缓存
+ * - 视频播放时后台缓存
+ *
+ * 缓存流程：
+ * 1. getFileSource() 检查本地缓存
+ * 2. 无缓存则获取预签名 URL
+ * 3. 图片 onLoad / 视频 onPlay 触发 cacheFile()
+ * 4. triggerBackgroundDownload() 调用 Rust 下载
+ * 5. 保存到 data/file/{type}/ 并更新 file_mappings 表
+ * 6. 显示 LocalBadge 标识
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -16,6 +27,19 @@ import {
   startProgressListener,
   type FileSourceResult,
 } from '../services/fileCache';
+
+// ============================================
+// 调试日志
+// ============================================
+
+const DEBUG = true;
+
+function logCache(action: string, data?: unknown) {
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[FileCache] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
+  }
+}
 
 // ============================================
 // 类型定义
@@ -100,6 +124,14 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
   // 用于避免重复下载
   const downloadTriggeredRef = useRef(false);
 
+  // 保存最新的 result 和 fileHash，供回调使用
+  const resultRef = useRef<FileSourceResult | null>(null);
+  const fileHashRef = useRef<string | null | undefined>(fileHash);
+
+  // 同步更新 ref
+  resultRef.current = result;
+  fileHashRef.current = fileHash;
+
   // 监听下载任务状态
   const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
 
@@ -117,8 +149,15 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       // 启动进度监听器（全局只需启动一次）
       startProgressListener();
 
+      logCache('加载文件源', { fileUuid, fileHash, urlType });
       const source = await getFileSource(api, fileUuid, fileHash, urlType);
       setResult(source);
+
+      logCache('文件源加载完成', {
+        fileUuid,
+        isLocal: source.isLocal,
+        hasLocalPath: !!source.localPath,
+      });
 
       // 如果是远程文件且需要自动缓存，标记需要下载
       if (!source.isLocal && autoCache && fileHash && fileType === 'image') {
@@ -140,6 +179,10 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
   // 如果下载完成，更新结果
   useEffect(() => {
     if (downloadTask?.status === 'completed' && downloadTask.localPath) {
+      logCache('下载完成，更新为本地路径', {
+        fileHash,
+        localPath: downloadTask.localPath,
+      });
       setResult({
         src: convertFileSrc(downloadTask.localPath),
         isLocal: true,
@@ -149,22 +192,32 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     }
   }, [downloadTask?.status, downloadTask?.localPath, fileHash]);
 
-  // 手动触发缓存
+  // 手动触发缓存（使用 ref 获取最新值）
   const cacheFile = useCallback(async () => {
-    if (!result || result.isLocal || !fileHash || downloadTriggeredRef.current) {
+    const currentResult = resultRef.current;
+    const currentFileHash = fileHashRef.current;
+
+    if (!currentResult || currentResult.isLocal || !currentFileHash || downloadTriggeredRef.current) {
+      logCache('跳过缓存', {
+        hasResult: !!currentResult,
+        isLocal: currentResult?.isLocal,
+        hasFileHash: !!currentFileHash,
+        alreadyTriggered: downloadTriggeredRef.current,
+      });
       return;
     }
 
     downloadTriggeredRef.current = true;
+    logCache('触发后台下载', { fileHash: currentFileHash, fileName, fileType });
 
     await triggerBackgroundDownload(
-      result.src,
-      fileHash,
+      currentResult.src,
+      currentFileHash,
       fileName,
       fileType,
       fileSize,
     );
-  }, [result, fileHash, fileName, fileType, fileSize]);
+  }, [fileName, fileType, fileSize]);
 
   // 重新加载
   const reload = useCallback(() => {
@@ -190,6 +243,8 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
 /**
  * 图片缓存 Hook（自动缓存）
  *
+ * 图片加载完成后自动触发后台缓存到 data/file/pictures/
+ *
  * @example
  * ```tsx
  * const { src, isLocal, onLoad } = useImageCache(fileUuid, fileHash, fileName);
@@ -211,12 +266,27 @@ export function useImageCache(
     autoCache: true,
   });
 
-  // 图片加载完成后触发缓存
+  // 保存最新的 cacheFile 和状态
+  const cacheFileRef = useRef(result.cacheFile);
+  const isLocalRef = useRef(result.isLocal);
+  const fileHashRef = useRef(fileHash);
+
+  // 同步更新 ref
+  cacheFileRef.current = result.cacheFile;
+  isLocalRef.current = result.isLocal;
+  fileHashRef.current = fileHash;
+
+  // 图片加载完成后触发缓存（使用 ref 避免依赖问题）
   const onLoad = useCallback(() => {
-    if (!result.isLocal && fileHash) {
-      result.cacheFile();
+    logCache('图片 onLoad 触发', {
+      fileHash: fileHashRef.current,
+      isLocal: isLocalRef.current,
+    });
+
+    if (!isLocalRef.current && fileHashRef.current) {
+      cacheFileRef.current();
     }
-  }, [result, fileHash]);
+  }, []);
 
   return {
     ...result,
@@ -226,6 +296,8 @@ export function useImageCache(
 
 /**
  * 视频缓存 Hook（播放时缓存）
+ *
+ * 视频开始播放时触发后台缓存到 data/file/videos/
  *
  * @example
  * ```tsx
@@ -247,15 +319,30 @@ export function useVideoCache(
     fileType: 'video',
     fileSize,
     urlType,
-    autoCache: false, // 视频不自动缓存
+    autoCache: false, // 视频不自动缓存，等待播放
   });
 
-  // 播放时触发缓存
+  // 保存最新的 cacheFile 和状态
+  const cacheFileRef = useRef(result.cacheFile);
+  const isLocalRef = useRef(result.isLocal);
+  const fileHashRef = useRef(fileHash);
+
+  // 同步更新 ref
+  cacheFileRef.current = result.cacheFile;
+  isLocalRef.current = result.isLocal;
+  fileHashRef.current = fileHash;
+
+  // 播放时触发缓存（使用 ref 避免依赖问题）
   const onPlay = useCallback(() => {
-    if (!result.isLocal && fileHash) {
-      result.cacheFile();
+    logCache('视频 onPlay 触发', {
+      fileHash: fileHashRef.current,
+      isLocal: isLocalRef.current,
+    });
+
+    if (!isLocalRef.current && fileHashRef.current) {
+      cacheFileRef.current();
     }
-  }, [result, fileHash]);
+  }, []);
 
   return {
     ...result,

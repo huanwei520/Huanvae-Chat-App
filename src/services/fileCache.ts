@@ -1,11 +1,21 @@
 /**
  * 文件缓存服务
  *
- * 提供文件本地缓存的核心功能：
- * - 检查本地缓存
- * - 获取预签名 URL
- * - 下载并保存文件
- * - 获取文件源（本地优先）
+ * 统一本地缓存方案的核心服务层，所有文件统一缓存到：
+ * data/{用户名}_{服务器}/file/{pictures|videos|documents}/
+ *
+ * 功能：
+ * - 检查本地缓存（file_mappings 表）
+ * - 获取预签名 URL（带内存缓存）
+ * - 下载并保存文件到统一目录
+ * - 获取文件源（本地优先，无缓存则获取远程 URL）
+ *
+ * 缓存入口：
+ * 1. 用户上传文件 → copy_file_to_cache → 复制到缓存目录
+ * 2. 图片加载完成 → triggerBackgroundDownload → 下载到缓存目录
+ * 3. 视频开始播放 → triggerBackgroundDownload → 下载到缓存目录
+ *
+ * 文件命名规则：{hash前8位}_{原始文件名}
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -78,7 +88,7 @@ export async function getCachedFilePath(fileHash: string): Promise<string | null
 /**
  * 下载文件并保存到本地
  */
-export async function downloadAndSaveFile(
+export function downloadAndSaveFile(
   url: string,
   fileHash: string,
   fileName: string,
@@ -111,6 +121,7 @@ export async function getPresignedUrl(
   // 1. 检查缓存
   const cached = store.getUrlCache(fileUuid);
   if (cached) {
+    // eslint-disable-next-line no-console
     console.log('[FileCache] 使用缓存的预签名 URL:', fileUuid);
     return { url: cached.url, expiresAt: cached.expiresAt };
   }
@@ -135,6 +146,7 @@ export async function getPresignedUrl(
   // 3. 缓存 URL
   store.setUrlCache(fileUuid, response.presigned_url, response.expires_at);
 
+  // eslint-disable-next-line no-console
   console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
   return { url: response.presigned_url, expiresAt: response.expires_at };
 }
@@ -223,7 +235,10 @@ export async function getFileSourceWithAutoCache(
 }
 
 /**
- * 触发后台下载（图片加载完成后调用）
+ * 触发后台下载（图片 onLoad / 视频 onPlay 时调用）
+ *
+ * 将远程文件下载并保存到本地缓存目录：
+ * data/{用户名}_{服务器}/file/{pictures|videos|documents}/
  */
 export async function triggerBackgroundDownload(
   presignedUrl: string,
@@ -234,9 +249,19 @@ export async function triggerBackgroundDownload(
 ): Promise<void> {
   const store = useFileCacheStore.getState();
 
+  // eslint-disable-next-line no-console
+  console.log('%c[FileCache] triggerBackgroundDownload 被调用', 'color: #9C27B0; font-weight: bold', {
+    fileHash,
+    fileName,
+    fileType,
+    fileSize,
+  });
+
   // 检查是否已在下载
   const existingTask = store.downloadTasks[fileHash];
   if (existingTask && existingTask.status !== 'failed') {
+    // eslint-disable-next-line no-console
+    console.log('[FileCache] 跳过：任务已存在', { status: existingTask.status });
     return; // 已在下载中或已完成
   }
 
@@ -249,6 +274,9 @@ export async function triggerBackgroundDownload(
   });
 
   try {
+    // eslint-disable-next-line no-console
+    console.log('[FileCache] 开始后台下载...', { fileName });
+
     const localPath = await downloadAndSaveFile(
       presignedUrl,
       fileHash,
@@ -257,7 +285,12 @@ export async function triggerBackgroundDownload(
       fileSize,
     );
     store.completeDownload(fileHash, localPath);
-    console.log('[FileCache] 后台下载完成:', fileName);
+
+    // eslint-disable-next-line no-console
+    console.log('%c[FileCache] 后台下载完成', 'color: #4CAF50; font-weight: bold', {
+      fileName,
+      localPath,
+    });
   } catch (error) {
     store.failDownload(fileHash, String(error));
     console.error('[FileCache] 后台下载失败:', error);
@@ -286,6 +319,7 @@ export async function startProgressListener(): Promise<void> {
     // completed 和 failed 由 triggerBackgroundDownload 处理
   });
 
+  // eslint-disable-next-line no-console
   console.log('[FileCache] 下载进度监听已启动');
 }
 
@@ -296,6 +330,7 @@ export function stopProgressListener(): void {
   if (unlistenProgress) {
     unlistenProgress();
     unlistenProgress = null;
+    // eslint-disable-next-line no-console
     console.log('[FileCache] 下载进度监听已停止');
   }
 }

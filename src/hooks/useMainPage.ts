@@ -526,25 +526,28 @@ export function useMainPage() {
 
           // 保存 file_uuid 到 file_hash 的映射，用于后续消息显示时查找本地文件
           if (result.fileUuid && result.fileHash) {
-            const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
+            const { saveFileUuidHash, saveMessage } = await import('../db');
+            const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-            // 如果有本地路径，保存 file_hash -> local_path 的映射
+            // 如果有本地路径，复制到统一缓存目录
             if (localPath) {
-              await saveFileMapping({
-                file_hash: result.fileHash,
-                local_path: localPath,
-                file_size: file.size,
-                file_name: file.name,
-                content_type: file.type || 'application/octet-stream',
-                source: 'uploaded',
-                last_verified: new Date().toISOString(),
-              });
-              // eslint-disable-next-line no-console
-              console.log('%c[FileUpload] 保存文件本地映射', 'color: #2196F3; font-weight: bold', {
-                fileHash: result.fileHash,
-                localPath,
-              });
+              try {
+                const cachedPath = await invoke<string>('copy_file_to_cache', {
+                  sourcePath: localPath,
+                  fileHash: result.fileHash,
+                  fileName: file.name,
+                  fileType: messageType,
+                });
+                // eslint-disable-next-line no-console
+                console.log('%c[FileUpload] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
+                  fileHash: result.fileHash,
+                  originalPath: localPath,
+                  cachedPath,
+                });
+              } catch (cacheErr) {
+                console.error('[FileUpload] 缓存文件失败:', cacheErr);
+              }
             }
 
             // 保存消息到本地数据库（后端上传时会自动发送消息）
@@ -604,25 +607,28 @@ export function useMainPage() {
 
           // 保存 file_uuid 到 file_hash 的映射
           if (result.fileUuid && result.fileHash) {
-            const { saveFileUuidHash, saveFileMapping, saveMessage } = await import('../db');
+            const { saveFileUuidHash, saveMessage } = await import('../db');
+            const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-            // 如果有本地路径，保存 file_hash -> local_path 的映射
+            // 如果有本地路径，复制到统一缓存目录
             if (localPath) {
-              await saveFileMapping({
-                file_hash: result.fileHash,
-                local_path: localPath,
-                file_size: file.size,
-                file_name: file.name,
-                content_type: file.type || 'application/octet-stream',
-                source: 'uploaded',
-                last_verified: new Date().toISOString(),
-              });
-              // eslint-disable-next-line no-console
-              console.log('%c[FileUpload] 保存文件本地映射', 'color: #2196F3; font-weight: bold', {
-                fileHash: result.fileHash,
-                localPath,
-              });
+              try {
+                const cachedPath = await invoke<string>('copy_file_to_cache', {
+                  sourcePath: localPath,
+                  fileHash: result.fileHash,
+                  fileName: file.name,
+                  fileType: messageType,
+                });
+                // eslint-disable-next-line no-console
+                console.log('%c[FileUpload] 群文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
+                  fileHash: result.fileHash,
+                  originalPath: localPath,
+                  cachedPath,
+                });
+              } catch (cacheErr) {
+                console.error('[FileUpload] 缓存群文件失败:', cacheErr);
+              }
             }
 
             // 保存消息到本地数据库（后端上传时会自动发送消息）

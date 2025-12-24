@@ -234,6 +234,132 @@ pub fn get_cached_file_path(file_hash: String) -> Result<Option<String>, String>
     }
 }
 
+/// 复制文件到缓存目录
+///
+/// 用于上传文件后将原始文件复制到统一的缓存目录
+/// 这样即使原始文件被移动/删除，缓存仍然可用
+///
+/// # 参数
+/// - `source_path`: 源文件路径
+/// - `file_hash`: 文件哈希
+/// - `file_name`: 原始文件名
+/// - `file_type`: 文件类型 ("image" | "video" | "document")
+///
+/// # 返回
+/// - 成功：缓存文件路径
+/// - 失败：错误信息
+#[tauri::command(rename_all = "camelCase")]
+pub fn copy_file_to_cache(
+    source_path: String,
+    file_hash: String,
+    file_name: String,
+    file_type: String,
+) -> Result<String, String> {
+    // 1. 检查源文件是否存在
+    let source = std::path::Path::new(&source_path);
+    if !source.exists() {
+        return Err(format!("源文件不存在: {}", source_path));
+    }
+
+    // 2. 获取当前用户上下文（需要先获取，用于判断缓存目录）
+    let user_ctx = user_data::get_current_user()
+        .ok_or_else(|| "未登录，无法缓存文件".to_string())?;
+
+    // 3. 计算预期的缓存目录
+    let expected_cache_dir = match file_type.as_str() {
+        "image" | "images" | "picture" | "pictures" => {
+            user_data::get_user_pictures_dir(&user_ctx.user_id, &user_ctx.server_url)
+        }
+        "video" | "videos" => {
+            user_data::get_user_videos_dir(&user_ctx.user_id, &user_ctx.server_url)
+        }
+        _ => user_data::get_user_documents_dir(&user_ctx.user_id, &user_ctx.server_url),
+    };
+    let expected_cache_dir_str = expected_cache_dir.to_string_lossy().to_string();
+
+    // 4. 检查是否已有缓存（只有当映射路径在缓存目录中时才跳过）
+    if let Ok(Some(mapping)) = db::get_file_mapping(&file_hash) {
+        let existing_path = std::path::Path::new(&mapping.local_path);
+        // 检查文件是否存在且在正确的缓存目录中
+        if existing_path.exists() && mapping.local_path.contains(&expected_cache_dir_str) {
+            println!("[CopyCache] 文件已在缓存目录: {}", mapping.local_path);
+            return Ok(mapping.local_path);
+        }
+        // 文件存在但不在缓存目录，需要复制
+        if existing_path.exists() {
+            println!(
+                "[CopyCache] 文件存在但不在缓存目录，将复制: {} -> {}",
+                mapping.local_path, expected_cache_dir_str
+            );
+        }
+    }
+
+    // 5. 确定保存目录（复用 expected_cache_dir）
+    let save_dir = expected_cache_dir;
+
+    // 6. 确保目录存在
+    std::fs::create_dir_all(&save_dir)
+        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
+
+    // 7. 生成缓存文件名（hash前8位_原始文件名）
+    let safe_filename = sanitize_filename(&file_name);
+    let cache_filename = format!("{}_{}", &file_hash[..8.min(file_hash.len())], safe_filename);
+    let cache_path = save_dir.join(&cache_filename);
+    let cache_path_str = cache_path.to_string_lossy().to_string();
+
+    // 8. 复制文件
+    std::fs::copy(&source_path, &cache_path)
+        .map_err(|e| format!("复制文件失败: {}", e))?;
+
+    // 9. 获取文件信息
+    let metadata = std::fs::metadata(&cache_path)
+        .map_err(|e| format!("获取文件信息失败: {}", e))?;
+    let file_size = metadata.len() as i64;
+
+    // 推断 content_type
+    let content_type = match file_type.as_str() {
+        "image" | "images" | "picture" | "pictures" => {
+            if file_name.to_lowercase().ends_with(".png") {
+                "image/png"
+            } else if file_name.to_lowercase().ends_with(".gif") {
+                "image/gif"
+            } else if file_name.to_lowercase().ends_with(".webp") {
+                "image/webp"
+            } else {
+                "image/jpeg"
+            }
+        }
+        "video" | "videos" => {
+            if file_name.to_lowercase().ends_with(".webm") {
+                "video/webm"
+            } else {
+                "video/mp4"
+            }
+        }
+        _ => "application/octet-stream",
+    };
+
+    // 10. 保存文件映射到数据库（覆盖旧映射）
+    let now = chrono::Utc::now().to_rfc3339();
+    db::save_file_mapping(db::LocalFileMapping {
+        file_hash: file_hash.clone(),
+        local_path: cache_path_str.clone(),
+        file_size,
+        file_name: file_name.clone(),
+        content_type: content_type.to_string(),
+        source: "uploaded".to_string(),
+        last_verified: now,
+        created_at: None,
+    })?;
+
+    println!(
+        "[CopyCache] 文件已缓存: {} -> {}",
+        source_path, cache_path_str
+    );
+
+    Ok(cache_path_str)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,4 +371,3 @@ mod tests {
         assert_eq!(sanitize_filename("test:file?.jpg"), "test_file_.jpg");
     }
 }
-

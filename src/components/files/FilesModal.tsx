@@ -15,7 +15,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { readFile, stat } from '@tauri-apps/plugin-fs';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
 import { useFileUpload } from '../../hooks/useFileUpload';
 import { useImageCache, useVideoCache } from '../../hooks/useFileCache';
@@ -362,8 +362,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
       // 读取文件内容
       const fileBytes = await readFile(localPath);
-      const fileStat = await stat(localPath);
-      const fileSize = fileStat.size;
 
       // 判断 MIME 类型
       let mimeType = 'application/octet-stream';
@@ -414,21 +412,37 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
           localPath,
         });
 
-        // 保存 file_uuid 到 file_hash 的映射
+        // 保存 file_uuid 到 file_hash 的映射，并复制文件到统一缓存目录
         if (result.fileUuid && result.fileHash) {
-          const { saveFileUuidHash, saveFileMapping } = await import('../../db');
+          const { saveFileUuidHash } = await import('../../db');
+          const { invoke } = await import('@tauri-apps/api/core');
           await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-          // 保存 file_hash -> local_path 的映射（与好友/群聊文件一致）
-          await saveFileMapping({
-            file_hash: result.fileHash,
-            local_path: localPath,
-            file_size: fileSize,
-            file_name: fileName,
-            content_type: mimeType,
-            source: 'uploaded',
-            last_verified: new Date().toISOString(),
-          });
+          // 复制文件到统一缓存目录（Rust 后端会保存映射）
+          try {
+            // 根据 MIME 类型确定文件类型
+            let cacheFileType = 'document';
+            if (mimeType.startsWith('image/')) {
+              cacheFileType = 'image';
+            } else if (mimeType.startsWith('video/')) {
+              cacheFileType = 'video';
+            }
+
+            const cachedPath = await invoke<string>('copy_file_to_cache', {
+              sourcePath: localPath,
+              fileHash: result.fileHash,
+              fileName: fileName,
+              fileType: cacheFileType,
+            });
+            // eslint-disable-next-line no-console
+            console.log('%c[PersonalFiles] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
+              fileHash: result.fileHash,
+              originalPath: localPath,
+              cachedPath,
+            });
+          } catch (cacheErr) {
+            console.error('[PersonalFiles] 缓存文件失败:', cacheErr);
+          }
         }
 
         // 刷新文件列表

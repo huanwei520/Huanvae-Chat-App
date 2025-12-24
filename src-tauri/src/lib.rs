@@ -272,10 +272,11 @@ pub fn run() {
             db_clear_all_data,
             db_save_file_uuid_hash,
             db_get_file_hash_by_uuid,
-            // 文件下载
+            // 文件下载和缓存
             download::download_and_save_file,
             download::is_file_cached,
             download::get_cached_file_path,
+            download::copy_file_to_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
