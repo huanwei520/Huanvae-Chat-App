@@ -46,18 +46,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             args: ''
             name: linux-x86_64
-          
-          # macOS Intel (macos-13 仍然是 Intel 机器)
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            args: ''
-            name: darwin-x86_64
-          
-          # macOS Apple Silicon (macos-14 是 ARM64 机器)
-          - platform: macos-14
-            target: aarch64-apple-darwin
-            args: ''
-            name: darwin-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -186,7 +174,7 @@ jobs:
             fi
           }
           
-          # 构建 JSON
+          # 构建 JSON（仅 Windows 和 Linux）
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
@@ -196,14 +184,6 @@ jobs:
               "windows-x86_64": {
                 "signature": "",
                 "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_x64-setup.nsis.zip"
-              },
-              "darwin-x86_64": {
-                "signature": "",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_x64.app.tar.gz"
-              },
-              "darwin-aarch64": {
-                "signature": "",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
               },
               "linux-x86_64": {
                 "signature": "",
@@ -246,9 +226,7 @@ jobs:
               "windows-nsis": "huanvae-chat-app_${VERSION}_x64-setup.nsis.zip",
               "windows-msi": "huanvae-chat-app_${VERSION}_x64_en-US.msi",
               "linux-appimage": "huanvae-chat-app_${VERSION}_amd64.AppImage.tar.gz",
-              "linux-deb": "huanvae-chat-app_${VERSION}_amd64.deb",
-              "macos-x64": "huanvae-chat-app_${VERSION}_x64.app.tar.gz",
-              "macos-arm64": "huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
+              "linux-deb": "huanvae-chat-app_${VERSION}_amd64.deb"
             }
           }
           EOF

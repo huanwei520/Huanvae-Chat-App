@@ -1,7 +1,7 @@
 [package]
 name = "huanvae-chat-app"
-version = "0.1.0"
-description = "A Tauri App"
+version = "1.0.1"
+description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
 

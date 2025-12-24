@@ -1,17 +1,23 @@
 /**
  * WebRTC 视频会议 Hook
  *
- * 完全按照 WebRTC 官方标准实现：
- * - 每个对等体只创建一个 PeerConnection（单例模式）
- * - ICE 候选者缓存机制
- * - 正确的 Offer/Answer 协商流程
- * - 支持重协商（屏幕共享等场景）
+ * 完全按照 MDN 官方 Perfect Negotiation 模式实现：
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
  *
- * @see https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API
+ * 核心原则：
+ * 1. 轨道在创建 PeerConnection 时就通过 addTransceiver 添加好
+ * 2. onnegotiationneeded 自动处理协商，使用 polite/impolite 角色处理冲突
+ * 3. handleOffer 中只使用 replaceTrack 设置轨道，不触发额外的 onnegotiationneeded
+ * 4. 使用 ignoreOffer 标志处理 Offer 冲突
+ *
+ * 权限处理：
+ * - 麦克风/摄像头权限被拒绝时，自动清除 WebView 权限缓存并重新请求
+ *
  * @see backend-docs/webrtc/WebRTC房间.md
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import {
   getSignalingUrl,
   type IceServer,
@@ -225,9 +231,13 @@ export function useWebRTC(): UseWebRTCReturn {
   const pendingCandidatesRef = useRef<Map<string, IceCandidateData[]>>(new Map());
 
   // Perfect Negotiation 状态：跟踪每个对等体的协商状态
+  // 完全按照 MDN 官方模式：https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
   // makingOffer: 是否正在创建 offer
   // ignoreOffer: 是否应该忽略收到的 offer（用于解决冲突）
-  const negotiationStateRef = useRef<Map<string, { makingOffer: boolean }>>(new Map());
+  const negotiationStateRef = useRef<Map<string, {
+    makingOffer: boolean;
+    ignoreOffer: boolean;
+  }>>(new Map());
 
   // ========== 工具函数 ==========
 
@@ -422,31 +432,100 @@ export function useWebRTC(): UseWebRTCReturn {
   }, []);
 
   /**
-   * 添加本地轨道到 PeerConnection
-   * 由调用者在适当时机调用，避免 onnegotiationneeded 冲突
+   * 使用 replaceTrack 设置本地轨道到现有 Transceivers
+   * 官方 Perfect Negotiation 模式：不触发 onnegotiationneeded
+   *
+   * 此函数只使用 replaceTrack，不使用 addTrack
+   * Transceivers 在 getOrCreatePeerConnection 中已通过 addTransceiver 创建
    */
-  const addLocalTracks = useCallback((pc: RTCPeerConnection, peerId: string) => {
+  const setLocalTracksToTransceivers = useCallback((pc: RTCPeerConnection, peerId: string) => {
     const stream = getCurrentStream();
-    if (stream) {
-      // 检查是否已经添加过这些轨道
-      const existingSenders = pc.getSenders();
-      const existingTrackIds = new Set(existingSenders.map((s) => s.track?.id).filter(Boolean));
+    if (!stream) {
+      logPC(peerId, 'replaceTrack: 无本地流');
+      return;
+    }
 
-      logPC(peerId, '添加本地轨道', {
-        streamTracks: stream.getTracks().map((t) => ({ kind: t.kind, id: t.id })),
-        existingTrackIds: Array.from(existingTrackIds),
+    logPC(peerId, 'replaceTrack: 设置本地轨道', {
+      streamTracks: stream.getTracks().map((t) => ({ kind: t.kind, id: t.id, enabled: t.enabled })),
+      transceivers: pc.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrack: t.sender.track?.kind,
+        receiverTrack: t.receiver.track?.kind,
+      })),
+    });
+
+    // 遍历所有 transceivers，使用 replaceTrack 设置本地轨道
+    pc.getTransceivers().forEach((transceiver) => {
+      // 获取这个 transceiver 的媒体类型
+      // 优先使用 receiver.track.kind，如果没有则使用 sender.track.kind
+      const kind = transceiver.receiver.track?.kind || transceiver.sender.track?.kind;
+      if (!kind) {
+        logPC(peerId, 'replaceTrack: transceiver 无法确定类型，跳过', { mid: transceiver.mid });
+        return;
+      }
+
+      // 从本地流中找到对应类型的轨道
+      const localTrack = stream.getTracks().find((t) => t.kind === kind);
+      if (!localTrack) {
+        logPC(peerId, `replaceTrack: 本地流无 ${kind} 轨道`);
+        return;
+      }
+
+      // 检查是否需要替换
+      const currentTrack = transceiver.sender.track;
+      if (currentTrack?.id === localTrack.id) {
+        logPC(peerId, `replaceTrack: ${kind} 轨道已相同，跳过`);
+        return;
+      }
+
+      // 使用 replaceTrack 设置轨道（不触发 onnegotiationneeded）
+      logPC(peerId, `replaceTrack: 设置 ${kind} 轨道`, {
+        oldTrackId: currentTrack?.id,
+        newTrackId: localTrack.id,
       });
 
+      transceiver.sender.replaceTrack(localTrack).catch((err) => {
+        logError(`replaceTrack 失败 [${peerId}] ${kind}`, err);
+      });
+
+      // 确保方向是 sendrecv（如果当前是 recvonly）
+      if (transceiver.direction === 'recvonly' || transceiver.direction === 'inactive') {
+        logPC(peerId, `replaceTrack: 修改 ${kind} 方向 ${transceiver.direction} -> sendrecv`);
+        transceiver.direction = 'sendrecv';
+      }
+    });
+  }, [getCurrentStream]);
+
+  /**
+   * 初始化 Transceivers（在创建 PeerConnection 时调用）
+   * 官方 Perfect Negotiation 模式：轨道在连接创建时就添加好
+   *
+   * 使用 addTransceiver 而非 addTrack，可以精确控制方向
+   */
+  const initTransceivers = useCallback((pc: RTCPeerConnection, peerId: string) => {
+    const stream = getCurrentStream();
+
+    logPC(peerId, '初始化 Transceivers', {
+      hasStream: !!stream,
+      tracks: stream?.getTracks().map((t) => ({ kind: t.kind, id: t.id })),
+    });
+
+    if (stream) {
+      // 有本地流：添加 sendrecv transceivers
       stream.getTracks().forEach((track) => {
-        if (!existingTrackIds.has(track.id)) {
-          logPC(peerId, `添加轨道: ${track.kind}`, { trackId: track.id });
-          pc.addTrack(track, stream);
-        } else {
-          logPC(peerId, `轨道已存在，跳过: ${track.kind}`, { trackId: track.id });
-        }
+        logPC(peerId, `addTransceiver: ${track.kind} (sendrecv)`, { trackId: track.id });
+        pc.addTransceiver(track, {
+          direction: 'sendrecv',
+          streams: [stream],
+        });
       });
     } else {
-      logPC(peerId, '无本地流可添加');
+      // 无本地流：添加 recvonly transceivers（确保能接收对方媒体）
+      logPC(peerId, 'addTransceiver: 无本地流，添加 recvonly');
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.addTransceiver('video', { direction: 'recvonly' });
     }
   }, [getCurrentStream]);
 
@@ -464,10 +543,10 @@ export function useWebRTC(): UseWebRTCReturn {
 
     logPC(peerId, '创建新的 PeerConnection', { iceServers: iceServersRef.current });
 
-    // 初始化协商状态
-    negotiationStateRef.current.set(peerId, { makingOffer: false });
+    // 初始化协商状态（官方 Perfect Negotiation 模式）
+    negotiationStateRef.current.set(peerId, { makingOffer: false, ignoreOffer: false });
 
-    // 创建新的 PeerConnection（不添加轨道）
+    // 创建新的 PeerConnection
     const pc = new RTCPeerConnection({
       iceServers: iceServersRef.current,
       iceCandidatePoolSize: 10,
@@ -617,7 +696,11 @@ export function useWebRTC(): UseWebRTCReturn {
       });
     };
 
+    // ============================================================
     // Perfect Negotiation: onnegotiationneeded 事件处理
+    // 完全按照 MDN 官方模式实现
+    // @see https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
+    // ============================================================
     pc.onnegotiationneeded = async () => {
       const state = negotiationStateRef.current.get(peerId);
       if (!state) {
@@ -631,21 +714,21 @@ export function useWebRTC(): UseWebRTCReturn {
       });
 
       try {
-        // 标记正在创建 offer
+        // 官方模式：标记正在创建 offer
         state.makingOffer = true;
 
-        // 使用 setLocalDescription() 无参数形式，让浏览器自动处理
-        logNegotiation(peerId, '调用 setLocalDescription()');
+        // 官方模式：使用 setLocalDescription() 无参数形式
+        // 浏览器会自动创建 offer 或 answer
         await pc.setLocalDescription();
 
-        // 只有在成功设置本地描述后才发送
+        // 发送 offer/answer
         if (pc.localDescription) {
-          logNegotiation(peerId, 'Offer 创建成功', {
+          logNegotiation(peerId, `${pc.localDescription.type} 创建成功`, {
             type: pc.localDescription.type,
             sdpLength: pc.localDescription.sdp?.length,
           });
           sendMessage({
-            type: 'offer',
+            type: pc.localDescription.type as 'offer' | 'answer',
             to: peerId,
             sdp: pc.localDescription.sdp,
           });
@@ -737,53 +820,33 @@ export function useWebRTC(): UseWebRTCReturn {
   // ========== 信令处理 ==========
 
   /**
-   * 发起 Offer
-   * 使用 Perfect Negotiation 模式
+   * 发起 Offer（作为 Offer 方）
+   * 官方 Perfect Negotiation 模式：先添加轨道，再创建 Offer
+   *
+   * 重要：使用 initTransceivers 添加轨道，这会触发 onnegotiationneeded
+   * onnegotiationneeded 会自动创建并发送 Offer
    */
-  const createOffer = useCallback(async (peerId: string) => {
-    logNegotiation(peerId, '开始创建 Offer');
+  const createOffer = useCallback((peerId: string) => {
+    logNegotiation(peerId, '准备建立连接（作为 Offer 方）');
 
     const pc = getOrCreatePeerConnection(peerId);
 
-    // 在创建 offer 之前添加本地轨道
-    addLocalTracks(pc, peerId);
+    // 官方模式：添加轨道，这会触发 onnegotiationneeded，自动创建 Offer
+    initTransceivers(pc, peerId);
 
-    // 确保协商状态存在
-    let negotiationState = negotiationStateRef.current.get(peerId);
-    if (!negotiationState) {
-      negotiationState = { makingOffer: false };
-      negotiationStateRef.current.set(peerId, negotiationState);
-    }
-
-    try {
-      negotiationState.makingOffer = true;
-
-      // 使用无参数形式，让浏览器自动处理 SDP
-      logNegotiation(peerId, '调用 setLocalDescription() 创建 Offer');
-      await pc.setLocalDescription();
-
-      logNegotiation(peerId, 'Offer 创建成功', {
-        type: pc.localDescription?.type,
-        sdpLength: pc.localDescription?.sdp?.length,
-        signalingState: pc.signalingState,
-      });
-
-      sendMessage({
-        type: 'offer',
-        to: peerId,
-        sdp: pc.localDescription?.sdp,
-      });
-    } catch (err) {
-      logError(`创建 Offer 失败 [${peerId}]`, err);
-    } finally {
-      negotiationState.makingOffer = false;
-    }
-  }, [getOrCreatePeerConnection, sendMessage, addLocalTracks]);
+    // onnegotiationneeded 会自动处理后续流程
+    logNegotiation(peerId, 'Transceivers 已添加，等待 onnegotiationneeded 触发');
+  }, [getOrCreatePeerConnection, initTransceivers]);
 
   /**
-   * 处理收到的 Offer
-   * 使用 Perfect Negotiation 模式处理冲突
-   * 按照官方标准流程：先设置 remoteDescription，再添加本地轨道
+   * 处理收到的 Offer（作为 Answer 方）
+   * 完全按照 MDN 官方 Perfect Negotiation 模式实现
+   * @see https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
+   *
+   * 关键点：
+   * 1. 使用 ignoreOffer 处理冲突
+   * 2. 使用 replaceTrack 设置本地轨道（不触发 onnegotiationneeded）
+   * 3. 不调用 addTrack
    */
   const handleOffer = useCallback(async (peerId: string, sdp: string) => {
     logNegotiation(peerId, '收到 Offer', { sdpLength: sdp.length });
@@ -792,45 +855,60 @@ export function useWebRTC(): UseWebRTCReturn {
     const state = negotiationStateRef.current.get(peerId);
     const polite = isPolite(peerId);
 
-    // 检测冲突：正在创建 offer 或 signaling state 不是 stable
+    // ============================================================
+    // 官方 Perfect Negotiation 冲突检测
+    // ============================================================
     const offerCollision = state?.makingOffer || pc.signalingState !== 'stable';
+
+    // 官方模式：设置 ignoreOffer 标志
+    if (state) {
+      state.ignoreOffer = !polite && offerCollision;
+    }
 
     logNegotiation(peerId, '冲突检测', {
       makingOffer: state?.makingOffer,
       signalingState: pc.signalingState,
       offerCollision,
       isPolite: polite,
+      ignoreOffer: state?.ignoreOffer,
     });
 
-    // 如果发生冲突且我是不礼让方，忽略这个 offer
-    if (offerCollision && !polite) {
-      logNegotiation(peerId, '❌ 忽略 Offer（我是不礼让方，发生冲突）');
+    // 官方模式：如果需要忽略，直接返回
+    if (state?.ignoreOffer) {
+      logNegotiation(peerId, '❌ 忽略 Offer（我是 impolite 方，发生冲突）');
       return;
     }
 
     try {
-      // 如果发生冲突且我是礼让方，先回滚当前的 offer
-      if (offerCollision && polite) {
-        logNegotiation(peerId, '回滚当前 Offer（我是礼让方）');
-        await Promise.all([
-          pc.setLocalDescription({ type: 'rollback' }),
-          pc.setRemoteDescription({ type: 'offer', sdp }),
-        ]);
-      } else {
-        logNegotiation(peerId, '设置远程描述 (Offer)');
-        await pc.setRemoteDescription({ type: 'offer', sdp });
-      }
+      // ============================================================
+      // 官方模式：设置远程描述
+      // 如果发生冲突且我是 polite 方，浏览器会自动回滚
+      // ============================================================
+      logNegotiation(peerId, '设置远程描述 (Offer)');
+      await pc.setRemoteDescription({ type: 'offer', sdp });
 
-      logNegotiation(peerId, 'setRemoteDescription 成功', { signalingState: pc.signalingState });
+      logNegotiation(peerId, 'setRemoteDescription 成功', {
+        signalingState: pc.signalingState,
+        transceivers: pc.getTransceivers().map((t) => ({
+          mid: t.mid,
+          direction: t.direction,
+          receiverKind: t.receiver.track?.kind,
+          senderTrack: t.sender.track?.id,
+        })),
+      });
 
-      // 设置远程描述后，添加缓存的 ICE 候选者
+      // 添加缓存的 ICE 候选者
       await flushPendingCandidates(peerId, pc);
 
-      // ✅ 官方标准：在 setRemoteDescription 之后添加本地轨道
-      // 这样 answer 会包含本地轨道的信息
-      addLocalTracks(pc, peerId);
+      // ============================================================
+      // 官方模式：使用 replaceTrack 设置本地轨道
+      // 不使用 addTrack，避免触发 onnegotiationneeded
+      // ============================================================
+      setLocalTracksToTransceivers(pc, peerId);
 
-      // 创建并发送 Answer
+      // ============================================================
+      // 官方模式：创建并发送 Answer
+      // ============================================================
       logNegotiation(peerId, '调用 setLocalDescription() 创建 Answer');
       await pc.setLocalDescription();
 
@@ -848,7 +926,7 @@ export function useWebRTC(): UseWebRTCReturn {
     } catch (err) {
       logError(`处理 Offer 失败 [${peerId}]`, err);
     }
-  }, [getOrCreatePeerConnection, sendMessage, flushPendingCandidates, isPolite, addLocalTracks]);
+  }, [getOrCreatePeerConnection, sendMessage, flushPendingCandidates, isPolite, setLocalTracksToTransceivers]);
 
   /**
    * 处理收到的 Answer
@@ -1033,11 +1111,65 @@ export function useWebRTC(): UseWebRTCReturn {
   // ========== 媒体流管理 ==========
 
   /**
+   * 尝试重置 WebView 权限并重新请求媒体
+   * 当用户拒绝权限后，清除 WebView 权限缓存并重试
+   */
+  const tryResetPermissionAndRetry = useCallback(async (
+    constraints: { audio?: boolean; video?: boolean },
+  ): Promise<MediaStream | null> => {
+    logMedia('权限被拒绝，尝试清除 WebView 权限缓存');
+
+    try {
+      // 调用 Rust 后端清除权限缓存
+      const result = await invoke<string>('reset_webview_permissions');
+      logMedia('权限缓存清除结果', { result });
+
+      // 等待一小段时间让 WebView 刷新
+      await new Promise((resolve) => { setTimeout(resolve, 500); });
+
+      // 重新请求权限
+      logMedia('重新请求媒体权限', constraints);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      logMedia('权限重置后获取媒体流成功');
+      return stream;
+    } catch (resetErr) {
+      logError('权限重置或重新请求失败', resetErr);
+      return null;
+    }
+  }, []);
+
+  /**
    * 初始化本地媒体流
    * 默认只开启麦克风，摄像头关闭
+   * 如果权限被拒绝，会自动尝试清除权限缓存并重新请求
    */
   const initLocalStream = useCallback(async (): Promise<MediaStream | null> => {
     logMedia('初始化本地媒体流（默认仅开启麦克风）');
+
+    /**
+     * 设置媒体流状态的辅助函数
+     */
+    const setupStream = (stream: MediaStream, disableVideo = true) => {
+      // 默认关闭摄像头（禁用视频轨道）
+      if (disableVideo) {
+        stream.getVideoTracks().forEach((track) => {
+          track.enabled = false;
+          logMedia('默认关闭摄像头', { trackId: track.id });
+        });
+      }
+
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+      setMediaState({
+        micEnabled: true,
+        cameraEnabled: false,
+        screenSharing: false,
+      });
+
+      // 启动音频分析（用于检测说话状态）
+      startAudioAnalysis(stream);
+    };
+
     try {
       // 枚举设备
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -1053,7 +1185,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
       // 默认只请求音频，摄像头稍后按需开启
       // 但同时请求视频权限（如果有摄像头），以便后续可以快速切换
-      const constraints: { video?: boolean; audio?: boolean } = { audio: true };
+      const constraints: { audio?: boolean; video?: boolean } = { audio: true };
       if (hasVideo) {
         constraints.video = true;
       }
@@ -1066,47 +1198,46 @@ export function useWebRTC(): UseWebRTCReturn {
         tracks: stream.getTracks().map((t) => ({ kind: t.kind, id: t.id, label: t.label })),
       });
 
-      // 默认关闭摄像头（禁用视频轨道）
-      stream.getVideoTracks().forEach((track) => {
-        track.enabled = false;
-        logMedia('默认关闭摄像头', { trackId: track.id });
-      });
-
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      setMediaState({
-        micEnabled: true,
-        cameraEnabled: false, // 默认关闭摄像头
-        screenSharing: false,
-      });
-
-      // 启动音频分析（用于检测说话状态）
-      startAudioAnalysis(stream);
-
+      setupStream(stream);
       return stream;
     } catch (err) {
       logError('获取媒体设备失败', err);
+
+      // 检查是否是权限被拒绝
+      const isPermissionDenied = err instanceof Error && err.name === 'NotAllowedError';
+
+      if (isPermissionDenied) {
+        // 尝试重置权限并重新请求
+        const retryStream = await tryResetPermissionAndRetry({ audio: true, video: true });
+        if (retryStream) {
+          setupStream(retryStream);
+          return retryStream;
+        }
+      }
 
       // 降级：尝试仅音频
       try {
         logMedia('降级：尝试仅音频');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        localStreamRef.current = stream;
-        setLocalStream(stream);
-        setMediaState({
-          micEnabled: true,
-          cameraEnabled: false,
-          screenSharing: false,
-        });
-        // 启动音频分析
-        startAudioAnalysis(stream);
+        setupStream(stream, false);
         return stream;
       } catch (audioErr) {
         logError('音频设备也获取失败', audioErr);
+
+        // 再次检查是否是权限问题
+        const isAudioPermissionDenied = audioErr instanceof Error && audioErr.name === 'NotAllowedError';
+        if (isAudioPermissionDenied) {
+          const retryStream = await tryResetPermissionAndRetry({ audio: true });
+          if (retryStream) {
+            setupStream(retryStream, false);
+            return retryStream;
+          }
+        }
+
         return null;
       }
     }
-  }, [startAudioAnalysis]);
+  }, [startAudioAnalysis, tryResetPermissionAndRetry]);
 
   /**
    * 停止本地媒体流

@@ -46,6 +46,7 @@ function ParticipantVideo({
   isSpeaking?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const stream = participant?.stream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
 
@@ -103,6 +104,37 @@ function ParticipantVideo({
     }
   }, [stream, hasActiveVideo]);
 
+  // ============================================================
+  // 修复：单独处理音频播放
+  // 即使没有视频轨道，也需要播放远程音频
+  // 这是屏幕共享能工作但纯音频不能的根本原因
+  // ============================================================
+  useEffect(() => {
+    // 本地用户不需要播放自己的音频（会产生回声）
+    if (isLocal) {
+      return undefined;
+    }
+
+    const audioElement = audioRef.current;
+    if (audioElement && stream) {
+      // 检查是否有音频轨道
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        audioElement.srcObject = stream;
+        // 尝试播放（处理 autoplay 限制）
+        audioElement.play().catch(() => {
+          // 忽略 autoplay 限制错误，用户交互后会自动播放
+        });
+      }
+    }
+
+    return () => {
+      if (audioElement) {
+        audioElement.srcObject = null;
+      }
+    };
+  }, [stream, isLocal]);
+
   // 修复：如果创建者的名称与房间名称相同，说明后端返回的是房间名而非用户名
   const displayName = (() => {
     if (isLocal) {
@@ -131,6 +163,15 @@ function ParticipantVideo({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
     >
+      {/* 隐藏的音频元素：用于播放远程音频（即使没有视频） */}
+      {!isLocal && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          style={{ display: 'none' }}
+        />
+      )}
+
       {showVideo ? (
         <video
           ref={videoRef}

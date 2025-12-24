@@ -10,9 +10,17 @@
  * 切换 tab 时旧卡片飞出、新卡片飞入
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
+import {
+  checkForUpdates,
+  downloadAndInstall,
+  restartApp,
+  formatSize,
+  type UpdateInfo,
+  type DownloadProgress,
+} from '../services/updateService';
 
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
@@ -27,6 +35,55 @@ export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+
+  // 更新相关状态
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<DownloadProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  // 应用启动时检查更新
+  useEffect(() => {
+    const checkUpdate = async () => {
+      try {
+        const info = await checkForUpdates();
+        if (info.available) {
+          setUpdateInfo(info);
+          setShowUpdateModal(true);
+        }
+      } catch (err) {
+        console.error('[更新] 检查更新失败:', err);
+      }
+    };
+
+    // 延迟 2 秒检查更新，避免影响启动体验
+    const timer = setTimeout(checkUpdate, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 处理更新
+  const handleUpdate = async () => {
+    if (!updateInfo?.update) {
+      return;
+    }
+
+    setIsUpdating(true);
+    setUpdateError(null);
+
+    try {
+      await downloadAndInstall(updateInfo.update, (progress) => {
+        setUpdateProgress(progress);
+      });
+
+      // 下载完成，重启应用
+      await restartApp();
+    } catch (err) {
+      console.error('[更新] 更新失败:', err);
+      setUpdateError(err instanceof Error ? err.message : String(err));
+      setIsUpdating(false);
+    }
+  };
 
   // Early return 检查
   if (!page.session) {
@@ -151,6 +208,102 @@ export function Main() {
         isOpen={showMeetingModal}
         onClose={() => setShowMeetingModal(false)}
       />
+
+      {/* 更新提示模态框 */}
+      <AnimatePresence>
+        {showUpdateModal && updateInfo && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !isUpdating && setShowUpdateModal(false)}
+          >
+            <motion.div
+              className="glass-card update-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="update-modal-header">
+                <span className="update-icon">🎉</span>
+                <h3>发现新版本</h3>
+              </div>
+
+              <div className="update-modal-body">
+                <p className="update-version">
+                  v{updateInfo.version} 可用
+                </p>
+                {updateInfo.notes && (
+                  <p className="update-notes">{updateInfo.notes}</p>
+                )}
+
+                {/* 下载进度 */}
+                {isUpdating && updateProgress && (
+                  <div className="update-progress">
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill"
+                        style={{ width: `${updateProgress.percent || 0}%` }}
+                      />
+                    </div>
+                    <p className="progress-text">
+                      {updateProgress.event === 'Started' && '准备下载...'}
+                      {updateProgress.event === 'Progress' && (
+                        <>
+                          下载中 {updateProgress.percent}%
+                          {updateProgress.downloaded && updateProgress.contentLength && (
+                            <span className="progress-size">
+                              {' '}({formatSize(updateProgress.downloaded)} / {formatSize(updateProgress.contentLength)})
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {updateProgress.event === 'Finished' && '下载完成，正在安装...'}
+                    </p>
+                  </div>
+                )}
+
+                {/* 错误提示 */}
+                {updateError && (
+                  <p className="update-error">更新失败: {updateError}</p>
+                )}
+              </div>
+
+              <div className="update-modal-footer">
+                {!isUpdating && (
+                  <>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setShowUpdateModal(false)}
+                    >
+                      稍后提醒
+                    </button>
+                    <button
+                      className="btn-primary"
+                      onClick={handleUpdate}
+                    >
+                      立即更新
+                    </button>
+                  </>
+                )}
+                {isUpdating && !updateError && (
+                  <p className="updating-hint">更新中，请勿关闭应用...</p>
+                )}
+                {updateError && (
+                  <button
+                    className="btn-primary"
+                    onClick={handleUpdate}
+                  >
+                    重试
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

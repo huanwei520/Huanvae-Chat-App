@@ -2,6 +2,13 @@
 //!
 //! 本地调用格式使用短横线 "-"（如 get-saved-accounts）
 //! 调用服务器格式使用下划线 "_"（如 user_id）
+//!
+//! ## 功能模块
+//! - 账号管理：登录、保存、删除账号
+//! - 数据库操作：本地 SQLite 数据库 CRUD
+//! - 用户数据目录：管理用户文件存储路径
+//! - 文件下载和缓存：下载文件到本地缓存
+//! - WebView 权限管理：重置麦克风/摄像头权限缓存
 
 mod db;
 mod download;
@@ -232,6 +239,35 @@ fn list_user_files() -> Result<Vec<String>, String> {
     Ok(files.iter().map(|p| p.to_string_lossy().to_string()).collect())
 }
 
+// ============================================================================
+// WebView 权限管理 Commands
+// ============================================================================
+
+/// 重置 WebView 权限缓存
+/// 用于解决用户误点拒绝麦克风/摄像头权限后无法再次请求的问题
+/// 通过删除 WebView2 的 Preferences 文件来清除权限缓存
+#[tauri::command]
+fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    
+    let data_dir = app.path().app_local_data_dir()
+        .map_err(|e| format!("获取数据目录失败: {}", e))?;
+    
+    // WebView2 权限存储在 EBWebView/Default/Preferences 文件中
+    let prefs_file = data_dir
+        .join("EBWebView")
+        .join("Default")
+        .join("Preferences");
+    
+    if prefs_file.exists() {
+        std::fs::remove_file(&prefs_file)
+            .map_err(|e| format!("删除权限文件失败: {}", e))?;
+        Ok("权限已重置，请重新请求".to_string())
+    } else {
+        Ok("没有需要重置的权限".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -280,6 +316,8 @@ pub fn run() {
             download::is_file_cached,
             download::get_cached_file_path,
             download::copy_file_to_cache,
+            // WebView 权限管理
+            reset_webview_permissions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
