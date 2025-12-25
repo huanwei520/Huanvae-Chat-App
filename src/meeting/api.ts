@@ -11,7 +11,7 @@
  * @see backend-docs/webrtc/ICE服务器配置.md
  */
 
-import type { ApiClient } from './client';
+import type { ApiClient } from '../api/client';
 
 // ============================================
 // ICE 服务器配置相关类型

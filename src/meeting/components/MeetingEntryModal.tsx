@@ -20,8 +20,8 @@ import {
   joinRoom,
   saveMeetingData,
   type CreateRoomResponse,
-} from '../../api/webrtc';
-import { CopyIcon, VideoMeetingIcon } from '../common/Icons';
+} from '../api';
+import { CopyIcon, VideoMeetingIcon } from '../../components/common/Icons';
 
 /**
  * 打开会议窗口

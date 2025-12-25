@@ -11,7 +11,7 @@ import ReactDOM from 'react-dom/client';
 import { SessionProvider } from './contexts/SessionContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import App from './App';
-import MeetingPage from './pages/MeetingPage';
+import { MeetingPage } from './meeting';
 import './index.css';
 
 // 根据路径判断渲染哪个页面

@@ -29,7 +29,7 @@ import { ChatPanel, EmptyChat } from '../components/chat/ChatPanel';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
-import { MeetingEntryModal } from '../components/meeting/MeetingEntryModal';
+import { MeetingEntryModal } from '../meeting';
 
 export function Main() {
   const page = useMainPage();

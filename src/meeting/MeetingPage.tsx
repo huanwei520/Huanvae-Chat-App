@@ -16,8 +16,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useWebRTC, type RemoteParticipant } from '../hooks/useWebRTC';
-import { loadMeetingData, clearMeetingData, type MeetingWindowData, type IceServer } from '../api/webrtc';
+import { useWebRTC, type RemoteParticipant } from './useWebRTC';
+import { loadMeetingData, clearMeetingData, type MeetingWindowData, type IceServer } from './api';
 import {
   MicOnIcon,
   MicOffIcon,
@@ -29,7 +29,7 @@ import {
   ParticipantsIcon,
   CopyIcon,
 } from '../components/common/Icons';
-import '../styles/pages/meeting.css';
+import './styles.css';
 
 /** 参与者视频组件 */
 function ParticipantVideo({
