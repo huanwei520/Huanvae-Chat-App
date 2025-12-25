@@ -15,7 +15,7 @@ mod download;
 mod storage;
 mod user_data;
 
-use db::{LocalConversation, LocalFileMapping, LocalMessage};
+use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
 use storage::SavedAccount;
 
 /// 获取所有已保存的账号
@@ -113,6 +113,16 @@ fn db_clear_conversation_unread(id: String) -> Result<(), String> {
     db::clear_conversation_unread(&id)
 }
 
+/// 更新会话的最后消息预览
+#[tauri::command(rename_all = "camelCase")]
+fn db_update_conversation_last_message(
+    id: String,
+    last_message: String,
+    last_message_time: String,
+) -> Result<(), String> {
+    db::update_conversation_last_message(&id, &last_message, &last_message_time)
+}
+
 /// 获取消息列表
 #[tauri::command(rename_all = "camelCase")]
 fn db_get_messages(
@@ -187,6 +197,64 @@ fn db_save_file_uuid_hash(file_uuid: String, file_hash: String) -> Result<(), St
 #[tauri::command(rename_all = "camelCase")]
 fn db_get_file_hash_by_uuid(file_uuid: String) -> Result<Option<String>, String> {
     db::get_file_hash_by_uuid(&file_uuid)
+}
+
+// ============================================================================
+// 好友和群组操作 Commands
+// ============================================================================
+
+/// 获取所有本地好友
+#[tauri::command]
+fn db_get_friends() -> Result<Vec<LocalFriend>, String> {
+    db::get_friends()
+}
+
+/// 批量保存好友（全量替换）
+#[tauri::command]
+fn db_save_friends(friends: Vec<LocalFriend>) -> Result<(), String> {
+    db::save_friends(&friends)
+}
+
+/// 保存单个好友
+#[tauri::command]
+fn db_save_friend(friend: LocalFriend) -> Result<(), String> {
+    db::save_friend(&friend)
+}
+
+/// 删除好友
+#[tauri::command(rename_all = "camelCase")]
+fn db_delete_friend(friend_id: String) -> Result<(), String> {
+    db::delete_friend(&friend_id)
+}
+
+/// 获取所有本地群组
+#[tauri::command]
+fn db_get_groups() -> Result<Vec<LocalGroup>, String> {
+    db::get_groups()
+}
+
+/// 批量保存群组（全量替换）
+#[tauri::command]
+fn db_save_groups(groups: Vec<LocalGroup>) -> Result<(), String> {
+    db::save_groups(&groups)
+}
+
+/// 保存单个群组
+#[tauri::command]
+fn db_save_group(group: LocalGroup) -> Result<(), String> {
+    db::save_group(&group)
+}
+
+/// 更新群组信息
+#[tauri::command]
+fn db_update_group(group: LocalGroup) -> Result<(), String> {
+    db::update_group(&group)
+}
+
+/// 删除群组
+#[tauri::command(rename_all = "camelCase")]
+fn db_delete_group(group_id: String) -> Result<(), String> {
+    db::delete_group(&group_id)
 }
 
 // ============================================================================
@@ -299,6 +367,7 @@ pub fn run() {
             db_update_conversation_last_seq,
             db_update_conversation_unread,
             db_clear_conversation_unread,
+            db_update_conversation_last_message,
             db_get_messages,
             db_save_message,
             db_save_messages,
@@ -311,6 +380,16 @@ pub fn run() {
             db_clear_all_data,
             db_save_file_uuid_hash,
             db_get_file_hash_by_uuid,
+            // 好友和群组
+            db_get_friends,
+            db_save_friends,
+            db_save_friend,
+            db_delete_friend,
+            db_get_groups,
+            db_save_groups,
+            db_save_group,
+            db_update_group,
+            db_delete_group,
             // 文件下载和缓存
             download::download_and_save_file,
             download::is_file_cached,

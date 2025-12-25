@@ -62,3 +62,28 @@ pub struct LocalFileMapping {
     pub last_verified: String,
     pub created_at: Option<String>,
 }
+
+/// 本地好友记录
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalFriend {
+    pub friend_id: String,
+    pub username: String,
+    pub nickname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub status: Option<String>,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}
+
+/// 本地群组记录
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalGroup {
+    pub group_id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub owner_id: String,
+    pub member_count: i64,
+    pub my_role: Option<String>,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}

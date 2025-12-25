@@ -192,6 +192,10 @@ async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | nul
       await db.updateConversationLastSeq(conversationId, msg.seq);
     }
 
+    // 更新会话的最后消息预览
+    const previewText = getMessagePreviewText(msg.message_type, msg.content || msg.preview || '');
+    await db.updateConversationLastMessage(conversationId, previewText, msg.timestamp);
+
   } catch (error) {
     console.error('[WS] 保存消息到本地失败:', error);
     throw error;

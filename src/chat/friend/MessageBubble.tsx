@@ -1,5 +1,8 @@
 /**
- * 消息气泡组件
+ * 私聊消息气泡组件
+ *
+ * @module chat/friend
+ * @location src/chat/friend/MessageBubble.tsx
  *
  * 功能：
  * - 类似 Telegram 的入场动画（从侧边滑入 + 从下往上 + 淡入）
@@ -17,11 +20,11 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { UserAvatar, FriendAvatar, type SessionInfo } from '../common/Avatar';
+import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
-import { MessageContextMenu } from './MessageContextMenu';
-import { FileMessageContent } from './FileMessageContent';
-import { UserProfilePopup, type UserInfo } from './UserProfilePopup';
+import { MessageContextMenu } from '../shared/MessageContextMenu';
+import { FileMessageContent } from '../shared/FileMessageContent';
+import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import type { Friend, Message } from '../../types/chat';
 
 interface MessageBubbleProps {

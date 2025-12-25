@@ -14,7 +14,7 @@ import { createPortal } from 'react-dom';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { sendFriendRequest } from '../../api/friends';
-import { AddUserIcon, ChatIcon } from '../common/Icons';
+import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
 
 /** 用户信息 */
 export interface UserInfo {

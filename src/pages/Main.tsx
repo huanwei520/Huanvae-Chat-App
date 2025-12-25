@@ -25,7 +25,7 @@ import {
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { UnifiedList } from '../components/unified/UnifiedList';
-import { ChatPanel, EmptyChat } from '../components/chat/ChatPanel';
+import { ChatPanel, EmptyChat } from '../chat';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';

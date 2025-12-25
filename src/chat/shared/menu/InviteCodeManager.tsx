@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { MenuHeader } from './MenuHeader';
-import { TrashIcon, ClipboardIcon } from '../../common/Icons';
+import { TrashIcon, ClipboardIcon } from '../../../components/common/Icons';
 import type { InviteCode } from '../../../api/groups';
 
 interface InviteCodeListProps {

@@ -17,6 +17,7 @@ import { SearchBox } from '../common/SearchBox';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
 import { cardVariants } from '../../constants/listAnimations';
+import { useLocalConversations } from '../../hooks/useLocalConversations';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
@@ -165,25 +166,30 @@ export function UnifiedList({
   panelWidth = 280,
 }: UnifiedListProps) {
 
+  // 获取本地会话预览（用于 fallback）
+  const { getFriendPreview, getGroupPreview } = useLocalConversations();
+
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
     return (friends || []).map((friend) => {
       const unread = unreadSummary?.friend_unreads.find(
         u => u.friend_id === friend.friend_id,
       );
+      // 优先使用 WebSocket 的消息预览，fallback 到本地会话
+      const localPreview = getFriendPreview(friend.friend_id);
       return {
         uniqueKey: `friend-${friend.friend_id}`,
         id: friend.friend_id,
         type: 'friend',
         name: friend.friend_nickname,
         avatarUrl: friend.friend_avatar_url,
-        lastMessage: unread?.last_message_preview || null,
-        lastMessageTime: unread?.last_message_time || friend.add_time,
+        lastMessage: unread?.last_message_preview || localPreview?.lastMessage || null,
+        lastMessageTime: unread?.last_message_time || localPreview?.lastMessageTime || friend.add_time,
         unreadCount: unread?.unread_count || 0,
         data: friend,
       };
     });
-  }, [friends, unreadSummary]);
+  }, [friends, unreadSummary, getFriendPreview]);
 
   // 构建群聊卡片列表
   const groupCards = useMemo((): UnifiedCard[] => {
@@ -191,20 +197,22 @@ export function UnifiedList({
       const unread = unreadSummary?.group_unreads.find(
         u => u.group_id === group.group_id,
       );
+      // 优先使用 WebSocket 的消息预览，fallback 到本地会话或群组数据
+      const localPreview = getGroupPreview(group.group_id);
       return {
         uniqueKey: `group-${group.group_id}`,
         id: group.group_id,
         type: 'group',
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage: unread?.last_message_preview ?? group.last_message_content,
-        lastMessageTime: unread?.last_message_time ?? group.last_message_time,
+        lastMessage: unread?.last_message_preview ?? localPreview?.lastMessage ?? group.last_message_content,
+        lastMessageTime: unread?.last_message_time ?? localPreview?.lastMessageTime ?? group.last_message_time,
         unreadCount: unread !== undefined ? unread.unread_count : (group.unread_count ?? 0),
         data: group,
         role: group.role,
       };
     });
-  }, [groups, unreadSummary]);
+  }, [groups, unreadSummary, getGroupPreview]);
 
   // 根据 activeTab 合并并排序卡片
   const cards = useMemo((): UnifiedCard[] => {

@@ -1,5 +1,8 @@
 /**
- * 群聊消息列表组件
+ * 私聊消息列表组件
+ *
+ * @module chat/friend
+ * @location src/chat/friend/ChatMessages.tsx
  *
  * 使用 flex-direction: column-reverse 实现从下往上显示
  * 最新消息自然在底部可视区域，无需滚动
@@ -19,16 +22,16 @@
 
 import { useMemo } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
-import { GroupMessageBubble } from './GroupMessageBubble';
-import { LoadingSpinner } from '../common/LoadingSpinner';
-import type { GroupMessage } from '../../api/groupMessages';
+import { MessageBubble } from './MessageBubble';
+import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import type { SessionInfo } from '../../components/common/Avatar';
+import type { Friend, Message } from '../../types/chat';
 
-interface GroupChatMessagesProps {
+interface ChatMessagesProps {
   loading: boolean;
-  messages: GroupMessage[];
-  currentUserId: string;
-  /** 当前用户在群中的角色 */
-  userRole?: 'owner' | 'admin' | 'member';
+  messages: Message[];
+  session: SessionInfo & { userId: string };
+  friend: Friend;
   /** 是否处于多选模式 */
   isMultiSelectMode?: boolean;
   /** 已选中的消息 UUID 集合 */
@@ -43,23 +46,20 @@ interface GroupChatMessagesProps {
   onEnterMultiSelect?: () => void;
 }
 
-export function GroupChatMessages({
+export function ChatMessages({
   loading,
   messages,
-  currentUserId,
-  userRole = 'member',
+  session,
+  friend,
   isMultiSelectMode = false,
   selectedMessages = new Set(),
   onToggleSelect,
   onRecall,
   onDelete,
   onEnterMultiSelect,
-}: GroupChatMessagesProps) {
-  // 是否为管理员或群主
-  const isAdmin = userRole === 'owner' || userRole === 'admin';
-
+}: ChatMessagesProps) {
   // 获取消息的稳定 key（优先使用 clientId）
-  const getStableKey = (msg: GroupMessage) => msg.clientId || msg.message_uuid;
+  const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
 
   // 消息排序：发送中的消息排在最前面（column-reverse 显示为最下方）
   // 其他消息按时间倒序排列
@@ -103,30 +103,30 @@ export function GroupChatMessages({
         }}
       >
         <p>暂无消息</p>
-        <span>发送一条消息开始群聊吧</span>
+        <span>发送一条消息开始聊天吧</span>
       </motion.div>
 
       {/* 消息列表 - LayoutGroup 确保消息间布局动画协调 */}
       <LayoutGroup>
         <AnimatePresence mode="popLayout">
           {sortedMessages.map((message) => {
-            const isOwn = message.sender_id === currentUserId;
+            const isOwn = message.sender_id === session.userId;
             const stableKey = getStableKey(message);
             const isSelected = selectedMessages.has(message.message_uuid);
 
             return (
-              <GroupMessageBubble
+              <MessageBubble
                 key={stableKey}
                 message={message}
                 isOwn={isOwn}
-                currentUserId={currentUserId}
+                session={session}
+                friend={friend}
                 isMultiSelectMode={isMultiSelectMode}
                 isSelected={isSelected}
                 onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
                 onRecall={() => onRecall?.(message.message_uuid)}
                 onDelete={() => onDelete?.(message.message_uuid)}
                 onEnterMultiSelect={onEnterMultiSelect}
-                isAdmin={isAdmin}
               />
             );
           })}

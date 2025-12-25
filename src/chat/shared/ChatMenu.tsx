@@ -10,8 +10,8 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useChatMenu } from '../../hooks/useChatMenu';
-import { MenuIcon } from '../common/Icons';
+import { useChatMenu } from '../group/useChatMenu';
+import { MenuIcon } from '../../components/common/Icons';
 import {
   type ChatMenuProps,
   MainMenu,

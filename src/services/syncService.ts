@@ -102,6 +102,22 @@ export class SyncService {
     this.notifyListeners();
   }
 
+  /** 生成消息预览文本 */
+  private getMessagePreviewText(messageType: string, content: string): string {
+    switch (messageType) {
+      case 'text':
+        return content;
+      case 'image':
+        return '[图片]';
+      case 'video':
+        return '[视频]';
+      case 'file':
+        return '[文件]';
+      default:
+        return content || '[消息]';
+    }
+  }
+
   /**
    * 执行增量同步
    * @param conversations 需要同步的会话列表（来自本地数据库）
@@ -134,12 +150,23 @@ export class SyncService {
         conversations: syncRequest,
       });
 
+      console.log('[Sync] 同步响应:', JSON.stringify(response, null, 2));
+
       const updatedConversations: string[] = [];
       let newMessagesCount = 0;
 
-      // 处理同步结果
+      // 处理同步结果 - 兼容两种响应格式
+      // 格式1: { code: 0, data: { conversations: [...] } }
+      // 格式2: { conversations: [...] } (直接返回数据)
+      const syncedConversations = response.data?.conversations ?? (response as unknown as { conversations: SyncConversationResult[] }).conversations ?? [];
 
-      for (const convResult of response.data.conversations) {
+      if (!syncedConversations || syncedConversations.length === 0) {
+        console.log('[Sync] 无会话数据返回');
+        this.updateState({ isSyncing: false, lastSyncTime: new Date() });
+        return { updatedConversations: [], newMessagesCount: 0 };
+      }
+
+      for (const convResult of syncedConversations) {
         if (convResult.messages.length > 0) {
           // 转换并保存消息
           const localMessages: Omit<LocalMessage, 'created_at'>[] =
@@ -167,6 +194,18 @@ export class SyncService {
           await db.saveMessages(localMessages);
           newMessagesCount += localMessages.length;
           updatedConversations.push(convResult.conversation_id);
+
+          // 更新会话的最后消息预览（取最后一条消息）
+          const lastMsg = convResult.messages[convResult.messages.length - 1];
+          if (lastMsg) {
+            const previewText = this.getMessagePreviewText(lastMsg.message_type, lastMsg.message_content);
+            // eslint-disable-next-line no-await-in-loop
+            await db.updateConversationLastMessage(
+              convResult.conversation_id,
+              previewText,
+              lastMsg.send_time,
+            );
+          }
         }
 
         // 更新会话的 last_seq
@@ -222,7 +261,9 @@ export class SyncService {
         ],
       });
 
-      const convResult = response.data.conversations[0];
+      // 兼容两种响应格式
+      const syncedConvs = response.data?.conversations ?? (response as unknown as { conversations: SyncConversationResult[] }).conversations ?? [];
+      const convResult = syncedConvs[0];
       if (!convResult || convResult.messages.length === 0) { break; }
 
       // 保存消息
@@ -255,6 +296,18 @@ export class SyncService {
       // 更新 last_seq
       // eslint-disable-next-line no-await-in-loop
       await db.updateConversationLastSeq(conversationId, currentSeq);
+
+      // 如果没有更多消息了，更新会话的最后消息预览
+      if (!hasMore && convResult.messages.length > 0) {
+        const lastMsg = convResult.messages[convResult.messages.length - 1];
+        const previewText = this.getMessagePreviewText(lastMsg.message_type, lastMsg.message_content);
+        // eslint-disable-next-line no-await-in-loop
+        await db.updateConversationLastMessage(
+          conversationId,
+          previewText,
+          lastMsg.send_time,
+        );
+      }
     }
   }
 

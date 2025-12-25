@@ -63,6 +63,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     const update = await check();
 
     if (update) {
+      console.log('[Update] 发现新版本:', update.version);
       return {
         available: true,
         version: update.version,
@@ -72,8 +73,24 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       };
     }
 
+    console.log('[Update] 当前已是最新版本');
     return { available: false };
   } catch (error) {
+    // 常见的非致命错误，静默处理
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    // 这些错误通常是网络问题或代理问题，不需要显示给用户
+    if (
+      errorMsg.includes('decoding response body') ||
+      errorMsg.includes('network') ||
+      errorMsg.includes('timeout') ||
+      errorMsg.includes('fetch')
+    ) {
+      console.warn('[Update] 更新检查暂时不可用（网络/代理问题）');
+      return { available: false };
+    }
+    
+    // 其他错误正常抛出
     console.error('[Update] 检查更新失败:', error);
     throw error;
   }

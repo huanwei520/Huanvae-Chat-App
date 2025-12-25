@@ -6,7 +6,7 @@
  */
 
 import { motion } from 'framer-motion';
-import { TrashIcon, RecallIcon, CloseIcon, SelectAllIcon } from '../common/Icons';
+import { TrashIcon, RecallIcon, CloseIcon, SelectAllIcon } from '../../components/common/Icons';
 
 interface MultiSelectActionBarProps {
   selectedCount: number;

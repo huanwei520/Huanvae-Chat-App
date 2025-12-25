@@ -22,8 +22,8 @@ import { useImageCache, useVideoCache } from '../../hooks/useFileCache';
 import { formatFileSize, getFileCategory } from '../../api/storage';
 import { SearchIcon, CloseIcon, UploadIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
-import { UploadProgress } from '../chat/UploadProgress';
-import { FilePreviewModal } from '../chat/FilePreviewModal';
+import { UploadProgress } from '../../chat/shared/UploadProgress';
+import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import type { FileItem } from '../../api/storage';
 
 // ============================================

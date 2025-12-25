@@ -1,6 +1,9 @@
 /**
  * 群消息气泡组件
  *
+ * @module chat/group
+ * @location src/chat/group/GroupMessageBubble.tsx
+ *
  * 功能：
  * - 类似 Telegram 的入场动画（从侧边滑入 + 从下往上 + 淡入）
  * - 退出动画（反方向滑出）
@@ -18,9 +21,9 @@
 import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
-import { MessageContextMenu } from './MessageContextMenu';
-import { FileMessageContent } from './FileMessageContent';
-import { UserProfilePopup, type UserInfo } from './UserProfilePopup';
+import { MessageContextMenu } from '../shared/MessageContextMenu';
+import { FileMessageContent } from '../shared/FileMessageContent';
+import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { useChatStore } from '../../stores';
 import type { GroupMessage } from '../../api/groupMessages';
 

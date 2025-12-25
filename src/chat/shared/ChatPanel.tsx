@@ -1,10 +1,13 @@
 /**
  * 聊天面板组件
  *
- * 主页面右侧的聊天窗口
+ * @module chat/shared
+ * @location src/chat/shared/ChatPanel.tsx
+ *
+ * 主页面右侧的聊天窗口，好友聊天和群聊共用
  * 包含：
  * - 聊天头部（标题、副标题、菜单按钮）
- * - 消息列表（私聊/群聊）
+ * - 消息列表（私聊/群聊，根据 chatTarget.type 自动切换）
  * - 输入区域 / 多选操作栏
  */
 
@@ -12,11 +15,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Session } from '../../types/session';
 import type { Friend, Group, ChatTarget, Message } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
-import type { AttachmentType } from '../chat/FileAttachButton';
+import type { AttachmentType } from './FileAttachButton';
 import type { UploadProgress } from '../../hooks/useFileUpload';
 
-import { ChatMessages } from './ChatMessages';
-import { GroupChatMessages } from './GroupChatMessages';
+import { ChatMessages } from '../friend/ChatMessages';
+import { GroupChatMessages } from '../group/GroupChatMessages';
 import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';

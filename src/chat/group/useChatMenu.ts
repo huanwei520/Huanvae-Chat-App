@@ -1,6 +1,9 @@
 /**
  * 聊天菜单状态管理 Hook
  *
+ * @module chat/group
+ * @location src/chat/group/useChatMenu.ts
+ *
  * 从 ChatMenu.tsx 中提取的状态和操作逻辑
  * 负责：
  * - 菜单开关状态
@@ -16,9 +19,9 @@
  */
 
 import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
-import { useSession, useApi } from '../contexts/SessionContext';
-import { useChatStore } from '../stores';
-import { removeFriend } from '../api/friends';
+import { useSession, useApi } from '../../contexts/SessionContext';
+import { useChatStore } from '../../stores';
+import { removeFriend } from '../../api/friends';
 import {
   updateGroup,
   inviteToGroup,
@@ -42,9 +45,9 @@ import {
   type GroupMember,
   type GroupNotice,
   type InviteCode,
-} from '../api/groups';
-import type { MenuView } from '../chat/shared/menu/types';
-import type { ChatTarget } from '../types/chat';
+} from '../../api/groups';
+import type { MenuView } from '../shared/menu/types';
+import type { ChatTarget } from '../../types/chat';
 
 // ============================================
 // 类型定义
@@ -681,7 +684,7 @@ export function useChatMenu({
     setError(null);
 
     try {
-      const { loadAllHistoryMessages } = await import('../services/historyService');
+      const { loadAllHistoryMessages } = await import('../../services/historyService');
 
       const targetId = target.type === 'friend'
         ? target.data.friend_id

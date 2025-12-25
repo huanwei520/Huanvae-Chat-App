@@ -4,7 +4,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { MenuHeader } from './MenuHeader';
-import { ShieldIcon, MuteIcon, TrashIcon } from '../../common/Icons';
+import { ShieldIcon, MuteIcon, TrashIcon } from '../../../components/common/Icons';
 import { isMuted } from './utils';
 import type { GroupMember } from '../../../api/groups';
 

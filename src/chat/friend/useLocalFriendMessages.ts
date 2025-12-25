@@ -1,7 +1,10 @@
 /**
- * 本地优先群聊消息 Hook
+ * 本地优先私聊消息 Hook
  *
- * 实现离线优先策略（与好友消息一致）：
+ * @module chat/friend
+ * @location src/chat/friend/useLocalFriendMessages.ts
+ *
+ * 实现离线优先策略：
  * 1. 先从本地 SQLite 加载消息并立即显示
  * 2. 新消息通过 WebSocket 实时推送更新（包括 seq 序列号）
  * 3. 发送消息时先乐观更新本地，API 响应后更新 uuid
@@ -15,16 +18,22 @@
  *   1. message_uuid 已存在 → 更新 seq
  *   2. 自己发送的消息且 WebSocket 比 API 快 → 替换 sending 消息
  *   3. 其他情况 → 添加新消息
+ *
+ * 调试日志前缀：
+ * - [LocalMessages] 本地消息加载
+ * - [Sync] 服务器同步
+ * - [FileLink] 文件本地链接
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import * as db from '../db';
-import type { LocalMessage, LocalConversation } from '../db';
-import { initSyncService, getSyncService, SyncService } from '../services/syncService';
-import { useSession, useApi } from '../contexts/SessionContext';
-import { useWebSocket } from '../contexts/WebSocketContext';
-import type { GroupMessage } from '../api/groupMessages';
-import type { WsNewMessage, WsMessageRecalled } from '../types/websocket';
+import * as db from '../../db';
+import type { LocalMessage, LocalConversation } from '../../db';
+import { initSyncService, getSyncService, SyncService } from '../../services/syncService';
+import { useSession, useApi } from '../../contexts/SessionContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
+import { getFriendConversationId } from '../../utils/conversationId';
+import type { Message } from '../../types/chat';
+import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
 // ============================================================================
 // 调试日志
@@ -35,26 +44,26 @@ const DEBUG = true;
 function logLocal(action: string, data?: unknown) {
   if (DEBUG) {
     // eslint-disable-next-line no-console
-    console.log(`%c[GroupLocalMsg] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
+    console.log(`%c[LocalMessages] ${action}`, 'color: #4CAF50; font-weight: bold', data ?? '');
   }
 }
 
 function logSync(action: string, data?: unknown) {
   if (DEBUG) {
     // eslint-disable-next-line no-console
-    console.log(`%c[GroupSync] ${action}`, 'color: #2196F3; font-weight: bold', data ?? '');
+    console.log(`%c[Sync] ${action}`, 'color: #2196F3; font-weight: bold', data ?? '');
   }
 }
 
 function logFileLink(action: string, data?: unknown) {
   if (DEBUG) {
     // eslint-disable-next-line no-console
-    console.log(`%c[GroupFileLink] ${action}`, 'color: #FF9800; font-weight: bold', data ?? '');
+    console.log(`%c[FileLink] ${action}`, 'color: #FF9800; font-weight: bold', data ?? '');
   }
 }
 
 function logError(action: string, error: unknown) {
-  console.error(`%c[GroupError] ${action}`, 'color: #f44336; font-weight: bold', error);
+  console.error(`%c[Error] ${action}`, 'color: #f44336; font-weight: bold', error);
 }
 
 // ============================================================================
@@ -62,24 +71,20 @@ function logError(action: string, error: unknown) {
 // ============================================================================
 
 /**
- * 将本地消息转换为 UI GroupMessage 类型
+ * 将本地消息转换为 UI Message 类型
  */
-function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
+function localMessageToMessage(local: LocalMessage, friendId: string): Message {
   return {
     message_uuid: local.message_uuid,
-    group_id: local.conversation_id,
     sender_id: local.sender_id,
-    sender_nickname: local.sender_name || '',
-    sender_avatar_url: local.sender_avatar || '',
+    receiver_id: local.sender_id === friendId ? local.conversation_id : friendId,
     message_content: local.content,
-    message_type: local.content_type as GroupMessage['message_type'],
+    message_type: local.content_type as Message['message_type'],
     file_uuid: local.file_uuid,
     file_url: local.file_url,
     file_size: local.file_size,
     file_hash: local.file_hash,
-    reply_to: local.reply_to,
     send_time: local.send_time,
-    is_recalled: local.is_recalled,
     seq: local.seq,
   };
 }
@@ -88,13 +93,13 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
 // Hook 实现
 // ============================================================================
 
-export function useLocalGroupMessages(groupId: string | null) {
+export function useLocalFriendMessages(friendId: string | null) {
   const api = useApi();
   const { session } = useSession();
   const ws = useWebSocket();
 
   // 状态
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -106,12 +111,14 @@ export function useLocalGroupMessages(groupId: string | null) {
   // Refs
   const syncServiceRef = useRef<SyncService | null>(null);
   const conversationRef = useRef<LocalConversation | null>(null);
-  const currentGroupId = useRef<string | null>(null);
+  const currentFriendId = useRef<string | null>(null);
   const dbInitialized = useRef(false);
 
   // ============================================
   // 数据库初始化检查
   // ============================================
+  // 注意：数据库在登录时已由 useAuth 初始化
+  // 这里只标记为已初始化（当有 session 时）
 
   useEffect(() => {
     if (session && !dbInitialized.current) {
@@ -121,37 +128,40 @@ export function useLocalGroupMessages(groupId: string | null) {
   }, [session]);
 
   // ============================================
-  // 切换群组时重置
+  // 切换好友时重置
   // ============================================
 
   useEffect(() => {
-    if (groupId !== currentGroupId.current) {
-      logLocal('切换群组', { from: currentGroupId.current, to: groupId });
+    if (friendId !== currentFriendId.current) {
+      logLocal('切换好友', { from: currentFriendId.current, to: friendId });
       setMessages([]);
       setHasMore(true);
       setError(null);
       conversationRef.current = null;
-      currentGroupId.current = groupId;
+      currentFriendId.current = friendId;
     }
-  }, [groupId]);
+  }, [friendId]);
 
   // ============================================
   // 加载本地消息
   // ============================================
 
   const loadMessages = useCallback(async (limit = 50) => {
-    if (!groupId || !dbInitialized.current) {
+    if (!friendId || !session || !dbInitialized.current) {
       return;
     }
+
+    // 生成正确的 conversation_id（格式: conv-user1-user2）
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     setLoading(true);
     setError(null);
 
     try {
-      logLocal('开始加载本地消息', { groupId, limit });
+      logLocal('开始加载本地消息', { friendId, conversationId, limit });
 
-      // 1. 从本地数据库加载
-      const localMessages = await db.getMessages(groupId, limit);
+      // 1. 从本地数据库加载（使用正确的 conversation_id）
+      const localMessages = await db.getMessages(conversationId, limit);
 
       logLocal('本地消息加载完成', {
         count: localMessages.length,
@@ -160,15 +170,13 @@ export function useLocalGroupMessages(groupId: string | null) {
         lastSeq: localMessages[localMessages.length - 1]?.seq,
       });
 
-      // 2. 转换为 UI GroupMessage 类型，过滤已撤回的消息
-      const uiMessages = localMessages
-        .filter((m) => !m.is_recalled)
-        .map((m) => localMessageToGroupMessage(m));
+      // 2. 转换为 UI Message 类型
+      const uiMessages = localMessages.map((m) => localMessageToMessage(m, friendId));
       setMessages(uiMessages);
       setHasMore(localMessages.length >= limit);
 
       // 3. 获取会话信息
-      conversationRef.current = await db.getConversation(groupId);
+      conversationRef.current = await db.getConversation(conversationId);
 
       // 4. 记录文件链接状态
       const filesWithHash = localMessages.filter((m) => m.file_hash);
@@ -192,16 +200,19 @@ export function useLocalGroupMessages(groupId: string | null) {
     // 5. 触发后台同步
     syncMessagesInBackground();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
+  }, [friendId]);
 
   // ============================================
   // 后台同步服务器消息
   // ============================================
 
   const syncMessagesInBackground = useCallback(async () => {
-    if (!groupId || !session || syncing) {
+    if (!friendId || !session || syncing) {
       return;
     }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     setSyncing(true);
 
@@ -221,8 +232,8 @@ export function useLocalGroupMessages(groupId: string | null) {
       let conversation = conversationRef.current;
       if (!conversation) {
         conversation = {
-          id: groupId,
-          type: 'group',
+          id: conversationId, // 使用正确的 conversation_id 格式
+          type: 'friend',
           name: '',
           avatar_url: null,
           last_message: null,
@@ -236,32 +247,35 @@ export function useLocalGroupMessages(groupId: string | null) {
         };
         await db.saveConversation(conversation);
         conversationRef.current = conversation;
-        logSync('创建新群组会话记录', { groupId });
+        logSync('创建新会话记录', { conversationId });
       }
 
       logSync('开始增量同步', {
-        groupId,
+        conversationId,
+        friendId,
         lastSeq: conversation.last_seq,
       });
 
       // 执行增量同步
       const result = await syncService.syncMessages([conversation]);
 
-      if (result.updatedConversations.includes(groupId)) {
+      if (result.updatedConversations.includes(conversationId)) {
         logSync('同步完成，发现新消息', {
           newCount: result.newMessagesCount,
         });
 
         // 重新加载本地消息
-        const updatedMessages = await db.getMessages(groupId, 50);
-        const uiMessages = updatedMessages
-          .filter((m) => !m.is_recalled)
-          .map((m) => localMessageToGroupMessage(m));
+        const updatedMessages = await db.getMessages(conversationId, 50);
+        const uiMessages = updatedMessages.map((m) => localMessageToMessage(m, friendId));
 
         // 智能合并：保留现有消息的 clientId 和 sendStatus，避免触发不必要的动画
+        // 同时保留正在发送中的消息（sendStatus 为 'sending'）
         setMessages((prev) => {
           const existingMap = new Map(prev.map((m) => [m.message_uuid, m]));
-          return uiMessages.map((newMsg) => {
+          // 保留正在发送中的消息（这些消息还没保存到数据库）
+          const sendingMessages = prev.filter((m) => m.sendStatus === 'sending');
+
+          const mergedMessages = uiMessages.map((newMsg) => {
             const existing = existingMap.get(newMsg.message_uuid);
             if (existing) {
               // 保留 clientId 和 sendStatus
@@ -269,6 +283,21 @@ export function useLocalGroupMessages(groupId: string | null) {
             }
             return newMsg;
           });
+
+          // 如果有正在发送的消息，确保它们不被覆盖
+          if (sendingMessages.length > 0) {
+            const mergedUuids = new Set(mergedMessages.map((m) => m.message_uuid));
+            // 添加那些不在合并结果中的发送中消息
+            const missingMessages = sendingMessages.filter(
+              (m) => !mergedUuids.has(m.message_uuid),
+            );
+            if (missingMessages.length > 0) {
+              logSync('保留发送中的消息', { count: missingMessages.length });
+              return [...missingMessages, ...mergedMessages];
+            }
+          }
+
+          return mergedMessages;
         });
         setHasMore(updatedMessages.length >= 50);
 
@@ -278,19 +307,23 @@ export function useLocalGroupMessages(groupId: string | null) {
       }
     } catch (err) {
       logError('后台同步失败', err);
+      // 同步失败不影响本地消息显示
     } finally {
       setSyncing(false);
     }
-  }, [groupId, session, syncing, api]);
+  }, [friendId, session, syncing, api]);
 
   // ============================================
   // 加载更多历史消息
   // ============================================
 
   const loadMoreMessages = useCallback(async (limit = 50) => {
-    if (!groupId || !hasMore || messages.length === 0) {
+    if (!friendId || !session || !hasMore || messages.length === 0) {
       return;
     }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     setLoadingMore(true);
 
@@ -301,12 +334,10 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       logLocal('加载更多历史消息', { beforeSeq: oldestSeq });
 
-      const olderMessages = await db.getMessages(groupId, limit, oldestSeq);
+      const olderMessages = await db.getMessages(conversationId, limit, oldestSeq);
 
       if (olderMessages.length > 0) {
-        const uiMessages = olderMessages
-          .filter((m) => !m.is_recalled)
-          .map((m) => localMessageToGroupMessage(m));
+        const uiMessages = olderMessages.map((m) => localMessageToMessage(m, friendId));
         // 更老的消息添加到数组末尾
         setMessages((prev) => [...prev, ...uiMessages]);
         logLocal('加载更多完成', { count: olderMessages.length });
@@ -319,16 +350,19 @@ export function useLocalGroupMessages(groupId: string | null) {
     } finally {
       setLoadingMore(false);
     }
-  }, [groupId, hasMore, messages]);
+  }, [friendId, session, hasMore, messages]);
 
   // ============================================
   // 发送文本消息（乐观更新）
   // ============================================
 
   const sendTextMessage = useCallback(async (content: string): Promise<void> => {
-    if (!groupId || !content.trim() || !session) {
+    if (!friendId || !content.trim() || !session) {
       return;
     }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     // 生成临时 UUID 和稳定的 clientId
     const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -336,21 +370,17 @@ export function useLocalGroupMessages(groupId: string | null) {
     const tempSendTime = new Date().toISOString();
 
     // 构建临时消息对象（乐观更新）
-    const tempMessage: GroupMessage = {
+    const tempMessage: Message = {
       message_uuid: tempUuid,
-      group_id: groupId,
       sender_id: session.userId,
-      sender_nickname: session.profile.user_nickname,
-      sender_avatar_url: session.profile.user_avatar_url ?? '',
+      receiver_id: friendId,
       message_content: content,
       message_type: 'text',
       file_uuid: null,
       file_url: null,
       file_size: null,
       file_hash: null,
-      reply_to: null,
       send_time: tempSendTime,
-      is_recalled: false,
       seq: 0,
       sendStatus: 'sending',
       clientId, // 稳定的客户端 ID，用于 React key
@@ -360,13 +390,13 @@ export function useLocalGroupMessages(groupId: string | null) {
     setMessages((prev) => [tempMessage, ...prev]);
     setError(null);
 
-    logLocal('发送文本消息（乐观更新）', { clientId, content: content.substring(0, 50) });
+    logLocal('发送文本消息（乐观更新）', { tempUuid, content: content.substring(0, 50) });
 
     try {
       // 调用 API 发送
-      const { sendGroupMessage } = await import('../api/groupMessages');
-      const response = await sendGroupMessage(api, {
-        group_id: groupId,
+      const { sendMessage } = await import('../../api/messages');
+      const response = await sendMessage(api, {
+        receiver_id: friendId,
         message_content: content,
         message_type: 'text',
       });
@@ -376,18 +406,18 @@ export function useLocalGroupMessages(groupId: string | null) {
         msg.clientId === clientId
           ? {
             ...msg,
-            message_uuid: response.data.message_uuid,
-            send_time: response.data.send_time,
+            message_uuid: response.message_uuid,
+            send_time: response.send_time,
             sendStatus: 'sent',
           }
           : msg,
       ));
 
-      // 保存到本地数据库
+      // 保存到本地数据库（使用正确的 conversation_id）
       const localMessage: Omit<LocalMessage, 'created_at'> = {
-        message_uuid: response.data.message_uuid,
-        conversation_id: groupId,
-        conversation_type: 'group',
+        message_uuid: response.message_uuid,
+        conversation_id: conversationId,
+        conversation_type: 'friend',
         sender_id: session.userId,
         sender_name: session.profile.user_nickname,
         sender_avatar: session.profile.user_avatar_url,
@@ -401,11 +431,11 @@ export function useLocalGroupMessages(groupId: string | null) {
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
-        send_time: response.data.send_time,
+        send_time: response.send_time,
       };
       await db.saveMessage(localMessage);
 
-      logLocal('消息发送成功并保存到本地', { uuid: response.data.message_uuid });
+      logLocal('消息发送成功并保存到本地', { uuid: response.message_uuid });
       // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
     } catch (err) {
       logError('发送消息失败', err);
@@ -418,7 +448,7 @@ export function useLocalGroupMessages(groupId: string | null) {
           : msg,
       ));
     }
-  }, [api, groupId, session]);
+  }, [api, friendId, session]);
 
   // ============================================
   // 发送媒体消息（乐观更新）
@@ -426,16 +456,19 @@ export function useLocalGroupMessages(groupId: string | null) {
 
   const sendMediaMessage = useCallback(async (
     content: string,
-    messageType: GroupMessage['message_type'],
+    messageType: Message['message_type'],
     fileUuid?: string,
     fileUrl?: string,
     fileSize?: number,
     fileHash?: string,
     localPath?: string,
   ) => {
-    if (!groupId || !session) {
+    if (!friendId || !session) {
       return null;
     }
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     // 生成临时 UUID 和稳定的 clientId
     const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -443,21 +476,17 @@ export function useLocalGroupMessages(groupId: string | null) {
     const tempSendTime = new Date().toISOString();
 
     // 构建临时消息对象（乐观更新）
-    const tempMessage: GroupMessage = {
+    const tempMessage: Message = {
       message_uuid: tempUuid,
-      group_id: groupId,
       sender_id: session.userId,
-      sender_nickname: session.profile.user_nickname,
-      sender_avatar_url: session.profile.user_avatar_url ?? '',
+      receiver_id: friendId,
       message_content: content,
       message_type: messageType,
       file_uuid: fileUuid ?? null,
       file_url: fileUrl ?? null,
       file_size: fileSize ?? null,
       file_hash: fileHash ?? null,
-      reply_to: null,
       send_time: tempSendTime,
-      is_recalled: false,
       seq: 0,
       sendStatus: 'sending',
       clientId, // 稳定的客户端 ID，用于 React key
@@ -472,7 +501,8 @@ export function useLocalGroupMessages(groupId: string | null) {
     try {
       // 如果有本地路径和哈希，记录文件映射
       if (fileHash && localPath) {
-        const { recordUploadedFile } = await import('../services/fileService');
+        const { recordUploadedFile } = await import('../../services/fileService');
+        // 确定 content type
         let contentType = 'application/octet-stream';
         if (messageType === 'image') {
           contentType = 'image/jpeg';
@@ -490,9 +520,9 @@ export function useLocalGroupMessages(groupId: string | null) {
       }
 
       // 调用 API 发送
-      const { sendGroupMessage } = await import('../api/groupMessages');
-      const response = await sendGroupMessage(api, {
-        group_id: groupId,
+      const { sendMessage } = await import('../../api/messages');
+      const response = await sendMessage(api, {
+        receiver_id: friendId,
         message_content: content,
         message_type: messageType,
         file_uuid: fileUuid,
@@ -505,18 +535,18 @@ export function useLocalGroupMessages(groupId: string | null) {
         msg.clientId === clientId
           ? {
             ...msg,
-            message_uuid: response.data.message_uuid,
-            send_time: response.data.send_time,
+            message_uuid: response.message_uuid,
+            send_time: response.send_time,
             sendStatus: 'sent',
           }
           : msg,
       ));
 
-      // 保存到本地数据库
+      // 保存到本地数据库（使用正确的 conversation_id）
       const localMessage: Omit<LocalMessage, 'created_at'> = {
-        message_uuid: response.data.message_uuid,
-        conversation_id: groupId,
-        conversation_type: 'group',
+        message_uuid: response.message_uuid,
+        conversation_id: conversationId,
+        conversation_type: 'friend',
         sender_id: session.userId,
         sender_name: session.profile.user_nickname,
         sender_avatar: session.profile.user_avatar_url,
@@ -530,12 +560,12 @@ export function useLocalGroupMessages(groupId: string | null) {
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
-        send_time: response.data.send_time,
+        send_time: response.send_time,
       };
       await db.saveMessage(localMessage);
 
-      logLocal('媒体消息发送成功', { uuid: response.data.message_uuid, hasFileLink: !!fileHash });
-      logFileLink('媒体消息已链接到本地', { uuid: response.data.message_uuid, fileHash, localPath });
+      logLocal('媒体消息发送成功', { uuid: response.message_uuid, hasFileLink: !!fileHash });
+      logFileLink('媒体消息已链接到本地', { uuid: response.message_uuid, fileHash, localPath });
       // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
 
       return response;
@@ -552,7 +582,7 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       return null;
     }
-  }, [api, groupId, session]);
+  }, [api, friendId, session]);
 
   // ============================================
   // 撤回消息
@@ -560,8 +590,8 @@ export function useLocalGroupMessages(groupId: string | null) {
 
   const recall = useCallback(async (messageUuid: string) => {
     try {
-      const { recallGroupMessage } = await import('../api/groupMessages');
-      await recallGroupMessage(api, messageUuid);
+      const { recallMessage } = await import('../../api/messages');
+      await recallMessage(api, messageUuid);
 
       // 从 UI 移除
       setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
@@ -599,11 +629,14 @@ export function useLocalGroupMessages(groupId: string | null) {
   // ============================================
 
   const handleNewMessage = useCallback((wsMsg: WsNewMessage) => {
-    if (wsMsg.source_type !== 'group' || wsMsg.source_id !== groupId || !session) {
+    if (wsMsg.source_type !== 'friend' || wsMsg.source_id !== friendId || !session) {
       return;
     }
 
     logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid, sender: wsMsg.sender_id });
+
+    // 生成正确的 conversation_id
+    const conversationId = getFriendConversationId(session.userId, friendId);
 
     // 智能处理消息：
     // 1. 如果 message_uuid 已存在 → 更新 seq
@@ -625,10 +658,11 @@ export function useLocalGroupMessages(groupId: string | null) {
       }
 
       // 情况 2：WebSocket 比 API 响应快（自己发送的消息）
+      // 查找是否有正在发送中的消息（sender_id 是自己）
       if (wsMsg.sender_id === session.userId) {
         const sendingIndex = prev.findIndex((m) => m.sendStatus === 'sending');
         if (sendingIndex >= 0) {
-          // 替换发送中的消息
+          // 替换发送中的消息（更新 uuid、seq、sendStatus）
           const updated = [...prev];
           updated[sendingIndex] = {
             ...updated[sendingIndex],
@@ -642,35 +676,32 @@ export function useLocalGroupMessages(groupId: string | null) {
         }
       }
 
-      // 情况 3：新消息（其他成员发送的）
+      // 情况 3：新消息（对方发送的）
       // 添加 clientId 以触发入场动画
-      const newMessage: GroupMessage = {
+      const newMessage: Message = {
         message_uuid: wsMsg.message_uuid,
-        group_id: wsMsg.source_id,
         sender_id: wsMsg.sender_id,
-        sender_nickname: wsMsg.sender_nickname || '',
-        sender_avatar_url: wsMsg.sender_avatar_url || '',
+        receiver_id: session.userId,
         message_content: wsMsg.content || wsMsg.preview || '',
-        message_type: wsMsg.message_type as GroupMessage['message_type'],
+        message_type: wsMsg.message_type as Message['message_type'],
         file_uuid: wsMsg.file_uuid ?? null,
         file_url: wsMsg.file_url ?? null,
         file_size: wsMsg.file_size ?? null,
         file_hash: wsMsg.file_hash ?? null,
-        reply_to: null,
         send_time: wsMsg.timestamp,
-        is_recalled: false,
         seq: wsMsg.seq || 0,
         clientId: `ws_${wsMsg.message_uuid}`, // 用于触发入场动画
       };
 
+      // 新消息添加到数组开头，配合 column-reverse 显示在底部
       return [newMessage, ...prev];
     });
 
-    // 保存/更新到本地数据库（包含完整文件信息）
+    // 保存/更新到本地数据库（使用正确的 conversation_id 和完整文件信息）
     const localMessage: Omit<LocalMessage, 'created_at'> = {
       message_uuid: wsMsg.message_uuid,
-      conversation_id: wsMsg.source_id,
-      conversation_type: 'group',
+      conversation_id: conversationId,
+      conversation_type: 'friend',
       sender_id: wsMsg.sender_id,
       sender_name: wsMsg.sender_nickname || null,
       sender_avatar: wsMsg.sender_avatar_url || null,
@@ -689,14 +720,14 @@ export function useLocalGroupMessages(groupId: string | null) {
     db.saveMessage(localMessage).catch((err) => {
       logError('保存 WebSocket 消息到本地失败', err);
     });
-  }, [groupId, session]);
+  }, [friendId, session]);
 
   // ============================================
   // 处理 WebSocket 消息撤回
   // ============================================
 
   const handleMessageRecalled = useCallback((wsMsg: WsMessageRecalled) => {
-    if (wsMsg.source_type !== 'group' || wsMsg.source_id !== groupId) {
+    if (wsMsg.source_type !== 'friend' || wsMsg.source_id !== friendId) {
       return;
     }
 
@@ -709,7 +740,7 @@ export function useLocalGroupMessages(groupId: string | null) {
     db.markMessageRecalled(wsMsg.message_uuid).catch((err) => {
       logError('标记消息撤回失败', err);
     });
-  }, [groupId]);
+  }, [friendId]);
 
   // ============================================
   // 监听 WebSocket 事件
@@ -717,13 +748,13 @@ export function useLocalGroupMessages(groupId: string | null) {
 
   useEffect(() => {
     const unsubscribeNew = ws.onNewMessage((msg) => {
-      if (msg.source_type === 'group' && msg.source_id === groupId) {
+      if (msg.source_type === 'friend' && msg.source_id === friendId) {
         handleNewMessage(msg);
       }
     });
 
     const unsubscribeRecalled = ws.onMessageRecalled((msg) => {
-      if (msg.source_type === 'group' && msg.source_id === groupId) {
+      if (msg.source_type === 'friend' && msg.source_id === friendId) {
         handleMessageRecalled(msg);
       }
     });
@@ -732,7 +763,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       unsubscribeNew();
       unsubscribeRecalled();
     };
-  }, [ws, groupId, handleNewMessage, handleMessageRecalled]);
+  }, [ws, friendId, handleNewMessage, handleMessageRecalled]);
 
   // ============================================
   // WebSocket 重连时触发同步
@@ -765,7 +796,7 @@ export function useLocalGroupMessages(groupId: string | null) {
     recall,
     refresh,
     removeMessage,
-    // WebSocket 事件处理方法
+    // 兼容旧接口
     handleNewMessage,
     handleMessageRecalled,
   };

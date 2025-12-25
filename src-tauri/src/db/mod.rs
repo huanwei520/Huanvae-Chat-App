@@ -34,12 +34,14 @@ use std::path::PathBuf;
 use crate::user_data;
 
 // 子模块
+pub mod contacts;
 pub mod conversations;
 pub mod files;
 pub mod messages;
 pub mod types;
 
 // 重新导出类型和函数
+pub use contacts::*;
 pub use conversations::*;
 pub use files::*;
 pub use messages::*;
@@ -210,6 +212,37 @@ pub fn init_database() -> Result<(), String> {
     )
     .map_err(|e| format!("创建 avatars 表失败: {}", e))?;
 
+    // 创建好友表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS friends (
+            friend_id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            nickname TEXT,
+            avatar_url TEXT,
+            status TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 friends 表失败: {}", e))?;
+
+    // 创建群组表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS groups (
+            group_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            avatar_url TEXT,
+            owner_id TEXT NOT NULL,
+            member_count INTEGER NOT NULL DEFAULT 0,
+            my_role TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 groups 表失败: {}", e))?;
+
     *db_guard = Some(conn);
     println!("[DB] 数据库初始化完成");
 
@@ -228,7 +261,9 @@ pub fn clear_all_data() -> Result<(), String> {
              DELETE FROM conversations;
              DELETE FROM file_mappings;
              DELETE FROM file_uuid_hash;
-             DELETE FROM avatars;",
+             DELETE FROM avatars;
+             DELETE FROM friends;
+             DELETE FROM groups;",
         )
         .map_err(|e| e.to_string())?;
 

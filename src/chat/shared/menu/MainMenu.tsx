@@ -23,9 +23,9 @@ import {
   QrCodeIcon,
   UserIcon,
   CloudDownloadIcon,
-} from '../../common/Icons';
-import { CircularProgress } from '../../common/CircularProgress';
-import { GroupAvatar } from '../../common/Avatar';
+} from '../../../components/common/Icons';
+import { CircularProgress } from '../../../components/common/CircularProgress';
+import { GroupAvatar } from '../../../components/common/Avatar';
 import type { Group } from '../../../types/chat';
 import type { MenuView } from './types';
 

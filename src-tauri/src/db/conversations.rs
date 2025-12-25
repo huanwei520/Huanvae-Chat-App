@@ -152,3 +152,20 @@ pub fn clear_conversation_unread(id: &str) -> Result<(), String> {
         Ok(())
     })
 }
+
+/// 更新会话的最后消息预览
+pub fn update_conversation_last_message(
+    id: &str,
+    last_message: &str,
+    last_message_time: &str,
+) -> Result<(), String> {
+    with_db!(db, {
+        db.execute(
+            "UPDATE conversations SET last_message = ?, last_message_time = ?, updated_at = datetime('now') WHERE id = ?",
+            params![last_message, last_message_time, id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })
+}

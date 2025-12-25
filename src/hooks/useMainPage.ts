@@ -34,8 +34,8 @@ import { useWebSocket } from '../contexts/WebSocketContext';
 import { useChatStore } from '../stores';
 import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
-import { useLocalFriendMessages } from './useLocalFriendMessages';
-import { useLocalGroupMessages } from './useLocalGroupMessages';
+import { useLocalFriendMessages } from '../chat/friend/useLocalFriendMessages';
+import { useLocalGroupMessages } from '../chat/group/useLocalGroupMessages';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -45,7 +45,7 @@ import { getGroupInvitations } from '../api/groups';
 
 import { getFriendConversationId } from '../utils/conversationId';
 import type { NavTab } from '../components/sidebar/Sidebar';
-import type { AttachmentType } from '../components/chat/FileAttachButton';
+import type { AttachmentType } from '../chat';
 import type { Friend, Group, ChatTarget } from '../types/chat';
 import type {
   FriendApprovedData,

@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { MenuHeader } from './MenuHeader';
-import { TrashIcon, EditIcon } from '../../common/Icons';
+import { TrashIcon, EditIcon } from '../../../components/common/Icons';
 import type { GroupNotice } from '../../../api/groups';
 
 interface NoticesListProps {

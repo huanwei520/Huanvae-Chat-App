@@ -158,6 +158,15 @@ export async function clearConversationUnread(id: string): Promise<void> {
   await invoke('db_clear_conversation_unread', { id });
 }
 
+/** 更新会话的最后消息预览 */
+export async function updateConversationLastMessage(
+  id: string,
+  lastMessage: string,
+  lastMessageTime: string,
+): Promise<void> {
+  await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
+}
+
 /** 增加会话未读数 */
 export async function incrementConversationUnread(id: string): Promise<void> {
   // 先获取当前未读数，再 +1
@@ -289,4 +298,80 @@ export async function clearAllData(): Promise<void> {
 export function cleanupInvalidFileMappings(): Promise<{ removed: number; total: number }> {
   // 这个功能需要配合文件系统检查，在调用处实现
   return Promise.resolve({ removed: 0, total: 0 });
+}
+
+// ============================================================================
+// 好友操作
+// ============================================================================
+
+/** 本地好友记录 */
+export interface LocalFriend {
+  friend_id: string;
+  username: string;
+  nickname: string | null;
+  avatar_url: string | null;
+  status: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** 获取所有本地好友 */
+export function getFriends(): Promise<LocalFriend[]> {
+  return invoke<LocalFriend[]>('db_get_friends');
+}
+
+/** 批量保存好友（全量替换） */
+export async function saveFriends(friends: LocalFriend[]): Promise<void> {
+  await invoke('db_save_friends', { friends });
+}
+
+/** 保存单个好友 */
+export async function saveFriend(friend: LocalFriend): Promise<void> {
+  await invoke('db_save_friend', { friend });
+}
+
+/** 删除好友 */
+export async function deleteFriend(friendId: string): Promise<void> {
+  await invoke('db_delete_friend', { friendId });
+}
+
+// ============================================================================
+// 群组操作
+// ============================================================================
+
+/** 本地群组记录 */
+export interface LocalGroup {
+  group_id: string;
+  name: string;
+  avatar_url: string | null;
+  owner_id: string;
+  member_count: number;
+  my_role: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** 获取所有本地群组 */
+export function getGroups(): Promise<LocalGroup[]> {
+  return invoke<LocalGroup[]>('db_get_groups');
+}
+
+/** 批量保存群组（全量替换） */
+export async function saveGroups(groups: LocalGroup[]): Promise<void> {
+  await invoke('db_save_groups', { groups });
+}
+
+/** 保存单个群组 */
+export async function saveGroup(group: LocalGroup): Promise<void> {
+  await invoke('db_save_group', { group });
+}
+
+/** 更新群组信息 */
+export async function updateGroup(group: LocalGroup): Promise<void> {
+  await invoke('db_update_group', { group });
+}
+
+/** 删除群组 */
+export async function deleteGroup(groupId: string): Promise<void> {
+  await invoke('db_delete_group', { groupId });
 }

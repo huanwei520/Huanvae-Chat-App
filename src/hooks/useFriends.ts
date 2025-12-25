@@ -1,22 +1,24 @@
 /**
  * 好友管理 Hook
  *
- * 基于 Zustand store 的好友状态管理
+ * 基于 Zustand store 的好友状态管理，支持本地优先加载
  *
  * 功能：
- * - 好友列表加载和刷新（调用 API 并更新 store）
+ * - 本地优先：先从本地数据库加载，立即显示
+ * - 后台同步：同时从服务器获取最新列表，更新本地和 UI
  * - 提供 store 中好友操作方法的便捷访问
  *
- * 状态存储在 useChatStore 中，本 hook 主要负责：
- * 1. 初始化时加载好友列表
- * 2. 提供 refresh 方法重新加载
- * 3. 代理 store 中的操作方法
+ * 加载流程：
+ * 1. 先从本地 SQLite 加载好友列表 → 立即显示
+ * 2. 同时从服务器获取最新列表
+ * 3. 更新本地数据库和 UI
  */
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
-import { getFriends } from '../api/friends';
+import { getFriends as getFriendsFromApi } from '../api/friends';
+import * as db from '../db';
 import type { Friend } from '../types/chat';
 
 interface UseFriendsReturn {
@@ -34,6 +36,31 @@ interface UseFriendsReturn {
   removeFriend: (friendId: string) => void;
 }
 
+/** 将本地好友转换为 UI 好友类型 */
+function localFriendToFriend(local: db.LocalFriend): Friend {
+  return {
+    friend_id: local.friend_id,
+    username: local.username,
+    nickname: local.nickname || undefined,
+    avatar_url: local.avatar_url || undefined,
+    status: local.status || undefined,
+    created_at: local.created_at,
+  };
+}
+
+/** 将 UI 好友类型转换为本地好友 */
+function friendToLocalFriend(friend: Friend): db.LocalFriend {
+  return {
+    friend_id: friend.friend_id,
+    username: friend.username,
+    nickname: friend.nickname || null,
+    avatar_url: friend.avatar_url || null,
+    status: friend.status || null,
+    created_at: friend.created_at,
+    updated_at: null,
+  };
+}
+
 export function useFriends(): UseFriendsReturn {
   const api = useApi();
 
@@ -47,23 +74,60 @@ export function useFriends(): UseFriendsReturn {
   const addFriend = useChatStore((state) => state.addFriend);
   const removeFriend = useChatStore((state) => state.removeFriend);
 
-  // 加载好友列表
+  // 从本地数据库加载好友
+  const loadLocalFriends = useCallback(async (): Promise<Friend[]> => {
+    try {
+      const localFriends = await db.getFriends();
+      return localFriends.map(localFriendToFriend);
+    } catch (err) {
+      console.warn('[Friends] 加载本地好友失败:', err);
+      return [];
+    }
+  }, []);
+
+  // 从服务器加载好友并保存到本地
+  const loadServerFriends = useCallback(async (): Promise<Friend[]> => {
+    const response = await getFriendsFromApi(api);
+    const serverFriends = response.items || [];
+
+    // 保存到本地数据库
+    try {
+      const localFriends = serverFriends.map(friendToLocalFriend);
+      await db.saveFriends(localFriends);
+      console.log('[Friends] 保存好友到本地:', serverFriends.length);
+    } catch (err) {
+      console.warn('[Friends] 保存好友到本地失败:', err);
+    }
+
+    return serverFriends;
+  }, [api]);
+
+  // 加载好友列表（本地优先 + 后台同步）
   const loadFriends = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await getFriends(api);
-      // 服务器返回格式: { items: Friend[] }
-      setFriends(response.items || []);
+      // 1. 先从本地加载并立即显示
+      const localFriends = await loadLocalFriends();
+      if (localFriends.length > 0) {
+        setFriends(localFriends);
+        console.log('[Friends] 从本地加载好友:', localFriends.length);
+      }
+
+      // 2. 从服务器获取最新列表
+      const serverFriends = await loadServerFriends();
+      setFriends(serverFriends);
+      console.log('[Friends] 从服务器加载好友:', serverFriends.length);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[Friends] 加载好友失败:', errorMsg);
       setError(errorMsg);
-      setFriends([]);
+      // 如果服务器失败，保持本地数据显示
     } finally {
       setLoading(false);
     }
-  }, [api, setFriends, setLoading, setError]);
+  }, [loadLocalFriends, loadServerFriends, setFriends, setLoading, setError]);
 
   // 初始化加载（只执行一次）
   const initRef = useRef(false);

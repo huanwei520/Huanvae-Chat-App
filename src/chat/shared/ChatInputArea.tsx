@@ -13,7 +13,7 @@ import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileAttachButton, type AttachmentType } from './FileAttachButton';
 import { UploadProgress } from './UploadProgress';
-import { SendIcon, MuteIcon } from '../common/Icons';
+import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
 
