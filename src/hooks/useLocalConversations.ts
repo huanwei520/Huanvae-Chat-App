@@ -5,10 +5,9 @@
  * 当 WebSocket 的 unreadSummary 没有某个会话的数据时，使用本地数据作为 fallback
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import * as db from '../db';
-import { getFriendConversationId } from '../utils/conversationId';
 
 /** 会话预览信息 */
 export interface ConversationPreview {

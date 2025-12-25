@@ -40,11 +40,10 @@ interface UseFriendsReturn {
 function localFriendToFriend(local: db.LocalFriend): Friend {
   return {
     friend_id: local.friend_id,
-    username: local.username,
-    nickname: local.nickname || undefined,
-    avatar_url: local.avatar_url || undefined,
-    status: local.status || undefined,
-    created_at: local.created_at,
+    friend_nickname: local.nickname || local.username,
+    friend_avatar_url: local.avatar_url || null,
+    add_time: local.created_at,
+    approve_reason: null,
   };
 }
 
@@ -52,11 +51,11 @@ function localFriendToFriend(local: db.LocalFriend): Friend {
 function friendToLocalFriend(friend: Friend): db.LocalFriend {
   return {
     friend_id: friend.friend_id,
-    username: friend.username,
-    nickname: friend.nickname || null,
-    avatar_url: friend.avatar_url || null,
-    status: friend.status || null,
-    created_at: friend.created_at,
+    username: friend.friend_id, // 使用 friend_id 作为 username
+    nickname: friend.friend_nickname || null,
+    avatar_url: friend.friend_avatar_url || null,
+    status: null,
+    created_at: friend.add_time,
     updated_at: null,
   };
 }
