@@ -17,6 +17,13 @@
  * 1. 使用 addTransceiver() 创建独立通道，不复用现有 transceiver
  * 2. 只在 signalingState === 'stable' 时进行协商
  * 3. 新 transceiver 不影响现有的麦克风/摄像头/屏幕共享通道
+ *
+ * 发言状态检测：
+ * - 使用 AudioContext + AnalyserNode 分析麦克风音量
+ * - 音量阈值 30，超过则判定为正在说话
+ * - 通过 DataChannel 广播 { type: 'speaking', speaking: boolean }
+ * - 远程参与者接收后更新 participant.isSpeaking
+ * - UI 根据 isSpeaking 显示绿色边框脉冲动画
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -93,7 +100,7 @@ export function useWebRTC(): UseWebRTCReturn {
     cameraEnabled: false,
     screenSharing: false,
   });
-  const [isSpeaking] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // ========== Refs ==========
   const wsRef = useRef<WebSocket | null>(null);
@@ -112,6 +119,15 @@ export function useWebRTC(): UseWebRTCReturn {
   // 协商锁（防止并发协商）
   const negotiatingRef = useRef<Set<string>>(new Set());
 
+  // DataChannel 引用（用于广播发言状态）
+  const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
+
+  // 音频分析相关（用于检测本地发言状态）
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastSpeakingRef = useRef<boolean>(false);
+
   // ========== 工具函数 ==========
 
   /** 发送 WebSocket 消息 */
@@ -120,6 +136,103 @@ export function useWebRTC(): UseWebRTCReturn {
       wsRef.current.send(JSON.stringify(message));
     }
   }, []);
+
+  /** 广播发言状态到所有 DataChannel */
+  const broadcastSpeakingStatus = useCallback((speaking: boolean) => {
+    const message = JSON.stringify({ type: 'speaking', speaking });
+    dataChannelsRef.current.forEach((channel) => {
+      if (channel.readyState === 'open') {
+        channel.send(message);
+      }
+    });
+  }, []);
+
+  /** 处理接收到的 DataChannel 消息 */
+  const handleDataChannelMessage = useCallback((peerId: string, data: string) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.type === 'speaking') {
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === peerId ? { ...p, isSpeaking: msg.speaking } : p)),
+        );
+      }
+    } catch {
+      // 忽略解析错误
+    }
+  }, []);
+
+  /**
+   * 启动音量检测
+   * 使用 AudioContext + AnalyserNode 分析麦克风音量
+   */
+  const startVolumeDetection = useCallback((stream: MediaStream) => {
+    // 清理之前的检测
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.5;
+
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    audioContextRef.current = audioContext;
+    analyserRef.current = analyser;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const SPEAKING_THRESHOLD = 30; // 音量阈值
+
+    const detectVolume = () => {
+      if (!analyserRef.current) {
+        return;
+      }
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // 计算平均音量
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / dataArray.length;
+
+      // 判断是否在说话
+      const speaking = average > SPEAKING_THRESHOLD;
+
+      // 只在状态变化时更新和广播
+      if (speaking !== lastSpeakingRef.current) {
+        lastSpeakingRef.current = speaking;
+        setIsSpeaking(speaking);
+        broadcastSpeakingStatus(speaking);
+      }
+
+      animationFrameRef.current = requestAnimationFrame(detectVolume);
+    };
+
+    detectVolume();
+  }, [broadcastSpeakingStatus]);
+
+  /** 停止音量检测 */
+  const stopVolumeDetection = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    lastSpeakingRef.current = false;
+    setIsSpeaking(false);
+    broadcastSpeakingStatus(false);
+  }, [broadcastSpeakingStatus]);
 
   /** 获取或初始化 Transceiver 引用 */
   const getTransceiverRefs = useCallback((peerId: string): TransceiverRefs => {
@@ -256,9 +369,44 @@ export function useWebRTC(): UseWebRTCReturn {
       safeNegotiate(peerId, pc);
     };
 
+    /**
+     * 创建 DataChannel 用于传输发言状态
+     * 使用有序、可靠的通道确保状态同步
+     */
+    const dataChannel = pc.createDataChannel('speaking-status', {
+      ordered: true,
+    });
+    dataChannel.onopen = () => {
+      dataChannelsRef.current.set(peerId, dataChannel);
+    };
+    dataChannel.onclose = () => {
+      dataChannelsRef.current.delete(peerId);
+    };
+    dataChannel.onmessage = (event) => {
+      handleDataChannelMessage(peerId, event.data);
+    };
+
+    /**
+     * 处理远程创建的 DataChannel
+     */
+    pc.ondatachannel = (event) => {
+      const channel = event.channel;
+      if (channel.label === 'speaking-status') {
+        channel.onopen = () => {
+          dataChannelsRef.current.set(peerId, channel);
+        };
+        channel.onclose = () => {
+          dataChannelsRef.current.delete(peerId);
+        };
+        channel.onmessage = (e) => {
+          handleDataChannelMessage(peerId, e.data);
+        };
+      }
+    };
+
     peerConnectionsRef.current.set(peerId, pc);
     return pc;
-  }, [sendMessage, getTransceiverRefs, safeNegotiate]);
+  }, [sendMessage, getTransceiverRefs, safeNegotiate, handleDataChannelMessage]);
 
   /** 关闭 PeerConnection */
   const closePeerConnection = useCallback((peerId: string) => {
@@ -269,6 +417,7 @@ export function useWebRTC(): UseWebRTCReturn {
     }
     transceiverMapRef.current.delete(peerId);
     negotiatingRef.current.delete(peerId);
+    dataChannelsRef.current.delete(peerId);
     setParticipants((prev) => prev.filter((p) => p.id !== peerId));
   }, []);
 
@@ -576,6 +725,9 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 停止所有本地媒体流 */
   const stopLocalStream = useCallback(() => {
+    // 停止音量检测
+    stopVolumeDetection();
+
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
@@ -590,16 +742,19 @@ export function useWebRTC(): UseWebRTCReturn {
     }
     setLocalStream(null);
     setMediaState({ micEnabled: false, cameraEnabled: false, screenSharing: false });
-  }, []);
+  }, [stopVolumeDetection]);
 
   /**
    * 切换麦克风
-   * - 开启：获取麦克风流，向所有参与者添加 transceiver
-   * - 关闭：停止麦克风流，停止所有 transceiver
+   * - 开启：获取麦克风流，向所有参与者添加 transceiver，启动音量检测
+   * - 关闭：停止麦克风流，停止所有 transceiver，停止音量检测
    */
   const toggleMic = useCallback(async () => {
     if (mediaState.micEnabled) {
       // ========== 关闭麦克风 ==========
+      // 停止音量检测
+      stopVolumeDetection();
+
       // 停止所有 PeerConnection 的麦克风 transceiver
       const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
         stopMicTransceiver(peerId),
@@ -629,6 +784,9 @@ export function useWebRTC(): UseWebRTCReturn {
         micStreamRef.current = stream;
         const track = stream.getAudioTracks()[0];
 
+        // 启动音量检测
+        startVolumeDetection(stream);
+
         // 向所有 PeerConnection 添加麦克风 transceiver
         const addPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
           addMicTransceiver(peerId, track),
@@ -647,7 +805,7 @@ export function useWebRTC(): UseWebRTCReturn {
         // 用户拒绝权限
       }
     }
-  }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver]);
+  }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver, startVolumeDetection, stopVolumeDetection]);
 
   /**
    * 切换摄像头
@@ -771,6 +929,13 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 清理所有资源 */
   const cleanup = useCallback(() => {
+    // 停止音量检测
+    stopVolumeDetection();
+
+    // 关闭所有 DataChannel
+    dataChannelsRef.current.forEach((channel) => channel.close());
+    dataChannelsRef.current.clear();
+
     // 关闭所有 PeerConnection
     peerConnectionsRef.current.forEach((pc) => pc.close());
     peerConnectionsRef.current.clear();
@@ -789,7 +954,7 @@ export function useWebRTC(): UseWebRTCReturn {
     setParticipants([]);
     setError(null);
     myIdRef.current = null;
-  }, []);
+  }, [stopVolumeDetection]);
 
   /** 连接信令服务器 */
   const connect = useCallback((roomId: string, token: string, iceServers: IceServer[]) => {

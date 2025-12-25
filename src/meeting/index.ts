@@ -18,6 +18,14 @@
  * 2. 只在 signalingState === 'stable' 时进行协商
  * 3. 新 transceiver 不影响现有的媒体通道
  *
+ * ## 发言状态检测
+ *
+ * 使用 Web Audio API 进行本地音量检测：
+ * - AudioContext + AnalyserNode 分析麦克风音量
+ * - 音量阈值 30，超过则判定为正在说话
+ * - 通过 DataChannel 广播发言状态到所有参与者
+ * - UI 显示绿色边框脉冲动画指示发言者
+ *
  * ## 模块导出
  *
  * - `useWebRTC`: 核心 Hook，管理 WebRTC 连接和媒体流
