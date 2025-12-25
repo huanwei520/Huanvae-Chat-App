@@ -188,16 +188,25 @@ jobs:
           }
           
           # 获取各平台签名
-          WIN_SIG=$(get_signature_from_release "_x64-setup.exe")
+          WIN_NSIS_SIG=$(get_signature_from_release "_x64-setup.exe")
+          WIN_MSI_SIG=$(get_signature_from_release "_x64_zh-CN.msi")
           MAC_SIG=$(get_signature_from_release "_aarch64.dmg")
           LINUX_SIG=$(get_signature_from_release "_amd64.AppImage")
           
-          echo "Windows signature: ${WIN_SIG:0:50}..."
+          echo "Windows NSIS signature: ${WIN_NSIS_SIG:0:50}..."
+          echo "Windows MSI signature: ${WIN_MSI_SIG:0:50}..."
           echo "macOS signature: ${MAC_SIG:0:50}..."
           echo "Linux signature: ${LINUX_SIG:0:50}..."
           
           # 构建 JSON（文件名必须与 tauri 实际生成的一致）
           # productName: Huanvae-Chat-App
+          # 支持的平台键：
+          # - windows-x86_64: 默认 Windows (NSIS)
+          # - windows-x86_64-nsis: 明确指定 NSIS
+          # - windows-x86_64-msi: MSI 安装包
+          # - darwin-aarch64: macOS ARM64
+          # - linux-x86_64: 默认 Linux (AppImage)
+          # - linux-x86_64-appimage: 明确指定 AppImage
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
@@ -205,14 +214,26 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
-                "signature": "${WIN_SIG}",
+                "signature": "${WIN_NSIS_SIG}",
                 "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+              },
+              "windows-x86_64-nsis": {
+                "signature": "${WIN_NSIS_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+              },
+              "windows-x86_64-msi": {
+                "signature": "${WIN_MSI_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi"
               },
               "darwin-aarch64": {
                 "signature": "${MAC_SIG}",
                 "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_aarch64.dmg"
               },
               "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+              },
+              "linux-x86_64-appimage": {
                 "signature": "${LINUX_SIG}",
                 "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               }
