@@ -60,7 +60,8 @@
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerHooks": "nsis/hooks"
       },
       "wix": {
         "language": "zh-CN"
@@ -91,7 +92,7 @@
         "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "basicUi"
       }
     }
   }
