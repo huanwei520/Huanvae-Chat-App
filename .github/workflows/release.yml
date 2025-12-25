@@ -162,6 +162,8 @@ jobs:
           echo "$ASSETS" > assets.json
 
       - name: Generate latest.json with proxy URLs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           REPO="${{ github.repository }}"
@@ -170,18 +172,32 @@ jobs:
           # 代理源列表（使用第一个作为默认）
           PROXY="https://edgeone.gh-proxy.org/"
           
-          # 读取签名文件内容（如果存在）
-          get_signature() {
+          # 获取 release 资产信息
+          echo "Fetching release assets..."
+          RELEASE_INFO=$(gh api repos/${REPO}/releases/tags/${TAG})
+          
+          # 从 release 中获取签名文件内容
+          get_signature_from_release() {
             local pattern=$1
-            local sig_file=$(ls -1 src-tauri/target/release/bundle/*/${pattern}.sig 2>/dev/null | head -1 || echo "")
-            if [ -f "$sig_file" ]; then
-              cat "$sig_file"
+            local sig_url=$(echo "$RELEASE_INFO" | jq -r ".assets[] | select(.name | endswith(\"${pattern}.sig\")) | .browser_download_url" | head -1)
+            if [ -n "$sig_url" ] && [ "$sig_url" != "null" ]; then
+              curl -sL "$sig_url" 2>/dev/null || echo ""
             else
               echo ""
             fi
           }
           
-          # 构建 JSON
+          # 获取各平台签名
+          WIN_SIG=$(get_signature_from_release "_x64-setup.exe")
+          MAC_SIG=$(get_signature_from_release "_aarch64.dmg")
+          LINUX_SIG=$(get_signature_from_release "_amd64.AppImage")
+          
+          echo "Windows signature: ${WIN_SIG:0:50}..."
+          echo "macOS signature: ${MAC_SIG:0:50}..."
+          echo "Linux signature: ${LINUX_SIG:0:50}..."
+          
+          # 构建 JSON（文件名必须与 tauri 实际生成的一致）
+          # productName: Huanvae-Chat-App
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
@@ -189,16 +205,16 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
-                "signature": "",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_x64-setup.nsis.zip"
+                "signature": "${WIN_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "darwin-aarch64": {
-                "signature": "",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
+                "signature": "${MAC_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_aarch64.dmg"
               },
               "linux-x86_64": {
-                "signature": "",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/huanvae-chat-app_${VERSION}_amd64.AppImage.tar.gz"
+                "signature": "${LINUX_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               }
             }
           }
@@ -220,7 +236,7 @@ jobs:
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
           
-          # 生成包含所有代理的参考文件
+          # 生成包含所有代理的参考文件（文件名与 tauri 实际生成的一致）
           cat > latest-all-proxies.json << EOF
           {
             "version": "${VERSION}",
@@ -234,11 +250,11 @@ jobs:
               "direct": "https://github.com/${REPO}/releases/download/${TAG}/"
             },
             "files": {
-              "windows-nsis": "huanvae-chat-app_${VERSION}_x64-setup.nsis.zip",
-              "windows-msi": "huanvae-chat-app_${VERSION}_x64_en-US.msi",
-              "linux-appimage": "huanvae-chat-app_${VERSION}_amd64.AppImage.tar.gz",
-              "linux-deb": "huanvae-chat-app_${VERSION}_amd64.deb",
-              "macos-arm64": "huanvae-chat-app_${VERSION}_aarch64.app.tar.gz"
+              "windows-nsis": "Huanvae-Chat-App_${VERSION}_x64-setup.exe",
+              "windows-msi": "Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi",
+              "linux-appimage": "Huanvae-Chat-App_${VERSION}_amd64.AppImage",
+              "linux-deb": "Huanvae-Chat-App_${VERSION}_amd64.deb",
+              "macos-arm64": "Huanvae-Chat-App_${VERSION}_aarch64.dmg"
             }
           }
           EOF
