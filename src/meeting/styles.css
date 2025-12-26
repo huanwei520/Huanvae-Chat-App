@@ -305,7 +305,8 @@
    ============================================ */
 
 .meeting-page {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
   background: linear-gradient(
     135deg,
     #e0f2fe 0%,
@@ -318,6 +319,7 @@
   flex-direction: column;
   color: #1e3a5f;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
 }
 
 /* 加载状态 */
@@ -357,7 +359,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: clamp(8px, 2vh, 16px) clamp(12px, 3vw, 24px);
+  padding: 16px 24px;
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.8) 0%,
@@ -366,6 +368,7 @@
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(147, 197, 253, 0.3);
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .meeting-info {
@@ -445,20 +448,27 @@
 .meeting-main {
   flex: 1;
   display: flex;
-  padding: clamp(8px, 2vw, 16px);
-  gap: clamp(8px, 2vw, 16px);
+  padding: 16px;
+  gap: 16px;
   overflow: hidden;
   min-height: 0;
+  justify-content: center;
+  align-items: center;
 }
 
 .video-grid {
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-  gap: clamp(8px, 2vw, 16px);
-  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-content: center;
+  justify-content: center;
+  align-items: center;
   transition: all 0.3s;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
 }
 
 .video-grid.with-sidebar {
@@ -481,6 +491,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1 1 calc(50% - 16px);
+  min-width: 280px;
+  max-width: calc(100% - 32px);
+}
+
+/* 单人时视频框更大 */
+.video-grid .participant-video:only-child {
+  flex: 0 1 auto;
+  width: min(100%, 900px);
+  max-height: 100%;
 }
 
 .participant-video.local {
@@ -533,8 +553,8 @@
 
 /* 用户头像图片（登录用户） */
 .avatar-image {
-  width: clamp(50px, 15vmin, 80px);
-  height: clamp(50px, 15vmin, 80px);
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid rgba(255, 255, 255, 0.8);
@@ -543,14 +563,14 @@
 
 /* 首字母占位头像（未登录用户） */
 .avatar-placeholder {
-  width: clamp(50px, 15vmin, 80px);
-  height: clamp(50px, 15vmin, 80px);
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(20px, 6vmin, 32px);
+  font-size: 32px;
   font-weight: 600;
   color: white;
   text-transform: uppercase;
@@ -558,16 +578,16 @@
 
 .participant-name {
   position: absolute;
-  bottom: clamp(6px, 1.5vmin, 12px);
-  left: clamp(6px, 1.5vmin, 12px);
+  bottom: 12px;
+  left: 12px;
   display: flex;
   align-items: center;
-  gap: clamp(4px, 1vmin, 8px);
-  padding: clamp(4px, 1vmin, 6px) clamp(8px, 1.5vmin, 12px);
+  gap: 8px;
+  padding: 6px 12px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(8px);
   border-radius: 6px;
-  font-size: clamp(11px, 1.5vmin, 13px);
+  font-size: 13px;
   color: #1e3a5f;
   border: 1px solid rgba(147, 197, 253, 0.3);
 }
@@ -579,6 +599,22 @@
   font-size: 11px;
   font-weight: 500;
   color: white;
+}
+
+/* 屏幕共享徽章 */
+.screen-share-badge {
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: white;
+}
+
+/* 屏幕共享时视频框样式 */
+.participant-video.screen-sharing {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3);
 }
 
 /* 参与者侧边栏 */
@@ -682,7 +718,7 @@
 
 /* 控制栏 */
 .meeting-controls {
-  padding: clamp(8px, 2vh, 16px) clamp(12px, 3vw, 24px) clamp(12px, 3vh, 24px);
+  padding: 16px 24px 24px;
   display: flex;
   justify-content: center;
   background: linear-gradient(
@@ -691,19 +727,18 @@
     transparent 100%
   );
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .controls-center {
   display: flex;
-  gap: clamp(6px, 1.5vw, 12px);
-  flex-wrap: wrap;
-  justify-content: center;
+  gap: 12px;
 }
 
 .control-btn {
-  width: clamp(40px, 8vw, 56px);
-  height: clamp(40px, 8vw, 56px);
-  border-radius: clamp(10px, 2vw, 16px);
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
   border: 1px solid rgba(147, 197, 253, 0.4);
   background: rgba(255, 255, 255, 0.8);
   color: #475569;
@@ -713,12 +748,11 @@
   justify-content: center;
   transition: all 0.2s;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  flex-shrink: 0;
 }
 
 .control-btn svg {
-  width: clamp(18px, 4vw, 24px);
-  height: clamp(18px, 4vw, 24px);
+  width: 24px;
+  height: 24px;
 }
 
 .control-btn:hover {
@@ -792,107 +826,5 @@
   width: 20px;
   height: 20px;
   border-width: 2px;
-}
-
-/* ============================================
-   响应式布局
-   ============================================ */
-
-/* 小窗口 / 窄屏幕 */
-@media (max-width: 600px), (max-height: 500px) {
-  .meeting-header {
-    padding: 8px 12px;
-  }
-
-  .meeting-info h1 {
-    font-size: 14px;
-  }
-
-  .meeting-id {
-    font-size: 10px;
-  }
-
-  .meeting-header-btn {
-    padding: 6px 8px;
-  }
-
-  .meeting-header-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .participant-count {
-    font-size: 10px;
-  }
-
-  .video-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .participant-video {
-    aspect-ratio: 4/3;
-  }
-
-  .participants-sidebar {
-    width: 200px;
-  }
-
-  .participants-sidebar h3 {
-    padding: 10px 12px;
-    font-size: 12px;
-  }
-
-  .participant-item {
-    padding: 6px 8px;
-    gap: 8px;
-  }
-
-  .participant-item .participant-avatar,
-  .participant-item .participant-avatar-img {
-    width: 28px;
-    height: 28px;
-    font-size: 12px;
-  }
-
-  .participant-item .participant-name {
-    font-size: 12px;
-  }
-
-  .participant-badge {
-    padding: 1px 5px;
-    font-size: 9px;
-  }
-}
-
-/* 非常小的窗口 */
-@media (max-height: 400px) {
-  .meeting-main {
-    padding: 4px;
-    gap: 4px;
-  }
-
-  .video-grid {
-    gap: 4px;
-  }
-
-  .participant-video {
-    aspect-ratio: 16/9;
-    border-radius: 8px;
-  }
-
-  .controls-center {
-    gap: 4px;
-  }
-
-  .control-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-  }
-
-  .control-btn svg {
-    width: 16px;
-    height: 16px;
-  }
 }
 

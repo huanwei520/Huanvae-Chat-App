@@ -59,8 +59,7 @@ export interface CreateRoomRequest {
   password?: string;
   /** 最大人数（默认10，最大50） */
   max_participants?: number;
-  /** 过期时间分钟（默认120，最大1440） */
-  expires_minutes?: number;
+  // 注意：expires_minutes 已移除，房间现在无限时长，仅空置后自动清理
 }
 
 /** 创建房间响应 */
@@ -69,7 +68,7 @@ export interface CreateRoomResponse {
   password: string;
   name: string;
   max_participants: number;
-  expires_at: string;
+  // 注意：expires_at 已移除，房间现在无限时长
   /** 创建者的参与者 ID */
   participant_id: string;
   /** 创建者的 WebSocket Token */

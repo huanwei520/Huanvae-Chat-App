@@ -1,83 +1,105 @@
-# release.ps1 - 自动化版本发布脚本
-# 用法: .\scripts\release.ps1 -Version "1.0.3" -Message "新增功能xxx，修复bug xxx"
+<#
+.SYNOPSIS
+    Huanvae Chat App 自动化版本发布脚本
 
-param(
-    [Parameter(Mandatory=$true)]
-    [string]$Version,
-    
-    [Parameter(Mandatory=$true)]
-    [string]$Message
-)
+.DESCRIPTION
+    通过读取 release-config.txt 配置文件进行版本发布
+    自动更新版本号、提交代码、创建标签、推送到GitHub触发构建
 
-# 设置 UTF-8 编码
-$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8
-chcp 65001 | Out-Null
+.USAGE
+    1. 编辑 scripts/release-config.txt 设置版本号和更新说明
+    2. 在项目根目录运行: powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1
+#>
 
-$ErrorActionPreference = "Stop"
-$ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Huanvae Chat App 版本发布脚本" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "版本号: v$Version" -ForegroundColor Yellow
-Write-Host "更新日志: $Message" -ForegroundColor Yellow
-Write-Host ""
-
-# 切换到项目根目录
+# 切换到脚本所在目录的父目录（项目根目录）
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent $ScriptDir
 Set-Location $ProjectRoot
 
-# 1. 更新 package.json 版本号
-Write-Host "[1/7] 更新 package.json 版本号..." -ForegroundColor Green
-$packageJson = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-$packageJson.version = $Version
-$packageJson | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding UTF8
+# 配置文件路径
+$ConfigPath = Join-Path $ScriptDir "release-config.txt"
 
-# 2. 更新 tauri.conf.json 版本号
-Write-Host "[2/7] 更新 tauri.conf.json 版本号..." -ForegroundColor Green
-$tauriConf = Get-Content "src-tauri/tauri.conf.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-$tauriConf.version = $Version
-$tauriConf | ConvertTo-Json -Depth 10 | Set-Content "src-tauri/tauri.conf.json" -Encoding UTF8
+# 检查配置文件
+if (!(Test-Path $ConfigPath)) {
+    Write-Host "[ERROR] 配置文件不存在: $ConfigPath" -ForegroundColor Red
+    exit 1
+}
 
-# 3. 创建提交消息文件（解决中文编码问题）
-Write-Host "[3/7] 准备提交消息..." -ForegroundColor Green
-$commitMsgFile = Join-Path $ProjectRoot ".commit_msg_temp"
-$commitMessage = "v$Version`: $Message"
-[System.IO.File]::WriteAllText($commitMsgFile, $commitMessage, [System.Text.Encoding]::UTF8)
+# 读取配置
+$Config = @{}
+Get-Content $ConfigPath -Encoding UTF8 | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -and !$line.StartsWith("#")) {
+        $parts = $line.Split("=", 2)
+        if ($parts.Length -eq 2) {
+            $Config[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+}
 
-# 4. 暂存所有更改
-Write-Host "[4/7] 暂存更改..." -ForegroundColor Green
+$Version = $Config["VERSION"]
+$Message = $Config["MESSAGE"]
+
+if (!$Version -or !$Message) {
+    Write-Host "[ERROR] 配置文件格式错误，需要 VERSION 和 MESSAGE" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "========================================"
+Write-Host "  Huanvae Chat App v$Version"
+Write-Host "========================================"
+Write-Host "  $Message"
+Write-Host "========================================"
+Write-Host ""
+
+# 步骤1: 更新 package.json
+Write-Host "[1/6] 更新 package.json..." -ForegroundColor Cyan
+$pkg = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$pkg.version = $Version
+$pkg | ConvertTo-Json -Depth 10 | Out-File "package.json" -Encoding UTF8
+
+# 步骤2: 更新 tauri.conf.json
+Write-Host "[2/6] 更新 tauri.conf.json..." -ForegroundColor Cyan
+$tauri = Get-Content "src-tauri/tauri.conf.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$tauri.version = $Version
+$tauri | ConvertTo-Json -Depth 10 | Out-File "src-tauri/tauri.conf.json" -Encoding UTF8
+
+# 步骤3: 更新 Cargo.toml
+Write-Host "[3/6] 更新 Cargo.toml..." -ForegroundColor Cyan
+$cargoLines = Get-Content "src-tauri/Cargo.toml" -Encoding UTF8
+$newLines = @()
+foreach ($line in $cargoLines) {
+    if ($line.StartsWith("version = ")) {
+        $newLines += "version = `"$Version`""
+    } else {
+        $newLines += $line
+    }
+}
+$newLines | Out-File "src-tauri/Cargo.toml" -Encoding UTF8
+
+# 步骤4: Git 提交
+Write-Host "[4/6] Git 提交..." -ForegroundColor Cyan
+$commitFile = Join-Path $ProjectRoot ".commit_msg"
+"v$Version`: $Message" | Out-File $commitFile -Encoding UTF8
 git add -A
+git commit -F $commitFile
+Remove-Item $commitFile -Force -ErrorAction SilentlyContinue
 
-# 5. 提交更改（使用文件传递中文消息）
-Write-Host "[5/7] 提交更改..." -ForegroundColor Green
-git commit -F $commitMsgFile
-
-# 6. 删除临时文件
-Remove-Item $commitMsgFile -Force -ErrorAction SilentlyContinue
-
-# 7. 删除旧标签（如果存在）并创建新标签
-Write-Host "[6/7] 创建标签 v$Version..." -ForegroundColor Green
+# 步骤5: 创建标签
+Write-Host "[5/6] 创建标签 v$Version..." -ForegroundColor Cyan
 git tag -d "v$Version" 2>$null
-git push origin ":refs/tags/v$Version" 2>$null
 git tag "v$Version"
 
-# 8. 推送代码和标签
-Write-Host "[7/7] 推送到远程仓库..." -ForegroundColor Green
+# 步骤6: 推送
+Write-Host "[6/6] 推送到 GitHub..." -ForegroundColor Cyan
 git push origin main
-git push origin "v$Version"
+git push origin "v$Version" --force
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  发布完成!" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "========================================"
+Write-Host "  发布完成! v$Version" -ForegroundColor Green
+Write-Host "========================================"
 Write-Host ""
-Write-Host "版本 v$Version 已推送到 GitHub" -ForegroundColor Green
-Write-Host "GitHub Actions 将自动开始构建" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "查看构建进度:" -ForegroundColor Cyan
-Write-Host "https://github.com/huanwei520/Huanvae-Chat-App/actions" -ForegroundColor White
-Write-Host ""
-Write-Host "查看 Release:" -ForegroundColor Cyan
-Write-Host "https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v$Version" -ForegroundColor White
-
+Write-Host "GitHub Actions: https://github.com/huanwei520/Huanvae-Chat-App/actions"
+Write-Host "Release: https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v$Version"

@@ -31,7 +31,14 @@ import {
 } from '../components/common/Icons';
 import './styles.css';
 
-/** 参与者视频组件 */
+/**
+ * 参与者视频组件
+ *
+ * 视频流优先级：
+ * 1. screenStream（屏幕共享）- 优先显示
+ * 2. cameraStream（摄像头）
+ * 3. stream（未区分的混合流，兼容旧逻辑）
+ */
 function ParticipantVideo({
   participant,
   isLocal,
@@ -47,8 +54,11 @@ function ParticipantVideo({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const stream = participant?.stream;
+  // 视频流优先级：屏幕共享 > 摄像头 > 混合流
+  const stream = participant?.screenStream || participant?.cameraStream || participant?.stream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
+  // 是否正在共享屏幕（用于 UI 提示）
+  const isScreenSharing = !!participant?.screenStream;
 
   // 检查是否有活跃的视频轨道
   useEffect(() => {
@@ -107,8 +117,9 @@ function ParticipantVideo({
   // ============================================================
   // 修复：单独处理音频播放
   // 即使没有视频轨道，也需要播放远程音频
-  // 这是屏幕共享能工作但纯音频不能的根本原因
+  // 注意：音频从原始 participant.stream 播放，不从区分后的视频流
   // ============================================================
+  const audioStream = participant?.stream;
   useEffect(() => {
     // 本地用户不需要播放自己的音频（会产生回声）
     if (isLocal) {
@@ -116,11 +127,11 @@ function ParticipantVideo({
     }
 
     const audioElement = audioRef.current;
-    if (audioElement && stream) {
+    if (audioElement && audioStream) {
       // 检查是否有音频轨道
-      const audioTracks = stream.getAudioTracks();
+      const audioTracks = audioStream.getAudioTracks();
       if (audioTracks.length > 0) {
-        audioElement.srcObject = stream;
+        audioElement.srcObject = audioStream;
         // 尝试播放（处理 autoplay 限制）
         audioElement.play().catch(() => {
           // 忽略 autoplay 限制错误，用户交互后会自动播放
@@ -133,7 +144,7 @@ function ParticipantVideo({
         audioElement.srcObject = null;
       }
     };
-  }, [stream, isLocal]);
+  }, [audioStream, isLocal]);
 
   // 修复：如果创建者的名称与房间名称相同，说明后端返回的是房间名而非用户名
   const displayName = (() => {
@@ -158,13 +169,13 @@ function ParticipantVideo({
 
   return (
     <motion.div
-      className={`participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}
+      className={`participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''} ${isScreenSharing ? 'screen-sharing' : ''}`}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
     >
-      {/* 隐藏的音频元素：用于播放远程音频（即使没有视频） */}
-      {!isLocal && (
+      {/* 隐藏的音频元素：用于播放远程音频（使用原始 stream，不是区分后的视频流） */}
+      {!isLocal && participant?.stream && (
         <audio
           ref={audioRef}
           autoPlay
@@ -198,6 +209,7 @@ function ParticipantVideo({
       <div className="participant-name">
         {displayName}
         {participant?.is_creator && <span className="creator-badge">主持人</span>}
+        {isScreenSharing && <span className="screen-share-badge">屏幕共享</span>}
       </div>
     </motion.div>
   );

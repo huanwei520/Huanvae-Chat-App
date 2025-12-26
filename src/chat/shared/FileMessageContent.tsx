@@ -2,17 +2,20 @@
  * 文件消息内容组件
  *
  * 根据消息类型（图片/视频/文件）渲染不同的内容
- * - 图片：缩略图预览，点击放大，加载后自动缓存到本地
- * - 视频：视频缩略图，点击播放，播放时后台下载缓存
+ * - 图片：缩略图预览，点击打开独立窗口查看
+ * - 视频：视频缩略图，点击打开独立窗口播放
  * - 文件：文件图标和名称，点击下载
  *
  * 使用 useFileCache Hook 实现本地优先加载和自动缓存
+ * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
 
 import { useState, useCallback } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
+import { openMediaWindow } from '../../media';
+import { useSession } from '../../contexts/SessionContext';
 import type { MessageType } from '../../types/chat';
 
 // ============================================
@@ -88,7 +91,7 @@ function ImageMessage({
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
 }) {
-  const [showPreview, setShowPreview] = useState(false);
+  const { session } = useSession();
   const { src, isLocal, loading, error, onLoad, localPath } = useImageCache(
     fileUuid,
     fileHash,
@@ -96,37 +99,44 @@ function ImageMessage({
     urlType,
   );
 
-  return (
-    <>
-      <div className="file-message image-message" onClick={() => setShowPreview(true)}>
-        {loading && <div className="file-message-loading">加载中...</div>}
-        {error && <div className="file-message-error">加载失败</div>}
-        {!loading && !error && src && (
-          <>
-            {isLocal && <LocalBadge />}
-            <img
-              src={src}
-              alt={filename}
-              className="message-image"
-              draggable={false}
-              onLoad={onLoad}
-            />
-          </>
-        )}
-      </div>
+  // 点击打开独立预览窗口
+  const handleClick = useCallback(() => {
+    if (!session) return;
 
-      <FilePreviewModal
-        isOpen={showPreview}
-        onClose={() => setShowPreview(false)}
-        fileUuid={fileUuid}
-        filename={filename}
-        contentType="image/jpeg"
-        fileSize={fileSize ?? undefined}
-        localPath={localPath}
-        fileHash={fileHash}
-        urlType={urlType}
-      />
-    </>
+    openMediaWindow(
+      {
+        type: 'image',
+        fileUuid,
+        filename,
+        fileSize: fileSize ?? undefined,
+        fileHash,
+        urlType,
+        localPath,
+      },
+      {
+        serverUrl: session.serverUrl,
+        accessToken: session.accessToken,
+      },
+    );
+  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
+
+  return (
+    <div className="file-message image-message" onClick={handleClick}>
+      {loading && <div className="file-message-loading">加载中...</div>}
+      {error && <div className="file-message-error">加载失败</div>}
+      {!loading && !error && src && (
+        <>
+          {isLocal && <LocalBadge />}
+          <img
+            src={src}
+            alt={filename}
+            className="message-image"
+            draggable={false}
+            onLoad={onLoad}
+          />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -147,7 +157,7 @@ function VideoMessage({
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
 }) {
-  const [showPreview, setShowPreview] = useState(false);
+  const { session } = useSession();
   const { src, isLocal, loading, error, onPlay, localPath } = useVideoCache(
     fileUuid,
     fileHash,
@@ -156,39 +166,46 @@ function VideoMessage({
     urlType,
   );
 
-  return (
-    <>
-      <div className="file-message video-message" onClick={() => setShowPreview(true)}>
-        {loading && <div className="file-message-loading">加载中...</div>}
-        {error && <div className="file-message-error">加载失败</div>}
-        {!loading && !error && src && (
-          <>
-            {isLocal && <LocalBadge />}
-            <video
-              src={src}
-              className="message-video-thumbnail"
-              preload="metadata"
-              onPlay={onPlay}
-            />
-            <div className="video-play-overlay">
-              <PlayIcon />
-            </div>
-          </>
-        )}
-      </div>
+  // 点击打开独立预览窗口
+  const handleClick = useCallback(() => {
+    if (!session) return;
 
-      <FilePreviewModal
-        isOpen={showPreview}
-        onClose={() => setShowPreview(false)}
-        fileUuid={fileUuid}
-        filename={filename}
-        contentType="video/mp4"
-        fileSize={fileSize ?? undefined}
-        localPath={localPath}
-        fileHash={fileHash}
-        urlType={urlType}
-      />
-    </>
+    openMediaWindow(
+      {
+        type: 'video',
+        fileUuid,
+        filename,
+        fileSize: fileSize ?? undefined,
+        fileHash,
+        urlType,
+        localPath,
+      },
+      {
+        serverUrl: session.serverUrl,
+        accessToken: session.accessToken,
+      },
+    );
+  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
+
+  return (
+    <div className="file-message video-message" onClick={handleClick}>
+      {loading && <div className="file-message-loading">加载中...</div>}
+      {error && <div className="file-message-error">加载失败</div>}
+      {!loading && !error && src && (
+        <>
+          {isLocal && <LocalBadge />}
+          <video
+            src={src}
+            className="message-video-thumbnail"
+            preload="metadata"
+            onPlay={onPlay}
+          />
+          <div className="video-play-overlay">
+            <PlayIcon />
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

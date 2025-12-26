@@ -10,6 +10,7 @@
  * 功能：
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
+ * - 无加载动画：消息从本地 SQLite 加载，速度极快
  *
  * 消息排序机制：
  * - 发送中的消息始终排在最前面（column-reverse 显示为最下方）
@@ -23,12 +24,12 @@
 import { useMemo } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
-import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
 interface ChatMessagesProps {
-  loading: boolean;
+  /** @deprecated 不再使用，消息从本地加载速度很快 */
+  loading?: boolean;
   messages: Message[];
   session: SessionInfo & { userId: string };
   friend: Friend;
@@ -47,7 +48,6 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({
-  loading,
   messages,
   session,
   friend,
@@ -73,15 +73,7 @@ export function ChatMessages({
     });
   }, [messages]);
 
-  if (loading) {
-    return (
-      <div className="message-placeholder">
-        <LoadingSpinner />
-        <span>加载消息中...</span>
-      </div>
-    );
-  }
-
+  // 消息从本地 SQLite 加载，速度很快，不需要加载动画
   // 占位符始终存在于DOM中，使用 absolute 定位脱离文档流
   // 通过 opacity 控制显示/隐藏，避免布局变化导致的抽搐
   const isEmpty = messages.length === 0;

@@ -2,7 +2,8 @@
  * Huanvae Chat 应用入口
  *
  * 路由逻辑：
- * - /meeting: 会议页面（独立窗口）
+ * - /meeting: 会议页面（独立窗口，不需要 Session）
+ * - /media: 媒体预览页面（独立窗口，需要 Session 获取文件 URL）
  * - 其他路径: 主应用
  */
 
@@ -12,22 +13,35 @@ import { SessionProvider } from './contexts/SessionContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import App from './App';
 import { MeetingPage } from './meeting';
+import { MediaPreviewPage } from './media';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
-const isMeetingPage = window.location.pathname === '/meeting';
+const pathname = window.location.pathname;
+
+function RootApp() {
+  // 会议页面（独立窗口，不需要 Session）
+  if (pathname === '/meeting') {
+    return <MeetingPage />;
+  }
+
+  // 媒体预览页面（独立窗口，认证信息通过 localStorage 传递）
+  if (pathname === '/media') {
+    return <MediaPreviewPage />;
+  }
+
+  // 主应用
+  return (
+    <SessionProvider>
+      <WebSocketProvider>
+        <App />
+      </WebSocketProvider>
+    </SessionProvider>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    {isMeetingPage ? (
-      // 会议页面不需要 Session/WebSocket Provider
-      <MeetingPage />
-    ) : (
-      <SessionProvider>
-        <WebSocketProvider>
-          <App />
-        </WebSocketProvider>
-      </SessionProvider>
-    )}
+    <RootApp />
   </React.StrictMode>,
 );

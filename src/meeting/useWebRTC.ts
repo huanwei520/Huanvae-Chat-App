@@ -24,6 +24,17 @@
  * - 通过 DataChannel 广播 { type: 'speaking', speaking: boolean }
  * - 远程参与者接收后更新 participant.isSpeaking
  * - UI 根据 isSpeaking 显示绿色边框脉冲动画
+ *
+ * 媒体类型同步机制（区分摄像头/屏幕共享）：
+ * - 发送端：创建 transceiver 后，通过 DataChannel 广播 { type: 'media-type', mid, mediaType }
+ * - 接收端：维护 mediaTypeMapsRef (Map<peerId, Map<mid, 'camera' | 'screen'>>)
+ * - 收到 media-type 消息后，根据 mid 映射更新 participant.cameraStream/screenStream
+ * - UI 优先显示 screenStream，其次 cameraStream，最后是未区分的 stream
+ *
+ * 协商发起策略（解决后加入者听不到声音问题）：
+ * - 使用 participant ID 比较决定谁发起协商（ID 小的一方发起）
+ * - 先加入的成员检测到后加入的成员时，主动发起协商
+ * - 使用 mediaStateRef 避免闭包问题，确保协商时使用最新的媒体状态
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -55,8 +66,24 @@ export interface MediaDeviceState {
 /** 远程参与者（包含头像信息） */
 export interface RemoteParticipant extends Participant {
   stream?: MediaStream;
+  /** 摄像头视频流（与 screenStream 区分） */
+  cameraStream?: MediaStream;
+  /** 屏幕共享视频流（与 cameraStream 区分） */
+  screenStream?: MediaStream;
   connectionState: ConnectionState;
   isSpeaking?: boolean;
+}
+
+/**
+ * DataChannel 媒体类型消息
+ * 用于通知接收端 transceiver mid 对应的媒体类型（摄像头/屏幕共享）
+ */
+interface MediaTypeMessage {
+  type: 'media-type';
+  /** transceiver 的 mid */
+  mid: string;
+  /** 媒体类型：camera 或 screen */
+  mediaType: 'camera' | 'screen';
 }
 
 /** 每个 PeerConnection 的 Transceiver 引用 */
@@ -119,14 +146,26 @@ export function useWebRTC(): UseWebRTCReturn {
   // 协商锁（防止并发协商）
   const negotiatingRef = useRef<Set<string>>(new Set());
 
-  // DataChannel 引用（用于广播发言状态）
+  // DataChannel 引用（用于广播发言状态和媒体类型）
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
+
+  // 媒体状态 Ref（解决 createInitialOffer 闭包问题）
+  const mediaStateRef = useRef<MediaDeviceState>(mediaState);
+
+  // 媒体类型映射（接收端用于区分摄像头/屏幕共享）
+  // Map<peerId, Map<mid, 'camera' | 'screen'>>
+  const mediaTypeMapsRef = useRef<Map<string, Map<string, 'camera' | 'screen'>>>(new Map());
 
   // 音频分析相关（用于检测本地发言状态）
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastSpeakingRef = useRef<boolean>(false);
+
+  // 同步 mediaState 到 ref（用于 createInitialOffer 等回调）
+  useEffect(() => {
+    mediaStateRef.current = mediaState;
+  }, [mediaState]);
 
   // ========== 工具函数 ==========
 
@@ -147,13 +186,94 @@ export function useWebRTC(): UseWebRTCReturn {
     });
   }, []);
 
-  /** 处理接收到的 DataChannel 消息 */
+  /**
+   * 广播媒体类型到指定 peerId
+   * 告知接收端 transceiver mid 对应的媒体类型
+   */
+  const broadcastMediaType = useCallback((peerId: string, mid: string, mediaType: 'camera' | 'screen') => {
+    const channel = dataChannelsRef.current.get(peerId);
+    if (channel?.readyState === 'open') {
+      const message: MediaTypeMessage = { type: 'media-type', mid, mediaType };
+      channel.send(JSON.stringify(message));
+    }
+  }, []);
+
+  /**
+   * 广播媒体类型到所有已连接的 peer
+   * 用于新 transceiver 创建后通知所有接收端
+   * 备用函数，当前未使用（使用 broadcastMediaType 逐个发送）
+   */
+  const _broadcastMediaTypeToAll = useCallback((mid: string, mediaType: 'camera' | 'screen') => {
+    const message: MediaTypeMessage = { type: 'media-type', mid, mediaType };
+    const messageStr = JSON.stringify(message);
+    dataChannelsRef.current.forEach((channel) => {
+      if (channel.readyState === 'open') {
+        channel.send(messageStr);
+      }
+    });
+  }, []);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  void _broadcastMediaTypeToAll; // 标记为备用
+
+  /**
+   * 处理接收到的 DataChannel 消息
+   * 支持的消息类型：
+   * - speaking: 发言状态变化
+   * - media-type: 媒体类型映射（用于区分摄像头/屏幕共享）
+   */
   const handleDataChannelMessage = useCallback((peerId: string, data: string) => {
     try {
       const msg = JSON.parse(data);
       if (msg.type === 'speaking') {
         setParticipants((prev) =>
           prev.map((p) => (p.id === peerId ? { ...p, isSpeaking: msg.speaking } : p)),
+        );
+      } else if (msg.type === 'media-type') {
+        // 保存 mid 到媒体类型的映射
+        const mediaTypeMsg = msg as MediaTypeMessage;
+        let peerMap = mediaTypeMapsRef.current.get(peerId);
+        if (!peerMap) {
+          peerMap = new Map();
+          mediaTypeMapsRef.current.set(peerId, peerMap);
+        }
+        peerMap.set(mediaTypeMsg.mid, mediaTypeMsg.mediaType);
+
+        // 更新参与者的视频流分类
+        setParticipants((prev) =>
+          prev.map((p) => {
+            if (p.id !== peerId || !p.stream) {
+              return p;
+            }
+
+            // 根据 mid 映射重新分类视频流
+            const videoTracks = p.stream.getVideoTracks();
+            let cameraStream: MediaStream | undefined;
+            let screenStream: MediaStream | undefined;
+
+            // 遍历所有 transceiver 找到对应的 track
+            const pc = peerConnectionsRef.current.get(peerId);
+            if (pc) {
+              pc.getTransceivers().forEach((transceiver) => {
+                const mid = transceiver.mid;
+                if (!mid) {
+                  return;
+                }
+
+                const type = peerMap!.get(mid);
+                const receivedTrack = transceiver.receiver.track;
+
+                if (receivedTrack && receivedTrack.kind === 'video' && videoTracks.find((t) => t.id === receivedTrack.id)) {
+                  if (type === 'camera') {
+                    cameraStream = new MediaStream([receivedTrack]);
+                  } else if (type === 'screen') {
+                    screenStream = new MediaStream([receivedTrack]);
+                  }
+                }
+              });
+            }
+
+            return { ...p, cameraStream, screenStream };
+          }),
         );
       }
     } catch {
@@ -418,6 +538,7 @@ export function useWebRTC(): UseWebRTCReturn {
     transceiverMapRef.current.delete(peerId);
     negotiatingRef.current.delete(peerId);
     dataChannelsRef.current.delete(peerId);
+    mediaTypeMapsRef.current.delete(peerId);
     setParticipants((prev) => prev.filter((p) => p.id !== peerId));
   }, []);
 
@@ -468,6 +589,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 添加或更新摄像头 Transceiver
+   * 创建后广播媒体类型给接收端
    */
   const addCameraTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
     const pc = peerConnectionsRef.current.get(peerId);
@@ -483,13 +605,25 @@ export function useWebRTC(): UseWebRTCReturn {
         direction: 'sendrecv',
         streams: stream ? [stream] : [],
       });
+      // 广播媒体类型（需等待 mid 生成，在协商后）
+      const transceiver = refs.camera;
+      // mid 在 setLocalDescription 后才会生成，使用 onnegotiationneeded 回调后广播
+      setTimeout(() => {
+        if (transceiver.mid) {
+          broadcastMediaType(peerId, transceiver.mid, 'camera');
+        }
+      }, 100);
     } else {
       await refs.camera.sender.replaceTrack(track);
       if (refs.camera.direction !== 'sendrecv') {
         refs.camera.direction = 'sendrecv';
       }
+      // 已有 transceiver，重新广播类型
+      if (refs.camera.mid) {
+        broadcastMediaType(peerId, refs.camera.mid, 'camera');
+      }
     }
-  }, [getTransceiverRefs]);
+  }, [getTransceiverRefs, broadcastMediaType]);
 
   /**
    * 停止摄像头 Transceiver
@@ -504,6 +638,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 添加或更新屏幕共享 Transceiver
+   * 创建后广播媒体类型给接收端
    */
   const addScreenTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
     const pc = peerConnectionsRef.current.get(peerId);
@@ -519,13 +654,24 @@ export function useWebRTC(): UseWebRTCReturn {
         direction: 'sendrecv',
         streams: stream ? [stream] : [],
       });
+      // 广播媒体类型（需等待 mid 生成）
+      const transceiver = refs.screen;
+      setTimeout(() => {
+        if (transceiver.mid) {
+          broadcastMediaType(peerId, transceiver.mid, 'screen');
+        }
+      }, 100);
     } else {
       await refs.screen.sender.replaceTrack(track);
       if (refs.screen.direction !== 'sendrecv') {
         refs.screen.direction = 'sendrecv';
       }
+      // 已有 transceiver，重新广播类型
+      if (refs.screen.mid) {
+        broadcastMediaType(peerId, refs.screen.mid, 'screen');
+      }
     }
-  }, [getTransceiverRefs]);
+  }, [getTransceiverRefs, broadcastMediaType]);
 
   /**
    * 停止屏幕共享 Transceiver
@@ -540,29 +686,35 @@ export function useWebRTC(): UseWebRTCReturn {
 
   // ========== 信令处理 ==========
 
-  /** 发起 Offer（用于新加入的参与者） */
+  /**
+   * 发起 Offer（用于新加入的参与者）
+   * 使用 mediaStateRef 获取最新的媒体状态，避免闭包问题
+   */
   const createInitialOffer = useCallback(async (peerId: string) => {
     let pc = peerConnectionsRef.current.get(peerId);
     if (!pc) {
       pc = createPeerConnection(peerId);
     }
 
+    // 使用 ref 获取最新的媒体状态（避免闭包问题）
+    const currentMediaState = mediaStateRef.current;
+
     // 添加当前已开启的媒体
-    if (mediaState.micEnabled && micStreamRef.current) {
+    if (currentMediaState.micEnabled && micStreamRef.current) {
       const track = micStreamRef.current.getAudioTracks()[0];
       if (track) {
         await addMicTransceiver(peerId, track);
       }
     }
 
-    if (mediaState.cameraEnabled && cameraStreamRef.current) {
+    if (currentMediaState.cameraEnabled && cameraStreamRef.current) {
       const track = cameraStreamRef.current.getVideoTracks()[0];
       if (track) {
         await addCameraTransceiver(peerId, track);
       }
     }
 
-    if (mediaState.screenSharing && screenStreamRef.current) {
+    if (currentMediaState.screenSharing && screenStreamRef.current) {
       const track = screenStreamRef.current.getVideoTracks()[0];
       if (track) {
         await addScreenTransceiver(peerId, track);
@@ -574,9 +726,12 @@ export function useWebRTC(): UseWebRTCReturn {
     if (!peerConnectionsRef.current.get(peerId)?.getTransceivers().length) {
       await safeNegotiate(peerId, pc);
     }
-  }, [createPeerConnection, mediaState, addMicTransceiver, addCameraTransceiver, addScreenTransceiver, safeNegotiate]);
+  }, [createPeerConnection, addMicTransceiver, addCameraTransceiver, addScreenTransceiver, safeNegotiate]);
 
-  /** 处理 Offer */
+  /**
+   * 处理 Offer
+   * 使用 mediaStateRef 获取最新的媒体状态，避免闭包问题
+   */
   const handleOffer = useCallback(async (peerId: string, sdp: string) => {
     let pc = peerConnectionsRef.current.get(peerId);
     if (!pc) {
@@ -585,22 +740,25 @@ export function useWebRTC(): UseWebRTCReturn {
 
     await pc.setRemoteDescription({ type: 'offer', sdp });
 
+    // 使用 ref 获取最新的媒体状态（避免闭包问题）
+    const currentMediaState = mediaStateRef.current;
+
     // 添加当前已开启的媒体到 transceiver
-    if (mediaState.micEnabled && micStreamRef.current) {
+    if (currentMediaState.micEnabled && micStreamRef.current) {
       const track = micStreamRef.current.getAudioTracks()[0];
       if (track) {
         await addMicTransceiver(peerId, track);
       }
     }
 
-    if (mediaState.cameraEnabled && cameraStreamRef.current) {
+    if (currentMediaState.cameraEnabled && cameraStreamRef.current) {
       const track = cameraStreamRef.current.getVideoTracks()[0];
       if (track) {
         await addCameraTransceiver(peerId, track);
       }
     }
 
-    if (mediaState.screenSharing && screenStreamRef.current) {
+    if (currentMediaState.screenSharing && screenStreamRef.current) {
       const track = screenStreamRef.current.getVideoTracks()[0];
       if (track) {
         await addScreenTransceiver(peerId, track);
@@ -615,7 +773,7 @@ export function useWebRTC(): UseWebRTCReturn {
       to: peerId,
       sdp: answer.sdp,
     });
-  }, [createPeerConnection, sendMessage, mediaState, addMicTransceiver, addCameraTransceiver, addScreenTransceiver]);
+  }, [createPeerConnection, sendMessage, addMicTransceiver, addCameraTransceiver, addScreenTransceiver]);
 
   /** 处理 Answer */
   const handleAnswer = useCallback(async (peerId: string, sdp: string) => {
@@ -941,6 +1099,7 @@ export function useWebRTC(): UseWebRTCReturn {
     peerConnectionsRef.current.clear();
     transceiverMapRef.current.clear();
     negotiatingRef.current.clear();
+    mediaTypeMapsRef.current.clear();
 
     // 关闭 WebSocket
     if (wsRef.current) {

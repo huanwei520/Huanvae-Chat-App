@@ -9,10 +9,12 @@
 //! - 用户数据目录：管理用户文件存储路径
 //! - 文件下载和缓存：下载文件到本地缓存
 //! - WebView 权限管理：重置麦克风/摄像头权限缓存
+//! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
 
 mod db;
 mod download;
 mod storage;
+mod tray;
 mod user_data;
 
 use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
@@ -346,6 +348,22 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            // 初始化系统托盘
+            if let Err(e) = tray::setup_tray(app) {
+                eprintln!("[Tray] 初始化托盘失败: {}", e);
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 拦截主窗口关闭事件，隐藏到托盘而不是退出
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // 账号管理
             get_saved_accounts,

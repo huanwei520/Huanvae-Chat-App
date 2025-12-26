@@ -4,13 +4,13 @@
  * 基于 Zustand store 的好友状态管理，支持本地优先加载
  *
  * 功能：
- * - 本地优先：先从本地数据库加载，立即显示
- * - 后台同步：同时从服务器获取最新列表，更新本地和 UI
+ * - 本地优先：先从本地数据库加载，立即显示，loading 立即关闭
+ * - 后台同步：服务器请求在后台静默进行，不阻塞 UI
  * - 提供 store 中好友操作方法的便捷访问
  *
  * 加载流程：
- * 1. 先从本地 SQLite 加载好友列表 → 立即显示
- * 2. 同时从服务器获取最新列表
+ * 1. 先从本地 SQLite 加载好友列表 → 立即显示 + loading=false
+ * 2. 后台从服务器获取最新列表（静默更新）
  * 3. 更新本地数据库和 UI
  */
 
@@ -111,10 +111,11 @@ export function useFriends(): UseFriendsReturn {
       const localFriends = await loadLocalFriends();
       if (localFriends.length > 0) {
         setFriends(localFriends);
+        setLoading(false); // 本地数据显示后立即关闭 loading
         console.log('[Friends] 从本地加载好友:', localFriends.length);
       }
 
-      // 2. 从服务器获取最新列表
+      // 2. 从服务器获取最新列表（后台静默更新）
       const serverFriends = await loadServerFriends();
       setFriends(serverFriends);
       console.log('[Friends] 从服务器加载好友:', serverFriends.length);
@@ -124,7 +125,7 @@ export function useFriends(): UseFriendsReturn {
       setError(errorMsg);
       // 如果服务器失败，保持本地数据显示
     } finally {
-      setLoading(false);
+      setLoading(false); // 确保最终关闭 loading（无论成功失败）
     }
   }, [loadLocalFriends, loadServerFriends, setFriends, setLoading, setError]);
 

@@ -9,6 +9,7 @@
  * - 文件上传（复用聊天上传进度条）
  *
  * 使用 useFileCache 服务实现本地优先和自动缓存
+ * 图片和视频使用独立窗口预览，文档使用模态框预览
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -24,6 +25,8 @@ import { SearchIcon, CloseIcon, UploadIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
+import { openMediaWindow } from '../../media';
+import { useSession } from '../../contexts/SessionContext';
 import type { FileItem } from '../../api/storage';
 
 // ============================================
@@ -259,6 +262,8 @@ const cardVariants = {
 // ============================================
 
 export function FilesModal({ isOpen, onClose }: FilesModalProps) {
+  const { session } = useSession();
+
   // 文件列表 hook
   const {
     files,
@@ -299,12 +304,39 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
   // 预览文件
   const handlePreview = useCallback(
     (file: FileItem) => {
-      setPreviewFile(file);
+      const fileCategory = getFileCategory(file.content_type);
       const cached = localInfoCache.get(file.file_uuid);
-      setPreviewLocalPath(cached?.path ?? null);
-      setPreviewFileHash(cached?.hash ?? file.file_hash ?? null);
+      const localPath = cached?.path ?? null;
+      const fileHash = cached?.hash ?? file.file_hash ?? null;
+
+      // 图片和视频使用独立窗口预览
+      if (fileCategory === 'image' || fileCategory === 'video') {
+        if (!session) return;
+
+        openMediaWindow(
+          {
+            type: fileCategory as 'image' | 'video',
+            fileUuid: file.file_uuid,
+            filename: file.filename,
+            fileSize: file.file_size,
+            fileHash,
+            urlType: 'user',
+            localPath,
+          },
+          {
+            serverUrl: session.serverUrl,
+            accessToken: session.accessToken,
+          },
+        );
+        return;
+      }
+
+      // 文档使用模态框预览
+      setPreviewFile(file);
+      setPreviewLocalPath(localPath);
+      setPreviewFileHash(fileHash);
     },
-    [localInfoCache],
+    [localInfoCache, session],
   );
 
   // 关闭预览

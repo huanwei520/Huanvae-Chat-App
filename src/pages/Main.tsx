@@ -13,6 +13,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
+import { useInitialSync } from '../hooks/useInitialSync';
 import {
   checkForUpdates,
   downloadAndInstall,
@@ -35,6 +36,27 @@ export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+
+  // 登录后全量增量同步（等待好友和群聊列表加载完成）
+  const { status: syncStatus } = useInitialSync({
+    friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
+    groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
+  });
+
+  // 同步状态日志（开发时查看）
+  useEffect(() => {
+    if (syncStatus.syncing) {
+      console.log('[Main] 正在同步消息...', {
+        进度: `${syncStatus.progress}%`,
+        总会话: syncStatus.totalConversations,
+      });
+    } else if (syncStatus.lastSyncTime) {
+      console.log('[Main] 消息同步完成', {
+        更新会话数: syncStatus.syncedConversations,
+        新消息数: syncStatus.newMessagesCount,
+      });
+    }
+  }, [syncStatus]);
 
   // 更新相关状态
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);

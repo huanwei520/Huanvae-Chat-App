@@ -1,22 +1,24 @@
 /**
  * 群聊列表 Hook
  *
- * 基于 Zustand store 的群聊状态管理
+ * 基于 Zustand store 的群聊状态管理，支持本地优先加载
  *
  * 功能：
- * - 群聊列表加载和刷新（调用 API 并更新 store）
+ * - 本地优先：先从本地数据库加载，立即显示，loading 立即关闭
+ * - 后台同步：服务器请求在后台静默进行，不阻塞 UI
  * - 提供 store 中群聊操作方法的便捷访问
  *
- * 状态存储在 useChatStore 中，本 hook 主要负责：
- * 1. 初始化时加载群聊列表
- * 2. 提供 refresh 方法重新加载
- * 3. 代理 store 中的操作方法
+ * 加载流程：
+ * 1. 先从本地 SQLite 加载群聊列表 → 立即显示 + loading=false
+ * 2. 后台从服务器获取最新列表（静默更新）
+ * 3. 更新本地数据库和 UI
  */
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
 import { getMyGroups } from '../api/groups';
+import * as db from '../db';
 import type { Group } from '../types/chat';
 
 interface UseGroupsReturn {
@@ -36,6 +38,33 @@ interface UseGroupsReturn {
   updateGroup: (groupId: string, updates: Partial<Group>) => void;
 }
 
+/** 将本地群组转换为 UI Group 类型 */
+function localGroupToGroup(local: db.LocalGroup): Group {
+  return {
+    group_id: local.group_id,
+    group_name: local.name,
+    group_avatar_url: local.avatar_url || '',
+    role: (local.my_role as Group['role']) || 'member',
+    unread_count: null,
+    last_message_content: null,
+    last_message_time: null,
+  };
+}
+
+/** 将 UI Group 类型转换为本地群组 */
+function groupToLocalGroup(group: Group): db.LocalGroup {
+  return {
+    group_id: group.group_id,
+    name: group.group_name,
+    avatar_url: group.group_avatar_url || null,
+    owner_id: '', // 服务器响应中可能没有，使用空字符串
+    member_count: 0, // 服务器响应中可能没有
+    my_role: group.role,
+    created_at: new Date().toISOString(),
+    updated_at: null,
+  };
+}
+
 export function useGroups(): UseGroupsReturn {
   const api = useApi();
 
@@ -50,25 +79,63 @@ export function useGroups(): UseGroupsReturn {
   const removeGroup = useChatStore((state) => state.removeGroup);
   const updateGroup = useChatStore((state) => state.updateGroup);
 
-  // 加载群聊列表
+  // 从本地数据库加载群聊
+  const loadLocalGroups = useCallback(async (): Promise<Group[]> => {
+    try {
+      const localGroups = await db.getGroups();
+      return localGroups.map(localGroupToGroup);
+    } catch (err) {
+      console.warn('[Groups] 加载本地群聊失败:', err);
+      return [];
+    }
+  }, []);
+
+  // 从服务器加载群聊并保存到本地
+  const loadServerGroups = useCallback(async (): Promise<Group[]> => {
+    const response = await getMyGroups(api);
+    const serverGroups = response.data || [];
+
+    // 保存到本地数据库
+    try {
+      const localGroups = serverGroups.map(groupToLocalGroup);
+      await db.saveGroups(localGroups);
+      console.log('[Groups] 保存群聊到本地:', serverGroups.length);
+    } catch (err) {
+      console.warn('[Groups] 保存群聊到本地失败:', err);
+    }
+
+    return serverGroups;
+  }, [api]);
+
+  // 加载群聊列表（本地优先 + 后台同步）
   const loadGroups = useCallback(async (): Promise<Group[]> => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await getMyGroups(api);
-      const newGroups = response.data || [];
-      setGroups(newGroups);
-      return newGroups;
+      // 1. 先从本地加载并立即显示
+      const localGroups = await loadLocalGroups();
+      if (localGroups.length > 0) {
+        setGroups(localGroups);
+        setLoading(false); // 本地数据显示后立即关闭 loading
+        console.log('[Groups] 从本地加载群聊:', localGroups.length);
+      }
+
+      // 2. 从服务器获取最新列表（后台静默更新）
+      const serverGroups = await loadServerGroups();
+      setGroups(serverGroups);
+      console.log('[Groups] 从服务器加载群聊:', serverGroups.length);
+      return serverGroups;
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : '加载群聊失败';
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[Groups] 加载群聊失败:', errorMsg);
       setError(errorMsg);
-      setGroups([]);
-      return [];
+      // 如果服务器失败，保持本地数据显示
+      return groups;
     } finally {
-      setLoading(false);
+      setLoading(false); // 确保最终关闭 loading（无论成功失败）
     }
-  }, [api, setGroups, setLoading, setError]);
+  }, [loadLocalGroups, loadServerGroups, setGroups, setLoading, setError, groups]);
 
   // 初始化加载（只执行一次）
   const initRef = useRef(false);

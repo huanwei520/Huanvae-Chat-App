@@ -93,3 +93,6 @@
 
 /* 会议页面 - 视频会议 */
 @import '../meeting/styles.css';
+
+/* 媒体预览页面 - 图片/视频独立窗口 */
+@import '../media/styles.css';
