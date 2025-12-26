@@ -60,8 +60,7 @@
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine",
-        "installerHooks": "nsis/hooks"
+        "installMode": "perMachine"
       },
       "wix": {
         "language": "zh-CN"
