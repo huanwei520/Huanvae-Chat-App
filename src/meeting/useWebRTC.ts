@@ -93,6 +93,40 @@ interface TransceiverRefs {
   screen: RTCRtpTransceiver | null;
 }
 
+/** 屏幕共享分辨率选项 */
+export type ScreenShareResolution = '1080p' | '2k' | '4k';
+
+/** 屏幕共享帧率选项 */
+export type ScreenShareFrameRate = 60 | 120;
+
+/** 屏幕共享设置 */
+export interface ScreenShareSettings {
+  resolution: ScreenShareResolution;
+  frameRate: ScreenShareFrameRate;
+}
+
+/** 分辨率映射 */
+export const RESOLUTION_MAP: Record<ScreenShareResolution, { width: number; height: number }> = {
+  '1080p': { width: 1920, height: 1080 },
+  '2k': { width: 2560, height: 1440 },
+  '4k': { width: 3840, height: 2160 },
+};
+
+/**
+ * 获取可用的屏幕共享分辨率选项
+ * 根据显示器实际分辨率过滤，避免设置超出显示器能力的分辨率
+ */
+export function getAvailableResolutions(): ScreenShareResolution[] {
+  const screenWidth = window.screen.width * (window.devicePixelRatio || 1);
+  const screenHeight = window.screen.height * (window.devicePixelRatio || 1);
+
+  const all: ScreenShareResolution[] = ['1080p', '2k', '4k'];
+  return all.filter((res) => {
+    const { width, height } = RESOLUTION_MAP[res];
+    return width <= screenWidth && height <= screenHeight;
+  });
+}
+
 /** Hook 返回值 */
 export interface UseWebRTCReturn {
   meetingState: MeetingState;
@@ -106,7 +140,8 @@ export interface UseWebRTCReturn {
   disconnect: () => void;
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
-  toggleScreenShare: () => Promise<void>;
+  /** 切换屏幕共享，可传入设置参数 */
+  toggleScreenShare: (settings?: ScreenShareSettings) => Promise<void>;
   initLocalStream: () => Promise<MediaStream | null>;
   stopLocalStream: () => void;
 }
@@ -705,12 +740,14 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 停止屏幕共享 Transceiver
+   * 彻底清除引用，强制下次创建新 transceiver，避免状态残留导致黑屏
    */
   const stopScreenTransceiver = useCallback(async (peerId: string) => {
     const refs = getTransceiverRefs(peerId);
     if (refs.screen) {
       await refs.screen.sender.replaceTrack(null);
       refs.screen.direction = 'inactive';
+      refs.screen = null;  // 清除引用，强制下次创建新 transceiver
     }
   }, [getTransceiverRefs]);
 
@@ -1055,8 +1092,9 @@ export function useWebRTC(): UseWebRTCReturn {
    * 切换屏幕共享
    * - 开启：获取屏幕流，向所有参与者添加 transceiver
    * - 关闭：停止屏幕流，停止所有 transceiver
+   * @param settings 屏幕共享设置（分辨率和帧率）
    */
-  const toggleScreenShare = useCallback(async () => {
+  const toggleScreenShare = useCallback(async (settings?: ScreenShareSettings) => {
     if (mediaState.screenSharing) {
       // ========== 停止屏幕共享 ==========
       const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
@@ -1085,9 +1123,27 @@ export function useWebRTC(): UseWebRTCReturn {
     } else {
       // ========== 开始屏幕共享 ==========
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        // 获取用户选择的分辨率和帧率，默认 1080p@60fps
+        const resolution = settings?.resolution ?? '1080p';
+        const frameRate = settings?.frameRate ?? 60;
+        const { width, height } = RESOLUTION_MAP[resolution];
+
+        // 优化：设置用户选择的帧率和分辨率约束
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            frameRate: { ideal: frameRate, max: frameRate },
+            width: { ideal: width },
+            height: { ideal: height },
+          } as MediaTrackConstraints,
+          audio: false,
+        });
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
+
+        // 设置 contentHint 告知编码器这是动态内容，优先帧率
+        if ('contentHint' in track) {
+          (track as MediaStreamTrack & { contentHint: string }).contentHint = 'motion';
+        }
 
         const addPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
           addScreenTransceiver(peerId, track),

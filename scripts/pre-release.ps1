@@ -36,7 +36,7 @@ Write-Host "================================================" -ForegroundColor M
 # ============================================
 # 1. TypeScript 类型检查
 # ============================================
-Write-Step "[1/5] TypeScript 类型检查..."
+Write-Step "[1/6] TypeScript 类型检查..."
 try {
     $output = pnpm tsc --noEmit 2>&1
     if ($LASTEXITCODE -eq 0) {
@@ -55,7 +55,7 @@ try {
 # ============================================
 # 2. ESLint 代码检查
 # ============================================
-Write-Step "[2/5] ESLint 代码检查..."
+Write-Step "[2/6] ESLint 代码检查..."
 try {
     $output = pnpm lint 2>&1
     if ($LASTEXITCODE -eq 0) {
@@ -74,7 +74,7 @@ try {
 # ============================================
 # 3. 单元测试
 # ============================================
-Write-Step "[3/5] 单元测试..."
+Write-Step "[3/6] 单元测试..."
 try {
     $output = pnpm test --run 2>&1
     if ($LASTEXITCODE -eq 0) {
@@ -93,7 +93,7 @@ try {
 # ============================================
 # 4. 前端构建测试
 # ============================================
-Write-Step "[4/5] 前端构建测试..."
+Write-Step "[4/6] 前端构建测试..."
 try {
     $output = pnpm build 2>&1
     if ($LASTEXITCODE -eq 0) {
@@ -110,9 +110,33 @@ try {
 }
 
 # ============================================
-# 5. 人工检查清单
+# 5. 配置文件检查
 # ============================================
-Write-Step "[5/5] 人工功能检查..."
+Write-Step "[5/6] 配置文件检查..."
+try {
+    $TauriConfPath = "$ProjectRoot\src-tauri\tauri.conf.json"
+    $TauriConf = Get-Content $TauriConfPath -Raw | ConvertFrom-Json
+    
+    # 检查 Windows 更新器 installMode 必须未设置（使用默认完整安装界面让用户选择安装位置）
+    $UpdaterWindows = $TauriConf.plugins.updater.windows
+    if ($UpdaterWindows -and $UpdaterWindows.installMode) {
+        Write-Fail "  ✗ Windows 更新器配置错误"
+        Write-Info "    plugins.updater.windows.installMode 必须移除"
+        Write-Info "    不设置 installMode 可让用户选择安装位置"
+        $results += @{ name = "配置检查"; passed = $false }
+    } else {
+        Write-Success "  ✓ Windows 更新器配置正确 (使用默认完整安装界面)"
+        $results += @{ name = "配置检查"; passed = $true }
+    }
+} catch {
+    Write-Fail "  ✗ 配置检查出错: $_"
+    $results += @{ name = "配置检查"; passed = $false }
+}
+
+# ============================================
+# 6. 人工检查清单
+# ============================================
+Write-Step "[6/6] 人工功能检查..."
 Write-Host ""
 Write-Host "请确认以下核心功能正常工作：" -ForegroundColor Yellow
 Write-Host ""

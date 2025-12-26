@@ -834,3 +834,145 @@
   border-width: 2px;
 }
 
+/* ============================================
+   屏幕共享设置弹窗
+   ============================================ */
+
+.screen-share-settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.screen-share-settings-modal {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(248, 250, 255, 0.95) 100%
+  );
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+  min-width: 360px;
+  max-width: 90vw;
+}
+
+.screen-share-settings-modal h3 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: center;
+}
+
+.setting-group {
+  margin-bottom: 20px;
+}
+
+.setting-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.setting-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.setting-option {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px 16px;
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.setting-option:hover {
+  background: rgba(147, 197, 253, 0.15);
+  border-color: rgba(147, 197, 253, 0.6);
+}
+
+.setting-option.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: #2563eb;
+  color: white;
+  font-weight: 500;
+}
+
+.setting-option.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.setting-option.disabled:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(147, 197, 253, 0.4);
+}
+
+.option-hint {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.setting-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.setting-cancel,
+.setting-confirm {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.setting-cancel {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  color: #64748b;
+}
+
+.setting-cancel:hover {
+  background: rgba(147, 197, 253, 0.15);
+  border-color: rgba(147, 197, 253, 0.6);
+}
+
+.setting-confirm {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.setting-confirm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+

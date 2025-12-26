@@ -16,7 +16,15 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useWebRTC, type RemoteParticipant } from './useWebRTC';
+import {
+  useWebRTC,
+  type RemoteParticipant,
+  type ScreenShareSettings,
+  type ScreenShareResolution,
+  type ScreenShareFrameRate,
+  getAvailableResolutions,
+  RESOLUTION_MAP,
+} from './useWebRTC';
 import { loadMeetingData, clearMeetingData, type MeetingWindowData, type IceServer } from './api';
 import {
   MicOnIcon,
@@ -305,6 +313,14 @@ export default function MeetingPage() {
   const [showParticipants, setShowParticipants] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // 屏幕共享设置弹窗
+  const [showScreenShareSettings, setShowScreenShareSettings] = useState(false);
+  const [screenShareResolution, setScreenShareResolution] = useState<ScreenShareResolution>('1080p');
+  const [screenShareFrameRate, setScreenShareFrameRate] = useState<ScreenShareFrameRate>(60);
+
+  // 获取可用的分辨率选项（根据显示器分辨率过滤）
+  const availableResolutions = getAvailableResolutions();
+
   const webrtc = useWebRTC();
 
   // 初始化：读取会议数据
@@ -387,6 +403,27 @@ export default function MeetingPage() {
       setTimeout(() => setCopied(false), 2000);
     });
   }, [meetingData]);
+
+  // 处理屏幕共享按钮点击
+  const handleScreenShareClick = useCallback(() => {
+    if (webrtc.mediaState.screenSharing) {
+      // 已在共享，直接停止
+      webrtc.toggleScreenShare();
+    } else {
+      // 未共享，显示设置弹窗
+      setShowScreenShareSettings(true);
+    }
+  }, [webrtc]);
+
+  // 开始屏幕共享（使用选择的设置）
+  const handleStartScreenShare = useCallback(() => {
+    const settings: ScreenShareSettings = {
+      resolution: screenShareResolution,
+      frameRate: screenShareFrameRate,
+    };
+    webrtc.toggleScreenShare(settings);
+    setShowScreenShareSettings(false);
+  }, [webrtc, screenShareResolution, screenShareFrameRate]);
 
   if (!meetingData) {
     return (
@@ -533,7 +570,7 @@ export default function MeetingPage() {
           {/* 屏幕共享 */}
           <motion.button
             className={`control-btn ${webrtc.mediaState.screenSharing ? 'sharing' : ''}`}
-            onClick={webrtc.toggleScreenShare}
+            onClick={handleScreenShareClick}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.95 }}
             title={webrtc.mediaState.screenSharing ? '停止共享' : '共享屏幕'}
@@ -567,6 +604,82 @@ export default function MeetingPage() {
           <span>{webrtc.error}</span>
         </div>
       )}
+
+      {/* 屏幕共享设置弹窗 */}
+      <AnimatePresence>
+        {showScreenShareSettings && (
+          <motion.div
+            className="screen-share-settings-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowScreenShareSettings(false)}
+          >
+            <motion.div
+              className="screen-share-settings-modal"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3>屏幕共享设置</h3>
+
+              <div className="setting-group">
+                <label>分辨率</label>
+                <div className="setting-options">
+                  {(['1080p', '2k', '4k'] as ScreenShareResolution[]).map((res) => {
+                    const isAvailable = availableResolutions.includes(res);
+                    const { width, height } = RESOLUTION_MAP[res];
+                    const label = res === '1080p' ? '1080p' : res === '2k' ? '2K' : '4K';
+                    return (
+                      <button
+                        key={res}
+                        className={`setting-option ${screenShareResolution === res ? 'active' : ''} ${!isAvailable ? 'disabled' : ''}`}
+                        onClick={() => isAvailable && setScreenShareResolution(res)}
+                        disabled={!isAvailable}
+                        title={!isAvailable ? '超出显示器分辨率' : `${width}×${height}`}
+                      >
+                        {label} ({width}×{height})
+                        {!isAvailable && <span className="option-hint">不可用</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="setting-group">
+                <label>帧率</label>
+                <div className="setting-options">
+                  {([60, 120] as ScreenShareFrameRate[]).map((fps) => (
+                    <button
+                      key={fps}
+                      className={`setting-option ${screenShareFrameRate === fps ? 'active' : ''}`}
+                      onClick={() => setScreenShareFrameRate(fps)}
+                    >
+                      {fps} FPS
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="setting-actions">
+                <button
+                  className="setting-cancel"
+                  onClick={() => setShowScreenShareSettings(false)}
+                >
+                  取消
+                </button>
+                <button
+                  className="setting-confirm"
+                  onClick={handleStartScreenShare}
+                >
+                  开始共享
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

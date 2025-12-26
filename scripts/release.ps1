@@ -42,6 +42,21 @@ if (!$Version -or !$Message) {
     exit 1
 }
 
+# 检查 tauri.conf.json 中的 Windows 更新器配置
+Write-Host "[检查] 验证 Windows 更新器配置..." -ForegroundColor Yellow
+$TauriConfPath = "$ProjectRoot\src-tauri\tauri.conf.json"
+$TauriConf = Get-Content $TauriConfPath -Raw | ConvertFrom-Json
+
+# 检查 updater.windows.installMode 必须未设置（使用默认完整安装界面）
+$UpdaterWindows = $TauriConf.plugins.updater.windows
+if ($UpdaterWindows -and $UpdaterWindows.installMode) {
+    Write-Host "[ERROR] plugins.updater.windows.installMode 必须移除" -ForegroundColor Red
+    Write-Host "        当前值: '$($UpdaterWindows.installMode)'" -ForegroundColor Red
+    Write-Host "        不设置 installMode 可让用户选择安装位置" -ForegroundColor Red
+    exit 1
+}
+Write-Host "[OK] Windows 更新器配置正确 (使用默认完整安装界面)" -ForegroundColor Green
+
 Write-Host ""
 Write-Host "========================================"
 Write-Host "  Huanvae Chat App v$Version"

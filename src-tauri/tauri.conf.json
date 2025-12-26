@@ -89,10 +89,7 @@
         "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
         "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
         "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "basicUi"
-      }
+      ]
     }
   }
 }
