@@ -63,7 +63,8 @@ $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
 
 Write-Host "[3/6] 更新 Cargo.toml..." -ForegroundColor Cyan
 $content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\Cargo.toml", [System.Text.Encoding]::UTF8)
-$content = $content -replace 'version\s*=\s*"[^"]+"', "version = `"$Version`""
+# 只替换 [package] 部分的 version（文件开头的第一个 version）
+$content = $content -replace '(\[package\][\s\S]*?name\s*=\s*"[^"]+"\s*\n)version\s*=\s*"[^"]+"', "`$1version = `"$Version`""
 [System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\Cargo.toml", $content, [System.Text.Encoding]::UTF8)
 
 # Git 提交
