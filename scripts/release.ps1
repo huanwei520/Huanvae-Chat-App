@@ -11,15 +11,12 @@
     2. 在项目根目录运行: powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1
 #>
 
-# 切换到脚本所在目录的父目录（项目根目录）
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 Set-Location $ProjectRoot
 
-# 配置文件路径
 $ConfigPath = Join-Path $ScriptDir "release-config.txt"
 
-# 检查配置文件
 if (!(Test-Path $ConfigPath)) {
     Write-Host "[ERROR] 配置文件不存在: $ConfigPath" -ForegroundColor Red
     exit 1
@@ -53,45 +50,36 @@ Write-Host "  $Message"
 Write-Host "========================================"
 Write-Host ""
 
-# 步骤1: 更新 package.json
+# 使用正则表达式替换版本号（保持原有格式）
 Write-Host "[1/6] 更新 package.json..." -ForegroundColor Cyan
-$pkg = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-$pkg.version = $Version
-$pkg | ConvertTo-Json -Depth 10 | Out-File "package.json" -Encoding UTF8
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\package.json", [System.Text.Encoding]::UTF8)
+$content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
+[System.IO.File]::WriteAllText("$ProjectRoot\package.json", $content, [System.Text.Encoding]::UTF8)
 
-# 步骤2: 更新 tauri.conf.json
 Write-Host "[2/6] 更新 tauri.conf.json..." -ForegroundColor Cyan
-$tauri = Get-Content "src-tauri/tauri.conf.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-$tauri.version = $Version
-$tauri | ConvertTo-Json -Depth 10 | Out-File "src-tauri/tauri.conf.json" -Encoding UTF8
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\tauri.conf.json", [System.Text.Encoding]::UTF8)
+$content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
+[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\tauri.conf.json", $content, [System.Text.Encoding]::UTF8)
 
-# 步骤3: 更新 Cargo.toml
 Write-Host "[3/6] 更新 Cargo.toml..." -ForegroundColor Cyan
-$cargoLines = Get-Content "src-tauri/Cargo.toml" -Encoding UTF8
-$newLines = @()
-foreach ($line in $cargoLines) {
-    if ($line.StartsWith("version = ")) {
-        $newLines += "version = `"$Version`""
-    } else {
-        $newLines += $line
-    }
-}
-$newLines | Out-File "src-tauri/Cargo.toml" -Encoding UTF8
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\Cargo.toml", [System.Text.Encoding]::UTF8)
+$content = $content -replace 'version\s*=\s*"[^"]+"', "version = `"$Version`""
+[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\Cargo.toml", $content, [System.Text.Encoding]::UTF8)
 
-# 步骤4: Git 提交
+# Git 提交
 Write-Host "[4/6] Git 提交..." -ForegroundColor Cyan
-$commitFile = Join-Path $ProjectRoot ".commit_msg"
-"v$Version`: $Message" | Out-File $commitFile -Encoding UTF8
+$commitFile = "$ProjectRoot\.commit_msg"
+[System.IO.File]::WriteAllText($commitFile, "v$Version`: $Message", [System.Text.Encoding]::UTF8)
 git add -A
 git commit -F $commitFile
 Remove-Item $commitFile -Force -ErrorAction SilentlyContinue
 
-# 步骤5: 创建标签
+# 创建标签
 Write-Host "[5/6] 创建标签 v$Version..." -ForegroundColor Cyan
 git tag -d "v$Version" 2>$null
 git tag "v$Version"
 
-# 步骤6: 推送
+# 推送
 Write-Host "[6/6] 推送到 GitHub..." -ForegroundColor Cyan
 git push origin main
 git push origin "v$Version" --force

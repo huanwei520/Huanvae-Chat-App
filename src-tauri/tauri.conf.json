@@ -1,107 +1,98 @@
 ﻿{
-    "$schema":  "https://schema.tauri.app/config/2",
-    "productName":  "Huanvae-Chat-App",
-    "version":  "1.0.3",
-    "identifier":  "com.github.huanwei520.huanvae-chat-app",
-    "build":  {
-                  "beforeDevCommand":  "pnpm dev",
-                  "devUrl":  "http://localhost:1420",
-                  "beforeBuildCommand":  "pnpm build",
-                  "frontendDist":  "../dist"
-              },
-    "app":  {
-                "windows":  [
-                                {
-                                    "label":  "main",
-                                    "title":  "Huanvae Chat",
-                                    "width":  1024,
-                                    "height":  820,
-                                    "minWidth":  600,
-                                    "minHeight":  400
-                                }
-                            ],
-                "security":  {
-                                 "csp":  null,
-                                 "assetProtocol":  {
-                                                       "enable":  true,
-                                                       "scope":  [
-                                                                     "$DATA/**",
-                                                                     "$LOCALDATA/**",
-                                                                     "$APPDATA/**",
-                                                                     "$HOME/.local/share/huanvae-chat/**",
-                                                                     "$PICTURE/**",
-                                                                     "$VIDEO/**",
-                                                                     "$DOCUMENT/**",
-                                                                     "$DOWNLOAD/**",
-                                                                     "$DESKTOP/**",
-                                                                     "$HOME/**",
-                                                                     "**"
-                                                                 ]
-                                                   }
-                             }
-            },
-    "bundle":  {
-                   "active":  true,
-                   "targets":  [
-                                   "nsis",
-                                   "msi",
-                                   "appimage",
-                                   "deb",
-                                   "dmg"
-                               ],
-                   "createUpdaterArtifacts":  true,
-                   "icon":  [
-                                "icons/32x32.png",
-                                "icons/128x128.png",
-                                "icons/128x128@2x.png",
-                                "icons/icon.icns",
-                                "icons/icon.ico"
-                            ],
-                   "macOS":  {
-                                 "signingIdentity":  null,
-                                 "minimumSystemVersion":  "10.13"
-                             },
-                   "windows":  {
-                                   "nsis":  {
-                                                "languages":  [
-                                                                  "SimpChinese",
-                                                                  "English"
-                                                              ],
-                                                "displayLanguageSelector":  true,
-                                                "installerIcon":  "icons/icon.ico",
-                                                "installMode":  "perMachine"
-                                            },
-                                   "wix":  {
-                                               "language":  "zh-CN"
-                                           }
-                               },
-                   "linux":  {
-                                 "appimage":  {
-                                                  "bundleMediaFramework":  true
-                                              },
-                                 "deb":  {
-                                             "depends":  [
-                                                             "libwebkit2gtk-4.1-0",
-                                                             "libgtk-3-0",
-                                                             "libayatana-appindicator3-1"
-                                                         ],
-                                             "section":  "net"
-                                         }
-                             }
-               },
-    "plugins":  {
-                    "updater":  {
-                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOTFDMzBGQTkxQTc1NUEKUldSYWRScXBEOE9SUDVCWUJjZnYvaHBSdzNkbk5PTWRmUzNkVjdlamtDK2xTOXI4UmVZYUhDbGMK",
-                                    "endpoints":  [
-                                                      "https://edgeone.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-                                                      "https://cdn.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-                                                      "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-                                                      "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-                                                      "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
-                                                  ],
-                                    "windows":  {
-                                                    "installMode":  "basicUi"
-                                                }
-                                }
-                }
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Huanvae-Chat-App",
+  "version": "1.0.4",
+  "identifier": "com.github.huanwei520.huanvae-chat-app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Huanvae Chat",
+        "width": 1024,
+        "height": 820,
+        "minWidth": 600,
+        "minHeight": 400
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$DATA/**",
+          "$LOCALDATA/**",
+          "$APPDATA/**",
+          "$HOME/.local/share/huanvae-chat/**",
+          "$PICTURE/**",
+          "$VIDEO/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$HOME/**",
+          "**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "appimage", "deb", "dmg"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "signingIdentity": null,
+      "minimumSystemVersion": "10.13"
+    },
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine"
+      },
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "section": "net"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOTFDMzBGQTkxQTc1NUEKUldSYWRScXBEOE9SUDVCWUJjZnYvaHBSdzNkbk5PTWRmUzNkVjdlamtDK2xTOXI4UmVZYUhDbGMK",
+      "endpoints": [
+        "https://edgeone.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://cdn.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
+        "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "basicUi"
+      }
+    }
+  }
 }
