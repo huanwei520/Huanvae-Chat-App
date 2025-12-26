@@ -1,0 +1,33 @@
+{
+  "version": "1.0.2",
+  "notes": "Huanvae Chat v1.0.2 更新\n\n查看完整更新日志: https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v1.0.2",
+  "pub_date": "2025-12-25T16:07:05Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDJPRTJrTXJ3RkhRaFZsYnRPY0ZXL1VuakNmUUxucWhENCszZXhlaGxGazNyRTJNaFFRZ1VnbEZGbEFZSFZDNXRsZHYwWTVRT0JRUXNYZzBmbHRxU2dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2Njc4NzcxCWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjAuMl94NjQtc2V0dXAuZXhlCkNWQXo1YjFTb3FYamZxZzRmd3VSNGsyVHNETUJnd0JaOTh3WWZ2L1BpaWdZU3BINEJ0OTlSck5idVNzTEhNbms3TjF0d3Axc0NLZ0NPaVU2RDUwRUFRPT0K",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDJPRTJrTXJ3RkhRaFZsYnRPY0ZXL1VuakNmUUxucWhENCszZXhlaGxGazNyRTJNaFFRZ1VnbEZGbEFZSFZDNXRsZHYwWTVRT0JRUXNYZzBmbHRxU2dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2Njc4NzcxCWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjAuMl94NjQtc2V0dXAuZXhlCkNWQXo1YjFTb3FYamZxZzRmd3VSNGsyVHNETUJnd0JaOTh3WWZ2L1BpaWdZU3BINEJ0OTlSck5idVNzTEhNbms3TjF0d3Axc0NLZ0NPaVU2RDUwRUFRPT0K",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDZ5VlJXWVQwZ3h3eTBCbWM2TFdCL3dhTjh6aHkyYnpSRFN5emNCZXRKRXVUMG1Kd0IwcG5KMlZtOTlRR3NhSE5ZSk9zTi9TTGI1T3o1Zis5cDZwbVFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2Njc4NzcxCWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjAuMl94NjRfemgtQ04ubXNpCjUwRHdqMFE3bFY2Y3NrdlNyN3NvVVdGaGRlTExEVWlNZDJMQ0EyQnV0WlZuWGNVZXFFa21peUJjVU1vTnZoUDUvWlNIL3J6bVRpU3lTajcvRkhnTUFRPT0K",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_x64_zh-CN.msi"
+    },
+    "darwin-aarch64": {
+      "signature": "",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_aarch64.dmg"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDRtZGNsNVlpY0VxcFhGRE5KS0hOK0pmK3NaSm41M00wd3Z5dzg1ZkdhNHVRTW0wV2tsa2VkaE5wZVdQZkViTHI0Z1RiV3RidEJVUEY4YjVQZ2ZETndnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2Njc4NjQ5CWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjAuMl9hbWQ2NC5BcHBJbWFnZQoyRXBUMGd4YWJ3Um43UlF1MHhJTkNFQ2hlVkpMRklBU3o3ZUx3S3JUUWcrc0liWmRnYW5CVm82UmI2dFAwSjU3L01MVDNNRGdick1KQkxGNVpxTXpDUT09Cg==",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDRtZGNsNVlpY0VxcFhGRE5KS0hOK0pmK3NaSm41M00wd3Z5dzg1ZkdhNHVRTW0wV2tsa2VkaE5wZVdQZkViTHI0Z1RiV3RidEJVUEY4YjVQZ2ZETndnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2Njc4NjQ5CWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjAuMl9hbWQ2NC5BcHBJbWFnZQoyRXBUMGd4YWJ3Um43UlF1MHhJTkNFQ2hlVkpMRklBU3o3ZUx3S3JUUWcrc0liWmRnYW5CVm82UmI2dFAwSjU3L01MVDNNRGdick1KQkxGNVpxTXpDUT09Cg==",
+      "url": "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/download/v1.0.2/Huanvae-Chat-App_1.0.2_amd64.AppImage"
+    }
+  }
+}
+
+
