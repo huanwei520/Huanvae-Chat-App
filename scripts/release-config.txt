@@ -1,2 +1,2 @@
-VERSION=1.0.4
-MESSAGE=修复JSON格式问题，新增系统托盘功能，优化本地优先加载
+VERSION=1.0.3
+MESSAGE=新增系统托盘功能，优化本地优先加载
