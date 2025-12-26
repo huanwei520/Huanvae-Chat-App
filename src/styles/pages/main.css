@@ -511,6 +511,7 @@
 }
 
 .conversation-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -518,16 +519,24 @@
   border-radius: 12px;
   cursor: pointer;
   overflow: hidden; /* 让内容自然被裁剪 */
+  z-index: 1; /* 确保卡片在选中背景层之上 */
   /* 只对 background 使用 CSS transition，避免与 Framer Motion 动画冲突 */
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.conversation-item.active {
+/* 选中背景层 - 渲染在列表容器层级，通过 top 动画移动 */
+.conversation-selected-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
   background: linear-gradient(
     135deg,
     rgba(147, 197, 253, 0.25) 0%,
     rgba(147, 197, 253, 0.15) 100%
   );
+  border-radius: 12px;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .conv-avatar {
@@ -1554,17 +1563,28 @@
   font-weight: 500;
 }
 
-/* 消息区域 */
+/* 消息区域 - 外层容器，不产生滚动条 */
 .chat-messages {
-  position: relative; /* 为绝对定位的占位符提供定位上下文 */
+  position: relative;
   flex: 1;
-  min-height: 0; /* 允许收缩，让 overflow-y: auto 正常工作 */
-  overflow-y: auto;
-  padding: 24px;
+  min-height: 0;
+  overflow: hidden; /* 不在此层产生滚动条，避免切换时跳动 */
   display: flex;
-  flex-direction: column-reverse; /* 从下往上显示，最新消息在底部 */
-  /* 使用 Framer Motion layout 动画，不使用 CSS scroll-behavior */
+  flex-direction: column;
   gap: 0;
+}
+
+/* 消息列表容器 - 滚动容器，每次切换会话时是全新的 */
+.chat-messages-container {
+  display: flex;
+  flex-direction: column-reverse;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;           /* 滚动在此层 */
+  overflow-x: hidden;
+  padding: 24px;              /* padding 移到这里 */
+  scrollbar-gutter: stable;   /* 保留滚动条空间，避免宽度跳动 */
 }
 
 .message-placeholder {
@@ -2225,23 +2245,23 @@
    滚动条样式
    ============================================ */
 .conversation-list::-webkit-scrollbar,
-.chat-messages::-webkit-scrollbar {
+.chat-messages-container::-webkit-scrollbar {
   width: 6px;
 }
 
 .conversation-list::-webkit-scrollbar-track,
-.chat-messages::-webkit-scrollbar-track {
+.chat-messages-container::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .conversation-list::-webkit-scrollbar-thumb,
-.chat-messages::-webkit-scrollbar-thumb {
+.chat-messages-container::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0.3);
   border-radius: 3px;
 }
 
 .conversation-list::-webkit-scrollbar-thumb:hover,
-.chat-messages::-webkit-scrollbar-thumb:hover {
+.chat-messages-container::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);
 }
 
@@ -3392,27 +3412,29 @@
   opacity: 0.9;
 }
 
+/* 图片/视频消息加载状态 */
 .file-message-loading,
 .file-message-error {
-  width: 200px;
-  height: 120px;
+  min-width: 120px;
+  min-height: 80px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(147, 197, 253, 0.1);
+  border-radius: 12px;
   color: #64748b;
   font-size: 13px;
 }
 
-/* 图片消息 */
+/* 图片消息 - 原始比例，限制最大尺寸 */
 .image-message .message-image {
   max-width: 280px;
   max-height: 300px;
   border-radius: 12px;
-  object-fit: cover;
+  object-fit: contain;  /* 保持原始比例 */
 }
 
-/* 视频消息 */
+/* 视频消息 - 原始比例，限制最大尺寸 */
 .video-message {
   position: relative;
   max-width: 280px;
@@ -3422,7 +3444,7 @@
   width: 100%;
   max-height: 200px;
   border-radius: 12px;
-  object-fit: cover;
+  object-fit: contain;  /* 保持原始比例 */
 }
 
 .video-play-overlay {
@@ -3524,8 +3546,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.image-message,
-.video-message {
+.image-message {
   position: relative;
 }
 

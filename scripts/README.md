@@ -1,15 +1,35 @@
-# 发布脚本使用说明
+# 脚本使用说明
 
 ## 概述
 
-本目录包含 Huanvae Chat App 的自动化版本发布工具。
+本目录包含 Huanvae Chat App 的自动化脚本工具。
 
 ## 文件说明
 
 | 文件 | 说明 |
 |------|------|
-| `release.ps1` | 自动化发布脚本（PowerShell） |
-| `release-config.txt` | 发布配置文件 |
+| `release.ps1` | 自动化发布脚本 |
+| `release-config.txt` | 发布版本配置 |
+| `pre-release.ps1` | 预发布检查脚本 |
+
+---
+
+## 预发布检查
+
+在发布新版本前，运行预发布检查确保代码质量：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\pre-release.ps1
+```
+
+**检查内容：**
+1. TypeScript 类型检查
+2. ESLint 代码规范检查
+3. 单元测试
+4. 前端构建测试
+5. 人工功能检查清单
+
+---
 
 ## 发布流程
 

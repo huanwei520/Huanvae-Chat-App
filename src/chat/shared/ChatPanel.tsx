@@ -160,35 +160,39 @@ export function ChatPanel({
         />
       </div>
 
-      {/* 消息列表 */}
+      {/* 消息列表 - 使用 AnimatePresence 实现切换动画 */}
       <div className="chat-messages">
-        {chatTarget.type === 'friend' ? (
-          <ChatMessages
-            loading={isLoading}
-            messages={friendMessages}
-            session={session}
-            friend={chatTarget.data as Friend}
-            isMultiSelectMode={isMultiSelectMode}
-            selectedMessages={selectedMessages}
-            onToggleSelect={onToggleSelect}
-            onRecall={onRecallMessage}
-            onDelete={onDeleteMessage}
-            onEnterMultiSelect={onEnterMultiSelect}
-          />
-        ) : (
-          <GroupChatMessages
-            loading={isLoading}
-            messages={groupMessages}
-            currentUserId={session.userId}
-            userRole={(chatTarget.data as Group).role}
-            isMultiSelectMode={isMultiSelectMode}
-            selectedMessages={selectedMessages}
-            onToggleSelect={onToggleSelect}
-            onRecall={onRecallMessage}
-            onDelete={onDeleteMessage}
-            onEnterMultiSelect={onEnterMultiSelect}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {chatTarget.type === 'friend' ? (
+            <ChatMessages
+              key={`friend-${chatKey}`}
+              loading={isLoading}
+              messages={friendMessages}
+              session={session}
+              friend={chatTarget.data as Friend}
+              isMultiSelectMode={isMultiSelectMode}
+              selectedMessages={selectedMessages}
+              onToggleSelect={onToggleSelect}
+              onRecall={onRecallMessage}
+              onDelete={onDeleteMessage}
+              onEnterMultiSelect={onEnterMultiSelect}
+            />
+          ) : (
+            <GroupChatMessages
+              key={`group-${chatKey}`}
+              loading={isLoading}
+              messages={groupMessages}
+              currentUserId={session.userId}
+              userRole={(chatTarget.data as Group).role}
+              isMultiSelectMode={isMultiSelectMode}
+              selectedMessages={selectedMessages}
+              onToggleSelect={onToggleSelect}
+              onRecall={onRecallMessage}
+              onDelete={onDeleteMessage}
+              onEnterMultiSelect={onEnterMultiSelect}
+            />
+          )}
+        </AnimatePresence>
       </div>
 
       {/* 输入区域 / 多选操作栏 */}

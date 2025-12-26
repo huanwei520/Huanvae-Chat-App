@@ -538,6 +538,12 @@
   object-fit: cover;
 }
 
+/* 屏幕共享时使用 contain 保持原始比例 */
+.participant-video.screen-sharing video {
+  object-fit: contain;
+  background: #000;
+}
+
 .participant-placeholder {
   display: flex;
   align-items: center;

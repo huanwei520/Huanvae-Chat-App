@@ -199,6 +199,32 @@ export function useWebRTC(): UseWebRTCReturn {
   }, []);
 
   /**
+   * 等待 transceiver.mid 生成后广播媒体类型
+   * mid 在 setLocalDescription 后才会生成，使用轮询等待
+   */
+  const waitForMidAndBroadcast = useCallback((
+    transceiver: RTCRtpTransceiver,
+    peerId: string,
+    mediaType: 'camera' | 'screen',
+  ) => {
+    let attempts = 0;
+    const maxAttempts = 20; // 最多等待 2 秒
+
+    const checkMid = () => {
+      if (transceiver.mid) {
+        broadcastMediaType(peerId, transceiver.mid, mediaType);
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(checkMid, 100);
+      } else {
+        console.warn('[WebRTC] 等待 mid 超时:', mediaType, peerId);
+      }
+    };
+
+    checkMid();
+  }, [broadcastMediaType]);
+
+  /**
    * 广播媒体类型到所有已连接的 peer
    * 用于新 transceiver 创建后通知所有接收端
    * 备用函数，当前未使用（使用 broadcastMediaType 逐个发送）
@@ -238,7 +264,7 @@ export function useWebRTC(): UseWebRTCReturn {
         }
         peerMap.set(mediaTypeMsg.mid, mediaTypeMsg.mediaType);
 
-        // 更新参与者的视频流分类
+        // 更新参与者的视频流分类（避免频繁创建 MediaStream）
         setParticipants((prev) =>
           prev.map((p) => {
             if (p.id !== peerId || !p.stream) {
@@ -247,8 +273,9 @@ export function useWebRTC(): UseWebRTCReturn {
 
             // 根据 mid 映射重新分类视频流
             const videoTracks = p.stream.getVideoTracks();
-            let cameraStream: MediaStream | undefined;
-            let screenStream: MediaStream | undefined;
+            let cameraStream: MediaStream | undefined = p.cameraStream;
+            let screenStream: MediaStream | undefined = p.screenStream;
+            let needsUpdate = false;
 
             // 遍历所有 transceiver 找到对应的 track
             const pc = peerConnectionsRef.current.get(peerId);
@@ -264,15 +291,29 @@ export function useWebRTC(): UseWebRTCReturn {
 
                 if (receivedTrack && receivedTrack.kind === 'video' && videoTracks.find((t) => t.id === receivedTrack.id)) {
                   if (type === 'camera') {
-                    cameraStream = new MediaStream([receivedTrack]);
+                    // 只有 track 变化时才创建新 MediaStream
+                    const existingTrack = cameraStream?.getVideoTracks()[0];
+                    if (!existingTrack || existingTrack.id !== receivedTrack.id) {
+                      cameraStream = new MediaStream([receivedTrack]);
+                      needsUpdate = true;
+                    }
                   } else if (type === 'screen') {
-                    screenStream = new MediaStream([receivedTrack]);
+                    // 只有 track 变化时才创建新 MediaStream
+                    const existingTrack = screenStream?.getVideoTracks()[0];
+                    if (!existingTrack || existingTrack.id !== receivedTrack.id) {
+                      screenStream = new MediaStream([receivedTrack]);
+                      needsUpdate = true;
+                    }
                   }
                 }
               });
             }
 
-            return { ...p, cameraStream, screenStream };
+            // 只有真正变化时才更新
+            if (needsUpdate) {
+              return { ...p, cameraStream, screenStream };
+            }
+            return p;
           }),
         );
       }
@@ -605,14 +646,8 @@ export function useWebRTC(): UseWebRTCReturn {
         direction: 'sendrecv',
         streams: stream ? [stream] : [],
       });
-      // 广播媒体类型（需等待 mid 生成，在协商后）
-      const transceiver = refs.camera;
-      // mid 在 setLocalDescription 后才会生成，使用 onnegotiationneeded 回调后广播
-      setTimeout(() => {
-        if (transceiver.mid) {
-          broadcastMediaType(peerId, transceiver.mid, 'camera');
-        }
-      }, 100);
+      // 等待 mid 生成后广播媒体类型
+      waitForMidAndBroadcast(refs.camera, peerId, 'camera');
     } else {
       await refs.camera.sender.replaceTrack(track);
       if (refs.camera.direction !== 'sendrecv') {
@@ -654,13 +689,8 @@ export function useWebRTC(): UseWebRTCReturn {
         direction: 'sendrecv',
         streams: stream ? [stream] : [],
       });
-      // 广播媒体类型（需等待 mid 生成）
-      const transceiver = refs.screen;
-      setTimeout(() => {
-        if (transceiver.mid) {
-          broadcastMediaType(peerId, transceiver.mid, 'screen');
-        }
-      }, 100);
+      // 等待 mid 生成后广播媒体类型
+      waitForMidAndBroadcast(refs.screen, peerId, 'screen');
     } else {
       await refs.screen.sender.replaceTrack(track);
       if (refs.screen.direction !== 'sendrecv') {

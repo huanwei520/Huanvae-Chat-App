@@ -10,7 +10,7 @@
  * - 代码结构更简单，无嵌套 AnimatePresence 问题
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useLayoutEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
@@ -169,6 +169,22 @@ export function UnifiedList({
   // 获取本地会话预览（用于 fallback）
   const { getFriendPreview, getGroupPreview } = useLocalConversations();
 
+  // ============================================
+  // 选中背景动画相关状态
+  // ============================================
+
+  // 列表容器引用
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // 卡片元素引用映射
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // 选中背景位置状态
+  const [selectedBgStyle, setSelectedBgStyle] = useState<{
+    top: number;
+    height: number;
+  } | null>(null);
+
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
     return (friends || []).map((friend) => {
@@ -274,17 +290,38 @@ export function UnifiedList({
   const loading = friendsLoading || groupsLoading;
   const error = friendsError || groupsError;
 
-  // 判断卡片是否被选中
-  const isSelected = (card: UnifiedCard): boolean => {
-    if (!selectedTarget) { return false; }
-    if (selectedTarget.type === 'friend' && card.type === 'friend') {
-      return selectedTarget.data.friend_id === card.id;
+  // 获取选中卡片的 uniqueKey
+  const getSelectedKey = useCallback((): string | null => {
+    if (!selectedTarget) return null;
+    return selectedTarget.type === 'friend'
+      ? `friend-${selectedTarget.data.friend_id}`
+      : `group-${selectedTarget.data.group_id}`;
+  }, [selectedTarget]);
+
+  // 计算选中背景位置
+  useLayoutEffect(() => {
+    const selectedKey = getSelectedKey();
+
+    if (!selectedKey || !listRef.current) {
+      setSelectedBgStyle(null);
+      return;
     }
-    if (selectedTarget.type === 'group' && card.type === 'group') {
-      return selectedTarget.data.group_id === card.id;
+
+    const cardElement = cardRefs.current.get(selectedKey);
+    if (!cardElement) {
+      setSelectedBgStyle(null);
+      return;
     }
-    return false;
-  };
+
+    // 计算相对于列表容器的位置
+    const listRect = listRef.current.getBoundingClientRect();
+    const cardRect = cardElement.getBoundingClientRect();
+
+    setSelectedBgStyle({
+      top: cardRect.top - listRect.top + listRef.current.scrollTop,
+      height: cardRect.height,
+    });
+  }, [getSelectedKey, filteredCards]);
 
   // 处理卡片点击
   const handleCardClick = (card: UnifiedCard) => {
@@ -377,7 +414,14 @@ export function UnifiedList({
     return filteredCards.map((card) => (
       <motion.div
         key={card.uniqueKey}
-        className={`conversation-item ${isSelected(card) ? 'active' : ''}`}
+        ref={(el) => {
+          if (el) {
+            cardRefs.current.set(card.uniqueKey, el);
+          } else {
+            cardRefs.current.delete(card.uniqueKey);
+          }
+        }}
+        className="conversation-item"
         onClick={() => handleCardClick(card)}
         variants={cardVariants}
         initial="initial"
@@ -448,7 +492,37 @@ export function UnifiedList({
         />
       </div>
 
-      <div className="conversation-list">
+      <div className="conversation-list" ref={listRef}>
+        {/* 选中背景层：绝对定位，通过 top 动画实现上下移动 */}
+        <AnimatePresence>
+          {selectedBgStyle && (
+            <motion.div
+              key="selected-bg"
+              className="conversation-selected-bg"
+              initial={{ opacity: 0, top: selectedBgStyle.top }}
+              animate={{
+                opacity: 1,
+                top: selectedBgStyle.top,
+                height: selectedBgStyle.height,
+              }}
+              exit={{ opacity: 0 }}
+              transition={{
+                top: {
+                  type: 'spring',
+                  stiffness: 500,
+                  damping: 35,
+                },
+                height: {
+                  type: 'spring',
+                  stiffness: 500,
+                  damping: 35,
+                },
+                opacity: { duration: 0.15 },
+              }}
+            />
+          )}
+        </AnimatePresence>
+
         {/* 状态覆盖层：绝对定位，不影响卡片布局 */}
         <AnimatePresence>
           {renderOverlay()}

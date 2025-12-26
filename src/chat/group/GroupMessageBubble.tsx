@@ -282,7 +282,8 @@ export function GroupMessageBubble({
     <>
       <motion.div
         className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
-        layout="position"
+        // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
+        layout={message.sendStatus === 'sending' ? 'position' : false}
         variants={getMessageVariants(isOwn)}
         // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
         initial={message.clientId ? 'initial' : false}

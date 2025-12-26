@@ -11,6 +11,7 @@
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
  * - 无加载动画：消息从本地 SQLite 加载，速度极快
+ * - 切换会话时整体进入/退出动画（类似发送/撤回效果）
  *
  * 消息排序机制：
  * - 发送中的消息始终排在最前面（column-reverse 显示为最下方）
@@ -26,6 +27,37 @@ import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
+
+// ============================================
+// 切换会话时的整体动画
+// ============================================
+
+/** 消息列表容器动画变体 - 类似发送消息的滑入效果 */
+const containerVariants = {
+  initial: {
+    opacity: 0,
+    x: 30,       // 从右侧滑入
+    scale: 0.98,
+  },
+  animate: {
+    opacity: 1,
+    x: 0,
+    scale: 1,
+  },
+  exit: {
+    opacity: 0,
+    x: -30,      // 向左侧滑出（类似撤回）
+    scale: 0.98,
+  },
+};
+
+/** 动画过渡配置 */
+const containerTransition = {
+  type: 'spring' as const,
+  stiffness: 400,
+  damping: 30,
+  opacity: { duration: 0.2 },
+};
 
 interface ChatMessagesProps {
   /** @deprecated 不再使用，消息从本地加载速度很快 */
@@ -79,7 +111,14 @@ export function ChatMessages({
   const isEmpty = messages.length === 0;
 
   return (
-    <>
+    <motion.div
+      className="chat-messages-container"
+      variants={containerVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={containerTransition}
+    >
       {/* 暂无消息占位符 - 始终存在，通过透明度控制 */}
       <motion.div
         className="message-placeholder message-placeholder-absolute"
@@ -124,6 +163,6 @@ export function ChatMessages({
           })}
         </AnimatePresence>
       </LayoutGroup>
-    </>
+    </motion.div>
   );
 }

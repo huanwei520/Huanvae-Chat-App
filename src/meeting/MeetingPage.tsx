@@ -54,58 +54,49 @@ function ParticipantVideo({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // 记录上次设置的 stream id，避免不必要的更新
+  const lastStreamIdRef = useRef<string | null>(null);
+
   // 视频流优先级：屏幕共享 > 摄像头 > 混合流
   const stream = participant?.screenStream || participant?.cameraStream || participant?.stream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
   // 是否正在共享屏幕（用于 UI 提示）
   const isScreenSharing = !!participant?.screenStream;
 
-  // 检查是否有活跃的视频轨道
+  // 简化的视频轨道状态检查（低频轮询代替高频事件监听）
   useEffect(() => {
     if (!stream) {
       setHasActiveVideo(false);
       return;
     }
 
+    // 初始检查
     const checkVideoTrack = () => {
       const videoTracks = stream.getVideoTracks();
-      const hasLiveVideo = videoTracks.some(
-        (track) => track.readyState === 'live' && !track.muted,
-      );
-      setHasActiveVideo(hasLiveVideo);
+      return videoTracks.some((track) => track.readyState === 'live' && !track.muted);
     };
 
-    // 初始检查
-    checkVideoTrack();
+    setHasActiveVideo(checkVideoTrack());
 
-    // 监听所有视频轨道的状态变化
-    const videoTracks = stream.getVideoTracks();
-    const handleTrackChange = () => checkVideoTrack();
+    // 使用低频轮询（500ms）代替高频事件监听，减少状态更新
+    const interval = setInterval(() => {
+      setHasActiveVideo(checkVideoTrack());
+    }, 500);
 
-    videoTracks.forEach((track) => {
-      track.addEventListener('ended', handleTrackChange);
-      track.addEventListener('mute', handleTrackChange);
-      track.addEventListener('unmute', handleTrackChange);
-    });
-
-    // 监听流的轨道变化
-    stream.addEventListener('addtrack', handleTrackChange);
-    stream.addEventListener('removetrack', handleTrackChange);
-
-    return () => {
-      videoTracks.forEach((track) => {
-        track.removeEventListener('ended', handleTrackChange);
-        track.removeEventListener('mute', handleTrackChange);
-        track.removeEventListener('unmute', handleTrackChange);
-      });
-      stream.removeEventListener('addtrack', handleTrackChange);
-      stream.removeEventListener('removetrack', handleTrackChange);
-    };
+    return () => clearInterval(interval);
   }, [stream]);
 
-  // 设置视频源
+  // 设置视频源（使用 ref 缓存避免不必要更新）
   useEffect(() => {
-    if (videoRef.current) {
+    if (!videoRef.current) return;
+
+    // 获取当前 stream 的唯一标识
+    const currentStreamId = stream?.id ?? null;
+
+    // 只有 stream 真正变化时才更新 srcObject
+    if (currentStreamId !== lastStreamIdRef.current || !hasActiveVideo) {
+      lastStreamIdRef.current = currentStreamId;
+
       if (stream && hasActiveVideo) {
         videoRef.current.srcObject = stream;
       } else {
