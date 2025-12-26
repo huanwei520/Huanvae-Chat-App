@@ -50,27 +50,30 @@ Write-Host "  $Message"
 Write-Host "========================================"
 Write-Host ""
 
+# UTF8 无 BOM 编码
+$Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
 # 使用正则表达式替换版本号（保持原有格式）
 Write-Host "[1/6] 更新 package.json..." -ForegroundColor Cyan
-$content = [System.IO.File]::ReadAllText("$ProjectRoot\package.json", [System.Text.Encoding]::UTF8)
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\package.json", $Utf8NoBom)
 $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
-[System.IO.File]::WriteAllText("$ProjectRoot\package.json", $content, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText("$ProjectRoot\package.json", $content, $Utf8NoBom)
 
 Write-Host "[2/6] 更新 tauri.conf.json..." -ForegroundColor Cyan
-$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\tauri.conf.json", [System.Text.Encoding]::UTF8)
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\tauri.conf.json", $Utf8NoBom)
 $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`""
-[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\tauri.conf.json", $content, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\tauri.conf.json", $content, $Utf8NoBom)
 
 Write-Host "[3/6] 更新 Cargo.toml..." -ForegroundColor Cyan
-$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\Cargo.toml", [System.Text.Encoding]::UTF8)
+$content = [System.IO.File]::ReadAllText("$ProjectRoot\src-tauri\Cargo.toml", $Utf8NoBom)
 # 只替换 [package] 部分的 version（文件开头的第一个 version）
 $content = $content -replace '(\[package\][\s\S]*?name\s*=\s*"[^"]+"\s*\n)version\s*=\s*"[^"]+"', "`$1version = `"$Version`""
-[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\Cargo.toml", $content, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText("$ProjectRoot\src-tauri\Cargo.toml", $content, $Utf8NoBom)
 
 # Git 提交
 Write-Host "[4/6] Git 提交..." -ForegroundColor Cyan
 $commitFile = "$ProjectRoot\.commit_msg"
-[System.IO.File]::WriteAllText($commitFile, "v$Version`: $Message", [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText($commitFile, "v$Version`: $Message", $Utf8NoBom)
 git add -A
 git commit -F $commitFile
 Remove-Item $commitFile -Force -ErrorAction SilentlyContinue
