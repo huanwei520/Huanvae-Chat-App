@@ -39,6 +39,11 @@ interface ChatPanelProps {
   isSending: boolean;
   totalMessageCount: number;
 
+  // 加载更多
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+
   // 输入
   messageInput: string;
   onMessageChange: (value: string) => void;
@@ -106,6 +111,9 @@ export function ChatPanel({
   isLoading,
   isSending,
   totalMessageCount,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   messageInput,
   onMessageChange,
   onSendMessage,
@@ -176,6 +184,9 @@ export function ChatPanel({
               onRecall={onRecallMessage}
               onDelete={onDeleteMessage}
               onEnterMultiSelect={onEnterMultiSelect}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
             />
           ) : (
             <GroupChatMessages
@@ -190,6 +201,9 @@ export function ChatPanel({
               onRecall={onRecallMessage}
               onDelete={onDeleteMessage}
               onEnterMultiSelect={onEnterMultiSelect}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
             />
           )}
         </AnimatePresence>
@@ -234,7 +248,7 @@ export function ChatPanel({
 
 interface EmptyChatProps {
   session: Session;
-  activeTab: 'chat' | 'friends' | 'group' | 'settings';
+  activeTab: 'chat' | 'friends' | 'group';
 }
 
 export function EmptyChat({ session, activeTab }: EmptyChatProps) {
@@ -242,7 +256,6 @@ export function EmptyChat({ session, activeTab }: EmptyChatProps) {
     chat: '会话',
     friends: '好友',
     group: '群聊',
-    settings: '设置',
   };
 
   return (

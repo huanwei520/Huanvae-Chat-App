@@ -26,7 +26,8 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import { openMediaWindow } from '../../media';
-import { useSession } from '../../contexts/SessionContext';
+import { useSession, useApi } from '../../contexts/SessionContext';
+import { getPresignedUrl, getCachedFilePath } from '../../services/fileCache';
 import type { FileItem } from '../../api/storage';
 
 // ============================================
@@ -301,17 +302,42 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
     [localInfoCache],
   );
 
+  const api = useApi();
+
   // 预览文件
   const handlePreview = useCallback(
-    (file: FileItem) => {
+    async (file: FileItem) => {
       const fileCategory = getFileCategory(file.content_type);
       const cached = localInfoCache.get(file.file_uuid);
-      const localPath = cached?.path ?? null;
+      let localPath = cached?.path ?? null;
       const fileHash = cached?.hash ?? file.file_hash ?? null;
 
       // 图片和视频使用独立窗口预览
       if (fileCategory === 'image' || fileCategory === 'video') {
         if (!session) return;
+
+        // 如果没有本地路径，尝试通过 fileHash 获取
+        if (!localPath && fileHash) {
+          try {
+            localPath = await getCachedFilePath(fileHash);
+          } catch {
+            // 忽略错误
+          }
+        }
+
+        // 如果没有本地缓存，预先获取预签名 URL
+        let presignedUrl: string | null = null;
+        if (!localPath) {
+          try {
+            // eslint-disable-next-line no-console
+            console.log('[FilesModal] 预获取预签名 URL:', file.file_uuid);
+            const result = await getPresignedUrl(api, file.file_uuid, 'user');
+            presignedUrl = result.url;
+          } catch (err) {
+            console.error('[FilesModal] 预获取预签名 URL 失败:', err);
+            // 继续打开窗口，让窗口内部尝试获取
+          }
+        }
 
         openMediaWindow(
           {
@@ -322,6 +348,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
             fileHash,
             urlType: 'user',
             localPath,
+            presignedUrl,
           },
           {
             serverUrl: session.serverUrl,
@@ -336,7 +363,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
       setPreviewLocalPath(localPath);
       setPreviewFileHash(fileHash);
     },
-    [localInfoCache, session],
+    [localInfoCache, session, api],
   );
 
   // 关闭预览

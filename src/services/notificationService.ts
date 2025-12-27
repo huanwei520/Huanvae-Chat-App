@@ -20,6 +20,63 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
+import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { useSettingsStore } from '../stores/settingsStore';
+
+// ============================================
+// 提示音播放
+// ============================================
+
+/** 当前播放的音频 */
+let currentAudio: HTMLAudioElement | null = null;
+
+/**
+ * 播放消息提示音
+ */
+export async function playNotificationSound(): Promise<void> {
+  // 获取设置
+  const settings = useSettingsStore.getState().notification;
+
+  // 如果禁用了提示音，直接返回
+  if (!settings.enabled || !settings.soundName) {
+    return;
+  }
+
+  try {
+    // 停止当前正在播放的音频
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+
+    // 获取提示音文件路径
+    const path = await invoke<string>('get_notification_sound_path', {
+      name: settings.soundName,
+    });
+
+    // 转换为可访问的 URL
+    const src = convertFileSrc(path);
+
+    // 创建并播放音频
+    const audio = new Audio(src);
+    audio.volume = settings.volume / 100;
+
+    audio.onended = () => {
+      currentAudio = null;
+    };
+
+    audio.onerror = (e) => {
+      console.warn('[Notification] 播放提示音失败:', e);
+      currentAudio = null;
+    };
+
+    currentAudio = audio;
+    await audio.play();
+  } catch (error) {
+    console.warn('[Notification] 播放提示音错误:', error);
+  }
+}
 
 // ============================================
 // 权限管理
@@ -164,7 +221,7 @@ export interface NewMessageNotificationParams {
 /**
  * 发送新消息通知
  *
- * 如果用户当前正在查看该聊天，不发送通知
+ * 如果用户当前正在查看该聊天，不发送系统通知但仍播放提示音
  */
 export async function notifyNewMessage(params: NewMessageNotificationParams): Promise<void> {
   const {
@@ -177,7 +234,10 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     activeChat,
   } = params;
 
-  // 如果当前正在查看该聊天，不发送通知
+  // 无论是否是当前聊天，都播放提示音
+  playNotificationSound();
+
+  // 如果当前正在查看该聊天，不发送系统通知
   if (
     activeChat &&
     activeChat.type === sourceType &&
@@ -292,4 +352,7 @@ export async function notifySystemEvent(params: SystemNotificationParams): Promi
   }
 
   await notify({ title, body });
+
+  // 播放提示音
+  playNotificationSound();
 }

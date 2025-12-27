@@ -13,6 +13,7 @@
 
 mod db;
 mod download;
+mod sounds;
 mod storage;
 mod tray;
 mod user_data;
@@ -415,6 +416,12 @@ pub fn run() {
             download::copy_file_to_cache,
             // WebView 权限管理
             reset_webview_permissions,
+            // 提示音管理
+            sounds::list_notification_sounds,
+            sounds::save_notification_sound,
+            sounds::delete_notification_sound,
+            sounds::get_notification_sound_path,
+            sounds::ensure_sounds_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -33,17 +33,19 @@ const FolderIcon = () => (
   </svg>
 );
 
-export type NavTab = 'chat' | 'group' | 'friends' | 'settings';
+export type NavTab = 'chat' | 'group' | 'friends';
 
 interface SidebarProps {
     session: SessionInfo;
     activeTab: NavTab;
     pendingNotificationCount?: number; // 待处理通知数量
+    isSettingsOpen?: boolean; // 设置面板是否打开
     onTabChange: (tab: NavTab) => void;
     onAvatarClick: () => void;
     onAddClick: () => void; // 统一的添加按钮
     onFilesClick: () => void; // 打开文件弹窗
     onMeetingClick: () => void; // 打开会议弹窗
+    onSettingsClick: () => void; // 打开设置面板
     onLogout: () => void;
 }
 
@@ -51,11 +53,13 @@ export function Sidebar({
   session,
   activeTab,
   pendingNotificationCount = 0,
+  isSettingsOpen = false,
   onTabChange,
   onAvatarClick,
   onAddClick,
   onFilesClick,
   onMeetingClick,
+  onSettingsClick,
   onLogout,
 }: SidebarProps) {
   return (
@@ -143,8 +147,8 @@ export function Sidebar({
 
       <div className="sidebar-bottom">
         <motion.button
-          className={`nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => onTabChange('settings')}
+          className={`nav-btn ${isSettingsOpen ? 'active' : ''}`}
+          onClick={onSettingsClick}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           title="设置"

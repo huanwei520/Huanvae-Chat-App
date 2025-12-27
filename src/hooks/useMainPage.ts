@@ -133,10 +133,13 @@ export function useMainPage() {
     messages: friendMessages,
     loading: friendMessagesLoading,
     sending: friendSending,
+    hasMore: friendHasMore,
+    loadingMore: friendLoadingMore,
     // syncing: friendSyncing, // 后台同步状态（用于 UI 指示）
     sendTextMessage: sendFriendMessage,
     // sendMediaMessage: sendFriendMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadFriendMessages,
+    loadMoreMessages: loadMoreFriendMessages,
     handleNewMessage: handleNewFriendMessage,
     handleMessageRecalled: handleFriendMessageRecalled,
     removeMessage: removeFriendMessage,
@@ -148,10 +151,13 @@ export function useMainPage() {
     messages: groupMessages,
     loading: groupMessagesLoading,
     sending: groupSending,
+    hasMore: groupHasMore,
+    loadingMore: groupLoadingMore,
     // syncing: groupSyncing, // 后台同步状态（用于 UI 指示）
     sendTextMessage: sendGroupMessage,
     // sendMediaMessage: sendGroupMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadGroupMessages,
+    loadMoreMessages: loadMoreGroupMessages,
     handleNewMessage: handleNewGroupMessage,
     handleMessageRecalled: handleGroupMessageRecalled,
     removeMessage: removeGroupMessage,
@@ -763,6 +769,17 @@ export function useMainPage() {
   const currentMessages = chatTarget?.type === 'friend' ? friendMessages : groupMessages;
   const totalMessageCount = currentMessages.length;
 
+  // 加载更多历史消息
+  const hasMore = chatTarget?.type === 'friend' ? friendHasMore : groupHasMore;
+  const loadingMore = chatTarget?.type === 'friend' ? friendLoadingMore : groupLoadingMore;
+  const handleLoadMore = useCallback(() => {
+    if (chatTarget?.type === 'friend') {
+      loadMoreFriendMessages();
+    } else if (chatTarget?.type === 'group') {
+      loadMoreGroupMessages();
+    }
+  }, [chatTarget, loadMoreFriendMessages, loadMoreGroupMessages]);
+
   const canBatchRecall = chatTarget?.type === 'group' &&
     (chatTarget.data.role === 'owner' || chatTarget.data.role === 'admin');
 
@@ -807,6 +824,11 @@ export function useMainPage() {
     isSending,
     currentMessages,
     totalMessageCount,
+
+    // 加载更多
+    hasMore,
+    loadingMore,
+    handleLoadMore,
 
     // 文件上传
     uploading,

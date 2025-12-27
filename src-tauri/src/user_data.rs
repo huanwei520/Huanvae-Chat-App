@@ -99,6 +99,17 @@ pub fn get_user_data_dir(user_id: &str, server_url: &str) -> PathBuf {
     app_root.join(user_dir_name)
 }
 
+/// 获取 Notification-Sounds 目录（与 data 目录并列）
+/// 开发模式：项目根目录/Notification-Sounds/
+/// 生产模式：可执行文件目录/Notification-Sounds/
+pub fn get_notification_sounds_dir() -> PathBuf {
+    // get_app_root() 返回 data 目录，其父目录就是根目录
+    get_app_root()
+        .parent()
+        .map(|p| p.join("Notification-Sounds"))
+        .unwrap_or_else(|| PathBuf::from("Notification-Sounds"))
+}
+
 /// 获取用户聊天数据目录
 pub fn get_user_chat_dir(user_id: &str, server_url: &str) -> PathBuf {
     get_user_data_dir(user_id, server_url).join("chat")

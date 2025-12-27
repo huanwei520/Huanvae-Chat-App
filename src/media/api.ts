@@ -33,6 +33,8 @@ export interface MediaWindowData {
   urlType: 'user' | 'friend' | 'group';
   /** 本地文件路径（如果有） */
   localPath?: string | null;
+  /** 预获取的预签名 URL（可选，避免在媒体窗口中再次请求） */
+  presignedUrl?: string | null;
 }
 
 /** 存储在 localStorage 中的完整数据（含认证信息） */

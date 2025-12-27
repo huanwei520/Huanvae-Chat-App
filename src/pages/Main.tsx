@@ -24,11 +24,13 @@ import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
+import { SettingsPanel } from '../components/settings';
 
 export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
   const { status: syncStatus } = useInitialSync({
@@ -69,35 +71,49 @@ export function Main() {
         session={page.session}
         activeTab={page.activeTab}
         pendingNotificationCount={page.pendingNotificationCount}
-        onTabChange={page.handleTabChange}
+        isSettingsOpen={showSettingsPanel}
+        onTabChange={(tab) => {
+          setShowSettingsPanel(false);
+          page.handleTabChange(tab);
+        }}
         onAvatarClick={() => page.setShowProfileModal(true)}
         onAddClick={() => page.setShowAddModal(true)}
         onFilesClick={() => setShowFilesModal(true)}
         onMeetingClick={() => setShowMeetingModal(true)}
+        onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
       />
 
-      {/* 中间列表 + 分割线 */}
+      {/* 中间列表 / 设置面板 + 分割线 */}
       <div
         className={`chat-list-container ${page.isResizing ? 'resizing' : ''}`}
         style={{ width: page.panelWidth }}
       >
-        {/* 统一列表：通过 activeTab 切换数据，单卡片级别动画 */}
-        <UnifiedList
-          activeTab={page.activeTab}
-          friends={page.friends}
-          groups={page.groups}
-          friendsLoading={page.friendsLoading}
-          groupsLoading={page.groupsLoading}
-          friendsError={page.friendsError}
-          groupsError={page.groupsError}
-          searchQuery={page.searchQuery}
-          onSearchChange={page.setSearchQuery}
-          selectedTarget={page.chatTarget}
-          onSelectTarget={page.handleSelectTarget}
-          unreadSummary={page.unreadSummary}
-          panelWidth={page.panelWidth}
-        />
+        <AnimatePresence mode="wait">
+          {showSettingsPanel ? (
+            <SettingsPanel
+              key="settings"
+              onClose={() => setShowSettingsPanel(false)}
+            />
+          ) : (
+            <UnifiedList
+              key="list"
+              activeTab={page.activeTab}
+              friends={page.friends}
+              groups={page.groups}
+              friendsLoading={page.friendsLoading}
+              groupsLoading={page.groupsLoading}
+              friendsError={page.friendsError}
+              groupsError={page.groupsError}
+              searchQuery={page.searchQuery}
+              onSearchChange={page.setSearchQuery}
+              selectedTarget={page.chatTarget}
+              onSelectTarget={page.handleSelectTarget}
+              unreadSummary={page.unreadSummary}
+              panelWidth={page.panelWidth}
+            />
+          )}
+        </AnimatePresence>
 
         {/* 可拖拽分割线 */}
         <div
@@ -123,6 +139,9 @@ export function Main() {
               isLoading={page.isLoading}
               isSending={page.isSending}
               totalMessageCount={page.totalMessageCount}
+              hasMore={page.hasMore}
+              loadingMore={page.loadingMore}
+              onLoadMore={page.handleLoadMore}
               messageInput={page.messageInput}
               onMessageChange={page.setMessageInput}
               onSendMessage={page.handleSendMessage}
@@ -177,7 +196,6 @@ export function Main() {
         isOpen={showMeetingModal}
         onClose={() => setShowMeetingModal(false)}
       />
-
     </div>
   );
 }

@@ -42,6 +42,8 @@ interface MediaState {
   urlType: 'user' | 'friend' | 'group';
   /** 本地文件路径 */
   localPath?: string | null;
+  /** 预获取的预签名 URL */
+  presignedUrl?: string | null;
   /** 服务器地址 */
   serverUrl: string;
   /** 访问令牌 */
@@ -83,32 +85,79 @@ async function getPresignedUrl(
   fileUuid: string,
   urlType: 'user' | 'friend' | 'group',
 ): Promise<string> {
+  // 验证必要参数
+  if (!serverUrl) {
+    throw new Error('服务器地址为空');
+  }
+  if (!accessToken) {
+    throw new Error('访问令牌为空，请重新登录');
+  }
+  if (!fileUuid) {
+    throw new Error('文件 UUID 为空');
+  }
+
   let endpoint: string;
   switch (urlType) {
     case 'friend':
       endpoint = `${serverUrl}/api/storage/friends_file/${fileUuid}/presigned_url`;
       break;
     case 'group':
+    case 'user':
     default:
       endpoint = `${serverUrl}/api/storage/file/${fileUuid}/presigned_url`;
   }
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ operation: 'preview' }),
-  });
+  // eslint-disable-next-line no-console
+  console.log('[MediaPreview] 请求预签名 URL:', { endpoint, urlType, fileUuid });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `HTTP ${response.status}`);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ operation: 'preview' }),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // 响应不是 JSON，使用默认错误消息
+      }
+
+      if (response.status === 401) {
+        throw new Error('登录已过期，请关闭窗口后重新登录');
+      } else if (response.status === 403) {
+        throw new Error('无权访问此文件');
+      } else if (response.status === 404) {
+        throw new Error('文件不存在');
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    if (!data.presigned_url) {
+      throw new Error('服务器未返回预签名 URL');
+    }
+
+    // eslint-disable-next-line no-console
+    console.log('[MediaPreview] 预签名 URL 获取成功');
+    return data.presigned_url;
+  } catch (err) {
+    // 确保所有错误都是 Error 实例
+    if (err instanceof Error) {
+      throw err;
+    }
+    // 处理非标准异常（如 Tauri fetch 错误）
+    const message = typeof err === 'object' && err !== null && 'message' in err
+      ? String((err as { message: unknown }).message)
+      : String(err);
+    throw new Error(message || '网络请求失败');
   }
-
-  const data = await response.json();
-  return data.presigned_url;
 }
 
 // ============================================================================
@@ -123,18 +172,54 @@ interface FileSource {
 async function getFileSource(
   state: MediaState,
 ): Promise<FileSource> {
-  // 1. 检查本地缓存
-  if (state.fileHash) {
-    const localPath = await getCachedFilePath(state.fileHash);
-    if (localPath) {
-      return {
-        src: convertFileSrc(localPath),
-        isLocal: true,
-      };
+  // eslint-disable-next-line no-console
+  console.log('[MediaPreview] 获取文件源:', {
+    fileUuid: state.fileUuid,
+    fileHash: state.fileHash,
+    urlType: state.urlType,
+    localPath: state.localPath,
+  });
+
+  // 1. 优先使用传入的本地路径
+  if (state.localPath) {
+    try {
+      const src = convertFileSrc(state.localPath);
+      // eslint-disable-next-line no-console
+      console.log('[MediaPreview] 使用传入的本地路径:', state.localPath);
+      return { src, isLocal: true };
+    } catch (err) {
+      console.warn('[MediaPreview] 转换本地路径失败:', err);
     }
   }
 
-  // 2. 获取预签名 URL
+  // 2. 检查本地缓存（通过 fileHash）
+  if (state.fileHash) {
+    try {
+      const localPath = await getCachedFilePath(state.fileHash);
+      if (localPath) {
+        const src = convertFileSrc(localPath);
+        // eslint-disable-next-line no-console
+        console.log('[MediaPreview] 使用缓存的本地文件:', localPath);
+        return { src, isLocal: true };
+      }
+    } catch (err) {
+      console.warn('[MediaPreview] 检查本地缓存失败:', err);
+    }
+  }
+
+  // 3. 使用预获取的预签名 URL（如果有）
+  if (state.presignedUrl) {
+    // eslint-disable-next-line no-console
+    console.log('[MediaPreview] 使用预获取的预签名 URL');
+    return {
+      src: state.presignedUrl,
+      isLocal: false,
+    };
+  }
+
+  // 4. 获取预签名 URL
+  // eslint-disable-next-line no-console
+  console.log('[MediaPreview] 本地缓存不存在，获取预签名 URL...');
   const url = await getPresignedUrl(
     state.serverUrl,
     state.accessToken,
@@ -177,8 +262,18 @@ function ImageViewer({ state }: { state: MediaState }) {
           setIsLocal(result.isLocal);
         }
       } catch (err) {
+        console.error('[MediaPreview] 图片加载失败:', err);
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载失败');
+          // 确保提取正确的错误消息
+          let message = '加载失败';
+          if (err instanceof Error) {
+            message = err.message;
+          } else if (typeof err === 'string') {
+            message = err;
+          } else if (typeof err === 'object' && err !== null && 'message' in err) {
+            message = String((err as { message: unknown }).message);
+          }
+          setError(message);
         }
       } finally {
         if (!cancelled) {
@@ -323,8 +418,18 @@ function VideoPlayer({ state }: { state: MediaState }) {
           setIsLocal(result.isLocal);
         }
       } catch (err) {
+        console.error('[MediaPreview] 视频加载失败:', err);
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载失败');
+          // 确保提取正确的错误消息
+          let message = '加载失败';
+          if (err instanceof Error) {
+            message = err.message;
+          } else if (typeof err === 'string') {
+            message = err;
+          } else if (typeof err === 'object' && err !== null && 'message' in err) {
+            message = String((err as { message: unknown }).message);
+          }
+          setError(message);
         }
       } finally {
         if (!cancelled) {

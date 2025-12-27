@@ -1,2 +1,2 @@
-VERSION=1.0.4
-MESSAGE=修复WebRTC屏幕共享问题，优化Windows更新安装体验
+VERSION=1.0.5
+MESSAGE=新增消息提示音设置，支持无限滚动加载历史消息，修复个人文件视频播放问题

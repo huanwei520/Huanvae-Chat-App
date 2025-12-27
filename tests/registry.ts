@@ -64,6 +64,10 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 群组模态框
   { name: 'GroupsModal', path: 'components/GroupsModal', category: 'components', description: '群组管理模态框' },
   { name: 'AddModal', path: 'components/AddModal', category: 'components', description: '添加好友/群组模态框' },
+  
+  // 设置相关
+  { name: 'SettingsPanel', path: 'components/settings/SettingsPanel', category: 'components', description: '设置面板' },
+  { name: 'NotificationSoundCard', path: 'components/settings/NotificationSoundCard', category: 'components', description: '消息提示音设置卡片' },
 ];
 
 // ============== 模态框组件 ==============
@@ -155,6 +159,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
   { name: 'useSilentUpdate', path: 'update/useSilentUpdate', category: 'hooks', description: '静默更新 Hook' },
+  { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
 ];
 
 // ============== 服务 ==============
@@ -165,6 +170,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'notificationService', path: 'services/notificationService', category: 'services', description: '通知服务' },
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
+  { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
 ];
 
 // ============== 所有组件汇总 ==============

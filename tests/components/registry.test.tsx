@@ -47,6 +47,8 @@ import * as ProfileInfoForm from '../../src/components/profile/ProfileInfoForm';
 import * as FilesModal from '../../src/components/files/FilesModal';
 import * as GroupsModal from '../../src/components/GroupsModal';
 import * as AddModal from '../../src/components/AddModal';
+import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
+import * as NotificationSoundCard from '../../src/components/settings/NotificationSoundCard';
 
 // 模态框组件
 import * as AddFriendTab from '../../src/components/modals/add/AddFriendTab';
@@ -118,6 +120,7 @@ import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMes
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useSilentUpdate from '../../src/update/useSilentUpdate';
+import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 
 // 服务
 import * as fileCache from '../../src/services/fileCache';
@@ -126,6 +129,7 @@ import * as historyService from '../../src/services/historyService';
 import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
+import * as settingsStore from '../../src/stores/settingsStore';
 
 // 组件映射表
 const COMPONENT_MAP = {
@@ -153,6 +157,8 @@ const COMPONENT_MAP = {
   FilesModal,
   GroupsModal,
   AddModal,
+  SettingsPanel,
+  NotificationSoundCard,
   // 模态框组件
   AddFriendTab,
   CreateGroupTab,
@@ -219,6 +225,7 @@ const COMPONENT_MAP = {
   useLocalGroupMessages,
   useWebRTC,
   useSilentUpdate,
+  useNotificationSounds,
   // 服务
   fileCache,
   fileService,
@@ -226,6 +233,7 @@ const COMPONENT_MAP = {
   notificationService,
   syncService,
   updateService,
+  settingsStore,
 };
 
 // ============== 页面组件测试 ==============

@@ -22,11 +22,14 @@
  * - 通过 opacity 和 pointerEvents 控制显示/隐藏
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useCallback, useEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
+
+/** 滚动到顶部触发加载的阈值（像素） - 提前加载避免画面抽搐 */
+const LOAD_MORE_THRESHOLD = 500;
 
 // ============================================
 // 切换会话时的整体动画
@@ -77,6 +80,12 @@ interface ChatMessagesProps {
   onDelete?: (messageUuid: string) => void;
   /** 进入多选模式 */
   onEnterMultiSelect?: () => void;
+  /** 是否有更多历史消息 */
+  hasMore?: boolean;
+  /** 是否正在加载更多 */
+  loadingMore?: boolean;
+  /** 加载更多回调 */
+  onLoadMore?: () => void;
 }
 
 export function ChatMessages({
@@ -89,9 +98,44 @@ export function ChatMessages({
   onRecall,
   onDelete,
   onEnterMultiSelect,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: ChatMessagesProps) {
+  // 容器引用
+  const containerRef = useRef<HTMLDivElement>(null);
+
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
+
+  // 滚动处理：检测是否接近顶部（由于 column-reverse，顶部是 scrollTop 最大值附近）
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current || !hasMore || loadingMore || !onLoadMore) {
+      return;
+    }
+
+    const container = containerRef.current;
+    // column-reverse: scrollTop 为负值或接近 0 时表示在底部（视觉顶部）
+    // 需要检测是否滚动到了"顶部"（实际是 scroll 的末端）
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    
+    // 计算距离顶部的距离
+    // 对于 column-reverse，当 scrollTop 接近 -(scrollHeight - clientHeight) 时表示在顶部
+    const distanceFromTop = scrollHeight + scrollTop - clientHeight;
+    
+    if (distanceFromTop < LOAD_MORE_THRESHOLD) {
+      onLoadMore();
+    }
+  }, [hasMore, loadingMore, onLoadMore]);
+
+  // 添加滚动事件监听
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   // 消息排序：发送中的消息排在最前面（column-reverse 显示为最下方）
   // 其他消息按时间倒序排列
@@ -112,6 +156,7 @@ export function ChatMessages({
 
   return (
     <motion.div
+      ref={containerRef}
       className="chat-messages-container"
       variants={containerVariants}
       initial="initial"
@@ -163,6 +208,17 @@ export function ChatMessages({
           })}
         </AnimatePresence>
       </LayoutGroup>
+
+      {/* 加载更多指示器 - 在顶部显示（由于 column-reverse 实际在 DOM 末尾） */}
+      {(loadingMore || hasMore) && !isEmpty && (
+        <div className="load-more-indicator">
+          {loadingMore ? (
+            <span className="loading-text">加载中...</span>
+          ) : hasMore ? (
+            <span className="has-more-text">向上滚动加载更多</span>
+          ) : null}
+        </div>
+      )}
     </motion.div>
   );
 }
