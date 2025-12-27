@@ -99,15 +99,53 @@ pub fn get_user_data_dir(user_id: &str, server_url: &str) -> PathBuf {
     app_root.join(user_dir_name)
 }
 
-/// 获取 Notification-Sounds 目录（与 data 目录并列）
+/// 获取 Notification-Sounds 目录
 /// 开发模式：项目根目录/Notification-Sounds/
-/// 生产模式：可执行文件目录/Notification-Sounds/
+/// 生产模式（Windows/Linux）：可执行文件目录/Notification-Sounds/
+/// 生产模式（macOS）：App Bundle/Contents/Resources/Notification-Sounds/
 pub fn get_notification_sounds_dir() -> PathBuf {
-    // get_app_root() 返回 data 目录，其父目录就是根目录
-    get_app_root()
-        .parent()
-        .map(|p| p.join("Notification-Sounds"))
-        .unwrap_or_else(|| PathBuf::from("Notification-Sounds"))
+    let Ok(exe_path) = std::env::current_exe() else {
+        return PathBuf::from("Notification-Sounds");
+    };
+
+    let Some(exe_dir) = exe_path.parent() else {
+        return PathBuf::from("Notification-Sounds");
+    };
+
+    let exe_dir_str = exe_dir.to_string_lossy();
+
+    // 开发模式检测
+    let is_dev_mode = exe_dir_str.contains("target\\debug")
+        || exe_dir_str.contains("target/debug")
+        || exe_dir_str.contains("target\\release")
+        || exe_dir_str.contains("target/release");
+
+    if is_dev_mode {
+        // 开发模式：项目根目录/Notification-Sounds/
+        if let Some(project_root) = exe_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
+            return project_root.join("Notification-Sounds");
+        }
+    }
+
+    // macOS 生产模式：检查 Bundle Resources 目录
+    #[cfg(target_os = "macos")]
+    {
+        // exe 在 App.app/Contents/MacOS/ 下
+        // 资源在 App.app/Contents/Resources/ 下
+        if let Some(contents_dir) = exe_dir.parent() {
+            let resources_dir = contents_dir.join("Resources").join("Notification-Sounds");
+            if resources_dir.exists() {
+                return resources_dir;
+            }
+        }
+    }
+
+    // Windows/Linux 生产模式：可执行文件旁边
+    exe_dir.join("Notification-Sounds")
 }
 
 /// 获取用户聊天数据目录

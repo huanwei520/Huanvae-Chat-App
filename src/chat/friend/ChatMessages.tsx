@@ -4,8 +4,8 @@
  * @module chat/friend
  * @location src/chat/friend/ChatMessages.tsx
  *
- * 使用 flex-direction: column-reverse 实现从下往上显示
- * 最新消息自然在底部可视区域，无需滚动
+ * 使用 flex-direction: column + 手动滚动位置补偿实现稳定的视角
+ * 加载历史消息时，通过计算 scrollHeight 差值来保持当前视角
  *
  * 功能：
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
@@ -14,22 +14,27 @@
  * - 切换会话时整体进入/退出动画（类似发送/撤回效果）
  *
  * 消息排序机制：
- * - 发送中的消息始终排在最前面（column-reverse 显示为最下方）
+ * - 消息按时间正序排列（旧→新）
+ * - 发送中的消息排在最后（显示在底部）
  * - 发送完成后自动通过 layout 动画平滑移动到正确位置
  *
- * 占位符动画（解决布局变化导致的抽搐问题）：
- * - 占位符始终存在于 DOM 中，使用 position: absolute 脱离文档流
- * - 通过 opacity 和 pointerEvents 控制显示/隐藏
+ * 滚动机制：
+ * - 初始加载和切换会话时滚动到底部
+ * - 新消息到达时，如果用户在底部则自动滚动
+ * - 加载历史消息时，手动补偿 scrollTop 保持视角
  */
 
-import { useMemo, useRef, useCallback, useEffect } from 'react';
+import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
-/** 滚动到顶部触发加载的阈值（像素） - 提前加载避免画面抽搐 */
+/** 滚动到顶部触发加载的阈值（像素） */
 const LOAD_MORE_THRESHOLD = 500;
+
+/** 判断是否在底部的阈值（像素） */
+const AT_BOTTOM_THRESHOLD = 100;
 
 // ============================================
 // 切换会话时的整体动画
@@ -105,25 +110,57 @@ export function ChatMessages({
   // 容器引用
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 是否在底部（用于判断新消息到达时是否自动滚动）
+  const isAtBottomRef = useRef(true);
+
+  // 上一次消息数量（用于检测新消息 vs 加载历史）
+  const prevMessagesLengthRef = useRef(messages.length);
+
+  // 加载锁（防止连续加载）
+  const loadLockRef = useRef(false);
+
+  // 是否是首次加载（用于初始滚动到底部）
+  const isFirstLoadRef = useRef(true);
+
+  // 加载历史时的滚动位置记录
+  const scrollSnapshotRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
 
-  // 滚动处理：检测是否接近顶部（由于 column-reverse，顶部是 scrollTop 最大值附近）
-  const handleScroll = useCallback(() => {
-    if (!containerRef.current || !hasMore || loadingMore || !onLoadMore) {
-      return;
-    }
+  // 消息排序：按时间正序（旧→新），发送中的消息排在最后
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      // 发送中的消息排在最后（显示在底部）
+      if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return 1; }
+      if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return -1; }
+      // 其他按时间正序（旧→新）
+      return new Date(a.send_time).getTime() - new Date(b.send_time).getTime();
+    });
+  }, [messages]);
 
-    const container = containerRef.current;
-    // column-reverse: scrollTop 为负值或接近 0 时表示在底部（视觉顶部）
-    // 需要检测是否滚动到了"顶部"（实际是 scroll 的末端）
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    
-    // 计算距离顶部的距离
-    // 对于 column-reverse，当 scrollTop 接近 -(scrollHeight - clientHeight) 时表示在顶部
-    const distanceFromTop = scrollHeight + scrollTop - clientHeight;
-    
-    if (distanceFromTop < LOAD_MORE_THRESHOLD) {
+  // 滚动处理：检测是否接近顶部 + 更新是否在底部
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+
+    // 更新是否在底部
+    isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < AT_BOTTOM_THRESHOLD;
+
+    // 检测是否需要加载更多（接近顶部）
+    if (!hasMore || loadingMore || loadLockRef.current || !onLoadMore) return;
+
+    if (scrollTop < LOAD_MORE_THRESHOLD) {
+      // 记录加载前的滚动位置（用于后续补偿）
+      scrollSnapshotRef.current = {
+        scrollHeight: containerRef.current.scrollHeight,
+        scrollTop: containerRef.current.scrollTop,
+      };
+      loadLockRef.current = true;
       onLoadMore();
     }
   }, [hasMore, loadingMore, onLoadMore]);
@@ -137,21 +174,67 @@ export function ChatMessages({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // 消息排序：发送中的消息排在最前面（column-reverse 显示为最下方）
-  // 其他消息按时间倒序排列
-  const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => {
-      // 发送中的消息优先
-      if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return -1; }
-      if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return 1; }
-      // 其他按时间倒序
-      return new Date(b.send_time).getTime() - new Date(a.send_time).getTime();
-    });
-  }, [messages]);
+  // 加载完成后解锁（带冷却期）
+  useEffect(() => {
+    if (!loadingMore && loadLockRef.current) {
+      const timer = setTimeout(() => {
+        loadLockRef.current = false;
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [loadingMore]);
+
+  // 初始加载或切换好友时滚动到底部
+  useLayoutEffect(() => {
+    if (isFirstLoadRef.current && messages.length > 0 && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      isFirstLoadRef.current = false;
+    }
+  }, [messages.length]);
+
+  // 切换好友时重置状态
+  useEffect(() => {
+    isFirstLoadRef.current = true;
+    isAtBottomRef.current = true;
+    loadLockRef.current = false;
+    scrollSnapshotRef.current = null;
+  }, [friend.friend_id]);
+
+  // 消息数量变化时的处理
+  useLayoutEffect(() => {
+    const prevLength = prevMessagesLengthRef.current;
+    const currentLength = messages.length;
+    const deltaMessages = currentLength - prevLength;
+    prevMessagesLengthRef.current = currentLength;
+
+    if (!containerRef.current || deltaMessages === 0) return;
+
+    // 情况1：加载历史消息（消息增加较多，且有滚动快照）
+    if (deltaMessages > 3 && scrollSnapshotRef.current) {
+      const { scrollHeight: oldScrollHeight, scrollTop: oldScrollTop } = scrollSnapshotRef.current;
+      const newScrollHeight = containerRef.current.scrollHeight;
+      const deltaHeight = newScrollHeight - oldScrollHeight;
+
+      // 补偿滚动位置：新内容在顶部，需要增加 scrollTop
+      containerRef.current.scrollTop = oldScrollTop + deltaHeight;
+      scrollSnapshotRef.current = null;
+      return;
+    }
+
+    // 情况2：新消息到达（1-3条），如果用户在底部则自动滚动
+    if (deltaMessages > 0 && deltaMessages <= 3 && isAtBottomRef.current) {
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTo({
+            top: containerRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
+      });
+    }
+  }, [messages.length]);
 
   // 消息从本地 SQLite 加载，速度很快，不需要加载动画
-  // 占位符始终存在于DOM中，使用 absolute 定位脱离文档流
-  // 通过 opacity 控制显示/隐藏，避免布局变化导致的抽搐
   const isEmpty = messages.length === 0;
 
   return (
@@ -164,6 +247,17 @@ export function ChatMessages({
       exit="exit"
       transition={containerTransition}
     >
+      {/* 加载更多指示器 - 在顶部（DOM 开头） */}
+      {(loadingMore || hasMore) && !isEmpty && (
+        <div className="load-more-indicator">
+          {loadingMore ? (
+            <span className="loading-text">加载中...</span>
+          ) : hasMore ? (
+            <span className="has-more-text">向上滚动加载更多</span>
+          ) : null}
+        </div>
+      )}
+
       {/* 暂无消息占位符 - 始终存在，通过透明度控制 */}
       <motion.div
         className="message-placeholder message-placeholder-absolute"
@@ -175,7 +269,7 @@ export function ChatMessages({
         transition={{
           duration: 0.3,
           ease: 'easeOut',
-          delay: isEmpty ? 0.25 : 0, // 淡入时延迟，淡出时立即
+          delay: isEmpty ? 0.25 : 0,
         }}
       >
         <p>暂无消息</p>
@@ -208,17 +302,6 @@ export function ChatMessages({
           })}
         </AnimatePresence>
       </LayoutGroup>
-
-      {/* 加载更多指示器 - 在顶部显示（由于 column-reverse 实际在 DOM 末尾） */}
-      {(loadingMore || hasMore) && !isEmpty && (
-        <div className="load-more-indicator">
-          {loadingMore ? (
-            <span className="loading-text">加载中...</span>
-          ) : hasMore ? (
-            <span className="has-more-text">向上滚动加载更多</span>
-          ) : null}
-        </div>
-      )}
     </motion.div>
   );
 }

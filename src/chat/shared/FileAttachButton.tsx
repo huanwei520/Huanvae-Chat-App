@@ -108,7 +108,7 @@ const MENU_ITEMS: MenuItem[] = [
 /**
  * 根据文件扩展名获取 MIME 类型
  */
-function getMimeType(filename: string, typeHint: AttachmentType): string {
+export function getMimeType(filename: string, typeHint: AttachmentType): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
 
   const mimeMap: Record<string, string> = {

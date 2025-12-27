@@ -204,6 +204,7 @@ export function ChatPanel({
               hasMore={hasMore}
               loadingMore={loadingMore}
               onLoadMore={onLoadMore}
+              groupId={(chatTarget.data as Group).group_id}
             />
           )}
         </AnimatePresence>

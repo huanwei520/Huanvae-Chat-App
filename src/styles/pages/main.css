@@ -1577,10 +1577,11 @@
 /* 消息列表容器 - 滚动容器，每次切换会话时是全新的 */
 .chat-messages-container {
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;  /* 正常方向，配合 overflow-anchor 实现稳定锚定 */
   flex: 1;
   min-height: 0;
   position: relative;
+  overflow-anchor: auto; /* 启用滚动锚定 */
   overflow-y: auto;           /* 滚动在此层 */
   overflow-x: hidden;
   padding: 24px;              /* padding 移到这里 */
@@ -1627,6 +1628,7 @@
   padding: 16px;
   color: #60a5fa;
   font-size: 13px;
+  overflow-anchor: none; /* 加载指示器不作为锚点 */
 }
 
 .load-more-indicator .loading-text {
@@ -1662,6 +1664,7 @@
   gap: 10px;
   margin-bottom: 16px;
   max-width: 70%;
+  overflow-anchor: auto; /* 消息可作为滚动锚点 */
   /* 多选模式切换的过渡动画（位置动画由 Framer Motion layout 处理） */
   transition: padding 0.35s cubic-bezier(0.25, 0.1, 0.25, 1),
               background 0.25s ease,
@@ -2116,11 +2119,37 @@
 
 /* 输入区域 */
 .chat-input-area {
+  position: relative;
   padding: 16px 24px;
   min-height: 88px; /* 与多选操作栏保持一致 */
   box-sizing: border-box;
   border-top: 1px solid rgba(147, 197, 253, 0.15);
   background: rgba(255, 255, 255, 0.4);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* 拖拽文件时的视觉反馈 */
+.chat-input-area.dragging {
+  border-top: 2px dashed #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.chat-input-area.dragging::before {
+  content: '释放以发送文件';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #3b82f6;
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.chat-input-area.dragging .input-wrapper {
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 /* 禁言状态下的输入区域 */
