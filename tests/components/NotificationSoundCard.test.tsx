@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { NotificationSoundCard } from '../../src/components/settings/NotificationSoundCard';
 import { SoundInfo } from '../../src/hooks/useNotificationSounds';

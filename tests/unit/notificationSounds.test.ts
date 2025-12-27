@@ -229,7 +229,7 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
         name: 'custom',
       });
       expect(uploadResult).not.toBeNull();
-      expect(uploadResult?.name).toBe('custom');
+      expect((uploadResult as SoundInfo).name).toBe('custom');
     });
 
     it('取消选择时应返回 null', async () => {
