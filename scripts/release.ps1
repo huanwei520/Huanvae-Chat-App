@@ -57,6 +57,32 @@ if ($UpdaterWindows -and $UpdaterWindows.installMode) {
 }
 Write-Host "[OK] Windows 更新器配置正确 (使用默认完整安装界面)" -ForegroundColor Green
 
+# ============================================
+# 本地构建测试（与 CI 保持一致）
+# ============================================
+Write-Host ""
+Write-Host "[检查] 运行本地构建测试..." -ForegroundColor Yellow
+
+# 1. 运行单元测试
+Write-Host "  [1/2] 单元测试..." -ForegroundColor Cyan
+$testResult = pnpm test --run 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] 单元测试失败" -ForegroundColor Red
+    Write-Host $testResult -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] 单元测试通过" -ForegroundColor Green
+
+# 2. 前端构建测试（包含 TypeScript 严格检查）
+Write-Host "  [2/2] 前端构建测试 (tsc && vite build)..." -ForegroundColor Cyan
+$buildResult = pnpm build 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] 前端构建失败" -ForegroundColor Red
+    Write-Host $buildResult -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] 前端构建通过" -ForegroundColor Green
+
 Write-Host ""
 Write-Host "========================================"
 Write-Host "  Huanvae Chat App v$Version"
