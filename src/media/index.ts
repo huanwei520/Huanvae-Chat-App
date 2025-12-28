@@ -16,4 +16,3 @@ export {
   type MediaType,
   type MediaAuthInfo,
 } from './api';
-

@@ -183,6 +183,38 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
         description: '显示消息已读/未读状态',
         critical: false,
       },
+      {
+        name: '历史消息无限滚动',
+        description: '向上滚动自动加载更多历史消息',
+        critical: true,
+        steps: [
+          '打开任意聊天窗口',
+          '向上滚动到距离顶部 1/3 位置',
+          '验证自动触发历史消息加载',
+          '验证加载后视角保持不变',
+          '验证加载完成后可继续滚动',
+        ],
+      },
+      {
+        name: '历史消息加载完毕提示',
+        description: '滚动到最早消息时显示无更多记录',
+        critical: false,
+        steps: [
+          '持续向上滚动直到没有更多消息',
+          '验证顶部显示"无更多记录"提示',
+        ],
+      },
+      {
+        name: '图片尺寸预加载',
+        description: '切换聊天时预加载图片尺寸避免布局偏移',
+        critical: true,
+        steps: [
+          '切换到含有图片的聊天',
+          '验证消息列表直接滚动到底部',
+          '验证图片容器有正确的预设尺寸',
+          '验证无明显的布局跳动',
+        ],
+      },
     ],
   },
   {

@@ -64,15 +64,15 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         // 如果会话没有 last_message，从消息表获取最新消息
         if (!lastMessage) {
           try {
+            // eslint-disable-next-line no-await-in-loop
             const latestMsg = await db.getLatestMessage(conv.id);
             if (latestMsg) {
-              lastMessage = latestMsg.content_type === 'text'
-                ? latestMsg.content
-                : latestMsg.content_type === 'image'
-                  ? '[图片]'
-                  : latestMsg.content_type === 'video'
-                    ? '[视频]'
-                    : '[文件]';
+              const contentTypeMap: Record<string, string> = {
+                text: latestMsg.content,
+                image: '[图片]',
+                video: '[视频]',
+              };
+              lastMessage = contentTypeMap[latestMsg.content_type] ?? '[文件]';
               lastMessageTime = latestMsg.send_time;
             }
           } catch {
@@ -108,10 +108,7 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         groups: groupPreviews,
       });
 
-      console.log('[LocalConv] 加载本地会话预览:', {
-        friends: friendPreviews.size,
-        groups: groupPreviews.size,
-      });
+      // 预览加载完成
     } catch (err) {
       console.warn('[LocalConv] 加载本地会话失败:', err);
     } finally {
@@ -158,4 +155,3 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     getGroupPreview,
   };
 }
-

@@ -167,6 +167,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
   { name: 'fileService', path: 'services/fileService', category: 'services', description: '文件服务' },
   { name: 'historyService', path: 'services/historyService', category: 'services', description: '历史服务' },
+  { name: 'imageDimensions', path: 'services/imageDimensions', category: 'services', description: '图片尺寸缓存服务' },
   { name: 'notificationService', path: 'services/notificationService', category: 'services', description: '通知服务' },
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },

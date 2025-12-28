@@ -126,6 +126,7 @@ import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 import * as fileCache from '../../src/services/fileCache';
 import * as fileService from '../../src/services/fileService';
 import * as historyService from '../../src/services/historyService';
+import * as imageDimensions from '../../src/services/imageDimensions';
 import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
@@ -230,6 +231,7 @@ const COMPONENT_MAP = {
   fileCache,
   fileService,
   historyService,
+  imageDimensions,
   notificationService,
   syncService,
   updateService,

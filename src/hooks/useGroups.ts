@@ -99,7 +99,7 @@ export function useGroups(): UseGroupsReturn {
     try {
       const localGroups = serverGroups.map(groupToLocalGroup);
       await db.saveGroups(localGroups);
-      console.log('[Groups] 保存群聊到本地:', serverGroups.length);
+      // 保存成功
     } catch (err) {
       console.warn('[Groups] 保存群聊到本地失败:', err);
     }
@@ -118,13 +118,13 @@ export function useGroups(): UseGroupsReturn {
       if (localGroups.length > 0) {
         setGroups(localGroups);
         setLoading(false); // 本地数据显示后立即关闭 loading
-        console.log('[Groups] 从本地加载群聊:', localGroups.length);
+        // 本地数据加载完成
       }
 
       // 2. 从服务器获取最新列表（后台静默更新）
       const serverGroups = await loadServerGroups();
       setGroups(serverGroups);
-      console.log('[Groups] 从服务器加载群聊:', serverGroups.length);
+      // 服务器数据加载完成
       return serverGroups;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

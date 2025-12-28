@@ -10,7 +10,7 @@
  * 切换 tab 时旧卡片飞出、新卡片飞入
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
 import { useInitialSync } from '../hooks/useInitialSync';
@@ -33,25 +33,10 @@ export function Main() {
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
-  const { status: syncStatus } = useInitialSync({
+  useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
-
-  // 同步状态日志（开发时查看）
-  useEffect(() => {
-    if (syncStatus.syncing) {
-      console.log('[Main] 正在同步消息...', {
-        进度: `${syncStatus.progress}%`,
-        总会话: syncStatus.totalConversations,
-      });
-    } else if (syncStatus.lastSyncTime) {
-      console.log('[Main] 消息同步完成', {
-        更新会话数: syncStatus.syncedConversations,
-        新消息数: syncStatus.newMessagesCount,
-      });
-    }
-  }, [syncStatus]);
 
   // 应用启动时静默检查更新
   useSilentUpdate();

@@ -125,11 +125,7 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       ]);
 
       const totalCount = localFriends.length + localGroups.length;
-      console.log('[InitialSync] 开始同步', {
-        好友数: localFriends.length,
-        群聊数: localGroups.length,
-        总计: totalCount,
-      });
+      // 开始同步会话
 
       if (totalCount === 0) {
         setStatus(prev => ({
@@ -182,17 +178,10 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       }));
 
       // 5. 调用 syncService 进行增量同步
-      console.log('[InitialSync] 开始增量同步', {
-        会话数: allConversations.length,
-      });
 
       const result = await syncService.syncMessages(allConversations);
 
-      console.log('[InitialSync] 同步完成', {
-        更新的会话: result.updatedConversations.length,
-        新消息数: result.newMessagesCount,
-      });
-
+      // 同步完成
       setStatus({
         syncing: false,
         progress: 100,
@@ -222,7 +211,6 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     }
 
     syncRef.current = true;
-    console.log('[InitialSync] 列表加载完成，开始同步消息');
     performSync();
   }, [session, friendsLoaded, groupsLoaded, performSync]);
 
@@ -231,4 +219,3 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     triggerSync: performSync,
   };
 }
-

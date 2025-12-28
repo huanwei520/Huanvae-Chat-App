@@ -27,8 +27,8 @@ const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv'];
  */
 function getAttachmentType(filename: string): AttachmentType {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
-  if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
-  if (VIDEO_EXTENSIONS.includes(ext)) return 'video';
+  if (IMAGE_EXTENSIONS.includes(ext)) { return 'image'; }
+  if (VIDEO_EXTENSIONS.includes(ext)) { return 'video'; }
   return 'file';
 }
 
@@ -198,10 +198,10 @@ export function ChatInputArea({
     setIsDragging(false);
 
     // 禁用状态下不处理
-    if (uploading || isMuted) return;
+    if (uploading || isMuted) { return; }
 
     const files = e.dataTransfer.files;
-    if (files.length === 0) return;
+    if (files.length === 0) { return; }
 
     // 只处理第一个文件
     const file = files[0];

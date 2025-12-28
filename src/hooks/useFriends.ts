@@ -93,7 +93,7 @@ export function useFriends(): UseFriendsReturn {
     try {
       const localFriends = serverFriends.map(friendToLocalFriend);
       await db.saveFriends(localFriends);
-      console.log('[Friends] 保存好友到本地:', serverFriends.length);
+      // 保存成功
     } catch (err) {
       console.warn('[Friends] 保存好友到本地失败:', err);
     }
@@ -112,13 +112,13 @@ export function useFriends(): UseFriendsReturn {
       if (localFriends.length > 0) {
         setFriends(localFriends);
         setLoading(false); // 本地数据显示后立即关闭 loading
-        console.log('[Friends] 从本地加载好友:', localFriends.length);
+        // 本地数据加载完成
       }
 
       // 2. 从服务器获取最新列表（后台静默更新）
       const serverFriends = await loadServerFriends();
       setFriends(serverFriends);
-      console.log('[Friends] 从服务器加载好友:', serverFriends.length);
+      // 服务器数据加载完成
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error('[Friends] 加载好友失败:', errorMsg);

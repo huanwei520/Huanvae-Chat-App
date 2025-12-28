@@ -1655,6 +1655,11 @@
   color: #94a3b8;
 }
 
+.load-more-indicator .no-more-text {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 /* ============================================
    消息气泡
    ============================================ */
@@ -3477,11 +3482,12 @@
   opacity: 0.9;
 }
 
-/* 图片/视频消息加载状态 */
+/* 图片/视频消息加载状态 - 继承容器尺寸，避免布局偏移 */
 .file-message-loading,
 .file-message-error {
-  min-width: 120px;
-  min-height: 80px;
+  /* 使用 100% 继承父容器的预设尺寸 */
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3491,12 +3497,12 @@
   font-size: 13px;
 }
 
-/* 图片消息 - 原始比例，限制最大尺寸 */
+/* 图片消息 - 填满预设容器尺寸 */
 .image-message .message-image {
-  max-width: 280px;
-  max-height: 300px;
+  width: 100%;
+  height: 100%;
   border-radius: 12px;
-  object-fit: contain;  /* 保持原始比例 */
+  object-fit: cover;  /* 填满容器 */
 }
 
 /* 视频消息 - 原始比例，限制最大尺寸 */
@@ -3613,6 +3619,9 @@
 
 .image-message {
   position: relative;
+  /* 容器尺寸由 JS 动态设置，确保内容填满 */
+  overflow: hidden;
+  border-radius: 12px;
 }
 
 .document-local-path {

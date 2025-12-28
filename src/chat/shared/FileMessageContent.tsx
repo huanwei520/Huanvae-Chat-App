@@ -10,12 +10,30 @@
  * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
+import {
+  getImageDimensions,
+  getImageDimensionsSync,
+  saveImageDimensions,
+  calculateDisplaySize,
+  type ImageDimensions,
+} from '../../services/imageDimensions';
+
+/** 调试模式 */
+const DEBUG_IMAGE = true;
+
+/** 调试日志 */
+function logImage(action: string, data?: Record<string, unknown>) {
+  if (DEBUG_IMAGE) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[ImageSize] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
+  }
+}
 import type { MessageType } from '../../types/chat';
 
 // ============================================
@@ -99,9 +117,108 @@ function ImageMessage({
     urlType,
   );
 
+  // 生成文件标识（优先使用 fileHash，其次 fileUuid）
+  const fileKey = fileHash || fileUuid;
+
+  // 预设尺寸状态（初始化时同步获取内存缓存中的尺寸）
+  const [presetSize, setPresetSize] = useState<ImageDimensions | null>(
+    () => getImageDimensionsSync(fileKey),
+  );
+
+  // 加载预设尺寸，如果没有缓存且有本地路径则预读取
+  useEffect(() => {
+    if (!fileKey) { return; }
+
+    let cancelled = false;
+
+    const loadDimensions = async () => {
+      logImage('加载尺寸开始', { fileKey, isLocal, hasSrc: !!src });
+
+      // 先检查缓存
+      const cached = await getImageDimensions(fileKey);
+      if (cancelled) { return; }
+
+      if (cached) {
+        logImage('从缓存获取尺寸', { fileKey, cached });
+        setPresetSize(cached);
+        return;
+      }
+
+      logImage('无缓存', { fileKey, isLocal, hasSrc: !!src });
+
+      // 如果没有缓存且有 src（本地图片），预读取尺寸
+      if (src && isLocal) {
+        logImage('预读取本地图片尺寸', { fileKey, src: src.substring(0, 50) });
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled) { return; }
+          const { naturalWidth, naturalHeight } = img;
+          logImage('预读取完成', { fileKey, naturalWidth, naturalHeight });
+          if (naturalWidth > 0 && naturalHeight > 0) {
+            saveImageDimensions(fileKey, naturalWidth, naturalHeight);
+            setPresetSize({ width: naturalWidth, height: naturalHeight });
+          }
+        };
+        img.src = src;
+      }
+    };
+
+    loadDimensions();
+
+    return () => { cancelled = true; };
+  }, [fileKey, src, isLocal]);
+
+  // 图片加载完成后保存尺寸
+  const handleLoad = useCallback(
+    (e: React.SyntheticEvent<HTMLImageElement>) => {
+      const img = e.currentTarget;
+      const { naturalWidth, naturalHeight, offsetWidth, offsetHeight } = img;
+
+      logImage('图片 onLoad', {
+        fileKey,
+        naturalWidth,
+        naturalHeight,
+        offsetWidth,
+        offsetHeight,
+        hadPresetSize: !!presetSize,
+      });
+
+      // 保存尺寸到缓存
+      if (fileKey && naturalWidth > 0 && naturalHeight > 0) {
+        saveImageDimensions(fileKey, naturalWidth, naturalHeight);
+        // 更新预设尺寸（如果之前没有）
+        if (!presetSize) {
+          setPresetSize({ width: naturalWidth, height: naturalHeight });
+        }
+      }
+
+      // 调用原有的 onLoad（触发缓存）
+      onLoad();
+    },
+    [fileKey, presetSize, onLoad],
+  );
+
+  // 计算显示尺寸
+  const displaySize = presetSize
+    ? calculateDisplaySize(presetSize.width, presetSize.height)
+    : null;
+
+  // 调试：记录容器尺寸
+  useEffect(() => {
+    logImage('容器尺寸', {
+      fileKey,
+      hasPresetSize: !!presetSize,
+      presetSize,
+      displaySize,
+      loading,
+      error: !!error,
+      hasSrc: !!src,
+    });
+  }, [fileKey, presetSize, displaySize, loading, error, src]);
+
   // 点击打开独立预览窗口
   const handleClick = useCallback(() => {
-    if (!session) return;
+    if (!session) { return; }
 
     openMediaWindow(
       {
@@ -120,8 +237,17 @@ function ImageMessage({
     );
   }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
 
+  // 容器样式：如果有预设尺寸则使用，否则使用默认最小尺寸
+  const containerStyle: React.CSSProperties = displaySize
+    ? { width: displaySize.width, height: displaySize.height }
+    : { minWidth: 120, minHeight: 80 };
+
   return (
-    <div className="file-message image-message" onClick={handleClick}>
+    <div
+      className="file-message image-message"
+      style={containerStyle}
+      onClick={handleClick}
+    >
       {loading && <div className="file-message-loading">加载中...</div>}
       {error && <div className="file-message-error">加载失败</div>}
       {!loading && !error && src && (
@@ -132,7 +258,7 @@ function ImageMessage({
             alt={filename}
             className="message-image"
             draggable={false}
-            onLoad={onLoad}
+            onLoad={handleLoad}
           />
         </>
       )}
@@ -168,7 +294,7 @@ function VideoMessage({
 
   // 点击打开独立预览窗口
   const handleClick = useCallback(() => {
-    if (!session) return;
+    if (!session) { return; }
 
     openMediaWindow(
       {

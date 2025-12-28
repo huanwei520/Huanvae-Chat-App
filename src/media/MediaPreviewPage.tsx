@@ -295,14 +295,14 @@ function ImageViewer({ state }: { state: MediaState }) {
 
   // 拖拽开始
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (scale <= 1) return;
+    if (scale <= 1) { return; }
     setIsDragging(true);
     dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };
   }, [scale, position]);
 
   // 拖拽移动
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
+    if (!isDragging) { return; }
     setPosition({
       x: e.clientX - dragStart.current.x,
       y: e.clientY - dragStart.current.y,
@@ -322,7 +322,7 @@ function ImageViewer({ state }: { state: MediaState }) {
 
   // 下载
   const handleDownload = useCallback(() => {
-    if (!src) return;
+    if (!src) { return; }
     const a = document.createElement('a');
     a.href = src;
     a.download = state.filename;
@@ -378,7 +378,7 @@ function ImageViewer({ state }: { state: MediaState }) {
           className="media-image"
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-            cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in',
+            cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in', // eslint-disable-line no-nested-ternary
           }}
           draggable={false}
         />
@@ -444,7 +444,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
 
   // 下载按钮
   const handleDownload = useCallback(() => {
-    if (!src) return;
+    if (!src) { return; }
     const a = document.createElement('a');
     a.href = src;
     a.download = state.filename;

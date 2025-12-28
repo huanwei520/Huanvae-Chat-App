@@ -129,3 +129,47 @@ pub fn get_file_hash_by_uuid(file_uuid: &str) -> Result<Option<String>, String> 
         Ok(result)
     })
 }
+
+// ============================================
+// 图片尺寸缓存
+// ============================================
+
+/// 图片尺寸信息
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImageDimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 保存图片尺寸（使用 file_hash 或 file_uuid 作为 key）
+pub fn save_image_dimensions(file_key: &str, width: u32, height: u32) -> Result<(), String> {
+    with_db!(db, {
+        db.execute(
+            "INSERT OR REPLACE INTO image_dimensions (file_key, width, height) VALUES (?, ?, ?)",
+            params![file_key, width, height],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })
+}
+
+/// 获取图片尺寸
+pub fn get_image_dimensions(file_key: &str) -> Result<Option<ImageDimensions>, String> {
+    with_db!(db, {
+        let mut stmt = db
+            .prepare("SELECT width, height FROM image_dimensions WHERE file_key = ?")
+            .map_err(|e| e.to_string())?;
+
+        let result = stmt
+            .query_row([file_key], |row| {
+                Ok(ImageDimensions {
+                    width: row.get(0)?,
+                    height: row.get(1)?,
+                })
+            })
+            .ok();
+
+        Ok(result)
+    })
+}

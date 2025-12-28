@@ -46,15 +46,9 @@ export function useSilentUpdate(delay: number = 2000): void {
         });
 
         // 后台静默下载
-        console.log('[Update] 开始静默下载...');
-        await downloadAndInstall(info.update, (progress) => {
-          if (progress.event === 'Progress') {
-            console.log(`[Update] 下载进度: ${progress.percent}%`);
-          }
-        });
+        await downloadAndInstall(info.update);
 
         // 下载完成，重启应用
-        console.log('[Update] 下载完成，准备重启...');
         await restartApp();
       } catch (err) {
         // 只有报错时才通知用户
@@ -72,4 +66,3 @@ export function useSilentUpdate(delay: number = 2000): void {
     return () => clearTimeout(timer);
   }, [delay]);
 }
-

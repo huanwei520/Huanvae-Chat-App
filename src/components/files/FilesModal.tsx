@@ -314,7 +314,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
       // 图片和视频使用独立窗口预览
       if (fileCategory === 'image' || fileCategory === 'video') {
-        if (!session) return;
+        if (!session) { return; }
 
         // 如果没有本地路径，尝试通过 fileHash 获取
         if (!localPath && fileHash) {

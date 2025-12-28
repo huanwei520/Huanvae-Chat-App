@@ -4,68 +4,46 @@
  * @module chat/friend
  * @location src/chat/friend/ChatMessages.tsx
  *
- * 使用 flex-direction: column + 手动滚动位置补偿实现稳定的视角
- * 加载历史消息时，通过计算 scrollHeight 差值来保持当前视角
+ * 使用 flex-direction: column + 图片尺寸预加载实现稳定的视角
  *
  * 功能：
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
- * - 无加载动画：消息从本地 SQLite 加载，速度极快
- * - 切换会话时整体进入/退出动画（类似发送/撤回效果）
+ * - 图片尺寸预加载：渲染前先加载所有图片尺寸，避免布局偏移
  *
  * 消息排序机制：
  * - 消息按时间正序排列（旧→新）
  * - 发送中的消息排在最后（显示在底部）
- * - 发送完成后自动通过 layout 动画平滑移动到正确位置
  *
  * 滚动机制：
- * - 初始加载和切换会话时滚动到底部
+ * - 切换会话时等待图片尺寸加载完成后渲染，然后滚动到底部
  * - 新消息到达时，如果用户在底部则自动滚动
  * - 加载历史消息时，手动补偿 scrollTop 保持视角
  */
 
-import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useMemo, useRef, useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
+import { getImageDimensions } from '../../services/imageDimensions';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
-/** 滚动到顶部触发加载的阈值（像素） */
-const LOAD_MORE_THRESHOLD = 500;
+/** 滚动到顶部触发加载的阈值（可视高度的两倍） */
+const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
 
 /** 判断是否在底部的阈值（像素） */
 const AT_BOTTOM_THRESHOLD = 100;
 
-// ============================================
-// 切换会话时的整体动画
-// ============================================
+/** 调试模式 */
+const DEBUG_SCROLL = true;
 
-/** 消息列表容器动画变体 - 类似发送消息的滑入效果 */
-const containerVariants = {
-  initial: {
-    opacity: 0,
-    x: 30,       // 从右侧滑入
-    scale: 0.98,
-  },
-  animate: {
-    opacity: 1,
-    x: 0,
-    scale: 1,
-  },
-  exit: {
-    opacity: 0,
-    x: -30,      // 向左侧滑出（类似撤回）
-    scale: 0.98,
-  },
-};
-
-/** 动画过渡配置 */
-const containerTransition = {
-  type: 'spring' as const,
-  stiffness: 400,
-  damping: 30,
-  opacity: { duration: 0.2 },
-};
+/** 调试日志 */
+function logScroll(action: string, data?: Record<string, unknown>) {
+  if (DEBUG_SCROLL) {
+    // eslint-disable-next-line no-console
+    console.log(`%c[Scroll] ${action}`, 'color: #E91E63; font-weight: bold', data ?? '');
+  }
+}
 
 interface ChatMessagesProps {
   /** @deprecated 不再使用，消息从本地加载速度很快 */
@@ -113,20 +91,23 @@ export function ChatMessages({
   // 是否在底部（用于判断新消息到达时是否自动滚动）
   const isAtBottomRef = useRef(true);
 
-  // 上一次消息数量（用于检测新消息 vs 加载历史）
-  const prevMessagesLengthRef = useRef(messages.length);
+  // 上一次消息数量（-1 表示初始状态，用于跳过首次渲染的旧消息）
+  const prevMessagesLengthRef = useRef(-1);
 
   // 加载锁（防止连续加载）
   const loadLockRef = useRef(false);
 
-  // 是否是首次加载（用于初始滚动到底部）
-  const isFirstLoadRef = useRef(true);
+  // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
+  const scrollSnapshotRef = useRef<number | null>(null);
 
-  // 加载历史时的滚动位置记录
-  const scrollSnapshotRef = useRef<{
-    scrollHeight: number;
-    scrollTop: number;
-  } | null>(null);
+  // 图片尺寸是否准备就绪
+  const [dimensionsReady, setDimensionsReady] = useState(false);
+
+  // 已预加载的消息数量（用于检测消息变化）
+  const preloadedCountRef = useRef(-1);
+
+  // 当前好友 ID
+  const currentFriendIdRef = useRef(friend.friend_id);
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
@@ -142,24 +123,80 @@ export function ChatMessages({
     });
   }, [messages]);
 
+  // 切换好友时重置状态
+  useEffect(() => {
+    if (currentFriendIdRef.current !== friend.friend_id) {
+      logScroll('切换好友，重置状态', { from: currentFriendIdRef.current, to: friend.friend_id });
+      currentFriendIdRef.current = friend.friend_id;
+      setDimensionsReady(false);
+      prevMessagesLengthRef.current = -1;
+      preloadedCountRef.current = -1;
+    }
+  }, [friend.friend_id]);
+
+  // 预加载图片尺寸（仅在首次加载或切换好友时阻塞渲染）
+  useEffect(() => {
+    // 已经就绪时，只需后台预加载新图片尺寸（不阻塞渲染）
+    if (dimensionsReady) {
+      // 后台预加载新增图片的尺寸
+      const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
+      if (imageMessages.length > 0) {
+        imageMessages.forEach((m) => {
+          if (m.file_hash) {
+            getImageDimensions(m.file_hash);
+          }
+        });
+      }
+      return;
+    }
+
+    // 没有消息时等待
+    if (messages.length === 0) {
+      logScroll('消息为空，等待加载');
+      return;
+    }
+
+    // 获取所有图片消息
+    const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
+
+    // 没有图片消息时直接标记为就绪
+    if (imageMessages.length === 0) {
+      logScroll('无图片消息，直接就绪', { messageCount: messages.length });
+      preloadedCountRef.current = messages.length;
+      setDimensionsReady(true);
+      return;
+    }
+
+    logScroll('开始预加载图片尺寸', { count: imageMessages.length, messageCount: messages.length });
+
+    // 并行加载所有图片尺寸
+    const loadAllDimensions = async () => {
+      const promises = imageMessages.map((m) => getImageDimensions(m.file_hash ?? ''));
+      await Promise.all(promises);
+      logScroll('图片尺寸预加载完成', { count: imageMessages.length });
+      preloadedCountRef.current = messages.length;
+      setDimensionsReady(true);
+    };
+
+    loadAllDimensions();
+  }, [messages, messages.length, dimensionsReady]);
+
   // 滚动处理：检测是否接近顶部 + 更新是否在底部
   const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current) { return; }
 
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
 
     // 更新是否在底部
     isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < AT_BOTTOM_THRESHOLD;
 
-    // 检测是否需要加载更多（接近顶部）
-    if (!hasMore || loadingMore || loadLockRef.current || !onLoadMore) return;
+    // 检测是否需要加载更多（距离顶部三分之一可视高度时触发）
+    if (!hasMore || loadingMore || loadLockRef.current || !onLoadMore) { return; }
 
-    if (scrollTop < LOAD_MORE_THRESHOLD) {
-      // 记录加载前的滚动位置（用于后续补偿）
-      scrollSnapshotRef.current = {
-        scrollHeight: containerRef.current.scrollHeight,
-        scrollTop: containerRef.current.scrollTop,
-      };
+    const threshold = clientHeight * LOAD_MORE_THRESHOLD_MULTIPLIER;
+    if (scrollTop < threshold) {
+      // 记录加载前的滚动高度（用于后续补偿）
+      scrollSnapshotRef.current = containerRef.current.scrollHeight;
       loadLockRef.current = true;
       onLoadMore();
     }
@@ -168,7 +205,7 @@ export function ChatMessages({
   // 添加滚动事件监听
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) { return; }
 
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
@@ -184,77 +221,111 @@ export function ChatMessages({
     }
   }, [loadingMore]);
 
-  // 初始加载或切换好友时滚动到底部
+  // 消息数量变化时的滚动处理（仅在 dimensionsReady 时执行）
   useLayoutEffect(() => {
-    if (isFirstLoadRef.current && messages.length > 0 && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      isFirstLoadRef.current = false;
+    // 尺寸未就绪时不处理
+    if (!dimensionsReady) {
+      logScroll('尺寸未就绪，跳过滚动处理');
+      return;
     }
-  }, [messages.length]);
 
-  // 切换好友时重置状态
-  useEffect(() => {
-    isFirstLoadRef.current = true;
-    isAtBottomRef.current = true;
-    loadLockRef.current = false;
-    scrollSnapshotRef.current = null;
-  }, [friend.friend_id]);
-
-  // 消息数量变化时的处理
-  useLayoutEffect(() => {
-    const prevLength = prevMessagesLengthRef.current;
     const currentLength = messages.length;
+
+    // 初始渲染：滚动到底部
+    if (prevMessagesLengthRef.current === -1 || prevMessagesLengthRef.current === 0) {
+      logScroll('首次渲染/从0加载，滚动到底部', { currentLength, friendId: friend.friend_id });
+      prevMessagesLengthRef.current = currentLength;
+
+      // 滚动到底部
+      if (containerRef.current && currentLength > 0) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        isAtBottomRef.current = true;
+        logScroll('滚动完成', { scrollHeight: containerRef.current.scrollHeight });
+      }
+      return;
+    }
+
+    const prevLength = prevMessagesLengthRef.current;
     const deltaMessages = currentLength - prevLength;
     prevMessagesLengthRef.current = currentLength;
 
-    if (!containerRef.current || deltaMessages === 0) return;
+    if (!containerRef.current) { return; }
 
-    // 情况1：加载历史消息（消息增加较多，且有滚动快照）
-    if (deltaMessages > 3 && scrollSnapshotRef.current) {
-      const { scrollHeight: oldScrollHeight, scrollTop: oldScrollTop } = scrollSnapshotRef.current;
-      const newScrollHeight = containerRef.current.scrollHeight;
-      const deltaHeight = newScrollHeight - oldScrollHeight;
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
 
-      // 补偿滚动位置：新内容在顶部，需要增加 scrollTop
-      containerRef.current.scrollTop = oldScrollTop + deltaHeight;
+    logScroll('消息变化', {
+      friendId: friend.friend_id,
+      prevLength,
+      currentLength,
+      deltaMessages,
+      scrollHeight,
+      scrollTop,
+      distanceToBottom,
+      isAtBottom: isAtBottomRef.current,
+    });
+
+    // 情况1：deltaMessages 为 0，无需处理
+    if (deltaMessages === 0) { return; }
+
+    // 情况2：加载历史消息（消息增加较多，且有滚动快照）
+    // 浏览器的 scroll anchoring 会自动保持视角，无需手动补偿
+    if (deltaMessages > 3 && scrollSnapshotRef.current !== null) {
       scrollSnapshotRef.current = null;
       return;
     }
 
-    // 情况2：新消息到达（1-3条），如果用户在底部则自动滚动
-    if (deltaMessages > 0 && deltaMessages <= 3 && isAtBottomRef.current) {
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTo({
-            top: containerRef.current.scrollHeight,
-            behavior: 'smooth',
-          });
-        }
-      });
-    }
-  }, [messages.length]);
+    // 情况3：新消息到达（1-3条）
+    if (deltaMessages > 0 && deltaMessages <= 3) {
+      // 检查是否有发送中的消息（自己发送的消息始终滚动到底部）
+      const hasSendingMessage = messages.some((m) => m.sendStatus === 'sending');
 
-  // 消息从本地 SQLite 加载，速度很快，不需要加载动画
+      logScroll('新消息到达', {
+        deltaMessages,
+        hasSendingMessage,
+        isAtBottom: isAtBottomRef.current,
+        willScroll: hasSendingMessage || isAtBottomRef.current,
+      });
+
+      if (hasSendingMessage || isAtBottomRef.current) {
+        requestAnimationFrame(() => {
+          if (containerRef.current) {
+            containerRef.current.scrollTo({
+              top: containerRef.current.scrollHeight,
+              behavior: 'smooth',
+            });
+            isAtBottomRef.current = true;
+          }
+        });
+      }
+    }
+  }, [messages, messages.length, friend.friend_id, dimensionsReady]);
+
+  // 是否显示消息列表
   const isEmpty = messages.length === 0;
+  const shouldRenderMessages = dimensionsReady && !isEmpty;
 
   return (
-    <motion.div
+    <div
       ref={containerRef}
       className="chat-messages-container"
-      variants={containerVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      transition={containerTransition}
     >
-      {/* 加载更多指示器 - 在顶部（DOM 开头） */}
-      {(loadingMore || hasMore) && !isEmpty && (
+      {/* 顶部指示器 */}
+      {loadingMore && !isEmpty && (
         <div className="load-more-indicator">
-          {loadingMore ? (
-            <span className="loading-text">加载中...</span>
-          ) : hasMore ? (
-            <span className="has-more-text">向上滚动加载更多</span>
-          ) : null}
+          <span className="loading-text">加载中...</span>
+        </div>
+      )}
+      {!loadingMore && !hasMore && shouldRenderMessages && (
+        <div className="load-more-indicator">
+          <span className="no-more-text">无更多记录</span>
+        </div>
+      )}
+
+      {/* 加载中提示（切换好友或预加载图片尺寸） */}
+      {!dimensionsReady && !isEmpty && (
+        <div className="load-more-indicator">
+          <span className="loading-text">加载中...</span>
         </div>
       )}
 
@@ -276,32 +347,34 @@ export function ChatMessages({
         <span>发送一条消息开始聊天吧</span>
       </motion.div>
 
-      {/* 消息列表 - LayoutGroup 确保消息间布局动画协调 */}
-      <LayoutGroup>
-        <AnimatePresence mode="popLayout">
-          {sortedMessages.map((message) => {
-            const isOwn = message.sender_id === session.userId;
-            const stableKey = getStableKey(message);
-            const isSelected = selectedMessages.has(message.message_uuid);
+      {/* 消息列表 - 仅在尺寸就绪后渲染 */}
+      {shouldRenderMessages && (
+        <LayoutGroup>
+          <AnimatePresence mode="popLayout">
+            {sortedMessages.map((message) => {
+              const isOwn = message.sender_id === session.userId;
+              const stableKey = getStableKey(message);
+              const isSelected = selectedMessages.has(message.message_uuid);
 
-            return (
-              <MessageBubble
-                key={stableKey}
-                message={message}
-                isOwn={isOwn}
-                session={session}
-                friend={friend}
-                isMultiSelectMode={isMultiSelectMode}
-                isSelected={isSelected}
-                onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
-                onRecall={() => onRecall?.(message.message_uuid)}
-                onDelete={() => onDelete?.(message.message_uuid)}
-                onEnterMultiSelect={onEnterMultiSelect}
-              />
-            );
-          })}
-        </AnimatePresence>
-      </LayoutGroup>
-    </motion.div>
+              return (
+                <MessageBubble
+                  key={stableKey}
+                  message={message}
+                  isOwn={isOwn}
+                  session={session}
+                  friend={friend}
+                  isMultiSelectMode={isMultiSelectMode}
+                  isSelected={isSelected}
+                  onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
+                  onRecall={() => onRecall?.(message.message_uuid)}
+                  onDelete={() => onDelete?.(message.message_uuid)}
+                  onEnterMultiSelect={onEnterMultiSelect}
+                />
+              );
+            })}
+          </AnimatePresence>
+        </LayoutGroup>
+      )}
+    </div>
   );
 }

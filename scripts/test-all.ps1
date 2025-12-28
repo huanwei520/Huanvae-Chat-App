@@ -1,0 +1,94 @@
+# Huanvae Chat - Full Test Script
+# Usage: .\scripts\test-all.ps1
+
+param()
+
+$ErrorActionPreference = "Continue"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $scriptDir
+Set-Location $projectRoot
+
+Write-Host ""
+Write-Host "========================================"
+Write-Host "  Huanvae Chat - Code Quality Check"
+Write-Host "  Requirement: 0 errors, 0 warnings"
+Write-Host "========================================"
+Write-Host ""
+
+$startTime = Get-Date
+$allPassed = $true
+
+# 1. TypeScript
+Write-Host "[1/4] TypeScript type check..." -ForegroundColor Cyan
+$null = pnpm tsc --noEmit 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  PASS: TypeScript" -ForegroundColor Green
+}
+else {
+    Write-Host "  FAIL: TypeScript" -ForegroundColor Red
+    $allPassed = $false
+}
+
+# 2. ESLint
+Write-Host "[2/4] ESLint check (strict)..." -ForegroundColor Cyan
+$null = pnpm eslint src --ext .ts,.tsx --max-warnings 0 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  PASS: ESLint (0 errors, 0 warnings)" -ForegroundColor Green
+}
+else {
+    Write-Host "  FAIL: ESLint" -ForegroundColor Red
+    pnpm eslint src --ext .ts,.tsx --max-warnings 0
+    $allPassed = $false
+}
+
+# 3. Unit Tests
+Write-Host "[3/4] Unit tests..." -ForegroundColor Cyan
+$testOutput = pnpm test --run 2>&1 | Out-String
+if ($LASTEXITCODE -eq 0) {
+    if ($testOutput -match "(\d+) passed") {
+        Write-Host "  PASS: Unit tests ($($Matches[1]) tests)" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  PASS: Unit tests" -ForegroundColor Green
+    }
+}
+else {
+    Write-Host "  FAIL: Unit tests" -ForegroundColor Red
+    Write-Host $testOutput
+    $allPassed = $false
+}
+
+# 4. Build
+Write-Host "[4/4] Frontend build..." -ForegroundColor Cyan
+$null = pnpm build 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  PASS: Build" -ForegroundColor Green
+}
+else {
+    Write-Host "  FAIL: Build" -ForegroundColor Red
+    pnpm build
+    $allPassed = $false
+}
+
+# Summary
+$endTime = Get-Date
+$duration = ($endTime - $startTime).TotalSeconds
+
+Write-Host ""
+Write-Host "========================================"
+Write-Host "  Duration: $([math]::Round($duration, 2)) seconds"
+Write-Host "========================================"
+
+if ($allPassed) {
+    Write-Host ""
+    Write-Host "  ALL CHECKS PASSED!" -ForegroundColor Green
+    Write-Host "  0 errors, 0 warnings" -ForegroundColor Green
+    Write-Host ""
+    exit 0
+}
+else {
+    Write-Host ""
+    Write-Host "  SOME CHECKS FAILED!" -ForegroundColor Red
+    Write-Host ""
+    exit 1
+}

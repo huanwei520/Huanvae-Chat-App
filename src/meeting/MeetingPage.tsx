@@ -96,7 +96,7 @@ function ParticipantVideo({
 
   // 设置视频源（使用 ref 缓存避免不必要更新）
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) { return; }
 
     // 获取当前 stream 的唯一标识
     const currentStreamId = stream?.id ?? null;
@@ -630,7 +630,8 @@ export default function MeetingPage() {
                   {(['1080p', '2k', '4k'] as ScreenShareResolution[]).map((res) => {
                     const isAvailable = availableResolutions.includes(res);
                     const { width, height } = RESOLUTION_MAP[res];
-                    const label = res === '1080p' ? '1080p' : res === '2k' ? '2K' : '4K';
+                    const labelMap = { '1080p': '1080p', '2k': '2K', '4k': '4K' };
+                    const label = labelMap[res];
                     return (
                       <button
                         key={res}

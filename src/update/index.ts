@@ -45,4 +45,3 @@ export {
   type DownloadProgress,
   type ProgressCallback,
 } from './service';
-

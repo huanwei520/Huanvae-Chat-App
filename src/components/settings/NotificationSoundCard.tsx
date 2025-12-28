@@ -216,16 +216,16 @@ export const NotificationSoundCard: React.FC = () => {
 
             {/* 提示音列表 */}
             <div className="sounds-list">
-              {loading ? (
-                <div className="sounds-loading">加载中...</div>
-              ) : sounds.length === 0 ? (
+              {loading && <div className="sounds-loading">加载中...</div>}
+              {!loading && sounds.length === 0 && (
                 <div className="sounds-empty">
                   <p>暂无提示音，请上传 MP3 文件</p>
                   <button className="refresh-btn" onClick={refresh}>
                     刷新列表
                   </button>
                 </div>
-              ) : (
+              )}
+              {!loading && sounds.length > 0 && (
                 sounds.map((sound) => (
                   <div
                     key={sound.name}
@@ -314,4 +314,3 @@ export const NotificationSoundCard: React.FC = () => {
 };
 
 export default NotificationSoundCard;
-

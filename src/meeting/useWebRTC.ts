@@ -273,7 +273,7 @@ export function useWebRTC(): UseWebRTCReturn {
       }
     });
   }, []);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   void _broadcastMediaTypeToAll; // 标记为备用
 
   /**
@@ -321,7 +321,7 @@ export function useWebRTC(): UseWebRTCReturn {
                   return;
                 }
 
-                const type = peerMap!.get(mid);
+                const type = peerMap?.get(mid);
                 const receivedTrack = transceiver.receiver.track;
 
                 if (receivedTrack && receivedTrack.kind === 'video' && videoTracks.find((t) => t.id === receivedTrack.id)) {
@@ -693,7 +693,7 @@ export function useWebRTC(): UseWebRTCReturn {
         broadcastMediaType(peerId, refs.camera.mid, 'camera');
       }
     }
-  }, [getTransceiverRefs, broadcastMediaType]);
+  }, [getTransceiverRefs, broadcastMediaType, waitForMidAndBroadcast]);
 
   /**
    * 停止摄像头 Transceiver
@@ -736,7 +736,7 @@ export function useWebRTC(): UseWebRTCReturn {
         broadcastMediaType(peerId, refs.screen.mid, 'screen');
       }
     }
-  }, [getTransceiverRefs, broadcastMediaType]);
+  }, [getTransceiverRefs, broadcastMediaType, waitForMidAndBroadcast]);
 
   /**
    * 停止屏幕共享 Transceiver
@@ -1134,7 +1134,7 @@ export function useWebRTC(): UseWebRTCReturn {
             frameRate: { ideal: frameRate, max: frameRate },
             width: { ideal: width },
             height: { ideal: height },
-          } as MediaTrackConstraints,
+          },
           audio: false,
         });
         screenStreamRef.current = stream;

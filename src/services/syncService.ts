@@ -150,8 +150,6 @@ export class SyncService {
         conversations: syncRequest,
       });
 
-      console.log('[Sync] 同步响应:', JSON.stringify(response, null, 2));
-
       const updatedConversations: string[] = [];
       let newMessagesCount = 0;
 
@@ -161,7 +159,6 @@ export class SyncService {
       const syncedConversations = response.data?.conversations ?? (response as unknown as { conversations: SyncConversationResult[] }).conversations ?? [];
 
       if (!syncedConversations || syncedConversations.length === 0) {
-        console.log('[Sync] 无会话数据返回');
         this.updateState({ isSyncing: false, lastSyncTime: new Date() });
         return { updatedConversations: [], newMessagesCount: 0 };
       }

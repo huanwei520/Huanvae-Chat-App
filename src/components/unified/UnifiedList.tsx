@@ -292,7 +292,7 @@ export function UnifiedList({
 
   // 获取选中卡片的 uniqueKey
   const getSelectedKey = useCallback((): string | null => {
-    if (!selectedTarget) return null;
+    if (!selectedTarget) { return null; }
     return selectedTarget.type === 'friend'
       ? `friend-${selectedTarget.data.friend_id}`
       : `group-${selectedTarget.data.group_id}`;

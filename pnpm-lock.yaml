@@ -47,6 +47,9 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.2.3(react@19.2.3)
+      react-virtuoso:
+        specifier: ^4.18.0
+        version: 4.18.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       zustand:
         specifier: ^5.0.2
         version: 5.0.9(@types/react@19.2.7)(react@19.2.3)
@@ -2599,6 +2602,12 @@ packages:
     resolution: {integrity: sha512-DgXrc+AZF47+HvAPEmn7Ua/1p10jNoVZVI/LoPiYdtY+OM+/nG5yefLHKJwdKqY1adMuHFbeyBaG9j64ML7vTw==}
     peerDependencies:
       react: '>= 0.14.0'
+
+  react-virtuoso@4.18.0:
+    resolution: {integrity: sha512-bpbbqHQ/EhP4LLD+UAakmxdr+3V0A7v7s76/N51O5Jllaf68srzgSdgjji2U/7Ozbn/KKI/a+VzfnbUeQgLemQ==}
+    peerDependencies:
+      react: '>=16 || >=17 || >= 18 || >= 19'
+      react-dom: '>=16 || >=17 || >= 18 || >=19'
 
   react@18.2.0:
     resolution: {integrity: sha512-/3IjMdb2L9QbBdWiW5e3P2/npwMBaU9mHCSCUzNln0ZCYbcfTsGbTJrU/kGemdH2IWmB2ioZ+zkxtmq6g09fGQ==}
@@ -5871,6 +5880,11 @@ snapshots:
       prismjs: 1.30.0
       react: 18.2.0
       refractor: 3.6.0
+
+  react-virtuoso@4.18.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
 
   react@18.2.0:
     dependencies:

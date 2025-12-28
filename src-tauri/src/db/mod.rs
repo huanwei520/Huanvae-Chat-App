@@ -43,7 +43,11 @@ pub mod types;
 // 重新导出类型和函数
 pub use contacts::*;
 pub use conversations::*;
-pub use files::*;
+pub use files::{
+    delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, get_image_dimensions,
+    save_file_mapping, save_file_uuid_hash, save_image_dimensions, update_file_mapping_verified,
+    ImageDimensions,
+};
 pub use messages::*;
 pub use types::*;
 
@@ -198,6 +202,18 @@ pub fn init_database() -> Result<(), String> {
         [],
     )
     .ok();
+
+    // 创建图片尺寸缓存表（用于预设容器尺寸，避免布局偏移）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS image_dimensions (
+            file_key TEXT PRIMARY KEY,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 image_dimensions 表失败: {}", e))?;
 
     // 创建头像缓存表
     conn.execute(
