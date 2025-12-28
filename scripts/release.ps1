@@ -58,6 +58,19 @@ if ($UpdaterWindows -and $UpdaterWindows.installMode) {
 Write-Host "[OK] Windows 更新器配置正确 (使用默认完整安装界面)" -ForegroundColor Green
 
 # ============================================
+# 同步依赖锁文件（防止 CI frozen-lockfile 错误）
+# ============================================
+Write-Host ""
+Write-Host "[检查] 同步依赖锁文件..." -ForegroundColor Yellow
+$installResult = pnpm install 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] pnpm install 失败" -ForegroundColor Red
+    Write-Host $installResult -ForegroundColor Red
+    exit 1
+}
+Write-Host "[OK] pnpm-lock.yaml 已同步" -ForegroundColor Green
+
+# ============================================
 # 本地构建测试（与 CI 保持一致）
 # ============================================
 Write-Host ""
