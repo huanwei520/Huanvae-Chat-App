@@ -168,6 +168,7 @@ export const HOOKS: ComponentEntry[] = [
 
 // ============== 服务 ==============
 export const SERVICES: ComponentEntry[] = [
+  { name: 'diagnosticService', path: 'services/diagnosticService', category: 'services', description: '诊断上报服务' },
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
   { name: 'fileService', path: 'services/fileService', category: 'services', description: '文件服务' },
   { name: 'historyService', path: 'services/historyService', category: 'services', description: '历史服务' },

@@ -127,6 +127,7 @@ import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 
 // 服务
+import * as diagnosticService from '../../src/services/diagnosticService';
 import * as fileCache from '../../src/services/fileCache';
 import * as fileService from '../../src/services/fileService';
 import * as historyService from '../../src/services/historyService';
@@ -233,6 +234,7 @@ const COMPONENT_MAP = {
   useUpdateToast,
   useNotificationSounds,
   // 服务
+  diagnosticService,
   fileCache,
   fileService,
   historyService,
