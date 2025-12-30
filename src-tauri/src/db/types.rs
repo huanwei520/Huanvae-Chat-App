@@ -42,6 +42,10 @@ pub struct LocalMessage {
     pub file_url: Option<String>,
     pub file_size: Option<i64>,
     pub file_hash: Option<String>,
+    /// 图片宽度（像素），仅图片类型消息有值
+    pub image_width: Option<i32>,
+    /// 图片高度（像素），仅图片类型消息有值
+    pub image_height: Option<i32>,
     pub seq: i64,
     pub reply_to: Option<String>,
     pub is_recalled: bool,

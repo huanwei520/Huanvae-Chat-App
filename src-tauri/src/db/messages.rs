@@ -30,7 +30,8 @@ pub fn get_messages(
             Some(seq) => (
                 "SELECT message_uuid, conversation_id, conversation_type, sender_id, 
                  sender_name, sender_avatar, content, content_type, file_uuid, file_url, 
-                 file_size, file_hash, seq, reply_to, is_recalled, is_deleted, send_time, created_at
+                 file_size, file_hash, image_width, image_height, seq, reply_to, 
+                 is_recalled, is_deleted, send_time, created_at
                  FROM messages 
                  WHERE conversation_id = ? AND is_deleted = 0 AND (seq < ? OR seq = 0)
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
@@ -46,7 +47,8 @@ pub fn get_messages(
             None => (
                 "SELECT message_uuid, conversation_id, conversation_type, sender_id, 
                  sender_name, sender_avatar, content, content_type, file_uuid, file_url, 
-                 file_size, file_hash, seq, reply_to, is_recalled, is_deleted, send_time, created_at
+                 file_size, file_hash, image_width, image_height, seq, reply_to, 
+                 is_recalled, is_deleted, send_time, created_at
                  FROM messages 
                  WHERE conversation_id = ? AND is_deleted = 0
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
@@ -79,12 +81,14 @@ pub fn get_messages(
                     file_url: row.get(9)?,
                     file_size: row.get(10)?,
                     file_hash: row.get(11)?,
-                    seq: row.get(12)?,
-                    reply_to: row.get(13)?,
-                    is_recalled: row.get::<_, i64>(14)? != 0,
-                    is_deleted: row.get::<_, i64>(15)? != 0,
-                    send_time: row.get(16)?,
-                    created_at: row.get(17)?,
+                    image_width: row.get(12)?,
+                    image_height: row.get(13)?,
+                    seq: row.get(14)?,
+                    reply_to: row.get(15)?,
+                    is_recalled: row.get::<_, i64>(16)? != 0,
+                    is_deleted: row.get::<_, i64>(17)? != 0,
+                    send_time: row.get(18)?,
+                    created_at: row.get(19)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -108,8 +112,8 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages 
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name, 
               sender_avatar, content, content_type, file_uuid, file_url, file_size, 
-              file_hash, seq, reply_to, is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -123,6 +127,8 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
                 msg.file_url,
                 msg.file_size,
                 msg.file_hash,
+                msg.image_width,
+                msg.image_height,
                 msg.seq,
                 msg.reply_to,
                 if msg.is_recalled { 1 } else { 0 },
@@ -150,8 +156,8 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages 
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name, 
               sender_avatar, content, content_type, file_uuid, file_url, file_size, 
-              file_hash, seq, reply_to, is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -165,6 +171,8 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
                 msg.file_url,
                 msg.file_size,
                 msg.file_hash,
+                msg.image_width,
+                msg.image_height,
                 msg.seq,
                 msg.reply_to,
                 if msg.is_recalled { 1 } else { 0 },

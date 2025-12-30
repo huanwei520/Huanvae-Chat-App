@@ -50,6 +50,9 @@ import * as AddModal from '../../src/components/AddModal';
 import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
 import * as NotificationSoundCard from '../../src/components/settings/NotificationSoundCard';
 
+// 更新组件
+import * as UpdateToast from '../../src/update/components/UpdateToast';
+
 // 模态框组件
 import * as AddFriendTab from '../../src/components/modals/add/AddFriendTab';
 import * as CreateGroupTab from '../../src/components/modals/add/CreateGroupTab';
@@ -120,13 +123,13 @@ import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMes
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useSilentUpdate from '../../src/update/useSilentUpdate';
+import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 
 // 服务
 import * as fileCache from '../../src/services/fileCache';
 import * as fileService from '../../src/services/fileService';
 import * as historyService from '../../src/services/historyService';
-import * as imageDimensions from '../../src/services/imageDimensions';
 import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
@@ -160,6 +163,7 @@ const COMPONENT_MAP = {
   AddModal,
   SettingsPanel,
   NotificationSoundCard,
+  UpdateToast,
   // 模态框组件
   AddFriendTab,
   CreateGroupTab,
@@ -226,12 +230,12 @@ const COMPONENT_MAP = {
   useLocalGroupMessages,
   useWebRTC,
   useSilentUpdate,
+  useUpdateToast,
   useNotificationSounds,
   // 服务
   fileCache,
   fileService,
   historyService,
-  imageDimensions,
   notificationService,
   syncService,
   updateService,

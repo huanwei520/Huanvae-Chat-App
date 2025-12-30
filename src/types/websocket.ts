@@ -88,6 +88,10 @@ export interface WsNewMessage {
   file_size?: number;
   /** 文件哈希（用于本地文件链接，仅上传接口发送时提供） */
   file_hash?: string;
+  /** 图片宽度（像素），仅图片类型消息有值 */
+  image_width?: number;
+  /** 图片高度（像素），仅图片类型消息有值 */
+  image_height?: number;
 }
 
 /**

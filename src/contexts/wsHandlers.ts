@@ -178,6 +178,9 @@ async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | nul
       file_url: msg.file_url || null,
       file_size: msg.file_size || null,
       file_hash: msg.file_hash || null,
+      // 图片尺寸（后端文档：image_width/image_height 仅图片类型有值）
+      image_width: msg.image_width ?? null,
+      image_height: msg.image_height ?? null,
       seq: msg.seq || 0,
       reply_to: null,
       is_recalled: false,

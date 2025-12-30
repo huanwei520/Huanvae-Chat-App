@@ -1,68 +1,134 @@
 /**
  * 静默更新 Hook
  *
- * 在应用启动时自动检查更新，后台静默下载：
- * - 检测到更新时发送系统通知提醒用户
- * - 后台静默下载，不显示进度 UI
- * - 下载完成后自动重启安装
- * - 只有发生错误时才通知用户
+ * 在应用启动时自动检查更新，使用灵动岛风格弹窗提示：
+ * - 检测到更新时显示顶部弹窗，用户可选择更新或稍后
+ * - 点击更新后显示下载进度和当前代理链接
+ * - 下载完成后提示重启
+ * - 发生错误时显示错误信息，可重试
  *
  * 使用方式：
  * ```tsx
  * function App() {
- *   useSilentUpdate();
- *   return <div>...</div>;
+ *   const { toastProps } = useSilentUpdate();
+ *   return (
+ *     <>
+ *       <UpdateToast {...toastProps} />
+ *       <div>...</div>
+ *     </>
+ *   );
  * }
  * ```
  */
 
-import { useEffect } from 'react';
-import { checkForUpdates, downloadAndInstall, restartApp } from './service';
-import { notify } from '../services/notificationService';
+import { useEffect, useCallback, useRef } from 'react';
+import { checkForUpdates, downloadAndInstall, restartApp, type UpdateInfo } from './service';
+import { useUpdateToast, type UpdateToastProps } from './components';
 
-/** GitHub 仓库地址 */
-const GITHUB_REPO = 'https://github.com/huanwei520/Huanvae-Chat-App';
+/** 更新检查延迟时间（毫秒） */
+const CHECK_DELAY = 3000;
+
+/** 开发环境模拟更新（设为 true 可在本地测试弹窗） */
+const DEBUG_UPDATE = false;
 
 /**
  * 静默更新 Hook
  *
- * @param delay - 延迟检查时间（毫秒），默认 2000ms
+ * @returns 更新弹窗的 props
  */
-export function useSilentUpdate(delay: number = 2000): void {
-  useEffect(() => {
-    const checkAndSilentUpdate = async () => {
-      try {
-        // 检查更新
-        const info = await checkForUpdates();
-        if (!info.available || !info.update) {
-          return;
-        }
+export function useSilentUpdate(): { toastProps: UpdateToastProps } {
+  const toast = useUpdateToast();
+  const updateInfoRef = useRef<UpdateInfo | null>(null);
+  const currentProxyRef = useRef<string>('');
 
-        // 发送系统通知提醒用户
-        const releaseUrl = `${GITHUB_REPO}/releases/tag/v${info.version}`;
-        await notify({
-          title: '发现新版本',
-          body: `v${info.version} 可用\n${info.notes || 'Huanvae Chat 更新'}\n查看完整更新日志: ${releaseUrl}`,
-        });
+  // 检查更新
+  const checkUpdate = useCallback(async () => {
+    // 开发环境模拟更新弹窗
+    if (DEBUG_UPDATE) {
+      toast.showAvailable('1.0.8', '这是一个测试更新说明');
+      return;
+    }
 
-        // 后台静默下载
-        await downloadAndInstall(info.update);
-
-        // 下载完成，重启应用
-        await restartApp();
-      } catch (err) {
-        // 只有报错时才通知用户
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        console.error('[Update] 更新失败:', errorMsg);
-        await notify({
-          title: '更新失败',
-          body: errorMsg,
-        });
+    try {
+      const info = await checkForUpdates();
+      if (info.available && info.update && info.version) {
+        updateInfoRef.current = info;
+        toast.showAvailable(info.version, info.notes);
       }
-    };
+    } catch (err) {
+      // 静默失败，不显示错误
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn('[Update] 检查更新失败:', errorMsg);
+    }
+  }, [toast]);
 
-    // 延迟检查更新，避免影响启动体验
-    const timer = setTimeout(checkAndSilentUpdate, delay);
+  // 开始下载
+  const handleUpdate = useCallback(async () => {
+    const info = updateInfoRef.current;
+    if (!info?.update) {
+      return;
+    }
+
+    toast.startDownload();
+
+    try {
+      await downloadAndInstall(info.update, (progress) => {
+        toast.updateProgress(
+          progress.percent || 0,
+          progress.downloaded || 0,
+          progress.contentLength || 0,
+          currentProxyRef.current,
+        );
+      });
+
+      toast.downloadComplete();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast.showError(errorMsg);
+    }
+  }, [toast]);
+
+  // 重启应用
+  const handleRestart = useCallback(async () => {
+    try {
+      await restartApp();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast.showError(`重启失败: ${errorMsg}`);
+    }
+  }, [toast]);
+
+  // 重试更新
+  const handleRetry = useCallback(() => {
+    handleUpdate();
+  }, [handleUpdate]);
+
+  // 关闭弹窗
+  const handleDismiss = useCallback(() => {
+    toast.dismiss();
+  }, [toast]);
+
+  // 启动时检查更新
+  useEffect(() => {
+    const timer = setTimeout(checkUpdate, CHECK_DELAY);
     return () => clearTimeout(timer);
-  }, [delay]);
+  }, [checkUpdate]);
+
+  // 构建 props
+  const toastProps: UpdateToastProps = {
+    status: toast.status,
+    version: toast.version,
+    notes: toast.notes,
+    progress: toast.progress,
+    downloaded: toast.downloaded,
+    total: toast.total,
+    proxyUrl: toast.proxyUrl,
+    errorMessage: toast.errorMessage,
+    onUpdate: handleUpdate,
+    onDismiss: handleDismiss,
+    onRestart: handleRestart,
+    onRetry: handleRetry,
+  };
+
+  return { toastProps };
 }

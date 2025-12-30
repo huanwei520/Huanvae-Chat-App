@@ -23,6 +23,10 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ApiClient } from '../api/client';
 import { useFileCacheStore } from '../stores/fileCacheStore';
+import {
+  reportFriendPermissionError,
+  createPresignedUrlErrorContext,
+} from './diagnosticService';
 
 // ============================================
 // 类型定义
@@ -110,11 +114,17 @@ export function downloadAndSaveFile(
 
 /**
  * 获取预签名 URL（带缓存）
+ *
+ * 当好友文件访问返回403时，自动上报诊断日志到后端
  */
 export async function getPresignedUrl(
   api: ApiClient,
   fileUuid: string,
   urlType: 'user' | 'friend' | 'group' = 'user',
+  options?: {
+    friendId?: string;
+    fileType?: 'image' | 'video' | 'document';
+  },
 ): Promise<{ url: string; expiresAt: string }> {
   const store = useFileCacheStore.getState();
 
@@ -139,16 +149,42 @@ export async function getPresignedUrl(
       endpoint = `/api/storage/file/${fileUuid}/presigned_url`;
   }
 
-  const response = await api.post<PresignedUrlResponse>(endpoint, {
-    operation: 'preview',
-  });
+  try {
+    const response = await api.post<PresignedUrlResponse>(endpoint, {
+      operation: 'preview',
+    });
 
-  // 3. 缓存 URL
-  store.setUrlCache(fileUuid, response.presigned_url, response.expires_at);
+    // 3. 缓存 URL
+    store.setUrlCache(fileUuid, response.presigned_url, response.expires_at);
 
-  // eslint-disable-next-line no-console
-  console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
-  return { url: response.presigned_url, expiresAt: response.expires_at };
+    // eslint-disable-next-line no-console
+    console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
+    return { url: response.presigned_url, expiresAt: response.expires_at };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // 好友文件403错误：上报诊断日志（图片/视频/文件都上报）
+    if (urlType === 'friend' && errorMessage.includes('403')) {
+      // 异步上报，不阻塞主流程
+      reportFriendPermissionError(
+        api.getBaseUrl(),
+        api.getAccessToken(),
+        createPresignedUrlErrorContext(fileUuid, errorMessage, {
+          operation: 'preview',
+          urlType,
+          friendId: options?.friendId,
+          fileType: options?.fileType,
+          screen: 'chat_detail',
+          action: 'get_presigned_url',
+        }),
+      ).catch(() => {
+        // 上报失败静默处理
+      });
+    }
+
+    // 重新抛出错误
+    throw error;
+  }
 }
 
 // ============================================
@@ -162,12 +198,24 @@ export async function getPresignedUrl(
  * 1. 检查本地缓存
  * 2. 无本地缓存则获取预签名 URL
  * 3. 返回可用的 src
+ *
+ * @param api - API 客户端
+ * @param fileUuid - 文件 UUID
+ * @param fileHash - 文件哈希（用于本地缓存查找）
+ * @param urlType - URL 类型（用于选择正确的预签名端点）
+ * @param options - 额外选项（用于错误上报）
  */
 export async function getFileSource(
   api: ApiClient,
   fileUuid: string,
   fileHash: string | null | undefined,
   urlType: 'user' | 'friend' | 'group' = 'user',
+  options?: {
+    /** 好友 ID（用于错误上报） */
+    friendId?: string;
+    /** 文件类型（用于错误上报） */
+    fileType?: 'image' | 'video' | 'document';
+  },
 ): Promise<FileSourceResult> {
   const store = useFileCacheStore.getState();
 
@@ -197,8 +245,8 @@ export async function getFileSource(
     }
   }
 
-  // 3. 无本地缓存，获取预签名 URL
-  const { url } = await getPresignedUrl(api, fileUuid, urlType);
+  // 3. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
+  const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
   return {
     src: url,
     isLocal: false,
@@ -318,9 +366,6 @@ export async function startProgressListener(): Promise<void> {
     }
     // completed 和 failed 由 triggerBackgroundDownload 处理
   });
-
-  // eslint-disable-next-line no-console
-  console.log('[FileCache] 下载进度监听已启动');
 }
 
 /**
@@ -330,8 +375,6 @@ export function stopProgressListener(): void {
   if (unlistenProgress) {
     unlistenProgress();
     unlistenProgress = null;
-    // eslint-disable-next-line no-console
-    console.log('[FileCache] 下载进度监听已停止');
   }
 }
 

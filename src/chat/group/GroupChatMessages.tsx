@@ -4,27 +4,26 @@
  * @module chat/group
  * @location src/chat/group/GroupChatMessages.tsx
  *
- * 使用 flex-direction: column + 图片尺寸预加载实现稳定的视角
+ * 使用 flex-direction: column 实现稳定的视角
  *
  * 功能：
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
- * - 图片尺寸预加载：渲染前先加载所有图片尺寸，避免布局偏移
+ * - 图片尺寸由后端消息携带 image_width/image_height，无需预加载
  *
  * 消息排序机制：
  * - 消息按时间正序排列（旧→新）
  * - 发送中的消息排在最后（显示在底部）
  *
  * 滚动机制：
- * - 切换会话时等待图片尺寸加载完成后渲染，然后滚动到底部
+ * - 切换会话时滚动到底部
  * - 新消息到达时，如果用户在底部则自动滚动
- * - 加载历史消息时，手动补偿 scrollTop 保持视角
+ * - 加载历史消息时，浏览器 scroll anchoring 自动保持视角
  */
 
-import { useMemo, useRef, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
-import { getImageDimensions } from '../../services/imageDimensions';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -95,12 +94,6 @@ export function GroupChatMessages({
   // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
   const scrollSnapshotRef = useRef<number | null>(null);
 
-  // 图片尺寸是否准备就绪
-  const [dimensionsReady, setDimensionsReady] = useState(false);
-
-  // 已预加载的消息数量（用于检测消息变化）
-  const preloadedCountRef = useRef(-1);
-
   // 当前群组 ID（用于检测切换）
   const currentGroupIdRef = useRef(groupId);
 
@@ -122,52 +115,9 @@ export function GroupChatMessages({
   useEffect(() => {
     if (currentGroupIdRef.current !== groupId) {
       currentGroupIdRef.current = groupId;
-      setDimensionsReady(false);
       prevMessagesLengthRef.current = -1;
-      preloadedCountRef.current = -1;
     }
   }, [groupId]);
-
-  // 预加载图片尺寸（仅在首次加载或切换群组时阻塞渲染）
-  useEffect(() => {
-    // 已经就绪时，只需后台预加载新图片尺寸（不阻塞渲染）
-    if (dimensionsReady) {
-      const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
-      if (imageMessages.length > 0) {
-        imageMessages.forEach((m) => {
-          if (m.file_hash) {
-            getImageDimensions(m.file_hash);
-          }
-        });
-      }
-      return;
-    }
-
-    // 没有消息时等待
-    if (messages.length === 0) {
-      return;
-    }
-
-    // 获取所有图片消息
-    const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
-
-    // 没有图片消息时直接标记为就绪
-    if (imageMessages.length === 0) {
-      preloadedCountRef.current = messages.length;
-      setDimensionsReady(true);
-      return;
-    }
-
-    // 并行加载所有图片尺寸
-    const loadAllDimensions = async () => {
-      const promises = imageMessages.map((m) => getImageDimensions(m.file_hash ?? ''));
-      await Promise.all(promises);
-      preloadedCountRef.current = messages.length;
-      setDimensionsReady(true);
-    };
-
-    loadAllDimensions();
-  }, [messages, messages.length, dimensionsReady]);
 
   // 滚动处理：检测是否接近顶部 + 更新是否在底部
   const handleScroll = useCallback(() => {
@@ -209,11 +159,8 @@ export function GroupChatMessages({
     }
   }, [loadingMore]);
 
-  // 消息数量变化时的滚动处理（仅在 dimensionsReady 时执行）
+  // 消息数量变化时的滚动处理
   useLayoutEffect(() => {
-    // 尺寸未就绪时不处理
-    if (!dimensionsReady) { return; }
-
     const currentLength = messages.length;
 
     // 初始渲染：滚动到底部
@@ -236,7 +183,6 @@ export function GroupChatMessages({
     // 情况1：deltaMessages 为 0，无需处理
     if (deltaMessages === 0) { return; }
 
-    // 情况2：加载历史消息（消息增加较多，且有滚动快照）
     // 情况2：加载历史消息（消息增加较多，且有滚动快照）
     // 浏览器的 scroll anchoring 会自动保持视角，无需手动补偿
     if (deltaMessages > 3 && scrollSnapshotRef.current !== null) {
@@ -261,11 +207,10 @@ export function GroupChatMessages({
         });
       }
     }
-  }, [messages, messages.length, groupId, dimensionsReady]);
+  }, [messages, messages.length, groupId]);
 
   // 是否显示消息列表
   const isEmpty = messages.length === 0;
-  const shouldRenderMessages = dimensionsReady && !isEmpty;
 
   return (
     <div
@@ -278,16 +223,9 @@ export function GroupChatMessages({
           <span className="loading-text">加载中...</span>
         </div>
       )}
-      {!loadingMore && !hasMore && shouldRenderMessages && (
+      {!loadingMore && !hasMore && !isEmpty && (
         <div className="load-more-indicator">
           <span className="no-more-text">无更多记录</span>
-        </div>
-      )}
-
-      {/* 加载中提示（切换群组或预加载图片尺寸） */}
-      {!dimensionsReady && !isEmpty && (
-        <div className="load-more-indicator">
-          <span className="loading-text">加载中...</span>
         </div>
       )}
 
@@ -309,8 +247,8 @@ export function GroupChatMessages({
         <span>发送一条消息开始群聊吧</span>
       </motion.div>
 
-      {/* 消息列表 - 仅在尺寸就绪后渲染 */}
-      {shouldRenderMessages && (
+      {/* 消息列表 */}
+      {!isEmpty && (
         <LayoutGroup>
           <AnimatePresence mode="popLayout">
             {sortedMessages.map((message) => {

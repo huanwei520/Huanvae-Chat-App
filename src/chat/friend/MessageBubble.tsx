@@ -342,6 +342,8 @@ export function MessageBubble({
               fileSize={message.file_size}
               fileHash={message.file_hash}
               urlType="friend"
+              imageWidth={message.image_width}
+              imageHeight={message.image_height}
             />
           )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>

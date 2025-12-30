@@ -350,6 +350,8 @@ export function GroupMessageBubble({
               fileSize={message.file_size}
               fileHash={message.file_hash}
               urlType="group"
+              imageWidth={message.image_width}
+              imageHeight={message.image_height}
             />
           )}
           <div className="bubble-time">{formatMessageTime(message.send_time)}</div>

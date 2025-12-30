@@ -573,6 +573,8 @@ export function useMainPage() {
                 file_url: result.fileUrl || null,
                 file_size: file.size,
                 file_hash: result.fileHash,
+                image_width: null, // 图片尺寸在后端返回时填充
+                image_height: null,
                 seq: 0,
                 reply_to: null,
                 is_recalled: false,
@@ -652,6 +654,8 @@ export function useMainPage() {
                 file_url: result.fileUrl || null,
                 file_size: file.size,
                 file_hash: result.fileHash,
+                image_width: null, // 图片尺寸在后端返回时填充
+                image_height: null,
                 seq: 0,
                 reply_to: null,
                 is_recalled: false,

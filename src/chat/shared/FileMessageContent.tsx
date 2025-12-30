@@ -10,29 +10,53 @@
  * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
-import {
-  getImageDimensions,
-  getImageDimensionsSync,
-  saveImageDimensions,
-  calculateDisplaySize,
-  type ImageDimensions,
-} from '../../services/imageDimensions';
 
-/** 调试模式 */
-const DEBUG_IMAGE = true;
-
-/** 调试日志 */
-function logImage(action: string, data?: Record<string, unknown>) {
-  if (DEBUG_IMAGE) {
-    // eslint-disable-next-line no-console
-    console.log(`%c[ImageSize] ${action}`, 'color: #9C27B0; font-weight: bold', data ?? '');
+/**
+ * 计算显示尺寸（保持比例，限制最大尺寸）
+ *
+ * @param originalWidth - 原始宽度
+ * @param originalHeight - 原始高度
+ * @param maxWidth - 最大宽度（默认 280）
+ * @param maxHeight - 最大高度（默认 300）
+ * @returns 计算后的显示尺寸
+ */
+function calculateDisplaySize(
+  originalWidth: number,
+  originalHeight: number,
+  maxWidth = 280,
+  maxHeight = 300,
+): { width: number; height: number } {
+  if (originalWidth <= 0 || originalHeight <= 0) {
+    return { width: maxWidth, height: maxHeight };
   }
+
+  const aspectRatio = originalWidth / originalHeight;
+
+  let displayWidth = originalWidth;
+  let displayHeight = originalHeight;
+
+  // 限制最大宽度
+  if (displayWidth > maxWidth) {
+    displayWidth = maxWidth;
+    displayHeight = displayWidth / aspectRatio;
+  }
+
+  // 限制最大高度
+  if (displayHeight > maxHeight) {
+    displayHeight = maxHeight;
+    displayWidth = displayHeight * aspectRatio;
+  }
+
+  return {
+    width: Math.round(displayWidth),
+    height: Math.round(displayHeight),
+  };
 }
 import type { MessageType } from '../../types/chat';
 
@@ -53,6 +77,12 @@ export interface FileMessageContentProps {
   fileHash?: string | null;
   /** URL 类型（用于预签名 URL 请求） */
   urlType?: 'user' | 'friend' | 'group';
+  /** 好友 ID（用于错误上报） */
+  friendId?: string;
+  /** 图片宽度（像素），从消息中获取 */
+  imageWidth?: number | null;
+  /** 图片高度（像素），从消息中获取 */
+  imageHeight?: number | null;
 }
 
 // ============================================
@@ -96,18 +126,35 @@ function LocalBadge() {
 // 图片消息组件
 // ============================================
 
+/** 图片显示的最大尺寸 */
+const IMAGE_MAX_WIDTH = 280;
+const IMAGE_MAX_HEIGHT = 300;
+
+/** 没有尺寸信息时的默认占位尺寸 */
+const IMAGE_DEFAULT_WIDTH = 200;
+const IMAGE_DEFAULT_HEIGHT = 150;
+
 function ImageMessage({
   fileUuid,
   fileHash,
   filename,
   fileSize,
   urlType,
+  friendId,
+  imageWidth,
+  imageHeight,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
+  /** 好友 ID（用于错误上报） */
+  friendId?: string;
+  /** 消息中携带的图片宽度（后端返回） */
+  imageWidth?: number | null;
+  /** 消息中携带的图片高度（后端返回） */
+  imageHeight?: number | null;
 }) {
   const { session } = useSession();
   const { src, isLocal, loading, error, onLoad, localPath } = useImageCache(
@@ -115,106 +162,19 @@ function ImageMessage({
     fileHash,
     filename,
     urlType,
+    friendId,
   );
 
-  // 生成文件标识（优先使用 fileHash，其次 fileUuid）
-  const fileKey = fileHash || fileUuid;
+  // 是否有后端提供的尺寸信息
+  const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
 
-  // 预设尺寸状态（初始化时同步获取内存缓存中的尺寸）
-  const [presetSize, setPresetSize] = useState<ImageDimensions | null>(
-    () => getImageDimensionsSync(fileKey),
-  );
-
-  // 加载预设尺寸，如果没有缓存且有本地路径则预读取
-  useEffect(() => {
-    if (!fileKey) { return; }
-
-    let cancelled = false;
-
-    const loadDimensions = async () => {
-      logImage('加载尺寸开始', { fileKey, isLocal, hasSrc: !!src });
-
-      // 先检查缓存
-      const cached = await getImageDimensions(fileKey);
-      if (cancelled) { return; }
-
-      if (cached) {
-        logImage('从缓存获取尺寸', { fileKey, cached });
-        setPresetSize(cached);
-        return;
-      }
-
-      logImage('无缓存', { fileKey, isLocal, hasSrc: !!src });
-
-      // 如果没有缓存且有 src（本地图片），预读取尺寸
-      if (src && isLocal) {
-        logImage('预读取本地图片尺寸', { fileKey, src: src.substring(0, 50) });
-        const img = new Image();
-        img.onload = () => {
-          if (cancelled) { return; }
-          const { naturalWidth, naturalHeight } = img;
-          logImage('预读取完成', { fileKey, naturalWidth, naturalHeight });
-          if (naturalWidth > 0 && naturalHeight > 0) {
-            saveImageDimensions(fileKey, naturalWidth, naturalHeight);
-            setPresetSize({ width: naturalWidth, height: naturalHeight });
-          }
-        };
-        img.src = src;
-      }
-    };
-
-    loadDimensions();
-
-    return () => { cancelled = true; };
-  }, [fileKey, src, isLocal]);
-
-  // 图片加载完成后保存尺寸
-  const handleLoad = useCallback(
-    (e: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = e.currentTarget;
-      const { naturalWidth, naturalHeight, offsetWidth, offsetHeight } = img;
-
-      logImage('图片 onLoad', {
-        fileKey,
-        naturalWidth,
-        naturalHeight,
-        offsetWidth,
-        offsetHeight,
-        hadPresetSize: !!presetSize,
-      });
-
-      // 保存尺寸到缓存
-      if (fileKey && naturalWidth > 0 && naturalHeight > 0) {
-        saveImageDimensions(fileKey, naturalWidth, naturalHeight);
-        // 更新预设尺寸（如果之前没有）
-        if (!presetSize) {
-          setPresetSize({ width: naturalWidth, height: naturalHeight });
-        }
-      }
-
-      // 调用原有的 onLoad（触发缓存）
-      onLoad();
-    },
-    [fileKey, presetSize, onLoad],
-  );
-
-  // 计算显示尺寸
-  const displaySize = presetSize
-    ? calculateDisplaySize(presetSize.width, presetSize.height)
-    : null;
-
-  // 调试：记录容器尺寸
-  useEffect(() => {
-    logImage('容器尺寸', {
-      fileKey,
-      hasPresetSize: !!presetSize,
-      presetSize,
-      displaySize,
-      loading,
-      error: !!error,
-      hasSrc: !!src,
-    });
-  }, [fileKey, presetSize, displaySize, loading, error, src]);
+  // 计算容器显示尺寸（在渲染时就确定，不会因图片加载而改变）
+  // 规则：
+  // 1. 有尺寸信息：按比例缩放，不超过最大尺寸
+  // 2. 无尺寸信息：使用默认占位尺寸
+  const displaySize = hasPresetDimensions
+    ? calculateDisplaySize(imageWidth, imageHeight, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT)
+    : { width: IMAGE_DEFAULT_WIDTH, height: IMAGE_DEFAULT_HEIGHT };
 
   // 点击打开独立预览窗口
   const handleClick = useCallback(() => {
@@ -237,10 +197,11 @@ function ImageMessage({
     );
   }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
 
-  // 容器样式：如果有预设尺寸则使用，否则使用默认最小尺寸
-  const containerStyle: React.CSSProperties = displaySize
-    ? { width: displaySize.width, height: displaySize.height }
-    : { minWidth: 120, minHeight: 80 };
+  // 容器样式：固定尺寸，不会因图片加载而改变
+  const containerStyle: React.CSSProperties = {
+    width: displaySize.width,
+    height: displaySize.height,
+  };
 
   return (
     <div
@@ -248,8 +209,15 @@ function ImageMessage({
       style={containerStyle}
       onClick={handleClick}
     >
-      {loading && <div className="file-message-loading">加载中...</div>}
+      {/* 加载中显示占位符 */}
+      {loading && (
+        <div className="file-message-loading">
+          <span>加载中...</span>
+        </div>
+      )}
+      {/* 加载错误 */}
       {error && <div className="file-message-error">加载失败</div>}
+      {/* 图片加载完成后显示 */}
       {!loading && !error && src && (
         <>
           {isLocal && <LocalBadge />}
@@ -258,7 +226,7 @@ function ImageMessage({
             alt={filename}
             className="message-image"
             draggable={false}
-            onLoad={handleLoad}
+            onLoad={onLoad}
           />
         </>
       )}
@@ -270,18 +238,25 @@ function ImageMessage({
 // 视频消息组件
 // ============================================
 
+/** 视频显示的固定尺寸 */
+const VIDEO_WIDTH = 280;
+const VIDEO_HEIGHT = 160;
+
 function VideoMessage({
   fileUuid,
   fileHash,
   filename,
   fileSize,
   urlType,
+  friendId,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
+  /** 好友 ID（用于错误上报） */
+  friendId?: string;
 }) {
   const { session } = useSession();
   const { src, isLocal, loading, error, onPlay, localPath } = useVideoCache(
@@ -290,6 +265,7 @@ function VideoMessage({
     filename,
     fileSize ?? undefined,
     urlType,
+    friendId,
   );
 
   // 点击打开独立预览窗口
@@ -313,10 +289,23 @@ function VideoMessage({
     );
   }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
 
+  // 容器样式：固定尺寸
+  const containerStyle: React.CSSProperties = {
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+  };
+
   return (
-    <div className="file-message video-message" onClick={handleClick}>
-      {loading && <div className="file-message-loading">加载中...</div>}
+    <div className="file-message video-message" style={containerStyle} onClick={handleClick}>
+      {/* 加载中显示占位符 */}
+      {loading && (
+        <div className="file-message-loading">
+          <span>加载中...</span>
+        </div>
+      )}
+      {/* 加载错误 */}
       {error && <div className="file-message-error">加载失败</div>}
+      {/* 视频加载完成后显示 */}
       {!loading && !error && src && (
         <>
           {isLocal && <LocalBadge />}
@@ -345,12 +334,15 @@ function DocumentMessage({
   filename,
   fileSize,
   urlType,
+  friendId,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
+  /** 好友 ID（用于错误上报） */
+  friendId?: string;
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const { src, isLocal, localPath, cacheFile } = useFileCache({
@@ -359,6 +351,7 @@ function DocumentMessage({
     fileName: filename,
     fileType: 'document',
     urlType,
+    friendId,
     autoCache: false,
   });
 
@@ -432,6 +425,9 @@ export function FileMessageContent({
   fileSize,
   fileHash,
   urlType = 'friend',
+  friendId,
+  imageWidth,
+  imageHeight,
 }: FileMessageContentProps) {
   // 从消息内容中提取文件名
   const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
@@ -455,6 +451,9 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
+          friendId={friendId}
+          imageWidth={imageWidth}
+          imageHeight={imageHeight}
         />
       );
 
@@ -466,6 +465,7 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
+          friendId={friendId}
         />
       );
 
@@ -477,6 +477,7 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
+          friendId={friendId}
         />
       );
   }

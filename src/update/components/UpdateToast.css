@@ -1,0 +1,244 @@
+/**
+ * 更新提示组件样式 - 灵动岛风格
+ *
+ * 设计规范：
+ * - 白色透明毛玻璃背景
+ * - 蓝色字体和强调色
+ * - 完全隔离，使用 .update-toast 前缀
+ * - 不使用任何深色样式
+ */
+
+/* ============================================
+   容器定位 - 相对于整个 viewport 顶部居中
+   使用 inset 确保不受父元素 transform 影响
+   ============================================ */
+.update-toast-container {
+  position: fixed;
+  top: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 99999;
+  pointer-events: none;
+}
+
+/* ============================================
+   主体样式 - 灵动岛胶囊形状
+   ============================================ */
+.update-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  min-width: 300px;
+  max-width: 480px;
+
+  /* 白色透明毛玻璃效果 - 更高透明度 */
+  background: rgba(255, 255, 255, 0.01);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+
+  /* 胶囊形状圆角 */
+  border-radius: 24px;
+
+  /* 柔和阴影 */
+  box-shadow:
+    0 4px 24px rgba(59, 130, 246, 0.15),
+    0 1px 4px rgba(0, 0, 0, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+
+  pointer-events: auto;
+}
+
+/* ============================================
+   图标区域
+   ============================================ */
+.update-toast-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+/* 加载动画 */
+.update-toast-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: update-toast-spin 0.8s linear infinite;
+}
+
+@keyframes update-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   信息区域
+   ============================================ */
+.update-toast-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.update-toast-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e40af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-toast-notes {
+  font-size: 12px;
+  color: #3b82f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-toast-error {
+  font-size: 12px;
+  color: #ef4444;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================
+   进度条
+   ============================================ */
+.update-toast-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-toast-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-toast-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 3px;
+}
+
+.update-toast-progress-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3b82f6;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ============================================
+   元信息（大小、代理）
+   ============================================ */
+.update-toast-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #60a5fa;
+}
+
+.update-toast-proxy {
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* ============================================
+   操作按钮
+   ============================================ */
+.update-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.update-toast-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.update-toast-btn:focus {
+  outline: none;
+}
+
+.update-toast-btn-primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.update-toast-btn-primary:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.update-toast-btn-primary:active {
+  transform: translateY(0);
+}
+
+.update-toast-btn-secondary {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.update-toast-btn-secondary:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+/* ============================================
+   响应式调整
+   ============================================ */
+@media (max-width: 520px) {
+  .update-toast-container {
+    left: 16px;
+    right: 16px;
+    transform: none;
+  }
+
+  .update-toast {
+    min-width: auto;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+
+  .update-toast-info {
+    flex-basis: calc(100% - 44px);
+  }
+
+  .update-toast-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+}
+

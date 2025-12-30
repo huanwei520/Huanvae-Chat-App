@@ -68,6 +68,9 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 设置相关
   { name: 'SettingsPanel', path: 'components/settings/SettingsPanel', category: 'components', description: '设置面板' },
   { name: 'NotificationSoundCard', path: 'components/settings/NotificationSoundCard', category: 'components', description: '消息提示音设置卡片' },
+
+  // 更新相关
+  { name: 'UpdateToast', path: 'update/components/UpdateToast', category: 'components', description: '更新提示弹窗（灵动岛风格）' },
 ];
 
 // ============== 模态框组件 ==============
@@ -159,6 +162,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
   { name: 'useSilentUpdate', path: 'update/useSilentUpdate', category: 'hooks', description: '静默更新 Hook' },
+  { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
 ];
 
@@ -167,7 +171,6 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
   { name: 'fileService', path: 'services/fileService', category: 'services', description: '文件服务' },
   { name: 'historyService', path: 'services/historyService', category: 'services', description: '历史服务' },
-  { name: 'imageDimensions', path: 'services/imageDimensions', category: 'services', description: '图片尺寸缓存服务' },
   { name: 'notificationService', path: 'services/notificationService', category: 'services', description: '通知服务' },
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },

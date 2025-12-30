@@ -189,6 +189,35 @@ async function calculateSHA256(
 }
 
 /**
+ * 读取图片文件的原始尺寸
+ * 返回 { width, height } 或 null（非图片文件）
+ */
+function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    // 非图片文件直接返回 null
+    if (!file.type.startsWith('image/')) {
+      resolve(null);
+      return;
+    }
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+
+    img.src = url;
+  });
+}
+
+/**
  * 根据 MIME 类型确定文件类型
  */
 function getFileType(
@@ -318,12 +347,15 @@ export function useFileUpload() {
           });
         });
 
+        // 1.5 读取图片尺寸（仅图片文件）
+        const imageDimensions = await getImageDimensionsFromFile(file);
+
         setProgress((prev) => {
           if (!prev) { return prev; }
           return { ...prev, status: 'requesting', percent: 5, statusDetail: '正在请求上传...' };
         });
 
-        // 2. 请求上传
+        // 2. 请求上传（包含图片尺寸，后端文档要求）
         const uploadInfo = await api.post<UploadRequestResponse>('/api/storage/upload/request', {
           file_type: fileType,
           storage_location: storageLocation,
@@ -333,6 +365,9 @@ export function useFileUpload() {
           content_type: file.type,
           file_hash: fileHash,
           force_upload: false,
+          // 图片尺寸（后端文档：image_width/image_height 仅图片类型需要）
+          image_width: imageDimensions?.width ?? null,
+          image_height: imageDimensions?.height ?? null,
         });
 
         // 3. 检查是否秒传

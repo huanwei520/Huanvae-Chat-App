@@ -32,7 +32,8 @@ import {
 // 调试日志
 // ============================================
 
-const DEBUG = true;
+// 调试日志（仅在需要时开启）
+const DEBUG = false;
 
 function logCache(action: string, data?: unknown) {
   if (DEBUG) {
@@ -60,6 +61,8 @@ export interface UseFileCacheOptions {
   fileSize?: number;
   /** URL 类型 */
   urlType?: 'user' | 'friend' | 'group';
+  /** 好友 ID（用于错误上报） */
+  friendId?: string;
   /** 是否自动缓存图片 */
   autoCache?: boolean;
   /** 是否启用（用于条件加载） */
@@ -112,6 +115,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     contentType,
     fileSize,
     urlType = 'user',
+    friendId,
     autoCache = true,
     enabled = true,
   } = options;
@@ -149,8 +153,11 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       // 启动进度监听器（全局只需启动一次）
       startProgressListener();
 
-      logCache('加载文件源', { fileUuid, fileHash, urlType });
-      const source = await getFileSource(api, fileUuid, fileHash, urlType);
+      logCache('加载文件源', { fileUuid, fileHash, urlType, fileType });
+      const source = await getFileSource(api, fileUuid, fileHash, urlType, {
+        friendId,
+        fileType,
+      });
       setResult(source);
 
       logCache('文件源加载完成', {
@@ -169,7 +176,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     } finally {
       setLoading(false);
     }
-  }, [api, fileUuid, fileHash, urlType, enabled, autoCache, fileType]);
+  }, [api, fileUuid, fileHash, urlType, friendId, enabled, autoCache, fileType]);
 
   // 初始加载
   useEffect(() => {
@@ -256,6 +263,7 @@ export function useImageCache(
   fileHash: string | null | undefined,
   fileName: string,
   urlType: 'user' | 'friend' | 'group' = 'user',
+  friendId?: string,
 ) {
   const result = useFileCache({
     fileUuid,
@@ -263,6 +271,7 @@ export function useImageCache(
     fileName,
     fileType: 'image',
     urlType,
+    friendId,
     autoCache: true,
   });
 
@@ -311,6 +320,7 @@ export function useVideoCache(
   fileName: string,
   fileSize?: number,
   urlType: 'user' | 'friend' | 'group' = 'user',
+  friendId?: string,
 ) {
   const result = useFileCache({
     fileUuid,
@@ -319,6 +329,7 @@ export function useVideoCache(
     fileType: 'video',
     fileSize,
     urlType,
+    friendId,
     autoCache: false, // 视频不自动缓存，等待播放
   });
 

@@ -31,6 +31,10 @@ interface ServerMessage {
   file_url?: string | null;
   file_size?: number | null;
   file_hash?: string | null;
+  /** 图片宽度（像素），仅图片类型消息有值 */
+  image_width?: number | null;
+  /** 图片高度（像素），仅图片类型消息有值 */
+  image_height?: number | null;
   seq: number;
   reply_to?: string | null;
   send_time: string;
@@ -180,6 +184,9 @@ export class SyncService {
               file_url: msg.file_url || null,
               file_size: msg.file_size || null,
               file_hash: msg.file_hash || null,
+              // 图片尺寸（后端文档：image_width/image_height 仅图片类型有值）
+              image_width: msg.image_width ?? null,
+              image_height: msg.image_height ?? null,
               seq: msg.seq,
               reply_to: msg.reply_to || null,
               is_recalled: msg.is_recalled || false,
@@ -278,6 +285,8 @@ export class SyncService {
           file_url: msg.file_url || null,
           file_size: msg.file_size || null,
           file_hash: msg.file_hash || null,
+          image_width: msg.image_width ?? null,
+          image_height: msg.image_height ?? null,
           seq: msg.seq,
           reply_to: msg.reply_to || null,
           is_recalled: msg.is_recalled || false,
@@ -342,6 +351,8 @@ export class SyncService {
       file_url: message.file_url || null,
       file_size: message.file_size || null,
       file_hash: message.file_hash || null,
+      image_width: null, // WebSocket 推送中暂无图片尺寸
+      image_height: null,
       seq: message.seq || 0,
       reply_to: null,
       is_recalled: false,

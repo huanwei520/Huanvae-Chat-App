@@ -44,9 +44,8 @@ pub mod types;
 pub use contacts::*;
 pub use conversations::*;
 pub use files::{
-    delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, get_image_dimensions,
-    save_file_mapping, save_file_uuid_hash, save_image_dimensions, update_file_mapping_verified,
-    ImageDimensions,
+    delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, save_file_mapping,
+    save_file_uuid_hash, update_file_mapping_verified,
 };
 pub use messages::*;
 pub use types::*;
@@ -139,6 +138,8 @@ pub fn init_database() -> Result<(), String> {
             file_url TEXT,
             file_size INTEGER,
             file_hash TEXT,
+            image_width INTEGER,
+            image_height INTEGER,
             seq INTEGER NOT NULL,
             reply_to TEXT,
             is_recalled INTEGER NOT NULL DEFAULT 0,
@@ -150,6 +151,12 @@ pub fn init_database() -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("创建 messages 表失败: {}", e))?;
+
+    // 迁移：添加 image_width 和 image_height 列（旧数据库兼容）
+    conn.execute("ALTER TABLE messages ADD COLUMN image_width INTEGER", [])
+        .ok();
+    conn.execute("ALTER TABLE messages ADD COLUMN image_height INTEGER", [])
+        .ok();
 
     // 创建消息索引
     conn.execute(
@@ -202,18 +209,6 @@ pub fn init_database() -> Result<(), String> {
         [],
     )
     .ok();
-
-    // 创建图片尺寸缓存表（用于预设容器尺寸，避免布局偏移）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS image_dimensions (
-            file_key TEXT PRIMARY KEY,
-            width INTEGER NOT NULL,
-            height INTEGER NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )",
-        [],
-    )
-    .map_err(|e| format!("创建 image_dimensions 表失败: {}", e))?;
 
     // 创建头像缓存表
     conn.execute(

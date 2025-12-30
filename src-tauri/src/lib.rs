@@ -202,18 +202,6 @@ fn db_get_file_hash_by_uuid(file_uuid: String) -> Result<Option<String>, String>
     db::get_file_hash_by_uuid(&file_uuid)
 }
 
-/// 保存图片尺寸到缓存
-#[tauri::command(rename_all = "camelCase")]
-fn db_save_image_dimensions(file_key: String, width: u32, height: u32) -> Result<(), String> {
-    db::save_image_dimensions(&file_key, width, height)
-}
-
-/// 获取图片尺寸缓存
-#[tauri::command(rename_all = "camelCase")]
-fn db_get_image_dimensions(file_key: String) -> Result<Option<db::ImageDimensions>, String> {
-    db::get_image_dimensions(&file_key)
-}
-
 // ============================================================================
 // 好友和群组操作 Commands
 // ============================================================================
@@ -411,8 +399,6 @@ pub fn run() {
             db_clear_all_data,
             db_save_file_uuid_hash,
             db_get_file_hash_by_uuid,
-            db_save_image_dimensions,
-            db_get_image_dimensions,
             // 好友和群组
             db_get_friends,
             db_save_friends,

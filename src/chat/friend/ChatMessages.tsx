@@ -4,27 +4,26 @@
  * @module chat/friend
  * @location src/chat/friend/ChatMessages.tsx
  *
- * 使用 flex-direction: column + 图片尺寸预加载实现稳定的视角
+ * 使用 flex-direction: column 实现稳定的视角
  *
  * 功能：
  * - 使用 AnimatePresence 支持消息入场/撤回退出动画
  * - 支持多选模式进行批量操作
- * - 图片尺寸预加载：渲染前先加载所有图片尺寸，避免布局偏移
+ * - 图片尺寸由后端消息携带 image_width/image_height，无需预加载
  *
  * 消息排序机制：
  * - 消息按时间正序排列（旧→新）
  * - 发送中的消息排在最后（显示在底部）
  *
  * 滚动机制：
- * - 切换会话时等待图片尺寸加载完成后渲染，然后滚动到底部
+ * - 切换会话时滚动到底部
  * - 新消息到达时，如果用户在底部则自动滚动
- * - 加载历史消息时，手动补偿 scrollTop 保持视角
+ * - 加载历史消息时，浏览器 scroll anchoring 自动保持视角
  */
 
-import { useMemo, useRef, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
-import { getImageDimensions } from '../../services/imageDimensions';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
@@ -100,12 +99,6 @@ export function ChatMessages({
   // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
   const scrollSnapshotRef = useRef<number | null>(null);
 
-  // 图片尺寸是否准备就绪
-  const [dimensionsReady, setDimensionsReady] = useState(false);
-
-  // 已预加载的消息数量（用于检测消息变化）
-  const preloadedCountRef = useRef(-1);
-
   // 当前好友 ID
   const currentFriendIdRef = useRef(friend.friend_id);
 
@@ -128,58 +121,9 @@ export function ChatMessages({
     if (currentFriendIdRef.current !== friend.friend_id) {
       logScroll('切换好友，重置状态', { from: currentFriendIdRef.current, to: friend.friend_id });
       currentFriendIdRef.current = friend.friend_id;
-      setDimensionsReady(false);
       prevMessagesLengthRef.current = -1;
-      preloadedCountRef.current = -1;
     }
   }, [friend.friend_id]);
-
-  // 预加载图片尺寸（仅在首次加载或切换好友时阻塞渲染）
-  useEffect(() => {
-    // 已经就绪时，只需后台预加载新图片尺寸（不阻塞渲染）
-    if (dimensionsReady) {
-      // 后台预加载新增图片的尺寸
-      const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
-      if (imageMessages.length > 0) {
-        imageMessages.forEach((m) => {
-          if (m.file_hash) {
-            getImageDimensions(m.file_hash);
-          }
-        });
-      }
-      return;
-    }
-
-    // 没有消息时等待
-    if (messages.length === 0) {
-      logScroll('消息为空，等待加载');
-      return;
-    }
-
-    // 获取所有图片消息
-    const imageMessages = messages.filter((m) => m.message_type === 'image' && m.file_hash);
-
-    // 没有图片消息时直接标记为就绪
-    if (imageMessages.length === 0) {
-      logScroll('无图片消息，直接就绪', { messageCount: messages.length });
-      preloadedCountRef.current = messages.length;
-      setDimensionsReady(true);
-      return;
-    }
-
-    logScroll('开始预加载图片尺寸', { count: imageMessages.length, messageCount: messages.length });
-
-    // 并行加载所有图片尺寸
-    const loadAllDimensions = async () => {
-      const promises = imageMessages.map((m) => getImageDimensions(m.file_hash ?? ''));
-      await Promise.all(promises);
-      logScroll('图片尺寸预加载完成', { count: imageMessages.length });
-      preloadedCountRef.current = messages.length;
-      setDimensionsReady(true);
-    };
-
-    loadAllDimensions();
-  }, [messages, messages.length, dimensionsReady]);
 
   // 滚动处理：检测是否接近顶部 + 更新是否在底部
   const handleScroll = useCallback(() => {
@@ -221,26 +165,64 @@ export function ChatMessages({
     }
   }, [loadingMore]);
 
-  // 消息数量变化时的滚动处理（仅在 dimensionsReady 时执行）
-  useLayoutEffect(() => {
-    // 尺寸未就绪时不处理
-    if (!dimensionsReady) {
-      logScroll('尺寸未就绪，跳过滚动处理');
-      return;
-    }
+  // 统计图片消息的尺寸信息
+  const imageStats = useMemo(() => {
+    const imageMessages = messages.filter((m) => m.message_type === 'image');
+    const withDimensions = imageMessages.filter((m) => m.image_width && m.image_height);
+    const withoutDimensions = imageMessages.filter((m) => !m.image_width || !m.image_height);
+    return {
+      total: imageMessages.length,
+      withDimensions: withDimensions.length,
+      withoutDimensions: withoutDimensions.length,
+      missingList: withoutDimensions.map((m) => ({
+        uuid: m.message_uuid.slice(0, 8),
+        content: m.message_content.slice(0, 20),
+      })),
+    };
+  }, [messages]);
 
+  // 滚动到底部的辅助函数
+  const scrollToBottom = useCallback((immediate = false) => {
+    if (!containerRef.current) { return; }
+
+    const { scrollHeight, scrollTop, clientHeight } = containerRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+
+    logScroll('执行滚动到底部', {
+      scrollHeight,
+      scrollTop,
+      clientHeight,
+      distanceToBottom,
+      immediate,
+    });
+
+    if (immediate) {
+      containerRef.current.scrollTop = scrollHeight;
+    } else {
+      containerRef.current.scrollTo({
+        top: scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+    isAtBottomRef.current = true;
+  }, []);
+
+  // 消息数量变化时的滚动处理
+  useLayoutEffect(() => {
     const currentLength = messages.length;
 
     // 初始渲染：滚动到底部
     if (prevMessagesLengthRef.current === -1 || prevMessagesLengthRef.current === 0) {
-      logScroll('首次渲染/从0加载，滚动到底部', { currentLength, friendId: friend.friend_id });
+      logScroll('首次渲染/从0加载', {
+        currentLength,
+        friendId: friend.friend_id,
+        imageStats,
+      });
       prevMessagesLengthRef.current = currentLength;
 
       // 滚动到底部
       if (containerRef.current && currentLength > 0) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        isAtBottomRef.current = true;
-        logScroll('滚动完成', { scrollHeight: containerRef.current.scrollHeight });
+        scrollToBottom(true);
       }
       return;
     }
@@ -263,6 +245,7 @@ export function ChatMessages({
       scrollTop,
       distanceToBottom,
       isAtBottom: isAtBottomRef.current,
+      imageStats,
     });
 
     // 情况1：deltaMessages 为 0，无需处理
@@ -271,6 +254,7 @@ export function ChatMessages({
     // 情况2：加载历史消息（消息增加较多，且有滚动快照）
     // 浏览器的 scroll anchoring 会自动保持视角，无需手动补偿
     if (deltaMessages > 3 && scrollSnapshotRef.current !== null) {
+      logScroll('加载历史消息，依赖 scroll anchoring');
       scrollSnapshotRef.current = null;
       return;
     }
@@ -279,31 +263,37 @@ export function ChatMessages({
     if (deltaMessages > 0 && deltaMessages <= 3) {
       // 检查是否有发送中的消息（自己发送的消息始终滚动到底部）
       const hasSendingMessage = messages.some((m) => m.sendStatus === 'sending');
+      // 检查新消息中是否有图片
+      const newMessages = messages.slice(-deltaMessages);
+      const hasImageMessage = newMessages.some((m) => m.message_type === 'image');
+      const newImageDimensions = newMessages
+        .filter((m) => m.message_type === 'image')
+        .map((m) => ({
+          uuid: m.message_uuid.slice(0, 8),
+          width: m.image_width,
+          height: m.image_height,
+        }));
 
       logScroll('新消息到达', {
         deltaMessages,
         hasSendingMessage,
+        hasImageMessage,
+        newImageDimensions,
         isAtBottom: isAtBottomRef.current,
         willScroll: hasSendingMessage || isAtBottomRef.current,
       });
 
       if (hasSendingMessage || isAtBottomRef.current) {
+        // 使用 requestAnimationFrame 等待渲染完成
         requestAnimationFrame(() => {
-          if (containerRef.current) {
-            containerRef.current.scrollTo({
-              top: containerRef.current.scrollHeight,
-              behavior: 'smooth',
-            });
-            isAtBottomRef.current = true;
-          }
+          scrollToBottom(false);
         });
       }
     }
-  }, [messages, messages.length, friend.friend_id, dimensionsReady]);
+  }, [messages, messages.length, friend.friend_id, imageStats, scrollToBottom]);
 
   // 是否显示消息列表
   const isEmpty = messages.length === 0;
-  const shouldRenderMessages = dimensionsReady && !isEmpty;
 
   return (
     <div
@@ -316,16 +306,9 @@ export function ChatMessages({
           <span className="loading-text">加载中...</span>
         </div>
       )}
-      {!loadingMore && !hasMore && shouldRenderMessages && (
+      {!loadingMore && !hasMore && !isEmpty && (
         <div className="load-more-indicator">
           <span className="no-more-text">无更多记录</span>
-        </div>
-      )}
-
-      {/* 加载中提示（切换好友或预加载图片尺寸） */}
-      {!dimensionsReady && !isEmpty && (
-        <div className="load-more-indicator">
-          <span className="loading-text">加载中...</span>
         </div>
       )}
 
@@ -347,8 +330,8 @@ export function ChatMessages({
         <span>发送一条消息开始聊天吧</span>
       </motion.div>
 
-      {/* 消息列表 - 仅在尺寸就绪后渲染 */}
-      {shouldRenderMessages && (
+      {/* 消息列表 */}
+      {!isEmpty && (
         <LayoutGroup>
           <AnimatePresence mode="popLayout">
             {sortedMessages.map((message) => {

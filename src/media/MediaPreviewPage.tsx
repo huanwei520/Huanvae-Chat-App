@@ -21,6 +21,10 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { loadMediaData, clearMediaData } from './api';
 import { getCachedFilePath } from '../services/fileCache';
 import { formatFileSize } from '../hooks/useFileUpload';
+import {
+  reportFriendPermissionError,
+  createPresignedUrlErrorContext,
+} from '../services/diagnosticService';
 import './styles.css';
 
 // ============================================================================
@@ -84,6 +88,7 @@ async function getPresignedUrl(
   accessToken: string,
   fileUuid: string,
   urlType: 'user' | 'friend' | 'group',
+  fileType?: 'image' | 'video' | 'document',
 ): Promise<string> {
   // 验证必要参数
   if (!serverUrl) {
@@ -132,6 +137,22 @@ async function getPresignedUrl(
       if (response.status === 401) {
         throw new Error('登录已过期，请关闭窗口后重新登录');
       } else if (response.status === 403) {
+        // 好友文件403错误：异步上报诊断日志（图片/视频都上报）
+        if (urlType === 'friend') {
+          reportFriendPermissionError(
+            serverUrl,
+            accessToken,
+            createPresignedUrlErrorContext(fileUuid, errorMessage, {
+              operation: 'preview',
+              urlType,
+              fileType,
+              screen: 'media_preview',
+              action: 'get_presigned_url',
+            }),
+          ).catch(() => {
+            // 上报失败静默处理
+          });
+        }
         throw new Error('无权访问此文件');
       } else if (response.status === 404) {
         throw new Error('文件不存在');
@@ -225,6 +246,7 @@ async function getFileSource(
     state.accessToken,
     state.fileUuid,
     state.urlType,
+    state.type, // image 或 video
   );
 
   return {
