@@ -336,6 +336,10 @@ export class SyncService {
     file_url?: string;
     file_size?: number;
     file_hash?: string;
+    /** 图片宽度（像素），仅图片类型消息有值 */
+    image_width?: number;
+    /** 图片高度（像素），仅图片类型消息有值 */
+    image_height?: number;
   }): Promise<void> {
     // 保存消息到本地
     const localMessage: Omit<LocalMessage, 'created_at'> = {
@@ -351,8 +355,8 @@ export class SyncService {
       file_url: message.file_url || null,
       file_size: message.file_size || null,
       file_hash: message.file_hash || null,
-      image_width: null, // WebSocket 推送中暂无图片尺寸
-      image_height: null,
+      image_width: message.image_width ?? null,
+      image_height: message.image_height ?? null,
       seq: message.seq || 0,
       reply_to: null,
       is_recalled: false,

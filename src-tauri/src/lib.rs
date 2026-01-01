@@ -184,6 +184,12 @@ fn db_update_file_mapping_verified(file_hash: String) -> Result<(), String> {
     db::update_file_mapping_verified(&file_hash)
 }
 
+/// 仅清空消息缓存
+#[tauri::command]
+fn db_clear_messages() -> Result<(), String> {
+    db::clear_messages()
+}
+
 /// 清空所有本地数据
 #[tauri::command]
 fn db_clear_all_data() -> Result<(), String> {
@@ -396,6 +402,7 @@ pub fn run() {
             db_save_file_mapping,
             db_delete_file_mapping,
             db_update_file_mapping_verified,
+            db_clear_messages,
             db_clear_all_data,
             db_save_file_uuid_hash,
             db_get_file_hash_by_uuid,

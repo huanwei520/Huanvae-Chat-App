@@ -427,7 +427,7 @@ export function UnifiedList({
         initial="initial"
         animate="animate"
         exit="exit"
-        layout
+        layout="position"
       >
         {renderCardContent(card)}
       </motion.div>

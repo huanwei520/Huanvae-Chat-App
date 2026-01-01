@@ -77,6 +77,8 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
     file_url: local.file_url,
     file_size: local.file_size,
     file_hash: local.file_hash,
+    image_width: local.image_width,
+    image_height: local.image_height,
     reply_to: local.reply_to,
     send_time: local.send_time,
     is_recalled: local.is_recalled,
@@ -159,6 +161,21 @@ export function useLocalGroupMessages(groupId: string | null) {
         firstSeq: localMessages[0]?.seq,
         lastSeq: localMessages[localMessages.length - 1]?.seq,
       });
+
+      // 调试：打印图片消息的尺寸信息
+      const imageMessages = localMessages.filter((m) => m.content_type === 'image');
+      if (imageMessages.length > 0) {
+        logLocal('图片消息尺寸信息', {
+          total: imageMessages.length,
+          withDimensions: imageMessages.filter((m) => m.image_width && m.image_height).length,
+          details: imageMessages.map((m) => ({
+            uuid: m.message_uuid.slice(0, 8),
+            width: m.image_width,
+            height: m.image_height,
+            content: m.content.slice(0, 20),
+          })),
+        });
+      }
 
       // 2. 转换为 UI GroupMessage 类型，过滤已撤回的消息
       const uiMessages = localMessages

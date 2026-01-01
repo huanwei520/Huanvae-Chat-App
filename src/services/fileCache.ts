@@ -149,6 +149,9 @@ export async function getPresignedUrl(
       endpoint = `/api/storage/file/${fileUuid}/presigned_url`;
   }
 
+  // eslint-disable-next-line no-console
+  console.log('[FileCache] 请求预签名 URL:', { fileUuid, urlType, endpoint });
+
   try {
     const response = await api.post<PresignedUrlResponse>(endpoint, {
       operation: 'preview',

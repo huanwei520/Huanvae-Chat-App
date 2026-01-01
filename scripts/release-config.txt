@@ -1,2 +1,2 @@
-VERSION=1.0.10
-MESSAGE=修复 Tauri HTTP 插件 URL scope 配置，解决登录请求被拦截问题
+VERSION=1.0.11
+MESSAGE=添加数据管理设置卡片、版本号显示，修复侧边栏伸缩动画方向问题

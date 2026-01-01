@@ -264,6 +264,17 @@ pub fn init_database() -> Result<(), String> {
 // 清理操作
 // ============================================================================
 
+/// 仅清空消息缓存
+pub fn clear_messages() -> Result<(), String> {
+    with_db!(db, {
+        db.execute_batch("DELETE FROM messages;")
+            .map_err(|e| e.to_string())?;
+
+        println!("[DB] 已清空消息缓存");
+        Ok(())
+    })
+}
+
 /// 清空所有本地数据（登出时调用）
 pub fn clear_all_data() -> Result<(), String> {
     with_db!(db, {
