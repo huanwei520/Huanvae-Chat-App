@@ -53,6 +53,7 @@ const BackIcon: React.FC = () => (
  *
  * 显示当前应用版本号和版权信息
  * 版本号通过 Tauri API 动态获取
+ * 高度固定为 88px，与聊天输入框保持一致
  */
 const AppVersionInfo: React.FC = () => {
   const [version, setVersion] = useState<string>('');
@@ -67,20 +68,6 @@ const AppVersionInfo: React.FC = () => {
 
   return (
     <div className="app-version-info">
-      <div className="app-version-logo">
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </div>
       <div className="app-version-text">
         <span className="app-version-name">Huanvae Chat</span>
         <span className="app-version-number">v{version || '...'}</span>

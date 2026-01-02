@@ -172,7 +172,6 @@ describe('设置面板组件 (SettingsPanel)', () => {
       const { container } = render(<SettingsPanel onClose={mockOnClose} />);
 
       expect(container.querySelector('.app-version-info')).toBeInTheDocument();
-      expect(container.querySelector('.app-version-logo')).toBeInTheDocument();
       expect(container.querySelector('.app-version-name')).toBeInTheDocument();
       expect(container.querySelector('.app-version-number')).toBeInTheDocument();
       expect(container.querySelector('.app-version-copyright')).toBeInTheDocument();

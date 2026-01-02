@@ -191,7 +191,8 @@ export const NotificationSoundCard: React.FC = () => {
         </label>
       </div>
 
-      <AnimatePresence>
+      {/* initial={false} 让首次渲染时跳过进入动画，避免下方卡片位移 */}
+      <AnimatePresence initial={false}>
         {notification.enabled && (
           <motion.div
             className="settings-card-content"
