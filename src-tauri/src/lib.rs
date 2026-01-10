@@ -10,9 +10,13 @@
 //! - 文件下载和缓存：下载文件到本地缓存
 //! - WebView 权限管理：重置麦克风/摄像头权限缓存
 //! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
+//! - 会话锁：同设备同账户单开，不同账户可多开
+//! - 设备信息：获取设备标识用于登录
 
 mod db;
+mod device_info;
 mod download;
+mod session_lock;
 mod sounds;
 mod storage;
 mod tray;
@@ -355,7 +359,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init())
         .setup(|app| {
+            // 清理过期的会话锁（进程已死但锁文件还在）
+            if let Err(e) = session_lock::cleanup_stale_locks(app.handle()) {
+                eprintln!("[SessionLock] 清理过期锁失败: {}", e);
+            }
+
             // 初始化系统托盘
             if let Err(e) = tray::setup_tray(app) {
                 eprintln!("[Tray] 初始化托盘失败: {}", e);
@@ -364,11 +374,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // 拦截主窗口关闭事件，隐藏到托盘而不是退出
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -429,6 +439,13 @@ pub fn run() {
             sounds::delete_notification_sound,
             sounds::get_notification_sound_path,
             sounds::ensure_sounds_directory,
+            // 会话锁管理
+            session_lock::check_session_lock,
+            session_lock::create_session_lock,
+            session_lock::remove_session_lock,
+            session_lock::activate_existing_instance,
+            // 设备信息
+            device_info::get_mac_address_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

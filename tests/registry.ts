@@ -67,7 +67,11 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   
   // 设置相关
   { name: 'SettingsPanel', path: 'components/settings/SettingsPanel', category: 'components', description: '设置面板' },
-  { name: 'NotificationSoundCard', path: 'components/settings/NotificationSoundCard', category: 'components', description: '消息提示音设置卡片' },
+  { name: 'SettingsSection', path: 'components/settings/SettingsSection', category: 'components', description: '设置分组组件' },
+  { name: 'SettingsGroup', path: 'components/settings/SettingsGroup', category: 'components', description: '设置卡片容器' },
+  { name: 'SettingsRow', path: 'components/settings/SettingsRow', category: 'components', description: '设置行组件' },
+  { name: 'SoundSelector', path: 'components/settings/SoundSelector', category: 'components', description: '提示音选择器' },
+  { name: 'DeviceListPanel', path: 'components/settings/DeviceListPanel', category: 'components', description: '设备管理面板' },
 
   // 更新相关
   { name: 'UpdateToast', path: 'update/components/UpdateToast', category: 'components', description: '更新提示弹窗（灵动岛风格）' },
@@ -168,11 +172,13 @@ export const HOOKS: ComponentEntry[] = [
 
 // ============== 服务 ==============
 export const SERVICES: ComponentEntry[] = [
+  { name: 'deviceInfo', path: 'services/deviceInfo', category: 'services', description: '设备信息服务' },
   { name: 'diagnosticService', path: 'services/diagnosticService', category: 'services', description: '诊断上报服务' },
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
   { name: 'fileService', path: 'services/fileService', category: 'services', description: '文件服务' },
   { name: 'historyService', path: 'services/historyService', category: 'services', description: '历史服务' },
   { name: 'notificationService', path: 'services/notificationService', category: 'services', description: '通知服务' },
+  { name: 'sessionLock', path: 'services/sessionLock', category: 'services', description: '会话锁服务（同账户单开）' },
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },

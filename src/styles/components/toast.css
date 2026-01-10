@@ -61,14 +61,22 @@
 /* ============================================
    浮动错误 Toast
    ============================================
-   固定在页面底部的错误提示
+   固定在页面底部居中的错误提示
    点击可关闭
+   
+   使用 left:0 + right:0 + margin:auto 实现居中
+   避免 transform 被其他样式覆盖的问题
 */
 .error-toast {
   position: fixed;
   bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 使用 left + right + margin 实现居中，避免 transform 被覆盖 */
+  left: 0 !important;
+  right: 0 !important;
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
+  max-width: calc(100vw - 48px);
   
   /* 渐变红色背景 */
   background: linear-gradient(
@@ -88,7 +96,7 @@
   
   font-size: 14px;
   font-weight: 500;
-  z-index: 1000;
+  z-index: 9999;
   
   box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3);
   cursor: pointer;

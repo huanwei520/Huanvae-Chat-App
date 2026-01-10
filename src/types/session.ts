@@ -38,8 +38,8 @@ export interface SessionContextType {
   session: Session | null;
   /** 设置会话（登录成功后调用） */
   setSession: (session: Session) => void;
-  /** 清除会话（登出时调用） */
-  clearSession: () => void;
+  /** 清除会话（登出时调用，会同时移除会话锁） */
+  clearSession: () => void | Promise<void>;
   /** 是否已登录 */
   isLoggedIn: boolean;
 }

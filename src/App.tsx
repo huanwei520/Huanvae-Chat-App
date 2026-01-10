@@ -23,6 +23,8 @@ import { Main } from './pages/Main';
 import { LoadingOverlay } from './components/common/LoadingOverlay';
 import { ErrorToast } from './components/common/ErrorToast';
 import { login, register, getProfile } from './api/auth';
+import { checkAndHandleSessionConflict, createSessionLock } from './services/sessionLock';
+import { getDeviceInfo } from './services/deviceInfo';
 import { cardVariants, cardContentVariants, cardContentTransition } from './constants/authAnimations';
 import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
@@ -65,6 +67,13 @@ function App() {
 
   /**
    * 创建会话并登录
+   *
+   * 登录成功后：
+   * 1. 获取用户资料
+   * 2. 设置用户数据目录
+   * 3. 初始化数据库
+   * 4. 创建会话锁（防止同账户重复登录）
+   * 5. 设置会话进入主界面
    */
   const createSessionAndLogin = useCallback(async (
     serverUrl: string,
@@ -83,6 +92,14 @@ function App() {
 
     // 初始化用户数据库
     await initDatabase();
+
+    // 创建会话锁（防止同账户在同设备上多次登录）
+    try {
+      await createSessionLock(serverUrl, userId);
+    } catch (lockError) {
+      console.warn('[SessionLock] 创建会话锁失败:', lockError);
+      // 不阻止登录，仅记录警告
+    }
 
     // 创建会话
     const newSession: Session = {
@@ -107,6 +124,17 @@ function App() {
     setError(null);
 
     try {
+      // 0. 检查是否有同账户实例已在运行
+      const { canProceed, message } = await checkAndHandleSessionConflict(
+        account.server_url,
+        account.user_id,
+      );
+      if (!canProceed) {
+        setError(message || '该账户已在其他窗口登录');
+        setIsLoading(false);
+        return;
+      }
+
       // 1. 从密钥链获取密码
       let password: string;
       try {
@@ -121,10 +149,19 @@ function App() {
         return;
       }
 
-      // 2. 调用登录 API
-      const loginResponse = await login(account.server_url, account.user_id, password);
+      // 2. 获取设备信息
+      const { deviceInfo, macAddress } = await getDeviceInfo();
 
-      // 3. 获取最新用户资料并更新头像
+      // 3. 调用登录 API（传递设备信息）
+      const loginResponse = await login(
+        account.server_url,
+        account.user_id,
+        password,
+        deviceInfo,
+        macAddress,
+      );
+
+      // 4. 获取最新用户资料并更新头像
       const profileResponse = await getProfile(account.server_url, loginResponse.access_token);
       const profile = profileResponse.data;
 
@@ -137,7 +174,7 @@ function App() {
         }
       }
 
-      // 4. 更新保存的账号信息
+      // 5. 更新保存的账号信息
       await saveAccount(
         account.user_id,
         profile.user_nickname,
@@ -146,7 +183,7 @@ function App() {
         avatarPath,
       );
 
-      // 5. 创建会话并登录
+      // 6. 创建会话并登录
       await createSessionAndLogin(
         account.server_url,
         account.user_id,
@@ -172,14 +209,25 @@ function App() {
     setError(null);
 
     try {
-      // 1. 调用登录 API
-      const loginResponse = await login(serverUrl, userId, password);
+      // 0. 检查是否有同账户实例已在运行
+      const { canProceed, message } = await checkAndHandleSessionConflict(serverUrl, userId);
+      if (!canProceed) {
+        setError(message || '该账户已在其他窗口登录');
+        setIsLoading(false);
+        return;
+      }
 
-      // 2. 获取用户资料
+      // 1. 获取设备信息
+      const { deviceInfo, macAddress } = await getDeviceInfo();
+
+      // 2. 调用登录 API（传递设备信息）
+      const loginResponse = await login(serverUrl, userId, password, deviceInfo, macAddress);
+
+      // 3. 获取用户资料
       const profileResponse = await getProfile(serverUrl, loginResponse.access_token);
       const profile = profileResponse.data;
 
-      // 3. 下载并保存头像
+      // 4. 下载并保存头像
       let avatarPath: string | null = null;
       if (profile.user_avatar_url) {
         try {
@@ -190,7 +238,7 @@ function App() {
         }
       }
 
-      // 4. 保存账号信息
+      // 5. 保存账号信息
       await saveAccount(
         userId,
         profile.user_nickname,
@@ -199,7 +247,7 @@ function App() {
         avatarPath,
       );
 
-      // 5. 创建会话并登录
+      // 6. 创建会话并登录
       await createSessionAndLogin(
         serverUrl,
         userId,

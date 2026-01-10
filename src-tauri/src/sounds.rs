@@ -52,24 +52,22 @@ pub fn list_notification_sounds() -> Result<Vec<SoundInfo>, String> {
         let path = entry.path();
 
         // 只处理 mp3 文件
-        if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext.to_string_lossy().to_lowercase() == "mp3" {
-                    if let Some(filename) = path.file_name() {
-                        let filename_str = filename.to_string_lossy().to_string();
-                        let name = path
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| filename_str.clone());
+        if path.is_file()
+            && let Some(ext) = path.extension()
+            && ext.to_string_lossy().to_lowercase() == "mp3"
+            && let Some(filename) = path.file_name()
+        {
+            let filename_str = filename.to_string_lossy().to_string();
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| filename_str.clone());
 
-                        sounds.push(SoundInfo {
-                            name,
-                            filename: filename_str,
-                            path: path.to_string_lossy().to_string(),
-                        });
-                    }
-                }
-            }
+            sounds.push(SoundInfo {
+                name,
+                filename: filename_str,
+                path: path.to_string_lossy().to_string(),
+            });
         }
     }
 

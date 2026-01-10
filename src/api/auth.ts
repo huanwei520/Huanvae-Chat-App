@@ -49,18 +49,30 @@ async function api<T>(
 
 /**
  * 用户登录
+ *
+ * @param serverUrl - 服务器地址
+ * @param userId - 用户 ID
+ * @param password - 密码
+ * @param deviceInfo - 设备描述信息（如 "DESKTOP-ABC - Windows 10.0.22621 (x86_64)"）
+ * @param macAddress - MAC 地址（用于识别同一设备）
  */
 export function login(
   serverUrl: string,
   userId: string,
   password: string,
+  deviceInfo?: string,
+  macAddress?: string | null,
 ): Promise<LoginResponse> {
+  // 调试日志
+  console.warn('[Auth] 登录请求设备信息:', { deviceInfo, macAddress });
+
   return api<LoginResponse>(serverUrl, '/api/auth/login', {
     method: 'POST',
     body: {
       user_id: userId,
       password: password,
-      device_info: 'Huanvae Chat Desktop',
+      device_info: deviceInfo || 'Huanvae Chat Desktop',
+      mac_address: macAddress || undefined,
     },
   });
 }

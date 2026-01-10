@@ -5,7 +5,7 @@
  * 1. 渲染状态
  * 2. 返回按钮功能
  * 3. ESC 键关闭
- * 4. 子组件渲染
+ * 4. 分组结构渲染
  * 5. 版本信息显示
  */
 
@@ -19,15 +19,28 @@ vi.mock('@tauri-apps/api/app', () => ({
   getVersion: vi.fn(() => Promise.resolve('1.0.11')),
 }));
 
-// 模拟 NotificationSoundCard 组件
-vi.mock('../../src/components/settings/NotificationSoundCard', () => ({
-  NotificationSoundCard: () => <div data-testid="notification-sound-card">NotificationSoundCard</div>,
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve()),
 }));
 
-// 模拟 DataManagementCard 组件
-vi.mock('../../src/components/settings/DataManagementCard', () => ({
-  DataManagementCard: () => <div data-testid="data-management-card">DataManagementCard</div>,
-  default: () => <div data-testid="data-management-card">DataManagementCard</div>,
+// 模拟 SoundSelector 组件
+vi.mock('../../src/components/settings/SoundSelector', () => ({
+  SoundSelector: () => <div data-testid="sound-selector">SoundSelector</div>,
+  default: () => <div data-testid="sound-selector">SoundSelector</div>,
+}));
+
+// 模拟 settingsStore
+vi.mock('../../src/stores/settingsStore', () => ({
+  useSettingsStore: () => ({
+    notification: {
+      enabled: true,
+      volume: 80,
+      soundName: 'water',
+    },
+    setNotificationEnabled: vi.fn(),
+    setNotificationSound: vi.fn(),
+    setNotificationVolume: vi.fn(),
+  }),
 }));
 
 // 模拟 framer-motion 以简化测试
@@ -40,6 +53,46 @@ vi.mock('framer-motion', () => ({
     ),
   },
   AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+
+// 模拟 update 模块
+vi.mock('../../src/update', () => ({
+  checkForUpdates: vi.fn(() => Promise.resolve({ available: false })),
+  downloadAndInstall: vi.fn(),
+  restartApp: vi.fn(),
+  useUpdateToast: vi.fn(() => ({
+    status: 'idle',
+    version: '',
+    notes: '',
+    progress: 0,
+    downloaded: 0,
+    total: 0,
+    proxyUrl: '',
+    errorMessage: '',
+    showAvailable: vi.fn(),
+    startDownload: vi.fn(),
+    updateProgress: vi.fn(),
+    downloadComplete: vi.fn(),
+    showError: vi.fn(),
+    dismiss: vi.fn(),
+  })),
+  UpdateToast: () => null,
+}));
+
+// 模拟 DeviceListPanel
+vi.mock('../../src/components/settings/DeviceListPanel', () => ({
+  DeviceListPanel: ({ onBack }: { onBack: () => void }) => (
+    <div data-testid="device-list-panel">
+      <button onClick={onBack}>返回</button>
+      DeviceListPanel
+    </div>
+  ),
+  default: ({ onBack }: { onBack: () => void }) => (
+    <div data-testid="device-list-panel">
+      <button onClick={onBack}>返回</button>
+      DeviceListPanel
+    </div>
+  ),
 }));
 
 describe('设置面板组件 (SettingsPanel)', () => {
@@ -58,10 +111,23 @@ describe('设置面板组件 (SettingsPanel)', () => {
       expect(screen.getByText('返回')).toBeInTheDocument();
     });
 
-    it('应渲染 NotificationSoundCard 子组件', () => {
+    it('应渲染分组标题', () => {
       render(<SettingsPanel onClose={mockOnClose} />);
 
-      expect(screen.getByTestId('notification-sound-card')).toBeInTheDocument();
+      expect(screen.getByText('通知与提醒')).toBeInTheDocument();
+      expect(screen.getByText('存储与数据')).toBeInTheDocument();
+      expect(screen.getByText('账户与安全')).toBeInTheDocument();
+      expect(screen.getByText('关于')).toBeInTheDocument();
+    });
+
+    it('应渲染设置行标题', () => {
+      render(<SettingsPanel onClose={mockOnClose} />);
+
+      expect(screen.getByText('消息提示音')).toBeInTheDocument();
+      expect(screen.getByText('清空消息缓存')).toBeInTheDocument();
+      expect(screen.getByText('重置所有数据')).toBeInTheDocument();
+      expect(screen.getByText('设备管理')).toBeInTheDocument();
+      expect(screen.getByText('检查更新')).toBeInTheDocument();
     });
 
     it('应有正确的 CSS 类名', () => {
@@ -70,6 +136,9 @@ describe('设置面板组件 (SettingsPanel)', () => {
       expect(container.querySelector('.settings-panel')).toBeInTheDocument();
       expect(container.querySelector('.settings-panel-header')).toBeInTheDocument();
       expect(container.querySelector('.settings-panel-content')).toBeInTheDocument();
+      expect(container.querySelector('.settings-section')).toBeInTheDocument();
+      expect(container.querySelector('.settings-group')).toBeInTheDocument();
+      expect(container.querySelector('.settings-row')).toBeInTheDocument();
     });
   });
 
@@ -177,5 +246,45 @@ describe('设置面板组件 (SettingsPanel)', () => {
       expect(container.querySelector('.app-version-copyright')).toBeInTheDocument();
     });
   });
-});
 
+  describe('分组结构', () => {
+    it('应渲染四个设置分组', () => {
+      const { container } = render(<SettingsPanel onClose={mockOnClose} />);
+
+      const sections = container.querySelectorAll('.settings-section');
+      expect(sections.length).toBe(4);
+    });
+
+    it('每个分组应包含分组标题', () => {
+      const { container } = render(<SettingsPanel onClose={mockOnClose} />);
+
+      const sectionTitles = container.querySelectorAll('.settings-section-title');
+      expect(sectionTitles.length).toBe(4);
+    });
+
+    it('消息提示音开关开启时应显示 SoundSelector', () => {
+      render(<SettingsPanel onClose={mockOnClose} />);
+
+      // 因为 mock 的 notification.enabled = true，所以应该显示 SoundSelector
+      expect(screen.getByTestId('sound-selector')).toBeInTheDocument();
+    });
+  });
+
+  describe('设备管理', () => {
+    it('应显示设备管理行', () => {
+      render(<SettingsPanel onClose={mockOnClose} />);
+
+      expect(screen.getByText('设备管理')).toBeInTheDocument();
+      expect(screen.getByText('查看和管理登录设备')).toBeInTheDocument();
+    });
+  });
+
+  describe('检查更新', () => {
+    it('应显示检查更新按钮', () => {
+      render(<SettingsPanel onClose={mockOnClose} />);
+
+      expect(screen.getByText('检查更新')).toBeInTheDocument();
+      expect(screen.getByText('检查')).toBeInTheDocument();
+    });
+  });
+});

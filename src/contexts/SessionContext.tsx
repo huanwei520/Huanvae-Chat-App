@@ -7,9 +7,10 @@
  * - 绑定了 serverUrl 的 API 客户端
  */
 
-import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import type { Session, SessionContextType } from '../types/session';
 import { createApiClient, type ApiClient } from '../api/client';
+import { removeSessionLock } from '../services/sessionLock';
 
 /** 扩展的会话上下文类型（包含 API 客户端） */
 interface ExtendedSessionContextType extends SessionContextType {
@@ -25,14 +26,26 @@ const SessionContext = createContext<ExtendedSessionContextType | null>(null);
 /** 会话提供者组件 */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<Session | null>(null);
+  // 用 ref 保存会话信息，以便在 clearSession 时能够访问
+  const sessionRef = useRef<Session | null>(null);
 
   // 设置会话
   const setSession = useCallback((newSession: Session) => {
+    sessionRef.current = newSession;
     setSessionState(newSession);
   }, []);
 
-  // 清除会话
-  const clearSession = useCallback(() => {
+  // 清除会话（同时移除会话锁）
+  const clearSession = useCallback(async () => {
+    // 移除会话锁
+    if (sessionRef.current) {
+      try {
+        await removeSessionLock(sessionRef.current.serverUrl, sessionRef.current.userId);
+      } catch (error) {
+        console.warn('[SessionLock] 移除会话锁失败:', error);
+      }
+    }
+    sessionRef.current = null;
     setSessionState(null);
   }, []);
 

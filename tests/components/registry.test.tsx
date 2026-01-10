@@ -48,7 +48,11 @@ import * as FilesModal from '../../src/components/files/FilesModal';
 import * as GroupsModal from '../../src/components/GroupsModal';
 import * as AddModal from '../../src/components/AddModal';
 import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
-import * as NotificationSoundCard from '../../src/components/settings/NotificationSoundCard';
+import * as SettingsSection from '../../src/components/settings/SettingsSection';
+import * as SettingsGroup from '../../src/components/settings/SettingsGroup';
+import * as SettingsRow from '../../src/components/settings/SettingsRow';
+import * as SoundSelector from '../../src/components/settings/SoundSelector';
+import * as DeviceListPanel from '../../src/components/settings/DeviceListPanel';
 
 // 更新组件
 import * as UpdateToast from '../../src/update/components/UpdateToast';
@@ -127,9 +131,11 @@ import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 
 // 服务
+import * as deviceInfo from '../../src/services/deviceInfo';
 import * as diagnosticService from '../../src/services/diagnosticService';
 import * as fileCache from '../../src/services/fileCache';
 import * as fileService from '../../src/services/fileService';
+import * as sessionLock from '../../src/services/sessionLock';
 import * as historyService from '../../src/services/historyService';
 import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
@@ -163,7 +169,11 @@ const COMPONENT_MAP = {
   GroupsModal,
   AddModal,
   SettingsPanel,
-  NotificationSoundCard,
+  SettingsSection,
+  SettingsGroup,
+  SettingsRow,
+  SoundSelector,
+  DeviceListPanel,
   UpdateToast,
   // 模态框组件
   AddFriendTab,
@@ -234,9 +244,11 @@ const COMPONENT_MAP = {
   useUpdateToast,
   useNotificationSounds,
   // 服务
+  deviceInfo,
   diagnosticService,
   fileCache,
   fileService,
+  sessionLock,
   historyService,
   notificationService,
   syncService,
