@@ -2552,6 +2552,71 @@
   font-size: 1.125rem;
   font-weight: 600;
   color: #1e3a5f;
+  position: relative;
+  display: inline-block;
+}
+
+.profile-name.editable {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.profile-name.editable:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* 编辑图标绝对定位，不影响文字居中 */
+.profile-name .nickname-edit-icon {
+  position: absolute;
+  right: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  color: #3b82f6;
+  pointer-events: none;
+}
+
+.profile-name.editable:hover .nickname-edit-icon {
+  opacity: 1;
+}
+
+/* 昵称编辑输入框 */
+.profile-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nickname-input {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e3a5f;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid #3b82f6;
+  border-radius: 8px;
+  padding: 6px 12px;
+  text-align: center;
+  outline: none;
+  width: 180px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nickname-input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.nickname-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.nickname-saving {
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: nowrap;
 }
 
 .profile-id {

@@ -66,6 +66,7 @@ tauri-plugin-os = "2"
 
 # MAC 地址获取
 mac_address = "1.1"
+tauri-plugin-window-state = "2.4.1"
 
 # ============================================
 # 平台特定的密钥链依赖

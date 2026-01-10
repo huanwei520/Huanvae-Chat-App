@@ -3,6 +3,7 @@
  *
  * 功能：
  * - 显示当前用户信息
+ * - 修改昵称（点击昵称即可编辑）
  * - 修改邮箱/签名
  * - 修改密码
  * - 上传头像（同时更新本地账号缓存，确保退出后账户选择页面显示最新头像）
@@ -12,7 +13,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useAccounts } from '../hooks/useAccounts';
-import { uploadAvatar, getProfile } from '../api/profile';
+import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
 import { AvatarUploader, ProfileInfoForm, PasswordForm, CloseIcon } from './profile';
 
 // ============================================
@@ -33,7 +34,7 @@ type TabType = 'info' | 'password';
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const { session, setSession } = useSession();
   const api = useApi();
-  const { updateAvatar } = useAccounts();
+  const { updateAvatar, updateNickname } = useAccounts();
 
   const [activeTab, setActiveTab] = useState<TabType>('info');
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +43,9 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   // 头像上传状态
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  // 昵称更新状态
+  const [updatingNickname, setUpdatingNickname] = useState(false);
 
   if (!session) { return null; }
 
@@ -103,6 +107,39 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     }
   };
 
+  // 昵称更新处理
+  const handleNicknameUpdate = async (nickname: string) => {
+    setUpdatingNickname(true);
+    setError(null);
+
+    try {
+      await updateProfile(api, { nickname });
+
+      // 更新 session 中的昵称
+      setSession({
+        ...session,
+        profile: {
+          ...session.profile,
+          user_nickname: nickname,
+        },
+      });
+
+      // 更新本地账号缓存
+      try {
+        await updateNickname(session.serverUrl, session.userId, nickname);
+      } catch {
+        // 本地缓存更新失败不影响使用
+      }
+
+      setSuccess('昵称已更新');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新昵称失败');
+      throw err; // 重新抛出让 AvatarUploader 知道失败了
+    } finally {
+      setUpdatingNickname(false);
+    }
+  };
+
   const handleSuccess = (message: string) => {
     setError(null);
     setSuccess(message);
@@ -129,6 +166,20 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     exit: { opacity: 0, scale: 0.95, y: 20 },
   };
 
+  // 点击非编辑区域时，触发当前输入框失焦（退出编辑状态）
+  const handleContentMouseDown = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // 如果点击的不是输入框，让当前聚焦的输入框失焦
+    // 排除昵称显示区域（点击它会进入编辑模式）
+    const isNicknameArea = target.closest('.profile-name');
+    if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !isNicknameArea) {
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement?.classList.contains('nickname-input')) {
+        activeElement.blur();
+      }
+    }
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -144,6 +195,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             className="modal-content profile-modal"
             variants={contentVariants}
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={handleContentMouseDown}
           >
             {/* 头部 */}
             <div className="modal-header">
@@ -158,12 +210,14 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
               </motion.button>
             </div>
 
-            {/* 头像区域 */}
+            {/* 头像区域（含昵称编辑） */}
             <AvatarUploader
               session={session}
               uploading={uploadingAvatar}
               uploadProgress={uploadProgress}
               onFileSelect={handleAvatarSelect}
+              onNicknameUpdate={handleNicknameUpdate}
+              nicknameUpdating={updatingNickname}
             />
 
             {/* 标签切换 */}

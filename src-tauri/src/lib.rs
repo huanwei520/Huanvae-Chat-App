@@ -12,6 +12,7 @@
 //! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
 //! - 会话锁：同设备同账户单开，不同账户可多开
 //! - 设备信息：获取设备标识用于登录
+//! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
 
 mod db;
 mod device_info;
@@ -65,6 +66,17 @@ async fn update_account_avatar(
 ) -> Result<String, String> {
     storage::update_account_avatar(&server_url, &user_id, &avatar_url)
         .await
+        .map_err(|e| e.to_string())
+}
+
+/// 更新账号昵称（本地缓存）
+#[tauri::command]
+fn update_account_nickname(
+    server_url: String,
+    user_id: String,
+    nickname: String,
+) -> Result<(), String> {
+    storage::update_account_nickname(&server_url, &user_id, &nickname)
         .map_err(|e| e.to_string())
 }
 
@@ -360,6 +372,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .setup(|app| {
             // 清理过期的会话锁（进程已死但锁文件还在）
             if let Err(e) = session_lock::cleanup_stale_locks(app.handle()) {
@@ -388,6 +401,7 @@ pub fn run() {
             get_account_password,
             delete_account,
             update_account_avatar,
+            update_account_nickname,
             // 用户数据目录管理
             set_current_user,
             clear_current_user,

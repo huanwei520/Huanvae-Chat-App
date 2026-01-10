@@ -141,6 +141,7 @@ import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
 import * as settingsStore from '../../src/stores/settingsStore';
+import * as windowSize from '../../src/services/windowSize';
 
 // 组件映射表
 const COMPONENT_MAP = {
@@ -254,6 +255,7 @@ const COMPONENT_MAP = {
   syncService,
   updateService,
   settingsStore,
+  windowSize,
 };
 
 // ============== 页面组件测试 ==============

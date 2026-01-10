@@ -22,6 +22,7 @@ export interface ProfileResponse {
 
 /** 更新资料请求 */
 export interface UpdateProfileRequest {
+  nickname?: string;
   email?: string;
   signature?: string;
 }

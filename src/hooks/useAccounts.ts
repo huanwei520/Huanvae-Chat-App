@@ -105,6 +105,24 @@ export function useAccounts() {
   }, [loadAccounts]);
 
   // ==========================================================================
+  // 更新昵称
+  // ==========================================================================
+
+  const updateNickname = useCallback(async (
+    serverUrl: string,
+    userId: string,
+    nickname: string,
+  ): Promise<void> => {
+    await invoke('update_account_nickname', {
+      serverUrl,
+      userId,
+      nickname,
+    });
+
+    await loadAccounts();
+  }, [loadAccounts]);
+
+  // ==========================================================================
   // 初始化
   // ==========================================================================
 
@@ -133,5 +151,7 @@ export function useAccounts() {
     deleteAccount,
     /** 更新账号头像 */
     updateAvatar,
+    /** 更新账号昵称 */
+    updateNickname,
   };
 }

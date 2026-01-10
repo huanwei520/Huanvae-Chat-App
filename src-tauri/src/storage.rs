@@ -281,6 +281,25 @@ pub async fn update_account_avatar(
     Ok(local_path)
 }
 
+/// 更新账号昵称（本地缓存）
+pub fn update_account_nickname(
+    server_url: &str,
+    user_id: &str,
+    nickname: &str,
+) -> Result<(), StorageError> {
+    let mut store = read_accounts()?;
+    
+    if let Some(account) = store.accounts.iter_mut().find(|a| {
+        a.server_url == server_url && a.user_id == user_id
+    }) {
+        account.nickname = nickname.to_string();
+        write_accounts(&store)?;
+        Ok(())
+    } else {
+        Err(StorageError::AccountNotFound)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,7 @@ Huanvae Chat App 使用 Vitest 作为测试框架，配合 Testing Library 进�
 tests/
 ├── setup.ts                     # 全局测试设置（Mock Tauri API）
 ├── checklist.ts                 # 功能检查清单定义
-├── registry.ts                  # 组件注册表（101 个模块）
+├── registry.ts                  # 组件注册表（103 个模块，含 windowSize 服务）
 ├── README.md                    # 本文档
 ├── utils/
 │   └── test-utils.tsx           # 测试工具函数
@@ -27,7 +27,7 @@ tests/
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
-    └── registry.test.tsx        # 组件注册表测试（107 个测试用例）
+    └── registry.test.tsx        # 组件注册表测试（109 个测试用例）
 ```
 
 ## 测试命令
@@ -107,6 +107,8 @@ describe('MyComponent', () => {
 | `@tauri-apps/plugin-notification` | 权限默认授予 |
 | `@tauri-apps/plugin-fs` | 文件操作返回空 |
 | `@tauri-apps/plugin-http` | `fetch()` 为空函数 |
+| `@tauri-apps/plugin-window-state` | `restoreStateCurrent()` 返回 Promise |
+| `@tauri-apps/api/window` | `getCurrentWindow()` 返回 mock 窗口对象 |
 
 ### 浏览器 API Mock
 

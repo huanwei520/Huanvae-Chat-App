@@ -95,6 +95,54 @@ vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
   readText: vi.fn().mockResolvedValue(''),
 }));
 
+// Mock @tauri-apps/plugin-window-state
+vi.mock('@tauri-apps/plugin-window-state', () => ({
+  restoreStateCurrent: vi.fn().mockResolvedValue(undefined),
+  saveWindowState: vi.fn().mockResolvedValue(undefined),
+  StateFlags: {
+    SIZE: 1,
+    POSITION: 2,
+    MAXIMIZED: 4,
+    VISIBLE: 8,
+    DECORATIONS: 16,
+    FULLSCREEN: 32,
+    ALL: 63,
+  },
+}));
+
+// Mock @tauri-apps/api/window
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: vi.fn().mockReturnValue({
+    currentMonitor: vi.fn().mockResolvedValue({
+      name: 'Test Monitor',
+      size: { width: 1920, height: 1080 },
+      position: { x: 0, y: 0 },
+      scaleFactor: 1.0,
+    }),
+    scaleFactor: vi.fn().mockResolvedValue(1.0),
+    innerSize: vi.fn().mockResolvedValue({ width: 1024, height: 768 }),
+    outerSize: vi.fn().mockResolvedValue({ width: 1024, height: 768 }),
+    setSize: vi.fn().mockResolvedValue(undefined),
+    center: vi.fn().mockResolvedValue(undefined),
+    onResized: vi.fn(),
+    onScaleChanged: vi.fn(),
+  }),
+}));
+
+// Mock @tauri-apps/api/dpi
+vi.mock('@tauri-apps/api/dpi', () => ({
+  LogicalSize: vi.fn().mockImplementation((width: number, height: number) => ({
+    type: 'Logical',
+    width,
+    height,
+  })),
+  PhysicalSize: vi.fn().mockImplementation((width: number, height: number) => ({
+    type: 'Physical',
+    width,
+    height,
+  })),
+}));
+
 // ============================================
 // Mock Browser APIs
 // ============================================
