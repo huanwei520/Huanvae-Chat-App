@@ -18,6 +18,7 @@ import { createPortal } from 'react-dom';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileUpload } from '../../hooks/useFileUpload';
 import { useImageCache, useVideoCache } from '../../hooks/useFileCache';
 import { formatFileSize, getFileCategory } from '../../api/storage';
@@ -477,7 +478,7 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
           const { invoke } = await import('@tauri-apps/api/core');
           await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-          // 复制文件到统一缓存目录（Rust 后端会保存映射）
+          // 复制文件到统一缓存目录（大文件≥100MB不复制，记录原始路径）
           try {
             // 根据 MIME 类型确定文件类型
             let cacheFileType = 'document';
@@ -487,17 +488,22 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
               cacheFileType = 'video';
             }
 
+            const { fileCache } = useSettingsStore.getState();
+            const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
             const cachedPath = await invoke<string>('copy_file_to_cache', {
               sourcePath: localPath,
               fileHash: result.fileHash,
               fileName: fileName,
               fileType: cacheFileType,
+              fileSize: file.size,
+              largeFileThreshold: thresholdBytes,
             });
             // eslint-disable-next-line no-console
             console.log('%c[PersonalFiles] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
               fileHash: result.fileHash,
               originalPath: localPath,
               cachedPath,
+              isLargeFile: file.size >= thresholdBytes,
             });
           } catch (cacheErr) {
             console.error('[PersonalFiles] 缓存文件失败:', cacheErr);

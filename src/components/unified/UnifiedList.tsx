@@ -167,7 +167,8 @@ export function UnifiedList({
 }: UnifiedListProps) {
 
   // 获取本地会话预览（用于 fallback）
-  const { getFriendPreview, getGroupPreview } = useLocalConversations();
+  // initialized 标记首次加载是否完成，用于避免卡片排序跳变
+  const { getFriendPreview, getGroupPreview, initialized: localConversationsReady } = useLocalConversations();
 
   // ============================================
   // 选中背景动画相关状态
@@ -287,7 +288,8 @@ export function UnifiedList({
   }, [cards, searchQuery]);
 
   // 状态计算
-  const loading = friendsLoading || groupsLoading;
+  // 等待本地会话预览加载完成后再渲染卡片，避免首次使用 add_time 排序后再用 lastMessageTime 重新排序
+  const loading = friendsLoading || groupsLoading || !localConversationsReady;
   const error = friendsError || groupsError;
 
   // 获取选中卡片的 uniqueKey

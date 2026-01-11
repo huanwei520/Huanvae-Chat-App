@@ -169,6 +169,23 @@ export class SyncService {
 
       for (const convResult of syncedConversations) {
         if (convResult.messages.length > 0) {
+          // 调试：检查同步 API 返回的消息是否包含尺寸
+          const mediaMessages = convResult.messages.filter(m => m.message_type === 'image' || m.message_type === 'video');
+          if (mediaMessages.length > 0) {
+            // eslint-disable-next-line no-console
+            console.log('%c[Sync] 同步API返回的媒体消息尺寸', 'color: #E91E63; font-weight: bold', {
+              conversationId: convResult.conversation_id,
+              messages: mediaMessages.map(m => ({
+                uuid: m.message_uuid.slice(0, 8),
+                type: m.message_type,
+                image_width: m.image_width,
+                image_height: m.image_height,
+                hasWidth: m.image_width !== undefined && m.image_width !== null,
+                hasHeight: m.image_height !== undefined && m.image_height !== null,
+              })),
+            });
+          }
+
           // 转换并保存消息
           const localMessages: Omit<LocalMessage, 'created_at'>[] =
             convResult.messages.map(msg => ({

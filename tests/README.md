@@ -18,7 +18,7 @@ tests/
 │   ├── update.test.ts           # 更新服务测试
 │   ├── notification.test.ts     # 通知服务测试
 │   ├── notificationSounds.test.ts # 提示音管理 Hook 测试
-│   ├── settings.test.ts         # 设置状态管理测试
+│   ├── settings.test.ts         # 设置状态管理测试（含大文件阈值）
 │   ├── diagnosticService.test.ts # 诊断上报服务测试
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
 │   └── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
@@ -120,6 +120,13 @@ describe('MyComponent', () => {
 ## 功能检查清单
 
 `tests/checklist.ts` 定义了应用的所有功能点，用于预发布检查。
+
+主要功能分类：
+- 认证模块：登录/登出/自动登录
+- 好友/群聊模块：消息发送、文件传输
+- 文件模块：本地缓存、在文件夹中显示、大文件直连、**阈值设置**、**媒体预览窗口后台下载**
+- 设置模块：提示音、数据管理、设备管理、更新检查
+- 会议/媒体模块
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

@@ -55,10 +55,21 @@ pub struct LocalMessage {
 }
 
 /// 本地文件映射
+///
+/// 支持两种缓存模式：
+/// 1. 小文件（<100MB）：复制到缓存目录，使用 `local_path`
+/// 2. 大文件（≥100MB）：不复制，记录原始路径 `original_path`
+///
+/// 读取时优先使用 `local_path`，若不存在则尝试 `original_path`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalFileMapping {
     pub file_hash: String,
+    /// 缓存路径（小文件复制后的路径，或大文件下载后的路径）
     pub local_path: String,
+    /// 原始路径（大文件不复制时记录，用于本地优先读取）
+    pub original_path: Option<String>,
+    /// 是否为大文件（≥100MB，不复制到缓存目录）
+    pub is_large_file: bool,
     pub file_size: i64,
     pub file_name: String,
     pub content_type: String,

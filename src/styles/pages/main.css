@@ -3570,17 +3570,19 @@
   object-fit: cover;  /* 填满容器 */
 }
 
-/* 视频消息 - 原始比例，限制最大尺寸 */
+/* 视频消息 - 根据消息尺寸信息计算容器大小 */
 .video-message {
   position: relative;
   max-width: 280px;
+  overflow: hidden;
+  border-radius: 12px;
 }
 
 .video-message .message-video-thumbnail {
   width: 100%;
-  max-height: 200px;
+  height: 100%;
   border-radius: 12px;
-  object-fit: contain;  /* 保持原始比例 */
+  object-fit: cover;  /* 填满容器 */
 }
 
 .video-play-overlay {

@@ -10,16 +10,25 @@
  * - 图片全屏预览（支持缩放）
  * - 视频播放（支持流式）
  * - 本地文件优先加载
+ * - 远程文件自动缓存到本地（图片 onLoad / 视频 onPlay 触发）
  * - 下载按钮
  *
+ * 缓存机制：
+ * - 优先检查本地路径（使用 is_file_exists 验证文件是否存在）
+ * - 本地文件被移动/删除时，自动回退到服务器获取
+ * - 无缓存时获取预签名 URL 并展示
+ * - 媒体加载完成后触发后台下载，保存到本地缓存目录
+ * - 下载完成后更新数据库映射，再次访问时直接使用本地文件
+ *
  * @see src/meeting/MeetingPage.tsx 参考类似架构
+ * @see src/services/fileCache.ts 文件缓存服务
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { fetch } from '@tauri-apps/plugin-http';
 import { loadMediaData, clearMediaData } from './api';
-import { getCachedFilePath } from '../services/fileCache';
+import { getCachedFilePath, downloadAndSaveFile } from '../services/fileCache';
 import { formatFileSize } from '../hooks/useFileUpload';
 import {
   reportFriendPermissionError,
@@ -188,6 +197,10 @@ async function getPresignedUrl(
 interface FileSource {
   src: string;
   isLocal: boolean;
+  /** 预签名 URL（用于后台下载） */
+  presignedUrl?: string;
+  /** 是否需要缓存到本地 */
+  shouldCache?: boolean;
 }
 
 async function getFileSource(
@@ -201,15 +214,20 @@ async function getFileSource(
     localPath: state.localPath,
   });
 
-  // 1. 优先使用传入的本地路径
+  // 1. 优先使用传入的本地路径（需检查文件是否存在）
   if (state.localPath) {
     try {
-      const src = convertFileSrc(state.localPath);
+      const exists = await invoke<boolean>('is_file_exists', { path: state.localPath });
+      if (exists) {
+        const src = convertFileSrc(state.localPath);
+        // eslint-disable-next-line no-console
+        console.log('[MediaPreview] 使用传入的本地路径:', state.localPath);
+        return { src, isLocal: true, shouldCache: false };
+      }
       // eslint-disable-next-line no-console
-      console.log('[MediaPreview] 使用传入的本地路径:', state.localPath);
-      return { src, isLocal: true };
+      console.warn('[MediaPreview] 本地路径文件不存在，尝试其他方式:', state.localPath);
     } catch (err) {
-      console.warn('[MediaPreview] 转换本地路径失败:', err);
+      console.warn('[MediaPreview] 检查本地路径失败:', err);
     }
   }
 
@@ -221,7 +239,7 @@ async function getFileSource(
         const src = convertFileSrc(localPath);
         // eslint-disable-next-line no-console
         console.log('[MediaPreview] 使用缓存的本地文件:', localPath);
-        return { src, isLocal: true };
+        return { src, isLocal: true, shouldCache: false };
       }
     } catch (err) {
       console.warn('[MediaPreview] 检查本地缓存失败:', err);
@@ -235,6 +253,8 @@ async function getFileSource(
     return {
       src: state.presignedUrl,
       isLocal: false,
+      presignedUrl: state.presignedUrl,
+      shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
     };
   }
 
@@ -252,6 +272,8 @@ async function getFileSource(
   return {
     src: url,
     isLocal: false,
+    presignedUrl: url,
+    shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
   };
 }
 
@@ -270,9 +292,14 @@ function ImageViewer({ state }: { state: MediaState }) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
+  // 文件源信息（用于后台下载）
+  const fileSourceRef = useRef<FileSource | null>(null);
+  const downloadTriggeredRef = useRef(false);
+
   // 加载图片
   useEffect(() => {
     let cancelled = false;
+    downloadTriggeredRef.current = false; // 重置下载标记
 
     async function load() {
       try {
@@ -282,6 +309,7 @@ function ImageViewer({ state }: { state: MediaState }) {
         if (!cancelled) {
           setSrc(result.src);
           setIsLocal(result.isLocal);
+          fileSourceRef.current = result;
         }
       } catch (err) {
         console.error('[MediaPreview] 图片加载失败:', err);
@@ -307,6 +335,38 @@ function ImageViewer({ state }: { state: MediaState }) {
     load();
     return () => { cancelled = true; };
   }, [state]);
+
+  // 图片加载完成后触发后台下载
+  const handleImageLoad = useCallback(() => {
+    const fileSource = fileSourceRef.current;
+    if (
+      !downloadTriggeredRef.current &&
+      fileSource &&
+      !fileSource.isLocal &&
+      fileSource.shouldCache &&
+      fileSource.presignedUrl &&
+      state.fileHash
+    ) {
+      downloadTriggeredRef.current = true;
+      // eslint-disable-next-line no-console
+      console.log('[MediaPreview] 图片加载完成，触发后台下载...');
+      downloadAndSaveFile(
+        fileSource.presignedUrl,
+        state.fileHash,
+        state.filename,
+        'image',
+        state.fileSize,
+      ).then((localPath) => {
+        // eslint-disable-next-line no-console
+        console.log('[MediaPreview] 后台下载完成:', localPath);
+        // 更新为本地路径
+        setSrc(convertFileSrc(localPath));
+        setIsLocal(true);
+      }).catch((err) => {
+        console.warn('[MediaPreview] 后台下载失败:', err);
+      });
+    }
+  }, [state.fileHash, state.filename, state.fileSize]);
 
   // 鼠标滚轮缩放
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -403,6 +463,7 @@ function ImageViewer({ state }: { state: MediaState }) {
             cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in', // eslint-disable-line no-nested-ternary
           }}
           draggable={false}
+          onLoad={handleImageLoad}
         />
       </div>
 
@@ -426,9 +487,14 @@ function VideoPlayer({ state }: { state: MediaState }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 文件源信息（用于后台下载）
+  const fileSourceRef = useRef<FileSource | null>(null);
+  const downloadTriggeredRef = useRef(false);
+
   // 加载视频
   useEffect(() => {
     let cancelled = false;
+    downloadTriggeredRef.current = false; // 重置下载标记
 
     async function load() {
       try {
@@ -438,6 +504,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
         if (!cancelled) {
           setSrc(result.src);
           setIsLocal(result.isLocal);
+          fileSourceRef.current = result;
         }
       } catch (err) {
         console.error('[MediaPreview] 视频加载失败:', err);
@@ -463,6 +530,37 @@ function VideoPlayer({ state }: { state: MediaState }) {
     load();
     return () => { cancelled = true; };
   }, [state]);
+
+  // 视频开始播放时触发后台下载
+  const handleVideoPlay = useCallback(() => {
+    const fileSource = fileSourceRef.current;
+    if (
+      !downloadTriggeredRef.current &&
+      fileSource &&
+      !fileSource.isLocal &&
+      fileSource.shouldCache &&
+      fileSource.presignedUrl &&
+      state.fileHash
+    ) {
+      downloadTriggeredRef.current = true;
+      // eslint-disable-next-line no-console
+      console.log('[MediaPreview] 视频开始播放，触发后台下载...');
+      downloadAndSaveFile(
+        fileSource.presignedUrl,
+        state.fileHash,
+        state.filename,
+        'video',
+        state.fileSize,
+      ).then((localPath) => {
+        // eslint-disable-next-line no-console
+        console.log('[MediaPreview] 视频后台下载完成:', localPath);
+        // 视频播放中不切换源，只更新状态
+        setIsLocal(true);
+      }).catch((err) => {
+        console.warn('[MediaPreview] 视频后台下载失败:', err);
+      });
+    }
+  }, [state.fileHash, state.filename, state.fileSize]);
 
   // 下载按钮
   const handleDownload = useCallback(() => {
@@ -513,6 +611,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
           controls
           autoPlay
           className="media-video"
+          onPlay={handleVideoPlay}
         />
       </div>
     </>

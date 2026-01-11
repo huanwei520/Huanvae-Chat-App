@@ -5,18 +5,22 @@
  * - 撤回消息（自己发送的消息，2分钟内）
  * - 删除消息（本地删除）
  * - 进入多选模式
+ * - 在文件夹中显示（仅文件消息且有本地缓存时）
  *
  * 使用 createPortal 渲染到 body，避免被其他元素遮挡
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
 
 interface MessageContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   canRecall: boolean;
+  /** 本地文件路径（如果有，则显示"在文件夹中显示"选项） */
+  localPath?: string | null;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -27,12 +31,24 @@ export function MessageContextMenu({
   isOpen,
   position,
   canRecall,
+  localPath,
   onRecall,
   onDelete,
   onMultiSelect,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // 在文件夹中显示
+  const handleShowInFolder = useCallback(async () => {
+    if (!localPath) { return; }
+    try {
+      await invoke('show_in_folder', { path: localPath });
+    } catch (error) {
+      console.error('[ContextMenu] 打开文件夹失败:', error);
+    }
+    onClose();
+  }, [localPath, onClose]);
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -69,10 +85,16 @@ export function MessageContextMenu({
     }
   }, [isOpen, onClose]);
 
+  // 计算菜单项数量以确定高度
+  const hasLocalPath = !!localPath;
+
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
-    const menuWidth = 140;
-    const menuHeight = canRecall ? 140 : 100;
+    const menuWidth = 160;
+    // 基础高度（删除 + 多选 + 分隔线）约 100，每增加一项约 36
+    let menuHeight = 100;
+    if (canRecall) { menuHeight += 36; }
+    if (hasLocalPath) { menuHeight += 36; }
     const padding = 10;
 
     let x = position.x;
@@ -140,6 +162,15 @@ export function MessageContextMenu({
             <DeleteIcon />
             <span>删除</span>
           </button>
+          {hasLocalPath && (
+            <button
+              className="context-menu-item"
+              onClick={handleShowInFolder}
+            >
+              <FolderIcon />
+              <span>在文件夹中显示</span>
+            </button>
+          )}
           <div className="context-menu-divider" />
           <button
             className="context-menu-item"
@@ -178,5 +209,12 @@ const DeleteIcon = () => (
 const MultiSelectIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+// 文件夹图标
+const FolderIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
   </svg>
 );

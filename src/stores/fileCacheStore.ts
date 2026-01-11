@@ -2,9 +2,14 @@
  * 文件缓存状态管理 (Zustand)
  *
  * 管理：
- * - 下载任务队列
- * - 下载进度
- * - 预签名 URL 内存缓存（有时效性）
+ * - 下载任务队列和进度
+ * - 预签名 URL 内存缓存（有时效性，提前 5 分钟失效）
+ *
+ * 注意：本地文件路径不使用内存缓存，每次都从数据库查询。
+ * 原因：
+ * 1. SQLite 本地查询约 1-5ms，足够快
+ * 2. 后端 get_cached_file_path 会验证文件存在性
+ * 3. 避免内存缓存与实际文件状态不一致的问题
  */
 
 import { create } from 'zustand';
@@ -44,9 +49,6 @@ interface FileCacheState {
 
   // 预签名 URL 缓存（按 fileUuid 索引）
   urlCache: Record<string, UrlCacheItem>;
-
-  // 已缓存的本地文件路径（按 fileHash 索引，内存缓存）
-  localPathCache: Record<string, string>;
 }
 
 /** Store 操作 */
@@ -64,10 +66,6 @@ interface FileCacheActions {
   getUrlCache: (fileUuid: string) => UrlCacheItem | null;
   clearExpiredUrls: () => void;
 
-  // 本地路径缓存
-  setLocalPath: (fileHash: string, localPath: string) => void;
-  getLocalPath: (fileHash: string) => string | null;
-
   // 重置
   reset: () => void;
 }
@@ -79,7 +77,6 @@ interface FileCacheActions {
 const initialState: FileCacheState = {
   downloadTasks: {},
   urlCache: {},
-  localPathCache: {},
 };
 
 export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set, get) => ({
@@ -138,10 +135,6 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
             percent: 100,
             localPath,
           },
-        },
-        localPathCache: {
-          ...state.localPathCache,
-          [fileHash]: localPath,
         },
       };
     });
@@ -230,23 +223,6 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
       });
       return { urlCache: Object.fromEntries(validEntries) };
     });
-  },
-
-  // ============================================
-  // 本地路径缓存
-  // ============================================
-
-  setLocalPath: (fileHash, localPath) => {
-    set((state) => ({
-      localPathCache: {
-        ...state.localPathCache,
-        [fileHash]: localPath,
-      },
-    }));
-  },
-
-  getLocalPath: (fileHash) => {
-    return get().localPathCache[fileHash] || null;
   },
 
   // ============================================

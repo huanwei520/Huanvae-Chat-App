@@ -5,8 +5,8 @@
  * data/{用户名}_{服务器}/file/{pictures|videos|documents}/
  *
  * 功能：
- * - 检查本地缓存（file_mappings 表）
- * - 获取预签名 URL（带内存缓存）
+ * - 检查本地缓存（file_mappings 表，后端验证文件存在性）
+ * - 获取预签名 URL（带内存缓存，有时效性）
  * - 下载并保存文件到统一目录
  * - 获取文件源（本地优先，无缓存则获取远程 URL）
  *
@@ -16,6 +16,15 @@
  * 3. 视频开始播放 → triggerBackgroundDownload → 下载到缓存目录
  *
  * 文件命名规则：{hash前8位}_{原始文件名}
+ *
+ * 大文件优化（≥用户设置阈值，默认100MB）：
+ * - 上传时不复制到缓存目录，记录 original_path
+ * - 读取时优先使用 original_path
+ * - 若 original_path 失效（文件被移动/删除），自动从服务器下载到缓存目录
+ *
+ * 缓存策略：
+ * - 本地文件路径：每次从数据库查询（后端验证文件存在性，约 1-5ms）
+ * - 预签名 URL：内存缓存，提前 5 分钟失效
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -220,25 +229,11 @@ export async function getFileSource(
     fileType?: 'image' | 'video' | 'document';
   },
 ): Promise<FileSourceResult> {
-  const store = useFileCacheStore.getState();
-
-  // 1. 如果有 fileHash，先检查内存缓存
+  // 1. 如果有 fileHash，检查数据库缓存
+  // 后端 get_cached_file_path 会验证文件存在性，无效则返回 null
   if (fileHash) {
-    const cachedPath = store.getLocalPath(fileHash);
-    if (cachedPath) {
-      return {
-        src: convertFileSrc(cachedPath),
-        isLocal: true,
-        fileHash,
-        localPath: cachedPath,
-      };
-    }
-
-    // 2. 检查数据库缓存
     const localPath = await getCachedFilePath(fileHash);
     if (localPath) {
-      // 更新内存缓存
-      store.setLocalPath(fileHash, localPath);
       return {
         src: convertFileSrc(localPath),
         isLocal: true,
@@ -248,7 +243,7 @@ export async function getFileSource(
     }
   }
 
-  // 3. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
+  // 2. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
   const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
   return {
     src: url,

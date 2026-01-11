@@ -35,9 +35,9 @@ export interface Message {
   file_url: string | null;
   file_size: number | null;
   file_hash: string | null;
-  /** 图片宽度（像素），仅图片类型消息有值 */
+  /** 媒体宽度（像素），图片/视频类型消息有值 */
   image_width?: number | null;
-  /** 图片高度（像素），仅图片类型消息有值 */
+  /** 媒体高度（像素），图片/视频类型消息有值 */
   image_height?: number | null;
   send_time: string;
   /** 序列号（用于增量同步） */
@@ -108,9 +108,9 @@ export interface GroupMessage {
   file_url: string | null;
   file_size: number | null;
   file_hash: string | null;
-  /** 图片宽度（像素），仅图片类型消息有值 */
+  /** 媒体宽度（像素），图片/视频类型消息有值 */
   image_width?: number | null;
-  /** 图片高度（像素），仅图片类型消息有值 */
+  /** 媒体高度（像素），图片/视频类型消息有值 */
   image_height?: number | null;
   reply_to: string | null;
   send_time: string;

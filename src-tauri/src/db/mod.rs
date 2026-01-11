@@ -182,6 +182,8 @@ pub fn init_database() -> Result<(), String> {
         "CREATE TABLE IF NOT EXISTS file_mappings (
             file_hash TEXT PRIMARY KEY,
             local_path TEXT NOT NULL,
+            original_path TEXT,
+            is_large_file INTEGER NOT NULL DEFAULT 0,
             file_size INTEGER NOT NULL,
             file_name TEXT NOT NULL,
             content_type TEXT NOT NULL,
@@ -192,6 +194,18 @@ pub fn init_database() -> Result<(), String> {
         [],
     )
     .map_err(|e| format!("创建 file_mappings 表失败: {}", e))?;
+
+    // 迁移：添加 original_path 和 is_large_file 列（旧数据库兼容）
+    conn.execute(
+        "ALTER TABLE file_mappings ADD COLUMN original_path TEXT",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE file_mappings ADD COLUMN is_large_file INTEGER NOT NULL DEFAULT 0",
+        [],
+    )
+    .ok();
 
     // 创建 file_uuid 到 file_hash 的映射表
     conn.execute(

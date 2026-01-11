@@ -18,13 +18,14 @@
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
+import { getCachedFilePath } from '../../services/fileCache';
 import type { Friend, Message } from '../../types/chat';
 
 interface MessageBubbleProps {
@@ -178,6 +179,18 @@ export function MessageBubble({
     isOpen: false,
     position: { x: 0, y: 0 },
   });
+
+  // 本地文件路径（用于"在文件夹中显示"功能）
+  const [localPath, setLocalPath] = useState<string | null>(null);
+
+  // 获取文件消息的本地缓存路径
+  useEffect(() => {
+    if (message.message_type !== 'text' && message.file_hash) {
+      getCachedFilePath(message.file_hash).then((path) => {
+        setLocalPath(path);
+      });
+    }
+  }, [message.message_type, message.file_hash]);
 
   // 用户信息弹出框状态
   const avatarRef = useRef<HTMLDivElement>(null);
@@ -355,6 +368,7 @@ export function MessageBubble({
         isOpen={contextMenu.isOpen}
         position={contextMenu.position}
         canRecall={canRecallMessage(message, isOwn)}
+        localPath={localPath}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}

@@ -29,8 +29,9 @@ pub fn get_file_mapping(file_hash: &str) -> Result<Option<LocalFileMapping>, Str
     with_db!(db, {
         let mut stmt = db
             .prepare(
-                "SELECT file_hash, local_path, file_size, file_name, content_type, source, 
-                 last_verified, created_at FROM file_mappings WHERE file_hash = ?",
+                "SELECT file_hash, local_path, original_path, is_large_file, file_size, 
+                 file_name, content_type, source, last_verified, created_at 
+                 FROM file_mappings WHERE file_hash = ?",
             )
             .map_err(|e| e.to_string())?;
 
@@ -39,12 +40,14 @@ pub fn get_file_mapping(file_hash: &str) -> Result<Option<LocalFileMapping>, Str
                 Ok(LocalFileMapping {
                     file_hash: row.get(0)?,
                     local_path: row.get(1)?,
-                    file_size: row.get(2)?,
-                    file_name: row.get(3)?,
-                    content_type: row.get(4)?,
-                    source: row.get(5)?,
-                    last_verified: row.get(6)?,
-                    created_at: row.get(7)?,
+                    original_path: row.get(2)?,
+                    is_large_file: row.get::<_, i64>(3)? != 0,
+                    file_size: row.get(4)?,
+                    file_name: row.get(5)?,
+                    content_type: row.get(6)?,
+                    source: row.get(7)?,
+                    last_verified: row.get(8)?,
+                    created_at: row.get(9)?,
                 })
             })
             .ok();
@@ -58,11 +61,14 @@ pub fn save_file_mapping(mapping: LocalFileMapping) -> Result<(), String> {
     with_db!(db, {
         db.execute(
             "INSERT OR REPLACE INTO file_mappings 
-             (file_hash, local_path, file_size, file_name, content_type, source, last_verified)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (file_hash, local_path, original_path, is_large_file, file_size, file_name, 
+              content_type, source, last_verified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 mapping.file_hash,
                 mapping.local_path,
+                mapping.original_path,
+                if mapping.is_large_file { 1 } else { 0 },
                 mapping.file_size,
                 mapping.file_name,
                 mapping.content_type,

@@ -3,9 +3,13 @@
  *
  * iOS/macOS 风格的设置面板，按功能分组：
  * - 通知与提醒：消息提示音设置
- * - 存储与数据：缓存清理、数据重置
+ * - 存储与数据：大文件直连阈值、缓存清理、数据重置
  * - 账户与安全：设备管理（查看和删除登录设备）
  * - 关于：版本信息、手动检查更新
+ *
+ * 大文件直连阈值：
+ * - 用户可配置阈值（10-1000MB，默认100MB）
+ * - ≥阈值的文件上传时不复制到缓存目录，直接使用原始路径
  *
  * 更新检查功能：
  * - 点击检查按钮后，若已是最新版本，按钮变为"已是最新版本"
@@ -119,6 +123,24 @@ const WarningIcon: React.FC = () => (
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
     <line x1="12" y1="9" x2="12" y2="13" />
     <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const FileIcon: React.FC = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
   </svg>
 );
 
@@ -236,7 +258,7 @@ const ResultToast: React.FC<ResultToastProps> = ({ type, message }) => (
 // ============================================
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
-  const { notification, setNotificationEnabled } = useSettingsStore();
+  const { notification, setNotificationEnabled, fileCache, setLargeFileThreshold } = useSettingsStore();
 
   // 数据管理状态
   const [clearingMessages, setClearingMessages] = useState(false);
@@ -254,6 +276,27 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
 
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
+
+  // 阈值编辑状态
+  const [isEditingThreshold, setIsEditingThreshold] = useState(false);
+  const [thresholdValue, setThresholdValue] = useState(fileCache.largeFileThresholdMB);
+  const thresholdInputRef = React.useRef<HTMLInputElement>(null);
+
+  // 保存阈值并退出编辑
+  const saveThreshold = useCallback(() => {
+    const value = Math.max(10, Math.min(1000, thresholdValue));
+    setLargeFileThreshold(value);
+    setThresholdValue(value);
+    setIsEditingThreshold(false);
+  }, [thresholdValue, setLargeFileThreshold]);
+
+  // 进入编辑模式时聚焦输入框
+  useEffect(() => {
+    if (isEditingThreshold && thresholdInputRef.current) {
+      thresholdInputRef.current.focus();
+      thresholdInputRef.current.select();
+    }
+  }, [isEditingThreshold]);
 
   // 按 ESC 关闭
   useEffect(() => {
@@ -409,6 +452,49 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
         {/* 分组二：存储与数据 */}
         <SettingsSection title="存储与数据">
           <SettingsGroup>
+            <SettingsRow
+              icon={<FileIcon />}
+              title="大文件直连阈值"
+              subtitle={`≥${fileCache.largeFileThresholdMB}MB 的文件不复制到缓存`}
+              type="custom"
+              showDivider
+              rightContent={
+                <div className="threshold-wrapper">
+                  {isEditingThreshold ? (
+                    <input
+                      ref={thresholdInputRef}
+                      type="number"
+                      className="threshold-input"
+                      value={thresholdValue}
+                      onChange={(e) => setThresholdValue(Number(e.target.value))}
+                      onBlur={saveThreshold}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          saveThreshold();
+                        } else if (e.key === 'Escape') {
+                          setThresholdValue(fileCache.largeFileThresholdMB);
+                          setIsEditingThreshold(false);
+                        }
+                      }}
+                      min={10}
+                      max={1000}
+                      step={10}
+                    />
+                  ) : (
+                    <div
+                      className="threshold-display"
+                      onClick={() => {
+                        setThresholdValue(fileCache.largeFileThresholdMB);
+                        setIsEditingThreshold(true);
+                      }}
+                    >
+                      <span className="threshold-value">{fileCache.largeFileThresholdMB}</span>
+                    </div>
+                  )}
+                  <span className="threshold-unit">MB</span>
+                </div>
+              }
+            />
             <SettingsRow
               icon={<DatabaseIcon />}
               title="清空消息缓存"

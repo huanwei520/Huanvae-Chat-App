@@ -32,6 +32,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useChatStore } from '../stores';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
 import { useLocalFriendMessages } from '../chat/friend/useLocalFriendMessages';
@@ -536,20 +537,25 @@ export function useMainPage() {
             const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-            // 如果有本地路径，复制到统一缓存目录
+            // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
             if (localPath) {
               try {
+                const { fileCache } = useSettingsStore.getState();
+                const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
                 const cachedPath = await invoke<string>('copy_file_to_cache', {
                   sourcePath: localPath,
                   fileHash: result.fileHash,
                   fileName: file.name,
                   fileType: messageType,
+                  fileSize: file.size,
+                  largeFileThreshold: thresholdBytes,
                 });
                 // eslint-disable-next-line no-console
                 console.log('%c[FileUpload] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
                   fileHash: result.fileHash,
                   originalPath: localPath,
                   cachedPath,
+                  isLargeFile: file.size >= thresholdBytes,
                 });
               } catch (cacheErr) {
                 console.error('[FileUpload] 缓存文件失败:', cacheErr);
@@ -573,8 +579,8 @@ export function useMainPage() {
                 file_url: result.fileUrl || null,
                 file_size: file.size,
                 file_hash: result.fileHash,
-                image_width: null, // 图片尺寸在后端返回时填充
-                image_height: null,
+                image_width: result.imageWidth ?? null,
+                image_height: result.imageHeight ?? null,
                 seq: 0,
                 reply_to: null,
                 is_recalled: false,
@@ -586,6 +592,8 @@ export function useMainPage() {
                 messageUuid: result.messageUuid,
                 fileName: file.name,
                 conversationId,
+                imageWidth: result.imageWidth,
+                imageHeight: result.imageHeight,
               });
             }
 
@@ -619,20 +627,25 @@ export function useMainPage() {
             const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
-            // 如果有本地路径，复制到统一缓存目录
+            // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
             if (localPath) {
               try {
+                const { fileCache } = useSettingsStore.getState();
+                const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
                 const cachedPath = await invoke<string>('copy_file_to_cache', {
                   sourcePath: localPath,
                   fileHash: result.fileHash,
                   fileName: file.name,
                   fileType: messageType,
+                  fileSize: file.size,
+                  largeFileThreshold: thresholdBytes,
                 });
                 // eslint-disable-next-line no-console
                 console.log('%c[FileUpload] 群文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
                   fileHash: result.fileHash,
                   originalPath: localPath,
                   cachedPath,
+                  isLargeFile: file.size >= thresholdBytes,
                 });
               } catch (cacheErr) {
                 console.error('[FileUpload] 缓存群文件失败:', cacheErr);
@@ -654,8 +667,8 @@ export function useMainPage() {
                 file_url: result.fileUrl || null,
                 file_size: file.size,
                 file_hash: result.fileHash,
-                image_width: null, // 图片尺寸在后端返回时填充
-                image_height: null,
+                image_width: result.imageWidth ?? null,
+                image_height: result.imageHeight ?? null,
                 seq: 0,
                 reply_to: null,
                 is_recalled: false,
@@ -666,6 +679,8 @@ export function useMainPage() {
               console.log('%c[FileUpload] 保存群消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
                 messageUuid: result.messageUuid,
                 fileName: file.name,
+                imageWidth: result.imageWidth,
+                imageHeight: result.imageHeight,
               });
             }
 

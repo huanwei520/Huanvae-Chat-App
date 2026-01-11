@@ -1078,3 +1078,74 @@
 .device-list-content::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);
 }
+
+/* ============================================
+   大文件阈值输入
+   ============================================ */
+
+/* 阈值外层容器 - 固定布局防止切换时偏移 */
+.threshold-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 阈值显示模式（未编辑状态） */
+.threshold-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  padding: 8px 0;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.threshold-display:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.threshold-display .threshold-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #3b82f6;
+}
+
+/* 阈值编辑模式 */
+.threshold-input {
+  width: 48px;
+  padding: 7px 0;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e40af;
+  text-align: center;
+  transition: all 0.15s ease;
+  /* 隐藏默认箭头 */
+  -moz-appearance: textfield;
+}
+
+.threshold-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* 隐藏 Webkit 浏览器的 spin button */
+.threshold-input::-webkit-inner-spin-button,
+.threshold-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* MB 单位 - 固定位置 */
+.threshold-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  flex-shrink: 0;
+}

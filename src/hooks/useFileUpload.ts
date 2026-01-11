@@ -79,6 +79,10 @@ export interface UploadResult {
   messageUuid?: string;
   /** 消息发送时间 */
   messageSendTime?: string;
+  /** 媒体宽度（图片/视频） */
+  imageWidth?: number | null;
+  /** 媒体高度（图片/视频） */
+  imageHeight?: number | null;
   /** 错误信息 */
   error?: string;
 }
@@ -190,16 +194,10 @@ async function calculateSHA256(
 
 /**
  * 读取图片文件的原始尺寸
- * 返回 { width, height } 或 null（非图片文件）
+ * 返回 { width, height } 或 null（加载失败）
  */
-function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number } | null> {
+function getImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
   return new Promise((resolve) => {
-    // 非图片文件直接返回 null
-    if (!file.type.startsWith('image/')) {
-      resolve(null);
-      return;
-    }
-
     const img = new Image();
     const url = URL.createObjectURL(file);
 
@@ -215,6 +213,44 @@ function getImageDimensionsFromFile(file: File): Promise<{ width: number; height
 
     img.src = url;
   });
+}
+
+/**
+ * 读取视频文件的原始尺寸
+ * 返回 { width, height } 或 null（加载失败）
+ */
+function getVideoDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const url = URL.createObjectURL(file);
+
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: video.videoWidth, height: video.videoHeight });
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+
+    // 设置预加载元数据
+    video.preload = 'metadata';
+    video.src = url;
+  });
+}
+
+/**
+ * 读取媒体文件（图片/视频）的原始尺寸
+ * 返回 { width, height } 或 null（非媒体文件或加载失败）
+ */
+function getMediaDimensionsFromFile(file: File): Promise<{ width: number; height: number } | null> {
+  if (file.type.startsWith('image/')) {
+    return getImageDimensions(file);
+  } else if (file.type.startsWith('video/')) {
+    return getVideoDimensions(file);
+  }
+  return Promise.resolve(null);
 }
 
 /**
@@ -347,8 +383,20 @@ export function useFileUpload() {
           });
         });
 
-        // 1.5 读取图片尺寸（仅图片文件）
-        const imageDimensions = await getImageDimensionsFromFile(file);
+        // 1.5 读取媒体尺寸（图片/视频文件）
+        const imageDimensions = await getMediaDimensionsFromFile(file);
+
+        // 调试：确认是否获取到了媒体尺寸
+        // eslint-disable-next-line no-console
+        console.log('%c[Upload] 媒体尺寸获取结果', 'color: #9C27B0; font-weight: bold', {
+          fileName: file.name,
+          fileType: file.type,
+          dimensions: imageDimensions,
+          willSend: {
+            image_width: imageDimensions?.width ?? null,
+            image_height: imageDimensions?.height ?? null,
+          },
+        });
 
         setProgress((prev) => {
           if (!prev) { return prev; }
@@ -394,6 +442,8 @@ export function useFileUpload() {
             fileHash,
             messageUuid: uploadInfo.message_uuid,
             messageSendTime: uploadInfo.message_send_time,
+            imageWidth: imageDimensions?.width ?? null,
+            imageHeight: imageDimensions?.height ?? null,
           };
         }
 
@@ -489,6 +539,8 @@ export function useFileUpload() {
           fileHash,
           messageUuid: confirmResult.message_uuid,
           messageSendTime: confirmResult.message_send_time,
+          imageWidth: imageDimensions?.width ?? null,
+          imageHeight: imageDimensions?.height ?? null,
         };
       } catch (error) {
         const errorMessage =

@@ -6,6 +6,11 @@
  * - 视频：视频缩略图，点击打开独立窗口播放
  * - 文件：文件图标和名称，点击下载
  *
+ * 尺寸计算逻辑：
+ * - 图片/视频：使用 imageWidth/imageHeight 计算显示尺寸
+ * - 有尺寸信息时按比例缩放，不超过最大尺寸
+ * - 无尺寸信息时使用默认占位尺寸
+ *
  * 使用 useFileCache Hook 实现本地优先加载和自动缓存
  * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
@@ -238,9 +243,13 @@ function ImageMessage({
 // 视频消息组件
 // ============================================
 
-/** 视频显示的固定尺寸 */
-const VIDEO_WIDTH = 280;
-const VIDEO_HEIGHT = 160;
+/** 视频显示的最大尺寸 */
+const VIDEO_MAX_WIDTH = 280;
+const VIDEO_MAX_HEIGHT = 300;
+
+/** 没有尺寸信息时的默认占位尺寸 */
+const VIDEO_DEFAULT_WIDTH = 280;
+const VIDEO_DEFAULT_HEIGHT = 160;
 
 function VideoMessage({
   fileUuid,
@@ -249,6 +258,8 @@ function VideoMessage({
   fileSize,
   urlType,
   friendId,
+  imageWidth,
+  imageHeight,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
@@ -257,6 +268,10 @@ function VideoMessage({
   urlType: 'user' | 'friend' | 'group';
   /** 好友 ID（用于错误上报） */
   friendId?: string;
+  /** 消息中携带的视频宽度（后端返回） */
+  imageWidth?: number | null;
+  /** 消息中携带的视频高度（后端返回） */
+  imageHeight?: number | null;
 }) {
   const { session } = useSession();
   const { src, isLocal, loading, error, onPlay, localPath } = useVideoCache(
@@ -267,6 +282,17 @@ function VideoMessage({
     urlType,
     friendId,
   );
+
+  // 是否有后端提供的尺寸信息
+  const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
+
+  // 计算容器显示尺寸（与图片相同的逻辑）
+  // 规则：
+  // 1. 有尺寸信息：按比例缩放，不超过最大尺寸
+  // 2. 无尺寸信息：使用默认占位尺寸
+  const displaySize = hasPresetDimensions
+    ? calculateDisplaySize(imageWidth, imageHeight, VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT)
+    : { width: VIDEO_DEFAULT_WIDTH, height: VIDEO_DEFAULT_HEIGHT };
 
   // 点击打开独立预览窗口
   const handleClick = useCallback(() => {
@@ -289,10 +315,10 @@ function VideoMessage({
     );
   }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
 
-  // 容器样式：固定尺寸
+  // 容器样式：根据尺寸信息动态计算
   const containerStyle: React.CSSProperties = {
-    width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT,
+    width: displaySize.width,
+    height: displaySize.height,
   };
 
   return (
@@ -466,6 +492,8 @@ export function FileMessageContent({
           fileSize={fileSize}
           urlType={urlType}
           friendId={friendId}
+          imageWidth={imageWidth}
+          imageHeight={imageHeight}
         />
       );
 

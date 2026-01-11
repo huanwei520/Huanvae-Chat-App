@@ -28,6 +28,8 @@ interface UseLocalConversationsReturn {
   previews: ConversationPreviews;
   /** 加载状态 */
   loading: boolean;
+  /** 首次加载是否完成（用于等待本地数据就绪后再渲染卡片） */
+  initialized: boolean;
   /** 刷新数据 */
   refresh: () => Promise<void>;
   /** 获取好友的消息预览 */
@@ -43,6 +45,8 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     groups: new Map(),
   });
   const [loading, setLoading] = useState(false);
+  // 首次加载是否完成（用于等待本地数据就绪后再渲染卡片，避免排序跳变）
+  const [initialized, setInitialized] = useState(false);
 
   // 加载本地会话数据
   const loadConversations = useCallback(async () => {
@@ -108,13 +112,20 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         groups: groupPreviews,
       });
 
-      // 预览加载完成
+      // 首次加载完成，标记为已初始化
+      if (!initialized) {
+        setInitialized(true);
+      }
     } catch (err) {
       console.warn('[LocalConv] 加载本地会话失败:', err);
+      // 即使失败也标记为已初始化，避免永远等待
+      if (!initialized) {
+        setInitialized(true);
+      }
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, initialized]);
 
   // 初始化加载 + 定时刷新
   useEffect(() => {
@@ -150,6 +161,7 @@ export function useLocalConversations(): UseLocalConversationsReturn {
   return {
     previews,
     loading,
+    initialized,
     refresh: loadConversations,
     getFriendPreview,
     getGroupPreview,

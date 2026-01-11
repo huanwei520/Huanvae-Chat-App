@@ -37,9 +37,13 @@ vi.mock('../../src/stores/settingsStore', () => ({
       volume: 80,
       soundName: 'water',
     },
+    fileCache: {
+      largeFileThresholdMB: 100,
+    },
     setNotificationEnabled: vi.fn(),
     setNotificationSound: vi.fn(),
     setNotificationVolume: vi.fn(),
+    setLargeFileThreshold: vi.fn(),
   }),
 }));
 
@@ -124,6 +128,7 @@ describe('设置面板组件 (SettingsPanel)', () => {
       render(<SettingsPanel onClose={mockOnClose} />);
 
       expect(screen.getByText('消息提示音')).toBeInTheDocument();
+      expect(screen.getByText('大文件直连阈值')).toBeInTheDocument();
       expect(screen.getByText('清空消息缓存')).toBeInTheDocument();
       expect(screen.getByText('重置所有数据')).toBeInTheDocument();
       expect(screen.getByText('设备管理')).toBeInTheDocument();

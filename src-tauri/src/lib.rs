@@ -7,7 +7,8 @@
 //! - 账号管理：登录、保存、删除账号
 //! - 数据库操作：本地 SQLite 数据库 CRUD
 //! - 用户数据目录：管理用户文件存储路径
-//! - 文件下载和缓存：下载文件到本地缓存
+//! - 文件下载和缓存：下载文件到本地缓存，大文件优化（≥100MB不复制）
+//! - 文件管理：在系统文件管理器中显示本地文件
 //! - WebView 权限管理：重置麦克风/摄像头权限缓存
 //! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
 //! - 会话锁：同设备同账户单开，不同账户可多开
@@ -445,6 +446,8 @@ pub fn run() {
             download::is_file_cached,
             download::get_cached_file_path,
             download::copy_file_to_cache,
+            download::show_in_folder,
+            download::is_file_exists,
             // WebView 权限管理
             reset_webview_permissions,
             // 提示音管理

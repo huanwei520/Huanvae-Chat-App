@@ -656,6 +656,19 @@ export function useLocalFriendMessages(friendId: string | null) {
 
     logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid, sender: wsMsg.sender_id });
 
+    // 调试：检查 WebSocket 消息中是否包含尺寸信息
+    if (wsMsg.message_type === 'image' || wsMsg.message_type === 'video') {
+      // eslint-disable-next-line no-console
+      console.log('%c[WS] 媒体消息尺寸检查', 'color: #FF5722; font-weight: bold', {
+        uuid: wsMsg.message_uuid.slice(0, 8),
+        type: wsMsg.message_type,
+        image_width: wsMsg.image_width,
+        image_height: wsMsg.image_height,
+        hasWidth: wsMsg.image_width !== undefined && wsMsg.image_width !== null,
+        hasHeight: wsMsg.image_height !== undefined && wsMsg.image_height !== null,
+      });
+    }
+
     // 生成正确的 conversation_id
     const conversationId = getFriendConversationId(session.userId, friendId);
 
