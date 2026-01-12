@@ -14,18 +14,8 @@
  * - 定义全局动画关键帧
  * - 处理响应式断点
  * 
- * ## 包含元素
- * | 类名 | 说明 |
- * |------|------|
- * | .login-container | 全屏登录容器 |
- * | .floating-orb | 浮动装饰圆 |
- * | .orb-1/2/3 | 三个不同位置的装饰圆 |
- * 
- * ## 设计理念
- * - 多层渐变叠加创造丰富的背景色彩
- * - 浮动装饰增加页面动感和深度
- * - 丰富的背景让毛玻璃效果更加明显
- * - 所有装饰元素设置 pointer-events: none 不影响交互
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入
  */
 
 /* ============================================
@@ -40,14 +30,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 基础渐变背景 */
-  background: linear-gradient(135deg, 
-    #e0f2fe 0%, 
-    #f0f9ff 25%,
-    #ffffff 50%, 
-    #f8fafc 75%,
-    #dbeafe 100%
-  );
+  /* 使用主题渐变背景 */
+  background: var(--gradient-bg-page);
   position: relative;
   overflow: hidden;
 }
@@ -69,7 +53,7 @@
   background: 
     radial-gradient(
       ellipse 80% 60% at 20% 20%,
-      rgba(59, 130, 246, 0.45) 0%,
+      rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.45) 0%,
       transparent 50%
     ),
     radial-gradient(
@@ -79,7 +63,7 @@
     ),
     radial-gradient(
       ellipse 60% 70% at 60% 30%,
-      rgba(99, 102, 241, 0.35) 0%,
+      rgba(var(--color-accent-6-rgb, 139, 92, 246), 0.35) 0%,
       transparent 45%
     );
   animation: flow-gradient 4s ease-in-out infinite;
@@ -97,7 +81,7 @@
   background: 
     radial-gradient(
       ellipse 50% 60% at 70% 20%,
-      rgba(168, 85, 247, 0.35) 0%,
+      rgba(var(--color-accent-6-rgb, 168, 85, 247), 0.35) 0%,
       transparent 45%
     ),
     radial-gradient(
@@ -169,9 +153,9 @@
   top: -200px;
   right: -150px;
   background: radial-gradient(circle, 
-    rgba(59, 130, 246, 0.7) 0%,
-    rgba(96, 165, 250, 0.5) 30%,
-    rgba(147, 197, 253, 0.3) 50%,
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.7) 0%,
+    rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.5) 30%,
+    rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.3) 50%,
     transparent 70%
   );
   filter: blur(30px);
@@ -201,7 +185,7 @@
   top: 30%;
   left: 0%;
   background: radial-gradient(circle, 
-    rgba(139, 92, 246, 0.6) 0%,
+    rgba(var(--color-accent-6-rgb, 139, 92, 246), 0.6) 0%,
     rgba(168, 85, 247, 0.4) 35%,
     rgba(192, 132, 252, 0.2) 55%,
     transparent 70%
@@ -316,7 +300,7 @@
   background: 
     radial-gradient(
       ellipse 100% 80% at 50% 20%,
-      rgba(59, 130, 246, 0.2) 0%,
+      rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.2) 0%,
       transparent 50%
     ),
     radial-gradient(
@@ -326,7 +310,7 @@
     ),
     radial-gradient(
       ellipse 80% 100% at 80% 60%,
-      rgba(139, 92, 246, 0.15) 0%,
+      rgba(var(--color-accent-6-rgb, 139, 92, 246), 0.15) 0%,
       transparent 50%
     );
   animation: flowing-bg-pulse 3s ease-in-out infinite;

@@ -6,41 +6,9 @@
  * @description 微透明渐变蓝色毛玻璃按钮，带顺滑动画
  * @layer       第三层 - 组件层
  * @author      Huanvae Chat Team
- * @reference   基于社区最佳实践设计
  * 
- * ## 作用
- * - 提供主要操作按钮样式
- * - 实现渐变蓝色毛玻璃效果
- * - 丰富的交互动画反馈
- * 
- * ## 包含类名
- * | 类名 | 说明 |
- * |------|------|
- * | .glass-button | 主按钮样式 |
- * | .button-content | 按钮内容容器（图标+文字） |
- * 
- * ## 交互状态
- * | 状态 | 效果 |
- * |------|------|
- * | 默认 | 微透明渐变蓝色，柔和阴影 |
- * | :hover | 上浮3px，放大2%，增强发光 |
- * | :active | 下压，缩小2% |
- * | :disabled | 降低透明度，禁用交互 |
- * 
- * ## 动画效果
- * - ::before - 顶部高光层，hover 时增强
- * - ::after - 扫光动画，hover 时从左到右
- * - transform - 弹性缓动函数
- * 
- * ## 使用示例
- * ```jsx
- * <motion.button className="glass-button">
- *   <span className="button-content">
- *     登录
- *     <ArrowIcon />
- *   </span>
- * </motion.button>
- * ```
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入
  */
 
 /* ============================================
@@ -50,29 +18,29 @@
   /* 尺寸与排版 */
   width: 100%;
   padding: 16px 24px;
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: 0.5px;
   
   /* 文字样式 */
-  color: #ffffff;
-  text-shadow: 0 1px 2px rgba(37, 99, 235, 0.3);
+  color: var(--text-inverse);
+  text-shadow: 0 1px 2px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.3);
   
-  /* 微透明渐变蓝色背景 - 约50%透明度 */
+  /* 微透明渐变背景 - 使用主题色 */
   background: linear-gradient(
     135deg, 
-    rgba(96, 165, 250, 0.55) 0%,      /* blue-400 */
-    rgba(59, 130, 246, 0.6) 50%,       /* blue-500 */
-    rgba(37, 99, 235, 0.55) 100%       /* blue-600 */
+    rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.55) 0%,
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.6) 50%,
+    rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.55) 100%
   );
   
   /* 毛玻璃效果 */
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: var(--blur-lg) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-lg) var(--saturate-high);
   
   /* 玻璃边框 - 白色半透明 */
-  border: 1.5px solid rgba(255, 255, 255, 0.4);
-  border-radius: 16px;
+  border: 1.5px solid var(--glass-white-40);
+  border-radius: var(--radius-xl);
   
   /* 交互 */
   cursor: pointer;
@@ -82,26 +50,26 @@
   
   /* 顺滑过渡动画 - 使用弹性缓动 */
   transition: 
-    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    background 0.3s ease,
-    border-color 0.3s ease;
+    transform var(--transition-bounce),
+    box-shadow var(--transition-smooth),
+    background var(--transition-normal),
+    border-color var(--transition-normal);
   
   /* 多层阴影 - 外发光 + 内高光 */
   box-shadow: 
-    /* 外发光 - 柔和蓝色光晕 */
-    0 0 30px rgba(96, 165, 250, 0.25),
+    /* 外发光 - 柔和主色光晕 */
+    0 0 30px rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.25),
     /* 主阴影 */
-    0 8px 20px rgba(59, 130, 246, 0.25),
-    0 4px 8px rgba(37, 99, 235, 0.15),
+    0 8px 20px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.25),
+    0 4px 8px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.15),
     /* 内部顶部高光 - 玻璃反射 */
-    inset 0 1px 1px rgba(255, 255, 255, 0.5),
+    inset 0 1px 1px var(--glass-white-50),
     /* 内部左侧高光 */
-    inset 1px 0 1px rgba(255, 255, 255, 0.25),
+    inset 1px 0 1px var(--glass-white-25),
     /* 底部微弱阴影 */
-    inset 0 -1px 1px rgba(37, 99, 235, 0.2);
+    inset 0 -1px 1px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.2);
   
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 /* ============================================
@@ -118,13 +86,13 @@
   height: 50%;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.35) 0%,
-    rgba(255, 255, 255, 0.1) 50%,
+    var(--glass-white-35) 0%,
+    var(--glass-white-10) 50%,
     transparent 100%
   );
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   pointer-events: none;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--transition-normal);
 }
 
 /* ============================================
@@ -142,7 +110,7 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.25) 50%,
+    var(--glass-white-25) 50%,
     transparent 100%
   );
   transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -155,25 +123,25 @@
 .glass-button:hover {
   /* 上浮 + 放大 */
   transform: translateY(-3px) scale(1.02);
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: var(--glass-border);
   
   /* 略微增强透明度 */
   background: linear-gradient(
     135deg, 
-    rgba(96, 165, 250, 0.65) 0%,
-    rgba(59, 130, 246, 0.7) 50%,
-    rgba(37, 99, 235, 0.65) 100%
+    rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.65) 0%,
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.7) 50%,
+    rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.65) 100%
   );
   
   /* 增强阴影 */
   box-shadow: 
-    0 0 40px rgba(96, 165, 250, 0.35),
-    0 0 60px rgba(59, 130, 246, 0.15),
-    0 12px 28px rgba(59, 130, 246, 0.3),
-    0 6px 12px rgba(37, 99, 235, 0.2),
-    inset 0 1px 2px rgba(255, 255, 255, 0.6),
-    inset 1px 0 1px rgba(255, 255, 255, 0.3),
-    inset 0 -1px 1px rgba(37, 99, 235, 0.15);
+    0 0 40px rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.35),
+    0 0 60px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.15),
+    0 12px 28px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.3),
+    0 6px 12px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.2),
+    inset 0 1px 2px var(--glass-white-60),
+    inset 1px 0 1px var(--glass-white-30),
+    inset 0 -1px 1px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.15);
 }
 
 /* 悬停时顶部高光增强 */
@@ -181,8 +149,8 @@
   opacity: 1;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.45) 0%,
-    rgba(255, 255, 255, 0.15) 50%,
+    var(--glass-white-45) 0%,
+    var(--glass-white-15) 50%,
     transparent 100%
   );
 }
@@ -202,16 +170,16 @@
     box-shadow 0.1s ease;
   background: linear-gradient(
     135deg, 
-    rgba(96, 165, 250, 0.5) 0%,
-    rgba(59, 130, 246, 0.55) 50%,
-    rgba(37, 99, 235, 0.5) 100%
+    rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.5) 0%,
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.55) 50%,
+    rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.5) 100%
   );
   box-shadow: 
-    0 0 20px rgba(96, 165, 250, 0.2),
-    0 4px 12px rgba(59, 130, 246, 0.2),
-    0 2px 4px rgba(37, 99, 235, 0.15),
-    inset 0 1px 1px rgba(255, 255, 255, 0.4),
-    inset 0 2px 4px rgba(37, 99, 235, 0.1);
+    0 0 20px rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.2),
+    0 4px 12px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.2),
+    0 2px 4px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.15),
+    inset 0 1px 1px var(--glass-white-40),
+    inset 0 2px 4px rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.1);
 }
 
 /* ============================================
@@ -222,17 +190,17 @@
   cursor: not-allowed;
   transform: none;
   box-shadow: 
-    0 0 15px rgba(96, 165, 250, 0.1),
-    0 4px 8px rgba(59, 130, 246, 0.1);
+    0 0 15px rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.1),
+    0 4px 8px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.1);
 }
 
 .glass-button:disabled:hover {
   transform: none;
   background: linear-gradient(
     135deg, 
-    rgba(96, 165, 250, 0.55) 0%,
-    rgba(59, 130, 246, 0.6) 50%,
-    rgba(37, 99, 235, 0.55) 100%
+    rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.55) 0%,
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.6) 50%,
+    rgba(var(--color-primary-7-rgb, 37, 99, 235), 0.55) 100%
   );
 }
 
@@ -245,11 +213,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .button-content svg {
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
 }
 
 /* 悬停时图标右移 */

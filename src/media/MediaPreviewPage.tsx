@@ -224,7 +224,6 @@ async function getFileSource(
         console.log('[MediaPreview] 使用传入的本地路径:', state.localPath);
         return { src, isLocal: true, shouldCache: false };
       }
-      // eslint-disable-next-line no-console
       console.warn('[MediaPreview] 本地路径文件不存在，尝试其他方式:', state.localPath);
     } catch (err) {
       console.warn('[MediaPreview] 检查本地路径失败:', err);

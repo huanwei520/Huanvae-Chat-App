@@ -7,36 +7,8 @@
  * @layer       第三层 - 组件层
  * @author      Huanvae Chat Team
  * 
- * ## 作用
- * - 提供加载中的视觉反馈
- * - 全屏遮罩阻止用户操作
- * - 配合 Framer Motion 实现旋转动画
- * 
- * ## 包含类名
- * | 类名 | 说明 |
- * |------|------|
- * | .loading-spinner | 加载指示器容器 |
- * | .spinner-icon | 旋转图标 |
- * | .spinner-icon.large | 大尺寸图标 |
- * | .loading-overlay | 全屏加载遮罩 |
- * 
- * ## 使用示例
- * ```jsx
- * // 内联加载
- * <div className="loading-spinner">
- *   <motion.div className="spinner-icon" animate={{ rotate: 360 }}>
- *     ⟳
- *   </motion.div>
- *   <p>加载中...</p>
- * </div>
- * 
- * // 全屏遮罩
- * {isLoading && (
- *   <motion.div className="loading-overlay">
- *     <motion.div className="spinner-icon large">⟳</motion.div>
- *   </motion.div>
- * )}
- * ```
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入
  */
 
 /* ============================================
@@ -47,13 +19,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: var(--space-4);
   z-index: 10;
 }
 
 .loading-spinner p {
-  font-size: 16px;
-  color: #64748b;
+  font-size: var(--text-xl);
+  color: var(--text-muted);
   font-weight: 500;
 }
 
@@ -62,7 +34,7 @@
    ============================================ */
 .spinner-icon {
   font-size: 48px;
-  color: #3b82f6;
+  color: var(--primary);
 }
 
 /* 大尺寸变体 - 用于全屏遮罩 */
@@ -82,8 +54,8 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(8px);
+  background: var(--glass-white-70);
+  backdrop-filter: var(--glass-blur);
   display: flex;
   align-items: center;
   justify-content: center;

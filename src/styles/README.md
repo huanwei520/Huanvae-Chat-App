@@ -27,7 +27,7 @@ src/styles/
 
 ## 🏗️ 架构分层说明
 
-### 第一层：设计 Token（`variables.css`）
+### 第一层：设计 Token（`variables.css` + `theme/`）
 
 **作用**：定义全局设计系统，确保视觉一致性
 
@@ -41,10 +41,24 @@ src/styles/
 | 过渡 | 动画时间和缓动函数 | `--transition-smooth` |
 | 字体 | 字体大小定义 | `--text-lg` |
 
+**主题系统 (`src/theme/`)**：
+
+| 模块 | 说明 |
+|------|------|
+| `types.ts` | 类型定义（ColorScale、ThemeConfig 等） |
+| `utils.ts` | 颜色计算工具（OKLCH 色阶生成） |
+| `presets.ts` | 预设主题配置（天蓝、深海、森林、日落） |
+| `generator.ts` | 主题数据生成器 |
+| `store.ts` | Zustand 状态管理 + localStorage 持久化 |
+| `ThemeProvider.tsx` | 将主题数据应用到 CSS 变量 |
+| `ThemeEditor.tsx` | 设置面板中的主题编辑器 |
+
 **使用原则**：
 - 所有颜色值应优先使用变量
 - 新增颜色需先在此文件定义
-- 便于后期主题切换和深色模式支持
+- 通过 ThemeProvider 自动注入主题 CSS 变量
+- 支持亮色/暗色/跟随系统模式
+- 支持预设主题和用户自定义颜色
 
 ---
 

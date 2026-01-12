@@ -142,6 +142,22 @@ import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
 import * as settingsStore from '../../src/stores/settingsStore';
 import * as windowSize from '../../src/services/windowSize';
+import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
+import * as lanTransferApi from '../../src/lanTransfer/api';
+import * as lanTransferIndex from '../../src/lanTransfer/index';
+import * as useLanTransfer from '../../src/hooks/useLanTransfer';
+
+// 主题系统
+import * as themeIndex from '../../src/theme/index';
+import * as themeStore from '../../src/theme/store';
+// themeTypes 只导出类型，没有运行时导出，不测试
+import * as themeUtils from '../../src/theme/utils';
+import * as themePresets from '../../src/theme/presets';
+import * as themeGenerator from '../../src/theme/generator';
+import * as themeApi from '../../src/theme/api';
+import * as ThemeProvider from '../../src/theme/ThemeProvider';
+import * as ThemeEditor from '../../src/theme/ThemeEditor';
+import * as ThemeEditorPage from '../../src/theme/ThemeEditorPage';
 
 // 组件映射表
 const COMPONENT_MAP = {
@@ -176,6 +192,19 @@ const COMPONENT_MAP = {
   SoundSelector,
   DeviceListPanel,
   UpdateToast,
+  LanTransferPage,
+  lanTransferApi,
+  lanTransferIndex,
+  // 主题系统
+  themeIndex,
+  themeStore,
+  themeUtils,
+  themePresets,
+  themeGenerator,
+  themeApi,
+  ThemeProvider,
+  ThemeEditor,
+  ThemeEditorPage,
   // 模态框组件
   AddFriendTab,
   CreateGroupTab,
@@ -244,6 +273,7 @@ const COMPONENT_MAP = {
   useSilentUpdate,
   useUpdateToast,
   useNotificationSounds,
+  useLanTransfer,
   // 服务
   deviceInfo,
   diagnosticService,

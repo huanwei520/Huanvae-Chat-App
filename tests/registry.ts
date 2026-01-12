@@ -75,6 +75,21 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
 
   // 更新相关
   { name: 'UpdateToast', path: 'update/components/UpdateToast', category: 'components', description: '更新提示弹窗（灵动岛风格）' },
+
+  // 局域网传输
+  { name: 'LanTransferPage', path: 'lanTransfer/LanTransferPage', category: 'components', description: '局域网传输页面' },
+  { name: 'lanTransferApi', path: 'lanTransfer/api', category: 'services', description: '局域网传输 API' },
+
+  // 主题系统
+  { name: 'themeIndex', path: 'theme/index', category: 'services', description: '主题系统入口' },
+  { name: 'themeStore', path: 'theme/store', category: 'services', description: '主题状态管理' },
+  { name: 'themeUtils', path: 'theme/utils', category: 'services', description: '主题颜色工具' },
+  { name: 'themePresets', path: 'theme/presets', category: 'services', description: '主题预设配置（默认+自定义）' },
+  { name: 'themeGenerator', path: 'theme/generator', category: 'services', description: '主题数据生成器' },
+  { name: 'themeApi', path: 'theme/api', category: 'services', description: '主题编辑窗口 API' },
+  { name: 'ThemeProvider', path: 'theme/ThemeProvider', category: 'components', description: '主题提供者组件' },
+  { name: 'ThemeEditor', path: 'theme/ThemeEditor', category: 'components', description: '主题编辑器组件（内嵌式）' },
+  { name: 'ThemeEditorPage', path: 'theme/ThemeEditorPage', category: 'components', isDefault: true, description: '主题编辑器独立窗口页面' },
 ];
 
 // ============== 模态框组件 ==============
@@ -168,6 +183,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useSilentUpdate', path: 'update/useSilentUpdate', category: 'hooks', description: '静默更新 Hook' },
   { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
+  { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
 ];
 
 // ============== 服务 ==============

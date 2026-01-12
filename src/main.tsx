@@ -3,7 +3,9 @@
  *
  * 路由逻辑：
  * - /meeting: 会议页面（独立窗口，不需要 Session）
- * - /media: 媒体预览页面（独立窗口，需要 Session 获取文件 URL）
+ * - /media: 媒体预览页面（独立窗口，认证信息通过 localStorage 传递）
+ * - /lan-transfer: 局域网传输页面（独立窗口，用户信息通过 localStorage 传递）
+ * - /theme-editor: 主题编辑页面（独立窗口）
  * - 其他路径: 主应用
  *
  * 窗口大小策略：
@@ -15,9 +17,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { SessionProvider } from './contexts/SessionContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
+import { ThemeProvider, ThemeEditorPage } from './theme';
 import App from './App';
 import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
+import { LanTransferPage } from './lanTransfer';
 import { initWindowSize } from './services/windowSize';
 import './index.css';
 
@@ -42,13 +46,25 @@ function RootApp() {
     return <MediaPreviewPage />;
   }
 
+  // 局域网传输页面（独立窗口，用户信息通过 localStorage 传递）
+  if (pathname === '/lan-transfer') {
+    return <LanTransferPage />;
+  }
+
+  // 主题编辑页面（独立窗口）
+  if (pathname === '/theme-editor') {
+    return <ThemeEditorPage />;
+  }
+
   // 主应用
   return (
-    <SessionProvider>
-      <WebSocketProvider>
-        <App />
-      </WebSocketProvider>
-    </SessionProvider>
+    <ThemeProvider>
+      <SessionProvider>
+        <WebSocketProvider>
+          <App />
+        </WebSocketProvider>
+      </SessionProvider>
+    </ThemeProvider>
   );
 }
 

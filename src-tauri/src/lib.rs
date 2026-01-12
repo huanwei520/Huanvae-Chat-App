@@ -14,10 +14,12 @@
 //! - 会话锁：同设备同账户单开，不同账户可多开
 //! - 设备信息：获取设备标识用于登录
 //! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
+//! - 局域网传输：局域网内设备发现和文件互传
 
 mod db;
 mod device_info;
 mod download;
+mod lan_transfer;
 mod session_lock;
 mod sounds;
 mod storage;
@@ -463,6 +465,16 @@ pub fn run() {
             session_lock::activate_existing_instance,
             // 设备信息
             device_info::get_mac_address_cmd,
+            // 局域网传输
+            lan_transfer::start_lan_transfer_service,
+            lan_transfer::stop_lan_transfer_service,
+            lan_transfer::get_discovered_devices,
+            lan_transfer::send_connection_request,
+            lan_transfer::respond_to_connection_request,
+            lan_transfer::send_file_to_device,
+            lan_transfer::get_pending_connection_requests,
+            lan_transfer::get_active_transfers,
+            lan_transfer::cancel_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -98,6 +98,7 @@ export async function initWindowSize(config: Partial<WindowSizeConfig> = {}): Pr
     const appWindow = getCurrentWindow();
 
     // 获取当前显示器信息
+    // @ts-expect-error - Tauri Window 类型与 DOM Window 冲突
     const monitor = await appWindow.currentMonitor();
     if (!monitor) {
       console.warn('[WindowSize] 无法获取显示器信息，使用默认大小');
@@ -159,6 +160,7 @@ export async function getWindowInfo(): Promise<{
     appWindow.innerSize(),
     appWindow.outerSize(),
     appWindow.scaleFactor(),
+    // @ts-expect-error - Tauri Window 类型与 DOM Window 冲突
     appWindow.currentMonitor(),
   ]);
 

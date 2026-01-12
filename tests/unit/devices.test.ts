@@ -13,12 +13,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Device } from '../../src/types/device';
 
-// Mock ApiClient
+// Mock ApiClient - 包含所有需要的方法
 const mockApiClient = {
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
   delete: vi.fn(),
+  patch: vi.fn(),
+  getBaseUrl: vi.fn(() => 'http://localhost'),
+  getAccessToken: vi.fn(() => 'mock-token'),
 };
 
 // 需要在 import 之前设置 mock

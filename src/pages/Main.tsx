@@ -25,12 +25,23 @@ import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
 import { SettingsPanel } from '../components/settings';
+import { openLanTransferWindow } from '../lanTransfer';
 
 export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+
+  // 打开局域网传输独立窗口
+  const handleLanTransferClick = () => {
+    if (page.session) {
+      openLanTransferWindow(
+        page.session.userId,
+        page.session.profile?.user_nickname || page.session.userId,
+      );
+    }
+  };
 
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
   useInitialSync({
@@ -67,6 +78,7 @@ export function Main() {
         onAvatarClick={() => page.setShowProfileModal(true)}
         onAddClick={() => page.setShowAddModal(true)}
         onFilesClick={() => setShowFilesModal(true)}
+        onLanTransferClick={handleLanTransferClick}
         onMeetingClick={() => setShowMeetingModal(true)}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}

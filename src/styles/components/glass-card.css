@@ -7,34 +7,8 @@
  * @layer       第三层 - 组件层
  * @author      Huanvae Chat Team
  * 
- * ## 作用
- * - 提供主要的内容容器
- * - 实现高质感毛玻璃效果
- * - 支持多种卡片变体
- * 
- * ## 包含类名
- * | 类名 | 说明 |
- * |------|------|
- * | .glass-card | 基础毛玻璃卡片 |
- * | .auth-card | 认证页面专用卡片（固定最小高度） |
- * | .auth-form-content | 表单内容容器 |
- * | .account-selector-content | 账号选择器内容容器 |
- * 
- * ## 毛玻璃效果实现原理
- * 1. 半透明渐变背景 - 让背景色彩透出
- * 2. backdrop-filter - 模糊 + 饱和度增强
- * 3. 多层 box-shadow - 模拟玻璃光泽和深度
- * 4. ::before 伪元素 - 顶部高光条
- * 5. ::after 伪元素 - 底部反射线
- * 
- * ## 使用示例
- * ```jsx
- * <motion.div className="glass-card auth-card">
- *   <div className="auth-form-content">
- *     {children}
- *   </div>
- * </motion.div>
- * ```
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入
  */
 
 /* ============================================
@@ -44,37 +18,32 @@
 */
 .glass-card {
   /* 半透明渐变背景 - 让背景色彩透出来 */
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.35) 0%,
-    rgba(255, 255, 255, 0.2) 50%,
-    rgba(255, 255, 255, 0.3) 100%
-  );
+  background: var(--gradient-glass);
   
   /* 毛玻璃核心效果 - 模糊 + 饱和度提升 */
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: var(--blur-xl) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-xl) var(--saturate-high);
   
   /* 圆角 */
-  border-radius: 28px;
+  border-radius: var(--radius-3xl);
   
   /* 玻璃边框 - 模拟边缘折射 */
-  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border: 1.5px solid var(--glass-border);
   
   /* 多层阴影 - 创造立体感和光泽 */
   box-shadow: 
     /* 外发光 - 玻璃光晕效果 */
-    0 0 60px rgba(255, 255, 255, 0.5),
-    0 0 40px rgba(147, 197, 253, 0.15),
+    0 0 60px var(--glass-white-50),
+    0 0 40px rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.15),
     /* 主阴影 - 悬浮效果 */
-    0 8px 32px rgba(59, 130, 246, 0.1),
+    0 8px 32px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.1),
     0 20px 60px rgba(0, 0, 0, 0.08),
     /* 内部顶部高光 - 玻璃上边缘 */
-    inset 0 2px 2px rgba(255, 255, 255, 0.8),
+    inset 0 2px 2px var(--glass-white-80),
     /* 内部左侧高光 - 玻璃左边缘 */
-    inset 2px 0 2px rgba(255, 255, 255, 0.4),
+    inset 2px 0 2px var(--glass-white-40),
     /* 底部微弱反射 */
-    inset 0 -1px 2px rgba(255, 255, 255, 0.3);
+    inset 0 -1px 2px var(--glass-white-30);
   
   /* 内边距 */
   padding: 48px 40px;
@@ -102,11 +71,11 @@
   height: 50%;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.5) 0%,
-    rgba(255, 255, 255, 0.15) 30%,
+    var(--glass-white-50) 0%,
+    var(--glass-white-15) 30%,
     transparent 100%
   );
-  border-radius: 28px 28px 0 0;
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
   pointer-events: none;
 }
 
@@ -125,7 +94,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 255, 255, 0.9),
+    var(--glass-white-90),
     transparent
   );
   border-radius: 1px;

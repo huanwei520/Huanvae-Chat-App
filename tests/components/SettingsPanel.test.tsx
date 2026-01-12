@@ -253,18 +253,19 @@ describe('设置面板组件 (SettingsPanel)', () => {
   });
 
   describe('分组结构', () => {
-    it('应渲染四个设置分组', () => {
+    it('应渲染五个设置分组', () => {
       const { container } = render(<SettingsPanel onClose={mockOnClose} />);
 
+      // 外观、通知与提醒、存储与数据、账户与安全、关于
       const sections = container.querySelectorAll('.settings-section');
-      expect(sections.length).toBe(4);
+      expect(sections.length).toBe(5);
     });
 
     it('每个分组应包含分组标题', () => {
       const { container } = render(<SettingsPanel onClose={mockOnClose} />);
 
       const sectionTitles = container.querySelectorAll('.settings-section-title');
-      expect(sectionTitles.length).toBe(4);
+      expect(sectionTitles.length).toBe(5);
     });
 
     it('消息提示音开关开启时应显示 SoundSelector', () => {

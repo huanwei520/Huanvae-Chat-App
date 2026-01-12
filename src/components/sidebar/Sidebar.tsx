@@ -33,6 +33,13 @@ const FolderIcon = () => (
   </svg>
 );
 
+// 局域网传输图标（双向箭头 + 设备）
+const LanTransferIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+  </svg>
+);
+
 export type NavTab = 'chat' | 'group' | 'friends';
 
 interface SidebarProps {
@@ -44,6 +51,7 @@ interface SidebarProps {
     onAvatarClick: () => void;
     onAddClick: () => void; // 统一的添加按钮
     onFilesClick: () => void; // 打开文件弹窗
+    onLanTransferClick: () => void; // 打开局域网传输弹窗
     onMeetingClick: () => void; // 打开会议弹窗
     onSettingsClick: () => void; // 打开设置面板
     onLogout: () => void;
@@ -58,6 +66,7 @@ export function Sidebar({
   onAvatarClick,
   onAddClick,
   onFilesClick,
+  onLanTransferClick,
   onMeetingClick,
   onSettingsClick,
   onLogout,
@@ -119,6 +128,15 @@ export function Sidebar({
           title="我的文件"
         >
           <FolderIcon />
+        </motion.button>
+        <motion.button
+          className="nav-btn"
+          onClick={onLanTransferClick}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          title="局域网互传"
+        >
+          <LanTransferIcon />
         </motion.button>
         <motion.button
           className="nav-btn"

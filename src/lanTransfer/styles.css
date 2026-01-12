@@ -1,0 +1,457 @@
+/**
+ * 局域网传输独立窗口样式
+ * 与 MediaPreviewPage 风格保持一致
+ */
+
+/* ============================================
+   页面容器
+   ============================================ */
+
+.lan-page {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(
+    165deg,
+    var(--bg-primary) 0%,
+    var(--bg-secondary) 50%,
+    var(--bg-tertiary) 100%
+  );
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+.lan-page.lan-loading {
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.lan-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-subtle);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: lan-spin 1s linear infinite;
+}
+
+@keyframes lan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   顶部工具栏
+   ============================================ */
+
+.lan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--white-alpha-80);
+  backdrop-filter: var(--blur-md);
+  border-bottom: 1px solid var(--border-subtle);
+  -webkit-app-region: drag;
+}
+
+.lan-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lan-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.lan-device-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg-muted);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.lan-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.lan-action-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.lan-action-btn.refresh {
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.lan-action-btn.refresh:hover:not(:disabled) {
+  background: var(--primary-subtle);
+}
+
+.lan-action-btn.refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lan-action-btn.close {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.lan-action-btn.close:hover {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+/* ============================================
+   主内容区
+   ============================================ */
+
+.lan-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lan-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lan-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+.lan-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ============================================
+   状态指示条
+   ============================================ */
+
+.lan-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--white-alpha-60);
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+
+.lan-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-light);
+  transition: all 0.3s;
+}
+
+.lan-status-dot.running {
+  background: var(--status-success);
+  box-shadow: 0 0 8px var(--status-success-subtle);
+}
+
+.lan-status-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ============================================
+   设备卡片
+   ============================================ */
+
+.lan-device-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--white-alpha-80);
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lan-device-card:hover {
+  background: var(--white-alpha-95);
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-md);
+}
+
+.lan-device-icon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-inverse);
+  flex-shrink: 0;
+}
+
+.lan-device-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.lan-device-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-device-user {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.lan-device-ip {
+  font-size: 11px;
+  color: var(--text-light);
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  margin-top: 2px;
+}
+
+.lan-device-send-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: var(--primary-subtle);
+  border-radius: 10px;
+  color: var(--primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.lan-device-send-btn:hover {
+  background: var(--primary-subtle);
+  transform: scale(1.05);
+}
+
+/* ============================================
+   连接请求卡片
+   ============================================ */
+
+.lan-request-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--status-warning-subtle);
+  border-radius: 14px;
+  border: 1px solid var(--status-warning);
+}
+
+.lan-request-info {
+  flex: 1;
+}
+
+.lan-request-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--status-warning);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lan-request-from {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-top: 4px;
+}
+
+.lan-request-user {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.lan-request-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lan-request-accept,
+.lan-request-reject {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.lan-request-accept {
+  background: var(--status-success-subtle);
+  color: var(--status-success);
+}
+
+.lan-request-accept:hover {
+  background: var(--status-success-subtle);
+  transform: scale(1.05);
+}
+
+.lan-request-reject {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.lan-request-reject:hover {
+  background: var(--status-error-subtle);
+  transform: scale(1.05);
+}
+
+/* ============================================
+   传输进度卡片
+   ============================================ */
+
+.lan-transfer-progress-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--white-alpha-80);
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+}
+
+.lan-transfer-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.lan-transfer-filename {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-transfer-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.lan-transfer-progress-bar {
+  height: 6px;
+  background: var(--bg-muted);
+  border-radius: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.lan-transfer-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--color-primary-7));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.lan-transfer-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 6px;
+}
+
+.lan-transfer-cancel {
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: var(--status-error-subtle);
+  border-radius: 8px;
+  color: var(--status-error);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.lan-transfer-cancel:hover {
+  background: var(--status-error-subtle);
+}
+
+/* ============================================
+   空状态
+   ============================================ */
+
+.lan-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.lan-empty-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+.lan-empty-text {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.lan-empty-hint {
+  font-size: 14px;
+  color: var(--text-light);
+  max-width: 260px;
+  line-height: 1.5;
+}
+

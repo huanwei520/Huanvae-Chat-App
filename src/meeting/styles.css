@@ -28,17 +28,14 @@
 .meeting-modal {
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.85) 0%,
-    rgba(255, 255, 255, 0.75) 100%
+    var(--white-alpha-85) 0%,
+    var(--white-alpha-75) 100%
   );
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--blur-xl) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-xl) var(--saturate-high);
   border-radius: 20px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
-  box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.15),
-    0 0 0 1px rgba(255, 255, 255, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
   width: 420px;
   max-width: 90vw;
   overflow: hidden;
@@ -50,19 +47,19 @@
   align-items: center;
   gap: 12px;
   padding: 24px 24px 16px;
-  border-bottom: 1px solid rgba(147, 197, 253, 0.3);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .meeting-modal-header svg {
   width: 28px;
   height: 28px;
-  color: #2563eb;
+  color: var(--primary-hover);
 }
 
 .meeting-modal-header h2 {
   font-size: 20px;
   font-weight: 600;
-  color: #1e3a5f;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -73,9 +70,9 @@
   width: 32px;
   height: 32px;
   border: none;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--black-alpha-5);
   border-radius: 8px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 20px;
   cursor: pointer;
   display: flex;
@@ -85,8 +82,8 @@
 }
 
 .meeting-modal-close:hover {
-  background: rgba(0, 0, 0, 0.1);
-  color: #1e3a5f;
+  background: var(--black-alpha-10);
+  color: var(--text-primary);
 }
 
 /* 标签页 */
@@ -103,7 +100,7 @@
   background: transparent;
   border: none;
   border-radius: 10px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -111,14 +108,14 @@
 }
 
 .meeting-tab:hover {
-  background: rgba(59, 130, 246, 0.1);
-  color: #2563eb;
+  background: var(--primary-subtle);
+  color: var(--primary-hover);
 }
 
 .meeting-tab.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-glow);
 }
 
 /* 内容区域 */
@@ -141,29 +138,29 @@
 
 .meeting-form-group label {
   font-size: 13px;
-  color: #475569;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .meeting-input {
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  color: #1e3a5f;
+  color: var(--text-primary);
   font-size: 14px;
   outline: none;
   transition: all 0.2s;
 }
 
 .meeting-input:focus {
-  border-color: #3b82f6;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--primary);
+  background: var(--white-alpha-95);
+  box-shadow: var(--shadow-focus);
 }
 
 .meeting-input::placeholder {
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* 文本域（用于粘贴房间信息） */
@@ -176,7 +173,7 @@
 /* 解析成功提示 */
 .parse-success {
   margin-left: 8px;
-  color: #16a34a;
+  color: var(--status-success);
   font-size: 12px;
   font-weight: 600;
 }
@@ -194,12 +191,12 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(147, 197, 253, 0.4);
+  background: var(--border-default);
 }
 
 .meeting-form-divider span {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-light);
   white-space: nowrap;
 }
 
@@ -219,15 +216,15 @@
 }
 
 .meeting-btn.primary {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-glow);
 }
 
 .meeting-btn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-active) 100%);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+  box-shadow: var(--shadow-glow);
 }
 
 .meeting-btn.primary:disabled {
@@ -236,14 +233,14 @@
 }
 
 .meeting-btn.secondary {
-  background: rgba(255, 255, 255, 0.7);
-  color: #475569;
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  background: var(--white-alpha-70);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
 .meeting-btn.secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.9);
-  color: #1e3a5f;
+  background: var(--white-alpha-90);
+  color: var(--text-primary);
 }
 
 .meeting-btn.full-width {
@@ -262,19 +259,19 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(147, 197, 253, 0.3);
+  background: var(--primary-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
 }
 
 .meeting-info-label {
   font-size: 13px;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .meeting-info-value {
   font-size: 14px;
-  color: #1e3a5f;
+  color: var(--text-primary);
   font-weight: 600;
   font-family: 'JetBrains Mono', 'Consolas', monospace;
 }
@@ -292,10 +289,10 @@
 /* 错误提示 */
 .meeting-error {
   padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--status-error-subtle);
+  border: 1px solid var(--status-error);
   border-radius: 10px;
-  color: #dc2626;
+  color: var(--status-error);
   font-size: 13px;
   margin-top: 8px;
 }
@@ -309,15 +306,15 @@
   max-height: 100vh;
   background: linear-gradient(
     135deg,
-    #e0f2fe 0%,
-    #f0f9ff 25%,
-    #ffffff 50%,
-    #f0f9ff 75%,
-    #e0f2fe 100%
+    var(--color-primary-3) 0%,
+    var(--color-primary-2) 25%,
+    var(--bg-primary) 50%,
+    var(--color-primary-2) 75%,
+    var(--color-primary-3) 100%
   );
   display: flex;
   flex-direction: column;
-  color: #1e3a5f;
+  color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
 }
@@ -327,23 +324,23 @@
   min-height: 100vh;
   background: linear-gradient(
     135deg,
-    #e0f2fe 0%,
-    #f0f9ff 50%,
-    #e0f2fe 100%
+    var(--color-primary-3) 0%,
+    var(--color-primary-2) 50%,
+    var(--color-primary-3) 100%
   );
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16px;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .meeting-loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(147, 197, 253, 0.3);
-  border-top-color: #3b82f6;
+  border: 3px solid var(--border-subtle);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -362,11 +359,11 @@
   padding: 16px 24px;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.8) 0%,
-    rgba(255, 255, 255, 0.6) 100%
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-60) 100%
   );
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(147, 197, 253, 0.3);
+  backdrop-filter: var(--blur-md);
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
   z-index: 10;
 }
@@ -381,12 +378,12 @@
   font-size: 18px;
   font-weight: 600;
   margin: 0;
-  color: #1e3a5f;
+  color: var(--text-primary);
 }
 
 .meeting-id {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', 'Consolas', monospace;
 }
 
@@ -401,24 +398,24 @@
   justify-content: center;
   gap: 6px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  background: var(--white-alpha-70);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: #475569;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
 }
 
 .meeting-header-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
-  color: #1e3a5f;
+  background: var(--white-alpha-90);
+  color: var(--text-primary);
 }
 
 .meeting-header-btn.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #2563eb;
+  background: var(--primary-subtle);
+  border-color: var(--border-focus);
+  color: var(--primary-hover);
 }
 
 .meeting-header-btn svg {
@@ -437,8 +434,8 @@
   left: 50%;
   transform: translateX(-50%);
   padding: 4px 10px;
-  background: #22c55e;
-  color: white;
+  background: var(--status-success);
+  color: var(--text-inverse);
   font-size: 12px;
   border-radius: 4px;
   white-space: nowrap;
@@ -479,12 +476,12 @@
 .participant-video {
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.8) 0%,
-    rgba(255, 255, 255, 0.6) 100%
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-60) 100%
   );
-  backdrop-filter: blur(12px);
+  backdrop-filter: var(--blur-md);
   border-radius: 16px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  border: 1px solid var(--border-default);
   overflow: hidden;
   aspect-ratio: 16/9;
   position: relative;
@@ -509,26 +506,26 @@
 
 /* 说话状态：边框变绿 */
 .participant-video.speaking {
-  border-color: #22c55e;
+  border-color: var(--status-success);
   box-shadow:
-    0 0 0 2px rgba(34, 197, 94, 0.4),
-    0 0 20px rgba(34, 197, 94, 0.3),
-    inset 0 0 0 1px rgba(34, 197, 94, 0.2);
+    0 0 0 2px var(--status-success-subtle),
+    0 0 20px var(--status-success-subtle),
+    inset 0 0 0 1px var(--status-success-subtle);
   animation: speaking-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes speaking-pulse {
   0%, 100% {
     box-shadow:
-      0 0 0 2px rgba(34, 197, 94, 0.4),
-      0 0 20px rgba(34, 197, 94, 0.3),
-      inset 0 0 0 1px rgba(34, 197, 94, 0.2);
+      0 0 0 2px var(--status-success-subtle),
+      0 0 20px var(--status-success-subtle),
+      inset 0 0 0 1px var(--status-success-subtle);
   }
   50% {
     box-shadow:
-      0 0 0 3px rgba(34, 197, 94, 0.5),
-      0 0 30px rgba(34, 197, 94, 0.4),
-      inset 0 0 0 1px rgba(34, 197, 94, 0.3);
+      0 0 0 3px var(--status-success-subtle),
+      0 0 30px var(--status-success-subtle),
+      inset 0 0 0 1px var(--status-success-subtle);
   }
 }
 
@@ -552,8 +549,8 @@
   height: 100%;
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.1) 0%,
-    rgba(37, 99, 235, 0.15) 100%
+    var(--primary-subtle) 0%,
+    var(--primary-subtle) 100%
   );
 }
 
@@ -563,8 +560,8 @@
   height: 80px;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 3px solid var(--white-alpha-80);
+  box-shadow: var(--shadow-md);
 }
 
 /* 首字母占位头像（未登录用户） */
@@ -572,13 +569,13 @@
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
   font-weight: 600;
-  color: white;
+  color: var(--text-inverse);
   text-transform: uppercase;
 }
 
@@ -590,37 +587,37 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(8px);
+  background: var(--white-alpha-85);
+  backdrop-filter: var(--blur-sm);
   border-radius: 6px;
   font-size: 13px;
-  color: #1e3a5f;
-  border: 1px solid rgba(147, 197, 253, 0.3);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
 }
 
 .creator-badge {
   padding: 2px 8px;
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  background: linear-gradient(135deg, var(--status-warning) 0%, var(--status-warning) 100%);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  color: white;
+  color: var(--text-inverse);
 }
 
 /* 屏幕共享徽章 */
 .screen-share-badge {
   padding: 2px 8px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, var(--status-success) 0%, var(--status-success) 100%);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  color: white;
+  color: var(--text-inverse);
 }
 
 /* 屏幕共享时视频框样式 */
 .participant-video.screen-sharing {
-  border-color: rgba(16, 185, 129, 0.5);
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3);
+  border-color: var(--status-success-subtle);
+  box-shadow: 0 0 0 1px var(--status-success-subtle);
 }
 
 /* 参与者侧边栏 */
@@ -628,12 +625,12 @@
   width: 280px;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.85) 0%,
-    rgba(255, 255, 255, 0.75) 100%
+    var(--white-alpha-85) 0%,
+    var(--white-alpha-75) 100%
   );
-  backdrop-filter: blur(12px);
+  backdrop-filter: var(--blur-md);
   border-radius: 16px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  border: 1px solid var(--border-default);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -644,8 +641,8 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1e3a5f;
-  border-bottom: 1px solid rgba(147, 197, 253, 0.3);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .participants-list {
@@ -666,7 +663,7 @@
 }
 
 .participant-item:hover {
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--primary-subtle);
 }
 
 /* 参与者列表头像图片（登录用户） */
@@ -676,7 +673,7 @@
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  border: 2px solid rgba(59, 130, 246, 0.3);
+  border: 2px solid var(--border-focus);
 }
 
 /* 参与者列表首字母头像（未登录用户） */
@@ -684,13 +681,13 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
-  color: white;
+  color: var(--text-inverse);
   text-transform: uppercase;
   flex-shrink: 0;
 }
@@ -702,7 +699,7 @@
   border: none;
   flex: 1;
   font-size: 14px;
-  color: #1e3a5f;
+  color: var(--text-primary);
 }
 
 .participant-badge {
@@ -713,13 +710,13 @@
 }
 
 .participant-badge.self {
-  background: rgba(34, 197, 94, 0.15);
-  color: #16a34a;
+  background: var(--status-success-subtle);
+  color: var(--status-success);
 }
 
 .participant-badge.host {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  background: var(--status-warning-subtle);
+  color: var(--status-warning);
 }
 
 /* 控制栏 */
@@ -729,7 +726,7 @@
   justify-content: center;
   background: linear-gradient(
     to top,
-    rgba(255, 255, 255, 0.9) 0%,
+    var(--white-alpha-90) 0%,
     transparent 100%
   );
   flex-shrink: 0;
@@ -745,15 +742,15 @@
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
-  background: rgba(255, 255, 255, 0.8);
-  color: #475569;
+  border: 1px solid var(--border-default);
+  background: var(--white-alpha-80);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .control-btn svg {
@@ -762,41 +759,41 @@
 }
 
 .control-btn:hover {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--white-alpha-95);
   transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-md);
 }
 
 .control-btn.off {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #dc2626;
+  background: var(--status-error-subtle);
+  border-color: var(--status-error);
+  color: var(--status-error);
 }
 
 .control-btn.off:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--status-error-subtle);
 }
 
 .control-btn.sharing {
-  background: rgba(34, 197, 94, 0.15);
-  border-color: rgba(34, 197, 94, 0.3);
-  color: #16a34a;
+  background: var(--status-success-subtle);
+  border-color: var(--status-success);
+  color: var(--status-success);
 }
 
 .control-btn.sharing:hover {
-  background: rgba(34, 197, 94, 0.25);
+  background: var(--status-success-subtle);
 }
 
 .control-btn.end-call {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, var(--status-error) 0%, var(--status-error) 100%);
   border-color: transparent;
-  color: white;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  color: var(--text-inverse);
+  box-shadow: 0 4px 12px var(--status-error-subtle);
 }
 
 .control-btn.end-call:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+  background: linear-gradient(135deg, var(--status-error) 0%, var(--status-error) 100%);
+  box-shadow: 0 6px 16px var(--status-error-subtle);
 }
 
 /* 状态提示 */
@@ -809,23 +806,23 @@
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(12px);
+  background: var(--white-alpha-90);
+  backdrop-filter: var(--blur-md);
   border-radius: 12px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
+  border: 1px solid var(--border-default);
   font-size: 14px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
 .meeting-status.connecting {
-  color: #2563eb;
+  color: var(--primary-hover);
 }
 
 .meeting-status.error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #dc2626;
+  background: var(--status-error-subtle);
+  border-color: var(--status-error);
+  color: var(--status-error);
 }
 
 .meeting-status .meeting-loading-spinner {
@@ -844,8 +841,8 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: var(--black-alpha-50);
+  backdrop-filter: var(--blur-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -855,13 +852,13 @@
 .screen-share-settings-modal {
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(248, 250, 255, 0.95) 100%
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
   );
-  backdrop-filter: blur(20px);
+  backdrop-filter: var(--blur-xl);
   border-radius: 16px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
   padding: 24px;
   min-width: 360px;
   max-width: 90vw;
@@ -871,7 +868,7 @@
   margin: 0 0 20px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   text-align: center;
 }
 
@@ -883,7 +880,7 @@
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: #475569;
+  color: var(--text-secondary);
   margin-bottom: 10px;
 }
 
@@ -897,42 +894,42 @@
   flex: 1;
   min-width: 100px;
   padding: 10px 16px;
-  border: 1px solid rgba(147, 197, 253, 0.4);
-  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border-default);
+  background: var(--white-alpha-80);
   border-radius: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .setting-option:hover {
-  background: rgba(147, 197, 253, 0.15);
-  border-color: rgba(147, 197, 253, 0.6);
+  background: var(--primary-subtle);
+  border-color: var(--border-strong);
 }
 
 .setting-option.active {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border-color: #2563eb;
-  color: white;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  border-color: var(--primary-hover);
+  color: var(--text-inverse);
   font-weight: 500;
 }
 
 .setting-option.disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--black-alpha-5);
 }
 
 .setting-option.disabled:hover {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(147, 197, 253, 0.4);
+  background: var(--black-alpha-5);
+  border-color: var(--border-default);
 }
 
 .option-hint {
   display: block;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-light);
   margin-top: 2px;
 }
 
@@ -954,25 +951,25 @@
 }
 
 .setting-cancel {
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(147, 197, 253, 0.4);
-  color: #64748b;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
 }
 
 .setting-cancel:hover {
-  background: rgba(147, 197, 253, 0.15);
-  border-color: rgba(147, 197, 253, 0.6);
+  background: var(--primary-subtle);
+  border-color: var(--border-strong);
 }
 
 .setting-confirm {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
   border: none;
-  color: white;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-glow);
 }
 
 .setting-confirm:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  box-shadow: var(--shadow-glow);
 }
 

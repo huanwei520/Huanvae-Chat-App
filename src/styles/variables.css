@@ -12,68 +12,150 @@
  * - 便于全局主题切换和深色模式支持
  * - 确保视觉一致性
  * 
+ * ## 主题系统集成
+ * 颜色变量现在由主题系统动态生成并注入到 :root
+ * 这里定义的是 fallback 值，在主题系统加载前使用
+ * 
  * ## 使用方式
  * ```css
  * .example {
- *   color: var(--color-text-primary);
+ *   color: var(--text-primary);
+ *   background: var(--primary);
  *   border-radius: var(--radius-lg);
- *   transition: var(--transition-smooth);
  * }
  * ```
  * 
- * ## 变量命名规范
- * - 颜色：--color-{用途/色调}-{深浅}
- * - 透明度：--{颜色}-alpha-{数值}
- * - 尺寸：--{类型}-{尺寸级别}
- * - 效果：--{效果名}-{级别}
+ * ## 变量分类
+ * ### 主题动态变量（由 ThemeProvider 注入）
+ * - --primary, --primary-hover, --primary-active, --primary-subtle, --primary-text
+ * - --accent, --accent-hover, --accent-active, --accent-subtle, --accent-text
+ * - --bg-*, --text-*, --border-*, --status-*, --shadow-*
+ * - --color-primary-1 到 --color-primary-12（色阶）
+ * - --color-accent-1 到 --color-accent-12
+ * - --color-neutral-1 到 --color-neutral-12
  * 
- * ## 注意事项
- * - 新增颜色必须先在此定义
- * - 避免在组件中硬编码颜色值
- * - 修改变量会影响所有使用处
+ * ### 静态设计变量（本文件定义）
+ * - 圆角、间距、毛玻璃效果、过渡动画、字体大小
  */
 
 :root {
   /* ============================================
-     颜色系统 - Color System
+     主题颜色 - 由 ThemeProvider 动态注入
+     这里提供 fallback 默认值
      ============================================ */
   
-  /* 主色调 - 蓝色系 (Primary Blue) */
-  --color-blue-400: rgba(96, 165, 250, 1);
-  --color-blue-500: rgba(59, 130, 246, 1);
-  --color-blue-600: rgba(37, 99, 235, 1);
-  --color-blue-400-alpha: rgba(96, 165, 250, 0.55);
-  --color-blue-500-alpha: rgba(59, 130, 246, 0.6);
-  --color-blue-600-alpha: rgba(37, 99, 235, 0.55);
+  /* 主色系 */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-active: #1d4ed8;
+  --primary-subtle: rgba(59, 130, 246, 0.15);
+  --primary-text: #1d4ed8;
   
-  /* 天蓝色系 - Sky Blue */
-  --color-sky-500: rgba(14, 165, 233, 1);
-  --color-sky-400: rgba(56, 189, 248, 1);
+  /* 强调色 */
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-active: #6d28d9;
+  --accent-subtle: rgba(139, 92, 246, 0.15);
+  --accent-text: #6d28d9;
   
-  /* 靛蓝色系 - Indigo & Violet */
-  --color-indigo-500: rgba(99, 102, 241, 1);
-  --color-violet-500: rgba(139, 92, 246, 1);
+  /* 背景色 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --bg-surface: rgba(255, 255, 255, 0.8);
+  --bg-surface-hover: rgba(255, 255, 255, 0.9);
+  --bg-muted: #e2e8f0;
+  --bg-inverse: #1e293b;
   
-  /* 文字颜色 - Text Colors */
-  --color-text-primary: #1e3a5f;    /* 主要文字 - 深蓝 */
-  --color-text-secondary: #475569;  /* 次要文字 - 灰蓝 */
-  --color-text-muted: #64748b;      /* 弱化文字 - 中灰 */
-  --color-text-light: #94a3b8;      /* 浅色文字 - 浅灰 */
-  --color-text-dark: #1e293b;       /* 深色文字 - 近黑 */
+  /* 文字颜色 */
+  --text-primary: #1e3a5f;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-light: #94a3b8;
+  --text-inverse: #ffffff;
+  --text-link: #3b82f6;
   
-  /* 功能色 - Functional Colors */
-  --color-error: #dc2626;           /* 错误/危险 */
-  --color-error-light: #ef4444;     /* 错误浅色 */
-  --color-success: #10b981;         /* 成功 */
-  --color-success-light: #34d399;   /* 成功浅色 */
+  /* 边框颜色 */
+  --border-default: rgba(147, 197, 253, 0.3);
+  --border-subtle: rgba(147, 197, 253, 0.15);
+  --border-strong: rgba(147, 197, 253, 0.5);
+  --border-focus: rgba(59, 130, 246, 0.6);
   
+  /* 状态色 */
+  --status-success: #22c55e;
+  --status-success-subtle: rgba(34, 197, 94, 0.15);
+  --status-warning: #f59e0b;
+  --status-warning-subtle: rgba(245, 158, 11, 0.15);
+  --status-error: #ef4444;
+  --status-error-subtle: rgba(239, 68, 68, 0.15);
+  --status-info: #3b82f6;
+  --status-info-subtle: rgba(59, 130, 246, 0.15);
+  
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(59, 130, 246, 0.05);
+  --shadow-md: 0 4px 12px rgba(59, 130, 246, 0.1);
+  --shadow-lg: 0 8px 32px rgba(59, 130, 246, 0.15);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.3);
+  --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.15);
+
   /* ============================================
-     透明度系统 - Alpha System
+     色阶 - 由 ThemeProvider 动态注入
+     这里提供蓝色系 fallback
      ============================================ */
   
-  /* 白色透明度 - 用于毛玻璃效果 */
+  /* 主色阶 (蓝色) */
+  --color-primary-1: #eff6ff;
+  --color-primary-2: #dbeafe;
+  --color-primary-3: #bfdbfe;
+  --color-primary-4: #93c5fd;
+  --color-primary-5: #60a5fa;
+  --color-primary-6: #3b82f6;
+  --color-primary-7: #2563eb;
+  --color-primary-8: #1d4ed8;
+  --color-primary-9: #1e40af;
+  --color-primary-10: #1e3a8a;
+  --color-primary-11: #172554;
+  --color-primary-12: #0f172a;
+  
+  /* 强调色阶 (紫色) */
+  --color-accent-1: #f5f3ff;
+  --color-accent-2: #ede9fe;
+  --color-accent-3: #ddd6fe;
+  --color-accent-4: #c4b5fd;
+  --color-accent-5: #a78bfa;
+  --color-accent-6: #8b5cf6;
+  --color-accent-7: #7c3aed;
+  --color-accent-8: #6d28d9;
+  --color-accent-9: #5b21b6;
+  --color-accent-10: #4c1d95;
+  --color-accent-11: #3b0a64;
+  --color-accent-12: #1e0533;
+  
+  /* 中性色阶 */
+  --color-neutral-1: #f8fafc;
+  --color-neutral-2: #f1f5f9;
+  --color-neutral-3: #e2e8f0;
+  --color-neutral-4: #cbd5e1;
+  --color-neutral-5: #94a3b8;
+  --color-neutral-6: #64748b;
+  --color-neutral-7: #475569;
+  --color-neutral-8: #334155;
+  --color-neutral-9: #1e293b;
+  --color-neutral-10: #0f172a;
+  --color-neutral-11: #0a0f1a;
+  --color-neutral-12: #030712;
+
+  /* ============================================
+     毛玻璃效果专用变量
+     ============================================ */
+  
+  /* 白色透明度 - 用于毛玻璃背景 (主题系统使用) */
+  --white-alpha-97: rgba(255, 255, 255, 0.97);
+  --white-alpha-95: rgba(255, 255, 255, 0.95);
   --white-alpha-90: rgba(255, 255, 255, 0.9);
+  --white-alpha-85: rgba(255, 255, 255, 0.85);
   --white-alpha-80: rgba(255, 255, 255, 0.8);
+  --white-alpha-75: rgba(255, 255, 255, 0.75);
   --white-alpha-70: rgba(255, 255, 255, 0.7);
   --white-alpha-60: rgba(255, 255, 255, 0.6);
   --white-alpha-50: rgba(255, 255, 255, 0.5);
@@ -84,12 +166,69 @@
   --white-alpha-25: rgba(255, 255, 255, 0.25);
   --white-alpha-20: rgba(255, 255, 255, 0.2);
   --white-alpha-15: rgba(255, 255, 255, 0.15);
+  --white-alpha-10: rgba(255, 255, 255, 0.1);
   
-  /* 蓝色透明度 - 用于边框和阴影 */
-  --blue-alpha-light: rgba(147, 197, 253, 0.8);
-  --blue-alpha-medium: rgba(147, 197, 253, 0.3);
-  --blue-alpha-subtle: rgba(147, 197, 253, 0.15);
+  /* 黑色透明度 - 用于遮罩和阴影 */
+  --black-alpha-60: rgba(0, 0, 0, 0.6);
+  --black-alpha-50: rgba(0, 0, 0, 0.5);
+  --black-alpha-30: rgba(0, 0, 0, 0.3);
+  --black-alpha-10: rgba(0, 0, 0, 0.1);
+  --black-alpha-5: rgba(0, 0, 0, 0.05);
   
+  /* 兼容旧变量名 (glass-white-*) */
+  --glass-white-90: rgba(255, 255, 255, 0.9);
+  --glass-white-80: rgba(255, 255, 255, 0.8);
+  --glass-white-70: rgba(255, 255, 255, 0.7);
+  --glass-white-60: rgba(255, 255, 255, 0.6);
+  --glass-white-50: rgba(255, 255, 255, 0.5);
+  --glass-white-45: rgba(255, 255, 255, 0.45);
+  --glass-white-40: rgba(255, 255, 255, 0.4);
+  --glass-white-35: rgba(255, 255, 255, 0.35);
+  --glass-white-30: rgba(255, 255, 255, 0.3);
+  --glass-white-25: rgba(255, 255, 255, 0.25);
+  --glass-white-20: rgba(255, 255, 255, 0.2);
+  --glass-white-15: rgba(255, 255, 255, 0.15);
+  --glass-white-10: rgba(255, 255, 255, 0.1);
+
+  /* 毛玻璃边框 */
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-border-light: rgba(255, 255, 255, 0.8);
+  --glass-border-subtle: rgba(255, 255, 255, 0.4);
+
+  /* ============================================
+     渐变色
+     ============================================ */
+  
+  /* 主渐变（按钮、强调元素） */
+  --gradient-primary: linear-gradient(135deg, var(--color-primary-5) 0%, var(--primary) 50%, var(--primary-hover) 100%);
+  --gradient-primary-subtle: linear-gradient(135deg, var(--color-primary-5) 0%, var(--primary) 100%);
+  
+  /* 背景渐变 */
+  --gradient-bg-page: linear-gradient(135deg, 
+    var(--color-primary-2) 0%, 
+    var(--color-neutral-1) 25%,
+    var(--bg-primary) 50%, 
+    var(--color-neutral-1) 75%,
+    var(--color-primary-2) 100%
+  );
+  
+  /* 毛玻璃渐变 */
+  --gradient-glass: linear-gradient(135deg, 
+    var(--glass-white-35) 0%,
+    var(--glass-white-20) 50%,
+    var(--glass-white-30) 100%
+  );
+  --gradient-glass-hover: linear-gradient(135deg, 
+    var(--glass-white-45) 0%,
+    var(--glass-white-30) 50%,
+    var(--glass-white-40) 100%
+  );
+
+  /* 状态渐变 */
+  --gradient-success: linear-gradient(135deg, #22c55e, #16a34a);
+  --gradient-error: linear-gradient(135deg, #ef4444, #dc2626);
+  --gradient-warning: linear-gradient(135deg, #f59e0b, #d97706);
+
   /* ============================================
      圆角系统 - Border Radius
      ============================================ */

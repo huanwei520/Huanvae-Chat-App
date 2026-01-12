@@ -7,48 +7,15 @@
  * @layer       第三层 - 组件层
  * @author      Huanvae Chat Team
  * 
- * ## 作用
- * - 提供表单输入样式
- * - 实现毛玻璃输入框效果
- * - 支持协议前缀选择（http/https）
- * 
- * ## 包含类名
- * | 类名 | 说明 |
- * |------|------|
- * | .form-group | 表单组容器 |
- * | .form-label | 表单标签 |
- * | .glass-input | 毛玻璃输入框 |
- * | .input-with-prefix | 带前缀的输入框容器 |
- * | .protocol-toggle | 协议切换按钮 |
- * | .optional-label | 可选字段标签 |
- * 
- * ## 交互状态
- * | 状态 | 效果 |
- * |------|------|
- * | 默认 | 半透明背景，白色边框 |
- * | :hover | 增强透明度和阴影 |
- * | :focus | 蓝色边框光环，增强模糊 |
- * 
- * ## 使用示例
- * ```jsx
- * <div className="form-group">
- *   <label className="form-label">用户名</label>
- *   <input className="glass-input" placeholder="请输入" />
- * </div>
- * 
- * // 带协议选择
- * <div className="input-with-prefix">
- *   <button className="protocol-toggle">https://</button>
- *   <input className="glass-input with-prefix" />
- * </div>
- * ```
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入
  */
 
 /* ============================================
    表单组容器
    ============================================ */
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 /* ============================================
@@ -56,11 +23,11 @@
    ============================================ */
 .form-label {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
-  color: #475569;
-  margin-bottom: 8px;
-  padding-left: 4px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-1);
 }
 
 /* ============================================
@@ -71,75 +38,75 @@
 .glass-input {
   width: 100%;
   padding: 14px 18px;
-  font-size: 15px;
-  color: #1e293b;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
   
   /* 半透明渐变背景 */
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.45) 0%,
-    rgba(255, 255, 255, 0.3) 100%
+    var(--glass-white-45) 0%,
+    var(--glass-white-30) 100%
   );
   
   /* 毛玻璃效果 */
-  backdrop-filter: blur(12px) saturate(150%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
   
   /* 边框 */
-  border: 1.5px solid rgba(255, 255, 255, 0.7);
-  border-radius: 14px;
+  border: 1.5px solid var(--glass-white-70);
+  border-radius: var(--radius-lg);
   outline: none;
   
   /* 过渡动画 */
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-smooth);
   
   /* 阴影 */
   box-shadow: 
-    0 0 20px rgba(255, 255, 255, 0.3),
+    0 0 20px var(--glass-white-30),
     0 2px 8px rgba(0, 0, 0, 0.03),
-    inset 0 1px 2px rgba(255, 255, 255, 0.9),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.3);
+    inset 0 1px 2px var(--glass-white-90),
+    inset 0 -1px 1px var(--glass-white-30);
 }
 
 /* 占位符样式 */
 .glass-input::placeholder {
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* ============================================
    悬停状态
    ============================================ */
 .glass-input:hover {
-  border-color: rgba(255, 255, 255, 0.9);
+  border-color: var(--glass-white-90);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.4) 100%
+    var(--glass-white-50) 0%,
+    var(--glass-white-40) 100%
   );
   box-shadow: 
-    0 0 25px rgba(255, 255, 255, 0.4),
-    0 4px 12px rgba(59, 130, 246, 0.08),
-    inset 0 1px 2px rgba(255, 255, 255, 1),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.4);
+    0 0 25px var(--glass-white-40),
+    0 4px 12px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.08),
+    inset 0 1px 2px var(--white-alpha-97),
+    inset 0 -1px 1px var(--glass-white-40);
 }
 
 /* ============================================
    聚焦状态
    ============================================ */
 .glass-input:focus {
-  border-color: rgba(147, 197, 253, 0.8);
+  border-color: rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.8);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.6) 0%,
-    rgba(255, 255, 255, 0.45) 100%
+    var(--glass-white-60) 0%,
+    var(--glass-white-45) 100%
   );
   box-shadow: 
-    /* 外围蓝色光环 */
-    0 0 0 4px rgba(59, 130, 246, 0.1),
-    0 0 30px rgba(147, 197, 253, 0.25),
-    0 4px 16px rgba(59, 130, 246, 0.1),
-    inset 0 1px 2px rgba(255, 255, 255, 1),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.4);
+    /* 外围主色光环 */
+    0 0 0 4px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.1),
+    0 0 30px rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.25),
+    0 4px 16px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.1),
+    inset 0 1px 2px var(--white-alpha-97),
+    inset 0 -1px 1px var(--glass-white-40);
 }
 
 /* ============================================
@@ -162,22 +129,22 @@
   top: 2px;
   bottom: 2px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
-  color: #3b82f6;
+  color: var(--primary);
   
-  /* 浅蓝色背景 */
+  /* 浅主色背景 */
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.1) 0%,
-    rgba(147, 197, 253, 0.15) 100%
+    var(--primary-subtle) 0%,
+    rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.15) 100%
   );
   
   border: none;
-  border-right: 1.5px solid rgba(148, 163, 184, 0.3);
-  border-radius: 12px 0 0 12px;
+  border-right: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   
   display: flex;
   align-items: center;
@@ -190,18 +157,18 @@
 .protocol-toggle:hover {
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.2) 0%,
-    rgba(147, 197, 253, 0.25) 100%
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.2) 0%,
+    rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.25) 100%
   );
-  color: #2563eb;
+  color: var(--primary-hover);
 }
 
 /* 协议按钮激活 */
 .protocol-toggle:active {
   background: linear-gradient(
     135deg,
-    rgba(59, 130, 246, 0.25) 0%,
-    rgba(147, 197, 253, 0.3) 100%
+    rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.25) 0%,
+    rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.3) 100%
   );
 }
 
@@ -225,5 +192,5 @@
    ============================================ */
 .optional-label {
   font-weight: 400;
-  color: #94a3b8;
+  color: var(--text-light);
 }

@@ -17,10 +17,10 @@
   overflow: hidden;
 
   /* 白色毛玻璃效果 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.4) 100%);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border-right: 1px solid rgba(147, 197, 253, 0.2);
+  background: linear-gradient(180deg, var(--white-alpha-60) 0%, var(--white-alpha-40) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border-right: 1px solid var(--border-subtle);
 }
 
 /* ============================================
@@ -32,7 +32,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(147, 197, 253, 0.2);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-back-btn {
@@ -42,8 +42,8 @@
   padding: 8px 12px;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.6);
-  color: #3b82f6;
+  background: var(--white-alpha-60);
+  color: var(--primary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -51,18 +51,18 @@
 }
 
 .settings-back-btn:hover {
-  background: rgba(147, 197, 253, 0.3);
-  color: #2563eb;
+  background: var(--primary-subtle);
+  color: var(--primary-hover);
 }
 
 .settings-back-btn svg {
-  color: #60a5fa;
+  color: var(--color-primary-7);
 }
 
 .settings-panel-title {
   font-size: 16px;
   font-weight: 600;
-  color: #2563eb;
+  color: var(--primary-hover);
   margin: 0;
 }
 
@@ -92,7 +92,7 @@
 .settings-section-title {
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0;
@@ -110,9 +110,9 @@
    ============================================ */
 
 .settings-group {
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--white-alpha-60);
   border-radius: 12px;
-  border: 1px solid rgba(147, 197, 253, 0.2);
+  border: 1px solid var(--border-subtle);
   overflow: hidden;
 }
 
@@ -136,7 +136,7 @@
   left: 48px;
   right: 16px;
   height: 1px;
-  background: rgba(147, 197, 253, 0.15);
+  background: var(--border-subtle);
 }
 
 .settings-row-clickable {
@@ -145,19 +145,19 @@
 }
 
 .settings-row-clickable:hover {
-  background: rgba(147, 197, 253, 0.1);
+  background: var(--primary-subtle);
 }
 
 .settings-row-danger .settings-row-title {
-  color: #dc2626;
+  color: var(--status-error);
 }
 
 .settings-row-danger .settings-row-subtitle {
-  color: #f87171;
+  color: var(--status-error);
 }
 
 .settings-row-danger .settings-row-icon {
-  color: #f59e0b;
+  color: var(--status-warning);
 }
 
 /* 行图标 */
@@ -165,8 +165,8 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: rgba(147, 197, 253, 0.15);
-  color: #3b82f6;
+  background: var(--primary-subtle);
+  color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -185,12 +185,12 @@
 .settings-row-title {
   font-size: 14px;
   font-weight: 500;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .settings-row-subtitle {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 /* 行右侧 */
@@ -203,14 +203,14 @@
 
 .settings-row-value {
   font-size: 14px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .settings-row-arrow {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* 行按钮 */
@@ -221,8 +221,8 @@
   padding: 8px 14px;
   border: none;
   border-radius: 8px;
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: var(--primary-subtle);
+  color: var(--primary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -230,7 +230,7 @@
 }
 
 .settings-row-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.2);
+  background: var(--primary-subtle);
 }
 
 .settings-row-btn:disabled {
@@ -239,19 +239,19 @@
 }
 
 .settings-row-btn-danger {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
 }
 
 .settings-row-btn-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--status-error-subtle);
 }
 
 /* 行展开内容 */
 .settings-row-expand {
   overflow: hidden;
-  background: rgba(248, 250, 252, 0.5);
-  border-top: 1px solid rgba(147, 197, 253, 0.1);
+  background: var(--white-alpha-60);
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* ============================================
@@ -275,7 +275,7 @@
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background: rgba(147, 197, 253, 0.3);
+  background: var(--border-subtle);
   border-radius: 12px;
   transition: all 0.2s ease;
 }
@@ -287,18 +287,18 @@
   height: 18px;
   left: 3px;
   bottom: 3px;
-  background: #fff;
+  background: var(--bg-primary);
   border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+  box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
 }
 
 .settings-toggle input:checked + .toggle-slider {
-  background: #3b82f6;
+  background: var(--primary);
 }
 
 .settings-toggle input:checked + .toggle-slider::before {
-  background: #fff;
+  background: var(--bg-primary);
   transform: translateX(20px);
 }
 
@@ -316,15 +316,15 @@
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--white-alpha-60);
   border-radius: 8px;
   margin-bottom: 12px;
-  border: 1px solid rgba(147, 197, 253, 0.15);
+  border: 1px solid var(--border-subtle);
 }
 
 .volume-label {
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--primary);
   flex-shrink: 0;
   font-weight: 500;
 }
@@ -334,7 +334,7 @@
   height: 4px;
   -webkit-appearance: none;
   appearance: none;
-  background: rgba(147, 197, 253, 0.3);
+  background: var(--border-subtle);
   border-radius: 2px;
   outline: none;
 }
@@ -344,11 +344,11 @@
   appearance: none;
   width: 14px;
   height: 14px;
-  background: #3b82f6;
+  background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.15s ease;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  box-shadow: var(--shadow-glow);
 }
 
 .volume-slider::-webkit-slider-thumb:hover {
@@ -357,7 +357,7 @@
 
 .volume-value {
   font-size: 12px;
-  color: #3b82f6;
+  color: var(--primary);
   min-width: 32px;
   text-align: right;
   font-weight: 500;
@@ -377,7 +377,7 @@
 .sounds-empty {
   padding: 20px;
   text-align: center;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -386,15 +386,15 @@
   padding: 8px 14px;
   border: none;
   border-radius: 6px;
-  background: rgba(147, 197, 253, 0.2);
-  color: #3b82f6;
+  background: var(--primary-subtle);
+  color: var(--primary);
   font-size: 12px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .sounds-empty .refresh-btn:hover {
-  background: rgba(147, 197, 253, 0.4);
+  background: var(--primary-subtle);
 }
 
 /* 提示音项 */
@@ -408,11 +408,11 @@
 }
 
 .sound-item:hover {
-  background: rgba(147, 197, 253, 0.1);
+  background: var(--primary-subtle);
 }
 
 .sound-item.selected {
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--primary-subtle);
 }
 
 .sound-select-btn {
@@ -424,7 +424,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #3b82f6;
+  color: var(--primary);
   font-size: 13px;
   cursor: pointer;
   text-align: left;
@@ -433,7 +433,7 @@
 .sound-check {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(147, 197, 253, 0.5);
+  border: 2px solid var(--border-default);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -443,9 +443,9 @@
 }
 
 .sound-item.selected .sound-check {
-  background: #3b82f6;
-  border-color: #3b82f6;
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-inverse);
 }
 
 .sound-name {
@@ -453,7 +453,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .sound-actions {
@@ -468,7 +468,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -477,13 +477,13 @@
 }
 
 .sound-action-btn:hover {
-  background: rgba(147, 197, 253, 0.2);
-  color: #3b82f6;
+  background: var(--primary-subtle);
+  color: var(--primary);
 }
 
 .sound-action-btn.delete-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--status-error);
+  background: var(--status-error-subtle);
 }
 
 /* 删除确认 */
@@ -502,21 +502,21 @@
 }
 
 .delete-confirm .confirm-yes {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
 }
 
 .delete-confirm .confirm-yes:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--status-error-subtle);
 }
 
 .delete-confirm .confirm-no {
-  background: rgba(147, 197, 253, 0.2);
-  color: #3b82f6;
+  background: var(--primary-subtle);
+  color: var(--primary);
 }
 
 .delete-confirm .confirm-no:hover {
-  background: rgba(147, 197, 253, 0.3);
+  background: var(--primary-subtle);
 }
 
 /* 上传按钮 */
@@ -527,19 +527,19 @@
   gap: 8px;
   width: 100%;
   padding: 12px;
-  border: 2px dashed rgba(147, 197, 253, 0.4);
+  border: 2px dashed var(--border-default);
   border-radius: 8px;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .upload-sound-btn:hover {
-  border-color: #3b82f6;
-  color: #3b82f6;
-  background: rgba(147, 197, 253, 0.1);
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-subtle);
 }
 
 .upload-sound-btn:disabled {
@@ -552,10 +552,10 @@
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
   font-size: 12px;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--status-error);
 }
 
 /* ============================================
@@ -565,36 +565,36 @@
 .reset-confirm-box {
   margin-top: 12px;
   padding: 14px;
-  background: rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  background: var(--status-error-subtle);
+  border: 1px solid var(--status-error);
   border-radius: 10px;
   overflow: hidden;
 }
 
 .reset-confirm-hint {
   font-size: 13px;
-  color: #ef4444;
+  color: var(--status-error);
   margin: 0 0 10px 0;
 }
 
 .reset-confirm-input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--status-error);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--white-alpha-80);
   font-size: 14px;
-  color: #1e293b;
+  color: var(--text-primary);
   outline: none;
   transition: border-color 0.15s ease;
 }
 
 .reset-confirm-input:focus {
-  border-color: #ef4444;
+  border-color: var(--status-error);
 }
 
 .reset-confirm-input::placeholder {
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 .reset-confirm-actions {
@@ -619,21 +619,21 @@
 }
 
 .reset-confirm-btn-danger {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
 }
 
 .reset-confirm-btn-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--status-error-subtle);
 }
 
 .reset-confirm-btn-cancel {
-  background: rgba(148, 163, 184, 0.15);
-  color: #64748b;
+  background: var(--bg-muted);
+  color: var(--text-muted);
 }
 
 .reset-confirm-btn-cancel:hover:not(:disabled) {
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--bg-muted);
 }
 
 /* ============================================
@@ -648,15 +648,15 @@
 }
 
 .settings-result-success {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: var(--status-success-subtle);
+  color: var(--status-success);
+  border: 1px solid var(--status-success);
 }
 
 .settings-result-error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+  border: 1px solid var(--status-error);
 }
 
 /* ============================================
@@ -672,8 +672,8 @@
   height: 72px;
   min-height: 72px;
   padding: 0 20px;
-  border-top: 1px solid rgba(147, 197, 253, 0.2);
-  background: rgba(255, 255, 255, 0.3);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--white-alpha-30);
   flex-shrink: 0;
 }
 
@@ -686,18 +686,18 @@
 .app-version-name {
   font-size: 14px;
   font-weight: 600;
-  color: #3b82f6;
+  color: var(--primary);
 }
 
 .app-version-number {
   font-size: 12px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .app-version-copyright {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* ============================================
@@ -716,13 +716,13 @@
 
 .settings-panel-content::-webkit-scrollbar-thumb,
 .sounds-list::-webkit-scrollbar-thumb {
-  background: rgba(147, 197, 253, 0.3);
+  background: var(--border-subtle);
   border-radius: 3px;
 }
 
 .settings-panel-content::-webkit-scrollbar-thumb:hover,
 .sounds-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(147, 197, 253, 0.5);
+  background: var(--border-default);
 }
 
 /* ============================================
@@ -740,9 +740,9 @@
   overflow: hidden;
 
   /* 白色毛玻璃效果 */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
   z-index: 10;
 }
 
@@ -751,7 +751,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(147, 197, 253, 0.2);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .device-list-title {
@@ -759,7 +759,7 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .device-refresh-btn {
@@ -770,14 +770,14 @@
   height: 36px;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.6);
-  color: #3b82f6;
+  background: var(--white-alpha-60);
+  color: var(--primary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .device-refresh-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--white-alpha-90);
   transform: rotate(180deg);
 }
 
@@ -796,8 +796,8 @@
   margin-bottom: 16px;
   padding: 12px 16px;
   font-size: 13px;
-  color: #64748b;
-  background: rgba(147, 197, 253, 0.1);
+  color: var(--text-muted);
+  background: var(--primary-subtle);
   border-radius: 8px;
   line-height: 1.5;
 }
@@ -815,14 +815,14 @@
   justify-content: center;
   gap: 12px;
   padding: 40px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .device-loading-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(59, 130, 246, 0.2);
-  border-top-color: #3b82f6;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: device-spin 0.8s linear infinite;
 }
@@ -839,7 +839,7 @@
   align-items: center;
   gap: 12px;
   padding: 40px;
-  color: #ef4444;
+  color: var(--status-error);
   text-align: center;
 }
 
@@ -847,21 +847,21 @@
   padding: 8px 16px;
   border: none;
   border-radius: 6px;
-  background: #3b82f6;
-  color: white;
+  background: var(--primary);
+  color: var(--text-inverse);
   font-size: 14px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .device-list-error button:hover {
-  background: #2563eb;
+  background: var(--primary-hover);
 }
 
 .device-list-empty {
   text-align: center;
   padding: 40px;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* 设备项 */
@@ -872,8 +872,8 @@
   gap: 16px;
   padding: 16px;
   margin-bottom: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(147, 197, 253, 0.2);
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -883,13 +883,13 @@
 }
 
 .device-item:hover {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(147, 197, 253, 0.3);
+  background: var(--white-alpha-95);
+  border-color: var(--border-default);
 }
 
 .device-item-current {
-  border-color: rgba(16, 185, 129, 0.3);
-  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--status-success);
+  background: var(--status-success-subtle);
 }
 
 .device-item-icon {
@@ -898,18 +898,18 @@
   justify-content: center;
   width: 48px;
   height: 48px;
-  background: rgba(147, 197, 253, 0.1);
+  background: var(--primary-subtle);
   border-radius: 12px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .device-item-current .device-item-icon {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  background: var(--status-success-subtle);
+  color: var(--status-success);
 }
 
 .device-item-current .device-item-icon svg {
-  stroke: #10b981 !important;
+  stroke: var(--status-success) !important;
 }
 
 .device-item-info {
@@ -924,15 +924,15 @@
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .device-item-badge {
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 500;
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--status-success);
+  background: var(--status-success-subtle);
   border-radius: 4px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -942,8 +942,8 @@
 .device-remove-all-section {
   margin-bottom: 16px;
   padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--status-error-subtle);
+  border: 1px solid var(--status-error);
   border-radius: 12px;
 }
 
@@ -952,17 +952,17 @@
   padding: 10px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: #dc2626;
+  color: var(--status-error);
   background: transparent;
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  border: 1px solid var(--status-error);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .device-remove-all-btn:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.1);
-  border-color: rgba(220, 38, 38, 0.5);
+  background: var(--status-error-subtle);
+  border-color: var(--status-error);
 }
 
 .device-remove-all-btn:disabled {
@@ -979,7 +979,7 @@
 .device-remove-all-warning {
   font-size: 13px;
   font-weight: 500;
-  color: #dc2626;
+  color: var(--status-error);
   text-align: center;
 }
 
@@ -992,7 +992,7 @@
 .device-item-meta {
   margin-top: 4px;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 .device-item-actions {
@@ -1007,14 +1007,14 @@
   height: 36px;
   border: none;
   border-radius: 8px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .device-delete-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--status-error-subtle);
 }
 
 .device-delete-btn:disabled {
@@ -1038,21 +1038,21 @@
 }
 
 .device-confirm-yes {
-  background: #ef4444;
-  color: white;
+  background: var(--status-error);
+  color: var(--text-inverse);
 }
 
 .device-confirm-yes:hover {
-  background: #dc2626;
+  background: var(--status-error);
 }
 
 .device-confirm-no {
-  background: rgba(100, 116, 139, 0.1);
-  color: #64748b;
+  background: var(--bg-muted);
+  color: var(--text-muted);
 }
 
 .device-confirm-no:hover {
-  background: rgba(100, 116, 139, 0.2);
+  background: var(--bg-muted);
 }
 
 .device-confirm-btn:disabled {
@@ -1071,12 +1071,12 @@
 }
 
 .device-list-content::-webkit-scrollbar-thumb {
-  background: rgba(147, 197, 253, 0.3);
+  background: var(--border-subtle);
   border-radius: 3px;
 }
 
 .device-list-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(147, 197, 253, 0.5);
+  background: var(--border-default);
 }
 
 /* ============================================
@@ -1099,31 +1099,31 @@
   width: 48px;
   padding: 8px 0;
   border-radius: 8px;
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--primary-subtle);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .threshold-display:hover {
-  background: rgba(59, 130, 246, 0.2);
+  background: var(--primary-subtle);
 }
 
 .threshold-display .threshold-value {
   font-size: 13px;
   font-weight: 500;
-  color: #3b82f6;
+  color: var(--primary);
 }
 
 /* 阈值编辑模式 */
 .threshold-input {
   width: 48px;
   padding: 7px 0;
-  border: 1px solid #3b82f6;
+  border: 1px solid var(--primary);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--white-alpha-95);
   font-size: 13px;
   font-weight: 500;
-  color: #1e40af;
+  color: var(--primary-hover);
   text-align: center;
   transition: all 0.15s ease;
   /* 隐藏默认箭头 */
@@ -1132,7 +1132,7 @@
 
 .threshold-input:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  box-shadow: var(--shadow-focus);
 }
 
 /* 隐藏 Webkit 浏览器的 spin button */
@@ -1146,6 +1146,6 @@
 .threshold-unit {
   font-size: 13px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--text-muted);
   flex-shrink: 0;
 }

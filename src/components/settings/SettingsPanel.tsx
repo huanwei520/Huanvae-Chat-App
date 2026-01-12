@@ -31,6 +31,7 @@ import {
   UpdateToast,
   type UpdateInfo,
 } from '../../update';
+import { openThemeEditorWindow, useThemeStore, getPresetConfig } from '../../theme';
 import { SettingsSection } from './SettingsSection';
 import { SettingsGroup } from './SettingsGroup';
 import { SettingsRow } from './SettingsRow';
@@ -141,6 +142,25 @@ const FileIcon: React.FC = () => (
     <polyline points="14 2 14 8 20 8" />
     <line x1="16" y1="13" x2="8" y2="13" />
     <line x1="16" y1="17" x2="8" y2="17" />
+  </svg>
+);
+
+const PaletteIcon: React.FC = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="13.5" cy="6.5" r="0.5" fill="currentColor" />
+    <circle cx="17.5" cy="10.5" r="0.5" fill="currentColor" />
+    <circle cx="8.5" cy="7.5" r="0.5" fill="currentColor" />
+    <circle cx="6.5" cy="12.5" r="0.5" fill="currentColor" />
+    <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z" />
   </svg>
 );
 
@@ -276,6 +296,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
 
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
+
+  // 主题状态
+  const themePreset = useThemeStore((s) => s.config.preset);
 
   // 阈值编辑状态
   const [isEditingThreshold, setIsEditingThreshold] = useState(false);
@@ -431,7 +454,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           {result && <ResultToast type={result.type} message={result.message} />}
         </AnimatePresence>
 
-        {/* 分组一：通知与提醒 */}
+        {/* 分组一：外观 */}
+        <SettingsSection title="外观">
+          <SettingsGroup>
+            <SettingsRow
+              icon={<PaletteIcon />}
+              title="主题设置"
+              subtitle={`当前: ${getPresetConfig(themePreset).name}`}
+              type="arrow"
+              onClick={() => openThemeEditorWindow()}
+              showDivider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        {/* 分组二：通知与提醒 */}
         <SettingsSection title="通知与提醒">
           <SettingsGroup>
             <SettingsRow
@@ -449,7 +486,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           </SettingsGroup>
         </SettingsSection>
 
-        {/* 分组二：存储与数据 */}
+        {/* 分组三：存储与数据 */}
         <SettingsSection title="存储与数据">
           <SettingsGroup>
             <SettingsRow
@@ -532,7 +569,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           </AnimatePresence>
         </SettingsSection>
 
-        {/* 分组三：账户与安全 */}
+        {/* 分组四：账户与安全 */}
         <SettingsSection title="账户与安全">
           <SettingsGroup>
             <SettingsRow
@@ -545,7 +582,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           </SettingsGroup>
         </SettingsSection>
 
-        {/* 分组四：关于 */}
+        {/* 分组五：关于 */}
         <SettingsSection title="关于">
           <SettingsGroup>
             <SettingsRow
