@@ -457,7 +457,7 @@ function AdvancedOpacitySettings() {
   const [expanded, setExpanded] = useState(false);
   const preset = useThemeStore((s) => s.config.preset);
   const storeOpacityLevels = useThemeStore(
-    (s) => s.config.customColors.glass?.opacityLevels ?? DEFAULT_OPACITY_LEVELS
+    (s) => s.config.customColors.glass?.opacityLevels ?? DEFAULT_OPACITY_LEVELS,
   );
   const setOpacityLevel = useThemeStore((s) => s.setOpacityLevel);
 
