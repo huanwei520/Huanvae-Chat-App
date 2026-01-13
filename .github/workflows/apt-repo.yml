@@ -201,9 +201,22 @@ jobs:
           EOF
 
       - name: Commit and push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+          
+          # 检查是否在 gh-pages 分支
+          CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+          
+          if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" != "gh-pages" ]; then
+            # 不在 gh-pages 分支，需要创建或切换
+            git checkout --orphan gh-pages 2>/dev/null || git checkout -B gh-pages
+          fi
+          
           git add -A
           git diff --staged --quiet || git commit -m "Update APT repository - $(date -u +%Y-%m-%d)"
-          git push origin gh-pages || git push --set-upstream origin gh-pages
+          
+          # 强制推送到 gh-pages（首次创建或更新）
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
