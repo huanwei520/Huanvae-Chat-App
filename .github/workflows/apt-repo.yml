@@ -40,12 +40,18 @@ jobs:
           mkdir -p dists/stable/main/binary-amd64
 
       - name: Import GPG key
-        if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: |
-          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
-          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
-          echo "HAS_GPG=true" >> $GITHUB_ENV
+          if [ -n "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+            GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+            echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+            echo "HAS_GPG=true" >> $GITHUB_ENV
+          else
+            echo "No GPG key configured, skipping signing"
+            echo "HAS_GPG=false" >> $GITHUB_ENV
+          fi
 
       - name: Download latest deb from release
         env:
