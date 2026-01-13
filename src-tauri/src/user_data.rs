@@ -41,7 +41,9 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 
 /// 获取应用数据根目录
 /// 开发模式：相对于 src-tauri 的 ../data（项目根目录）
-/// 生产模式：可执行文件旁边的 data 目录
+/// 生产模式：
+///   - Linux: ~/.local/share/huanvae-chat/data/（用户可写）
+///   - Windows/macOS: 可执行文件旁边的 data 目录
 fn get_app_root() -> PathBuf {
     // 获取可执行文件所在目录
     let Ok(exe_path) = std::env::current_exe() else {
@@ -71,7 +73,28 @@ fn get_app_root() -> PathBuf {
         }
     }
 
-    // 生产模式：可执行文件旁边的 data 目录
+    // Linux 生产模式：检查是否安装在系统目录（/opt, /usr 等）
+    // 如果是，则使用用户目录存储数据
+    #[cfg(target_os = "linux")]
+    {
+        let exe_dir_lower = exe_dir_str.to_lowercase();
+        let is_system_install = exe_dir_lower.starts_with("/opt")
+            || exe_dir_lower.starts_with("/usr")
+            || exe_dir_lower.starts_with("/snap");
+
+        if is_system_install {
+            // 使用 XDG 规范的用户数据目录
+            if let Some(data_dir) = dirs::data_local_dir() {
+                return data_dir.join("huanvae-chat").join("data");
+            }
+            // 回退到 home 目录
+            if let Some(home_dir) = dirs::home_dir() {
+                return home_dir.join(".local").join("share").join("huanvae-chat").join("data");
+            }
+        }
+    }
+
+    // Windows/macOS 生产模式：可执行文件旁边的 data 目录
     exe_dir.join("data")
 }
 
