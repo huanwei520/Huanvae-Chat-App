@@ -1,0 +1,16 @@
+Origin: Huanvae Chat
+Label: Huanvae Chat
+Suite: stable
+Codename: stable
+Architectures: amd64
+Components: main
+Description: Huanvae Chat APT Repository
+Date: Tue, 13 Jan 2026 17:17:44 +0000
+MD5Sum:
+ 39ca98243576592f936204fac3fa8d10 452 main/binary-amd64/Packages.xz
+ a1ca942b72a037ccb88ef906ae339428 566 main/binary-amd64/Packages
+ 48b0a9b8d938f49eab458b10559932a3 420 main/binary-amd64/Packages.gz
+SHA256:
+ 752ac9fa394f2e61c6a9359468f59619fcda68f4fa08df3dcb364a7f9d2dc9a6 452 main/binary-amd64/Packages.xz
+ 00b7630e3c8396223fc753082c50cffd6a9a9f0ca54e45305f9d8d2f15cc6e76 566 main/binary-amd64/Packages
+ 225bed48a0237a73d78199a9be21abe51c6bd4b4b01f9e619f32812853e9cf23 420 main/binary-amd64/Packages.gz
