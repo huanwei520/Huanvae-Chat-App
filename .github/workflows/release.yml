@@ -189,6 +189,8 @@ jobs:
           #!/bin/bash
           set -e
           
+          REPO_URL="https://huanwei520.github.io/Huanvae-Chat-App"
+          
           # 创建符号链接到 /usr/local/bin
           ln -sf /opt/huanvae-chat/huanvae-chat-app /usr/local/bin/huanvae-chat
           
@@ -205,9 +207,31 @@ jobs:
             gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
           fi
           
+          # 配置 APT 仓库源（用于自动更新）
+          if [ ! -f /etc/apt/sources.list.d/huanvae-chat.list ]; then
+            echo "📦 配置 APT 仓库源..."
+            
+            # 下载并安装 GPG 密钥
+            if command -v curl &> /dev/null; then
+              curl -fsSL "${REPO_URL}/gpg.key" 2>/dev/null | \
+                gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg 2>/dev/null || true
+            elif command -v wget &> /dev/null; then
+              wget -qO- "${REPO_URL}/gpg.key" 2>/dev/null | \
+                gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg 2>/dev/null || true
+            fi
+            
+            # 添加仓库源
+            if [ -f /usr/share/keyrings/huanvae-chat.gpg ]; then
+              echo "deb [signed-by=/usr/share/keyrings/huanvae-chat.gpg] ${REPO_URL} stable main" > \
+                /etc/apt/sources.list.d/huanvae-chat.list
+              echo "✅ APT 仓库已配置，可使用 apt upgrade 更新"
+            fi
+          fi
+          
           echo ""
           echo "✅ Huanvae Chat 已安装到 /opt/huanvae-chat/"
           echo "   运行命令: huanvae-chat"
+          echo "   更新命令: sudo apt update && sudo apt upgrade"
           echo ""
           POSTINST
           chmod 755 "$WORK_DIR/DEBIAN/postinst"
@@ -224,7 +248,12 @@ jobs:
           cat > "$WORK_DIR/DEBIAN/postrm" << 'POSTRM'
           #!/bin/bash
           if [ "$1" = "purge" ] || [ "$1" = "remove" ]; then
+            # 清理应用目录
             rm -rf /opt/huanvae-chat 2>/dev/null || true
+            
+            # 清理 APT 仓库配置
+            rm -f /etc/apt/sources.list.d/huanvae-chat.list 2>/dev/null || true
+            rm -f /usr/share/keyrings/huanvae-chat.gpg 2>/dev/null || true
           fi
           POSTRM
           chmod 755 "$WORK_DIR/DEBIAN/postrm"

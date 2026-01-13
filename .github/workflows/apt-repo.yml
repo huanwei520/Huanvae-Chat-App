@@ -1,0 +1,203 @@
+# Huanvae Chat APT 仓库自动更新
+#
+# 当新版本发布后自动更新 APT 仓库索引
+# 用户可通过 apt upgrade 获取更新
+#
+# 使用方法：
+# 1. 生成 GPG 密钥并添加到 GitHub Secrets (APT_GPG_PRIVATE_KEY)
+# 2. 启用 GitHub Pages (gh-pages 分支)
+# 3. 发布新版本后自动触发
+
+name: Update APT Repository
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  update-apt-repo:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+        continue-on-error: true
+
+      - name: Initialize gh-pages if not exists
+        run: |
+          if [ ! -d ".git" ]; then
+            git init
+            git remote add origin https://github.com/${{ github.repository }}.git
+            git checkout -b gh-pages
+          fi
+          mkdir -p pool/main/h/huanvae-chat
+          mkdir -p dists/stable/main/binary-amd64
+
+      - name: Import GPG key
+        if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+        run: |
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+          echo "HAS_GPG=true" >> $GITHUB_ENV
+
+      - name: Download latest deb from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p pool/main/h/huanvae-chat/
+          
+          # 清理旧的 deb 文件
+          rm -f pool/main/h/huanvae-chat/*.deb
+          
+          # 下载最新 release 的 deb
+          gh release download --pattern "*_amd64.deb" \
+            -D pool/main/h/huanvae-chat/ \
+            -R ${{ github.repository }} || echo "No deb found"
+          
+          echo "Downloaded packages:"
+          ls -la pool/main/h/huanvae-chat/ || true
+
+      - name: Generate APT repository metadata
+        run: |
+          # 检查是否有 deb 文件
+          if ! ls pool/main/h/huanvae-chat/*.deb 1> /dev/null 2>&1; then
+            echo "No deb files found, skipping metadata generation"
+            exit 0
+          fi
+          
+          # 创建目录结构
+          mkdir -p dists/stable/main/binary-amd64
+          
+          # 生成 Packages 索引
+          dpkg-scanpackages --multiversion pool/ > dists/stable/main/binary-amd64/Packages
+          gzip -k -f dists/stable/main/binary-amd64/Packages
+          xz -k -f dists/stable/main/binary-amd64/Packages
+          
+          # 生成 Release 文件
+          cd dists/stable
+          
+          cat > Release << EOF
+          Origin: Huanvae Chat
+          Label: Huanvae Chat
+          Suite: stable
+          Codename: stable
+          Architectures: amd64
+          Components: main
+          Description: Huanvae Chat APT Repository
+          Date: $(date -Ru)
+          EOF
+          
+          # 计算校验和
+          {
+            echo "MD5Sum:"
+            find main -type f | while read f; do
+              echo " $(md5sum "$f" | cut -d' ' -f1) $(stat -c%s "$f") $f"
+            done
+            echo "SHA256:"
+            find main -type f | while read f; do
+              echo " $(sha256sum "$f" | cut -d' ' -f1) $(stat -c%s "$f") $f"
+            done
+          } >> Release
+          
+          cd ../..
+          
+          echo "Repository structure:"
+          find dists/ -type f
+
+      - name: Sign repository
+        if: env.HAS_GPG == 'true'
+        run: |
+          cd dists/stable
+          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
+          gpg --batch --yes --armor --clearsign -o InRelease Release
+          cd ../..
+          
+          # 导出公钥
+          gpg --armor --export ${{ env.GPG_KEY_ID }} > gpg.key
+
+      - name: Create install script
+        run: |
+          cat > install.sh << 'SCRIPT'
+          #!/bin/bash
+          set -e
+          
+          REPO_URL="https://huanwei520.github.io/Huanvae-Chat-App"
+          
+          echo "🚀 添加 Huanvae Chat APT 仓库..."
+          
+          # 下载并安装 GPG 密钥
+          curl -fsSL "${REPO_URL}/gpg.key" | \
+            sudo gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg
+          
+          # 添加仓库源
+          echo "deb [signed-by=/usr/share/keyrings/huanvae-chat.gpg] ${REPO_URL} stable main" | \
+            sudo tee /etc/apt/sources.list.d/huanvae-chat.list > /dev/null
+          
+          # 更新并安装
+          sudo apt update
+          sudo apt install -y huanvae-chat-app
+          
+          echo ""
+          echo "✅ 安装完成！"
+          echo "   运行: huanvae-chat"
+          echo "   更新: sudo apt update && sudo apt upgrade"
+          SCRIPT
+          chmod +x install.sh
+
+      - name: Update README
+        run: |
+          cat > README.md << 'EOF'
+          # Huanvae Chat APT Repository
+
+          ## 一键安装
+
+          ```bash
+          curl -fsSL https://huanwei520.github.io/Huanvae-Chat-App/install.sh | bash
+          ```
+
+          ## 手动安装
+
+          ```bash
+          # 1. 添加 GPG 密钥
+          curl -fsSL https://huanwei520.github.io/Huanvae-Chat-App/gpg.key | \
+            sudo gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg
+
+          # 2. 添加仓库源
+          echo "deb [signed-by=/usr/share/keyrings/huanvae-chat.gpg] https://huanwei520.github.io/Huanvae-Chat-App stable main" | \
+            sudo tee /etc/apt/sources.list.d/huanvae-chat.list
+
+          # 3. 安装
+          sudo apt update
+          sudo apt install huanvae-chat-app
+          ```
+
+          ## 更新
+
+          ```bash
+          sudo apt update
+          sudo apt upgrade
+          ```
+
+          ## 卸载
+
+          ```bash
+          sudo apt remove huanvae-chat-app
+          sudo rm /etc/apt/sources.list.d/huanvae-chat.list
+          sudo rm /usr/share/keyrings/huanvae-chat.gpg
+          ```
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Update APT repository - $(date -u +%Y-%m-%d)"
+          git push origin gh-pages || git push --set-upstream origin gh-pages

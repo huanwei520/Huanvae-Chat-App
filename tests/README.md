@@ -128,6 +128,7 @@ describe('MyComponent', () => {
 - 设置模块：提示音、数据管理、设备管理、更新检查、**主题配置（独立窗口、毛玻璃效果、高级透明度层级、跨窗口同步）**
 - 局域网传输模块：设备发现、文件发送/接收、大文件传输
 - 会议/媒体模块
+- **Linux 安装与更新**：deb 包安装、用户数据目录、APT 仓库配置、apt upgrade 更新
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

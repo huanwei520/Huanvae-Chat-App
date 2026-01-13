@@ -879,6 +879,67 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
       },
     ],
   },
+  {
+    name: 'Linux 安装与更新',
+    items: [
+      {
+        name: 'deb 包安装',
+        description: '通过 apt 安装 deb 包',
+        critical: true,
+        steps: [
+          '下载 deb 包',
+          '执行 sudo apt install ./Huanvae-Chat-App_x.x.x_amd64.deb',
+          '验证安装到 /opt/huanvae-chat/',
+          '验证符号链接 /usr/local/bin/huanvae-chat 存在',
+          '运行 huanvae-chat 命令验证启动',
+        ],
+      },
+      {
+        name: '用户数据目录',
+        description: 'Linux 系统安装后用户数据存储在 home 目录',
+        critical: true,
+        steps: [
+          '使用 deb 包安装应用',
+          '登录并使用应用',
+          '验证数据保存到 ~/huanvae-chat-app/data/',
+          '验证普通用户可以读写该目录',
+        ],
+      },
+      {
+        name: 'APT 仓库配置',
+        description: '安装后自动配置 APT 仓库源',
+        critical: false,
+        steps: [
+          '安装 deb 包',
+          '验证 /etc/apt/sources.list.d/huanvae-chat.list 存在',
+          '验证 /usr/share/keyrings/huanvae-chat.gpg 存在',
+          '执行 sudo apt update 验证仓库可访问',
+        ],
+      },
+      {
+        name: 'APT 更新',
+        description: '通过 apt upgrade 更新应用',
+        critical: false,
+        steps: [
+          '发布新版本后等待仓库更新',
+          '执行 sudo apt update',
+          '执行 sudo apt upgrade',
+          '验证应用更新到新版本',
+        ],
+      },
+      {
+        name: '卸载清理',
+        description: '卸载时清理所有配置',
+        critical: false,
+        steps: [
+          '执行 sudo apt remove huanvae-chat-app',
+          '验证 /opt/huanvae-chat/ 已删除',
+          '验证 APT 仓库配置已删除',
+          '验证符号链接已删除',
+        ],
+      },
+    ],
+  },
 ];
 
 /**
