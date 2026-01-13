@@ -43,6 +43,8 @@ import { useChatActions } from './useChatActions';
 import { useMultiSelect } from './useMultiSelect';
 import { getPendingRequests } from '../api/friends';
 import { getGroupInvitations } from '../api/groups';
+import { invoke } from '@tauri-apps/api/core';
+import { saveFileUuidHash, saveMessage, clearCurrentUser } from '../db';
 
 import { getFriendConversationId } from '../utils/conversationId';
 import type { NavTab } from '../components/sidebar/Sidebar';
@@ -533,8 +535,6 @@ export function useMainPage() {
 
           // 保存 file_uuid 到 file_hash 的映射，用于后续消息显示时查找本地文件
           if (result.fileUuid && result.fileHash) {
-            const { saveFileUuidHash, saveMessage } = await import('../db');
-            const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
             // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
@@ -623,8 +623,6 @@ export function useMainPage() {
 
           // 保存 file_uuid 到 file_hash 的映射
           if (result.fileUuid && result.fileHash) {
-            const { saveFileUuidHash, saveMessage } = await import('../db');
-            const { invoke } = await import('@tauri-apps/api/core');
             await saveFileUuidHash(result.fileUuid, result.fileHash);
 
             // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
@@ -760,7 +758,6 @@ export function useMainPage() {
 
   const handleLogout = useCallback(async () => {
     // 清除当前用户数据目录上下文
-    const { clearCurrentUser } = await import('../db');
     await clearCurrentUser();
     // 清除会话
     clearSession();

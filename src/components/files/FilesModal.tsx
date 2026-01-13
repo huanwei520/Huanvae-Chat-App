@@ -29,6 +29,8 @@ import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import { openMediaWindow } from '../../media';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { getPresignedUrl, getCachedFilePath } from '../../services/fileCache';
+import { invoke } from '@tauri-apps/api/core';
+import { saveFileUuidHash } from '../../db';
 import type { FileItem } from '../../api/storage';
 
 // ============================================
@@ -474,8 +476,6 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
         // 保存 file_uuid 到 file_hash 的映射，并复制文件到统一缓存目录
         if (result.fileUuid && result.fileHash) {
-          const { saveFileUuidHash } = await import('../../db');
-          const { invoke } = await import('@tauri-apps/api/core');
           await saveFileUuidHash(result.fileUuid, result.fileHash);
 
           // 复制文件到统一缓存目录（大文件≥100MB不复制，记录原始路径）

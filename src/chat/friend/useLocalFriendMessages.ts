@@ -32,6 +32,8 @@ import { initSyncService, getSyncService, SyncService } from '../../services/syn
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
+import { sendMessage, recallMessage } from '../../api/messages';
+import { recordUploadedFile } from '../../services/fileService';
 import type { Message } from '../../types/chat';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -411,7 +413,6 @@ export function useLocalFriendMessages(friendId: string | null) {
 
     try {
       // 调用 API 发送
-      const { sendMessage } = await import('../../api/messages');
       const response = await sendMessage(api, {
         receiver_id: friendId,
         message_content: content,
@@ -520,7 +521,6 @@ export function useLocalFriendMessages(friendId: string | null) {
     try {
       // 如果有本地路径和哈希，记录文件映射
       if (fileHash && localPath) {
-        const { recordUploadedFile } = await import('../../services/fileService');
         // 确定 content type
         let contentType = 'application/octet-stream';
         if (messageType === 'image') {
@@ -539,7 +539,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       }
 
       // 调用 API 发送
-      const { sendMessage } = await import('../../api/messages');
       const response = await sendMessage(api, {
         receiver_id: friendId,
         message_content: content,
@@ -611,7 +610,6 @@ export function useLocalFriendMessages(friendId: string | null) {
 
   const recall = useCallback(async (messageUuid: string) => {
     try {
-      const { recallMessage } = await import('../../api/messages');
       await recallMessage(api, messageUuid);
 
       // 从 UI 移除

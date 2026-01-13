@@ -23,7 +23,8 @@ import type { LocalMessage, LocalConversation } from '../../db';
 import { initSyncService, getSyncService, SyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
-import type { GroupMessage } from '../../api/groupMessages';
+import { sendGroupMessage, recallGroupMessage, type GroupMessage } from '../../api/groupMessages';
+import { recordUploadedFile } from '../../services/fileService';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
 // ============================================================================
@@ -381,7 +382,6 @@ export function useLocalGroupMessages(groupId: string | null) {
 
     try {
       // 调用 API 发送
-      const { sendGroupMessage } = await import('../../api/groupMessages');
       const response = await sendGroupMessage(api, {
         group_id: groupId,
         message_content: content,
@@ -491,7 +491,6 @@ export function useLocalGroupMessages(groupId: string | null) {
     try {
       // 如果有本地路径和哈希，记录文件映射
       if (fileHash && localPath) {
-        const { recordUploadedFile } = await import('../../services/fileService');
         let contentType = 'application/octet-stream';
         if (messageType === 'image') {
           contentType = 'image/jpeg';
@@ -509,7 +508,6 @@ export function useLocalGroupMessages(groupId: string | null) {
       }
 
       // 调用 API 发送
-      const { sendGroupMessage } = await import('../../api/groupMessages');
       const response = await sendGroupMessage(api, {
         group_id: groupId,
         message_content: content,
@@ -581,7 +579,6 @@ export function useLocalGroupMessages(groupId: string | null) {
 
   const recall = useCallback(async (messageUuid: string) => {
     try {
-      const { recallGroupMessage } = await import('../../api/groupMessages');
       await recallGroupMessage(api, messageUuid);
 
       // 从 UI 移除
