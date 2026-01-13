@@ -1,8 +1,9 @@
 {
   "name": "Huanvae-Chat-App",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.13",
   "type": "module",
+  "packageManager": "pnpm@9.15.4",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
