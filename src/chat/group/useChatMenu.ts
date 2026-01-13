@@ -46,6 +46,7 @@ import {
   type GroupNotice,
   type InviteCode,
 } from '../../api/groups';
+import { loadAllHistoryMessages } from '../../services/historyService';
 import type { MenuView } from '../shared/menu/types';
 import type { ChatTarget } from '../../types/chat';
 
@@ -684,8 +685,6 @@ export function useChatMenu({
     setError(null);
 
     try {
-      const { loadAllHistoryMessages } = await import('../../services/historyService');
-
       const targetId = target.type === 'friend'
         ? target.data.friend_id
         : target.data.group_id;

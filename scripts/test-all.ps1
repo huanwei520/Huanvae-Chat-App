@@ -99,15 +99,25 @@ else {
     $allPassed = $false
 }
 
-# 5. Build
-Write-Host "[5/5] Frontend build..." -ForegroundColor Cyan
-$null = pnpm build 2>&1
+# 5. Build (with Vite warning check)
+Write-Host "[5/5] Frontend build (checking for warnings)..." -ForegroundColor Cyan
+$buildOutput = pnpm build 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "  PASS: Build" -ForegroundColor Green
+    # Check for Vite optimization warnings
+    if ($buildOutput -match "\[plugin vite:reporter\]") {
+        Write-Host "  WARN: Build has Vite optimization warnings" -ForegroundColor Yellow
+        # Extract warning count
+        $warningMatches = [regex]::Matches($buildOutput, "\[plugin vite:reporter\]")
+        Write-Host "  Found $($warningMatches.Count) optimization warning(s)" -ForegroundColor Yellow
+        $allPassed = $false
+    }
+    else {
+        Write-Host "  PASS: Build (0 warnings)" -ForegroundColor Green
+    }
 }
 else {
     Write-Host "  FAIL: Build" -ForegroundColor Red
-    pnpm build
+    Write-Host $buildOutput
     $allPassed = $false
 }
 

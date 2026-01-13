@@ -28,6 +28,7 @@ import { getDeviceInfo } from './services/deviceInfo';
 import { cardVariants, cardContentVariants, cardContentTransition } from './constants/authAnimations';
 import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
+import { setCurrentUser, initDatabase } from './db';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -87,7 +88,6 @@ function App() {
     const profile = profileResponse.data;
 
     // 设置当前用户数据目录（这会创建目录结构）
-    const { setCurrentUser, initDatabase } = await import('./db');
     await setCurrentUser(userId, serverUrl);
 
     // 初始化用户数据库

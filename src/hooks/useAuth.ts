@@ -8,6 +8,7 @@ import { useState, useCallback } from 'react';
 import { useAccounts } from './useAccounts';
 import { useSession } from '../contexts/SessionContext';
 import { login, register, getProfile } from '../api/auth';
+import { setCurrentUser, initDatabase } from '../db';
 import type { SavedAccount } from '../types/account';
 import type { Session } from '../types/session';
 
@@ -64,7 +65,6 @@ export function useAuth(): UseAuthReturn {
     const profile = profileResponse.data;
 
     // 设置当前用户数据目录（这会创建目录结构）
-    const { setCurrentUser, initDatabase } = await import('../db');
     await setCurrentUser(userId, serverUrl);
 
     // 初始化用户数据库
