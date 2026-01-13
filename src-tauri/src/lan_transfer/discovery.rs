@@ -11,7 +11,7 @@
  */
 
 use super::protocol::{DeviceInfo, DiscoveredDevice, LanTransferEvent, PROTOCOL_VERSION, SERVICE_PORT, SERVICE_TYPE};
-use super::{get_lan_transfer_state, server};
+use super::{emit_lan_event, get_lan_transfer_state, server};
 use chrono::Utc;
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use once_cell::sync::OnceCell;
@@ -181,7 +181,9 @@ pub async fn start_service(user_id: String, user_nickname: String) -> Result<(),
     }
 
     // 发送服务状态变化事件
-    let _ = get_event_sender().send(LanTransferEvent::ServiceStateChanged { is_running: true });
+    let event = LanTransferEvent::ServiceStateChanged { is_running: true };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
 
     println!("[LanTransfer] 服务已启动: {} ({})", device_info.device_name, device_info.ip_address);
 
@@ -230,7 +232,9 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
     }
 
     // 发送服务状态变化事件
-    let _ = get_event_sender().send(LanTransferEvent::ServiceStateChanged { is_running: false });
+    let event = LanTransferEvent::ServiceStateChanged { is_running: false };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
 
     println!("[LanTransfer] 服务已停止");
 
@@ -320,9 +324,11 @@ async fn handle_mdns_events(
 
                             if is_new {
                                 println!("[LanTransfer] 发现设备: {} ({})", device.device_name, device.ip_address);
-                                let _ = event_sender.send(LanTransferEvent::DeviceDiscovered {
+                                let event = LanTransferEvent::DeviceDiscovered {
                                     device: device.clone(),
-                                });
+                                };
+                                let _ = event_sender.send(event.clone());
+                                emit_lan_event(&event);
                             }
                         }
                     }
@@ -338,9 +344,11 @@ async fn handle_mdns_events(
                             let mut devices = state.devices.write();
                             if devices.remove(&device_id).is_some() {
                                 println!("[LanTransfer] 设备离线: {}", device_id);
-                                let _ = event_sender.send(LanTransferEvent::DeviceLeft {
+                                let event = LanTransferEvent::DeviceLeft {
                                     device_id: device_id.clone(),
-                                });
+                                };
+                                let _ = event_sender.send(event.clone());
+                                emit_lan_event(&event);
                             }
                         }
                     }

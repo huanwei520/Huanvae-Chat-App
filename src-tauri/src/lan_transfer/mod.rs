@@ -27,8 +27,35 @@ use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tauri::Emitter;
 
 pub use protocol::{ConnectionRequest, DiscoveredDevice, DeviceInfo, TransferTask};
+
+// ============================================================================
+// 全局 AppHandle 管理
+// ============================================================================
+
+/// 全局 AppHandle 用于发送事件到前端
+static APP_HANDLE: OnceCell<tauri::AppHandle> = OnceCell::new();
+
+/// 设置全局 AppHandle
+pub fn set_app_handle(handle: tauri::AppHandle) {
+    let _ = APP_HANDLE.set(handle);
+}
+
+/// 获取全局 AppHandle
+pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
+    APP_HANDLE.get()
+}
+
+/// 向前端发送局域网传输事件
+pub fn emit_lan_event(event: &protocol::LanTransferEvent) {
+    if let Some(handle) = get_app_handle()
+        && let Err(e) = handle.emit("lan-transfer-event", event)
+    {
+        eprintln!("[LanTransfer] 发送事件失败: {}", e);
+    }
+}
 
 // ============================================================================
 // 全局状态管理
@@ -85,7 +112,11 @@ pub fn get_lan_transfer_state() -> Arc<LanTransferState> {
 pub async fn start_lan_transfer_service(
     user_id: String,
     user_nickname: String,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
+    // 保存 AppHandle 用于后续事件发送
+    set_app_handle(app_handle);
+
     discovery::start_service(user_id, user_nickname)
         .await
         .map_err(|e| e.to_string())

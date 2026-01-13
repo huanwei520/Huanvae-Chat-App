@@ -112,14 +112,164 @@ jobs:
             | 平台 | 推荐格式 |
             |------|---------|
             | Windows | `.nsis.zip` (安装包) 或 `.msi` |
-            | Linux | `.AppImage` (免安装) 或 `.deb` |
+            | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS Intel | `_x64.dmg` |
             | macOS M1/M2 | `_aarch64.dmg` |
             
             > 💡 国内用户如下载缓慢，可使用代理链接（Release 附件中的 `latest.json` 包含加速链接）
+            
+            > 📦 Linux deb 包安装到 `/opt/huanvae-chat/`，支持普通用户运行
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # ============================================
+      # Linux: 重新打包 deb 到 /opt（解决用户权限问题）
+      # ============================================
+      - name: Repack deb for /opt installation
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          set -e
+          
+          # 找到生成的 deb 文件
+          DEB_FILE=$(ls src-tauri/target/release/bundle/deb/*.deb 2>/dev/null | head -1)
+          if [ -z "$DEB_FILE" ]; then
+            echo "⚠️ No deb file found, skipping repack"
+            exit 0
+          fi
+          echo "📦 Original deb: $DEB_FILE"
+          
+          # 提取版本号
+          VERSION=$(echo "$DEB_FILE" | grep -oP '\d+\.\d+\.\d+' | head -1)
+          echo "📌 Version: $VERSION"
+          
+          # 创建工作目录
+          WORK_DIR=$(mktemp -d)
+          echo "📁 Work dir: $WORK_DIR"
+          
+          # 解压 deb
+          dpkg-deb -R "$DEB_FILE" "$WORK_DIR"
+          
+          # 创建 /opt 目录结构
+          mkdir -p "$WORK_DIR/opt/huanvae-chat"
+          
+          # 移动可执行文件到 /opt
+          if [ -f "$WORK_DIR/usr/bin/huanvae-chat-app" ]; then
+            mv "$WORK_DIR/usr/bin/huanvae-chat-app" "$WORK_DIR/opt/huanvae-chat/"
+            echo "✅ Moved executable to /opt/huanvae-chat/"
+          fi
+          
+          # 移动资源文件到 /opt
+          if [ -d "$WORK_DIR/usr/share/huanvae-chat-app" ]; then
+            cp -r "$WORK_DIR/usr/share/huanvae-chat-app"/* "$WORK_DIR/opt/huanvae-chat/" 2>/dev/null || true
+            rm -rf "$WORK_DIR/usr/share/huanvae-chat-app"
+            echo "✅ Moved resources to /opt/huanvae-chat/"
+          fi
+          
+          # 复制图标到 /opt
+          ICON_SRC=$(find "$WORK_DIR/usr/share/icons" -name "*.png" -type f 2>/dev/null | head -1)
+          if [ -n "$ICON_SRC" ]; then
+            cp "$ICON_SRC" "$WORK_DIR/opt/huanvae-chat/icon.png"
+            echo "✅ Copied icon to /opt/huanvae-chat/"
+          fi
+          
+          # 清理空的 bin 目录
+          rm -rf "$WORK_DIR/usr/bin"
+          
+          # 更新 .desktop 文件
+          DESKTOP_FILE=$(find "$WORK_DIR/usr/share/applications" -name "*.desktop" -type f 2>/dev/null | head -1)
+          if [ -n "$DESKTOP_FILE" ]; then
+            sed -i 's|Exec=huanvae-chat-app|Exec=/opt/huanvae-chat/huanvae-chat-app|g' "$DESKTOP_FILE"
+            sed -i 's|Exec=/usr/bin/huanvae-chat-app|Exec=/opt/huanvae-chat/huanvae-chat-app|g' "$DESKTOP_FILE"
+            echo "✅ Updated .desktop file"
+          fi
+          
+          # 创建 postinst 脚本（安装后执行）
+          cat > "$WORK_DIR/DEBIAN/postinst" << 'POSTINST'
+          #!/bin/bash
+          set -e
+          
+          # 创建符号链接到 /usr/local/bin
+          ln -sf /opt/huanvae-chat/huanvae-chat-app /usr/local/bin/huanvae-chat
+          
+          # 设置目录权限
+          chmod -R 755 /opt/huanvae-chat
+          
+          # 更新桌面数据库
+          if command -v update-desktop-database &> /dev/null; then
+            update-desktop-database /usr/share/applications 2>/dev/null || true
+          fi
+          
+          # 更新图标缓存
+          if command -v gtk-update-icon-cache &> /dev/null; then
+            gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
+          fi
+          
+          echo ""
+          echo "✅ Huanvae Chat 已安装到 /opt/huanvae-chat/"
+          echo "   运行命令: huanvae-chat"
+          echo ""
+          POSTINST
+          chmod 755 "$WORK_DIR/DEBIAN/postinst"
+          
+          # 创建 prerm 脚本（卸载前执行）
+          cat > "$WORK_DIR/DEBIAN/prerm" << 'PRERM'
+          #!/bin/bash
+          set -e
+          rm -f /usr/local/bin/huanvae-chat
+          PRERM
+          chmod 755 "$WORK_DIR/DEBIAN/prerm"
+          
+          # 创建 postrm 脚本（卸载后执行）
+          cat > "$WORK_DIR/DEBIAN/postrm" << 'POSTRM'
+          #!/bin/bash
+          if [ "$1" = "purge" ] || [ "$1" = "remove" ]; then
+            rm -rf /opt/huanvae-chat 2>/dev/null || true
+          fi
+          POSTRM
+          chmod 755 "$WORK_DIR/DEBIAN/postrm"
+          
+          # 更新 control 文件
+          INSTALLED_SIZE=$(du -sk "$WORK_DIR" | cut -f1)
+          sed -i "s/^Installed-Size:.*/Installed-Size: $INSTALLED_SIZE/" "$WORK_DIR/DEBIAN/control"
+          
+          # 重新打包（覆盖原文件）
+          dpkg-deb -b "$WORK_DIR" "$DEB_FILE"
+          
+          echo ""
+          echo "✅ Repacked deb: $DEB_FILE"
+          echo ""
+          
+          # 验证包内容
+          echo "=== Package contents (first 15 lines) ==="
+          dpkg-deb -c "$DEB_FILE" | head -15
+          
+          # 清理
+          rm -rf "$WORK_DIR"
+
+      # Linux: 重新上传修改后的 deb 到 Release
+      - name: Re-upload repacked deb
+        if: matrix.platform == 'ubuntu-24.04'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 提取版本号
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
+          DEB_FILE="src-tauri/target/release/bundle/deb/Huanvae-Chat-App_${VERSION}_amd64.deb"
+          
+          if [ ! -f "$DEB_FILE" ]; then
+            echo "⚠️ Deb file not found: $DEB_FILE"
+            exit 0
+          fi
+          
+          echo "📤 Re-uploading repacked deb..."
+          
+          # 使用 --clobber 覆盖原来上传的 deb
+          gh release upload ${{ github.ref_name }} "$DEB_FILE" --clobber
+          
+          echo "✅ Successfully re-uploaded: $(basename $DEB_FILE)"
 
   # ============================================
   # 生成更新清单
