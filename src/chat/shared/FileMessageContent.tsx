@@ -3,8 +3,14 @@
  *
  * 根据消息类型（图片/视频/文件）渲染不同的内容
  * - 图片：缩略图预览，点击打开独立窗口查看
- * - 视频：视频缩略图，点击打开独立窗口播放
+ * - 视频：视频缩略图，点击立即下载并打开独立窗口播放
  * - 文件：文件图标和名称，点击下载
+ *
+ * 视频下载流程：
+ * 1. 点击视频缩略图 → 立即触发 triggerBackgroundDownload
+ * 2. 缩略图显示圆形下载进度
+ * 3. 同时打开独立窗口，传递预签名 URL
+ * 4. 下载完成后发送跨窗口事件，独立窗口自动切换到本地文件
  *
  * 尺寸计算逻辑：
  * - 图片/视频：使用 imageWidth/imageHeight 计算显示尺寸
@@ -17,10 +23,13 @@
 
 import { useState, useCallback } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
+import { triggerBackgroundDownload } from '../../services/fileCache';
+import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
 import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
+import { CircularProgress } from '../../components/common/CircularProgress';
 
 /**
  * 计算显示尺寸（保持比例，限制最大尺寸）
@@ -194,13 +203,15 @@ function ImageMessage({
         fileHash,
         urlType,
         localPath,
+        // 传递已获取的预签名 URL，避免独立窗口重复请求
+        presignedUrl: isLocal ? undefined : src,
       },
       {
         serverUrl: session.serverUrl,
         accessToken: session.accessToken,
       },
     );
-  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
+  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src]);
 
   // 容器样式：固定尺寸，不会因图片加载而改变
   const containerStyle: React.CSSProperties = {
@@ -251,6 +262,16 @@ const VIDEO_MAX_HEIGHT = 300;
 const VIDEO_DEFAULT_WIDTH = 280;
 const VIDEO_DEFAULT_HEIGHT = 160;
 
+/**
+ * 视频消息组件
+ *
+ * 功能：
+ * - 显示视频缩略图
+ * - 点击时立即触发下载并打开独立播放窗口
+ * - 在缩略图上显示圆形下载进度
+ * - 下载完成后自动切换到本地文件
+ * - 独立窗口与主窗口使用同一预签名 URL
+ */
 function VideoMessage({
   fileUuid,
   fileHash,
@@ -283,21 +304,44 @@ function VideoMessage({
     friendId,
   );
 
+  // 监听下载任务状态（用于显示进度）
+  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+
   // 是否有后端提供的尺寸信息
   const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
 
   // 计算容器显示尺寸（与图片相同的逻辑）
-  // 规则：
-  // 1. 有尺寸信息：按比例缩放，不超过最大尺寸
-  // 2. 无尺寸信息：使用默认占位尺寸
   const displaySize = hasPresetDimensions
     ? calculateDisplaySize(imageWidth, imageHeight, VIDEO_MAX_WIDTH, VIDEO_MAX_HEIGHT)
     : { width: VIDEO_DEFAULT_WIDTH, height: VIDEO_DEFAULT_HEIGHT };
 
-  // 点击打开独立预览窗口
+  // 判断是否正在下载
+  const isDownloading = downloadTask && (
+    downloadTask.status === 'pending' || downloadTask.status === 'downloading'
+  );
+
+  // 判断是否已下载完成（包括本地文件或下载完成）
+  const isDownloaded = isLocal || downloadTask?.status === 'completed';
+
+  // 获取实际的本地路径（优先使用下载完成的路径）
+  const actualLocalPath = downloadTask?.localPath ?? localPath;
+
+  // 点击：触发下载并打开独立预览窗口
   const handleClick = useCallback(() => {
     if (!session) { return; }
 
+    // 如果文件未下载且有 fileHash 和 src，开始下载
+    if (!isDownloaded && !isDownloading && fileHash && src) {
+      triggerBackgroundDownload(
+        src,
+        fileHash,
+        filename,
+        'video',
+        fileSize ?? undefined,
+      );
+    }
+
+    // 打开独立窗口（传递预签名 URL 和本地路径）
     openMediaWindow(
       {
         type: 'video',
@@ -306,16 +350,21 @@ function VideoMessage({
         fileSize: fileSize ?? undefined,
         fileHash,
         urlType,
-        localPath,
+        localPath: actualLocalPath,
+        // 传递已获取的预签名 URL，避免独立窗口重复请求
+        presignedUrl: isLocal ? undefined : src,
       },
       {
         serverUrl: session.serverUrl,
         accessToken: session.accessToken,
       },
     );
-  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath]);
+  }, [
+    session, fileUuid, filename, fileSize, fileHash, urlType,
+    actualLocalPath, isLocal, src, isDownloaded, isDownloading,
+  ]);
 
-  // 容器样式：根据尺寸信息动态计算
+  // 容器样式
   const containerStyle: React.CSSProperties = {
     width: displaySize.width,
     height: displaySize.height,
@@ -334,16 +383,30 @@ function VideoMessage({
       {/* 视频加载完成后显示 */}
       {!loading && !error && src && (
         <>
-          {isLocal && <LocalBadge />}
+          {/* 本地文件标识 */}
+          {isDownloaded && <LocalBadge />}
+
+          {/* 视频缩略图 */}
           <video
             src={src}
             className="message-video-thumbnail"
             preload="metadata"
             onPlay={onPlay}
           />
-          <div className="video-play-overlay">
-            <PlayIcon />
-          </div>
+
+          {/* 下载进度覆盖层 */}
+          {isDownloading && downloadTask && (
+            <div className="video-download-overlay">
+              <CircularProgress progress={downloadTask.percent} />
+            </div>
+          )}
+
+          {/* 播放按钮覆盖层（未下载时显示） */}
+          {!isDownloading && (
+            <div className="video-play-overlay">
+              <PlayIcon />
+            </div>
+          )}
         </>
       )}
     </div>

@@ -10,25 +10,32 @@
  * - 图片全屏预览（支持缩放）
  * - 视频播放（支持流式）
  * - 本地文件优先加载
- * - 远程文件自动缓存到本地（图片 onLoad / 视频 onPlay 触发）
+ * - 监听主窗口下载完成事件，自动切换到本地文件
  * - 下载按钮
+ *
+ * 跨窗口通信：
+ * - 主窗口点击视频缩略图时触发 triggerBackgroundDownload
+ * - 主窗口下载完成后发送 'file-download-completed' 事件
+ * - 本页面监听此事件，自动切换视频源为本地文件
  *
  * 缓存机制：
  * - 优先检查本地路径（使用 is_file_exists 验证文件是否存在）
- * - 本地文件被移动/删除时，自动回退到服务器获取
- * - 无缓存时获取预签名 URL 并展示
- * - 媒体加载完成后触发后台下载，保存到本地缓存目录
+ * - 主窗口传递预签名 URL，避免独立窗口重复请求
  * - 下载完成后更新数据库映射，再次访问时直接使用本地文件
  *
- * @see src/meeting/MeetingPage.tsx 参考类似架构
  * @see src/services/fileCache.ts 文件缓存服务
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { fetch } from '@tauri-apps/plugin-http';
 import { loadMediaData, clearMediaData } from './api';
-import { getCachedFilePath, downloadAndSaveFile } from '../services/fileCache';
+import {
+  getCachedFilePath,
+  downloadAndSaveFile,
+  type FileDownloadCompletedEvent,
+} from '../services/fileCache';
 import { formatFileSize } from '../hooks/useFileUpload';
 import {
   reportFriendPermissionError,
@@ -486,14 +493,9 @@ function VideoPlayer({ state }: { state: MediaState }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 文件源信息（用于后台下载）
-  const fileSourceRef = useRef<FileSource | null>(null);
-  const downloadTriggeredRef = useRef(false);
-
   // 加载视频
   useEffect(() => {
     let cancelled = false;
-    downloadTriggeredRef.current = false; // 重置下载标记
 
     async function load() {
       try {
@@ -503,7 +505,6 @@ function VideoPlayer({ state }: { state: MediaState }) {
         if (!cancelled) {
           setSrc(result.src);
           setIsLocal(result.isLocal);
-          fileSourceRef.current = result;
         }
       } catch (err) {
         console.error('[MediaPreview] 视频加载失败:', err);
@@ -530,36 +531,37 @@ function VideoPlayer({ state }: { state: MediaState }) {
     return () => { cancelled = true; };
   }, [state]);
 
-  // 视频开始播放时触发后台下载
+  // 视频开始播放时的回调
+  // 注意：不再触发下载，下载由主窗口统一管理，避免重复下载导致进度回撤
   const handleVideoPlay = useCallback(() => {
-    const fileSource = fileSourceRef.current;
-    if (
-      !downloadTriggeredRef.current &&
-      fileSource &&
-      !fileSource.isLocal &&
-      fileSource.shouldCache &&
-      fileSource.presignedUrl &&
-      state.fileHash
-    ) {
-      downloadTriggeredRef.current = true;
-      // eslint-disable-next-line no-console
-      console.log('[MediaPreview] 视频开始播放，触发后台下载...');
-      downloadAndSaveFile(
-        fileSource.presignedUrl,
-        state.fileHash,
-        state.filename,
-        'video',
-        state.fileSize,
-      ).then((localPath) => {
+    // eslint-disable-next-line no-console
+    console.log('[MediaPreview] 视频开始播放');
+  }, []);
+
+  // 监听主窗口的下载完成事件（跨窗口通信）
+  useEffect(() => {
+    if (!state.fileHash || isLocal) { return; }
+
+    let unlisten: (() => void) | null = null;
+
+    listen<FileDownloadCompletedEvent>('file-download-completed', (event) => {
+      const { fileHash, localPath } = event.payload;
+
+      // 检查是否是当前视频的下载完成
+      if (fileHash === state.fileHash) {
         // eslint-disable-next-line no-console
-        console.log('[MediaPreview] 视频后台下载完成:', localPath);
-        // 视频播放中不切换源，只更新状态
+        console.log('[MediaPreview] 收到下载完成事件，切换到本地文件:', localPath);
+        setSrc(convertFileSrc(localPath));
         setIsLocal(true);
-      }).catch((err) => {
-        console.warn('[MediaPreview] 视频后台下载失败:', err);
-      });
-    }
-  }, [state.fileHash, state.filename, state.fileSize]);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) { unlisten(); }
+    };
+  }, [state.fileHash, isLocal]);
 
   // 下载按钮
   const handleDownload = useCallback(() => {
