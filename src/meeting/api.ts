@@ -294,10 +294,11 @@ export async function joinRoom(
  * 获取 WebSocket 信令 URL
  * @param roomId - 房间号
  * @param token - access_token 或 ws_token
+ * @param serverUrl - 当前登录的服务器地址（如 http://192.168.5.153）
  */
-export function getSignalingUrl(roomId: string, token: string): string {
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://api.huanvae.cn';
-  const wsBase = apiBase.replace(/^http/, 'ws');
+export function getSignalingUrl(roomId: string, token: string, serverUrl: string): string {
+  // 将 http(s):// 替换为 ws(s)://
+  const wsBase = serverUrl.replace(/^http/, 'ws');
   return `${wsBase}/ws/webrtc/rooms/${roomId}?token=${token}`;
 }
 
@@ -318,6 +319,8 @@ export interface MeetingWindowData {
   iceServers?: IceServer[];
   /** 用户信息（包含头像等） */
   userInfo?: UserInfo;
+  /** 当前登录的服务器地址（用于信令 WebSocket 连接） */
+  serverUrl: string;
 }
 
 const MEETING_DATA_KEY = 'huanvae_meeting_data';
