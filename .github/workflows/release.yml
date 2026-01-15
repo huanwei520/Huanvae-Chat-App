@@ -318,8 +318,54 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
-      - name: Wait for release assets
-        run: sleep 30
+      - name: Wait for all signature files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          TAG="${{ github.ref_name }}"
+          
+          # 期望的签名文件列表
+          EXPECTED_SIGS=(
+            "Huanvae-Chat-App_${VERSION}_x64-setup.exe.sig"
+            "Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi.sig"
+            "Huanvae-Chat-App_${VERSION}_amd64.AppImage.sig"
+          )
+          
+          echo "等待签名文件上传..."
+          echo "期望文件: ${EXPECTED_SIGS[*]}"
+          
+          MAX_WAIT=300  # 最多等待 5 分钟
+          WAITED=0
+          
+          while [ $WAITED -lt $MAX_WAIT ]; do
+            RELEASE_INFO=$(gh api repos/${REPO}/releases/tags/${TAG} 2>/dev/null || echo "{}")
+            ASSETS=$(echo "$RELEASE_INFO" | jq -r '.assets[].name' 2>/dev/null || echo "")
+            
+            ALL_FOUND=true
+            for SIG in "${EXPECTED_SIGS[@]}"; do
+              if ! echo "$ASSETS" | grep -q "^${SIG}$"; then
+                echo "  缺少: $SIG"
+                ALL_FOUND=false
+              fi
+            done
+            
+            if [ "$ALL_FOUND" = true ]; then
+              echo "✅ 所有签名文件已上传！"
+              echo "当前资产列表:"
+              echo "$ASSETS" | grep "\.sig$" || true
+              break
+            fi
+            
+            echo "等待中... (${WAITED}s/${MAX_WAIT}s)"
+            sleep 10
+            WAITED=$((WAITED + 10))
+          done
+          
+          if [ $WAITED -ge $MAX_WAIT ]; then
+            echo "⚠️ 等待超时，继续执行（部分签名可能缺失）"
+          fi
 
       - name: Download release info
         id: release
@@ -373,6 +419,30 @@ jobs:
           echo "Windows MSI signature: ${WIN_MSI_SIG:0:50}..."
           echo "macOS signature: ${MAC_SIG:0:50}..."
           echo "Linux signature: ${LINUX_SIG:0:50}..."
+          
+          # 验证签名版本是否匹配当前版本
+          verify_signature_version() {
+            local sig=$1
+            local name=$2
+            if [ -n "$sig" ]; then
+              # 解码签名并检查文件名中的版本号
+              local decoded=$(echo "$sig" | base64 -d 2>/dev/null || echo "")
+              if echo "$decoded" | grep -q "_${VERSION}_"; then
+                echo "✅ $name 签名版本正确 (v${VERSION})"
+              else
+                echo "❌ $name 签名版本不匹配！"
+                echo "   期望版本: ${VERSION}"
+                echo "   签名内容: $(echo "$decoded" | head -3)"
+                # 不退出，只警告
+              fi
+            fi
+          }
+          
+          echo ""
+          echo "=== 签名版本验证 ==="
+          verify_signature_version "$WIN_NSIS_SIG" "Windows NSIS"
+          verify_signature_version "$WIN_MSI_SIG" "Windows MSI"
+          verify_signature_version "$LINUX_SIG" "Linux AppImage"
           
           # 构建 JSON（文件名必须与 tauri 实际生成的一致）
           # productName: Huanvae-Chat-App

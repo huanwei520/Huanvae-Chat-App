@@ -740,14 +740,15 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 停止屏幕共享 Transceiver
-   * 彻底清除引用，强制下次创建新 transceiver，避免状态残留导致黑屏
+   * 保留 transceiver 引用，下次复用同一个 transceiver（与麦克风逻辑一致）
+   * 这样可以避免创建新 mid 导致接收端无法正确识别流
    */
   const stopScreenTransceiver = useCallback(async (peerId: string) => {
     const refs = getTransceiverRefs(peerId);
     if (refs.screen) {
       await refs.screen.sender.replaceTrack(null);
       refs.screen.direction = 'inactive';
-      refs.screen = null;  // 清除引用，强制下次创建新 transceiver
+      // 不清除引用，复用 transceiver
     }
   }, [getTransceiverRefs]);
 
