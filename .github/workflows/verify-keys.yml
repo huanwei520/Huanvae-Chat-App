@@ -57,8 +57,12 @@ jobs:
             cat /tmp/test.txt.minisig
             echo ""
             echo "尝试用公钥验证:"
-            echo "RWRadRqpD8ORP5BYBcfv/hpRw3dnNOMdfS3dV7ejkC+lS9r8ReYaHClc" > /tmp/public.key
-            minisign -V -p /tmp/public.key -m /tmp/test.txt && echo "✅ 公钥匹配！" || echo "❌ 公钥不匹配！"
+            # 创建完整格式的公钥文件（必须包含 comment 行）
+            printf '%s\n' "untrusted comment: minisign public key: 3F91C30FA91A755A" "RWRadRqpD8ORP5BYBcfv/hpRw3dnNOMdfS3dV7ejkC+lS9r8ReYaHClc" > /tmp/public.key
+            echo "公钥文件内容:"
+            cat /tmp/public.key
+            echo ""
+            minisign -Vm /tmp/test.txt -p /tmp/public.key && echo "✅ 公钥匹配！" || echo "❌ 公钥不匹配！"
           fi
           
           # 清理
