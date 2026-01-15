@@ -136,7 +136,7 @@ export interface UseWebRTCReturn {
   error: string | null;
   mediaState: MediaDeviceState;
   isSpeaking: boolean;
-  connect: (roomId: string, token: string, iceServers: IceServer[]) => void;
+  connect: (roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => void;
   disconnect: () => void;
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
@@ -1203,8 +1203,8 @@ export function useWebRTC(): UseWebRTCReturn {
   }, [stopVolumeDetection]);
 
   /** 连接信令服务器 */
-  const connect = useCallback((roomId: string, token: string, iceServers: IceServer[]) => {
-    const url = getSignalingUrl(roomId, token);
+  const connect = useCallback((roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => {
+    const url = getSignalingUrl(roomId, token, serverUrl);
     iceServersRef.current = iceServers;
     setMeetingState('connecting');
     setError(null);

@@ -186,6 +186,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         displayName: session?.profile.user_nickname || '会议主持人',
         token: createdRoom.ws_token,
         userInfo: createdRoom.user_info, // 保存创建者用户信息
+        serverUrl: session?.serverUrl || '', // 当前登录的服务器地址
       });
 
       // 打开会议窗口（使用 Tauri WebviewWindow）
@@ -226,6 +227,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         token: response.ws_token,
         iceServers: response.ice_servers,
         userInfo: response.user_info, // 保存用户信息
+        serverUrl: session?.serverUrl || '', // 当前登录的服务器地址
       });
 
       // 打开会议窗口（使用 Tauri WebviewWindow）

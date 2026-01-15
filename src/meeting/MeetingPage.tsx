@@ -359,6 +359,7 @@ export default function MeetingPage() {
         meetingData.roomId,
         meetingData.token,
         iceServers,
+        meetingData.serverUrl,
       );
     };
 
