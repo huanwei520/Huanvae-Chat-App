@@ -13,8 +13,8 @@ curl -fsSL https://huanwei520.github.io/Huanvae-Chat-App/install.sh | bash
 curl -fsSL https://huanwei520.github.io/Huanvae-Chat-App/gpg.key | \
   sudo gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg
 
-# 2. 添加仓库源
-echo "deb [signed-by=/usr/share/keyrings/huanvae-chat.gpg] https://huanwei520.github.io/Huanvae-Chat-App stable main" | \
+# 2. 添加仓库源（仅支持 amd64 架构）
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/huanvae-chat.gpg] https://huanwei520.github.io/Huanvae-Chat-App stable main" | \
   sudo tee /etc/apt/sources.list.d/huanvae-chat.list
 
 # 3. 安装
