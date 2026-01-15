@@ -16,6 +16,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# 顶层权限配置（确保所有 job 都有足够权限）
+permissions:
+  contents: write
+
 # 代理源配置
 env:
   PROXY_URLS: |
