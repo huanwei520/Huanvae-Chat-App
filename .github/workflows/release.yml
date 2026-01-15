@@ -217,9 +217,9 @@ jobs:
                 gpg --dearmor -o /usr/share/keyrings/huanvae-chat.gpg 2>/dev/null || true
             fi
             
-            # 添加仓库源
+            # 添加仓库源（仅支持 amd64 架构）
             if [ -f /usr/share/keyrings/huanvae-chat.gpg ]; then
-              echo "deb [signed-by=/usr/share/keyrings/huanvae-chat.gpg] ${REPO_URL} stable main" > \
+              echo "deb [arch=amd64 signed-by=/usr/share/keyrings/huanvae-chat.gpg] ${REPO_URL} stable main" > \
                 /etc/apt/sources.list.d/huanvae-chat.list
               echo "✅ APT 仓库已配置，可使用 apt upgrade 更新"
             fi
