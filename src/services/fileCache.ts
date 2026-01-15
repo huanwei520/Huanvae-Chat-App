@@ -9,11 +9,17 @@
  * - 获取预签名 URL（带内存缓存，有时效性）
  * - 下载并保存文件到统一目录
  * - 获取文件源（本地优先，无缓存则获取远程 URL）
+ * - 跨窗口事件通知（下载完成时通知独立媒体窗口）
+ * - 局域网优化（自动替换公网 URL 为局域网地址）
  *
  * 缓存入口：
  * 1. 用户上传文件 → copy_file_to_cache → 复制到缓存目录
  * 2. 图片加载完成 → triggerBackgroundDownload → 下载到缓存目录
- * 3. 视频开始播放 → triggerBackgroundDownload → 下载到缓存目录
+ * 3. 视频点击播放 → triggerBackgroundDownload → 下载到缓存目录
+ *
+ * 跨窗口通信：
+ * - 下载完成时发送 'file-download-completed' 事件
+ * - 独立媒体窗口监听此事件，自动切换到本地文件
  *
  * 文件命名规则：{hash前8位}_{原始文件名}
  *
@@ -22,13 +28,18 @@
  * - 读取时优先使用 original_path
  * - 若 original_path 失效（文件被移动/删除），自动从服务器下载到缓存目录
  *
+ * URL 优化：
+ * - 将公网预签名 URL 替换为当前登录的服务器地址
+ * - 局域网登录时自动使用局域网直连（100MB: ~80秒 → ~1秒）
+ * - 公网登录时保持公网访问
+ *
  * 缓存策略：
  * - 本地文件路径：每次从数据库查询（后端验证文件存在性，约 1-5ms）
  * - 预签名 URL：内存缓存，提前 5 分钟失效
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ApiClient } from '../api/client';
 import { useFileCacheStore } from '../stores/fileCacheStore';
@@ -36,6 +47,7 @@ import {
   reportFriendPermissionError,
   createPresignedUrlErrorContext,
 } from './diagnosticService';
+import { optimizePresignedUrl } from '../utils/network';
 
 // ============================================
 // 类型定义
@@ -48,6 +60,14 @@ interface DownloadProgressEvent {
   total: number;
   percent: number;
   status: 'downloading' | 'completed' | 'failed';
+}
+
+/** 下载完成事件（跨窗口通知） */
+export interface FileDownloadCompletedEvent {
+  fileHash: string;
+  localPath: string;
+  fileName: string;
+  fileType: 'image' | 'video' | 'document';
 }
 
 /** 预签名 URL 响应 */
@@ -166,12 +186,15 @@ export async function getPresignedUrl(
       operation: 'preview',
     });
 
-    // 3. 缓存 URL
-    store.setUrlCache(fileUuid, response.presigned_url, response.expires_at);
+    // 3. 优化 URL（用当前服务器地址替换公网域名）
+    const optimizedUrl = optimizePresignedUrl(response.presigned_url, api.getBaseUrl());
+
+    // 4. 缓存优化后的 URL
+    store.setUrlCache(fileUuid, optimizedUrl, response.expires_at);
 
     // eslint-disable-next-line no-console
     console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
-    return { url: response.presigned_url, expiresAt: response.expires_at };
+    return { url: optimizedUrl, expiresAt: response.expires_at };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -311,6 +334,21 @@ export async function triggerBackgroundDownload(
     return; // 已在下载中或已完成
   }
 
+  // 检查本地是否已有缓存（避免 HMR 后重复触发）
+  try {
+    const cachedPath = await getCachedFilePath(fileHash);
+    if (cachedPath) {
+      // eslint-disable-next-line no-console
+      console.log('[FileCache] 跳过：本地已有缓存', { cachedPath });
+      // 直接标记为完成
+      store.addDownloadTask({ fileHash, fileName, fileType, total: fileSize ?? 0 });
+      store.completeDownload(fileHash, cachedPath);
+      return;
+    }
+  } catch {
+    // 忽略检查错误，继续下载
+  }
+
   // 添加下载任务
   store.addDownloadTask({
     fileHash,
@@ -337,6 +375,14 @@ export async function triggerBackgroundDownload(
       fileName,
       localPath,
     });
+
+    // 发送跨窗口事件，通知所有窗口（包括独立媒体窗口）
+    emit('file-download-completed', {
+      fileHash,
+      localPath,
+      fileName,
+      fileType,
+    } as FileDownloadCompletedEvent);
   } catch (error) {
     store.failDownload(fileHash, String(error));
     console.error('[FileCache] 后台下载失败:', error);

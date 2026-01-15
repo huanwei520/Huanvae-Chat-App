@@ -1,7 +1,7 @@
 {
   "name": "Huanvae-Chat-App",
   "private": true,
-  "version": "1.0.13",
+  "version": "1.0.14",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -31,7 +31,7 @@
     "@tauri-apps/plugin-updater": "^2.9.0",
     "@tauri-apps/plugin-window-state": "^2.4.1",
     "culori": "^4.0.2",
-    "framer-motion": "^12.23.26",
+    "framer-motion": "^12.26.2",
     "liquid-glass-tailwind-react": "^1.0.56",
     "react": "^19.1.0",
     "react-colorful": "^5.6.1",
