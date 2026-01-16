@@ -14,9 +14,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import { useLanTransfer, DiscoveredDevice, ConnectionRequest, TransferTask } from '../hooks/useLanTransfer';
 import { loadLanTransferData, clearLanTransferData } from './api';
 import './styles.css';
+
+// ============================================================================
+// 调试信息类型
+// ============================================================================
+
+interface DebugInfo {
+  localIp: string;
+  allInterfaces: Array<{ name: string; ip: string }>;
+  deviceId: string;
+  hostname: string;
+  os: string;
+  servicePort: number;
+  mdnsServiceType: string;
+  startTime: string;
+  eventCount: number;
+  lastEvent: string;
+}
 
 // ============================================================================
 // 图标组件
@@ -57,6 +75,27 @@ const CheckIcon = () => (
 const XIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+);
+
+const DebugIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+    <path d="M12 6v6l4 2" />
+  </svg>
+);
+
+const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+  >
+    <path d="M6 9l6 6 6-6" />
   </svg>
 );
 
@@ -206,6 +245,9 @@ function TransferProgressCard({ task, onCancel }: TransferProgressCardProps) {
 export default function LanTransferPage() {
   const [userData, setUserData] = useState<{ userId: string; userNickname: string } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
   const {
     isRunning,
@@ -224,6 +266,50 @@ export default function LanTransferPage() {
   // 服务启动状态跟踪
   const serviceStartedRef = useRef(false);
 
+  // 添加调试日志
+  const addDebugLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setDebugLogs((prev) => [`[${timestamp}] ${message}`, ...prev.slice(0, 99)]);
+  }, []);
+
+  // 获取调试信息
+  const fetchDebugInfo = useCallback(async () => {
+    try {
+      addDebugLog('正在获取调试信息...');
+
+      // 获取本机网络信息
+      const networkInfo = await invoke<{
+        local_ip: string;
+        interfaces: Array<[string, string]>;
+        device_id: string;
+        hostname: string;
+        os: string;
+      }>('get_lan_debug_info').catch(() => null);
+
+      if (networkInfo) {
+        setDebugInfo({
+          localIp: networkInfo.local_ip,
+          allInterfaces: networkInfo.interfaces.map(([name, ip]) => ({ name, ip })),
+          deviceId: networkInfo.device_id,
+          hostname: networkInfo.hostname,
+          os: networkInfo.os,
+          servicePort: 53317,
+          mdnsServiceType: '_hvae-xfer._tcp.local.',
+          startTime: new Date().toISOString(),
+          eventCount: 0,
+          lastEvent: '-',
+        });
+        addDebugLog(`✓ 本地 IP: ${networkInfo.local_ip}`);
+        addDebugLog(`✓ 设备 ID: ${networkInfo.device_id}`);
+        addDebugLog(`✓ 网络接口数: ${networkInfo.interfaces.length}`);
+      } else {
+        addDebugLog('⚠ 无法获取调试信息（命令不存在）');
+      }
+    } catch (error) {
+      addDebugLog(`❌ 获取调试信息失败: ${error}`);
+    }
+  }, [addDebugLog]);
+
   // 初始化：读取用户数据并启动服务
   useEffect(() => {
     const data = loadLanTransferData();
@@ -239,9 +325,14 @@ export default function LanTransferPage() {
   useEffect(() => {
     if (userData && !serviceStartedRef.current) {
       serviceStartedRef.current = true;
+      addDebugLog(`启动服务: 用户=${userData.userNickname} (${userData.userId})`);
       startService(userData.userId, userData.userNickname);
+      // 延迟获取调试信息
+      setTimeout(() => {
+        fetchDebugInfo();
+      }, 1000);
     }
-  }, [userData, startService]);
+  }, [userData, startService, addDebugLog, fetchDebugInfo]);
 
   // 关闭窗口时停止服务
   useEffect(() => {
@@ -321,6 +412,13 @@ export default function LanTransferPage() {
           </span>
         </div>
         <div className="lan-header-actions">
+          <button
+            className={`lan-action-btn debug ${showDebug ? 'active' : ''}`}
+            onClick={() => setShowDebug(!showDebug)}
+            title="调试信息"
+          >
+            <DebugIcon />
+          </button>
           <button
             className="lan-action-btn refresh"
             onClick={handleRefresh}
@@ -427,6 +525,146 @@ export default function LanTransferPage() {
             </AnimatePresence>
           </div>
         </section>
+
+        {/* 调试面板 */}
+        <AnimatePresence>
+          {showDebug && (
+            <motion.section
+              className="lan-section lan-debug-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <div className="lan-debug-header" onClick={() => setShowDebug(!showDebug)}>
+                <h2 className="lan-section-title">🔧 调试信息</h2>
+                <ChevronIcon expanded={showDebug} />
+              </div>
+
+              <div className="lan-debug-content">
+                {/* 本机信息 */}
+                <div className="lan-debug-block">
+                  <h3>📱 本机信息</h3>
+                  {debugInfo ? (
+                    <div className="lan-debug-grid">
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">主机名:</span>
+                        <span className="lan-debug-value">{debugInfo.hostname}</span>
+                      </div>
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">本地 IP:</span>
+                        <span className="lan-debug-value highlight">{debugInfo.localIp}</span>
+                      </div>
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">设备 ID:</span>
+                        <span className="lan-debug-value mono">{debugInfo.deviceId}</span>
+                      </div>
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">操作系统:</span>
+                        <span className="lan-debug-value">{debugInfo.os}</span>
+                      </div>
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">服务端口:</span>
+                        <span className="lan-debug-value">{debugInfo.servicePort}</span>
+                      </div>
+                      <div className="lan-debug-item">
+                        <span className="lan-debug-label">mDNS 类型:</span>
+                        <span className="lan-debug-value mono">{debugInfo.mdnsServiceType}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="lan-debug-loading">加载中...</div>
+                  )}
+                </div>
+
+                {/* 网络接口 */}
+                <div className="lan-debug-block">
+                  <h3>🌐 网络接口</h3>
+                  {debugInfo?.allInterfaces ? (
+                    <div className="lan-debug-interfaces">
+                      {debugInfo.allInterfaces.map((iface, idx) => (
+                        <div
+                          key={idx}
+                          className={`lan-debug-interface ${iface.ip === debugInfo.localIp ? 'active' : ''}`}
+                        >
+                          <span className="lan-debug-iface-name">{iface.name}</span>
+                          <span className="lan-debug-iface-ip">{iface.ip}</span>
+                          {iface.ip === debugInfo.localIp && (
+                            <span className="lan-debug-iface-badge">当前</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="lan-debug-loading">加载中...</div>
+                  )}
+                </div>
+
+                {/* 服务状态 */}
+                <div className="lan-debug-block">
+                  <h3>📡 服务状态</h3>
+                  <div className="lan-debug-grid">
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">mDNS 服务:</span>
+                      <span className={`lan-debug-value ${isRunning ? 'success' : 'error'}`}>
+                        {isRunning ? '✅ 运行中' : '❌ 未启动'}
+                      </span>
+                    </div>
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">发现设备数:</span>
+                      <span className="lan-debug-value">{devices.length}</span>
+                    </div>
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">待处理请求:</span>
+                      <span className="lan-debug-value">{pendingRequests.length}</span>
+                    </div>
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">活跃传输:</span>
+                      <span className="lan-debug-value">{activeTransfers.length}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 调试日志 */}
+                <div className="lan-debug-block">
+                  <h3>📋 调试日志</h3>
+                  <div className="lan-debug-logs">
+                    {debugLogs.length > 0 ? (
+                      debugLogs.map((log, idx) => (
+                        <div key={idx} className="lan-debug-log-entry">
+                          {log}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="lan-debug-log-empty">暂无日志</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="lan-debug-actions">
+                  <button className="lan-debug-btn" onClick={fetchDebugInfo}>
+                    🔄 刷新信息
+                  </button>
+                  <button
+                    className="lan-debug-btn"
+                    onClick={() => {
+                      addDebugLog('手动触发设备刷新');
+                      refreshDevices();
+                    }}
+                  >
+                    📡 刷新设备
+                  </button>
+                  <button
+                    className="lan-debug-btn danger"
+                    onClick={() => setDebugLogs([])}
+                  >
+                    🗑️ 清除日志
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );

@@ -63,16 +63,16 @@ export interface TransferTask {
   etaSeconds?: number;
 }
 
-/** 局域网传输事件 */
+/** 局域网传输事件 - 注意：事件字段使用 snake_case，嵌套结构体使用 camelCase */
 export type LanTransferEvent =
   | { type: 'device_discovered'; device: DiscoveredDevice }
-  | { type: 'device_left'; deviceId: string }
+  | { type: 'device_left'; device_id: string }
   | { type: 'connection_request'; request: ConnectionRequest }
-  | { type: 'connection_response'; requestId: string; accepted: boolean }
+  | { type: 'connection_response'; request_id: string; accepted: boolean }
   | { type: 'transfer_progress'; task: TransferTask }
-  | { type: 'transfer_completed'; taskId: string; savedPath: string }
-  | { type: 'transfer_failed'; taskId: string; error: string }
-  | { type: 'service_state_changed'; isRunning: boolean };
+  | { type: 'transfer_completed'; task_id: string; saved_path: string }
+  | { type: 'transfer_failed'; task_id: string; error: string }
+  | { type: 'service_state_changed'; is_running: boolean };
 
 /** Hook 返回值 */
 export interface UseLanTransferReturn {
@@ -200,7 +200,7 @@ export function useLanTransfer(): UseLanTransferReturn {
             break;
 
           case 'device_left':
-            setDevices((prev) => prev.filter((d) => d.deviceId !== payload.deviceId));
+            setDevices((prev) => prev.filter((d) => d.deviceId !== payload.device_id));
             break;
 
           case 'connection_request':
@@ -226,12 +226,12 @@ export function useLanTransfer(): UseLanTransferReturn {
           case 'transfer_completed':
           case 'transfer_failed':
             setActiveTransfers((prev) =>
-              prev.filter((t) => t.taskId !== payload.taskId),
+              prev.filter((t) => t.taskId !== payload.task_id),
             );
             break;
 
           case 'service_state_changed':
-            setIsRunning(payload.isRunning);
+            setIsRunning(payload.is_running);
             break;
         }
       });

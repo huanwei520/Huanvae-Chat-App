@@ -114,7 +114,6 @@ pub async fn start_lan_transfer_service(
     user_nickname: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    // 保存 AppHandle 用于后续事件发送
     set_app_handle(app_handle);
 
     discovery::start_service(user_id, user_nickname)
@@ -191,3 +190,39 @@ pub async fn cancel_transfer(transfer_id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// 获取局域网调试信息
+#[tauri::command]
+pub fn get_lan_debug_info() -> Result<serde_json::Value, String> {
+    let local_ip = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|e| format!("Error: {}", e));
+
+    let interfaces: Vec<(String, String)> = local_ip_address::list_afinet_netifas()
+        .map(|list| {
+            list.into_iter()
+                .map(|(name, ip)| (name, ip.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let device_id = mac_address::get_mac_address()
+        .map(|opt| {
+            opt.map(|mac| mac.to_string().replace(':', ""))
+                .unwrap_or_else(|| "Unknown".to_string())
+        })
+        .unwrap_or_else(|e| format!("Error: {}", e));
+
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "Unknown".to_string());
+
+    let os = std::env::consts::OS.to_string();
+
+    Ok(serde_json::json!({
+        "local_ip": local_ip,
+        "interfaces": interfaces,
+        "device_id": device_id,
+        "hostname": hostname,
+        "os": os
+    }))
+}

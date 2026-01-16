@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// mDNS 服务类型
-pub const SERVICE_TYPE: &str = "_huanvae-transfer._tcp.local.";
+/// 注意：RFC 6763 规定服务类型名主体部分不能超过 15 字节
+/// "hvae-xfer" = 9 字符，符合规范
+pub const SERVICE_TYPE: &str = "_hvae-xfer._tcp.local.";
 
 /// 服务端口
 pub const SERVICE_PORT: u16 = 53317;
