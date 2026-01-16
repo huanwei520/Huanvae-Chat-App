@@ -541,6 +541,44 @@ export default function MeetingPage() {
             </motion.aside>
           )}
         </AnimatePresence>
+
+        {/* 连接状态提示 - 放在 main 内部以相对于视频区域居中 */}
+        {webrtc.meetingState === 'connecting' && (
+          <div className="meeting-status connecting">
+            <div className="meeting-loading-spinner" />
+            <span>正在连接...</span>
+          </div>
+        )}
+
+        {webrtc.error && (
+          <div className="meeting-status error">
+            <span>{webrtc.error}</span>
+          </div>
+        )}
+
+        {/* 媒体权限错误提示 */}
+        <AnimatePresence>
+          {webrtc.mediaError && (
+            <motion.div
+              className="meeting-status media-error"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+            >
+              <span>{webrtc.mediaError.message}</span>
+              {webrtc.mediaError.reason === 'denied' && (
+                <span className="media-error-hint">请在系统设置中允许应用访问</span>
+              )}
+              <button
+                className="media-error-close"
+                onClick={webrtc.clearMediaError}
+                title="关闭"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* 控制栏 */}
@@ -591,20 +629,6 @@ export default function MeetingPage() {
           </motion.button>
         </div>
       </footer>
-
-      {/* 连接状态提示 */}
-      {webrtc.meetingState === 'connecting' && (
-        <div className="meeting-status connecting">
-          <div className="meeting-loading-spinner" />
-          <span>正在连接...</span>
-        </div>
-      )}
-
-      {webrtc.error && (
-        <div className="meeting-status error">
-          <span>{webrtc.error}</span>
-        </div>
-      )}
 
       {/* 屏幕共享设置弹窗 */}
       <AnimatePresence>

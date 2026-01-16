@@ -38,7 +38,6 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   getSignalingUrl,
   type IceServer,
@@ -61,6 +60,19 @@ export interface MediaDeviceState {
   micEnabled: boolean;
   cameraEnabled: boolean;
   screenSharing: boolean;
+}
+
+/** 媒体权限错误类型 */
+export type MediaErrorType = 'mic' | 'camera' | 'screen';
+
+/** 媒体权限错误原因 */
+export type MediaErrorReason = 'denied' | 'not_found' | 'not_supported' | 'in_use' | 'unknown';
+
+/** 媒体权限错误 */
+export interface MediaError {
+  type: MediaErrorType;
+  reason: MediaErrorReason;
+  message: string;
 }
 
 /** 远程参与者（包含头像信息） */
@@ -134,6 +146,8 @@ export interface UseWebRTCReturn {
   participants: RemoteParticipant[];
   localStream: MediaStream | null;
   error: string | null;
+  /** 媒体权限错误（麦克风/摄像头/屏幕共享） */
+  mediaError: MediaError | null;
   mediaState: MediaDeviceState;
   isSpeaking: boolean;
   connect: (roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => void;
@@ -142,13 +156,79 @@ export interface UseWebRTCReturn {
   toggleCamera: () => Promise<void>;
   /** 切换屏幕共享，可传入设置参数 */
   toggleScreenShare: (settings?: ScreenShareSettings) => Promise<void>;
-  initLocalStream: () => Promise<MediaStream | null>;
+  initLocalStream: () => Promise<boolean>;
   stopLocalStream: () => void;
+  /** 清除媒体错误 */
+  clearMediaError: () => void;
 }
 
 // ============================================
 // Hook 实现
 // ============================================
+
+/** 获取媒体类型的中文名称 */
+function getMediaTypeName(type: MediaErrorType): string {
+  if (type === 'mic') {
+    return '麦克风';
+  }
+  if (type === 'camera') {
+    return '摄像头';
+  }
+  return '屏幕共享';
+}
+
+/**
+ * 解析媒体错误，返回用户友好的错误信息
+ */
+function parseMediaError(err: unknown, type: MediaErrorType): MediaError {
+  const typeName = getMediaTypeName(type);
+
+  if (err instanceof Error) {
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return {
+          type,
+          reason: 'denied',
+          message: `${typeName}权限被拒绝`,
+        };
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return {
+          type,
+          reason: 'not_found',
+          message: type === 'screen' ? '未检测到可共享的屏幕' : `未检测到${typeName}`,
+        };
+      case 'NotSupportedError':
+        return {
+          type,
+          reason: 'not_supported',
+          message: '当前环境不支持此功能',
+        };
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return {
+          type,
+          reason: 'in_use',
+          message: type === 'screen' ? '屏幕共享失败' : `${typeName}被其他应用占用`,
+        };
+      case 'AbortError':
+        // 用户取消，不显示错误
+        return { type, reason: 'unknown', message: '' };
+      default:
+        return {
+          type,
+          reason: 'unknown',
+          message: `${typeName}出错: ${err.message}`,
+        };
+    }
+  }
+  return {
+    type,
+    reason: 'unknown',
+    message: '未知错误',
+  };
+}
 
 export function useWebRTC(): UseWebRTCReturn {
   // ========== 状态 ==========
@@ -157,12 +237,18 @@ export function useWebRTC(): UseWebRTCReturn {
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<MediaError | null>(null);
   const [mediaState, setMediaState] = useState<MediaDeviceState>({
     micEnabled: false,
     cameraEnabled: false,
     screenSharing: false,
   });
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  /** 清除媒体错误 */
+  const clearMediaError = useCallback(() => {
+    setMediaError(null);
+  }, []);
 
   // ========== Refs ==========
   const wsRef = useRef<WebSocket | null>(null);
@@ -916,36 +1002,26 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /**
    * 初始化本地媒体流
-   * 只获取权限，不开始共享
+   * 检查设备可用性，不实际获取流（流在开启麦克风/摄像头时获取）
    */
-  const initLocalStream = useCallback(async (): Promise<MediaStream | null> => {
+  const initLocalStream = useCallback(async (): Promise<boolean> => {
     try {
       // 检查设备
       const devices = await navigator.mediaDevices.enumerateDevices();
       const hasAudio = devices.some((d) => d.kind === 'audioinput');
+      const hasVideo = devices.some((d) => d.kind === 'videoinput');
 
-      if (!hasAudio) {
-        return null;
+      if (!hasAudio && !hasVideo) {
+        setError('未检测到音视频设备');
+        return false;
       }
 
-      // 预请求权限（用于检测权限状态）
-      try {
-        const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        testStream.getTracks().forEach((t) => t.stop());
-      } catch (err) {
-        if (err instanceof Error && err.name === 'NotAllowedError') {
-          await invoke<string>('reset_webview_permissions');
-          await new Promise((r) => { setTimeout(r, 500); });
-        }
-      }
-
-      // 创建一个空的本地流用于预览
-      const previewStream = new MediaStream();
-      setLocalStream(previewStream);
-
-      return previewStream;
-    } catch {
-      return null;
+      // 清除之前的错误
+      setMediaError(null);
+      return true;
+    } catch (err) {
+      console.error('[WebRTC] 初始化媒体流失败:', err);
+      return false;
     }
   }, []);
 
@@ -1027,8 +1103,12 @@ export function useWebRTC(): UseWebRTCReturn {
         });
 
         setMediaState((prev) => ({ ...prev, micEnabled: true }));
-      } catch {
-        // 用户拒绝权限
+        setMediaError(null); // 清除之前的错误
+      } catch (err) {
+        const mediaErr = parseMediaError(err, 'mic');
+        if (mediaErr.message) {
+          setMediaError(mediaErr);
+        }
       }
     }
   }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver, startVolumeDetection, stopVolumeDetection]);
@@ -1083,8 +1163,12 @@ export function useWebRTC(): UseWebRTCReturn {
         });
 
         setMediaState((prev) => ({ ...prev, cameraEnabled: true }));
-      } catch {
-        // 用户拒绝权限
+        setMediaError(null); // 清除之前的错误
+      } catch (err) {
+        const mediaErr = parseMediaError(err, 'camera');
+        if (mediaErr.message) {
+          setMediaError(mediaErr);
+        }
       }
     }
   }, [mediaState.cameraEnabled, addCameraTransceiver, stopCameraTransceiver]);
@@ -1164,8 +1248,13 @@ export function useWebRTC(): UseWebRTCReturn {
         });
 
         setMediaState((prev) => ({ ...prev, screenSharing: true }));
-      } catch {
-        // 用户取消
+        setMediaError(null); // 清除之前的错误
+      } catch (err) {
+        const mediaErr = parseMediaError(err, 'screen');
+        // AbortError 表示用户取消，不显示错误
+        if (mediaErr.message && mediaErr.reason !== 'unknown') {
+          setMediaError(mediaErr);
+        }
       }
     }
   }, [mediaState.screenSharing, addScreenTransceiver, stopScreenTransceiver]);
@@ -1270,6 +1359,7 @@ export function useWebRTC(): UseWebRTCReturn {
     participants,
     localStream,
     error,
+    mediaError,
     mediaState,
     isSpeaking,
     connect,
@@ -1279,5 +1369,6 @@ export function useWebRTC(): UseWebRTCReturn {
     toggleScreenShare,
     initLocalStream,
     stopLocalStream,
+    clearMediaError,
   };
 }
