@@ -874,6 +874,42 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
         ],
       },
       {
+        name: 'mDNS 服务类型合规',
+        description: '服务类型名符合 RFC 6763 规范（不超过 15 字节）',
+        critical: true,
+        steps: [
+          '打开局域网传输窗口',
+          '查看调试信息中的服务类型',
+          '验证服务类型为 _hvae-xfer._tcp.local.',
+          '验证服务注册成功（无 15 字节限制错误）',
+          '在另一台设备使用 avahi-browse _hvae-xfer._tcp -t 验证能发现服务',
+        ],
+      },
+      {
+        name: '服务状态同步',
+        description: '前后端服务状态实时同步',
+        critical: true,
+        steps: [
+          '打开局域网传输窗口',
+          '验证显示"服务运行中"状态',
+          '关闭窗口验证服务停止',
+          '重新打开窗口验证服务自动重启',
+          '验证状态变化即时反映在 UI 上',
+        ],
+      },
+      {
+        name: '跨平台设备互发现',
+        description: 'Windows 和 Linux 设备互相发现',
+        critical: true,
+        steps: [
+          '在 Windows 上打开局域网传输窗口',
+          '在 Linux 上打开局域网传输窗口',
+          '验证 Windows 能看到 Linux 设备',
+          '验证 Linux 能看到 Windows 设备',
+          '验证设备信息（名称、用户昵称、IP）正确显示',
+        ],
+      },
+      {
         name: '发送文件',
         description: '选择文件发送到目标设备',
         critical: true,
