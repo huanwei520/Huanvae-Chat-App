@@ -179,10 +179,10 @@ impl LinuxDiagnostician {
                     } else {
                         let mut missing = Vec::new();
                         if !has_5353 {
-                            missing.push("5353/udp (mDNS)");
+                            missing.push("5353/udp (mDNS)".to_string());
                         }
                         if !has_transfer {
-                            missing.push(&format!("{}/tcp (传输)", SERVICE_PORT));
+                            missing.push(format!("{}/tcp (传输)", SERVICE_PORT));
                         }
 
                         DiagItem {
