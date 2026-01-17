@@ -1015,3 +1015,281 @@
   box-shadow: var(--shadow-glow);
 }
 
+/* ============================================
+   权限修复引导弹窗
+   ============================================ */
+
+.permission-guide-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--black-alpha-50);
+  backdrop-filter: var(--blur-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.permission-guide-modal {
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: var(--blur-xl);
+  border-radius: 16px;
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.permission-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.permission-guide-icon {
+  font-size: 28px;
+}
+
+.permission-guide-header h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.permission-guide-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--black-alpha-5);
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.permission-guide-close:hover {
+  background: var(--black-alpha-10);
+  color: var(--text-primary);
+}
+
+.permission-guide-os {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.permission-guide-os-value {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.permission-guide-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--primary-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.permission-guide-path-icon {
+  font-size: 14px;
+}
+
+.permission-guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.permission-guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.step-number {
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  color: var(--text-inverse);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.step-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.permission-guide-commands {
+  background: var(--black-alpha-5);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.commands-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.commands-icon {
+  font-size: 14px;
+}
+
+.commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.command-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.command-description {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.command-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.command-badge.admin {
+  background: var(--status-warning-subtle);
+  color: var(--status-warning);
+}
+
+.command-badge.restart {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.command-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.command-code:hover {
+  background: var(--white-alpha-95);
+  border-color: var(--primary);
+}
+
+.command-code code {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-copy {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.permission-guide-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.permission-guide-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.permission-guide-btn.primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-glow);
+}
+
+.permission-guide-btn.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.permission-guide-btn.primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.permission-guide-btn.secondary {
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.permission-guide-btn.secondary:hover {
+  background: var(--white-alpha-95);
+  color: var(--text-primary);
+}
+
+.permission-guide-tip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
