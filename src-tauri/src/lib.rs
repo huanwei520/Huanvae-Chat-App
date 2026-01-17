@@ -476,6 +476,8 @@ pub fn run() {
             lan_transfer::get_active_transfers,
             lan_transfer::cancel_transfer,
             lan_transfer::get_lan_debug_info,
+            // 局域网传输诊断
+            lan_transfer::diagnostics::diagnose_lan_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
