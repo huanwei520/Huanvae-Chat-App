@@ -5,12 +5,12 @@ Codename: stable
 Architectures: amd64
 Components: main
 Description: Huanvae Chat APT Repository
-Date: Fri, 16 Jan 2026 15:01:55 +0000
+Date: Sat, 17 Jan 2026 16:46:20 +0000
 MD5Sum:
- 965044eb8ae7955cf622ab2ef01e04b0 456 main/binary-amd64/Packages.xz
- 87633aff14e627d5306a14afcc2b63c1 566 main/binary-amd64/Packages
- 8ec4fb0cfe69d93f3d64ff96e872a901 419 main/binary-amd64/Packages.gz
+ 203733fe6a6f92887304e0b397c024e5 456 main/binary-amd64/Packages.xz
+ 873e284b44e8241fcb952b243307c4e9 566 main/binary-amd64/Packages
+ 100d3fd29f15d460167fcca8bd860998 417 main/binary-amd64/Packages.gz
 SHA256:
- 0989316236f606d2f93c03ca6ecc6db7c747765ea5f3412d6dfd5462b0333f11 456 main/binary-amd64/Packages.xz
- 16b87922d922363a78510f3fb7a95d246afbe092d2b6bd42e033bfcebf58670d 566 main/binary-amd64/Packages
- caebe7096c0b190ee81aa2f5e1b890d2ecc6d2979f925bb7f7fa79aa7ab20a49 419 main/binary-amd64/Packages.gz
+ be89dea038a01e364343d1aa7d808215c67e54c6e9ed8ee6b4090bc0f79feef2 456 main/binary-amd64/Packages.xz
+ 695732454e421a61f0fe65553cd2dc5ddece72f48ab1e37f67a17d515770b5aa 566 main/binary-amd64/Packages
+ a479e60a432382db47bc6fafdf1ce1d7b5101c7a25e1506f81f1f530517e00e4 417 main/binary-amd64/Packages.gz
