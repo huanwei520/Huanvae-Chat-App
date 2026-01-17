@@ -64,15 +64,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 先设置 Node.js，再设置 pnpm（确保 corepack 可用）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        # 版本自动从 package.json 的 packageManager 字段读取
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
