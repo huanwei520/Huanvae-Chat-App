@@ -8,6 +8,13 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 Set-Location $projectRoot
 
+# Determine pnpm command (direct or via npx)
+$env:Path = "$env:LOCALAPPDATA\pnpm;$env:Path"
+$pnpmCmd = "pnpm"
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    $pnpmCmd = "npx pnpm"
+}
+
 Write-Host ""
 Write-Host "========================================"
 Write-Host "  Huanvae Chat - Code Quality Check"
@@ -61,7 +68,7 @@ else {
 
 # 2. TypeScript
 Write-Host "[2/5] TypeScript type check..." -ForegroundColor Cyan
-$null = pnpm tsc --noEmit 2>&1
+$null = Invoke-Expression "$pnpmCmd tsc --noEmit" 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  PASS: TypeScript" -ForegroundColor Green
 }
@@ -72,19 +79,19 @@ else {
 
 # 3. ESLint
 Write-Host "[3/5] ESLint check (strict)..." -ForegroundColor Cyan
-$null = pnpm eslint src --ext .ts,.tsx --max-warnings 0 2>&1
+$null = Invoke-Expression "$pnpmCmd lint" 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  PASS: ESLint (0 errors, 0 warnings)" -ForegroundColor Green
 }
 else {
     Write-Host "  FAIL: ESLint" -ForegroundColor Red
-    pnpm eslint src --ext .ts,.tsx --max-warnings 0
+    Invoke-Expression "$pnpmCmd lint"
     $allPassed = $false
 }
 
 # 4. Unit Tests
 Write-Host "[4/5] Unit tests..." -ForegroundColor Cyan
-$testOutput = pnpm test --run 2>&1 | Out-String
+$testOutput = Invoke-Expression "$pnpmCmd test --run" 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
     if ($testOutput -match "(\d+) passed") {
         Write-Host "  PASS: Unit tests ($($Matches[1]) tests)" -ForegroundColor Green
@@ -101,7 +108,7 @@ else {
 
 # 5. Build (with Vite warning check)
 Write-Host "[5/5] Frontend build (checking for warnings)..." -ForegroundColor Cyan
-$buildOutput = pnpm build 2>&1 | Out-String
+$buildOutput = Invoke-Expression "$pnpmCmd build" 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
     # Check for Vite optimization warnings
     if ($buildOutput -match "\[plugin vite:reporter\]") {
