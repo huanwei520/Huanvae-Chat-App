@@ -1,7 +1,9 @@
 # Huanvae Chat - Full Test Script
 # Usage: .\scripts\test-all.ps1
 
-param()
+param(
+    [switch]$SkipCrossCheck  # Skip cross-platform Rust check
+)
 
 $ErrorActionPreference = "Continue"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -24,9 +26,11 @@ Write-Host ""
 
 $startTime = Get-Date
 $allPassed = $true
+$totalSteps = 6
+if ($SkipCrossCheck) { $totalSteps = 5 }
 
 # 1. package.json duplicate key check (using Node.js for accurate parsing)
-Write-Host "[1/5] package.json validation..." -ForegroundColor Cyan
+Write-Host "[1/$totalSteps] package.json validation..." -ForegroundColor Cyan
 $jsonCheckScript = @"
 const fs = require('fs');
 const content = fs.readFileSync('package.json', 'utf8');
@@ -67,7 +71,7 @@ else {
 }
 
 # 2. TypeScript
-Write-Host "[2/5] TypeScript type check..." -ForegroundColor Cyan
+Write-Host "[2/$totalSteps] TypeScript type check..." -ForegroundColor Cyan
 $null = Invoke-Expression "$pnpmCmd tsc --noEmit" 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  PASS: TypeScript" -ForegroundColor Green
@@ -78,7 +82,7 @@ else {
 }
 
 # 3. ESLint
-Write-Host "[3/5] ESLint check (strict)..." -ForegroundColor Cyan
+Write-Host "[3/$totalSteps] ESLint check (strict)..." -ForegroundColor Cyan
 $null = Invoke-Expression "$pnpmCmd lint" 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  PASS: ESLint (0 errors, 0 warnings)" -ForegroundColor Green
@@ -90,7 +94,7 @@ else {
 }
 
 # 4. Unit Tests
-Write-Host "[4/5] Unit tests..." -ForegroundColor Cyan
+Write-Host "[4/$totalSteps] Unit tests..." -ForegroundColor Cyan
 $testOutput = Invoke-Expression "$pnpmCmd test --run" 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
     if ($testOutput -match "(\d+) passed") {
@@ -107,7 +111,7 @@ else {
 }
 
 # 5. Build (with Vite warning check)
-Write-Host "[5/5] Frontend build (checking for warnings)..." -ForegroundColor Cyan
+Write-Host "[5/$totalSteps] Frontend build (checking for warnings)..." -ForegroundColor Cyan
 $buildOutput = Invoke-Expression "$pnpmCmd build" 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
     # Check for Vite optimization warnings
@@ -126,6 +130,45 @@ else {
     Write-Host "  FAIL: Build" -ForegroundColor Red
     Write-Host $buildOutput
     $allPassed = $false
+}
+
+# 6. Cross-platform Rust check (via WSL2 Linux)
+if (-not $SkipCrossCheck) {
+    Write-Host "[6/$totalSteps] Cross-platform Rust check (WSL2)..." -ForegroundColor Cyan
+    
+    # Check if WSL is available
+    $wslStatus = wsl --status 2>&1 | Out-String
+    $wslList = wsl --list --quiet 2>&1 | Out-String
+    
+    if ($wslList -match "Ubuntu") {
+        Write-Host "  Checking Linux build via WSL2..." -ForegroundColor Gray
+        
+        # Convert Windows path to WSL path
+        $wslProjectPath = $projectRoot -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1'.ToLower()
+        $wslProjectPath = $wslProjectPath.Substring(0, 5) + $wslProjectPath.Substring(5).ToLower().Substring(0,1) + $wslProjectPath.Substring(6)
+        
+        # Run cargo check in WSL
+        $wslCheck = wsl -d Ubuntu -- bash -c "cd '$wslProjectPath/src-tauri' && ~/.cargo/bin/cargo check --message-format=short 2>&1"
+        $wslExitCode = $LASTEXITCODE
+        
+        if ($wslExitCode -eq 0) {
+            Write-Host "  PASS: Linux Rust check (WSL2)" -ForegroundColor Green
+        }
+        elseif ($wslCheck -match "cargo: command not found" -or $wslCheck -match "No such file or directory.*cargo") {
+            Write-Host "  SKIP: Rust not installed in WSL" -ForegroundColor Yellow
+            Write-Host "  Run setup: .\scripts\setup-wsl-rust.ps1" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "  FAIL: Linux Rust check" -ForegroundColor Red
+            Write-Host $wslCheck
+            $allPassed = $false
+        }
+    }
+    else {
+        Write-Host "  SKIP: WSL2 Ubuntu not installed" -ForegroundColor Yellow
+        Write-Host "  Install with: wsl --install Ubuntu-24.04" -ForegroundColor Yellow
+        Write-Host "  Then restart and run: .\scripts\setup-wsl-rust.ps1" -ForegroundColor Yellow
+    }
 }
 
 # Summary
