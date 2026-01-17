@@ -37,6 +37,7 @@ import {
   ParticipantsIcon,
   CopyIcon,
 } from '../components/common/Icons';
+import { MediaPermissionGuide } from './components/MediaPermissionGuide';
 import './styles.css';
 
 /**
@@ -318,6 +319,9 @@ export default function MeetingPage() {
   const [screenShareResolution, setScreenShareResolution] = useState<ScreenShareResolution>('1080p');
   const [screenShareFrameRate, setScreenShareFrameRate] = useState<ScreenShareFrameRate>(60);
 
+  // 权限修复引导弹窗
+  const [showPermissionGuide, setShowPermissionGuide] = useState(false);
+
   // 获取可用的分辨率选项（根据显示器分辨率过滤）
   const availableResolutions = getAvailableResolutions();
 
@@ -383,6 +387,13 @@ export default function MeetingPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [webrtc]);
+
+  // 当权限被拒绝时显示引导弹窗
+  useEffect(() => {
+    if (webrtc.mediaError?.reason === 'denied') {
+      setShowPermissionGuide(true);
+    }
+  }, [webrtc.mediaError]);
 
   // 离开会议
   const handleLeave = useCallback(() => {
@@ -629,6 +640,32 @@ export default function MeetingPage() {
           </motion.button>
         </div>
       </footer>
+
+      {/* 权限修复引导弹窗 */}
+      <AnimatePresence>
+        {showPermissionGuide && webrtc.mediaError && (
+          <MediaPermissionGuide
+            errorType={webrtc.mediaError.type}
+            errorReason={webrtc.mediaError.reason}
+            onClose={() => {
+              setShowPermissionGuide(false);
+              webrtc.clearMediaError();
+            }}
+            onRetry={() => {
+              setShowPermissionGuide(false);
+              webrtc.clearMediaError();
+              // 重新尝试获取权限
+              if (webrtc.mediaError?.type === 'mic') {
+                webrtc.toggleMic();
+              } else if (webrtc.mediaError?.type === 'camera') {
+                webrtc.toggleCamera();
+              } else {
+                webrtc.toggleScreenShare();
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 屏幕共享设置弹窗 */}
       <AnimatePresence>
