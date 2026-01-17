@@ -18,6 +18,7 @@
  * @see https://github.com/localsend/protocol 参考 LocalSend 协议
  */
 
+pub mod diagnostics;
 pub mod discovery;
 pub mod protocol;
 pub mod server;
