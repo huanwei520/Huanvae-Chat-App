@@ -10,6 +10,7 @@
 //! - 文件下载和缓存：下载文件到本地缓存，大文件优化（≥100MB不复制）
 //! - 文件管理：在系统文件管理器中显示本地文件
 //! - WebView 权限管理：重置麦克风/摄像头权限缓存
+//! - 媒体权限恢复：跨平台权限修复指南和系统设置打开
 //! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
 //! - 会话锁：同设备同账户单开，不同账户可多开
 //! - 设备信息：获取设备标识用于登录
@@ -20,6 +21,7 @@ mod db;
 mod device_info;
 mod download;
 mod lan_transfer;
+mod permissions;
 mod session_lock;
 mod sounds;
 mod storage;
@@ -478,6 +480,10 @@ pub fn run() {
             lan_transfer::get_lan_debug_info,
             // 局域网传输诊断
             lan_transfer::diagnostics::diagnose_lan_transfer,
+            // 媒体权限管理
+            permissions::open_media_permission_settings,
+            permissions::get_media_permission_guide,
+            permissions::can_open_permission_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
