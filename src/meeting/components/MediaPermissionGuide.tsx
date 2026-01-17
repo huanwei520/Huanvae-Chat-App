@@ -52,9 +52,12 @@ export function MediaPermissionGuide({ errorType, errorReason, onClose, onRetry 
 
   // 获取权限修复指南
   useEffect(() => {
-    const permissionType = errorType === 'mic' ? 'microphone'
-      : errorType === 'camera' ? 'camera'
-        : 'screen_capture';
+    const permissionTypeMap: Record<MediaErrorType, string> = {
+      mic: 'microphone',
+      camera: 'camera',
+      screen: 'screen_capture',
+    };
+    const permissionType = permissionTypeMap[errorType];
 
     invoke<PermissionGuide>('get_media_permission_guide', { permissionType })
       .then(setGuide)
@@ -65,9 +68,12 @@ export function MediaPermissionGuide({ errorType, errorReason, onClose, onRetry 
   const handleOpenSettings = useCallback(async () => {
     setOpening(true);
     try {
-      const permissionType = errorType === 'mic' ? 'microphone'
-        : errorType === 'camera' ? 'camera'
-          : 'screen_capture';
+      const permissionTypeMap: Record<MediaErrorType, string> = {
+        mic: 'microphone',
+        camera: 'camera',
+        screen: 'screen_capture',
+      };
+      const permissionType = permissionTypeMap[errorType];
 
       await invoke('open_media_permission_settings', { permissionType });
     } catch (err) {
