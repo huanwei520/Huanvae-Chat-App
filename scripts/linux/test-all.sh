@@ -44,15 +44,34 @@ echo ""
 
 START_TIME=$(date +%s)
 ALL_PASSED=true
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 if $SKIP_RUST; then
-    TOTAL_STEPS=6
+    TOTAL_STEPS=7
 fi
 
 # ============================================
-# 1. package.json 验证
+# 1. NSIS 安装钩子检查 (Windows 更新兼容性)
 # ============================================
-echo -e "${CYAN}[1/$TOTAL_STEPS] package.json 验证...${NC}"
+echo -e "${CYAN}[1/$TOTAL_STEPS] NSIS 安装钩子检查...${NC}"
+
+NSIS_HOOKS="$PROJECT_ROOT/src-tauri/nsis/installer-hooks.nsh"
+if [[ -f "$NSIS_HOOKS" ]]; then
+    # 检查是否包含关闭运行中应用的逻辑
+    if grep -q "taskkill.*Huanvae-Chat-App.exe" "$NSIS_HOOKS"; then
+        echo -e "  ${GREEN}✓ PASS: NSIS 钩子包含关闭运行中应用逻辑${NC}"
+    else
+        echo -e "  ${RED}✗ FAIL: NSIS 钩子缺少关闭运行中应用逻辑${NC}"
+        echo -e "  ${RED}  Windows 更新时可能出现 'exe 无法写入' 错误${NC}"
+        ALL_PASSED=false
+    fi
+else
+    echo -e "  ${YELLOW}⚠ SKIP: NSIS 钩子文件不存在${NC}"
+fi
+
+# ============================================
+# 2. package.json 验证
+# ============================================
+echo -e "${CYAN}[2/$TOTAL_STEPS] package.json 验证...${NC}"
 
 VALIDATE_RESULT=$(node -e "
 const fs = require('fs');
@@ -93,9 +112,9 @@ if $ALL_PASSED; then
 fi
 
 # ============================================
-# 2. TypeScript 类型检查
+# 3. TypeScript 类型检查
 # ============================================
-echo -e "${CYAN}[2/$TOTAL_STEPS] TypeScript 类型检查...${NC}"
+echo -e "${CYAN}[3/$TOTAL_STEPS] TypeScript 类型检查...${NC}"
 
 if pnpm tsc --noEmit 2>&1; then
     echo -e "  ${GREEN}✓ PASS: TypeScript${NC}"
@@ -105,9 +124,9 @@ else
 fi
 
 # ============================================
-# 3. ESLint 代码检查 (严格模式)
+# 4. ESLint 代码检查 (严格模式)
 # ============================================
-echo -e "${CYAN}[3/$TOTAL_STEPS] ESLint 代码检查 (0 errors, 0 warnings)...${NC}"
+echo -e "${CYAN}[4/$TOTAL_STEPS] ESLint 代码检查 (0 errors, 0 warnings)...${NC}"
 
 ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
 ESLINT_EXIT=$?
@@ -128,9 +147,9 @@ else
 fi
 
 # ============================================
-# 4. 单元测试
+# 5. 单元测试
 # ============================================
-echo -e "${CYAN}[4/$TOTAL_STEPS] 单元测试...${NC}"
+echo -e "${CYAN}[5/$TOTAL_STEPS] 单元测试...${NC}"
 
 TEST_OUTPUT=$(pnpm test --run 2>&1) || true
 TEST_EXIT=$?
@@ -150,9 +169,9 @@ else
 fi
 
 # ============================================
-# 5. 前端构建测试 (检查警告)
+# 6. 前端构建测试 (检查警告)
 # ============================================
-echo -e "${CYAN}[5/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
+echo -e "${CYAN}[6/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
 
 BUILD_OUTPUT=$(pnpm build 2>&1) || true
 BUILD_EXIT=$?
@@ -179,10 +198,10 @@ else
 fi
 
 # ============================================
-# 6. Cargo Check (基础编译检查)
+# 7. Cargo Check (基础编译检查)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[6/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
+    echo -e "${CYAN}[7/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -204,11 +223,11 @@ if ! $SKIP_RUST; then
 fi
 
 # ============================================
-# 7. Cargo Clippy (代码审查 - 严格模式)
+# 8. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
 CLIPPY_STEP=$TOTAL_STEPS
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[7/$TOTAL_STEPS] Cargo clippy (代码审查 - 禁止警告)...${NC}"
+    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo clippy (代码审查 - 禁止警告)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
