@@ -2,15 +2,66 @@
 
 ## 概述
 
-本目录包含 Huanvae Chat App 的自动化脚本工具。
+本目录包含 Huanvae Chat App 的自动化脚本工具，支持 Windows 和 Linux 两个平台。
 
-## 文件说明
+## 目录结构
+
+```
+scripts/
+├── release-config.txt      # 共用配置文件
+├── README.md               # 本文件
+├── release.ps1             # Windows 发布脚本
+├── pre-release.ps1         # Windows 预发布检查
+├── test-all.ps1            # Windows 完整测试
+├── setup-wsl-rust.ps1      # Windows WSL Rust 环境设置
+└── linux/                  # Linux 脚本目录
+    ├── README.md           # Linux 脚本说明
+    ├── release.sh          # Linux 发布脚本
+    ├── pre-release.sh      # Linux 预发布检查
+    ├── test-all.sh         # Linux 完整测试
+    └── setup-deps.sh       # Linux 开发依赖安装
+```
+
+## 快速开始
+
+### Windows
+
+```powershell
+# 预发布检查
+powershell -ExecutionPolicy Bypass -File .\scripts\pre-release.ps1
+
+# 发布
+powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1
+```
+
+### Linux
+
+```bash
+# 添加执行权限 (首次)
+chmod +x scripts/linux/*.sh
+
+# 预发布检查
+./scripts/linux/pre-release.sh
+
+# 发布
+./scripts/linux/release.sh
+```
+
+---
+
+## Windows 脚本说明
 
 | 文件 | 说明 |
 |------|------|
 | `release.ps1` | 自动化发布脚本 |
 | `release-config.txt` | 发布版本配置 |
 | `pre-release.ps1` | 预发布检查脚本 |
+| `test-all.ps1` | 完整代码质量检查 |
+| `setup-wsl-rust.ps1` | WSL2 Rust 环境设置 |
+
+## Linux 脚本说明
+
+详见 [linux/README.md](linux/README.md)
 
 ---
 
