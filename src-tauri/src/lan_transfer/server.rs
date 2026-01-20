@@ -1,27 +1,31 @@
 /*!
  * HTTP 服务器模块
  *
- * 处理文件接收、连接请求等 HTTP 请求
+ * 处理文件接收、传输请求等 HTTP 请求
  *
  * API 端点：
- * - POST /api/connect: 连接请求
- * - POST /api/prepare-upload: 准备上传
+ * - GET /api/info: 获取设备信息
+ * - POST /api/connect: 连接请求（旧版兼容）
+ * - POST /api/transfer-request: 传输请求（新版，需确认）
+ * - POST /api/transfer-response: 传输请求响应
+ * - POST /api/prepare-upload: 准备上传（支持断点续传）
  * - POST /api/upload: 上传文件块
  * - POST /api/finish: 完成上传
- * - GET /api/info: 获取设备信息
+ * - POST /api/cancel: 取消传输
  */
 
+use super::config;
 use super::discovery::get_event_sender;
 use super::protocol::*;
-use super::get_lan_transfer_state;
+use super::resume::get_resume_manager;
+use super::{emit_lan_event, get_lan_transfer_state};
 use chrono::Utc;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::net::TcpListener;
@@ -55,17 +59,25 @@ static SERVER_SHUTDOWN: OnceCell<Arc<Mutex<Option<oneshot::Sender<()>>>>> = Once
 /// 活跃的上传会话
 static UPLOAD_SESSIONS: OnceCell<Arc<Mutex<HashMap<String, UploadSession>>>> = OnceCell::new();
 
+/// 待处理的传输请求
+static PENDING_TRANSFER_REQUESTS: OnceCell<Arc<Mutex<HashMap<String, TransferRequest>>>> =
+    OnceCell::new();
+
 fn get_upload_sessions() -> Arc<Mutex<HashMap<String, UploadSession>>> {
     UPLOAD_SESSIONS
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()
 }
 
-/// 上传会话
+/// 获取待处理的传输请求
+pub fn get_pending_transfer_requests_map() -> Arc<Mutex<HashMap<String, TransferRequest>>> {
+    PENDING_TRANSFER_REQUESTS
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+/// 上传会话（支持断点续传）
 struct UploadSession {
-    /// 会话 ID
-    #[allow(dead_code)]
-    session_id: String,
     /// 文件元信息
     files: HashMap<String, FileMetadata>,
     /// 文件写入器
@@ -74,8 +86,6 @@ struct UploadSession {
     hashers: HashMap<String, Sha256>,
     /// 已接收的字节数
     received_bytes: HashMap<String, u64>,
-    /// 保存目录
-    save_directory: PathBuf,
 }
 
 // ============================================================================
@@ -210,6 +220,12 @@ async fn handle_connection(
         ("POST", "/api/connect") => {
             handle_connect(&mut writer, &body, peer_addr).await
         }
+        ("POST", "/api/transfer-request") => {
+            handle_transfer_request(&mut writer, &body, peer_addr).await
+        }
+        ("POST", "/api/transfer-response") => {
+            handle_transfer_response(&mut writer, &body).await
+        }
         ("POST", "/api/prepare-upload") => {
             handle_prepare_upload(&mut writer, &body).await
         }
@@ -218,6 +234,9 @@ async fn handle_connection(
         }
         ("POST", path) if path.starts_with("/api/finish") => {
             handle_finish(&mut writer, path).await
+        }
+        ("POST", "/api/cancel") => {
+            handle_cancel(&mut writer, &body).await
         }
         _ => {
             send_error_response(&mut writer, 404, "Not Found").await
@@ -285,7 +304,7 @@ async fn handle_info(
     send_json_response(writer, device_info).await
 }
 
-/// 处理连接请求
+/// 处理连接请求（旧版兼容）
 async fn handle_connect(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -329,7 +348,161 @@ async fn handle_connect(
     send_json_response(writer, &ConnectResponse { request_id }).await
 }
 
-/// 处理准备上传请求
+/// 传输请求的请求体
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferRequestBody {
+    from_device: DiscoveredDevice,
+    files: Vec<FileMetadata>,
+    total_size: u64,
+}
+
+/// 处理传输请求（新版，需确认后才能传输）
+async fn handle_transfer_request(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+    peer_addr: SocketAddr,
+) -> Result<(), ServerError> {
+    // 解析请求体
+    let req_body: TransferRequestBody = serde_json::from_slice(body)
+        .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    let request_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+
+    let request = TransferRequest {
+        request_id: request_id.clone(),
+        from_device: DiscoveredDevice {
+            ip_address: peer_addr.ip().to_string(),
+            ..req_body.from_device
+        },
+        files: req_body.files,
+        total_size: req_body.total_size,
+        requested_at: now,
+        status: TransferRequestStatus::Pending,
+    };
+
+    // 检查是否自动接受（信任设备）
+    let auto_accept = config::is_device_trusted(&request.from_device.device_id);
+
+    if auto_accept {
+        // 自动接受
+        let save_dir = config::get_save_directory();
+        let response = TransferRequestResponse {
+            request_id: request_id.clone(),
+            accepted: true,
+            reject_reason: None,
+            save_directory: Some(save_dir.to_string_lossy().to_string()),
+        };
+
+        // 通知前端（自动接受）
+        let event = LanTransferEvent::TransferRequestResponse {
+            request_id: request_id.clone(),
+            accepted: true,
+            reject_reason: None,
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        send_json_response(writer, &response).await
+    } else {
+        // 保存到待处理请求
+        {
+            let requests = get_pending_transfer_requests_map();
+            let mut requests = requests.lock();
+            requests.insert(request_id.clone(), request.clone());
+        }
+
+        // 发送事件通知前端
+        let event = LanTransferEvent::TransferRequestReceived {
+            request: request.clone(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        // 返回请求 ID（等待用户确认）
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PendingResponse {
+            request_id: String,
+            status: String,
+        }
+
+        send_json_response(
+            writer,
+            &PendingResponse {
+                request_id,
+                status: "pending".to_string(),
+            },
+        )
+        .await
+    }
+}
+
+/// 传输响应请求体
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferResponseBody {
+    request_id: String,
+    accepted: bool,
+    reject_reason: Option<String>,
+}
+
+/// 处理传输请求响应
+async fn handle_transfer_response(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+) -> Result<(), ServerError> {
+    let req_body: TransferResponseBody = serde_json::from_slice(body)
+        .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    // 从待处理请求中获取并移除
+    let request = {
+        let requests = get_pending_transfer_requests_map();
+        let mut requests = requests.lock();
+        requests.remove(&req_body.request_id)
+    };
+
+    let response = if req_body.accepted {
+        let save_dir = config::get_save_directory();
+        TransferRequestResponse {
+            request_id: req_body.request_id.clone(),
+            accepted: true,
+            reject_reason: None,
+            save_directory: Some(save_dir.to_string_lossy().to_string()),
+        }
+    } else {
+        TransferRequestResponse {
+            request_id: req_body.request_id.clone(),
+            accepted: false,
+            reject_reason: req_body.reject_reason.clone(),
+            save_directory: None,
+        }
+    };
+
+    // 发送事件
+    let event = LanTransferEvent::TransferRequestResponse {
+        request_id: req_body.request_id.clone(),
+        accepted: req_body.accepted,
+        reject_reason: req_body.reject_reason,
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    // 如果请求存在且被接受，打印日志
+    if req_body.accepted
+        && let Some(req) = request
+    {
+        println!(
+            "[LanTransfer] 传输请求已接受: {} 来自 {}",
+            req.request_id, req.from_device.device_name
+        );
+    }
+
+    send_json_response(writer, &response).await
+}
+
+/// 处理准备上传请求（支持断点续传）
 async fn handle_prepare_upload(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -338,14 +511,86 @@ async fn handle_prepare_upload(
     let request: PrepareUploadRequest = serde_json::from_slice(body)
         .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
 
-    // 获取保存目录（使用下载目录）
-    let save_directory = dirs::download_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("HuanvaeTransfer");
+    // 确保配置目录存在
+    config::ensure_directories()
+        .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
 
-    // 确保目录存在
+    // 获取保存目录
+    let save_directory = config::get_save_directory();
     std::fs::create_dir_all(&save_directory)
         .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
+    let file = &request.file;
+    let file_id = &file.file_id;
+
+    // 检查是否可以断点续传
+    let resume_manager = get_resume_manager();
+    let resume_offset = if request.resume {
+        match resume_manager.can_resume(file_id, &file.sha256) {
+            Ok(Some(offset)) => offset,
+            Ok(None) => 0,
+            Err(e) => {
+                println!("[LanTransfer] 检查续传状态失败: {}", e);
+                0
+            }
+        }
+    } else {
+        // 不使用续传，清理旧的续传信息
+        let _ = resume_manager.clear_resume_info(file_id);
+        0
+    };
+
+    // 创建或打开文件
+    let (writer_file, hasher) = if resume_offset > 0 {
+        // 断点续传：打开已有文件
+        let mut f = resume_manager
+            .open_temp_file(file_id, resume_offset)
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
+        // 需要重新计算哈希（从头读取）
+        let temp_path = resume_manager.get_temp_file_path(file_id);
+        let mut hasher = Sha256::new();
+
+        // 读取已有内容计算哈希
+        let mut temp_reader = std::fs::File::open(&temp_path)
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
+        let mut buffer = vec![0u8; CHUNK_SIZE];
+        let mut remaining = resume_offset;
+        while remaining > 0 {
+            use std::io::Read;
+            let to_read = std::cmp::min(remaining as usize, buffer.len());
+            let bytes_read = temp_reader
+                .read(&mut buffer[..to_read])
+                .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+            remaining -= bytes_read as u64;
+        }
+
+        // 定位到续传位置
+        f.seek(SeekFrom::Start(resume_offset))
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
+        println!(
+            "[LanTransfer] 断点续传: {} 从 {} 字节继续",
+            file.file_name, resume_offset
+        );
+
+        (f, hasher)
+    } else {
+        // 新传输：创建临时文件
+        let f = resume_manager
+            .create_temp_file(file_id)
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+        let hasher = Sha256::new();
+
+        println!("[LanTransfer] 新传输: {} (大小: {} 字节)", file.file_name, file.file_size);
+
+        (f, hasher)
+    };
 
     // 创建上传会话
     let mut files = HashMap::new();
@@ -353,26 +598,16 @@ async fn handle_prepare_upload(
     let mut hashers = HashMap::new();
     let mut received_bytes = HashMap::new();
 
-    for file in &request.files {
-        files.insert(file.file_id.clone(), file.clone());
-
-        // 创建文件
-        let file_path = save_directory.join(&file.file_name);
-        let writer_file = std::fs::File::create(&file_path)
-            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
-
-        writers.insert(file.file_id.clone(), writer_file);
-        hashers.insert(file.file_id.clone(), Sha256::new());
-        received_bytes.insert(file.file_id.clone(), 0u64);
-    }
+    files.insert(file_id.clone(), file.clone());
+    writers.insert(file_id.clone(), writer_file);
+    hashers.insert(file_id.clone(), hasher);
+    received_bytes.insert(file_id.clone(), resume_offset);
 
     let session = UploadSession {
-        session_id: request.session_id.clone(),
         files,
         writers,
         hashers,
         received_bytes,
-        save_directory: save_directory.clone(),
     };
 
     // 保存会话
@@ -386,6 +621,7 @@ async fn handle_prepare_upload(
     let response = PrepareUploadResponse {
         session_id: request.session_id,
         accepted: true,
+        resume_offset,
         reject_reason: None,
         save_directory: Some(save_directory.to_string_lossy().to_string()),
     };
@@ -393,7 +629,7 @@ async fn handle_prepare_upload(
     send_json_response(writer, &response).await
 }
 
-/// 处理文件块上传
+/// 处理文件块上传（支持断点续传）
 async fn handle_upload(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -411,7 +647,7 @@ async fn handle_upload(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let response = {
+    let (response, file_sha256, received) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -429,6 +665,11 @@ async fn handle_upload(
             .write_all(body)
             .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
 
+        // 刷新到磁盘（确保数据持久化）
+        file_writer
+            .flush()
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
         // 更新哈希
         if let Some(hasher) = session.hashers.get_mut(&file_id) {
             hasher.update(body);
@@ -438,12 +679,25 @@ async fn handle_upload(
         let received = session.received_bytes.get_mut(&file_id).unwrap();
         *received += body.len() as u64;
 
-        ChunkResponse {
+        // 获取文件 SHA256（用于更新断点信息）
+        let file_sha256 = session
+            .files
+            .get(&file_id)
+            .map(|f| f.sha256.clone())
+            .unwrap_or_default();
+
+        let response = ChunkResponse {
             success: true,
             next_offset: *received,
             error: None,
-        }
+        };
+
+        (response, file_sha256, *received)
     };
+
+    // 更新断点续传信息（锁已释放）
+    let resume_manager = get_resume_manager();
+    let _ = resume_manager.update_progress(&file_id, &file_sha256, received, None);
 
     send_json_response(writer, &response).await
 }
@@ -464,7 +718,7 @@ async fn handle_finish(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (response, saved_path_str, sha256_match) = {
+    let (file_meta, computed_hash, sha256_match) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -491,36 +745,127 @@ async fn handle_finish(
         // 关闭文件
         session.writers.remove(&file_id);
 
-        let saved_path = session.save_directory.join(&file_meta.file_name);
-        let saved_path_str = saved_path.to_string_lossy().to_string();
+        (file_meta, computed_hash, sha256_match)
+    };
+
+    let resume_manager = get_resume_manager();
+
+    let (response, saved_path_str) = if sha256_match {
+        // 哈希匹配，移动文件到最终位置
+        match resume_manager.finalize_transfer(&file_id, &file_meta.file_name) {
+            Ok(final_path) => {
+                let saved_path_str = final_path.to_string_lossy().to_string();
+                let response = FinishUploadResponse {
+                    success: true,
+                    sha256_match: true,
+                    saved_path: Some(saved_path_str.clone()),
+                    error: None,
+                };
+                (response, saved_path_str)
+            }
+            Err(e) => {
+                let response = FinishUploadResponse {
+                    success: false,
+                    sha256_match: true,
+                    saved_path: None,
+                    error: Some(format!("文件保存失败: {}", e)),
+                };
+                (response, String::new())
+            }
+        }
+    } else {
+        // 哈希不匹配
+        println!(
+            "[LanTransfer] 文件校验失败: {} (期望: {}, 实际: {})",
+            file_meta.file_name, file_meta.sha256, computed_hash
+        );
+
+        // 清理临时文件和续传信息
+        let _ = resume_manager.clear_resume_info(&file_id);
 
         let response = FinishUploadResponse {
-            success: sha256_match,
-            sha256_match,
-            saved_path: Some(saved_path_str.clone()),
-            error: if sha256_match {
-                None
-            } else {
-                Some("文件校验失败".to_string())
-            },
+            success: false,
+            sha256_match: false,
+            saved_path: None,
+            error: Some("文件校验失败".to_string()),
         };
-
-        (response, saved_path_str, sha256_match)
+        (response, String::new())
     };
 
     // 发送事件（锁已释放）
-    if sha256_match {
-        let _ = get_event_sender().send(LanTransferEvent::TransferCompleted {
+    if response.success {
+        let event = LanTransferEvent::TransferCompleted {
             task_id: file_id.clone(),
             saved_path: saved_path_str,
-        });
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
     } else {
-        let _ = get_event_sender().send(LanTransferEvent::TransferFailed {
+        let event = LanTransferEvent::TransferFailed {
             task_id: file_id.clone(),
-            error: "文件校验失败".to_string(),
-        });
+            error: response.error.clone().unwrap_or_else(|| "未知错误".to_string()),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
     }
 
     send_json_response(writer, &response).await
 }
 
+/// 取消传输请求体
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CancelRequest {
+    session_id: String,
+    file_id: Option<String>,
+    keep_partial: bool, // 是否保留已传输部分（用于后续续传）
+}
+
+/// 处理取消传输
+async fn handle_cancel(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+) -> Result<(), ServerError> {
+    let request: CancelRequest = serde_json::from_slice(body)
+        .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    // 在单独的作用域内处理锁，确保在 await 之前释放
+    {
+        let sessions = get_upload_sessions();
+        let mut sessions = sessions.lock();
+
+        if let Some(session) = sessions.get_mut(&request.session_id) {
+            let resume_manager = get_resume_manager();
+
+            if let Some(file_id) = &request.file_id {
+                // 取消特定文件
+                session.writers.remove(file_id);
+                session.hashers.remove(file_id);
+
+                if !request.keep_partial {
+                    let _ = resume_manager.clear_resume_info(file_id);
+                }
+
+                println!("[LanTransfer] 取消文件传输: {}", file_id);
+            } else {
+                // 取消整个会话
+                let file_ids: Vec<String> = session.files.keys().cloned().collect();
+                for file_id in &file_ids {
+                    if !request.keep_partial {
+                        let _ = resume_manager.clear_resume_info(file_id);
+                    }
+                }
+                sessions.remove(&request.session_id);
+
+                println!("[LanTransfer] 取消传输会话: {}", request.session_id);
+            }
+        }
+    } // 锁在这里释放
+
+    #[derive(serde::Serialize)]
+    struct CancelResponse {
+        success: bool,
+    }
+
+    send_json_response(writer, &CancelResponse { success: true }).await
+}

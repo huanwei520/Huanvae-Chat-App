@@ -467,7 +467,7 @@ pub fn run() {
             session_lock::activate_existing_instance,
             // 设备信息
             device_info::get_mac_address_cmd,
-            // 局域网传输
+            // 局域网传输（基础）
             lan_transfer::start_lan_transfer_service,
             lan_transfer::stop_lan_transfer_service,
             lan_transfer::get_discovered_devices,
@@ -478,6 +478,23 @@ pub fn run() {
             lan_transfer::get_active_transfers,
             lan_transfer::cancel_transfer,
             lan_transfer::get_lan_debug_info,
+            // 局域网传输（新版：多文件、确认、断点续传）
+            lan_transfer::send_transfer_request,
+            lan_transfer::respond_to_transfer_request,
+            lan_transfer::get_pending_transfer_requests,
+            lan_transfer::get_transfer_session,
+            lan_transfer::get_all_transfer_sessions,
+            lan_transfer::cancel_transfer_session,
+            // 局域网传输配置
+            lan_transfer::get_lan_transfer_save_directory,
+            lan_transfer::set_lan_transfer_save_directory,
+            lan_transfer::open_lan_transfer_directory,
+            lan_transfer::get_lan_transfer_config,
+            lan_transfer::add_trusted_device,
+            lan_transfer::remove_trusted_device,
+            lan_transfer::get_trusted_devices,
+            lan_transfer::set_auto_accept_trusted,
+            lan_transfer::set_group_by_date,
             // 局域网传输诊断
             lan_transfer::diagnostics::diagnose_lan_transfer,
             // 媒体权限管理

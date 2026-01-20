@@ -708,3 +708,320 @@
   color: var(--text-inverse);
 }
 
+/* ============================================
+   设置按钮
+   ============================================ */
+
+.lan-action-btn.settings {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.lan-action-btn.settings:hover,
+.lan-action-btn.settings.active {
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+/* ============================================
+   信任设备徽章
+   ============================================ */
+
+.lan-trusted-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--status-success-subtle);
+  color: var(--status-success);
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: 500;
+}
+
+/* ============================================
+   传输请求卡片（新版）
+   ============================================ */
+
+.lan-transfer-request-card {
+  padding: 16px;
+  background: var(--status-info-subtle, var(--white-alpha-80));
+  border-radius: 14px;
+  border: 1px solid var(--primary);
+}
+
+.lan-transfer-request-header {
+  margin-bottom: 12px;
+}
+
+.lan-transfer-request-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lan-transfer-request-from {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-top: 4px;
+}
+
+.lan-transfer-request-files {
+  background: var(--white-alpha-80);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.lan-transfer-request-files-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.lan-transfer-request-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.lan-transfer-request-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.lan-transfer-request-file svg {
+  flex-shrink: 0;
+  color: var(--text-light);
+}
+
+.lan-file-name {
+  flex: 1;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-file-size {
+  color: var(--text-light);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.lan-transfer-request-more {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  text-align: center;
+  font-style: italic;
+}
+
+.lan-transfer-request-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ============================================
+   通用按钮
+   ============================================ */
+
+.lan-btn {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lan-btn-accept {
+  background: var(--status-success);
+  color: var(--text-inverse);
+}
+
+.lan-btn-accept:hover {
+  background: var(--status-success);
+  filter: brightness(1.1);
+}
+
+.lan-btn-reject {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.lan-btn-reject:hover {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.lan-btn-small {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.lan-btn-danger {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.lan-btn-danger:hover {
+  background: var(--status-error);
+  color: var(--text-inverse);
+}
+
+/* ============================================
+   批量传输进度
+   ============================================ */
+
+.lan-batch-progress-card {
+  padding: 16px;
+  background: var(--white-alpha-80);
+  border-radius: 14px;
+  border: 1px solid var(--primary);
+}
+
+.lan-batch-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.lan-batch-progress-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lan-batch-progress-count {
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.lan-batch-current-file {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-batch-cancel {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+  transition: all 0.2s;
+}
+
+.lan-batch-cancel:hover {
+  background: var(--status-error);
+  color: var(--text-inverse);
+}
+
+/* ============================================
+   设置面板
+   ============================================ */
+
+.lan-settings-panel {
+  background: var(--white-alpha-80);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lan-settings-group h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 10px 0;
+}
+
+.lan-settings-directory {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-subtle);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.lan-settings-path {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.lan-settings-checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.lan-settings-empty {
+  font-size: 12px;
+  color: var(--text-light);
+  font-style: italic;
+  text-align: center;
+  padding: 16px;
+}
+
+.lan-trusted-devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.lan-trusted-device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

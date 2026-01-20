@@ -18,9 +18,11 @@
  * @see https://github.com/localsend/protocol 参考 LocalSend 协议
  */
 
+pub mod config;
 pub mod diagnostics;
 pub mod discovery;
 pub mod protocol;
+pub mod resume;
 pub mod server;
 pub mod transfer;
 
@@ -30,7 +32,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Emitter;
 
-pub use protocol::{ConnectionRequest, DiscoveredDevice, DeviceInfo, TransferTask};
+pub use protocol::{
+    ConnectionRequest, DiscoveredDevice, DeviceInfo,
+    TransferRequest, TransferSession, TransferTask,
+};
 
 // ============================================================================
 // 全局 AppHandle 管理
@@ -190,6 +195,152 @@ pub async fn cancel_transfer(transfer_id: String) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())
 }
+
+// ============================================================================
+// 新版传输命令（支持多文件、确认、断点续传）
+// ============================================================================
+
+/// 发送传输请求（需要对方确认）
+#[tauri::command]
+pub async fn send_transfer_request(
+    device_id: String,
+    file_paths: Vec<String>,
+) -> Result<String, String> {
+    transfer::send_transfer_request(&device_id, file_paths)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 响应传输请求
+#[tauri::command]
+pub async fn respond_to_transfer_request(
+    request_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    transfer::respond_to_transfer_request(&request_id, accept)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 获取待处理的传输请求
+#[tauri::command]
+pub fn get_pending_transfer_requests() -> Vec<TransferRequest> {
+    let requests = server::get_pending_transfer_requests_map();
+    let requests = requests.lock();
+    requests.values().cloned().collect()
+}
+
+/// 获取传输会话
+#[tauri::command]
+pub fn get_transfer_session(request_id: String) -> Option<TransferSession> {
+    transfer::get_transfer_session(&request_id)
+}
+
+/// 获取所有活跃会话
+#[tauri::command]
+pub fn get_all_transfer_sessions() -> Vec<TransferSession> {
+    transfer::get_all_sessions()
+}
+
+/// 取消传输会话
+#[tauri::command]
+pub async fn cancel_transfer_session(request_id: String) -> Result<(), String> {
+    transfer::cancel_session(&request_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// 配置管理命令
+// ============================================================================
+
+/// 获取保存目录
+#[tauri::command]
+pub fn get_lan_transfer_save_directory() -> String {
+    config::get_save_directory().to_string_lossy().to_string()
+}
+
+/// 设置保存目录
+#[tauri::command]
+pub async fn set_lan_transfer_save_directory(path: String) -> Result<(), String> {
+    config::set_save_directory(std::path::PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
+/// 打开保存目录（在文件管理器中）
+#[tauri::command]
+pub async fn open_lan_transfer_directory() -> Result<(), String> {
+    let save_dir = config::get_save_directory();
+
+    // 确保目录存在
+    std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
+
+    // 使用系统默认方式打开目录
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&save_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&save_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&save_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+/// 获取完整配置
+#[tauri::command]
+pub fn get_lan_transfer_config() -> config::LanTransferConfig {
+    config::get_full_config()
+}
+
+/// 添加信任设备
+#[tauri::command]
+pub fn add_trusted_device(device_id: String, device_name: String) -> Result<(), String> {
+    config::add_trusted_device(device_id, device_name).map_err(|e| e.to_string())
+}
+
+/// 移除信任设备
+#[tauri::command]
+pub fn remove_trusted_device(device_id: String) -> Result<(), String> {
+    config::remove_trusted_device(&device_id).map_err(|e| e.to_string())
+}
+
+/// 获取信任设备列表
+#[tauri::command]
+pub fn get_trusted_devices() -> Vec<config::TrustedDevice> {
+    config::get_trusted_devices()
+}
+
+/// 设置自动接受信任设备
+#[tauri::command]
+pub fn set_auto_accept_trusted(enabled: bool) -> Result<(), String> {
+    config::set_auto_accept_trusted(enabled).map_err(|e| e.to_string())
+}
+
+/// 设置按日期分组
+#[tauri::command]
+pub fn set_group_by_date(enabled: bool) -> Result<(), String> {
+    config::set_group_by_date(enabled).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// 调试命令
+// ============================================================================
 
 /// 获取局域网调试信息
 #[tauri::command]

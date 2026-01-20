@@ -4,19 +4,24 @@
  * 实现文件发送逻辑
  *
  * 功能：
- * - 发送连接请求
- * - 响应连接请求
- * - 发送文件（分块 + 校验）
+ * - 发送传输请求（需确认）
+ * - 多文件批量传输
+ * - 断点续传支持
+ * - 传输进度跟踪
  * - 取消传输
  */
 
 use super::discovery::get_event_sender;
 use super::protocol::*;
-use super::get_lan_transfer_state;
+use super::{emit_lan_event, get_lan_transfer_state};
 use chrono::Utc;
+use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
-use std::io::Read;
+use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Arc;
+use std::time::Instant;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -36,15 +41,28 @@ pub enum TransferError {
     FileReadFailed(String),
     #[error("传输失败: {0}")]
     TransferFailed(String),
-    #[error("任务未找到: {0}")]
-    TaskNotFound(String),
 }
 
 // ============================================================================
-// 连接管理
+// 传输会话管理
 // ============================================================================
 
-/// 发送连接请求
+/// 活跃的传输会话
+static ACTIVE_SESSIONS: once_cell::sync::OnceCell<Arc<RwLock<HashMap<String, TransferSession>>>> =
+    once_cell::sync::OnceCell::new();
+
+/// 获取活跃会话
+fn get_active_sessions() -> Arc<RwLock<HashMap<String, TransferSession>>> {
+    ACTIVE_SESSIONS
+        .get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
+        .clone()
+}
+
+// ============================================================================
+// 连接管理（旧版兼容）
+// ============================================================================
+
+/// 发送连接请求（旧版兼容）
 pub async fn send_connection_request(device_id: &str) -> Result<String, TransferError> {
     let state = get_lan_transfer_state();
 
@@ -78,7 +96,10 @@ pub async fn send_connection_request(device_id: &str) -> Result<String, Transfer
     };
 
     // 发送 HTTP 请求
-    let url = format!("http://{}:{}/api/connect", target_device.ip_address, target_device.port);
+    let url = format!(
+        "http://{}:{}/api/connect",
+        target_device.ip_address, target_device.port
+    );
 
     let client = reqwest::Client::new();
     let response = client
@@ -114,7 +135,7 @@ pub async fn send_connection_request(device_id: &str) -> Result<String, Transfer
     Ok(resp.request_id)
 }
 
-/// 响应连接请求
+/// 响应连接请求（旧版兼容）
 pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), TransferError> {
     let state = get_lan_transfer_state();
 
@@ -144,18 +165,17 @@ pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), Tr
 }
 
 // ============================================================================
-// 文件传输
+// 传输请求（新版）
 // ============================================================================
 
-/// 发送文件
-pub async fn send_file(
+/// 发送传输请求（需要对方确认）
+pub async fn send_transfer_request(
     device_id: &str,
-    file_path: &str,
-    app_handle: tauri::AppHandle,
+    file_paths: Vec<String>,
 ) -> Result<String, TransferError> {
     let state = get_lan_transfer_state();
 
-    // 获取目标设备
+    // 获取目标设备信息
     let target_device = {
         let devices = state.devices.read();
         devices
@@ -164,144 +184,413 @@ pub async fn send_file(
             .ok_or_else(|| TransferError::DeviceNotFound(device_id.to_string()))?
     };
 
-    // 读取文件信息
-    let path = Path::new(file_path);
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    // 获取本机设备信息
+    let local_device = {
+        let local = state.local_device.read();
+        local
+            .clone()
+            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+    };
 
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+    // 收集文件信息
+    let mut files: Vec<FileMetadata> = Vec::new();
+    let mut total_size: u64 = 0;
 
-    let file_size = metadata.len();
+    for file_path in &file_paths {
+        let path = Path::new(file_path);
 
-    // 计算文件哈希
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
 
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; CHUNK_SIZE];
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| TransferError::FileReadFailed(format!("{}: {}", file_path, e)))?;
 
-    loop {
-        let bytes_read = file
-            .read(&mut buffer)
-            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+        let file_size = metadata.len();
+        total_size += file_size;
 
-        if bytes_read == 0 {
-            break;
-        }
+        // 计算文件哈希
+        let file_hash = calculate_file_hash(path)?;
 
-        hasher.update(&buffer[..bytes_read]);
+        // 获取 MIME 类型
+        let mime_type = mime_guess::from_path(path)
+            .first_or_octet_stream()
+            .to_string();
+
+        let file_id = Uuid::new_v4().to_string();
+
+        files.push(FileMetadata {
+            file_id,
+            file_name,
+            file_size,
+            mime_type,
+            sha256: file_hash,
+        });
     }
 
-    let file_hash = hex::encode(hasher.finalize());
+    // 构建请求数据
+    let from_device = DiscoveredDevice {
+        device_id: local_device.device_id.clone(),
+        device_name: local_device.device_name.clone(),
+        user_id: local_device.user_id.clone(),
+        user_nickname: local_device.user_nickname.clone(),
+        ip_address: local_device.ip_address.clone(),
+        port: local_device.port,
+        discovered_at: Utc::now().to_rfc3339(),
+        last_seen: Utc::now().to_rfc3339(),
+    };
 
-    // 获取 MIME 类型
-    let mime_type = mime_guess::from_path(path)
-        .first_or_octet_stream()
-        .to_string();
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TransferRequestBody {
+        from_device: DiscoveredDevice,
+        files: Vec<FileMetadata>,
+        total_size: u64,
+    }
 
-    // 生成 ID
-    let file_id = Uuid::new_v4().to_string();
+    let request_body = TransferRequestBody {
+        from_device: from_device.clone(),
+        files: files.clone(),
+        total_size,
+    };
+
+    // 发送 HTTP 请求
+    let url = format!(
+        "http://{}:{}/api/transfer-request",
+        target_device.ip_address, target_device.port
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&request_body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+
+    if !response.status().is_success() {
+        return Err(TransferError::ConnectionFailed(format!(
+            "服务器返回错误: {}",
+            response.status()
+        )));
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RequestResponse {
+        request_id: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        status: Option<String>,
+        accepted: Option<bool>,
+        #[serde(default)]
+        #[allow(dead_code)]
+        save_directory: Option<String>,
+    }
+
+    let resp: RequestResponse = response
+        .json()
+        .await
+        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+
+    let request_id = resp.request_id.clone();
     let session_id = Uuid::new_v4().to_string();
-    let task_id = Uuid::new_v4().to_string();
 
-    let file_meta = FileMetadata {
-        file_id: file_id.clone(),
-        file_name: file_name.clone(),
-        file_size,
-        mime_type,
-        sha256: file_hash,
-    };
-
-    // 创建传输任务
-    let task = TransferTask {
-        task_id: task_id.clone(),
+    // 创建传输会话
+    let session = TransferSession {
         session_id: session_id.clone(),
-        file: file_meta.clone(),
-        direction: TransferDirection::Send,
+        request_id: request_id.clone(),
+        files: files
+            .iter()
+            .map(|f| FileTransferState {
+                file: f.clone(),
+                status: TransferStatus::Pending,
+                transferred_bytes: 0,
+                resume_info: None,
+            })
+            .collect(),
+        status: SessionStatus::Pending,
+        created_at: Utc::now().to_rfc3339(),
         target_device: target_device.clone(),
-        status: TransferStatus::Pending,
-        transferred_bytes: 0,
-        speed: 0,
-        started_at: Utc::now().to_rfc3339(),
-        eta_seconds: None,
+        direction: TransferDirection::Send,
     };
 
-    // 保存任务
+    // 保存会话
     {
-        let mut transfers = state.active_transfers.write();
-        transfers.insert(task_id.clone(), task.clone());
+        let sessions = get_active_sessions();
+        let mut sessions = sessions.write();
+        sessions.insert(request_id.clone(), session);
     }
 
-    // 发送事件
-    let _ = get_event_sender().send(LanTransferEvent::TransferProgress { task: task.clone() });
+    // 如果已经被接受（信任设备），直接开始传输
+    if resp.accepted == Some(true) {
+        println!(
+            "[LanTransfer] 传输请求已自动接受: {} -> {}",
+            files.len(),
+            target_device.device_name
+        );
 
-    // 在后台线程中执行传输
-    let task_id_clone = task_id.clone();
-    let file_path = file_path.to_string();
+        // 在后台开始传输
+        let file_paths_clone = file_paths.clone();
+        let request_id_clone = request_id.clone();
+        tokio::spawn(async move {
+            let _ = start_batch_transfer(&request_id_clone, file_paths_clone).await;
+        });
+    } else {
+        println!(
+            "[LanTransfer] 传输请求已发送，等待确认: {} -> {} ({} 个文件, {} 字节)",
+            request_id,
+            target_device.device_name,
+            files.len(),
+            total_size
+        );
+    }
 
-    tokio::spawn(async move {
-        let result = do_file_transfer(
-            &target_device,
-            &session_id,
-            &file_meta,
-            &file_path,
-            &task_id_clone,
-            app_handle,
-        )
-        .await;
-
-        let state = get_lan_transfer_state();
-        let mut transfers = state.active_transfers.write();
-
-        if let Some(task) = transfers.get_mut(&task_id_clone) {
-            match result {
-                Ok(_) => {
-                    task.status = TransferStatus::Completed;
-                    task.transferred_bytes = task.file.file_size;
-                    let _ = get_event_sender().send(LanTransferEvent::TransferCompleted {
-                        task_id: task_id_clone.clone(),
-                        saved_path: file_path.clone(),
-                    });
-                }
-                Err(e) => {
-                    task.status = TransferStatus::Failed;
-                    let _ = get_event_sender().send(LanTransferEvent::TransferFailed {
-                        task_id: task_id_clone.clone(),
-                        error: e.to_string(),
-                    });
-                }
-            }
-        }
-    });
-
-    Ok(task_id)
+    Ok(request_id)
 }
 
-/// 执行文件传输
-async fn do_file_transfer(
+/// 响应传输请求
+pub async fn respond_to_transfer_request(
+    request_id: &str,
+    accept: bool,
+) -> Result<(), TransferError> {
+    use super::server::get_pending_transfer_requests_map;
+
+    // 获取并移除请求
+    let request = {
+        let requests = get_pending_transfer_requests_map();
+        let mut requests = requests.lock();
+        requests.remove(request_id)
+    };
+
+    let request = request.ok_or_else(|| TransferError::RequestNotFound(request_id.to_string()))?;
+
+    // 向发送方发送响应
+    let url = format!(
+        "http://{}:{}/api/transfer-response",
+        request.from_device.ip_address, request.from_device.port
+    );
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ResponseBody {
+        request_id: String,
+        accepted: bool,
+        reject_reason: Option<String>,
+    }
+
+    let body = ResponseBody {
+        request_id: request_id.to_string(),
+        accepted: accept,
+        reject_reason: if accept {
+            None
+        } else {
+            Some("用户拒绝".to_string())
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(&url)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+
+    // 发送本地事件
+    let event = LanTransferEvent::TransferRequestResponse {
+        request_id: request_id.to_string(),
+        accepted: accept,
+        reject_reason: if accept {
+            None
+        } else {
+            Some("用户拒绝".to_string())
+        },
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    println!(
+        "[LanTransfer] 传输请求 {} 已{}: {} 个文件来自 {}",
+        request_id,
+        if accept { "接受" } else { "拒绝" },
+        request.files.len(),
+        request.from_device.device_name
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// 批量文件传输
+// ============================================================================
+
+/// 开始批量传输
+pub async fn start_batch_transfer(
+    request_id: &str,
+    file_paths: Vec<String>,
+) -> Result<(), TransferError> {
+    // 获取会话信息
+    let session = {
+        let sessions = get_active_sessions();
+        let sessions = sessions.read();
+        sessions.get(request_id).cloned()
+    };
+
+    let session = session.ok_or_else(|| TransferError::RequestNotFound(request_id.to_string()))?;
+
+    let target_device = session.target_device.clone();
+    let session_id = session.session_id.clone();
+    let files = session.files.clone();
+
+    // 更新会话状态
+    {
+        let sessions = get_active_sessions();
+        let mut sessions = sessions.write();
+        if let Some(s) = sessions.get_mut(request_id) {
+            s.status = SessionStatus::Transferring;
+        }
+    }
+
+    let total_files = files.len() as u32;
+    let total_bytes: u64 = files.iter().map(|f| f.file.file_size).sum();
+    let mut completed_files = 0u32;
+    let mut total_transferred: u64 = 0;
+
+    // 逐个传输文件
+    for (index, (file_state, file_path)) in files.iter().zip(file_paths.iter()).enumerate() {
+        let file_meta = &file_state.file;
+
+        // 发送批量进度
+        let progress = BatchTransferProgress {
+            session_id: session_id.clone(),
+            total_files,
+            completed_files,
+            total_bytes,
+            transferred_bytes: total_transferred,
+            speed: 0,
+            current_file: Some(file_meta.clone()),
+            eta_seconds: None,
+        };
+
+        let event = LanTransferEvent::BatchProgress {
+            progress: progress.clone(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        // 传输单个文件
+        match do_file_transfer_with_resume(
+            &target_device,
+            &session_id,
+            file_meta,
+            file_path,
+            index,
+            total_files as usize,
+            total_transferred,
+            total_bytes,
+        )
+        .await
+        {
+            Ok(bytes) => {
+                completed_files += 1;
+                total_transferred += bytes;
+
+                // 更新会话中的文件状态
+                {
+                    let sessions = get_active_sessions();
+                    let mut sessions = sessions.write();
+                    if let Some(s) = sessions.get_mut(request_id)
+                        && let Some(fs) = s.files.get_mut(index)
+                    {
+                        fs.status = TransferStatus::Completed;
+                        fs.transferred_bytes = file_meta.file_size;
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[LanTransfer] 文件传输失败: {} - {}", file_meta.file_name, e);
+
+                // 更新文件状态为失败
+                {
+                    let sessions = get_active_sessions();
+                    let mut sessions = sessions.write();
+                    if let Some(s) = sessions.get_mut(request_id) {
+                        if let Some(fs) = s.files.get_mut(index) {
+                            fs.status = TransferStatus::Failed;
+                        }
+                        s.status = SessionStatus::Failed;
+                    }
+                }
+
+                // 发送失败事件
+                let event = LanTransferEvent::TransferFailed {
+                    task_id: file_meta.file_id.clone(),
+                    error: e.to_string(),
+                };
+                let _ = get_event_sender().send(event.clone());
+                emit_lan_event(&event);
+
+                return Err(e);
+            }
+        }
+    }
+
+    // 更新会话状态为完成
+    {
+        let sessions = get_active_sessions();
+        let mut sessions = sessions.write();
+        if let Some(s) = sessions.get_mut(request_id) {
+            s.status = SessionStatus::Completed;
+        }
+    }
+
+    // 发送批量完成事件
+    let event = LanTransferEvent::BatchTransferCompleted {
+        session_id: session_id.clone(),
+        total_files,
+        save_directory: String::new(), // 发送方不需要保存目录
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    println!(
+        "[LanTransfer] 批量传输完成: {} 个文件 -> {}",
+        total_files, target_device.device_name
+    );
+
+    Ok(())
+}
+
+/// 执行单文件传输（支持断点续传）
+#[allow(clippy::too_many_arguments)]
+async fn do_file_transfer_with_resume(
     target_device: &DiscoveredDevice,
     session_id: &str,
     file_meta: &FileMetadata,
     file_path: &str,
-    task_id: &str,
-    _app_handle: tauri::AppHandle,
-) -> Result<(), TransferError> {
+    file_index: usize,
+    total_files: usize,
+    batch_transferred: u64,
+    batch_total: u64,
+) -> Result<u64, TransferError> {
     let base_url = format!("http://{}:{}", target_device.ip_address, target_device.port);
     let client = reqwest::Client::new();
 
     // 1. 发送准备上传请求
     let prepare_request = PrepareUploadRequest {
         session_id: session_id.to_string(),
-        files: vec![file_meta.clone()],
+        file: file_meta.clone(),
+        resume: true, // 尝试断点续传
     };
 
     let prepare_response = client
         .post(format!("{}/api/prepare-upload", base_url))
         .json(&prepare_request)
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
@@ -313,17 +602,35 @@ async fn do_file_transfer(
 
     if !prepare_resp.accepted {
         return Err(TransferError::TransferFailed(
-            prepare_resp.reject_reason.unwrap_or_else(|| "对方拒绝接收".to_string()),
+            prepare_resp
+                .reject_reason
+                .unwrap_or_else(|| "对方拒绝接收".to_string()),
         ));
     }
 
-    // 2. 分块上传文件
-    let mut file = std::fs::File::open(file_path)
-        .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+    let resume_offset = prepare_resp.resume_offset;
+    if resume_offset > 0 {
+        println!(
+            "[LanTransfer] 断点续传: {} 从 {} 字节继续",
+            file_meta.file_name, resume_offset
+        );
+    }
 
+    // 2. 打开文件并定位到续传位置
+    let mut file =
+        std::fs::File::open(file_path).map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+
+    if resume_offset > 0 {
+        file.seek(SeekFrom::Start(resume_offset))
+            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+    }
+
+    // 3. 分块上传文件
     let mut buffer = vec![0u8; CHUNK_SIZE];
-    let mut offset: u64 = 0;
+    let mut offset = resume_offset;
     let state = get_lan_transfer_state();
+    let start_time = Instant::now();
+    let mut last_progress_time = Instant::now();
 
     loop {
         let bytes_read = file
@@ -345,6 +652,7 @@ async fn do_file_transfer(
         let response = client
             .post(&upload_url)
             .body(chunk_data.to_vec())
+            .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
             .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
@@ -362,21 +670,75 @@ async fn do_file_transfer(
 
         offset += bytes_read as u64;
 
-        // 更新进度
-        {
-            let mut transfers = state.active_transfers.write();
-            if let Some(task) = transfers.get_mut(task_id) {
-                task.transferred_bytes = offset;
-                task.status = TransferStatus::Transferring;
+        // 计算速度和 ETA
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let speed = if elapsed > 0.0 {
+            ((offset - resume_offset) as f64 / elapsed) as u64
+        } else {
+            0
+        };
 
-                let _ = get_event_sender().send(LanTransferEvent::TransferProgress {
-                    task: task.clone(),
-                });
+        let remaining_bytes = file_meta.file_size - offset;
+        let eta_seconds = if speed > 0 {
+            Some(remaining_bytes / speed)
+        } else {
+            None
+        };
+
+        // 限制进度更新频率（每 100ms 一次）
+        if last_progress_time.elapsed().as_millis() >= 100 {
+            last_progress_time = Instant::now();
+
+            // 创建传输任务用于进度更新
+            let task = TransferTask {
+                task_id: file_meta.file_id.clone(),
+                session_id: session_id.to_string(),
+                file: file_meta.clone(),
+                direction: TransferDirection::Send,
+                target_device: target_device.clone(),
+                status: TransferStatus::Transferring,
+                transferred_bytes: offset,
+                speed,
+                started_at: Utc::now().to_rfc3339(),
+                eta_seconds,
+            };
+
+            // 保存任务状态
+            {
+                let mut transfers = state.active_transfers.write();
+                transfers.insert(file_meta.file_id.clone(), task.clone());
             }
+
+            // 发送单文件进度事件
+            let event = LanTransferEvent::TransferProgress { task };
+            let _ = get_event_sender().send(event.clone());
+            emit_lan_event(&event);
+
+            // 发送批量进度事件
+            let batch_progress = BatchTransferProgress {
+                session_id: session_id.to_string(),
+                total_files: total_files as u32,
+                completed_files: file_index as u32,
+                total_bytes: batch_total,
+                transferred_bytes: batch_transferred + offset,
+                speed,
+                current_file: Some(file_meta.clone()),
+                eta_seconds: if speed > 0 {
+                    Some((batch_total - batch_transferred - offset) / speed)
+                } else {
+                    None
+                },
+            };
+
+            let batch_event = LanTransferEvent::BatchProgress {
+                progress: batch_progress,
+            };
+            let _ = get_event_sender().send(batch_event.clone());
+            emit_lan_event(&batch_event);
         }
     }
 
-    // 3. 发送完成请求
+    // 4. 发送完成请求
     let finish_url = format!(
         "{}/api/finish?sessionId={}&fileId={}",
         base_url, session_id, file_meta.file_id
@@ -384,6 +746,7 @@ async fn do_file_transfer(
 
     let finish_response = client
         .post(&finish_url)
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
@@ -395,36 +758,139 @@ async fn do_file_transfer(
 
     if !finish_resp.success {
         return Err(TransferError::TransferFailed(
-            finish_resp.error.unwrap_or_else(|| "传输完成验证失败".to_string()),
+            finish_resp
+                .error
+                .unwrap_or_else(|| "传输完成验证失败".to_string()),
         ));
     }
 
+    // 从活跃传输中移除
+    {
+        let mut transfers = state.active_transfers.write();
+        transfers.remove(&file_meta.file_id);
+    }
+
+    // 发送完成事件
+    let event = LanTransferEvent::TransferCompleted {
+        task_id: file_meta.file_id.clone(),
+        saved_path: file_path.to_string(),
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
     println!(
-        "[LanTransfer] 文件传输完成: {} -> {}",
-        file_meta.file_name, target_device.device_name
+        "[LanTransfer] 文件传输完成 [{}/{}]: {} -> {}",
+        file_index + 1,
+        total_files,
+        file_meta.file_name,
+        target_device.device_name
     );
 
-    Ok(())
+    Ok(file_meta.file_size)
+}
+
+// ============================================================================
+// 旧版单文件传输（保留兼容）
+// ============================================================================
+
+/// 发送单个文件（旧版接口）
+pub async fn send_file(
+    device_id: &str,
+    file_path: &str,
+    _app_handle: tauri::AppHandle,
+) -> Result<String, TransferError> {
+    // 使用新的传输请求机制
+    let request_id = send_transfer_request(device_id, vec![file_path.to_string()]).await?;
+    Ok(request_id)
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+/// 计算文件哈希
+fn calculate_file_hash(path: &Path) -> Result<String, TransferError> {
+    let mut file =
+        std::fs::File::open(path).map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+
+    loop {
+        let bytes_read = file
+            .read(&mut buffer)
+            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// 取消传输
 pub async fn cancel_transfer(transfer_id: &str) -> Result<(), TransferError> {
     let state = get_lan_transfer_state();
 
-    let mut transfers = state.active_transfers.write();
-    let task = transfers
-        .get_mut(transfer_id)
-        .ok_or_else(|| TransferError::TaskNotFound(transfer_id.to_string()))?;
+    // 尝试从活跃传输中获取并更新状态
+    {
+        let mut transfers = state.active_transfers.write();
+        if let Some(task) = transfers.get_mut(transfer_id) {
+            task.status = TransferStatus::Cancelled;
+        }
+    }
 
-    task.status = TransferStatus::Cancelled;
-
-    let _ = get_event_sender().send(LanTransferEvent::TransferFailed {
+    // 发送取消事件
+    let event = LanTransferEvent::TransferFailed {
         task_id: transfer_id.to_string(),
         error: "用户取消".to_string(),
-    });
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
 
     println!("[LanTransfer] 传输已取消: {}", transfer_id);
 
     Ok(())
 }
 
+/// 取消会话
+pub async fn cancel_session(request_id: &str) -> Result<(), TransferError> {
+    // 更新会话状态
+    {
+        let sessions = get_active_sessions();
+        let mut sessions = sessions.write();
+        if let Some(session) = sessions.get_mut(request_id) {
+            session.status = SessionStatus::Cancelled;
+
+            // 取消所有文件
+            for file_state in &mut session.files {
+                if file_state.status == TransferStatus::Pending
+                    || file_state.status == TransferStatus::Transferring
+                {
+                    file_state.status = TransferStatus::Cancelled;
+                }
+            }
+        }
+    }
+
+    println!("[LanTransfer] 会话已取消: {}", request_id);
+
+    Ok(())
+}
+
+/// 获取传输会话
+pub fn get_transfer_session(request_id: &str) -> Option<TransferSession> {
+    let sessions = get_active_sessions();
+    let sessions = sessions.read();
+    sessions.get(request_id).cloned()
+}
+
+/// 获取所有活跃会话
+pub fn get_all_sessions() -> Vec<TransferSession> {
+    let sessions = get_active_sessions();
+    let sessions = sessions.read();
+    sessions.values().cloned().collect()
+}

@@ -143,17 +143,177 @@ pub struct FileMetadata {
     pub sha256: String,
 }
 
-/// 传输准备请求
+// ============================================================================
+// 传输请求（文件传输前的确认）
+// ============================================================================
+
+/// 传输请求（发送文件前需要对方确认）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRequest {
+    /// 请求 ID
+    pub request_id: String,
+    /// 请求方设备信息
+    pub from_device: DiscoveredDevice,
+    /// 要传输的文件列表
+    pub files: Vec<FileMetadata>,
+    /// 总大小（字节）
+    pub total_size: u64,
+    /// 请求时间
+    pub requested_at: String,
+    /// 请求状态
+    pub status: TransferRequestStatus,
+}
+
+/// 传输请求状态
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TransferRequestStatus {
+    /// 等待确认
+    Pending,
+    /// 已接受
+    Accepted,
+    /// 已拒绝
+    Rejected,
+    /// 已过期
+    Expired,
+}
+
+/// 传输请求响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRequestResponse {
+    /// 请求 ID
+    pub request_id: String,
+    /// 是否接受
+    pub accepted: bool,
+    /// 拒绝原因（如果有）
+    pub reject_reason: Option<String>,
+    /// 保存目录
+    pub save_directory: Option<String>,
+}
+
+// ============================================================================
+// 断点续传
+// ============================================================================
+
+/// 断点续传信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeInfo {
+    /// 文件 ID
+    pub file_id: String,
+    /// 文件 SHA-256（用于校验是否是同一个文件）
+    pub file_sha256: String,
+    /// 本地临时文件路径
+    pub temp_file_path: String,
+    /// 已传输字节数
+    pub transferred_bytes: u64,
+    /// 已接收块的哈希列表（用于校验）
+    pub chunk_hashes: Vec<String>,
+    /// 最后更新时间
+    pub last_updated: String,
+}
+
+// ============================================================================
+// 传输会话（多文件）
+// ============================================================================
+
+/// 传输会话（支持多文件）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferSession {
+    /// 会话 ID
+    pub session_id: String,
+    /// 关联的传输请求 ID
+    pub request_id: String,
+    /// 文件传输状态列表
+    pub files: Vec<FileTransferState>,
+    /// 会话状态
+    pub status: SessionStatus,
+    /// 创建时间
+    pub created_at: String,
+    /// 目标设备
+    pub target_device: DiscoveredDevice,
+    /// 传输方向
+    pub direction: TransferDirection,
+}
+
+/// 文件传输状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTransferState {
+    /// 文件元信息
+    pub file: FileMetadata,
+    /// 传输状态
+    pub status: TransferStatus,
+    /// 已传输字节数
+    pub transferred_bytes: u64,
+    /// 断点续传信息（如果有）
+    pub resume_info: Option<ResumeInfo>,
+}
+
+/// 会话状态
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionStatus {
+    /// 等待开始
+    Pending,
+    /// 传输中
+    Transferring,
+    /// 已暂停
+    Paused,
+    /// 已完成
+    Completed,
+    /// 失败
+    Failed,
+    /// 已取消
+    Cancelled,
+}
+
+// ============================================================================
+// 批量传输进度
+// ============================================================================
+
+/// 批量传输进度
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchTransferProgress {
+    /// 会话 ID
+    pub session_id: String,
+    /// 总文件数
+    pub total_files: u32,
+    /// 已完成文件数
+    pub completed_files: u32,
+    /// 总字节数
+    pub total_bytes: u64,
+    /// 已传输字节数
+    pub transferred_bytes: u64,
+    /// 传输速度（字节/秒）
+    pub speed: u64,
+    /// 当前正在传输的文件
+    pub current_file: Option<FileMetadata>,
+    /// 预计剩余时间（秒）
+    pub eta_seconds: Option<u64>,
+}
+
+// ============================================================================
+// 文件传输 API
+// ============================================================================
+
+/// 传输准备请求（支持断点续传）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareUploadRequest {
     /// 会话 ID
     pub session_id: String,
-    /// 文件列表
-    pub files: Vec<FileMetadata>,
+    /// 文件元信息
+    pub file: FileMetadata,
+    /// 是否尝试断点续传
+    pub resume: bool,
 }
 
-/// 传输准备响应
+/// 传输准备响应（支持断点续传）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareUploadResponse {
@@ -161,6 +321,8 @@ pub struct PrepareUploadResponse {
     pub session_id: String,
     /// 是否接受
     pub accepted: bool,
+    /// 断点续传偏移量（0 表示从头开始）
+    pub resume_offset: u64,
     /// 拒绝原因（如果有）
     pub reject_reason: Option<String>,
     /// 保存目录
@@ -291,14 +453,30 @@ pub enum LanTransferEvent {
     DeviceDiscovered { device: DiscoveredDevice },
     /// 设备离线
     DeviceLeft { device_id: String },
-    /// 收到连接请求
+    /// 收到连接请求（旧版，保留兼容）
     ConnectionRequest { request: ConnectionRequest },
-    /// 连接响应
+    /// 连接响应（旧版，保留兼容）
     ConnectionResponse { request_id: String, accepted: bool },
-    /// 传输进度更新
+    /// 收到传输请求（文件传输前的确认）
+    TransferRequestReceived { request: TransferRequest },
+    /// 传输请求响应
+    TransferRequestResponse {
+        request_id: String,
+        accepted: bool,
+        reject_reason: Option<String>,
+    },
+    /// 单文件传输进度更新
     TransferProgress { task: TransferTask },
+    /// 批量传输进度更新
+    BatchProgress { progress: BatchTransferProgress },
     /// 传输完成
     TransferCompleted { task_id: String, saved_path: String },
+    /// 批量传输完成
+    BatchTransferCompleted {
+        session_id: String,
+        total_files: u32,
+        save_directory: String,
+    },
     /// 传输失败
     TransferFailed { task_id: String, error: String },
     /// 服务状态变化

@@ -6,10 +6,11 @@
  * 功能：
  * - 启动/停止局域网传输服务
  * - 获取发现的设备列表
- * - 发送连接请求
- * - 响应连接请求
- * - 发送文件
- * - 获取传输进度
+ * - 发送传输请求（需确认）
+ * - 多文件批量传输
+ * - 断点续传支持
+ * - 实时进度跟踪
+ * - 配置管理
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -32,7 +33,7 @@ export interface DiscoveredDevice {
   lastSeen: string;
 }
 
-/** 连接请求 */
+/** 连接请求（旧版兼容） */
 export interface ConnectionRequest {
   requestId: string;
   fromDevice: DiscoveredDevice;
@@ -49,6 +50,16 @@ export interface FileMetadata {
   sha256: string;
 }
 
+/** 传输请求（新版，需确认） */
+export interface TransferRequest {
+  requestId: string;
+  fromDevice: DiscoveredDevice;
+  files: FileMetadata[];
+  totalSize: number;
+  requestedAt: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'expired';
+}
+
 /** 传输任务 */
 export interface TransferTask {
   taskId: string;
@@ -63,14 +74,77 @@ export interface TransferTask {
   etaSeconds?: number;
 }
 
-/** 局域网传输事件 - 注意：事件字段使用 snake_case，嵌套结构体使用 camelCase */
+/** 文件传输状态 */
+export interface FileTransferState {
+  file: FileMetadata;
+  status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  transferredBytes: number;
+  resumeInfo?: ResumeInfo;
+}
+
+/** 断点续传信息 */
+export interface ResumeInfo {
+  fileId: string;
+  fileSha256: string;
+  tempFilePath: string;
+  transferredBytes: number;
+  chunkHashes: string[];
+  lastUpdated: string;
+}
+
+/** 传输会话（多文件） */
+export interface TransferSession {
+  sessionId: string;
+  requestId: string;
+  files: FileTransferState[];
+  status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  createdAt: string;
+  targetDevice: DiscoveredDevice;
+  direction: 'send' | 'receive';
+}
+
+/** 批量传输进度 */
+export interface BatchTransferProgress {
+  sessionId: string;
+  totalFiles: number;
+  completedFiles: number;
+  totalBytes: number;
+  transferredBytes: number;
+  speed: number;
+  currentFile?: FileMetadata;
+  etaSeconds?: number;
+}
+
+/** 信任设备 */
+export interface TrustedDevice {
+  deviceId: string;
+  deviceName: string;
+  addedAt: string;
+}
+
+/** 局域网传输配置 */
+export interface LanTransferConfig {
+  saveDirectory: string;
+  tempDirectory: string;
+  groupByDate: boolean;
+  autoAcceptTrusted: boolean;
+  trustedDevices: TrustedDevice[];
+  maxConcurrentTransfers: number;
+  version: string;
+}
+
+/** 局域网传输事件 */
 export type LanTransferEvent =
   | { type: 'device_discovered'; device: DiscoveredDevice }
   | { type: 'device_left'; device_id: string }
   | { type: 'connection_request'; request: ConnectionRequest }
   | { type: 'connection_response'; request_id: string; accepted: boolean }
+  | { type: 'transfer_request_received'; request: TransferRequest }
+  | { type: 'transfer_request_response'; request_id: string; accepted: boolean; reject_reason?: string }
   | { type: 'transfer_progress'; task: TransferTask }
+  | { type: 'batch_progress'; progress: BatchTransferProgress }
   | { type: 'transfer_completed'; task_id: string; saved_path: string }
+  | { type: 'batch_transfer_completed'; session_id: string; total_files: number; save_directory: string }
   | { type: 'transfer_failed'; task_id: string; error: string }
   | { type: 'service_state_changed'; is_running: boolean };
 
@@ -82,24 +156,52 @@ export interface UseLanTransferReturn {
   loading: boolean;
   /** 发现的设备列表 */
   devices: DiscoveredDevice[];
-  /** 待处理的连接请求 */
+  /** 待处理的连接请求（旧版） */
   pendingRequests: ConnectionRequest[];
+  /** 待处理的传输请求（新版） */
+  pendingTransferRequests: TransferRequest[];
   /** 活跃的传输任务 */
   activeTransfers: TransferTask[];
+  /** 批量传输进度 */
+  batchProgress: BatchTransferProgress | null;
+  /** 活跃的传输会话 */
+  activeSessions: TransferSession[];
+  /** 保存目录 */
+  saveDirectory: string;
+  /** 配置 */
+  config: LanTransferConfig | null;
   /** 启动服务 */
   startService: (userId: string, userNickname: string) => Promise<void>;
   /** 停止服务 */
   stopService: () => Promise<void>;
   /** 刷新设备列表 */
   refreshDevices: () => Promise<void>;
-  /** 发送连接请求 */
+  /** 发送连接请求（旧版） */
   sendConnectionRequest: (deviceId: string) => Promise<string>;
-  /** 响应连接请求 */
+  /** 响应连接请求（旧版） */
   respondToRequest: (requestId: string, accept: boolean) => Promise<void>;
-  /** 发送文件 */
+  /** 发送文件（旧版单文件） */
   sendFile: (deviceId: string, filePath: string) => Promise<string>;
+  /** 发送传输请求（新版多文件，需确认） */
+  sendTransferRequest: (deviceId: string, filePaths: string[]) => Promise<string>;
+  /** 响应传输请求 */
+  respondToTransferRequest: (requestId: string, accept: boolean) => Promise<void>;
   /** 取消传输 */
   cancelTransfer: (transferId: string) => Promise<void>;
+  /** 取消传输会话 */
+  cancelSession: (requestId: string) => Promise<void>;
+  /** 设置保存目录 */
+  setSaveDirectory: (path: string) => Promise<void>;
+  /** 打开保存目录 */
+  openSaveDirectory: () => Promise<void>;
+  /** 添加信任设备 */
+  addTrustedDevice: (deviceId: string, deviceName: string) => Promise<void>;
+  /** 移除信任设备 */
+  removeTrustedDevice: (deviceId: string) => Promise<void>;
+  /** 设置自动接受信任设备 */
+  setAutoAcceptTrusted: (enabled: boolean) => Promise<void>;
+  /** 刷新配置 */
+  refreshConfig: () => Promise<void>;
 }
 
 // ============================================================================
@@ -111,11 +213,15 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [loading, setLoading] = useState(false);
   const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
   const [pendingRequests, setPendingRequests] = useState<ConnectionRequest[]>([]);
+  const [pendingTransferRequests, setPendingTransferRequests] = useState<TransferRequest[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<TransferTask[]>([]);
+  const [batchProgress, setBatchProgress] = useState<BatchTransferProgress | null>(null);
+  const [activeSessions, setActiveSessions] = useState<TransferSession[]>([]);
+  const [saveDirectory, setSaveDirectoryState] = useState<string>('');
+  const [config, setConfig] = useState<LanTransferConfig | null>(null);
 
   // 启动服务
   const startService = useCallback(async (userId: string, userNickname: string) => {
-    // 避免重复启动
     if (loading) {
       return;
     }
@@ -139,6 +245,8 @@ export function useLanTransfer(): UseLanTransferReturn {
       setIsRunning(false);
       setDevices([]);
       setPendingRequests([]);
+      setPendingTransferRequests([]);
+      setBatchProgress(null);
     } finally {
       setLoading(false);
     }
@@ -154,28 +262,90 @@ export function useLanTransfer(): UseLanTransferReturn {
     }
   }, []);
 
-  // 发送连接请求
+  // 发送连接请求（旧版）
   const sendConnectionRequest = useCallback(async (deviceId: string) => {
     const requestId = await invoke<string>('send_connection_request', { deviceId });
     return requestId;
   }, []);
 
-  // 响应连接请求
+  // 响应连接请求（旧版）
   const respondToRequest = useCallback(async (requestId: string, accept: boolean) => {
     await invoke('respond_to_connection_request', { requestId, accept });
-    // 从待处理列表中移除
     setPendingRequests((prev) => prev.filter((r) => r.requestId !== requestId));
   }, []);
 
-  // 发送文件
+  // 发送文件（旧版单文件）
   const sendFile = useCallback(async (deviceId: string, filePath: string) => {
     const taskId = await invoke<string>('send_file_to_device', { deviceId, filePath });
     return taskId;
   }, []);
 
+  // 发送传输请求（新版多文件）
+  const sendTransferRequest = useCallback(async (deviceId: string, filePaths: string[]) => {
+    const requestId = await invoke<string>('send_transfer_request', { deviceId, filePaths });
+    return requestId;
+  }, []);
+
+  // 响应传输请求
+  const respondToTransferRequest = useCallback(async (requestId: string, accept: boolean) => {
+    await invoke('respond_to_transfer_request', { requestId, accept });
+    setPendingTransferRequests((prev) => prev.filter((r) => r.requestId !== requestId));
+  }, []);
+
   // 取消传输
   const cancelTransfer = useCallback(async (transferId: string) => {
     await invoke('cancel_transfer', { transferId });
+  }, []);
+
+  // 取消传输会话
+  const cancelSession = useCallback(async (requestId: string) => {
+    await invoke('cancel_transfer_session', { requestId });
+  }, []);
+
+  // 设置保存目录
+  const setSaveDirectory = useCallback(async (path: string) => {
+    await invoke('set_lan_transfer_save_directory', { path });
+    setSaveDirectoryState(path);
+  }, []);
+
+  // 打开保存目录
+  const openSaveDirectory = useCallback(async () => {
+    await invoke('open_lan_transfer_directory');
+  }, []);
+
+  // 添加信任设备
+  const addTrustedDevice = useCallback(async (deviceId: string, deviceName: string) => {
+    await invoke('add_trusted_device', { deviceId, deviceName });
+    // 刷新配置
+    const newConfig = await invoke<LanTransferConfig>('get_lan_transfer_config');
+    setConfig(newConfig);
+  }, []);
+
+  // 移除信任设备
+  const removeTrustedDevice = useCallback(async (deviceId: string) => {
+    await invoke('remove_trusted_device', { deviceId });
+    // 刷新配置
+    const newConfig = await invoke<LanTransferConfig>('get_lan_transfer_config');
+    setConfig(newConfig);
+  }, []);
+
+  // 设置自动接受信任设备
+  const setAutoAcceptTrusted = useCallback(async (enabled: boolean) => {
+    await invoke('set_auto_accept_trusted', { enabled });
+    // 刷新配置
+    const newConfig = await invoke<LanTransferConfig>('get_lan_transfer_config');
+    setConfig(newConfig);
+  }, []);
+
+  // 刷新配置
+  const refreshConfig = useCallback(async () => {
+    try {
+      const newConfig = await invoke<LanTransferConfig>('get_lan_transfer_config');
+      setConfig(newConfig);
+      setSaveDirectoryState(newConfig.saveDirectory);
+    } catch (error) {
+      console.error('[LanTransfer] 获取配置失败:', error);
+    }
   }, []);
 
   // 监听事件
@@ -208,7 +378,25 @@ export function useLanTransfer(): UseLanTransferReturn {
             break;
 
           case 'connection_response':
-            // 可以在这里处理连接响应
+            // 处理连接响应
+            break;
+
+          case 'transfer_request_received':
+            setPendingTransferRequests((prev) => {
+              const exists = prev.some((r) => r.requestId === payload.request.requestId);
+              if (exists) {
+                return prev;
+              }
+              return [...prev, payload.request];
+            });
+            break;
+
+          case 'transfer_request_response':
+            // 处理传输请求响应
+            if (!payload.accepted) {
+              // 如果被拒绝，可以显示通知
+              console.warn('[LanTransfer] 传输请求被拒绝:', payload.reject_reason);
+            }
             break;
 
           case 'transfer_progress':
@@ -223,7 +411,22 @@ export function useLanTransfer(): UseLanTransferReturn {
             });
             break;
 
+          case 'batch_progress':
+            setBatchProgress(payload.progress);
+            break;
+
           case 'transfer_completed':
+            setActiveTransfers((prev) =>
+              prev.filter((t) => t.taskId !== payload.task_id),
+            );
+            break;
+
+          case 'batch_transfer_completed':
+            setBatchProgress(null);
+            // 刷新会话列表
+            invoke<TransferSession[]>('get_all_transfer_sessions').then(setActiveSessions);
+            break;
+
           case 'transfer_failed':
             setActiveTransfers((prev) =>
               prev.filter((t) => t.taskId !== payload.task_id),
@@ -247,18 +450,15 @@ export function useLanTransfer(): UseLanTransferReturn {
   }, []);
 
   // 定期刷新设备列表
-  // 使用 useRef 避免 refreshDevices 依赖导致的重复触发
   useEffect(() => {
     if (!isRunning) {
       return;
     }
 
-    // 首次启动时延迟一小段时间再刷新，避免与启动服务同时执行
     const initialTimeoutId = setTimeout(() => {
       refreshDevices();
     }, 500);
 
-    // 定期刷新
     const intervalId = setInterval(() => {
       refreshDevices();
     }, 5000);
@@ -276,24 +476,32 @@ export function useLanTransfer(): UseLanTransferReturn {
 
     const fetchRequests = async () => {
       try {
-        const result = await invoke<ConnectionRequest[]>('get_pending_connection_requests');
-        setPendingRequests(result);
+        const [connectionRequests, transferRequests] = await Promise.all([
+          invoke<ConnectionRequest[]>('get_pending_connection_requests'),
+          invoke<TransferRequest[]>('get_pending_transfer_requests'),
+        ]);
+        setPendingRequests(connectionRequests);
+        setPendingTransferRequests(transferRequests);
       } catch (error) {
-        console.error('[LanTransfer] 获取连接请求失败:', error);
+        console.error('[LanTransfer] 获取请求失败:', error);
       }
     };
 
     fetchRequests();
   }, [isRunning]);
 
-  // 获取活跃传输
+  // 获取活跃传输和会话
   useEffect(() => {
     if (!isRunning) { return; }
 
     const fetchTransfers = async () => {
       try {
-        const result = await invoke<TransferTask[]>('get_active_transfers');
-        setActiveTransfers(result);
+        const [transfers, sessions] = await Promise.all([
+          invoke<TransferTask[]>('get_active_transfers'),
+          invoke<TransferSession[]>('get_all_transfer_sessions'),
+        ]);
+        setActiveTransfers(transfers);
+        setActiveSessions(sessions);
       } catch (error) {
         console.error('[LanTransfer] 获取传输任务失败:', error);
       }
@@ -302,18 +510,38 @@ export function useLanTransfer(): UseLanTransferReturn {
     fetchTransfers();
   }, [isRunning]);
 
+  // 获取配置
+  useEffect(() => {
+    if (!isRunning) { return; }
+    refreshConfig();
+  }, [isRunning, refreshConfig]);
+
   return {
     isRunning,
     loading,
     devices,
     pendingRequests,
+    pendingTransferRequests,
     activeTransfers,
+    batchProgress,
+    activeSessions,
+    saveDirectory,
+    config,
     startService,
     stopService,
     refreshDevices,
     sendConnectionRequest,
     respondToRequest,
     sendFile,
+    sendTransferRequest,
+    respondToTransferRequest,
     cancelTransfer,
+    cancelSession,
+    setSaveDirectory,
+    openSaveDirectory,
+    addTrustedDevice,
+    removeTrustedDevice,
+    setAutoAcceptTrusted,
+    refreshConfig,
   };
 }
