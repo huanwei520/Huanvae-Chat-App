@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 允许作为网络客户端 (必需) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <!-- 允许作为网络服务器 (局域网传输需要) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    
+    <!-- 允许不安全的传出连接 (HTTP 局域网通信) -->
+    <key>com.apple.security.network.client.allow-insecure</key>
+    <true/>
+    
+    <!-- 允许用户选择的文件访问 (文件传输) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- 允许下载目录访问 -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+</dict>
+</plist>
