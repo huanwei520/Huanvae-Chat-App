@@ -5,9 +5,18 @@
  *
  * API 端点：
  * - GET /api/info: 获取设备信息
+ *
+ * 点对点连接（新版）：
+ * - POST /api/peer-connection-request: 请求建立点对点连接
+ * - POST /api/peer-connection-response: 响应连接请求
+ * - POST /api/peer-disconnect: 断开连接
+ *
+ * 旧版兼容：
  * - POST /api/connect: 连接请求（旧版兼容）
- * - POST /api/transfer-request: 传输请求（新版，需确认）
+ * - POST /api/transfer-request: 传输请求（需确认）
  * - POST /api/transfer-response: 传输请求响应
+ *
+ * 文件传输：
  * - POST /api/prepare-upload: 准备上传（支持断点续传）
  * - POST /api/upload: 上传文件块
  * - POST /api/finish: 完成上传
@@ -63,6 +72,15 @@ static UPLOAD_SESSIONS: OnceCell<Arc<Mutex<HashMap<String, UploadSession>>>> = O
 static PENDING_TRANSFER_REQUESTS: OnceCell<Arc<Mutex<HashMap<String, TransferRequest>>>> =
     OnceCell::new();
 
+/// 活跃的点对点连接
+static ACTIVE_PEER_CONNECTIONS: OnceCell<Arc<Mutex<HashMap<String, PeerConnection>>>> =
+    OnceCell::new();
+
+/// 待处理的连接请求
+static PENDING_PEER_CONNECTION_REQUESTS: OnceCell<
+    Arc<Mutex<HashMap<String, PeerConnectionRequest>>>,
+> = OnceCell::new();
+
 fn get_upload_sessions() -> Arc<Mutex<HashMap<String, UploadSession>>> {
     UPLOAD_SESSIONS
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
@@ -72,6 +90,21 @@ fn get_upload_sessions() -> Arc<Mutex<HashMap<String, UploadSession>>> {
 /// 获取待处理的传输请求
 pub fn get_pending_transfer_requests_map() -> Arc<Mutex<HashMap<String, TransferRequest>>> {
     PENDING_TRANSFER_REQUESTS
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+/// 获取活跃的点对点连接
+pub fn get_active_peer_connections_map() -> Arc<Mutex<HashMap<String, PeerConnection>>> {
+    ACTIVE_PEER_CONNECTIONS
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+/// 获取待处理的连接请求
+pub fn get_pending_peer_connection_requests_map(
+) -> Arc<Mutex<HashMap<String, PeerConnectionRequest>>> {
+    PENDING_PEER_CONNECTION_REQUESTS
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()
 }
@@ -217,6 +250,17 @@ async fn handle_connection(
         ("GET", "/api/info") => {
             handle_info(&mut writer, &device_info).await
         }
+        // ========== 点对点连接 API ==========
+        ("POST", "/api/peer-connection-request") => {
+            handle_peer_connection_request(&mut writer, &body, peer_addr).await
+        }
+        ("POST", "/api/peer-connection-response") => {
+            handle_peer_connection_response(&mut writer, &body, peer_addr).await
+        }
+        ("POST", "/api/peer-disconnect") => {
+            handle_peer_disconnect(&mut writer, &body).await
+        }
+        // ========== 旧版兼容 API ==========
         ("POST", "/api/connect") => {
             handle_connect(&mut writer, &body, peer_addr).await
         }
@@ -226,6 +270,7 @@ async fn handle_connection(
         ("POST", "/api/transfer-response") => {
             handle_transfer_response(&mut writer, &body).await
         }
+        // ========== 文件传输 API ==========
         ("POST", "/api/prepare-upload") => {
             handle_prepare_upload(&mut writer, &body).await
         }
@@ -303,6 +348,182 @@ async fn handle_info(
 ) -> Result<(), ServerError> {
     send_json_response(writer, device_info).await
 }
+
+// ============================================================================
+// 点对点连接 API
+// ============================================================================
+
+/// 请求体：点对点连接请求
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PeerConnectionRequestBody {
+    from_device: DiscoveredDevice,
+}
+
+/// 请求体：点对点连接响应
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PeerConnectionResponseBody {
+    connection_id: String,
+    accepted: bool,
+    from_device: Option<DiscoveredDevice>,
+}
+
+/// 请求体：断开连接
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PeerDisconnectBody {
+    connection_id: String,
+}
+
+/// 处理点对点连接请求（接收方收到）
+async fn handle_peer_connection_request(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+    peer_addr: SocketAddr,
+) -> Result<(), ServerError> {
+    let req_body: PeerConnectionRequestBody =
+        serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    let connection_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+
+    // 创建连接请求
+    let request = PeerConnectionRequest {
+        connection_id: connection_id.clone(),
+        from_device: DiscoveredDevice {
+            ip_address: peer_addr.ip().to_string(),
+            ..req_body.from_device
+        },
+        requested_at: now,
+    };
+
+    // 保存到待处理请求
+    {
+        let requests = get_pending_peer_connection_requests_map();
+        let mut requests = requests.lock();
+        requests.insert(connection_id.clone(), request.clone());
+    }
+
+    // 发送事件通知前端
+    let event = LanTransferEvent::PeerConnectionRequest { request };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    println!(
+        "[LanTransfer] 收到连接请求: {} 来自 {}",
+        connection_id, peer_addr
+    );
+
+    // 返回连接 ID
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        connection_id: String,
+        status: String,
+    }
+
+    send_json_response(
+        writer,
+        &Response {
+            connection_id,
+            status: "pending".to_string(),
+        },
+    )
+    .await
+}
+
+/// 处理点对点连接响应（发起方收到接收方的响应）
+async fn handle_peer_connection_response(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+    peer_addr: SocketAddr,
+) -> Result<(), ServerError> {
+    let req_body: PeerConnectionResponseBody =
+        serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    let connection_id = req_body.connection_id.clone();
+    let now = Utc::now().to_rfc3339();
+
+    if req_body.accepted {
+        // 接收方接受了连接，创建连接对象
+        if let Some(from_device) = req_body.from_device {
+            let connection = PeerConnection {
+                connection_id: connection_id.clone(),
+                peer_device: DiscoveredDevice {
+                    ip_address: peer_addr.ip().to_string(),
+                    ..from_device
+                },
+                established_at: now,
+                status: PeerConnectionStatus::Connected,
+                is_initiator: true, // 发起方收到此响应
+            };
+
+            // 保存连接
+            {
+                let connections = get_active_peer_connections_map();
+                let mut connections = connections.lock();
+                connections.insert(connection_id.clone(), connection.clone());
+            }
+
+            // 发送事件通知前端
+            let event = LanTransferEvent::PeerConnectionEstablished { connection };
+            let _ = get_event_sender().send(event.clone());
+            emit_lan_event(&event);
+
+            println!("[LanTransfer] 连接已建立: {}", connection_id);
+        }
+    } else {
+        println!("[LanTransfer] 连接请求被拒绝: {}", connection_id);
+    }
+
+    // 返回确认
+    #[derive(serde::Serialize)]
+    struct AckResponse {
+        success: bool,
+    }
+
+    send_json_response(writer, &AckResponse { success: true }).await
+}
+
+/// 处理断开连接请求
+async fn handle_peer_disconnect(
+    writer: &mut tokio::net::tcp::WriteHalf<'_>,
+    body: &[u8],
+) -> Result<(), ServerError> {
+    let req_body: PeerDisconnectBody =
+        serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    let connection_id = req_body.connection_id.clone();
+
+    // 从活跃连接中移除
+    {
+        let connections = get_active_peer_connections_map();
+        let mut connections = connections.lock();
+        connections.remove(&connection_id);
+    }
+
+    // 发送事件通知前端
+    let event = LanTransferEvent::PeerConnectionClosed {
+        connection_id: connection_id.clone(),
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    println!("[LanTransfer] 连接已断开: {}", connection_id);
+
+    // 返回确认
+    #[derive(serde::Serialize)]
+    struct AckResponse {
+        success: bool,
+    }
+
+    send_json_response(writer, &AckResponse { success: true }).await
+}
+
+// ============================================================================
+// 旧版兼容 API
+// ============================================================================
 
 /// 处理连接请求（旧版兼容）
 async fn handle_connect(
@@ -448,58 +669,69 @@ struct TransferResponseBody {
     reject_reason: Option<String>,
 }
 
-/// 处理传输请求响应
+/// 处理传输请求响应（发送方收到接收方的确认）
 async fn handle_transfer_response(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
 ) -> Result<(), ServerError> {
+    use super::transfer;
+
     let req_body: TransferResponseBody = serde_json::from_slice(body)
         .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
 
-    // 从待处理请求中获取并移除
-    let request = {
-        let requests = get_pending_transfer_requests_map();
-        let mut requests = requests.lock();
-        requests.remove(&req_body.request_id)
-    };
+    let request_id = req_body.request_id.clone();
+    let accepted = req_body.accepted;
 
-    let response = if req_body.accepted {
-        let save_dir = config::get_save_directory();
-        TransferRequestResponse {
-            request_id: req_body.request_id.clone(),
-            accepted: true,
-            reject_reason: None,
-            save_directory: Some(save_dir.to_string_lossy().to_string()),
-        }
-    } else {
-        TransferRequestResponse {
-            request_id: req_body.request_id.clone(),
-            accepted: false,
-            reject_reason: req_body.reject_reason.clone(),
-            save_directory: None,
-        }
-    };
-
-    // 发送事件
+    // 发送事件通知前端
     let event = LanTransferEvent::TransferRequestResponse {
-        request_id: req_body.request_id.clone(),
-        accepted: req_body.accepted,
-        reject_reason: req_body.reject_reason,
+        request_id: request_id.clone(),
+        accepted,
+        reject_reason: req_body.reject_reason.clone(),
     };
     let _ = get_event_sender().send(event.clone());
     emit_lan_event(&event);
 
-    // 如果请求存在且被接受，打印日志
-    if req_body.accepted
-        && let Some(req) = request
-    {
+    // 如果被接受，启动传输
+    if accepted {
+        // 从发送方的会话存储中获取会话信息和文件路径
+        if let Some(session) = transfer::get_transfer_session(&request_id) {
+            let file_paths = session.file_paths.clone();
+
+            if !file_paths.is_empty() {
+                println!(
+                    "[LanTransfer] 传输请求已被接受，开始传输: {} ({} 个文件)",
+                    request_id,
+                    file_paths.len()
+                );
+
+                // 在后台启动批量传输
+                let request_id_clone = request_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = transfer::start_batch_transfer(&request_id_clone, file_paths).await {
+                        eprintln!("[LanTransfer] 批量传输失败: {}", e);
+                    }
+                });
+            } else {
+                println!("[LanTransfer] 传输请求已被接受，但没有文件路径: {}", request_id);
+            }
+        } else {
+            println!("[LanTransfer] 传输请求已被接受，但找不到会话: {}", request_id);
+        }
+    } else {
         println!(
-            "[LanTransfer] 传输请求已接受: {} 来自 {}",
-            req.request_id, req.from_device.device_name
+            "[LanTransfer] 传输请求被拒绝: {} ({})",
+            request_id,
+            req_body.reject_reason.as_deref().unwrap_or("无原因")
         );
     }
 
-    send_json_response(writer, &response).await
+    // 返回确认响应
+    #[derive(serde::Serialize)]
+    struct AckResponse {
+        success: bool,
+    }
+
+    send_json_response(writer, &AckResponse { success: true }).await
 }
 
 /// 处理准备上传请求（支持断点续传）

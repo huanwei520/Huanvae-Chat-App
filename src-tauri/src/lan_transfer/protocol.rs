@@ -124,6 +124,61 @@ pub struct ConnectionResponse {
 }
 
 // ============================================================================
+// 点对点连接（Peer Connection）
+// ============================================================================
+
+/// 点对点连接状态
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerConnectionStatus {
+    /// 已连接
+    Connected,
+    /// 已断开
+    Disconnected,
+}
+
+/// 点对点连接（建立连接后可双向传输文件）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerConnection {
+    /// 连接 ID
+    pub connection_id: String,
+    /// 对端设备信息
+    pub peer_device: DiscoveredDevice,
+    /// 连接建立时间
+    pub established_at: String,
+    /// 连接状态
+    pub status: PeerConnectionStatus,
+    /// 是否为发起方
+    pub is_initiator: bool,
+}
+
+/// 连接请求（用于建立点对点连接）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerConnectionRequest {
+    /// 连接 ID
+    pub connection_id: String,
+    /// 请求方设备信息
+    pub from_device: DiscoveredDevice,
+    /// 请求时间
+    pub requested_at: String,
+}
+
+/// 连接响应（点对点连接）
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerConnectionResponse {
+    /// 连接 ID
+    pub connection_id: String,
+    /// 是否接受
+    pub accepted: bool,
+    /// 响应方设备信息（接受时提供）
+    pub from_device: Option<DiscoveredDevice>,
+}
+
+// ============================================================================
 // 文件传输
 // ============================================================================
 
@@ -225,10 +280,16 @@ pub struct ResumeInfo {
 pub struct TransferSession {
     /// 会话 ID
     pub session_id: String,
-    /// 关联的传输请求 ID
+    /// 关联的连接 ID（点对点连接模式）
+    #[serde(default)]
+    pub connection_id: String,
+    /// 关联的传输请求 ID（旧模式，保留兼容）
     pub request_id: String,
     /// 文件传输状态列表
     pub files: Vec<FileTransferState>,
+    /// 原始文件路径列表（发送方使用）
+    #[serde(default)]
+    pub file_paths: Vec<String>,
     /// 会话状态
     pub status: SessionStatus,
     /// 创建时间
@@ -453,10 +514,22 @@ pub enum LanTransferEvent {
     DeviceDiscovered { device: DiscoveredDevice },
     /// 设备离线
     DeviceLeft { device_id: String },
+
+    // ========== 点对点连接事件 ==========
+    /// 收到连接请求（点对点连接）
+    PeerConnectionRequest { request: PeerConnectionRequest },
+    /// 连接已建立（双方都会收到）
+    PeerConnectionEstablished { connection: PeerConnection },
+    /// 连接已关闭
+    PeerConnectionClosed { connection_id: String },
+
+    // ========== 旧版连接事件（保留兼容） ==========
     /// 收到连接请求（旧版，保留兼容）
     ConnectionRequest { request: ConnectionRequest },
     /// 连接响应（旧版，保留兼容）
     ConnectionResponse { request_id: String, accepted: bool },
+
+    // ========== 文件传输事件 ==========
     /// 收到传输请求（文件传输前的确认）
     TransferRequestReceived { request: TransferRequest },
     /// 传输请求响应

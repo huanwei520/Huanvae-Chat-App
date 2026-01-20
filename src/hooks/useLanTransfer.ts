@@ -41,6 +41,25 @@ export interface ConnectionRequest {
   status: 'pending' | 'accepted' | 'rejected' | 'expired';
 }
 
+/** 点对点连接状态 */
+export type PeerConnectionStatus = 'connected' | 'disconnected';
+
+/** 点对点连接 */
+export interface PeerConnection {
+  connectionId: string;
+  peerDevice: DiscoveredDevice;
+  establishedAt: string;
+  status: PeerConnectionStatus;
+  isInitiator: boolean;
+}
+
+/** 点对点连接请求 */
+export interface PeerConnectionRequest {
+  connectionId: string;
+  fromDevice: DiscoveredDevice;
+  requestedAt: string;
+}
+
 /** 文件元信息 */
 export interface FileMetadata {
   fileId: string;
@@ -97,6 +116,7 @@ export interface TransferSession {
   sessionId: string;
   requestId: string;
   files: FileTransferState[];
+  filePaths: string[];
   status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
   targetDevice: DiscoveredDevice;
@@ -137,8 +157,14 @@ export interface LanTransferConfig {
 export type LanTransferEvent =
   | { type: 'device_discovered'; device: DiscoveredDevice }
   | { type: 'device_left'; device_id: string }
+  // 点对点连接事件
+  | { type: 'peer_connection_request'; request: PeerConnectionRequest }
+  | { type: 'peer_connection_established'; connection: PeerConnection }
+  | { type: 'peer_connection_closed'; connection_id: string }
+  // 旧版连接事件
   | { type: 'connection_request'; request: ConnectionRequest }
   | { type: 'connection_response'; request_id: string; accepted: boolean }
+  // 传输事件
   | { type: 'transfer_request_received'; request: TransferRequest }
   | { type: 'transfer_request_response'; request_id: string; accepted: boolean; reject_reason?: string }
   | { type: 'transfer_progress'; task: TransferTask }
@@ -170,19 +196,41 @@ export interface UseLanTransferReturn {
   saveDirectory: string;
   /** 配置 */
   config: LanTransferConfig | null;
+
+  // ========== 点对点连接（新版） ==========
+  /** 活跃的点对点连接 */
+  activeConnections: PeerConnection[];
+  /** 待处理的点对点连接请求 */
+  pendingPeerConnectionRequests: PeerConnectionRequest[];
+  /** 当前打开的连接（用于传输窗口） */
+  currentConnection: PeerConnection | null;
+  /** 设置当前连接 */
+  setCurrentConnection: (connection: PeerConnection | null) => void;
+  /** 请求建立点对点连接 */
+  requestPeerConnection: (deviceId: string) => Promise<string>;
+  /** 响应点对点连接请求 */
+  respondPeerConnection: (connectionId: string, accept: boolean) => Promise<void>;
+  /** 断开点对点连接 */
+  disconnectPeer: (connectionId: string) => Promise<void>;
+  /** 向已连接的设备发送文件 */
+  sendFilesToPeer: (connectionId: string, filePaths: string[]) => Promise<string>;
+
+  // ========== 服务管理 ==========
   /** 启动服务 */
   startService: (userId: string, userNickname: string) => Promise<void>;
   /** 停止服务 */
   stopService: () => Promise<void>;
   /** 刷新设备列表 */
   refreshDevices: () => Promise<void>;
+
+  // ========== 旧版兼容 ==========
   /** 发送连接请求（旧版） */
   sendConnectionRequest: (deviceId: string) => Promise<string>;
   /** 响应连接请求（旧版） */
   respondToRequest: (requestId: string, accept: boolean) => Promise<void>;
   /** 发送文件（旧版单文件） */
   sendFile: (deviceId: string, filePath: string) => Promise<string>;
-  /** 发送传输请求（新版多文件，需确认） */
+  /** 发送传输请求（旧版多文件，需确认） */
   sendTransferRequest: (deviceId: string, filePaths: string[]) => Promise<string>;
   /** 响应传输请求 */
   respondToTransferRequest: (requestId: string, accept: boolean) => Promise<void>;
@@ -190,6 +238,8 @@ export interface UseLanTransferReturn {
   cancelTransfer: (transferId: string) => Promise<void>;
   /** 取消传输会话 */
   cancelSession: (requestId: string) => Promise<void>;
+
+  // ========== 配置管理 ==========
   /** 设置保存目录 */
   setSaveDirectory: (path: string) => Promise<void>;
   /** 打开保存目录 */
@@ -220,6 +270,11 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [saveDirectory, setSaveDirectoryState] = useState<string>('');
   const [config, setConfig] = useState<LanTransferConfig | null>(null);
 
+  // 点对点连接状态
+  const [activeConnections, setActiveConnections] = useState<PeerConnection[]>([]);
+  const [pendingPeerConnectionRequests, setPendingPeerConnectionRequests] = useState<PeerConnectionRequest[]>([]);
+  const [currentConnection, setCurrentConnection] = useState<PeerConnection | null>(null);
+
   // 启动服务
   const startService = useCallback(async (userId: string, userNickname: string) => {
     if (loading) {
@@ -247,6 +302,9 @@ export function useLanTransfer(): UseLanTransferReturn {
       setPendingRequests([]);
       setPendingTransferRequests([]);
       setBatchProgress(null);
+      setActiveConnections([]);
+      setPendingPeerConnectionRequests([]);
+      setCurrentConnection(null);
     } finally {
       setLoading(false);
     }
@@ -261,6 +319,42 @@ export function useLanTransfer(): UseLanTransferReturn {
       console.error('[LanTransfer] 获取设备列表失败:', error);
     }
   }, []);
+
+  // ========== 点对点连接函数 ==========
+
+  // 请求建立点对点连接
+  const requestPeerConnection = useCallback(async (deviceId: string) => {
+    const connectionId = await invoke<string>('request_peer_connection', { deviceId });
+    return connectionId;
+  }, []);
+
+  // 响应点对点连接请求
+  const respondPeerConnection = useCallback(async (connectionId: string, accept: boolean) => {
+    await invoke('respond_peer_connection', { connectionId, accept });
+    setPendingPeerConnectionRequests((prev) =>
+      prev.filter((r) => r.connectionId !== connectionId),
+    );
+  }, []);
+
+  // 断开点对点连接
+  const disconnectPeer = useCallback(async (connectionId: string) => {
+    await invoke('disconnect_peer', { connectionId });
+    setActiveConnections((prev) =>
+      prev.filter((c) => c.connectionId !== connectionId),
+    );
+    // 如果断开的是当前连接，清空
+    setCurrentConnection((prev) =>
+      prev?.connectionId === connectionId ? null : prev,
+    );
+  }, []);
+
+  // 向已连接的设备发送文件
+  const sendFilesToPeer = useCallback(async (connectionId: string, filePaths: string[]) => {
+    const sessionId = await invoke<string>('send_files_to_peer', { connectionId, filePaths });
+    return sessionId;
+  }, []);
+
+  // ========== 旧版兼容函数 ==========
 
   // 发送连接请求（旧版）
   const sendConnectionRequest = useCallback(async (deviceId: string) => {
@@ -373,6 +467,42 @@ export function useLanTransfer(): UseLanTransferReturn {
             setDevices((prev) => prev.filter((d) => d.deviceId !== payload.device_id));
             break;
 
+          // 点对点连接事件
+          case 'peer_connection_request':
+            setPendingPeerConnectionRequests((prev) => {
+              const exists = prev.some((r) => r.connectionId === payload.request.connectionId);
+              if (exists) {
+                return prev;
+              }
+              return [...prev, payload.request];
+            });
+            break;
+
+          case 'peer_connection_established':
+            setActiveConnections((prev) => {
+              const exists = prev.some((c) => c.connectionId === payload.connection.connectionId);
+              if (exists) {
+                return prev.map((c) =>
+                  c.connectionId === payload.connection.connectionId ? payload.connection : c,
+                );
+              }
+              return [...prev, payload.connection];
+            });
+            // 自动设置为当前连接（可以用于打开传输窗口）
+            setCurrentConnection(payload.connection);
+            break;
+
+          case 'peer_connection_closed':
+            setActiveConnections((prev) =>
+              prev.filter((c) => c.connectionId !== payload.connection_id),
+            );
+            // 如果关闭的是当前连接，清空
+            setCurrentConnection((prev) =>
+              prev?.connectionId === payload.connection_id ? null : prev,
+            );
+            break;
+
+          // 旧版连接事件
           case 'connection_request':
             setPendingRequests((prev) => [...prev, payload.request]);
             break;
@@ -476,12 +606,16 @@ export function useLanTransfer(): UseLanTransferReturn {
 
     const fetchRequests = async () => {
       try {
-        const [connectionRequests, transferRequests] = await Promise.all([
+        const [connectionRequests, transferRequests, peerConnectionRequests, peerConnections] = await Promise.all([
           invoke<ConnectionRequest[]>('get_pending_connection_requests'),
           invoke<TransferRequest[]>('get_pending_transfer_requests'),
+          invoke<PeerConnectionRequest[]>('get_pending_peer_connection_requests'),
+          invoke<PeerConnection[]>('get_active_peer_connections'),
         ]);
         setPendingRequests(connectionRequests);
         setPendingTransferRequests(transferRequests);
+        setPendingPeerConnectionRequests(peerConnectionRequests);
+        setActiveConnections(peerConnections);
       } catch (error) {
         console.error('[LanTransfer] 获取请求失败:', error);
       }
@@ -517,6 +651,7 @@ export function useLanTransfer(): UseLanTransferReturn {
   }, [isRunning, refreshConfig]);
 
   return {
+    // 基础状态
     isRunning,
     loading,
     devices,
@@ -527,9 +662,23 @@ export function useLanTransfer(): UseLanTransferReturn {
     activeSessions,
     saveDirectory,
     config,
+
+    // 点对点连接
+    activeConnections,
+    pendingPeerConnectionRequests,
+    currentConnection,
+    setCurrentConnection,
+    requestPeerConnection,
+    respondPeerConnection,
+    disconnectPeer,
+    sendFilesToPeer,
+
+    // 服务管理
     startService,
     stopService,
     refreshDevices,
+
+    // 旧版兼容
     sendConnectionRequest,
     respondToRequest,
     sendFile,
@@ -537,6 +686,8 @@ export function useLanTransfer(): UseLanTransferReturn {
     respondToTransferRequest,
     cancelTransfer,
     cancelSession,
+
+    // 配置管理
     setSaveDirectory,
     openSaveDirectory,
     addTrustedDevice,

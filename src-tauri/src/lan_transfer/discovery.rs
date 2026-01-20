@@ -33,6 +33,7 @@ pub enum DiscoveryError {
     LocalIpError(String),
     #[error("获取 MAC 地址失败: {0}")]
     MacAddressError(String),
+    #[allow(dead_code)]
     #[error("服务已在运行")]
     AlreadyRunning,
     #[error("服务未运行")]
@@ -76,13 +77,16 @@ pub async fn start_service(user_id: String, user_nickname: String) -> Result<(),
     println!("[LanTransfer] ========== 启动服务 ==========");
     println!("[LanTransfer] 用户: {} ({})", user_nickname, user_id);
 
-    // 检查是否已在运行
-    {
+    // 检查是否已在运行，如果是则先停止
+    let was_running = {
         let is_running = state.is_running.read();
-        if *is_running {
-            println!("[LanTransfer] ❌ 服务已在运行");
-            return Err(DiscoveryError::AlreadyRunning);
-        }
+        *is_running
+    };
+
+    if was_running {
+        println!("[LanTransfer] ⚠ 服务已在运行，正在重启...");
+        let _ = stop_service().await; // 先停止服务
+        println!("[LanTransfer] ✓ 旧服务已停止");
     }
 
     // 获取本地 IP 地址
