@@ -1,6 +1,6 @@
 [package]
 name = "huanvae-chat-app"
-version = "1.0.20"
+version = "1.0.21"
 description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
