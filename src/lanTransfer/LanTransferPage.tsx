@@ -2,20 +2,29 @@
  * 局域网传输独立窗口页面
  *
  * 作为独立窗口运行，提供局域网设备发现和文件传输功能
- * 通过 localStorage 获取用户数据
  *
  * 功能：
  * - 显示发现的局域网设备列表
- * - 发送/接收连接请求
- * - 选择文件进行传输
- * - 显示传输进度
+ * - 发送/接收传输请求（需确认）
+ * - 多文件选择和传输
+ * - 显示传输进度（支持批量）
+ * - 断点续传
+ * - 设置面板（保存目录、信任设备）
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { useLanTransfer, DiscoveredDevice, ConnectionRequest, TransferTask } from '../hooks/useLanTransfer';
+import {
+  useLanTransfer,
+  DiscoveredDevice,
+  ConnectionRequest,
+  TransferTask,
+  TransferRequest,
+  BatchTransferProgress,
+  FileMetadata,
+} from '../hooks/useLanTransfer';
 import { loadLanTransferData, clearLanTransferData } from './api';
 import './styles.css';
 
@@ -35,6 +44,28 @@ interface DebugInfo {
   eventCount: number;
   lastEvent: string;
 }
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+const formatSize = (bytes: number) => {
+  if (bytes < 1024) { return `${bytes} B`; }
+  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
+  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+};
+
+const formatSpeed = (bytesPerSec: number) => {
+  return `${formatSize(bytesPerSec)}/s`;
+};
+
+const formatEta = (seconds?: number) => {
+  if (!seconds || seconds <= 0) { return ''; }
+  if (seconds < 60) { return `${seconds}秒`; }
+  if (seconds < 3600) { return `${Math.floor(seconds / 60)}分${seconds % 60}秒`; }
+  return `${Math.floor(seconds / 3600)}时${Math.floor((seconds % 3600) / 60)}分`;
+};
 
 // ============================================================================
 // 图标组件
@@ -85,6 +116,26 @@ const DebugIcon = () => (
   </svg>
 );
 
+const SettingsIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const FolderIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+const FileIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14,2 14,8 20,8" />
+  </svg>
+);
+
 const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
   <svg
     width="16"
@@ -116,9 +167,10 @@ const cardVariants = {
 interface DeviceCardProps {
   device: DiscoveredDevice;
   onSelect: () => void;
+  isTrusted?: boolean;
 }
 
-function DeviceCard({ device, onSelect }: DeviceCardProps) {
+function DeviceCard({ device, onSelect, isTrusted }: DeviceCardProps) {
   return (
     <motion.div
       className="lan-device-card"
@@ -134,7 +186,10 @@ function DeviceCard({ device, onSelect }: DeviceCardProps) {
         <ComputerIcon />
       </div>
       <div className="lan-device-info">
-        <div className="lan-device-name">{device.deviceName}</div>
+        <div className="lan-device-name">
+          {device.deviceName}
+          {isTrusted && <span className="lan-trusted-badge">已信任</span>}
+        </div>
         <div className="lan-device-user">
           {device.userNickname} (@{device.userId})
         </div>
@@ -183,6 +238,59 @@ function ConnectionRequestCard({ request, onAccept, onReject }: ConnectionReques
   );
 }
 
+interface TransferRequestCardProps {
+  request: TransferRequest;
+  onAccept: () => void;
+  onReject: () => void;
+}
+
+function TransferRequestCard({ request, onAccept, onReject }: TransferRequestCardProps) {
+  return (
+    <motion.div
+      className="lan-transfer-request-card"
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+    >
+      <div className="lan-transfer-request-header">
+        <div className="lan-transfer-request-title">文件传输请求</div>
+        <div className="lan-transfer-request-from">
+          来自: {request.fromDevice.deviceName} ({request.fromDevice.userNickname})
+        </div>
+      </div>
+      <div className="lan-transfer-request-files">
+        <div className="lan-transfer-request-files-header">
+          <span>{request.files.length} 个文件</span>
+          <span>总计 {formatSize(request.totalSize)}</span>
+        </div>
+        <div className="lan-transfer-request-files-list">
+          {request.files.slice(0, 5).map((file: FileMetadata) => (
+            <div key={file.fileId} className="lan-transfer-request-file">
+              <FileIcon />
+              <span className="lan-file-name">{file.fileName}</span>
+              <span className="lan-file-size">{formatSize(file.fileSize)}</span>
+            </div>
+          ))}
+          {request.files.length > 5 && (
+            <div className="lan-transfer-request-more">
+              +{request.files.length - 5} 更多文件...
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="lan-transfer-request-actions">
+        <button className="lan-btn lan-btn-reject" onClick={onReject}>
+          拒绝
+        </button>
+        <button className="lan-btn lan-btn-accept" onClick={onAccept}>
+          接受
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 interface TransferProgressCardProps {
   task: TransferTask;
   onCancel: () => void;
@@ -192,17 +300,6 @@ function TransferProgressCard({ task, onCancel }: TransferProgressCardProps) {
   const progress = task.file.fileSize > 0
     ? (task.transferredBytes / task.file.fileSize) * 100
     : 0;
-
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) { return `${bytes} B`; }
-    if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
-    if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  };
-
-  const formatSpeed = (bytesPerSec: number) => {
-    return `${formatSize(bytesPerSec)}/s`;
-  };
 
   return (
     <motion.div
@@ -227,6 +324,7 @@ function TransferProgressCard({ task, onCancel }: TransferProgressCardProps) {
           <span>{formatSize(task.transferredBytes)} / {formatSize(task.file.fileSize)}</span>
           <span>{formatSpeed(task.speed)}</span>
           <span>{progress.toFixed(1)}%</span>
+          {task.etaSeconds && <span>剩余 {formatEta(task.etaSeconds)}</span>}
         </div>
       </div>
       {task.status === 'transferring' && (
@@ -238,6 +336,136 @@ function TransferProgressCard({ task, onCancel }: TransferProgressCardProps) {
   );
 }
 
+interface BatchProgressCardProps {
+  progress: BatchTransferProgress;
+  onCancel: () => void;
+}
+
+function BatchProgressCard({ progress, onCancel }: BatchProgressCardProps) {
+  const percentage = progress.totalBytes > 0
+    ? (progress.transferredBytes / progress.totalBytes) * 100
+    : 0;
+
+  return (
+    <motion.div
+      className="lan-batch-progress-card"
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+    >
+      <div className="lan-batch-progress-header">
+        <div className="lan-batch-progress-title">批量传输</div>
+        <div className="lan-batch-progress-count">
+          {progress.completedFiles} / {progress.totalFiles} 文件
+        </div>
+      </div>
+      {progress.currentFile && (
+        <div className="lan-batch-current-file">
+          当前: {progress.currentFile.fileName}
+        </div>
+      )}
+      <div className="lan-transfer-progress-bar">
+        <div
+          className="lan-transfer-progress-fill"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div className="lan-transfer-stats">
+        <span>{formatSize(progress.transferredBytes)} / {formatSize(progress.totalBytes)}</span>
+        <span>{formatSpeed(progress.speed)}</span>
+        <span>{percentage.toFixed(1)}%</span>
+        {progress.etaSeconds && <span>剩余 {formatEta(progress.etaSeconds)}</span>}
+      </div>
+      <button className="lan-batch-cancel" onClick={onCancel}>
+        取消全部
+      </button>
+    </motion.div>
+  );
+}
+
+interface SettingsPanelProps {
+  saveDirectory: string;
+  onSetSaveDirectory: (path: string) => Promise<void>;
+  onOpenSaveDirectory: () => Promise<void>;
+  config: { autoAcceptTrusted: boolean; groupByDate: boolean } | null;
+  onSetAutoAccept: (enabled: boolean) => Promise<void>;
+  trustedDevices: Array<{ deviceId: string; deviceName: string }>;
+  onRemoveTrusted: (deviceId: string) => Promise<void>;
+}
+
+function SettingsPanel({
+  saveDirectory,
+  onSetSaveDirectory,
+  onOpenSaveDirectory,
+  config,
+  onSetAutoAccept,
+  trustedDevices,
+  onRemoveTrusted,
+}: SettingsPanelProps) {
+  const handleSelectDirectory = async () => {
+    const result = await open({
+      directory: true,
+      title: '选择保存目录',
+    });
+    if (result) {
+      await onSetSaveDirectory(result);
+    }
+  };
+
+  return (
+    <div className="lan-settings-panel">
+      <div className="lan-settings-group">
+        <h3>保存目录</h3>
+        <div className="lan-settings-directory">
+          <span className="lan-settings-path" title={saveDirectory}>
+            {saveDirectory || '未设置'}
+          </span>
+          <button className="lan-btn lan-btn-small" onClick={handleSelectDirectory}>
+            选择
+          </button>
+          <button className="lan-btn lan-btn-small" onClick={onOpenSaveDirectory}>
+            <FolderIcon />
+          </button>
+        </div>
+      </div>
+
+      <div className="lan-settings-group">
+        <h3>传输设置</h3>
+        <label className="lan-settings-checkbox">
+          <input
+            type="checkbox"
+            checked={config?.autoAcceptTrusted ?? false}
+            onChange={(e) => onSetAutoAccept(e.target.checked)}
+          />
+          <span>自动接受来自信任设备的传输</span>
+        </label>
+      </div>
+
+      <div className="lan-settings-group">
+        <h3>信任设备 ({trustedDevices.length})</h3>
+        {trustedDevices.length === 0 ? (
+          <div className="lan-settings-empty">暂无信任设备</div>
+        ) : (
+          <div className="lan-trusted-devices-list">
+            {trustedDevices.map((device) => (
+              <div key={device.deviceId} className="lan-trusted-device-item">
+                <span>{device.deviceName}</span>
+                <button
+                  className="lan-btn lan-btn-small lan-btn-danger"
+                  onClick={() => onRemoveTrusted(device.deviceId)}
+                >
+                  移除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================================
 // 主页面组件
 // ============================================================================
@@ -246,6 +474,7 @@ export default function LanTransferPage() {
   const [userData, setUserData] = useState<{ userId: string; userNickname: string } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
@@ -254,13 +483,23 @@ export default function LanTransferPage() {
     loading,
     devices,
     pendingRequests,
+    pendingTransferRequests,
     activeTransfers,
+    batchProgress,
+    saveDirectory,
+    config,
     startService,
     stopService,
     refreshDevices,
     respondToRequest,
-    sendFile,
+    sendTransferRequest,
+    respondToTransferRequest,
     cancelTransfer,
+    cancelSession,
+    setSaveDirectory,
+    openSaveDirectory,
+    removeTrustedDevice,
+    setAutoAcceptTrusted,
   } = useLanTransfer();
 
   // 服务启动状态跟踪
@@ -277,7 +516,6 @@ export default function LanTransferPage() {
     try {
       addDebugLog('正在获取调试信息...');
 
-      // 获取本机网络信息
       const networkInfo = await invoke<{
         local_ip: string;
         interfaces: Array<[string, string]>;
@@ -303,14 +541,14 @@ export default function LanTransferPage() {
         addDebugLog(`✓ 设备 ID: ${networkInfo.device_id}`);
         addDebugLog(`✓ 网络接口数: ${networkInfo.interfaces.length}`);
       } else {
-        addDebugLog('⚠ 无法获取调试信息（命令不存在）');
+        addDebugLog('⚠ 无法获取调试信息');
       }
     } catch (error) {
       addDebugLog(`❌ 获取调试信息失败: ${error}`);
     }
   }, [addDebugLog]);
 
-  // 初始化：读取用户数据并启动服务
+  // 初始化
   useEffect(() => {
     const data = loadLanTransferData();
     if (!data) {
@@ -327,7 +565,6 @@ export default function LanTransferPage() {
       serviceStartedRef.current = true;
       addDebugLog(`启动服务: 用户=${userData.userNickname} (${userData.userId})`);
       startService(userData.userId, userData.userNickname);
-      // 延迟获取调试信息
       setTimeout(() => {
         fetchDebugInfo();
       }, 1000);
@@ -365,19 +602,21 @@ export default function LanTransferPage() {
     }
   }, [isRunning, isRefreshing, refreshDevices]);
 
-  // 处理文件发送
-  const handleSendFile = async (device: DiscoveredDevice) => {
+  // 处理文件发送（多选）
+  const handleSendFiles = async (device: DiscoveredDevice) => {
     try {
       const result = await open({
-        multiple: false,
+        multiple: true,
         title: '选择要发送的文件',
       });
 
-      if (result) {
-        await sendFile(device.deviceId, result);
+      if (result && result.length > 0) {
+        addDebugLog(`发送 ${result.length} 个文件到 ${device.deviceName}`);
+        await sendTransferRequest(device.deviceId, result);
       }
     } catch (error) {
       console.error('[LanTransfer] 选择文件失败:', error);
+      addDebugLog(`❌ 选择文件失败: ${error}`);
     }
   };
 
@@ -385,12 +624,21 @@ export default function LanTransferPage() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleClose();
+        if (showSettings) {
+          setShowSettings(false);
+        } else {
+          handleClose();
+        }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose]);
+  }, [handleClose, showSettings]);
+
+  // 检查设备是否受信任
+  const isDeviceTrusted = (deviceId: string) => {
+    return config?.trustedDevices?.some((d) => d.deviceId === deviceId) ?? false;
+  };
 
   if (!userData) {
     return (
@@ -406,12 +654,19 @@ export default function LanTransferPage() {
       {/* 顶部工具栏 */}
       <header className="lan-header">
         <div className="lan-header-info">
-          <h1 className="lan-title">🔄 局域网互传</h1>
+          <h1 className="lan-title">局域网互传</h1>
           <span className="lan-device-count">
             {loading ? '扫描中...' : `${devices.length} 台设备`}
           </span>
         </div>
         <div className="lan-header-actions">
+          <button
+            className={`lan-action-btn settings ${showSettings ? 'active' : ''}`}
+            onClick={() => setShowSettings(!showSettings)}
+            title="设置"
+          >
+            <SettingsIcon />
+          </button>
           <button
             className={`lan-action-btn debug ${showDebug ? 'active' : ''}`}
             onClick={() => setShowDebug(!showDebug)}
@@ -440,7 +695,54 @@ export default function LanTransferPage() {
 
       {/* 内容区域 */}
       <main className="lan-main">
-        {/* 连接请求 */}
+        {/* 设置面板 */}
+        <AnimatePresence>
+          {showSettings && (
+            <motion.section
+              className="lan-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <h2 className="lan-section-title">设置</h2>
+              <SettingsPanel
+                saveDirectory={saveDirectory}
+                onSetSaveDirectory={setSaveDirectory}
+                onOpenSaveDirectory={openSaveDirectory}
+                config={config}
+                onSetAutoAccept={setAutoAcceptTrusted}
+                trustedDevices={config?.trustedDevices ?? []}
+                onRemoveTrusted={removeTrustedDevice}
+              />
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* 传输请求（新版） */}
+        <AnimatePresence>
+          {pendingTransferRequests.length > 0 && (
+            <motion.section
+              className="lan-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <h2 className="lan-section-title">待处理的传输请求</h2>
+              <div className="lan-cards-list">
+                {pendingTransferRequests.map((request) => (
+                  <TransferRequestCard
+                    key={request.requestId}
+                    request={request}
+                    onAccept={() => respondToTransferRequest(request.requestId, true)}
+                    onReject={() => respondToTransferRequest(request.requestId, false)}
+                  />
+                ))}
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* 连接请求（旧版兼容） */}
         <AnimatePresence>
           {pendingRequests.length > 0 && (
             <motion.section
@@ -464,9 +766,27 @@ export default function LanTransferPage() {
           )}
         </AnimatePresence>
 
-        {/* 传输进度 */}
+        {/* 批量传输进度 */}
         <AnimatePresence>
-          {activeTransfers.length > 0 && (
+          {batchProgress && (
+            <motion.section
+              className="lan-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <h2 className="lan-section-title">批量传输</h2>
+              <BatchProgressCard
+                progress={batchProgress}
+                onCancel={() => cancelSession(batchProgress.sessionId)}
+              />
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* 单文件传输进度 */}
+        <AnimatePresence>
+          {activeTransfers.length > 0 && !batchProgress && (
             <motion.section
               className="lan-section"
               initial={{ opacity: 0, height: 0 }}
@@ -504,7 +824,7 @@ export default function LanTransferPage() {
           {/* 空状态 */}
           {devices.length === 0 && !loading && (
             <div className="lan-empty-state">
-              <div className="lan-empty-icon">🔍</div>
+              <div className="lan-empty-icon">&#128269;</div>
               <div className="lan-empty-text">未发现局域网设备</div>
               <div className="lan-empty-hint">
                 请确保其他设备已启动并运行此应用
@@ -519,7 +839,8 @@ export default function LanTransferPage() {
                 <DeviceCard
                   key={device.deviceId}
                   device={device}
-                  onSelect={() => handleSendFile(device)}
+                  onSelect={() => handleSendFiles(device)}
+                  isTrusted={isDeviceTrusted(device.deviceId)}
                 />
               ))}
             </AnimatePresence>
@@ -536,14 +857,14 @@ export default function LanTransferPage() {
               exit={{ opacity: 0, height: 0 }}
             >
               <div className="lan-debug-header" onClick={() => setShowDebug(!showDebug)}>
-                <h2 className="lan-section-title">🔧 调试信息</h2>
+                <h2 className="lan-section-title">调试信息</h2>
                 <ChevronIcon expanded={showDebug} />
               </div>
 
               <div className="lan-debug-content">
                 {/* 本机信息 */}
                 <div className="lan-debug-block">
-                  <h3>📱 本机信息</h3>
+                  <h3>本机信息</h3>
                   {debugInfo ? (
                     <div className="lan-debug-grid">
                       <div className="lan-debug-item">
@@ -578,7 +899,7 @@ export default function LanTransferPage() {
 
                 {/* 网络接口 */}
                 <div className="lan-debug-block">
-                  <h3>🌐 网络接口</h3>
+                  <h3>网络接口</h3>
                   {debugInfo?.allInterfaces ? (
                     <div className="lan-debug-interfaces">
                       {debugInfo.allInterfaces.map((iface, idx) => (
@@ -601,12 +922,12 @@ export default function LanTransferPage() {
 
                 {/* 服务状态 */}
                 <div className="lan-debug-block">
-                  <h3>📡 服务状态</h3>
+                  <h3>服务状态</h3>
                   <div className="lan-debug-grid">
                     <div className="lan-debug-item">
                       <span className="lan-debug-label">mDNS 服务:</span>
                       <span className={`lan-debug-value ${isRunning ? 'success' : 'error'}`}>
-                        {isRunning ? '✅ 运行中' : '❌ 未启动'}
+                        {isRunning ? '运行中' : '未启动'}
                       </span>
                     </div>
                     <div className="lan-debug-item">
@@ -614,8 +935,8 @@ export default function LanTransferPage() {
                       <span className="lan-debug-value">{devices.length}</span>
                     </div>
                     <div className="lan-debug-item">
-                      <span className="lan-debug-label">待处理请求:</span>
-                      <span className="lan-debug-value">{pendingRequests.length}</span>
+                      <span className="lan-debug-label">待处理传输请求:</span>
+                      <span className="lan-debug-value">{pendingTransferRequests.length}</span>
                     </div>
                     <div className="lan-debug-item">
                       <span className="lan-debug-label">活跃传输:</span>
@@ -626,7 +947,7 @@ export default function LanTransferPage() {
 
                 {/* 调试日志 */}
                 <div className="lan-debug-block">
-                  <h3>📋 调试日志</h3>
+                  <h3>调试日志</h3>
                   <div className="lan-debug-logs">
                     {debugLogs.length > 0 ? (
                       debugLogs.map((log, idx) => (
@@ -643,7 +964,7 @@ export default function LanTransferPage() {
                 {/* 操作按钮 */}
                 <div className="lan-debug-actions">
                   <button className="lan-debug-btn" onClick={fetchDebugInfo}>
-                    🔄 刷新信息
+                    刷新信息
                   </button>
                   <button
                     className="lan-debug-btn"
@@ -652,13 +973,13 @@ export default function LanTransferPage() {
                       refreshDevices();
                     }}
                   >
-                    📡 刷新设备
+                    刷新设备
                   </button>
                   <button
                     className="lan-debug-btn danger"
                     onClick={() => setDebugLogs([])}
                   >
-                    🗑️ 清除日志
+                    清除日志
                   </button>
                 </div>
               </div>
