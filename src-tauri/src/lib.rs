@@ -478,7 +478,14 @@ pub fn run() {
             lan_transfer::get_active_transfers,
             lan_transfer::cancel_transfer,
             lan_transfer::get_lan_debug_info,
-            // 局域网传输（新版：多文件、确认、断点续传）
+            // 局域网传输（点对点连接）
+            lan_transfer::request_peer_connection,
+            lan_transfer::respond_peer_connection,
+            lan_transfer::disconnect_peer,
+            lan_transfer::get_active_peer_connections,
+            lan_transfer::get_pending_peer_connection_requests,
+            lan_transfer::send_files_to_peer,
+            // 局域网传输（旧版兼容：多文件、确认、断点续传）
             lan_transfer::send_transfer_request,
             lan_transfer::respond_to_transfer_request,
             lan_transfer::get_pending_transfer_requests,

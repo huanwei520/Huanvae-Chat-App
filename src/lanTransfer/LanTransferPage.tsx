@@ -24,6 +24,8 @@ import {
   TransferRequest,
   BatchTransferProgress,
   FileMetadata,
+  PeerConnection,
+  PeerConnectionRequest,
 } from '../hooks/useLanTransfer';
 import { loadLanTransferData, clearLanTransferData } from './api';
 import './styles.css';
@@ -77,23 +79,10 @@ const CloseIcon = () => (
   </svg>
 );
 
-const RefreshIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M1 4v6h6M23 20v-6h-6" />
-    <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
-  </svg>
-);
-
 const ComputerIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <rect x="2" y="3" width="20" height="14" rx="2" />
     <path d="M8 21h8M12 17v4" />
-  </svg>
-);
-
-const SendIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
   </svg>
 );
 
@@ -150,6 +139,27 @@ const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
   </svg>
 );
 
+const LinkIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);
+
+const DisconnectIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+);
+
+const UploadIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+);
+
 // ============================================================================
 // 动画配置
 // ============================================================================
@@ -166,21 +176,21 @@ const cardVariants = {
 
 interface DeviceCardProps {
   device: DiscoveredDevice;
-  onSelect: () => void;
+  onRequestConnection: () => void;
   isTrusted?: boolean;
+  isConnected?: boolean;
 }
 
-function DeviceCard({ device, onSelect, isTrusted }: DeviceCardProps) {
+function DeviceCard({ device, onRequestConnection, isTrusted, isConnected }: DeviceCardProps) {
   return (
     <motion.div
-      className="lan-device-card"
+      className={`lan-device-card ${isConnected ? 'connected' : ''}`}
       variants={cardVariants}
       initial="initial"
       animate="animate"
       exit="exit"
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      onClick={onSelect}
     >
       <div className="lan-device-icon">
         <ComputerIcon />
@@ -189,15 +199,22 @@ function DeviceCard({ device, onSelect, isTrusted }: DeviceCardProps) {
         <div className="lan-device-name">
           {device.deviceName}
           {isTrusted && <span className="lan-trusted-badge">已信任</span>}
+          {isConnected && <span className="lan-connected-badge">已连接</span>}
         </div>
         <div className="lan-device-user">
           {device.userNickname} (@{device.userId})
         </div>
         <div className="lan-device-ip">{device.ipAddress}</div>
       </div>
-      <button className="lan-device-send-btn" onClick={(e) => { e.stopPropagation(); onSelect(); }}>
-        <SendIcon />
-      </button>
+      {!isConnected && (
+        <button
+          className="lan-device-connect-btn"
+          onClick={(e) => { e.stopPropagation(); onRequestConnection(); }}
+          title="请求连接"
+        >
+          <LinkIcon />
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -232,6 +249,179 @@ function ConnectionRequestCard({ request, onAccept, onReject }: ConnectionReques
         </button>
         <button className="lan-request-reject" onClick={onReject}>
           <XIcon />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+interface PeerConnectionRequestCardProps {
+  request: PeerConnectionRequest;
+  onAccept: () => void;
+  onReject: () => void;
+}
+
+function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnectionRequestCardProps) {
+  return (
+    <motion.div
+      className="lan-request-card lan-peer-connection-request"
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+    >
+      <div className="lan-request-info">
+        <div className="lan-request-title">
+          <LinkIcon />
+          <span>连接请求</span>
+        </div>
+        <div className="lan-request-from">
+          来自: {request.fromDevice.deviceName}
+        </div>
+        <div className="lan-request-user">
+          用户: {request.fromDevice.userNickname}
+        </div>
+        <div className="lan-request-desc">
+          对方请求建立文件传输连接
+        </div>
+      </div>
+      <div className="lan-request-actions">
+        <button className="lan-request-accept" onClick={onAccept} title="接受连接">
+          <CheckIcon />
+        </button>
+        <button className="lan-request-reject" onClick={onReject} title="拒绝连接">
+          <XIcon />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+interface PeerConnectionCardProps {
+  connection: PeerConnection;
+  onOpen: () => void;
+  onDisconnect: () => void;
+}
+
+function PeerConnectionCard({ connection, onOpen, onDisconnect }: PeerConnectionCardProps) {
+  return (
+    <motion.div
+      className="lan-connection-card"
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      whileHover={{ scale: 1.02 }}
+    >
+      <div className="lan-connection-icon">
+        <LinkIcon />
+      </div>
+      <div className="lan-connection-info" onClick={onOpen}>
+        <div className="lan-connection-name">
+          {connection.peerDevice.deviceName}
+        </div>
+        <div className="lan-connection-user">
+          {connection.peerDevice.userNickname}
+        </div>
+        <div className="lan-connection-status">
+          {connection.isInitiator ? '由你发起' : '由对方发起'}
+        </div>
+      </div>
+      <div className="lan-connection-actions">
+        <button className="lan-connection-open" onClick={onOpen} title="打开传输窗口">
+          <FolderIcon />
+        </button>
+        <button className="lan-connection-disconnect" onClick={onDisconnect} title="断开连接">
+          <DisconnectIcon />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+interface PeerTransferWindowProps {
+  connection: PeerConnection;
+  batchProgress: BatchTransferProgress | null;
+  onSendFiles: () => void;
+  onDisconnect: () => void;
+  onClose: () => void;
+}
+
+function PeerTransferWindow({
+  connection,
+  batchProgress,
+  onSendFiles,
+  onDisconnect,
+  onClose,
+}: PeerTransferWindowProps) {
+  return (
+    <motion.div
+      className="lan-peer-transfer-window"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+    >
+      <div className="lan-peer-transfer-header">
+        <div className="lan-peer-transfer-title">
+          <LinkIcon />
+          <span>与 {connection.peerDevice.deviceName} 的文件传输</span>
+        </div>
+        <button className="lan-peer-transfer-close" onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </div>
+
+      <div className="lan-peer-transfer-content">
+        {/* 发送文件区域 */}
+        <div className="lan-peer-transfer-send">
+          <div
+            className="lan-peer-transfer-dropzone"
+            onClick={onSendFiles}
+          >
+            <UploadIcon />
+            <span>点击选择文件或拖拽文件到此处</span>
+            <span className="lan-peer-transfer-hint">支持多文件选择</span>
+          </div>
+        </div>
+
+        {/* 传输进度 */}
+        {batchProgress && (
+          <div className="lan-peer-transfer-progress">
+            <div className="lan-peer-transfer-progress-header">
+              <span>传输进度</span>
+              <span>{batchProgress.completedFiles}/{batchProgress.totalFiles} 个文件</span>
+            </div>
+            <div className="lan-peer-transfer-progress-bar">
+              <div
+                className="lan-peer-transfer-progress-fill"
+                style={{
+                  width: `${(batchProgress.transferredBytes / batchProgress.totalBytes) * 100}%`,
+                }}
+              />
+            </div>
+            <div className="lan-peer-transfer-progress-info">
+              <span>
+                {formatSize(batchProgress.transferredBytes)} / {formatSize(batchProgress.totalBytes)}
+              </span>
+              <span>{formatSpeed(batchProgress.speed)}</span>
+              {batchProgress.etaSeconds && (
+                <span>剩余 {formatEta(batchProgress.etaSeconds)}</span>
+              )}
+            </div>
+            {batchProgress.currentFile && (
+              <div className="lan-peer-transfer-current-file">
+                <FileIcon />
+                <span>{batchProgress.currentFile.fileName}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="lan-peer-transfer-footer">
+        <button className="lan-btn lan-btn-danger" onClick={() => { onDisconnect(); onClose(); }}>
+          <DisconnectIcon />
+          <span>断开连接</span>
         </button>
       </div>
     </motion.div>
@@ -472,7 +662,7 @@ function SettingsPanel({
 
 export default function LanTransferPage() {
   const [userData, setUserData] = useState<{ userId: string; userNickname: string } | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isScanning, setIsScanning] = useState(true); // 初始扫描状态
   const [showDebug, setShowDebug] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
@@ -488,14 +678,24 @@ export default function LanTransferPage() {
     batchProgress,
     saveDirectory,
     config,
+    // 点对点连接
+    activeConnections,
+    pendingPeerConnectionRequests,
+    currentConnection,
+    setCurrentConnection,
+    requestPeerConnection,
+    respondPeerConnection,
+    disconnectPeer,
+    sendFilesToPeer,
+    // 服务管理
     startService,
     stopService,
-    refreshDevices,
+    // 旧版兼容
     respondToRequest,
-    sendTransferRequest,
     respondToTransferRequest,
     cancelTransfer,
     cancelSession,
+    // 配置
     setSaveDirectory,
     openSaveDirectory,
     removeTrustedDevice,
@@ -564,12 +764,35 @@ export default function LanTransferPage() {
     if (userData && !serviceStartedRef.current) {
       serviceStartedRef.current = true;
       addDebugLog(`启动服务: 用户=${userData.userNickname} (${userData.userId})`);
+      setIsScanning(true);
       startService(userData.userId, userData.userNickname);
       setTimeout(() => {
         fetchDebugInfo();
       }, 1000);
     }
   }, [userData, startService, addDebugLog, fetchDebugInfo]);
+
+  // 扫描状态管理：发现设备后结束扫描状态，或超时后结束
+  useEffect(() => {
+    if (!isRunning) {
+      return;
+    }
+
+    // 发现设备后立即结束扫描状态
+    if (devices.length > 0 && isScanning) {
+      setIsScanning(false);
+      return;
+    }
+
+    // 超时后结束扫描状态（5秒后）
+    const timeoutId = setTimeout(() => {
+      if (isScanning) {
+        setIsScanning(false);
+      }
+    }, 5000);
+
+    return () => clearTimeout(timeoutId);
+  }, [isRunning, devices.length, isScanning]);
 
   // 关闭窗口时停止服务
   useEffect(() => {
@@ -581,29 +804,29 @@ export default function LanTransferPage() {
   }, [isRunning, stopService]);
 
   // 关闭窗口
-  const handleClose = useCallback(() => {
+  const handleClose = useCallback(async () => {
     if (isRunning) {
-      stopService();
+      await stopService();
     }
     clearLanTransferData();
     window.close();
   }, [isRunning, stopService]);
 
-  // 处理刷新设备
-  const handleRefresh = useCallback(async () => {
-    if (!isRunning || isRefreshing) {
-      return;
-    }
-    setIsRefreshing(true);
+  // 请求建立点对点连接
+  const handleRequestConnection = async (device: DiscoveredDevice) => {
     try {
-      await refreshDevices();
-    } finally {
-      setIsRefreshing(false);
+      addDebugLog(`请求连接到 ${device.deviceName}`);
+      await requestPeerConnection(device.deviceId);
+    } catch (error) {
+      console.error('[LanTransfer] 请求连接失败:', error);
+      addDebugLog(`❌ 请求连接失败: ${error}`);
     }
-  }, [isRunning, isRefreshing, refreshDevices]);
+  };
 
-  // 处理文件发送（多选）
-  const handleSendFiles = async (device: DiscoveredDevice) => {
+  // 处理文件发送（在已建立的连接中）
+  const handleSendFilesToPeer = async () => {
+    if (!currentConnection) { return; }
+
     try {
       const result = await open({
         multiple: true,
@@ -611,13 +834,18 @@ export default function LanTransferPage() {
       });
 
       if (result && result.length > 0) {
-        addDebugLog(`发送 ${result.length} 个文件到 ${device.deviceName}`);
-        await sendTransferRequest(device.deviceId, result);
+        addDebugLog(`发送 ${result.length} 个文件到 ${currentConnection.peerDevice.deviceName}`);
+        await sendFilesToPeer(currentConnection.connectionId, result);
       }
     } catch (error) {
       console.error('[LanTransfer] 选择文件失败:', error);
       addDebugLog(`❌ 选择文件失败: ${error}`);
     }
+  };
+
+  // 检查设备是否已连接
+  const isDeviceConnected = (deviceId: string) => {
+    return activeConnections.some((c) => c.peerDevice.deviceId === deviceId);
   };
 
   // 键盘事件
@@ -655,8 +883,12 @@ export default function LanTransferPage() {
       <header className="lan-header">
         <div className="lan-header-info">
           <h1 className="lan-title">局域网互传</h1>
-          <span className="lan-device-count">
-            {loading ? '扫描中...' : `${devices.length} 台设备`}
+          <span className={`lan-device-count ${isScanning ? 'scanning' : ''}`}>
+            {(() => {
+              if (loading) { return '启动中...'; }
+              if (isScanning) { return '搜索设备中...'; }
+              return `${devices.length} 台设备`;
+            })()}
           </span>
         </div>
         <div className="lan-header-actions">
@@ -673,19 +905,6 @@ export default function LanTransferPage() {
             title="调试信息"
           >
             <DebugIcon />
-          </button>
-          <button
-            className="lan-action-btn refresh"
-            onClick={handleRefresh}
-            disabled={!isRunning || isRefreshing}
-            title="刷新设备列表"
-          >
-            <motion.span
-              animate={isRefreshing ? { rotate: 360 } : {}}
-              transition={isRefreshing ? { duration: 1, repeat: Infinity, ease: 'linear' } : {}}
-            >
-              <RefreshIcon />
-            </motion.span>
           </button>
           <button className="lan-action-btn close" onClick={handleClose} title="关闭 (Esc)">
             <CloseIcon />
@@ -718,7 +937,57 @@ export default function LanTransferPage() {
           )}
         </AnimatePresence>
 
-        {/* 传输请求（新版） */}
+        {/* 点对点连接请求 */}
+        <AnimatePresence>
+          {pendingPeerConnectionRequests.length > 0 && (
+            <motion.section
+              className="lan-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <h2 className="lan-section-title">待处理的连接请求</h2>
+              <div className="lan-cards-list">
+                {pendingPeerConnectionRequests.map((request) => (
+                  <PeerConnectionRequestCard
+                    key={request.connectionId}
+                    request={request}
+                    onAccept={() => respondPeerConnection(request.connectionId, true)}
+                    onReject={() => respondPeerConnection(request.connectionId, false)}
+                  />
+                ))}
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* 已建立的连接 */}
+        <AnimatePresence>
+          {activeConnections.length > 0 && (
+            <motion.section
+              className="lan-section"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <h2 className="lan-section-title">
+                已建立的连接 ({activeConnections.length})
+              </h2>
+              <div className="lan-cards-list">
+                {activeConnections.map((connection) => (
+                  <PeerConnectionCard
+                    key={connection.connectionId}
+                    connection={connection}
+                    onOpen={() => setCurrentConnection(connection)}
+                    onDisconnect={() => disconnectPeer(connection.connectionId)}
+                  />
+                ))}
+              </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* 传输请求（旧版兼容） */}
         <AnimatePresence>
           {pendingTransferRequests.length > 0 && (
             <motion.section
@@ -839,8 +1108,9 @@ export default function LanTransferPage() {
                 <DeviceCard
                   key={device.deviceId}
                   device={device}
-                  onSelect={() => handleSendFiles(device)}
+                  onRequestConnection={() => handleRequestConnection(device)}
                   isTrusted={isDeviceTrusted(device.deviceId)}
+                  isConnected={isDeviceConnected(device.deviceId)}
                 />
               ))}
             </AnimatePresence>
@@ -967,15 +1237,6 @@ export default function LanTransferPage() {
                     刷新信息
                   </button>
                   <button
-                    className="lan-debug-btn"
-                    onClick={() => {
-                      addDebugLog('手动触发设备刷新');
-                      refreshDevices();
-                    }}
-                  >
-                    刷新设备
-                  </button>
-                  <button
                     className="lan-debug-btn danger"
                     onClick={() => setDebugLogs([])}
                   >
@@ -987,6 +1248,21 @@ export default function LanTransferPage() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* 点对点传输窗口 */}
+      <AnimatePresence>
+        {currentConnection && (
+          <div className="lan-peer-transfer-overlay">
+            <PeerTransferWindow
+              connection={currentConnection}
+              batchProgress={batchProgress}
+              onSendFiles={handleSendFilesToPeer}
+              onDisconnect={() => disconnectPeer(currentConnection.connectionId)}
+              onClose={() => setCurrentConnection(null)}
+            />
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -78,6 +78,22 @@
   background: var(--bg-muted);
   padding: 4px 10px;
   border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.lan-device-count.scanning {
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.15);
+  animation: lan-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes lan-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .lan-header-actions {
@@ -1024,4 +1040,335 @@
   border-radius: 6px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* ============================================
+   点对点连接
+   ============================================ */
+
+.lan-device-card.connected {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.lan-connected-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--success);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+.lan-device-connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: none;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.lan-device-connect-btn:hover {
+  background: var(--primary-dark);
+  transform: scale(1.1);
+}
+
+/* 连接请求卡片 */
+.lan-peer-connection-request {
+  border-color: var(--primary);
+}
+
+.lan-peer-connection-request .lan-request-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+}
+
+.lan-request-desc {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 4px;
+}
+
+/* 已建立连接卡片 */
+.lan-connection-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--success);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-connection-card:hover {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.lan-connection-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--success);
+  color: white;
+  flex-shrink: 0;
+}
+
+.lan-connection-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.lan-connection-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lan-connection-user {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.lan-connection-status {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+.lan-connection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lan-connection-open,
+.lan-connection-disconnect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-connection-open {
+  background: var(--primary);
+  color: white;
+}
+
+.lan-connection-open:hover {
+  background: var(--primary-dark);
+}
+
+.lan-connection-disconnect {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
+.lan-connection-disconnect:hover {
+  background: var(--error);
+  color: white;
+}
+
+/* ============================================
+   点对点传输窗口
+   ============================================ */
+
+.lan-peer-transfer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.lan-peer-transfer-window {
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  background: var(--bg-elevated);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lan-peer-transfer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.lan-peer-transfer-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lan-peer-transfer-title svg {
+  color: var(--success);
+}
+
+.lan-peer-transfer-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-peer-transfer-close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.lan-peer-transfer-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lan-peer-transfer-send {
+  flex-shrink: 0;
+}
+
+.lan-peer-transfer-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  border: 2px dashed var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-peer-transfer-dropzone:hover {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.05);
+}
+
+.lan-peer-transfer-dropzone svg {
+  color: var(--text-muted);
+}
+
+.lan-peer-transfer-dropzone span {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.lan-peer-transfer-hint {
+  font-size: 12px !important;
+  color: var(--text-light) !important;
+}
+
+.lan-peer-transfer-progress {
+  padding: 16px;
+  background: var(--bg-subtle);
+  border-radius: 12px;
+}
+
+.lan-peer-transfer-progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.lan-peer-transfer-progress-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lan-peer-transfer-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--success));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.lan-peer-transfer-progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-light);
+  margin-top: 8px;
+}
+
+.lan-peer-transfer-current-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.lan-peer-transfer-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lan-btn-danger {
+  background: var(--error);
+  color: white;
+}
+
+.lan-btn-danger:hover {
+  background: var(--error-dark, #dc2626);
 }

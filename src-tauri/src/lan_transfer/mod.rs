@@ -34,6 +34,7 @@ use tauri::Emitter;
 
 pub use protocol::{
     ConnectionRequest, DiscoveredDevice, DeviceInfo,
+    PeerConnection, PeerConnectionRequest,
     TransferRequest, TransferSession, TransferTask,
 };
 
@@ -197,7 +198,61 @@ pub async fn cancel_transfer(transfer_id: String) -> Result<(), String> {
 }
 
 // ============================================================================
-// 新版传输命令（支持多文件、确认、断点续传）
+// 点对点连接命令（新版）
+// ============================================================================
+
+/// 请求建立点对点连接
+#[tauri::command]
+pub async fn request_peer_connection(device_id: String) -> Result<String, String> {
+    transfer::request_peer_connection(&device_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 响应点对点连接请求
+#[tauri::command]
+pub async fn respond_peer_connection(
+    connection_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    transfer::respond_peer_connection(&connection_id, accept)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 断开点对点连接
+#[tauri::command]
+pub async fn disconnect_peer(connection_id: String) -> Result<(), String> {
+    transfer::disconnect_peer(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 获取活跃的点对点连接
+#[tauri::command]
+pub fn get_active_peer_connections() -> Vec<PeerConnection> {
+    transfer::get_active_peer_connections()
+}
+
+/// 获取待处理的连接请求
+#[tauri::command]
+pub fn get_pending_peer_connection_requests() -> Vec<PeerConnectionRequest> {
+    transfer::get_pending_peer_connection_requests()
+}
+
+/// 向已连接的设备发送文件（无需再次确认）
+#[tauri::command]
+pub async fn send_files_to_peer(
+    connection_id: String,
+    file_paths: Vec<String>,
+) -> Result<String, String> {
+    transfer::send_files_to_peer(&connection_id, file_paths)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// 传输命令（旧版兼容）
 // ============================================================================
 
 /// 发送传输请求（需要对方确认）

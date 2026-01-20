@@ -4,7 +4,8 @@
  * 实现文件发送逻辑
  *
  * 功能：
- * - 发送传输请求（需确认）
+ * - 点对点连接管理（请求、响应、断开）
+ * - 向已连接设备发送文件（无需再次确认）
  * - 多文件批量传输
  * - 断点续传支持
  * - 传输进度跟踪
@@ -165,7 +166,455 @@ pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), Tr
 }
 
 // ============================================================================
-// 传输请求（新版）
+// 点对点连接管理（新版）
+// ============================================================================
+
+/// 请求建立点对点连接
+pub async fn request_peer_connection(device_id: &str) -> Result<String, TransferError> {
+    use super::server::get_active_peer_connections_map;
+
+    let state = get_lan_transfer_state();
+
+    // 获取目标设备信息
+    let target_device = {
+        let devices = state.devices.read();
+        devices
+            .get(device_id)
+            .cloned()
+            .ok_or_else(|| TransferError::DeviceNotFound(device_id.to_string()))?
+    };
+
+    // 获取本机设备信息
+    let local_device = {
+        let local = state.local_device.read();
+        local
+            .clone()
+            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+    };
+
+    // 构建请求数据
+    let from_device = DiscoveredDevice {
+        device_id: local_device.device_id.clone(),
+        device_name: local_device.device_name.clone(),
+        user_id: local_device.user_id.clone(),
+        user_nickname: local_device.user_nickname.clone(),
+        ip_address: local_device.ip_address.clone(),
+        port: local_device.port,
+        discovered_at: Utc::now().to_rfc3339(),
+        last_seen: Utc::now().to_rfc3339(),
+    };
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RequestBody {
+        from_device: DiscoveredDevice,
+    }
+
+    // 发送 HTTP 请求
+    let url = format!(
+        "http://{}:{}/api/peer-connection-request",
+        target_device.ip_address, target_device.port
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&RequestBody { from_device })
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+
+    if !response.status().is_success() {
+        return Err(TransferError::ConnectionFailed(format!(
+            "服务器返回错误: {}",
+            response.status()
+        )));
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        connection_id: String,
+    }
+
+    let resp: Response = response
+        .json()
+        .await
+        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+
+    // 保存连接（等待对方确认后才真正建立）
+    // 这里先记录为发起方等待状态
+    let connection = PeerConnection {
+        connection_id: resp.connection_id.clone(),
+        peer_device: target_device.clone(),
+        established_at: Utc::now().to_rfc3339(),
+        status: PeerConnectionStatus::Connected, // 先设置为连接状态，等待对方确认
+        is_initiator: true,
+    };
+
+    {
+        let connections = get_active_peer_connections_map();
+        let mut connections = connections.lock();
+        connections.insert(resp.connection_id.clone(), connection);
+    }
+
+    println!(
+        "[LanTransfer] 连接请求已发送到 {} ({})",
+        target_device.device_name, target_device.ip_address
+    );
+
+    Ok(resp.connection_id)
+}
+
+/// 响应点对点连接请求（接收方调用）
+pub async fn respond_peer_connection(
+    connection_id: &str,
+    accept: bool,
+) -> Result<(), TransferError> {
+    use super::server::{get_active_peer_connections_map, get_pending_peer_connection_requests_map};
+
+    // 获取待处理的连接请求
+    let request = {
+        let requests = get_pending_peer_connection_requests_map();
+        let mut requests = requests.lock();
+        requests
+            .remove(connection_id)
+            .ok_or_else(|| TransferError::RequestNotFound(connection_id.to_string()))?
+    };
+
+    let state = get_lan_transfer_state();
+
+    // 获取本机设备信息
+    let local_device = {
+        let local = state.local_device.read();
+        local
+            .clone()
+            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+    };
+
+    // 构建响应数据
+    let from_device = if accept {
+        Some(DiscoveredDevice {
+            device_id: local_device.device_id.clone(),
+            device_name: local_device.device_name.clone(),
+            user_id: local_device.user_id.clone(),
+            user_nickname: local_device.user_nickname.clone(),
+            ip_address: local_device.ip_address.clone(),
+            port: local_device.port,
+            discovered_at: Utc::now().to_rfc3339(),
+            last_seen: Utc::now().to_rfc3339(),
+        })
+    } else {
+        None
+    };
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ResponseBody {
+        connection_id: String,
+        accepted: bool,
+        from_device: Option<DiscoveredDevice>,
+    }
+
+    // 发送响应到发起方
+    let url = format!(
+        "http://{}:{}/api/peer-connection-response",
+        request.from_device.ip_address, request.from_device.port
+    );
+
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(&url)
+        .json(&ResponseBody {
+            connection_id: connection_id.to_string(),
+            accepted: accept,
+            from_device: from_device.clone(),
+        })
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+
+    if accept {
+        // 接收方也创建连接
+        let connection = PeerConnection {
+            connection_id: connection_id.to_string(),
+            peer_device: request.from_device.clone(),
+            established_at: Utc::now().to_rfc3339(),
+            status: PeerConnectionStatus::Connected,
+            is_initiator: false, // 接收方
+        };
+
+        {
+            let connections = get_active_peer_connections_map();
+            let mut connections = connections.lock();
+            connections.insert(connection_id.to_string(), connection.clone());
+        }
+
+        // 发送事件通知前端
+        let event = LanTransferEvent::PeerConnectionEstablished { connection };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+    }
+
+    println!(
+        "[LanTransfer] 连接请求 {} 已{}: {} ({})",
+        connection_id,
+        if accept { "接受" } else { "拒绝" },
+        request.from_device.device_name,
+        request.from_device.ip_address
+    );
+
+    Ok(())
+}
+
+/// 断开点对点连接
+pub async fn disconnect_peer(connection_id: &str) -> Result<(), TransferError> {
+    use super::server::get_active_peer_connections_map;
+
+    // 获取连接信息
+    let connection = {
+        let connections = get_active_peer_connections_map();
+        let mut connections = connections.lock();
+        connections.remove(connection_id)
+    };
+
+    if let Some(conn) = connection {
+        // 通知对方断开
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DisconnectBody {
+            connection_id: String,
+        }
+
+        let url = format!(
+            "http://{}:{}/api/peer-disconnect",
+            conn.peer_device.ip_address, conn.peer_device.port
+        );
+
+        let client = reqwest::Client::new();
+        let _ = client
+            .post(&url)
+            .json(&DisconnectBody {
+                connection_id: connection_id.to_string(),
+            })
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await;
+
+        // 发送事件通知前端
+        let event = LanTransferEvent::PeerConnectionClosed {
+            connection_id: connection_id.to_string(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        println!("[LanTransfer] 连接已断开: {}", connection_id);
+    }
+
+    Ok(())
+}
+
+/// 获取活跃的点对点连接
+pub fn get_active_peer_connections() -> Vec<PeerConnection> {
+    use super::server::get_active_peer_connections_map;
+
+    let connections = get_active_peer_connections_map();
+    let connections = connections.lock();
+    connections.values().cloned().collect()
+}
+
+/// 获取待处理的连接请求
+pub fn get_pending_peer_connection_requests() -> Vec<PeerConnectionRequest> {
+    use super::server::get_pending_peer_connection_requests_map;
+
+    let requests = get_pending_peer_connection_requests_map();
+    let requests = requests.lock();
+    requests.values().cloned().collect()
+}
+
+/// 向已连接的设备发送文件（无需再次确认）
+pub async fn send_files_to_peer(
+    connection_id: &str,
+    file_paths: Vec<String>,
+) -> Result<String, TransferError> {
+    use super::server::get_active_peer_connections_map;
+
+    // 获取连接信息
+    let connection = {
+        let connections = get_active_peer_connections_map();
+        let connections = connections.lock();
+        connections
+            .get(connection_id)
+            .cloned()
+            .ok_or_else(|| TransferError::ConnectionFailed("连接不存在".to_string()))?
+    };
+
+    if connection.status != PeerConnectionStatus::Connected {
+        return Err(TransferError::ConnectionFailed("连接已断开".to_string()));
+    }
+
+    // 使用现有的批量传输逻辑
+    let session_id = start_direct_batch_transfer(
+        connection_id,
+        &connection.peer_device,
+        file_paths,
+    )
+    .await?;
+
+    Ok(session_id)
+}
+
+/// 直接开始批量传输（已建立连接，无需确认）
+async fn start_direct_batch_transfer(
+    connection_id: &str,
+    target_device: &DiscoveredDevice,
+    file_paths: Vec<String>,
+) -> Result<String, TransferError> {
+    let state = get_lan_transfer_state();
+
+    // 获取本机设备信息
+    let local_device = {
+        let local = state.local_device.read();
+        local
+            .clone()
+            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+    };
+
+    // 收集文件信息
+    let mut files: Vec<FileMetadata> = Vec::new();
+    let mut total_size: u64 = 0;
+
+    for file_path in &file_paths {
+        let path = Path::new(file_path);
+        if !path.exists() {
+            return Err(TransferError::FileReadFailed(format!(
+                "文件不存在: {}",
+                file_path
+            )));
+        }
+
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let file_size = metadata.len();
+        total_size += file_size;
+
+        // 计算文件哈希
+        let sha256 = calculate_file_hash(path)?;
+
+        let mime_type = mime_guess::from_path(path)
+            .first_or_octet_stream()
+            .to_string();
+
+        files.push(FileMetadata {
+            file_id: Uuid::new_v4().to_string(),
+            file_name,
+            file_size,
+            mime_type,
+            sha256,
+        });
+    }
+
+    let session_id = Uuid::new_v4().to_string();
+
+    // 创建传输会话
+    let session = TransferSession {
+        session_id: session_id.clone(),
+        connection_id: connection_id.to_string(),
+        request_id: String::new(),
+        files: files
+            .iter()
+            .map(|f| FileTransferState {
+                file: f.clone(),
+                status: TransferStatus::Pending,
+                transferred_bytes: 0,
+                resume_info: None,
+            })
+            .collect(),
+        file_paths: file_paths.clone(),
+        status: SessionStatus::Transferring,
+        created_at: Utc::now().to_rfc3339(),
+        target_device: target_device.clone(),
+        direction: TransferDirection::Send,
+    };
+
+    // 保存会话
+    {
+        let sessions = get_active_sessions();
+        let mut sessions = sessions.write();
+        sessions.insert(session_id.clone(), session);
+    }
+
+    // 发送事件通知前端
+    let from_device = DiscoveredDevice {
+        device_id: local_device.device_id.clone(),
+        device_name: local_device.device_name.clone(),
+        user_id: local_device.user_id.clone(),
+        user_nickname: local_device.user_nickname.clone(),
+        ip_address: local_device.ip_address.clone(),
+        port: local_device.port,
+        discovered_at: Utc::now().to_rfc3339(),
+        last_seen: Utc::now().to_rfc3339(),
+    };
+
+    // 通知对方有文件要传输（使用现有的 transfer-request API，但标记为已确认）
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TransferRequestBody {
+        from_device: DiscoveredDevice,
+        files: Vec<FileMetadata>,
+        total_size: u64,
+        connection_id: String,
+        auto_accept: bool,
+    }
+
+    let url = format!(
+        "http://{}:{}/api/transfer-request",
+        target_device.ip_address, target_device.port
+    );
+
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(&url)
+        .json(&TransferRequestBody {
+            from_device,
+            files: files.clone(),
+            total_size,
+            connection_id: connection_id.to_string(),
+            auto_accept: true, // 已建立连接，自动接受
+        })
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+
+    // 启动批量传输
+    let session_id_clone = session_id.clone();
+    let file_paths_clone = file_paths.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_batch_transfer(&session_id_clone, file_paths_clone).await {
+            eprintln!("[LanTransfer] 批量传输失败: {}", e);
+        }
+    });
+
+    println!(
+        "[LanTransfer] 开始向 {} 传输 {} 个文件",
+        target_device.device_name,
+        files.len()
+    );
+
+    Ok(session_id)
+}
+
+// ============================================================================
+// 传输请求（旧版兼容）
 // ============================================================================
 
 /// 发送传输请求（需要对方确认）
@@ -299,9 +748,10 @@ pub async fn send_transfer_request(
     let request_id = resp.request_id.clone();
     let session_id = Uuid::new_v4().to_string();
 
-    // 创建传输会话
+    // 创建传输会话（保存文件路径，用于接收确认后启动传输）
     let session = TransferSession {
         session_id: session_id.clone(),
+        connection_id: String::new(), // 旧版模式，无连接 ID
         request_id: request_id.clone(),
         files: files
             .iter()
@@ -312,6 +762,7 @@ pub async fn send_transfer_request(
                 resume_info: None,
             })
             .collect(),
+        file_paths: file_paths.clone(),
         status: SessionStatus::Pending,
         created_at: Utc::now().to_rfc3339(),
         target_device: target_device.clone(),
