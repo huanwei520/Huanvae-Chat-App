@@ -63,7 +63,9 @@
     ],
     "macOS": {
       "signingIdentity": null,
-      "minimumSystemVersion": "10.13"
+      "minimumSystemVersion": "10.13",
+      "infoPlist": "./Info.plist",
+      "entitlements": "./Entitlements.plist"
     },
     "windows": {
       "nsis": {
@@ -73,7 +75,8 @@
         ],
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerHooks": "./nsis/installer-hooks.nsh"
       },
       "wix": {
         "language": "zh-CN"
@@ -89,7 +92,12 @@
           "libgtk-3-0",
           "libayatana-appindicator3-1"
         ],
-        "section": "net"
+        "recommends": [
+          "avahi-daemon"
+        ],
+        "section": "net",
+        "postInstallScript": "./scripts/linux/postinst.sh",
+        "postRemoveScript": "./scripts/linux/postrm.sh"
       }
     }
   },

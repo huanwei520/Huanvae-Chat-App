@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 本地网络访问说明 (macOS 15+ 必需) -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Huanvae Chat 使用本地网络发现附近设备并传输文件。此功能用于局域网文件互传。</string>
+    
+    <!-- Bonjour 服务类型声明 -->
+    <key>NSBonjourServices</key>
+    <array>
+        <!-- 局域网传输服务 (mDNS 服务类型) -->
+        <string>_hvae-xfer._tcp</string>
+    </array>
+    
+    <!-- 应用类别 -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.social-networking</string>
+    
+    <!-- 高分辨率支持 -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <!-- 支持安全编码 -->
+    <key>NSSupportsAutomaticTermination</key>
+    <true/>
+    
+    <key>NSSupportsSuddenTermination</key>
+    <true/>
+</dict>
+</plist>
