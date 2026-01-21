@@ -118,6 +118,9 @@ pub fn get_pending_peer_connection_requests_map(
 
 /// 上传会话（支持断点续传）
 struct UploadSession {
+    /// 会话 ID（保留用于日志和调试）
+    #[allow(dead_code)]
+    session_id: String,
     /// 文件元信息
     files: HashMap<String, FileMetadata>,
     /// 文件写入器
@@ -126,6 +129,8 @@ struct UploadSession {
     hashers: HashMap<String, Sha256>,
     /// 已接收的字节数
     received_bytes: HashMap<String, u64>,
+    /// 上次进度更新时间（用于限制更新频率）
+    last_progress_time: std::time::Instant,
 }
 
 // ============================================================================
@@ -588,6 +593,12 @@ struct TransferRequestBody {
     from_device: DiscoveredDevice,
     files: Vec<FileMetadata>,
     total_size: u64,
+    /// 关联的连接 ID（已建立连接时自动接受）
+    #[serde(default)]
+    connection_id: Option<String>,
+    /// 是否自动接受（发送方指定）
+    #[serde(default)]
+    auto_accept: bool,
 }
 
 /// 处理传输请求（新版，需确认后才能传输）
@@ -615,10 +626,19 @@ async fn handle_transfer_request(
         status: TransferRequestStatus::Pending,
     };
 
-    // 检查是否自动接受（信任设备）
-    let auto_accept = config::is_device_trusted(&request.from_device.device_id);
+    // 检查是否应该自动接受
+    // 1. 请求中包含 auto_accept 标志（发送方指定）
+    // 2. 有有效的 connection_id（已建立连接）
+    // 3. 是信任设备
+    let should_auto_accept = req_body.auto_accept
+        || req_body.connection_id.as_ref().is_some_and(|cid| {
+            let connections = get_active_peer_connections_map();
+            let connections = connections.lock();
+            connections.contains_key(cid)
+        })
+        || config::is_device_trusted(&request.from_device.device_id);
 
-    if auto_accept {
+    if should_auto_accept {
         // 自动接受
         let save_dir = config::get_save_directory();
         let response = TransferRequestResponse {
@@ -848,10 +868,12 @@ async fn handle_prepare_upload(
     received_bytes.insert(file_id.clone(), resume_offset);
 
     let session = UploadSession {
+        session_id: request.session_id.clone(),
         files,
         writers,
         hashers,
         received_bytes,
+        last_progress_time: std::time::Instant::now(),
     };
 
     // 保存会话
@@ -891,7 +913,7 @@ async fn handle_upload(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (response, file_sha256, received) = {
+    let (response, file_sha256, received, should_emit_progress, file_meta) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -919,29 +941,61 @@ async fn handle_upload(
             hasher.update(body);
         }
 
-        // 更新已接收字节数
-        let received = session.received_bytes.get_mut(&file_id).unwrap();
-        *received += body.len() as u64;
+        // 获取文件元信息
+        let file_meta = session.files.get(&file_id).cloned();
 
         // 获取文件 SHA256（用于更新断点信息）
-        let file_sha256 = session
-            .files
-            .get(&file_id)
+        let file_sha256 = file_meta
+            .as_ref()
             .map(|f| f.sha256.clone())
             .unwrap_or_default();
 
+        // 更新已接收字节数
+        let received_ref = session.received_bytes.get_mut(&file_id).unwrap();
+        *received_ref += body.len() as u64;
+        let received = *received_ref;
+
+        // 检查是否应该发送进度事件（每 100ms 一次）
+        let should_emit = session.last_progress_time.elapsed().as_millis() >= 100;
+        if should_emit {
+            session.last_progress_time = std::time::Instant::now();
+        }
+
         let response = ChunkResponse {
             success: true,
-            next_offset: *received,
+            next_offset: received,
             error: None,
         };
 
-        (response, file_sha256, *received)
+        (response, file_sha256, received, should_emit, file_meta)
     };
 
     // 更新断点续传信息（锁已释放）
     let resume_manager = get_resume_manager();
     let _ = resume_manager.update_progress(&file_id, &file_sha256, received, None);
+
+    // 发送接收进度事件（限制频率）
+    if should_emit_progress
+        && let Some(file) = file_meta
+    {
+        // 计算总文件大小
+        let total_bytes = file.file_size;
+
+        let progress = BatchTransferProgress {
+            session_id: session_id.clone(),
+            total_files: 1, // 当前实现每次只传一个文件
+            completed_files: 0,
+            total_bytes,
+            transferred_bytes: received,
+            speed: 0, // 接收方暂不计算速度
+            current_file: Some(file),
+            eta_seconds: None,
+        };
+
+        let event = LanTransferEvent::BatchProgress { progress };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+    }
 
     send_json_response(writer, &response).await
 }
