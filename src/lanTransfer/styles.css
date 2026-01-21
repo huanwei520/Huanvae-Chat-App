@@ -1242,15 +1242,20 @@
   max-width: 500px;
   max-height: 80vh;
   
-  /* 毛玻璃半透明背景 - 使用主题变量 */
-  background: var(--gradient-glass, rgba(255, 255, 255, 0.85));
+  /* 95% 不透明度渐变背景 - 与个人资料弹窗一致 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-97, rgba(255, 255, 255, 0.97)) 0%,
+    var(--white-alpha-95, rgba(255, 255, 255, 0.95)) 50%,
+    var(--white-alpha-97, rgba(255, 255, 255, 0.97)) 100%
+  );
   
   /* 毛玻璃核心效果 */
-  backdrop-filter: var(--blur-xl, blur(20px)) var(--saturate-high, saturate(180%));
-  -webkit-backdrop-filter: var(--blur-xl, blur(20px)) var(--saturate-high, saturate(180%));
+  backdrop-filter: var(--glass-backdrop, blur(20px) saturate(180%));
+  -webkit-backdrop-filter: var(--glass-backdrop, blur(20px) saturate(180%));
   
-  /* 圆角 */
-  border-radius: var(--radius-2xl, 16px);
+  /* 圆角 - 与弹窗一致 */
+  border-radius: 28px;
   
   /* 玻璃边框 - 使用主题变量 */
   border: 1.5px solid var(--glass-border, rgba(255, 255, 255, 0.3));
@@ -1276,7 +1281,7 @@
   position: relative;
 }
 
-/* 窗口顶部高光条 - 模拟玻璃顶部的光线反射 */
+/* 窗口顶部高光条 - 模拟玻璃顶部的光线反射（柔和高光，适配高不透明度背景） */
 .lan-peer-transfer-window::before {
   content: '';
   position: absolute;
@@ -1286,16 +1291,16 @@
   height: 50%;
   background: linear-gradient(
     180deg,
-    var(--glass-white-50, rgba(255, 255, 255, 0.5)) 0%,
-    var(--glass-white-15, rgba(255, 255, 255, 0.15)) 30%,
+    var(--glass-white-20, rgba(255, 255, 255, 0.2)) 0%,
+    var(--glass-white-10, rgba(255, 255, 255, 0.1)) 30%,
     transparent 100%
   );
-  border-radius: var(--radius-2xl, 16px) var(--radius-2xl, 16px) 0 0;
+  border-radius: 28px 28px 0 0;
   pointer-events: none;
   z-index: 0;
 }
 
-/* 窗口底部反射线 */
+/* 窗口底部反射线（柔和反射，适配高不透明度背景） */
 .lan-peer-transfer-window::after {
   content: '';
   position: absolute;
@@ -1306,7 +1311,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    var(--glass-white-90, rgba(255, 255, 255, 0.9)),
+    var(--glass-white-40, rgba(255, 255, 255, 0.4)),
     transparent
   );
   border-radius: 1px;

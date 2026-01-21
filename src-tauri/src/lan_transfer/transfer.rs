@@ -11,17 +11,19 @@
  * - 传输进度跟踪
  * - 取消传输
  * - 详细传输调试日志
+ * - 块上传自动重试（最多 3 次）
  *
  * 调试日志说明：
  * - 📤 开始传输: 文件名、大小、目标地址
  * - 📡 HTTP请求: prepare-upload、upload、finish 请求和响应状态
  * - 📦 分块上传: 块大小、块数量、传输进度
  * - 📊 进度日志: 每传输 5MB 打印一次进度（百分比、速度、剩余时间）
- * - 🔄 断点续传: 恢复偏移量
+ * - 🔄 断点续传/重试: 恢复偏移量、重试次数
  * - ❌ 错误信息: 详细的错误位置和原因
  *
  * 更新日志：
  * - 2026-01-21: 添加详细传输调试日志，用于排查跨平台传输问题
+ * - 2026-01-21: 添加块上传重试机制（最多 3 次），提高传输稳定性
  */
 
 use super::discovery::get_event_sender;
@@ -1173,57 +1175,97 @@ async fn do_file_transfer_with_resume(
             base_url, session_id, file_meta.file_id
         );
 
-        let response = client
-            .post(&upload_url)
-            .body(chunk_data.to_vec())
-            .timeout(std::time::Duration::from_secs(60))
-            .send()
-            .await
-            .map_err(|e| {
-                // 详细分析错误类型
-                let error_type = if e.is_timeout() {
-                    "超时"
-                } else if e.is_connect() {
-                    "连接失败"
-                } else if e.is_request() {
-                    "请求构建失败"
-                } else if e.is_body() {
-                    "请求体错误"
-                } else if e.is_decode() {
-                    "解码错误"
-                } else {
-                    "未知错误"
-                };
+        // 重试机制：最多重试 3 次
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error: Option<TransferError> = None;
 
-                // 获取底层错误信息
-                let source_error = e
-                    .source()
-                    .map(|s| format!(" (底层: {})", s))
-                    .unwrap_or_default();
-
+        for retry in 0..=MAX_RETRIES {
+            if retry > 0 {
                 println!(
-                    "[LanTransfer] ❌ 块上传请求失败 (块 #{}, offset={}, 类型={}): {}{}",
-                    chunk_count, offset, error_type, e, source_error
+                    "[LanTransfer] 🔄 重试块上传 (块 #{}, 第 {}/{} 次重试)",
+                    chunk_count, retry, MAX_RETRIES
                 );
-                TransferError::TransferFailed(format!("块上传失败 ({}): {}", error_type, e))
-            })?;
+                // 重试前等待一小段时间
+                tokio::time::sleep(std::time::Duration::from_millis(500 * retry as u64)).await;
+            }
 
-        let response_status = response.status();
-        let chunk_resp: ChunkResponse = response.json().await.map_err(|e| {
-            println!(
-                "[LanTransfer] ❌ 块响应解析失败 (块 #{}, status={}): {}",
-                chunk_count, response_status, e
-            );
-            TransferError::TransferFailed(format!("块响应解析失败: {}", e))
-        })?;
+            let response = client
+                .post(&upload_url)
+                .body(chunk_data.to_vec())
+                .timeout(std::time::Duration::from_secs(60))
+                .send()
+                .await;
 
-        if !chunk_resp.success {
-            let error = chunk_resp.error.unwrap_or_else(|| "块传输失败".to_string());
+            match response {
+                Ok(resp) => {
+                    let response_status = resp.status();
+                    match resp.json::<ChunkResponse>().await {
+                        Ok(chunk_resp) => {
+                            if chunk_resp.success {
+                                // 成功，跳出重试循环
+                                last_error = None;
+                                break;
+                            } else {
+                                let error =
+                                    chunk_resp.error.unwrap_or_else(|| "块传输失败".to_string());
+                                println!(
+                                    "[LanTransfer] ❌ 块传输失败 (块 #{}, offset={}): {}",
+                                    chunk_count, offset, error
+                                );
+                                last_error = Some(TransferError::TransferFailed(error));
+                            }
+                        }
+                        Err(e) => {
+                            println!(
+                                "[LanTransfer] ❌ 块响应解析失败 (块 #{}, status={}): {}",
+                                chunk_count, response_status, e
+                            );
+                            last_error =
+                                Some(TransferError::TransferFailed(format!("块响应解析失败: {}", e)));
+                        }
+                    }
+                }
+                Err(e) => {
+                    // 详细分析错误类型
+                    let error_type = if e.is_timeout() {
+                        "超时"
+                    } else if e.is_connect() {
+                        "连接失败"
+                    } else if e.is_request() {
+                        "请求构建失败"
+                    } else if e.is_body() {
+                        "请求体错误"
+                    } else if e.is_decode() {
+                        "解码错误"
+                    } else {
+                        "未知错误"
+                    };
+
+                    // 获取底层错误信息
+                    let source_error = e
+                        .source()
+                        .map(|s| format!(" (底层: {})", s))
+                        .unwrap_or_default();
+
+                    println!(
+                        "[LanTransfer] ❌ 块上传请求失败 (块 #{}, offset={}, 类型={}, 重试={}/{}): {}{}",
+                        chunk_count, offset, error_type, retry, MAX_RETRIES, e, source_error
+                    );
+                    last_error = Some(TransferError::TransferFailed(format!(
+                        "块上传失败 ({}): {}",
+                        error_type, e
+                    )));
+                }
+            }
+        }
+
+        // 如果所有重试都失败了
+        if let Some(err) = last_error {
             println!(
-                "[LanTransfer] ❌ 块传输失败 (块 #{}, offset={}): {}",
-                chunk_count, offset, error
+                "[LanTransfer] ❌ 块 #{} 在 {} 次重试后仍然失败",
+                chunk_count, MAX_RETRIES
             );
-            return Err(TransferError::TransferFailed(error));
+            return Err(err);
         }
 
         offset += bytes_read as u64;
