@@ -10,6 +10,18 @@
  * - 断点续传支持
  * - 传输进度跟踪
  * - 取消传输
+ * - 详细传输调试日志
+ *
+ * 调试日志说明：
+ * - 📤 开始传输: 文件名、大小、目标地址
+ * - 📡 HTTP请求: prepare-upload、upload、finish 请求和响应状态
+ * - 📦 分块上传: 块大小、块数量、传输进度
+ * - 📊 进度日志: 每传输 5MB 打印一次进度（百分比、速度、剩余时间）
+ * - 🔄 断点续传: 恢复偏移量
+ * - ❌ 错误信息: 详细的错误位置和原因
+ *
+ * 更新日志：
+ * - 2026-01-21: 添加详细传输调试日志，用于排查跨平台传输问题
  */
 
 use super::discovery::get_event_sender;
@@ -1016,6 +1028,23 @@ pub async fn start_batch_transfer(
     Ok(())
 }
 
+/// 格式化字节大小为人类可读格式
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 /// 执行单文件传输（支持断点续传）
 #[allow(clippy::too_many_arguments)]
 async fn do_file_transfer_with_resume(
@@ -1029,9 +1058,24 @@ async fn do_file_transfer_with_resume(
     batch_total: u64,
 ) -> Result<u64, TransferError> {
     let base_url = format!("http://{}:{}", target_device.ip_address, target_device.port);
+
+    // 调试日志：传输开始
+    println!(
+        "[LanTransfer] 📤 开始传输文件 [{}/{}]: {} ({}) -> {}:{}",
+        file_index + 1,
+        total_files,
+        file_meta.file_name,
+        format_bytes(file_meta.file_size),
+        target_device.ip_address,
+        target_device.port
+    );
+
     let client = reqwest::Client::new();
 
     // 1. 发送准备上传请求
+    let prepare_url = format!("{}/api/prepare-upload", base_url);
+    println!("[LanTransfer] 📡 发送 prepare-upload 请求: {}", prepare_url);
+
     let prepare_request = PrepareUploadRequest {
         session_id: session_id.to_string(),
         file: file_meta.clone(),
@@ -1039,59 +1083,87 @@ async fn do_file_transfer_with_resume(
     };
 
     let prepare_response = client
-        .post(format!("{}/api/prepare-upload", base_url))
+        .post(&prepare_url)
         .json(&prepare_request)
         .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+        .map_err(|e| {
+            println!("[LanTransfer] ❌ prepare-upload 请求失败: {}", e);
+            TransferError::TransferFailed(format!("prepare-upload 失败: {}", e))
+        })?;
 
-    let prepare_resp: PrepareUploadResponse = prepare_response
-        .json()
-        .await
-        .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+    println!(
+        "[LanTransfer] 📡 prepare-upload 响应状态: {}",
+        prepare_response.status()
+    );
+
+    let prepare_resp: PrepareUploadResponse = prepare_response.json().await.map_err(|e| {
+        println!("[LanTransfer] ❌ prepare-upload 响应解析失败: {}", e);
+        TransferError::TransferFailed(format!("prepare-upload 响应解析失败: {}", e))
+    })?;
+
+    println!(
+        "[LanTransfer] 📡 prepare-upload 结果: accepted={}, resume_offset={}",
+        prepare_resp.accepted, prepare_resp.resume_offset
+    );
 
     if !prepare_resp.accepted {
-        return Err(TransferError::TransferFailed(
-            prepare_resp
-                .reject_reason
-                .unwrap_or_else(|| "对方拒绝接收".to_string()),
-        ));
+        let reason = prepare_resp
+            .reject_reason
+            .unwrap_or_else(|| "对方拒绝接收".to_string());
+        println!("[LanTransfer] ❌ 传输被拒绝: {}", reason);
+        return Err(TransferError::TransferFailed(reason));
     }
 
     let resume_offset = prepare_resp.resume_offset;
     if resume_offset > 0 {
         println!(
-            "[LanTransfer] 断点续传: {} 从 {} 字节继续",
-            file_meta.file_name, resume_offset
+            "[LanTransfer] 🔄 断点续传: {} 从 {} 字节继续",
+            file_meta.file_name,
+            format_bytes(resume_offset)
         );
     }
 
     // 2. 打开文件并定位到续传位置
-    let mut file =
-        std::fs::File::open(file_path).map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+    println!("[LanTransfer] 📂 打开文件: {}", file_path);
+    let mut file = std::fs::File::open(file_path).map_err(|e| {
+        println!("[LanTransfer] ❌ 文件打开失败: {}", e);
+        TransferError::FileReadFailed(e.to_string())
+    })?;
 
     if resume_offset > 0 {
-        file.seek(SeekFrom::Start(resume_offset))
-            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+        file.seek(SeekFrom::Start(resume_offset)).map_err(|e| {
+            println!("[LanTransfer] ❌ 文件定位失败: {}", e);
+            TransferError::FileReadFailed(e.to_string())
+        })?;
     }
 
     // 3. 分块上传文件
+    println!(
+        "[LanTransfer] 📦 开始分块上传，块大小: {}",
+        format_bytes(CHUNK_SIZE as u64)
+    );
     let mut buffer = vec![0u8; CHUNK_SIZE];
     let mut offset = resume_offset;
     let state = get_lan_transfer_state();
     let start_time = Instant::now();
     let mut last_progress_time = Instant::now();
+    let mut last_log_offset: u64 = 0;
+    let mut chunk_count: u64 = 0;
 
     loop {
-        let bytes_read = file
-            .read(&mut buffer)
-            .map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
+        let bytes_read = file.read(&mut buffer).map_err(|e| {
+            println!("[LanTransfer] ❌ 文件读取失败: {}", e);
+            TransferError::FileReadFailed(e.to_string())
+        })?;
 
         if bytes_read == 0 {
+            println!("[LanTransfer] 📦 文件读取完成，共 {} 个块", chunk_count);
             break;
         }
 
+        chunk_count += 1;
         let chunk_data = &buffer[..bytes_read];
 
         // 发送块
@@ -1106,17 +1178,30 @@ async fn do_file_transfer_with_resume(
             .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
-            .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+            .map_err(|e| {
+                println!(
+                    "[LanTransfer] ❌ 块上传请求失败 (块 #{}, offset={}): {}",
+                    chunk_count, offset, e
+                );
+                TransferError::TransferFailed(format!("块上传失败: {}", e))
+            })?;
 
-        let chunk_resp: ChunkResponse = response
-            .json()
-            .await
-            .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+        let response_status = response.status();
+        let chunk_resp: ChunkResponse = response.json().await.map_err(|e| {
+            println!(
+                "[LanTransfer] ❌ 块响应解析失败 (块 #{}, status={}): {}",
+                chunk_count, response_status, e
+            );
+            TransferError::TransferFailed(format!("块响应解析失败: {}", e))
+        })?;
 
         if !chunk_resp.success {
-            return Err(TransferError::TransferFailed(
-                chunk_resp.error.unwrap_or_else(|| "块传输失败".to_string()),
-            ));
+            let error = chunk_resp.error.unwrap_or_else(|| "块传输失败".to_string());
+            println!(
+                "[LanTransfer] ❌ 块传输失败 (块 #{}, offset={}): {}",
+                chunk_count, offset, error
+            );
+            return Err(TransferError::TransferFailed(error));
         }
 
         offset += bytes_read as u64;
@@ -1139,6 +1224,22 @@ async fn do_file_transfer_with_resume(
         // 限制进度更新频率（每 100ms 一次）
         if last_progress_time.elapsed().as_millis() >= 100 {
             last_progress_time = Instant::now();
+
+            // 每传输 5MB 打印一次进度日志
+            if offset - last_log_offset >= 5 * 1024 * 1024 {
+                last_log_offset = offset;
+                let progress_pct = (offset as f64 / file_meta.file_size as f64) * 100.0;
+                println!(
+                    "[LanTransfer] 📊 传输进度: {}/{} ({:.1}%), 速度: {}/s, 剩余: {}",
+                    format_bytes(offset),
+                    format_bytes(file_meta.file_size),
+                    progress_pct,
+                    format_bytes(speed),
+                    eta_seconds
+                        .map(|s| format!("{}s", s))
+                        .unwrap_or_else(|| "计算中...".to_string())
+                );
+            }
 
             // 创建传输任务用于进度更新
             let task = TransferTask {
@@ -1195,24 +1296,39 @@ async fn do_file_transfer_with_resume(
         base_url, session_id, file_meta.file_id
     );
 
+    let elapsed_total = start_time.elapsed();
+    println!(
+        "[LanTransfer] 📡 发送 finish 请求: {} (耗时: {:.2}s)",
+        finish_url,
+        elapsed_total.as_secs_f64()
+    );
+
     let finish_response = client
         .post(&finish_url)
         .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+        .map_err(|e| {
+            println!("[LanTransfer] ❌ finish 请求失败: {}", e);
+            TransferError::TransferFailed(format!("finish 请求失败: {}", e))
+        })?;
 
-    let finish_resp: FinishUploadResponse = finish_response
-        .json()
-        .await
-        .map_err(|e| TransferError::TransferFailed(e.to_string()))?;
+    println!(
+        "[LanTransfer] 📡 finish 响应状态: {}",
+        finish_response.status()
+    );
+
+    let finish_resp: FinishUploadResponse = finish_response.json().await.map_err(|e| {
+        println!("[LanTransfer] ❌ finish 响应解析失败: {}", e);
+        TransferError::TransferFailed(format!("finish 响应解析失败: {}", e))
+    })?;
 
     if !finish_resp.success {
-        return Err(TransferError::TransferFailed(
-            finish_resp
-                .error
-                .unwrap_or_else(|| "传输完成验证失败".to_string()),
-        ));
+        let error = finish_resp
+            .error
+            .unwrap_or_else(|| "传输完成验证失败".to_string());
+        println!("[LanTransfer] ❌ finish 验证失败: {}", error);
+        return Err(TransferError::TransferFailed(error));
     }
 
     // 从活跃传输中移除
