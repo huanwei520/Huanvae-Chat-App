@@ -21,6 +21,13 @@
  * - POST /api/upload: 上传文件块
  * - POST /api/finish: 完成上传
  * - POST /api/cancel: 取消传输
+ *
+ * 连接管理：
+ * - 服务端每次只处理一个 HTTP 请求（无 Keep-Alive 循环）
+ * - 所有响应添加 `Connection: close` 头，防止客户端复用已关闭的连接
+ *
+ * 更新日志：
+ * - 2026-01-21: 添加 Connection: close 头修复跨平台传输连接重用问题
  */
 
 use super::config;
@@ -290,6 +297,8 @@ async fn handle_connection(
 }
 
 /// 发送错误响应
+///
+/// 添加 `Connection: close` 头，因为服务端每次只处理一个请求。
 async fn send_error_response(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     status: u16,
@@ -298,7 +307,7 @@ async fn send_error_response(
     use tokio::io::AsyncWriteExt;
 
     let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{{\"error\":\"{}\"}}",
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{{\"error\":\"{}\"}}",
         status,
         message,
         message.len() + 12,
@@ -314,6 +323,9 @@ async fn send_error_response(
 }
 
 /// 发送 JSON 响应
+///
+/// 添加 `Connection: close` 头，因为服务端每次只处理一个请求。
+/// 这可以防止客户端尝试复用已关闭的连接。
 async fn send_json_response<T: serde::Serialize>(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     data: &T,
@@ -324,7 +336,7 @@ async fn send_json_response<T: serde::Serialize>(
         .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
 
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
         body.len(),
         body
     );

@@ -31,6 +31,7 @@ use chrono::Utc;
 use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
@@ -1179,11 +1180,32 @@ async fn do_file_transfer_with_resume(
             .send()
             .await
             .map_err(|e| {
+                // 详细分析错误类型
+                let error_type = if e.is_timeout() {
+                    "超时"
+                } else if e.is_connect() {
+                    "连接失败"
+                } else if e.is_request() {
+                    "请求构建失败"
+                } else if e.is_body() {
+                    "请求体错误"
+                } else if e.is_decode() {
+                    "解码错误"
+                } else {
+                    "未知错误"
+                };
+
+                // 获取底层错误信息
+                let source_error = e
+                    .source()
+                    .map(|s| format!(" (底层: {})", s))
+                    .unwrap_or_default();
+
                 println!(
-                    "[LanTransfer] ❌ 块上传请求失败 (块 #{}, offset={}): {}",
-                    chunk_count, offset, e
+                    "[LanTransfer] ❌ 块上传请求失败 (块 #{}, offset={}, 类型={}): {}{}",
+                    chunk_count, offset, error_type, e, source_error
                 );
-                TransferError::TransferFailed(format!("块上传失败: {}", e))
+                TransferError::TransferFailed(format!("块上传失败 ({}): {}", error_type, e))
             })?;
 
         let response_status = response.status();
