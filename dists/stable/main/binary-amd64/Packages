@@ -1,15 +1,15 @@
 Package: huanvae-chat-app
-Version: 1.0.21
+Version: 1.0.22
 Architecture: amd64
 Maintainer: you
-Installed-Size: 30752
+Installed-Size: 30784
 Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0
 Recommends: avahi-daemon
-Filename: pool/main/h/huanvae-chat/Huanvae-Chat-App_1.0.21_amd64.deb
-Size: 8012352
-MD5sum: 7b9fa9587dd4670e5b3545e326f90b5a
-SHA1: 5f7d7dfa661f4e73254583ec97d53bcac429bfeb
-SHA256: 074dbd04a4f197ab1155d4d274d6da3a8e161a742d4c38d71a3f3123df23a1d5
+Filename: pool/main/h/huanvae-chat/Huanvae-Chat-App_1.0.22_amd64.deb
+Size: 7989444
+MD5sum: 66ace8044348d4f06887f7cee94a71fb
+SHA1: 7853c8a44ad4bd5bfecae7daf8b3a88a02c5a2f3
+SHA256: c69d980dd384a4f55abb9eba617b36c8698a2ec2d16714ef459e4571b2157951
 Section: net
 Priority: optional
 Description: Huanvae Chat App - 即时通讯应用
