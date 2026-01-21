@@ -1,6 +1,31 @@
 /**
- * 局域网传输独立窗口样式
- * 与 MediaPreviewPage 风格保持一致
+ * ========================================
+ * Huanvae Chat - 局域网传输独立窗口样式
+ * ========================================
+ * 
+ * @description 局域网文件传输功能的样式定义
+ * @layer       第三层 - 组件层
+ * @author      Huanvae Chat Team
+ * @updated     2026-01-21
+ * 
+ * ## 样式结构
+ * - 页面容器 (.lan-page)
+ * - 顶部工具栏 (.lan-header)
+ * - 设备列表 (.lan-devices)
+ * - 传输进度 (.lan-transfers)
+ * - 点对点传输窗口 (.lan-peer-transfer-window) - 毛玻璃效果
+ * 
+ * ## 主题集成
+ * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入:
+ * - --gradient-glass: 毛玻璃渐变背景
+ * - --glass-border: 玻璃边框颜色
+ * - --glass-white-*: 玻璃高光效果
+ * - --blur-xl, --saturate-high: 模糊和饱和度效果
+ * - --color-primary-*: 主题色系列
+ * - --radius-*: 圆角尺寸
+ * 
+ * ## 更新日志
+ * - 2026-01-21: 点对点传输窗口改为毛玻璃效果，统一接入颜色系统
  */
 
 /* ============================================
@@ -1193,7 +1218,9 @@
 
 /* ============================================
    点对点传输窗口
-   ============================================ */
+   ============================================
+   使用毛玻璃效果，与系统颜色主题统一
+*/
 
 .lan-peer-transfer-overlay {
   position: fixed;
@@ -1201,25 +1228,89 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .lan-peer-transfer-window {
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
-  background: var(--bg-elevated);
-  border-radius: 16px;
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  
+  /* 毛玻璃半透明背景 - 使用主题变量 */
+  background: var(--gradient-glass, rgba(255, 255, 255, 0.85));
+  
+  /* 毛玻璃核心效果 */
+  backdrop-filter: var(--blur-xl, blur(20px)) var(--saturate-high, saturate(180%));
+  -webkit-backdrop-filter: var(--blur-xl, blur(20px)) var(--saturate-high, saturate(180%));
+  
+  /* 圆角 */
+  border-radius: var(--radius-2xl, 16px);
+  
+  /* 玻璃边框 - 使用主题变量 */
+  border: 1.5px solid var(--glass-border, rgba(255, 255, 255, 0.3));
+  
+  /* 多层阴影 - 创造立体感和光泽 */
+  box-shadow: 
+    /* 外发光 - 玻璃光晕效果 */
+    0 0 60px var(--glass-white-50, rgba(255, 255, 255, 0.5)),
+    0 0 40px rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.15),
+    /* 主阴影 - 悬浮效果 */
+    0 8px 32px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.1),
+    0 20px 60px rgba(0, 0, 0, 0.15),
+    /* 内部顶部高光 - 玻璃上边缘 */
+    inset 0 2px 2px var(--glass-white-80, rgba(255, 255, 255, 0.8)),
+    /* 内部左侧高光 - 玻璃左边缘 */
+    inset 2px 0 2px var(--glass-white-40, rgba(255, 255, 255, 0.4)),
+    /* 底部微弱反射 */
+    inset 0 -1px 2px var(--glass-white-30, rgba(255, 255, 255, 0.3));
+  
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+}
+
+/* 窗口顶部高光条 - 模拟玻璃顶部的光线反射 */
+.lan-peer-transfer-window::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    var(--glass-white-50, rgba(255, 255, 255, 0.5)) 0%,
+    var(--glass-white-15, rgba(255, 255, 255, 0.15)) 30%,
+    transparent 100%
+  );
+  border-radius: var(--radius-2xl, 16px) var(--radius-2xl, 16px) 0 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 窗口底部反射线 */
+.lan-peer-transfer-window::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--glass-white-90, rgba(255, 255, 255, 0.9)),
+    transparent
+  );
+  border-radius: 1px;
+  z-index: 0;
 }
 
 .lan-peer-transfer-header {
@@ -1227,8 +1318,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+  background: var(--glass-white-30, rgba(255, 255, 255, 0.3));
+  position: relative;
+  z-index: 1;
 }
 
 .lan-peer-transfer-title {
@@ -1270,6 +1363,8 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  position: relative;
+  z-index: 1;
 }
 
 .lan-peer-transfer-send {
@@ -1283,16 +1378,18 @@
   justify-content: center;
   gap: 10px;
   padding: 40px 20px;
-  border: 2px dashed var(--border-subtle);
-  border-radius: 12px;
-  background: var(--bg-subtle);
+  border: 2px dashed var(--glass-border, rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.3));
+  border-radius: var(--radius-xl, 12px);
+  background: var(--glass-white-30, rgba(255, 255, 255, 0.3));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .lan-peer-transfer-dropzone:hover {
   border-color: var(--primary);
-  background: rgba(var(--primary-rgb), 0.05);
+  background: rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.15);
 }
 
 .lan-peer-transfer-dropzone svg {
@@ -1311,8 +1408,9 @@
 
 .lan-peer-transfer-progress {
   padding: 16px;
-  background: var(--bg-subtle);
-  border-radius: 12px;
+  background: var(--glass-white-40, rgba(255, 255, 255, 0.4));
+  border-radius: var(--radius-xl, 12px);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
 }
 
 .lan-peer-transfer-progress-header {
@@ -1325,16 +1423,22 @@
 
 .lan-peer-transfer-progress-bar {
   height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
+  background: var(--glass-white-50, rgba(255, 255, 255, 0.5));
+  border-radius: var(--radius-sm, 4px);
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .lan-peer-transfer-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary), var(--success));
-  border-radius: 4px;
+  background: linear-gradient(
+    90deg, 
+    var(--color-primary-5, #3b82f6), 
+    var(--color-success-5, #22c55e)
+  );
+  border-radius: var(--radius-sm, 4px);
   transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.4);
 }
 
 .lan-peer-transfer-progress-info {
@@ -1351,17 +1455,21 @@
   gap: 8px;
   margin-top: 10px;
   padding: 8px 12px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
+  background: var(--glass-white-50, rgba(255, 255, 255, 0.5));
+  border-radius: var(--radius-lg, 8px);
   font-size: 12px;
   color: var(--text-secondary);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
 }
 
 .lan-peer-transfer-footer {
   padding: 16px 20px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
   display: flex;
   justify-content: flex-end;
+  background: var(--glass-white-20, rgba(255, 255, 255, 0.2));
+  position: relative;
+  z-index: 1;
 }
 
 .lan-btn-danger {
