@@ -23,9 +23,11 @@
  * - --blur-xl, --saturate-high: 模糊和饱和度效果
  * - --color-primary-*: 主题色系列
  * - --radius-*: 圆角尺寸
+ * - --primary: 进度条颜色（蓝色）
  * 
  * ## 更新日志
  * - 2026-01-21: 点对点传输窗口改为毛玻璃效果，统一接入颜色系统
+ * - 2026-01-21: 统一进度条为蓝色纯色（使用 --primary 变量）
  */
 
 /* ============================================
@@ -432,7 +434,7 @@
 
 .lan-transfer-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary), var(--color-primary-7));
+  background: var(--primary, #3b82f6);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -1436,14 +1438,9 @@
 
 .lan-peer-transfer-progress-fill {
   height: 100%;
-  background: linear-gradient(
-    90deg, 
-    var(--color-primary-5, #3b82f6), 
-    var(--color-success-5, #22c55e)
-  );
+  background: var(--primary, #3b82f6);
   border-radius: var(--radius-sm, 4px);
   transition: width 0.3s ease;
-  box-shadow: 0 0 8px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.4);
 }
 
 .lan-peer-transfer-progress-info {

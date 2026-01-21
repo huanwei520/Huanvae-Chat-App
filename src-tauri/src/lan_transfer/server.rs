@@ -22,12 +22,18 @@
  * - POST /api/finish: 完成上传
  * - POST /api/cancel: 取消传输
  *
+ * 接收方进度显示：
+ * - prepare-upload: 发送初始进度事件（0% 或续传偏移量）
+ * - upload: 每 100ms 发送进度事件（包含接收速度、剩余时间）
+ * - finish: 发送 BatchTransferCompleted 事件（清除前端进度）
+ *
  * 连接管理：
  * - 服务端每次只处理一个 HTTP 请求（无 Keep-Alive 循环）
  * - 所有响应添加 `Connection: close` 头，防止客户端复用已关闭的连接
  *
  * 更新日志：
  * - 2026-01-21: 添加 Connection: close 头修复跨平台传输连接重用问题
+ * - 2026-01-21: 添加接收方进度显示（初始进度、实时速度、完成事件）
  */
 
 use super::config;
@@ -131,6 +137,10 @@ struct UploadSession {
     received_bytes: HashMap<String, u64>,
     /// 上次进度更新时间（用于限制更新频率）
     last_progress_time: std::time::Instant,
+    /// 传输开始时间（用于计算速度）
+    start_time: std::time::Instant,
+    /// 续传起始字节（用于速度计算）
+    resume_offset: u64,
 }
 
 // ============================================================================
@@ -874,6 +884,8 @@ async fn handle_prepare_upload(
         hashers,
         received_bytes,
         last_progress_time: std::time::Instant::now(),
+        start_time: std::time::Instant::now(),
+        resume_offset,
     };
 
     // 保存会话
@@ -882,6 +894,23 @@ async fn handle_prepare_upload(
         let mut sessions = sessions.lock();
         sessions.insert(request.session_id.clone(), session);
     }
+
+    // 发送初始进度事件（让用户知道传输已开始）
+    let initial_progress = BatchTransferProgress {
+        session_id: request.session_id.clone(),
+        total_files: 1,
+        completed_files: 0,
+        total_bytes: file.file_size,
+        transferred_bytes: resume_offset,
+        speed: 0,
+        current_file: Some(file.clone()),
+        eta_seconds: None,
+    };
+    let initial_event = LanTransferEvent::BatchProgress {
+        progress: initial_progress,
+    };
+    let _ = get_event_sender().send(initial_event.clone());
+    emit_lan_event(&initial_event);
 
     // 返回响应
     let response = PrepareUploadResponse {
@@ -913,7 +942,7 @@ async fn handle_upload(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (response, file_sha256, received, should_emit_progress, file_meta) = {
+    let (response, file_sha256, received, should_emit_progress, file_meta, speed, eta_seconds) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -955,6 +984,24 @@ async fn handle_upload(
         *received_ref += body.len() as u64;
         let received = *received_ref;
 
+        // 计算速度（从开始传输到现在实际传输的字节数 / 耗时）
+        let elapsed = session.start_time.elapsed().as_secs_f64();
+        let transferred_since_start = received.saturating_sub(session.resume_offset);
+        let speed = if elapsed > 0.0 {
+            (transferred_since_start as f64 / elapsed) as u64
+        } else {
+            0
+        };
+
+        // 计算剩余时间
+        let total_bytes = file_meta.as_ref().map(|f| f.file_size).unwrap_or(0);
+        let remaining_bytes = total_bytes.saturating_sub(received);
+        let eta_seconds = if speed > 0 {
+            Some(remaining_bytes / speed)
+        } else {
+            None
+        };
+
         // 检查是否应该发送进度事件（每 100ms 一次）
         let should_emit = session.last_progress_time.elapsed().as_millis() >= 100;
         if should_emit {
@@ -967,7 +1014,7 @@ async fn handle_upload(
             error: None,
         };
 
-        (response, file_sha256, received, should_emit, file_meta)
+        (response, file_sha256, received, should_emit, file_meta, speed, eta_seconds)
     };
 
     // 更新断点续传信息（锁已释放）
@@ -978,18 +1025,17 @@ async fn handle_upload(
     if should_emit_progress
         && let Some(file) = file_meta
     {
-        // 计算总文件大小
         let total_bytes = file.file_size;
 
         let progress = BatchTransferProgress {
             session_id: session_id.clone(),
-            total_files: 1, // 当前实现每次只传一个文件
+            total_files: 1,
             completed_files: 0,
             total_bytes,
             transferred_bytes: received,
-            speed: 0, // 接收方暂不计算速度
+            speed,
             current_file: Some(file),
-            eta_seconds: None,
+            eta_seconds,
         };
 
         let event = LanTransferEvent::BatchProgress { progress };
@@ -1092,12 +1138,27 @@ async fn handle_finish(
 
     // 发送事件（锁已释放）
     if response.success {
+        // 发送单文件完成事件
         let event = LanTransferEvent::TransferCompleted {
             task_id: file_id.clone(),
-            saved_path: saved_path_str,
+            saved_path: saved_path_str.clone(),
         };
         let _ = get_event_sender().send(event.clone());
         emit_lan_event(&event);
+
+        // 发送批量传输完成事件（清除前端进度显示）
+        let batch_event = LanTransferEvent::BatchTransferCompleted {
+            session_id: session_id.clone(),
+            total_files: 1,
+            save_directory: saved_path_str,
+        };
+        let _ = get_event_sender().send(batch_event.clone());
+        emit_lan_event(&batch_event);
+
+        println!(
+            "[LanTransfer] ✅ 接收完成: {} (会话: {})",
+            file_meta.file_name, session_id
+        );
     } else {
         let event = LanTransferEvent::TransferFailed {
             task_id: file_id.clone(),
