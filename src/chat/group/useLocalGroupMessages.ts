@@ -178,10 +178,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         });
       }
 
-      // 2. 转换为 UI GroupMessage 类型，过滤已撤回的消息
-      const uiMessages = localMessages
-        .filter((m) => !m.is_recalled)
-        .map((m) => localMessageToGroupMessage(m));
+      // 2. 转换为 UI GroupMessage 类型（撤回消息已在数据库层过滤）
+      const uiMessages = localMessages.map((m) => localMessageToGroupMessage(m));
       setMessages(uiMessages);
       setHasMore(localMessages.length >= limit);
 
@@ -272,9 +270,7 @@ export function useLocalGroupMessages(groupId: string | null) {
 
         // 重新加载本地消息
         const updatedMessages = await db.getMessages(groupId, 50);
-        const uiMessages = updatedMessages
-          .filter((m) => !m.is_recalled)
-          .map((m) => localMessageToGroupMessage(m));
+        const uiMessages = updatedMessages.map((m) => localMessageToGroupMessage(m));
 
         // 智能合并：保留现有消息的 clientId 和 sendStatus，避免触发不必要的动画
         setMessages((prev) => {
@@ -322,9 +318,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       const olderMessages = await db.getMessages(groupId, limit, oldestSeq);
 
       if (olderMessages.length > 0) {
-        const uiMessages = olderMessages
-          .filter((m) => !m.is_recalled)
-          .map((m) => localMessageToGroupMessage(m));
+        const uiMessages = olderMessages.map((m) => localMessageToGroupMessage(m));
         // 更老的消息添加到数组末尾
         setMessages((prev) => [...prev, ...uiMessages]);
         logLocal('加载更多完成', { count: olderMessages.length });

@@ -22,11 +22,28 @@
   ; ========== 关闭正在运行的应用程序 ==========
   ; 使用 taskkill 命令终止正在运行的应用，避免 "无法写入" 错误
   ; /F = 强制终止, /IM = 按进程名匹配
-  ; 使用 nsExec::Exec 静默执行，不显示窗口，忽略返回值（进程可能未运行）
+  ; 尝试多种进程名变体（大小写），确保能够终止进程
+  
+  ; 尝试大写形式
   nsExec::Exec 'taskkill /F /IM "Huanvae-Chat-App.exe"'
   Pop $0
   
-  ; 等待进程完全退出 (500ms)
+  ; 尝试小写形式 (Tauri 实际生成的进程名)
+  nsExec::Exec 'taskkill /F /IM "huanvae-chat-app.exe"'
+  Pop $0
+  
+  ; 使用通配符终止所有相关进程 (包括 WebView2 子进程)
+  nsExec::Exec 'taskkill /F /FI "IMAGENAME eq *huanvae*"'
+  Pop $0
+  
+  ; 等待进程完全退出 (1000ms，增加等待时间)
+  Sleep 1000
+  
+  ; 再次尝试终止，确保进程已关闭
+  nsExec::Exec 'taskkill /F /IM "huanvae-chat-app.exe"'
+  Pop $0
+  
+  ; 额外等待
   Sleep 500
   
   ; ========== 从注册表读取已安装版本的路径 ==========

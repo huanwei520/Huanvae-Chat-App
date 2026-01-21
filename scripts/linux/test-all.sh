@@ -56,8 +56,8 @@ echo -e "${CYAN}[1/$TOTAL_STEPS] NSIS 安装钩子检查...${NC}"
 
 NSIS_HOOKS="$PROJECT_ROOT/src-tauri/nsis/installer-hooks.nsh"
 if [[ -f "$NSIS_HOOKS" ]]; then
-    # 检查是否包含关闭运行中应用的逻辑
-    if grep -q "taskkill.*Huanvae-Chat-App.exe" "$NSIS_HOOKS"; then
+    # 检查是否包含关闭运行中应用的逻辑（必须包含小写进程名）
+    if grep -qi "taskkill.*huanvae-chat-app.exe" "$NSIS_HOOKS"; then
         echo -e "  ${GREEN}✓ PASS: NSIS 钩子包含关闭运行中应用逻辑${NC}"
     else
         echo -e "  ${RED}✗ FAIL: NSIS 钩子缺少关闭运行中应用逻辑${NC}"
