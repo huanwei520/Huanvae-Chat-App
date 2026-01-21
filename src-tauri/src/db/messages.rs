@@ -33,7 +33,7 @@ pub fn get_messages(
                  file_size, file_hash, image_width, image_height, seq, reply_to, 
                  is_recalled, is_deleted, send_time, created_at
                  FROM messages 
-                 WHERE conversation_id = ? AND is_deleted = 0 AND (seq < ? OR seq = 0)
+                 WHERE conversation_id = ? AND is_deleted = 0 AND is_recalled = 0 AND (seq < ? OR seq = 0)
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC 
@@ -50,7 +50,7 @@ pub fn get_messages(
                  file_size, file_hash, image_width, image_height, seq, reply_to, 
                  is_recalled, is_deleted, send_time, created_at
                  FROM messages 
-                 WHERE conversation_id = ? AND is_deleted = 0
+                 WHERE conversation_id = ? AND is_deleted = 0 AND is_recalled = 0
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC 
