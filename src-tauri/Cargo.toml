@@ -138,7 +138,27 @@ keyring = { version = "3", features = ["apple-native"] }
 # 要求 Android API 28+ (Android 9.0+)
 tauri-plugin-keystore = "2.1.0-alpha.1"
 
-# 生物识别认证 + 安全会话存储
-# 用于后台被杀后恢复会话，无需重新登录
+# 生物识别认证（仅用于敏感操作，如查看保存的密码）
 # 官方插件：https://v2.tauri.app/plugin/biometric/
 tauri-plugin-biometric = "2"
+
+# 持久化存储（用于会话自动恢复，无需生物验证）
+# 后台被杀后重新打开自动恢复登录状态，与 QQ/微信 体验一致
+# 官方插件：https://v2.tauri.app/plugin/store/
+tauri-plugin-store = "2"
+
+# ============================================
+# 移动端本地媒体服务器
+# ============================================
+# 解决 Android WebView 无法通过 asset:// 协议播放本地视频的问题
+# 提供本地 HTTP 服务器 + Range 请求支持，实现流式播放
+# 参考 Issue: https://github.com/tauri-apps/tauri/issues/12019
+axum = "0.8"
+tokio-util = { version = "0.7", features = ["io"] }
+
+# ============================================
+# 移动端返回按钮监听
+# ============================================
+# 处理 Android 手势返回和 iOS 返回按钮
+# 参考: https://jsr.io/@kingsword/tauri-plugin-mobile-onbackpressed-listener
+tauri-plugin-mobile-onbackpressed-listener = "2.0.0"

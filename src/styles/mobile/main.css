@@ -1,12 +1,16 @@
 /**
  * 移动端主页面样式
+ *
+ * ## 安全区域适配
+ * 使用 env(safe-area-inset-*) 适配 Android/iOS 状态栏和底部手势条
+ * 确保内容不会被系统 UI 遮挡
  */
 
-/* 主容器 - 使用 100vh 确保在移动端正确填充屏幕 */
+/* 主容器 - 使用 100dvh 动态视口高度，自动适配移动端浏览器 UI */
 .mobile-main {
   width: 100%;
-  height: 100vh;
-  min-height: 100vh;
+  height: 100dvh; /* 动态视口高度，比 100vh 更准确 */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   position: relative;

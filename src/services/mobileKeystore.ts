@@ -29,8 +29,15 @@ interface PasswordMap {
   [key: string]: string; // key 格式: "serverUrl#userId"
 }
 
+// 完整存储结构（包含密码、会话和设备 UUID）
+interface KeystoreData {
+  passwords: PasswordMap;
+  session?: string; // JSON 序列化的 Session
+  deviceUuid?: string; // 设备唯一标识（替代 MAC 地址）
+}
+
 // 内存缓存，避免多次生物识别验证
-let cachedPasswordMap: PasswordMap | null = null;
+let cachedData: KeystoreData | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 30000; // 缓存有效期 30 秒
 
@@ -62,20 +69,20 @@ async function getKeystoreModule() {
 }
 
 /**
- * 获取所有存储的密码映射
+ * 获取完整的 keystore 数据
  * 注意：此操作需要生物识别认证，可能会弹出指纹/面容验证
  * 使用内存缓存减少生物验证次数
  */
-async function getPasswordMap(forceRefresh = false): Promise<PasswordMap> {
+async function getKeystoreData(forceRefresh = false): Promise<KeystoreData> {
   const now = Date.now();
 
   // 检查缓存是否有效
-  if (!forceRefresh && cachedPasswordMap !== null && (now - cacheTimestamp) < CACHE_TTL_MS) {
-    console.warn('[Keystore] 使用缓存的密码映射');
-    return cachedPasswordMap;
+  if (!forceRefresh && cachedData !== null && (now - cacheTimestamp) < CACHE_TTL_MS) {
+    console.warn('[Keystore] 使用缓存数据');
+    return cachedData;
   }
 
-  console.warn('[Keystore] 获取密码映射...');
+  console.warn('[Keystore] 获取 keystore 数据...');
   const keystore = await getKeystoreModule();
 
   console.warn('[Keystore] 调用 retrieve(service, user)...');
@@ -83,41 +90,64 @@ async function getPasswordMap(forceRefresh = false): Promise<PasswordMap> {
   console.warn('[Keystore] retrieve() 返回:', stored ? '有数据' : '无数据');
 
   if (!stored) {
-    cachedPasswordMap = {};
+    cachedData = { passwords: {} };
     cacheTimestamp = now;
-    return {};
+    return { passwords: {} };
   }
 
   try {
     const parsed = JSON.parse(stored);
-    const keys = Object.keys(parsed);
-    console.warn('[Keystore] 解析成功, 已存储账号数:', keys.length);
-    cachedPasswordMap = typeof parsed === 'object' && parsed !== null ? parsed : {};
+    // 兼容旧格式（直接是 PasswordMap）
+    if (parsed && typeof parsed === 'object') {
+      if ('passwords' in parsed) {
+        // 新格式
+        console.warn('[Keystore] 解析成功(新格式), 密码数:', Object.keys(parsed.passwords || {}).length);
+        cachedData = parsed as KeystoreData;
+      } else {
+        // 旧格式，迁移到新格式
+        console.warn('[Keystore] 检测到旧格式，迁移中...');
+        cachedData = { passwords: parsed as PasswordMap };
+      }
+    } else {
+      cachedData = { passwords: {} };
+    }
     cacheTimestamp = now;
-    return cachedPasswordMap;
+    return cachedData;
   } catch {
     console.error('[Keystore] JSON 解析失败');
-    cachedPasswordMap = {};
+    cachedData = { passwords: {} };
     cacheTimestamp = now;
-    return {};
+    return { passwords: {} };
   }
 }
 
 /**
- * 保存密码映射到 keystore
+ * 保存完整数据到 keystore
  * 注意：此操作需要生物识别认证
  */
-async function savePasswordMap(map: PasswordMap): Promise<void> {
-  console.warn('[Keystore] 保存密码映射, 账号数:', Object.keys(map).length);
+async function saveKeystoreData(data: KeystoreData): Promise<void> {
+  console.warn('[Keystore] 保存数据, 密码数:', Object.keys(data.passwords).length, '有会话:', !!data.session);
   const keystore = await getKeystoreModule();
-  const json = JSON.stringify(map);
+  const json = JSON.stringify(data);
   console.warn('[Keystore] 调用 store()...');
   await keystore.store(json);
   console.warn('[Keystore] store() 完成');
 
   // 更新缓存
-  cachedPasswordMap = { ...map };
+  cachedData = { ...data };
   cacheTimestamp = Date.now();
+}
+
+// 兼容旧 API
+async function getPasswordMap(forceRefresh = false): Promise<PasswordMap> {
+  const data = await getKeystoreData(forceRefresh);
+  return data.passwords;
+}
+
+async function savePasswordMap(map: PasswordMap): Promise<void> {
+  // 保留现有的会话数据
+  const existingData = cachedData || { passwords: {} };
+  await saveKeystoreData({ ...existingData, passwords: map });
 }
 
 /**
@@ -142,9 +172,9 @@ export async function storePassword(
 
   // 优先使用缓存，避免额外的生物识别验证
   let map: PasswordMap = {};
-  if (cachedPasswordMap !== null && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+  if (cachedData !== null && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
     console.warn('[Keystore] 使用缓存更新密码');
-    map = { ...cachedPasswordMap };
+    map = { ...cachedData.passwords };
   } else {
     try {
       map = await getPasswordMap();
@@ -247,4 +277,133 @@ export async function isKeystoreAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ============================================
+// 会话持久化 API
+// ============================================
+
+/**
+ * 保存会话到安全存储
+ * 注意：此操作需要生物识别认证
+ *
+ * @param sessionJson 序列化的会话 JSON
+ */
+export async function storeSession(sessionJson: string): Promise<void> {
+  console.warn('[Keystore] storeSession 被调用');
+  if (!isMobile()) {
+    throw new Error('此功能仅在移动端可用');
+  }
+
+  // 使用缓存避免额外的生物识别
+  let data: KeystoreData = { passwords: {} };
+  if (cachedData !== null && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    data = { ...cachedData };
+  } else {
+    try {
+      data = await getKeystoreData();
+    } catch {
+      console.warn('[Keystore] 获取现有数据失败，使用空数据');
+    }
+  }
+
+  data.session = sessionJson;
+  await saveKeystoreData(data);
+  console.warn('[Keystore] 会话已保存');
+}
+
+/**
+ * 从安全存储获取会话
+ * 注意：此操作需要生物识别认证
+ *
+ * @returns 会话 JSON，如果不存在返回 null
+ */
+export async function retrieveSession(): Promise<string | null> {
+  console.warn('[Keystore] retrieveSession 被调用');
+  if (!isMobile()) {
+    throw new Error('此功能仅在移动端可用');
+  }
+
+  const data = await getKeystoreData();
+  const found = data.session ?? null;
+  console.warn('[Keystore] 会话查找结果:', found ? '找到' : '未找到');
+  return found;
+}
+
+/**
+ * 清除存储的会话
+ */
+export async function clearSession(): Promise<void> {
+  console.warn('[Keystore] clearSession 被调用');
+  if (!isMobile()) {
+    throw new Error('此功能仅在移动端可用');
+  }
+
+  // 使用缓存避免额外的生物识别
+  let data: KeystoreData = { passwords: {} };
+  if (cachedData !== null && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    data = { ...cachedData };
+  } else {
+    try {
+      data = await getKeystoreData();
+    } catch {
+      return; // 没有数据，无需清除
+    }
+  }
+
+  delete data.session;
+  await saveKeystoreData(data);
+  console.warn('[Keystore] 会话已清除');
+}
+
+/**
+ * 获取设备 UUID
+ *
+ * 用于替代 Android 上无法获取的 MAC 地址
+ * 此操作**不需要**生物识别验证（从缓存读取）
+ *
+ * @returns 设备 UUID，如果未存储则返回 null
+ */
+export async function retrieveDeviceUuid(): Promise<string | null> {
+  console.warn('[Keystore] retrieveDeviceUuid 被调用');
+  if (!isMobile()) {
+    throw new Error('此功能仅在移动端可用');
+  }
+
+  // 优先从缓存读取，避免触发生物识别
+  if (cachedData !== null && cachedData.deviceUuid) {
+    console.warn('[Keystore] 从缓存获取设备 UUID');
+    return cachedData.deviceUuid;
+  }
+
+  // 需要从 Keystore 读取（可能触发生物识别）
+  const data = await getKeystoreData();
+  return data.deviceUuid ?? null;
+}
+
+/**
+ * 存储设备 UUID
+ *
+ * @param uuid - 设备 UUID
+ */
+export async function storeDeviceUuid(uuid: string): Promise<void> {
+  console.warn('[Keystore] storeDeviceUuid 被调用:', uuid);
+  if (!isMobile()) {
+    throw new Error('此功能仅在移动端可用');
+  }
+
+  let data: KeystoreData = { passwords: {} };
+  if (cachedData !== null && (Date.now() - cacheTimestamp) < CACHE_TTL_MS) {
+    data = { ...cachedData };
+  } else {
+    try {
+      data = await getKeystoreData();
+    } catch {
+      console.warn('[Keystore] 获取现有数据失败，使用空数据');
+    }
+  }
+
+  data.deviceUuid = uuid;
+  await saveKeystoreData(data);
+  console.warn('[Keystore] 设备 UUID 已保存');
 }

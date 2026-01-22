@@ -13,11 +13,13 @@
  * 这些功能在抽屉菜单中已隐藏
  */
 
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../../hooks/useMainPage';
 import { useInitialSync } from '../../hooks/useInitialSync';
 import { useMobileNavigation } from '../../hooks/useMobileNavigation';
+import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { requestNotificationPermission } from '../../services/notificationService';
 
 // 组件导入
 import { MobileHeader } from './MobileHeader';
@@ -53,6 +55,13 @@ export function MobileMain() {
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
 
+  // Android 启动时请求通知权限
+  useEffect(() => {
+    requestNotificationPermission().then((granted) => {
+      console.warn('[MobileMain] 通知权限:', granted ? '已授权' : '未授权');
+    });
+  }, []);
+
   // 选中聊天目标时进入聊天页面
   const handleSelectTarget = (target: ChatTarget) => {
     page.handleSelectTarget(target);
@@ -64,10 +73,43 @@ export function MobileMain() {
     nav.exitChat();
   };
 
+  // 处理移动端手势返回
+  const handleMobileBack = useCallback(() => {
+    // 优先级 1：设置面板打开 → 关闭设置
+    if (showSettings) {
+      setShowSettings(false);
+      return true;
+    }
+
+    // 优先级 2：个人资料模态框打开 → 关闭模态框
+    if (showProfileModal) {
+      setShowProfileModal(false);
+      return true;
+    }
+
+    // 优先级 3：抽屉打开 → 关闭抽屉
+    if (nav.isDrawerOpen) {
+      nav.closeDrawer();
+      return true;
+    }
+
+    // 优先级 4：在聊天页面 → 返回列表
+    if (nav.currentView === 'chat') {
+      nav.exitChat();
+      return true;
+    }
+
+    // 未处理 → 执行默认行为（退出应用）
+    return false;
+  }, [showSettings, showProfileModal, nav]);
+
+  // 注册返回按钮处理
+  useMobileBackHandler(handleMobileBack);
+
   // 计算未读消息总数
   const totalUnread =
-    (page.unreadSummary?.friends?.reduce((sum, f) => sum + f.unread_count, 0) || 0) +
-    (page.unreadSummary?.groups?.reduce((sum, g) => sum + g.unread_count, 0) || 0);
+    (page.unreadSummary?.friend_unreads?.reduce((sum: number, f) => sum + f.unread_count, 0) || 0) +
+    (page.unreadSummary?.group_unreads?.reduce((sum: number, g) => sum + g.unread_count, 0) || 0);
 
   // Early return 检查
   if (!page.session) {
@@ -144,7 +186,6 @@ export function MobileMain() {
               groupMessages={page.groupMessages}
               isLoading={page.isLoading}
               isSending={page.isSending}
-              totalMessageCount={page.totalMessageCount}
               hasMore={page.hasMore}
               loadingMore={page.loadingMore}
               onLoadMore={page.handleLoadMore}

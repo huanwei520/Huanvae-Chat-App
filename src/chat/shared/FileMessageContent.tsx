@@ -21,15 +21,17 @@
  * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { triggerBackgroundDownload } from '../../services/fileCache';
 import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
 import { formatFileSize } from '../../hooks/useFileUpload';
 import { FilePreviewModal } from './FilePreviewModal';
+import { MobileMediaPreview } from './MobileMediaPreview';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
 import { CircularProgress } from '../../components/common/CircularProgress';
+import { isMobile } from '../../utils/platform';
 
 /**
  * 计算显示尺寸（保持比例，限制最大尺寸）
@@ -179,6 +181,9 @@ function ImageMessage({
     friendId,
   );
 
+  // 移动端预览模态框状态
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
+
   // 是否有后端提供的尺寸信息
   const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
 
@@ -190,10 +195,18 @@ function ImageMessage({
     ? calculateDisplaySize(imageWidth, imageHeight, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT)
     : { width: IMAGE_DEFAULT_WIDTH, height: IMAGE_DEFAULT_HEIGHT };
 
-  // 点击打开独立预览窗口
+  // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
   const handleClick = useCallback(() => {
-    if (!session) { return; }
+    if (!src) { return; }
 
+    // 移动端：使用全屏模态框预览
+    if (isMobile()) {
+      setShowMobilePreview(true);
+      return;
+    }
+
+    // 桌面端：打开独立预览窗口
+    if (!session) { return; }
     openMediaWindow(
       {
         type: 'image',
@@ -220,33 +233,46 @@ function ImageMessage({
   };
 
   return (
-    <div
-      className="file-message image-message"
-      style={containerStyle}
-      onClick={handleClick}
-    >
-      {/* 加载中显示占位符 */}
-      {loading && (
-        <div className="file-message-loading">
-          <span>加载中...</span>
-        </div>
+    <>
+      <div
+        className="file-message image-message"
+        style={containerStyle}
+        onClick={handleClick}
+      >
+        {/* 加载中显示占位符 */}
+        {loading && (
+          <div className="file-message-loading">
+            <span>加载中...</span>
+          </div>
+        )}
+        {/* 加载错误 */}
+        {error && <div className="file-message-error">加载失败</div>}
+        {/* 图片加载完成后显示 */}
+        {!loading && !error && src && (
+          <>
+            {isLocal && <LocalBadge />}
+            <img
+              src={src}
+              alt={filename}
+              className="message-image"
+              draggable={false}
+              onLoad={onLoad}
+            />
+          </>
+        )}
+      </div>
+
+      {/* 移动端全屏预览 */}
+      {src && (
+        <MobileMediaPreview
+          isOpen={showMobilePreview}
+          type="image"
+          src={src}
+          filename={filename}
+          onClose={() => setShowMobilePreview(false)}
+        />
       )}
-      {/* 加载错误 */}
-      {error && <div className="file-message-error">加载失败</div>}
-      {/* 图片加载完成后显示 */}
-      {!loading && !error && src && (
-        <>
-          {isLocal && <LocalBadge />}
-          <img
-            src={src}
-            alt={filename}
-            className="message-image"
-            draggable={false}
-            onLoad={onLoad}
-          />
-        </>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -304,8 +330,30 @@ function VideoMessage({
     friendId,
   );
 
+  // 移动端预览模态框状态
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
+
   // 监听下载任务状态（用于显示进度）
   const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+
+  // 调试：移动端视频源信息
+  useEffect(() => {
+    if (isMobile() && src) {
+      const info = {
+        filename,
+        fileHash: fileHash?.substring(0, 16),
+        src: src.substring(0, 80) + (src.length > 80 ? '...' : ''),
+        isLocal,
+        localPath: localPath?.substring(0, 50),
+        loading,
+        error,
+        isAsset: src.startsWith('asset://'),
+        isHttps: src.startsWith('https://'),
+      };
+      // eslint-disable-next-line no-console
+      console.log('[VideoMessage] 视频源信息:', JSON.stringify(info, null, 0));
+    }
+  }, [src, isLocal, localPath, loading, error, filename, fileHash]);
 
   // 是否有后端提供的尺寸信息
   const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
@@ -326,8 +374,28 @@ function VideoMessage({
   // 获取实际的本地路径（优先使用下载完成的路径）
   const actualLocalPath = downloadTask?.localPath ?? localPath;
 
-  // 点击：触发下载并打开独立预览窗口
+  // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
   const handleClick = useCallback(() => {
+    if (!src) { return; }
+
+    // 移动端：使用全屏模态框预览
+    if (isMobile()) {
+      // 打开预览的同时触发后台下载（与桌面端行为一致）
+      // 这样消息列表中可以显示下载进度
+      if (!isDownloaded && !isDownloading && fileHash && src) {
+        triggerBackgroundDownload(
+          src,
+          fileHash,
+          filename,
+          'video',
+          fileSize ?? undefined,
+        );
+      }
+      setShowMobilePreview(true);
+      return;
+    }
+
+    // 桌面端：触发下载并打开独立窗口
     if (!session) { return; }
 
     // 如果文件未下载且有 fileHash 和 src，开始下载
@@ -371,45 +439,66 @@ function VideoMessage({
   };
 
   return (
-    <div className="file-message video-message" style={containerStyle} onClick={handleClick}>
-      {/* 加载中显示占位符 */}
-      {loading && (
-        <div className="file-message-loading">
-          <span>加载中...</span>
-        </div>
+    <>
+      <div className="file-message video-message" style={containerStyle} onClick={handleClick}>
+        {/* 加载中显示占位符 */}
+        {loading && (
+          <div className="file-message-loading">
+            <span>加载中...</span>
+          </div>
+        )}
+        {/* 加载错误 */}
+        {error && <div className="file-message-error">加载失败</div>}
+        {/* 视频加载完成后显示 */}
+        {!loading && !error && src && (
+          <>
+            {/* 本地文件标识 */}
+            {isDownloaded && <LocalBadge />}
+
+            {/* 视频缩略图：统一使用 video 元素，加载后暂停在第一帧 */}
+            <video
+              src={src}
+              className="message-video-thumbnail"
+              preload="metadata"
+              muted
+              playsInline
+              onLoadedData={(e) => {
+                // 加载完成后暂停在第一帧作为缩略图
+                const video = e.currentTarget;
+                video.currentTime = 0;
+                video.pause();
+              }}
+              onPlay={onPlay}
+            />
+
+            {/* 下载进度覆盖层 */}
+            {isDownloading && downloadTask && (
+              <div className="video-download-overlay">
+                <CircularProgress progress={downloadTask.percent} />
+              </div>
+            )}
+
+            {/* 播放按钮覆盖层 */}
+            {!isDownloading && (
+              <div className="video-play-overlay">
+                <PlayIcon />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 移动端全屏预览 */}
+      {src && (
+        <MobileMediaPreview
+          isOpen={showMobilePreview}
+          type="video"
+          src={src}
+          filename={filename}
+          onClose={() => setShowMobilePreview(false)}
+        />
       )}
-      {/* 加载错误 */}
-      {error && <div className="file-message-error">加载失败</div>}
-      {/* 视频加载完成后显示 */}
-      {!loading && !error && src && (
-        <>
-          {/* 本地文件标识 */}
-          {isDownloaded && <LocalBadge />}
-
-          {/* 视频缩略图 */}
-          <video
-            src={src}
-            className="message-video-thumbnail"
-            preload="metadata"
-            onPlay={onPlay}
-          />
-
-          {/* 下载进度覆盖层 */}
-          {isDownloading && downloadTask && (
-            <div className="video-download-overlay">
-              <CircularProgress progress={downloadTask.percent} />
-            </div>
-          )}
-
-          {/* 播放按钮覆盖层（未下载时显示） */}
-          {!isDownloading && (
-            <div className="video-play-overlay">
-              <PlayIcon />
-            </div>
-          )}
-        </>
-      )}
-    </div>
+    </>
   );
 }
 

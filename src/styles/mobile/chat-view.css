@@ -1,5 +1,13 @@
 /**
  * 移动端聊天页面样式
+ *
+ * ## 布局结构
+ * - 顶部：标题栏（含安全区域）
+ * - 中间：消息列表（flex: 1，可滚动）
+ * - 底部：输入区域（含安全区域）
+ *
+ * ## 安全区域适配
+ * 使用 env(safe-area-inset-*) 适配 Android/iOS 刘海屏和底部手势条
  */
 
 .mobile-chat-view {
@@ -21,17 +29,19 @@
   z-index: 50;
 }
 
-/* 聊天页顶部栏 */
+/* 聊天页顶部栏 - 包含状态栏安全区域 */
 .mobile-chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  /* 顶部 padding 包含安全区域（状态栏高度） */
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px 16px;
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   z-index: 10;
+  flex-shrink: 0; /* 不参与 flex 收缩 */
 }
 
 .mobile-chat-back {
@@ -88,17 +98,148 @@
   height: 22px;
 }
 
-/* 消息区域 */
+/* 消息区域 - 容器，不设置滚动，由内部 ChatMessages 组件管理 */
 .mobile-chat-messages {
   flex: 1;
-  overflow: hidden;
+  min-height: 0; /* 关键：允许 flex 子元素收缩，否则会溢出 */
+  overflow: hidden; /* 不在此层滚动，让内部组件处理 */
+  position: relative;
 }
 
-/* 输入区域 */
+/* 确保内部消息容器填充父元素 */
+.mobile-chat-messages .chat-messages-container {
+  height: 100%;
+  -webkit-overflow-scrolling: touch; /* iOS 平滑滚动 */
+}
+
+/* 输入区域 - 固定在底部，包含安全区域 */
 .mobile-chat-input {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid rgba(0, 0, 0, 0.06);
+  /* 底部 padding 包含安全区域（手势条/Home键高度） */
   padding-bottom: env(safe-area-inset-bottom, 0);
+  flex-shrink: 0; /* 不参与 flex 收缩 */
 }
+
+/* ============================================ */
+/* 移动端媒体预览（全屏模态框）                 */
+/* ============================================ */
+
+.mobile-media-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-media-preview-header {
+  display: flex;
+  align-items: center;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px 16px;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.mobile-media-preview-close {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-media-preview-close:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mobile-media-preview-title {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 12px;
+  margin-right: 40px; /* 与左侧按钮平衡 */
+}
+
+.mobile-media-preview-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-media-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  touch-action: pinch-zoom; /* 支持双指缩放 */
+}
+
+.mobile-media-preview-video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  background: #000;
+}
+
+/* 加载状态 */
+.mobile-media-preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  position: absolute;
+  inset: 0;
+}
+
+/* 错误状态 */
+.mobile-media-preview-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #ff6b6b;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}
+
+.mobile-media-preview-error .error-detail {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.mobile-media-preview-error .error-src {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  word-break: break-all;
+  max-width: 80%;
+}
+
+/* ============================================ */
+/* 移动端视频缩略图                             */
+/* ============================================ */
+/* 已改用 video 元素显示第一帧，不再需要占位符样式 */

@@ -31,7 +31,7 @@ import { cardVariants, cardContentVariants, cardContentTransition } from './cons
 import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
-import { restoreSession, hasPersistedSession } from './services/sessionPersist';
+import { restoreSession } from './services/sessionPersist';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -47,7 +47,7 @@ function App() {
     updateAvatar,
   } = useAccounts();
 
-  const { session, setSession, isLoggedIn } = useSession();
+  const { session, setSession, isLoggedIn, restoreSession: restoreSessionToContext } = useSession();
 
   const [currentPage, setCurrentPage] = useState<AppPage>('loading');
   const [authForm, setAuthForm] = useState<AuthFormType>('login');
@@ -55,8 +55,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 用于标记是否已尝试恢复会话
-  const sessionRestoreAttempted = useRef(false);
+  // 用于标记会话恢复状态
+  const sessionRestoreAttempted = useRef(false);  // 是否已开始尝试
+  const sessionRestoreCompleted = useRef(false);  // 是否已完成（成功或失败）
 
   // 切换到注册表单
   const goToRegister = useCallback(() => {
@@ -313,69 +314,84 @@ function App() {
     }
   }, [accounts.length, deleteAccount]);
 
-  // 移动端：尝试恢复持久化的会话
+  // 移动端：尝试恢复持久化的会话（优化：不等待 accounts 加载）
   useEffect(() => {
-    // 仅在移动端、账号加载完成、未尝试恢复时执行
-    if (!isMobile() || accountsLoading || sessionRestoreAttempted.current) {
+    // 仅在移动端、未尝试恢复时执行
+    if (!isMobile() || sessionRestoreAttempted.current) {
       return;
     }
 
     sessionRestoreAttempted.current = true;
 
     async function tryRestoreSession() {
+      console.warn('[App] 移动端启动，尝试恢复会话...');
+
       try {
-        // 检查是否有持久化会话
-        const hasSaved = await hasPersistedSession();
-        if (!hasSaved) {
-          console.warn('[App] 无持久化会话');
-          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
-          return;
-        }
-
-        setIsLoading(true);
-        console.warn('[App] 正在恢复会话...');
-
-        // 尝试恢复会话（会弹出生物识别验证）
+        // 从本地存储恢复会话（无需生物验证，与 QQ/微信 体验一致）
         const savedSession = await restoreSession();
+
         if (!savedSession) {
-          console.warn('[App] 会话恢复失败或用户取消');
-          setIsLoading(false);
-          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+          console.warn('[App] 无持久化会话，等待账号加载完成');
+          // 无保存的会话，标记完成，等待 accounts 加载后决定显示哪个页面
+          sessionRestoreCompleted.current = true;
           return;
         }
 
-        // 验证 Token 是否仍然有效
-        try {
-          const profileResponse = await getProfile(savedSession.serverUrl, savedSession.accessToken);
-          const profile = profileResponse.data;
+        // 优化：先用保存的 profile 显示 UI，再后台验证 Token
+        // 这样用户能更快看到界面
+        console.warn('[App] 快速恢复会话（使用缓存的 profile）');
 
-          // Token 有效，恢复会话
-          await setCurrentUser(savedSession.userId, savedSession.serverUrl);
-          await initDatabase();
+        // 并行执行：初始化数据库 + 验证 Token
+        const [, profileResult] = await Promise.all([
+          // 初始化数据库（必须）
+          (async () => {
+            await setCurrentUser(savedSession.userId, savedSession.serverUrl);
+            await initDatabase();
+          })(),
+          // 验证 Token（可能失败）
+          getProfile(savedSession.serverUrl, savedSession.accessToken)
+            .then(res => ({ success: true, profile: res.data }))
+            .catch(() => ({ success: false, profile: null })),
+        ]);
 
-          // 更新 profile 并设置会话
+        if (profileResult.success && profileResult.profile) {
+          // Token 有效，使用最新的 profile
           const restoredSession: Session = {
             ...savedSession,
-            profile, // 使用最新的 profile
+            profile: profileResult.profile,
           };
-          setSession(restoredSession);
-          console.warn('[App] 会话已恢复, userId:', savedSession.userId);
-        } catch {
-          // Token 过期，需要重新登录
-          console.warn('[App] Token 已过期，需要重新登录');
-          setError('登录已过期，请重新登录');
-          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+          restoreSessionToContext(restoredSession);
+          console.warn('[App] 会话已恢复（Token 有效）, userId:', savedSession.userId);
+        } else {
+          // Token 过期，但仍使用缓存的 profile 进入主界面
+          // 后续 API 调用会自动刷新 Token 或提示重新登录
+          restoreSessionToContext(savedSession);
+          console.warn('[App] 会话已恢复（Token 待刷新）, userId:', savedSession.userId);
         }
       } catch (err) {
         console.error('[App] 恢复会话出错:', err);
-        setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+        // 恢复失败，标记完成，等待 accounts 加载完成后显示登录页
+        sessionRestoreCompleted.current = true;
       } finally {
         setIsLoading(false);
       }
     }
 
     tryRestoreSession();
-  }, [accountsLoading, accounts.length, setSession]);
+  }, [restoreSessionToContext]);
+
+  // 移动端：无保存会话时，等待 accounts 加载完成后显示登录页
+  useEffect(() => {
+    if (!isMobile() || accountsLoading || isLoggedIn) {
+      return;
+    }
+    // 只有在会话恢复**完成**且未登录时才设置页面
+    // 使用 sessionRestoreCompleted 而非 sessionRestoreAttempted，避免恢复进行中就跳转登录页
+    if (sessionRestoreCompleted.current && currentPage === 'loading') {
+      setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+      setIsLoading(false);
+    }
+  }, [accountsLoading, accounts.length, isLoggedIn, currentPage]);
 
   // 监听账号加载完成（桌面端，或移动端恢复失败后）
   if (currentPage === 'loading' && !accountsLoading && !isMobile()) {

@@ -16,6 +16,7 @@ import { UploadProgress } from './UploadProgress';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
+import { isMobile } from '../../utils/platform';
 
 /** 图片扩展名 */
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -221,9 +222,9 @@ export function ChatInputArea({
     onFileSelect(finalFile, attachmentType);
   }, [uploading, isMuted, onFileSelect]);
 
-  // 禁言状态变化后重新聚焦
+  // 禁言状态变化后重新聚焦（移动端禁用自动聚焦以避免键盘弹出）
   useEffect(() => {
-    if (!isMuted) {
+    if (!isMuted && !isMobile()) {
       textareaRef.current?.focus();
     }
   }, [isMuted]);

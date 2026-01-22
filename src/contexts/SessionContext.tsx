@@ -20,6 +20,8 @@ interface ExtendedSessionContextType extends SessionContextType {
   api: ApiClient | null;
   /** 更新会话中的 tokens */
   updateTokens: (accessToken: string, refreshToken: string) => void;
+  /** 恢复会话（不触发持久化，用于从存储恢复） */
+  restoreSession: (session: Session) => void;
 }
 
 // 创建上下文
@@ -40,6 +42,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     persistSession(newSession).catch((error) => {
       console.warn('[Session] 持久化失败:', error);
     });
+  }, []);
+
+  // 恢复会话（不触发持久化，用于从存储恢复已有会话）
+  const restoreSessionFromStorage = useCallback((restoredSession: Session) => {
+    sessionRef.current = restoredSession;
+    setSessionState(restoredSession);
+    // 不调用 persistSession，因为数据已经在存储中
   }, []);
 
   // 清除会话（同时移除会话锁和持久化数据）
@@ -115,7 +124,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     isLoggedIn: session !== null,
     api,
     updateTokens,
-  }), [session, setSession, clearSession, api, updateTokens]);
+    restoreSession: restoreSessionFromStorage,
+  }), [session, setSession, clearSession, api, updateTokens, restoreSessionFromStorage]);
 
   return (
     <SessionContext.Provider value={value}>
