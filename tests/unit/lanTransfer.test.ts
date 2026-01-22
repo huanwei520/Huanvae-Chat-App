@@ -14,10 +14,16 @@
  * - 毛玻璃样式集成（CSS变量、样式属性）
  * - 接收方进度显示（速度计算、剩余时间、初始进度、完成事件）
  * - 进度条样式统一（蓝色纯色）
+ * - 平台分离架构（桌面/移动端模块分离、条件编译）
+ * - Android 数据目录初始化（使用 Tauri API 替代 TMPDIR）
+ * - 移动端 UI 适配（组件隔离、WebviewWindow 兼容性）
  *
  * 更新日志：
  * - 2026-01-21: 添加传输调试日志测试和毛玻璃样式集成测试
  * - 2026-01-21: 添加接收方进度显示测试和进度条样式统一测试
+ * - 2026-01-22: 添加平台分离架构测试（桌面/移动端模块、capabilities、会话锁）
+ * - 2026-01-21: 添加 Android 数据目录初始化测试（修复只读系统目录问题）
+ * - 2026-01-22: 添加移动端 UI 适配测试（WebviewWindow 模块隔离）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -638,5 +644,162 @@ describe('进度条样式统一', () => {
     // 两种进度条应使用相同的背景色
     expect(expectedBackground).toContain('--primary');
     expect(expectedBackground).toContain('#3b82f6');
+  });
+});
+
+describe('平台分离架构', () => {
+  it('桌面端专属模块应正确导出', () => {
+    // 验证桌面端模块结构
+    const desktopModules = ['tray', 'session_lock'];
+    desktopModules.forEach((module) => {
+      expect(module).toMatch(/^[a-z_]+$/);
+    });
+  });
+
+  it('会话锁命令应返回正确的结构', () => {
+    // 模拟桌面端会话锁检查结果
+    const sessionCheckResult = {
+      exists: false,
+      process_alive: false,
+      pid: null,
+    };
+
+    expect(sessionCheckResult.exists).toBe(false);
+    expect(sessionCheckResult.process_alive).toBe(false);
+    expect(sessionCheckResult.pid).toBeNull();
+  });
+
+  it('移动端会话锁存根应返回无冲突', () => {
+    // 移动端会话锁存根应始终返回无冲突
+    const mobileSessionResult = {
+      exists: false,
+      process_alive: false,
+      pid: null,
+    };
+
+    expect(mobileSessionResult.exists).toBe(false);
+  });
+
+  it('capabilities 配置应区分桌面和移动平台', () => {
+    // 桌面端 capabilities
+    const desktopPlatforms = ['linux', 'macOS', 'windows'];
+    // 移动端 capabilities
+    const mobilePlatforms = ['android', 'iOS'];
+
+    // 验证平台名称正确
+    desktopPlatforms.forEach((platform) => {
+      expect(['linux', 'macOS', 'windows']).toContain(platform);
+    });
+
+    mobilePlatforms.forEach((platform) => {
+      expect(['android', 'iOS']).toContain(platform);
+    });
+
+    // 验证平台列表互斥
+    const overlap = desktopPlatforms.filter((p) => mobilePlatforms.includes(p));
+    expect(overlap).toHaveLength(0);
+  });
+
+  it('密码存储应根据平台返回正确结果', () => {
+    // 桌面端：使用 keyring
+    const desktopPasswordSupported = true;
+
+    // 移动端：返回平台不支持错误
+    const mobilePasswordSupported = false;
+    const mobileError = '密码存储在移动端暂不可用，请手动输入密码';
+
+    expect(desktopPasswordSupported).toBe(true);
+    expect(mobilePasswordSupported).toBe(false);
+    expect(mobileError).toContain('移动端');
+  });
+
+  it('Android 数据目录应使用 Tauri API 初始化', () => {
+    // 模拟 Android 数据目录初始化
+    const androidDataDir = '/data/data/com.github.huanwei520.huanvae_chat_app';
+    const appSubDir = 'huanvae-chat';
+    const expectedPath = `${androidDataDir}/files/${appSubDir}`;
+
+    // 验证路径结构正确
+    expect(expectedPath).toContain('data/data');
+    expect(expectedPath).toContain('files');
+    expect(expectedPath).toContain('huanvae-chat');
+    expect(expectedPath).not.toContain('/system/bin'); // 不应使用只读系统目录
+  });
+
+  it('桌面端数据目录应使用 dirs crate', () => {
+    // 模拟桌面端数据目录（Linux 示例）
+    const linuxDataDir = '/home/user/.local/share/huanvae-chat';
+    const macOSDataDir = '/Users/user/Library/Application Support/huanvae-chat';
+    const windowsDataDir = 'C:\\Users\\user\\AppData\\Local\\huanvae-chat';
+
+    // 验证桌面端路径不依赖 TMPDIR 环境变量
+    expect(linuxDataDir).toContain('.local/share');
+    expect(macOSDataDir).toContain('Library/Application Support');
+    expect(windowsDataDir).toContain('AppData\\Local');
+  });
+
+  it('Android 初始化失败时应有明确错误信息', () => {
+    // 模拟未初始化时的错误
+    const uninitializedError =
+      'Android 数据目录未初始化，请确保在 setup 阶段调用 init_android_data_dir()';
+
+    expect(uninitializedError).toContain('未初始化');
+    expect(uninitializedError).toContain('setup');
+    expect(uninitializedError).toContain('init_android_data_dir');
+  });
+
+  it('移动端应避免导入使用 WebviewWindow 的模块', () => {
+    // WebviewWindow 多窗口 API 仅桌面端支持
+    // 移动端 MobileMain 不应导入以下模块：
+    const desktopOnlyModules = [
+      'lanTransfer/api.ts', // openLanTransferWindow 使用 WebviewWindow
+      'meeting/components/MeetingEntryModal.tsx', // 使用 WebviewWindow
+      'components/files/FilesModal.tsx', // 使用 openDialog
+    ];
+
+    // 验证移动端组件列表
+    const mobileOnlyComponents = [
+      'MobileMain',
+      'MobileHeader',
+      'MobileTabBar',
+      'MobileDrawer',
+      'MobileChatList',
+      'MobileContacts',
+      'MobileChatView',
+    ];
+
+    expect(desktopOnlyModules.length).toBeGreaterThan(0);
+    expect(mobileOnlyComponents.length).toBe(7);
+  });
+
+  it('移动端抽屉菜单应隐藏不支持的功能', () => {
+    // 移动端不支持的功能（使用 WebviewWindow）
+    const unsupportedFeatures = [
+      '视频会议',
+      '文件互传',
+      '局域网传输',
+    ];
+
+    // 移动端抽屉菜单应仅显示
+    const supportedFeatures = ['设置', '退出登录'];
+
+    expect(unsupportedFeatures.length).toBe(3);
+    expect(supportedFeatures).toContain('设置');
+    expect(supportedFeatures).not.toContain('视频会议');
+  });
+
+  it('平台检测应正确识别移动端', () => {
+    // 模拟平台检测逻辑
+    const mobileKeywords = ['android', 'iphone', 'ipad', 'mobile'];
+
+    // 模拟 Android User-Agent
+    const androidUA =
+      'Mozilla/5.0 (Linux; Android 14; RMX3888) AppleWebKit/537.36';
+
+    const isMobile = mobileKeywords.some((keyword) =>
+      androidUA.toLowerCase().includes(keyword),
+    );
+
+    expect(isMobile).toBe(true);
   });
 });

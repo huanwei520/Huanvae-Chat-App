@@ -1,0 +1,12 @@
+/**
+ * 移动端样式入口
+ *
+ * 统一导入所有移动端样式文件
+ */
+
+@import './main.css';
+@import './header.css';
+@import './tab-bar.css';
+@import './drawer.css';
+@import './contacts.css';
+@import './chat-view.css';

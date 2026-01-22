@@ -12,7 +12,7 @@
  * - 所有 API 请求自动使用当前会话的 serverUrl 和 token
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccounts } from './hooks/useAccounts';
 import { useSession } from './contexts/SessionContext';
@@ -20,15 +20,18 @@ import { AccountSelector } from './pages/AccountSelector';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Main } from './pages/Main';
+import { MobileMain } from './pages/mobile';
 import { LoadingOverlay } from './components/common/LoadingOverlay';
 import { ErrorToast } from './components/common/ErrorToast';
 import { login, register, getProfile } from './api/auth';
 import { checkAndHandleSessionConflict, createSessionLock } from './services/sessionLock';
 import { getDeviceInfo } from './services/deviceInfo';
+import { isMobile } from './utils/platform';
 import { cardVariants, cardContentVariants, cardContentTransition } from './constants/authAnimations';
 import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
+import { restoreSession, hasPersistedSession } from './services/sessionPersist';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -51,6 +54,9 @@ function App() {
   const [formDirection, setFormDirection] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 用于标记是否已尝试恢复会话
+  const sessionRestoreAttempted = useRef(false);
 
   // 切换到注册表单
   const goToRegister = useCallback(() => {
@@ -307,14 +313,78 @@ function App() {
     }
   }, [accounts.length, deleteAccount]);
 
-  // 监听账号加载完成
-  if (currentPage === 'loading' && !accountsLoading) {
+  // 移动端：尝试恢复持久化的会话
+  useEffect(() => {
+    // 仅在移动端、账号加载完成、未尝试恢复时执行
+    if (!isMobile() || accountsLoading || sessionRestoreAttempted.current) {
+      return;
+    }
+
+    sessionRestoreAttempted.current = true;
+
+    async function tryRestoreSession() {
+      try {
+        // 检查是否有持久化会话
+        const hasSaved = await hasPersistedSession();
+        if (!hasSaved) {
+          console.warn('[App] 无持久化会话');
+          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+          return;
+        }
+
+        setIsLoading(true);
+        console.warn('[App] 正在恢复会话...');
+
+        // 尝试恢复会话（会弹出生物识别验证）
+        const savedSession = await restoreSession();
+        if (!savedSession) {
+          console.warn('[App] 会话恢复失败或用户取消');
+          setIsLoading(false);
+          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+          return;
+        }
+
+        // 验证 Token 是否仍然有效
+        try {
+          const profileResponse = await getProfile(savedSession.serverUrl, savedSession.accessToken);
+          const profile = profileResponse.data;
+
+          // Token 有效，恢复会话
+          await setCurrentUser(savedSession.userId, savedSession.serverUrl);
+          await initDatabase();
+
+          // 更新 profile 并设置会话
+          const restoredSession: Session = {
+            ...savedSession,
+            profile, // 使用最新的 profile
+          };
+          setSession(restoredSession);
+          console.warn('[App] 会话已恢复, userId:', savedSession.userId);
+        } catch {
+          // Token 过期，需要重新登录
+          console.warn('[App] Token 已过期，需要重新登录');
+          setError('登录已过期，请重新登录');
+          setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+        }
+      } catch (err) {
+        console.error('[App] 恢复会话出错:', err);
+        setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    tryRestoreSession();
+  }, [accountsLoading, accounts.length, setSession]);
+
+  // 监听账号加载完成（桌面端，或移动端恢复失败后）
+  if (currentPage === 'loading' && !accountsLoading && !isMobile()) {
     setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
   }
 
-  // 如果已登录，显示主界面
+  // 如果已登录，根据平台显示对应主界面
   if (isLoggedIn && session) {
-    return <Main />;
+    return isMobile() ? <MobileMain /> : <Main />;
   }
 
   // 加载中显示
