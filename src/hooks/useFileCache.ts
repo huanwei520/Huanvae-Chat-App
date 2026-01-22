@@ -17,16 +17,19 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useApi } from '../contexts/SessionContext';
 import { useFileCacheStore, selectDownloadTask } from '../stores/fileCacheStore';
 import {
   getFileSource,
+  getVideoSource,
   triggerBackgroundDownload,
   getFileTypeFromMime,
   startProgressListener,
+  fixAssetUrl,
   type FileSourceResult,
 } from '../services/fileCache';
+import { isMobile } from '../utils/platform';
 
 // ============================================
 // 调试日志
@@ -153,11 +156,14 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       // 启动进度监听器（全局只需启动一次）
       startProgressListener();
 
-      logCache('加载文件源', { fileUuid, fileHash, urlType, fileType });
-      const source = await getFileSource(api, fileUuid, fileHash, urlType, {
-        friendId,
-        fileType,
-      });
+      logCache('加载文件源', { fileUuid, fileHash, urlType, fileType, isMobile: isMobile() });
+
+      // 移动端视频使用专门的 getVideoSource（本地 HTTP 服务器）
+      // 解决 Android WebView 无法通过 asset:// 播放视频的问题
+      const source = (fileType === 'video' && isMobile())
+        ? await getVideoSource(api, fileUuid, fileHash, urlType, { friendId, fileType })
+        : await getFileSource(api, fileUuid, fileHash, urlType, { friendId, fileType });
+
       setResult(source);
 
       logCache('文件源加载完成', {
@@ -189,15 +195,60 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       logCache('下载完成，更新为本地路径', {
         fileHash,
         localPath: downloadTask.localPath,
+        fileType,
+        isMobile: isMobile(),
       });
-      setResult({
-        src: convertFileSrc(downloadTask.localPath),
-        isLocal: true,
-        fileHash: fileHash ?? undefined,
-        localPath: downloadTask.localPath,
-      });
+
+      // 移动端视频：使用本地 HTTP 服务器 URL
+      // 解决 Android WebView 无法通过 asset:// 播放视频的问题
+      const localPath = downloadTask.localPath; // 保存到变量供闭包使用
+      if (fileType === 'video' && isMobile() && fileHash) {
+        invoke<string | null>('get_local_video_url', { fileHash })
+          .then((localVideoUrl) => {
+            if (localVideoUrl) {
+              logCache('使用移动端本地视频服务器', { localVideoUrl });
+              setResult({
+                src: localVideoUrl,
+                isLocal: true,
+                fileHash: fileHash ?? undefined,
+                localPath,
+              });
+            } else {
+              // 回退到 asset 协议（不太可能成功，但作为备选）
+              const rawSrc = convertFileSrc(localPath);
+              const src = fixAssetUrl(rawSrc);
+              setResult({
+                src,
+                isLocal: true,
+                fileHash: fileHash ?? undefined,
+                localPath,
+              });
+            }
+          })
+          .catch(() => {
+            // 出错时回退到 asset 协议
+            const rawSrc = convertFileSrc(localPath);
+            const src = fixAssetUrl(rawSrc);
+            setResult({
+              src,
+              isLocal: true,
+              fileHash: fileHash ?? undefined,
+              localPath,
+            });
+          });
+      } else {
+        // 桌面端或非视频文件：使用 asset 协议
+        const rawSrc = convertFileSrc(localPath);
+        const src = fixAssetUrl(rawSrc);
+        setResult({
+          src,
+          isLocal: true,
+          fileHash: fileHash ?? undefined,
+          localPath,
+        });
+      }
     }
-  }, [downloadTask?.status, downloadTask?.localPath, fileHash]);
+  }, [downloadTask?.status, downloadTask?.localPath, fileHash, fileType]);
 
   // 手动触发缓存（使用 ref 获取最新值）
   const cacheFile = useCallback(async () => {

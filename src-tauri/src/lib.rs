@@ -44,6 +44,12 @@ mod user_data;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop;
 
+// ============================================
+// 移动专属模块 (Android/iOS)
+// ============================================
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod mobile_media_server;
+
 use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
 use storage::SavedAccount;
 
@@ -181,6 +187,28 @@ fn activate_existing_instance(pid: u32) -> Result<(), String> {
 #[tauri::command(rename_all = "camelCase")]
 fn activate_existing_instance(_pid: u32) -> Result<(), String> {
     Ok(())
+}
+
+// ============================================================================
+// 移动端本地视频 URL Commands
+// ============================================================================
+
+/// 获取本地视频的 HTTP URL（移动端）
+///
+/// 如果视频已缓存到本地，返回本地服务器 URL；否则返回 None
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+async fn get_local_video_url(file_hash: String) -> Option<String> {
+    mobile_media_server::get_local_video_url(file_hash).await
+}
+
+/// 获取本地视频的 HTTP URL（桌面端存根）
+///
+/// 桌面端使用 asset:// 协议，不需要此功能
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+async fn get_local_video_url(_file_hash: String) -> Option<String> {
+    None
 }
 
 // ============================================================================
@@ -482,6 +510,7 @@ pub fn run() {
     // 移动端：不包含 updater 和 window-state 插件
     // - keystore: 存储密码
     // - biometric: 生物识别 + 会话持久化存储
+    // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
     // 要求 Android API 28+ (minSdk 已提升)
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = tauri::Builder::default()
@@ -493,7 +522,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_keystore::init())
-        .plugin(tauri_plugin_biometric::init());
+        .plugin(tauri_plugin_biometric::init())
+        .plugin(tauri_plugin_store::Builder::default().build());
 
     builder
         .setup(|app| {
@@ -509,12 +539,21 @@ pub fn run() {
                 eprintln!("[Tray] 初始化托盘失败: {}", e);
             }
 
-            // Android：初始化应用数据目录
+            // Android/iOS：注册返回按钮监听插件（必须在 setup 中注册）
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_mobile_onbackpressed_listener::init())?;
+            }
+
+            // Android：初始化应用数据目录 + 启动本地媒体服务器
             #[cfg(target_os = "android")]
             {
                 use tauri::Manager;
                 match app.path().app_data_dir() {
                     Ok(data_dir) => {
+                        let data_dir_str = data_dir.to_string_lossy().to_string();
+
                         // 初始化 storage 模块的数据目录
                         if let Err(e) = storage::init_android_data_dir(data_dir.clone()) {
                             eprintln!("[Storage] Android 数据目录初始化失败: {}", e);
@@ -523,6 +562,21 @@ pub fn run() {
                         if let Err(e) = user_data::init_android_app_root(data_dir) {
                             eprintln!("[UserData] Android 数据根目录初始化失败: {}", e);
                         }
+
+                        // 启动本地媒体服务器（后台异步）
+                        // 用于解决 Android WebView 无法通过 asset:// 播放视频的问题
+                        // 使用 tauri::async_runtime::spawn 而不是 tokio::spawn
+                        // 因为 setup 函数不在 Tokio 异步上下文中
+                        tauri::async_runtime::spawn(async move {
+                            match mobile_media_server::start_server(data_dir_str).await {
+                                Ok(port) => {
+                                    println!("[MobileMediaServer] 服务器已启动，端口: {}", port);
+                                }
+                                Err(e) => {
+                                    eprintln!("[MobileMediaServer] 服务器启动失败: {}", e);
+                                }
+                            }
+                        });
                     }
                     Err(e) => {
                         eprintln!("[Storage] 获取 Android app_data_dir 失败: {}", e);
@@ -663,6 +717,8 @@ pub fn run() {
             permissions::open_media_permission_settings,
             permissions::get_media_permission_guide,
             permissions::can_open_permission_settings,
+            // 移动端本地视频 URL
+            get_local_video_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

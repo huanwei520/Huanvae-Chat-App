@@ -65,7 +65,7 @@ export function MobileChatList({
         type: 'friend' as const,
         name: friend.friend_nickname,
         avatarUrl: friend.friend_avatar_url,
-        lastMessage: unread?.last_message ?? localPreview?.lastMessage ?? null,
+        lastMessage: unread?.last_message_preview ?? localPreview?.lastMessage ?? null,
         lastMessageTime: unread?.last_message_time ?? localPreview?.lastMessageTime ?? null,
         unreadCount: unread?.unread_count ?? 0,
         data: friend,
@@ -89,7 +89,7 @@ export function MobileChatList({
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
         lastMessage:
-          unread?.last_message ??
+          unread?.last_message_preview ??
           localPreview?.lastMessage ??
           group.last_message_content ??
           null,
@@ -194,11 +194,11 @@ export function MobileChatList({
             transition={{ duration: 0.2 }}
           >
             {/* 头像 */}
-            <div className="mobile-contact-avatar">
+            <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
               {card.type === 'friend' ? (
-                <FriendAvatar friend={card.data as Friend} size={44} />
+                <FriendAvatar friend={card.data as Friend} />
               ) : (
-                <GroupAvatar group={card.data as Group} size={44} />
+                <GroupAvatar group={card.data as Group} />
               )}
             </div>
 

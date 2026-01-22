@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { isMobile } from '../utils/platform';
 
 // ============================================
 // 类型定义
@@ -63,6 +64,7 @@ export function useNotificationSounds() {
   }, [loadSounds]);
 
   // 播放提示音
+  // 平台差异：桌面端使用 convertFileSrc，Android 使用本地 HTTP 服务器
   const playSound = useCallback(async (name: string, volume: number = 70) => {
     try {
       // 停止当前播放
@@ -71,9 +73,16 @@ export function useNotificationSounds() {
         audioRef.current = null;
       }
 
-      // 获取文件路径
-      const path = await invoke<string>('get_notification_sound_path', { name });
-      const src = convertFileSrc(path);
+      let src: string;
+
+      if (isMobile()) {
+        // Android：使用本地 HTTP 服务器
+        src = `http://127.0.0.1:9527/audio/${name}`;
+      } else {
+        // 桌面端：获取文件路径并转换
+        const path = await invoke<string>('get_notification_sound_path', { name });
+        src = convertFileSrc(path);
+      }
 
       // 创建新的音频
       const audio = new Audio(src);

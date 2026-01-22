@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@impierce/tauri-plugin-keystore": "2.1.0-alpha.1",
+    "@kingsword/tauri-plugin-mobile-onbackpressed-listener": "jsr:^2.0.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-biometric": "^2",
     "@tauri-apps/plugin-dialog": "^2.4.2",
@@ -30,6 +31,7 @@
     "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-sql": "^2.3.1",
+    "@tauri-apps/plugin-store": "^2.4.2",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "@tauri-apps/plugin-window-state": "^2.4.1",
     "culori": "^4.0.2",

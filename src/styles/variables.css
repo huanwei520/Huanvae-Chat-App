@@ -256,12 +256,15 @@
   /* ============================================
      毛玻璃效果 - Glassmorphism
      ============================================ */
+  --blur-xs: blur(6px);     /* 微模糊 */
   --blur-sm: blur(10px);    /* 轻度模糊 */
   --blur-md: blur(12px);    /* 中度模糊 */
   --blur-lg: blur(16px);    /* 重度模糊 */
   --blur-xl: blur(24px);    /* 超重模糊 */
   --saturate-normal: saturate(150%);  /* 普通饱和度 */
   --saturate-high: saturate(180%);    /* 高饱和度 */
+  /* 组合毛玻璃效果 */
+  --glass-backdrop: blur(20px) saturate(180%);  /* 标准毛玻璃效果 */
   
   /* ============================================
      过渡动画 - Transitions

@@ -3602,6 +3602,7 @@
   justify-content: center;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
+  z-index: 5;  /* 确保在视频上方，但在下载进度下方 */
 }
 
 .video-play-overlay svg {

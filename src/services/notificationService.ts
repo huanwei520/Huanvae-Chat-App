@@ -10,6 +10,11 @@
  * - 新消息通知
  * - 系统事件通知（好友请求、群邀请等）
  *
+ * ## 平台差异
+ *
+ * - **桌面端**：使用 HTML Audio + convertFileSrc 播放提示音
+ * - **Android**：使用本地 HTTP 服务器播放提示音
+ *
  * 注意事项：
  * - 当前聊天窗口的消息不发送通知
  * - 通知内容会根据消息类型显示不同文本
@@ -23,6 +28,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
+import { isMobile } from '../utils/platform';
 
 // ============================================
 // 提示音播放
@@ -33,6 +39,10 @@ let currentAudio: HTMLAudioElement | null = null;
 
 /**
  * 播放消息提示音
+ *
+ * 平台差异：
+ * - 桌面端：使用 convertFileSrc + HTML Audio
+ * - Android：使用本地 HTTP 服务器（127.0.0.1:9527）
  */
 export async function playNotificationSound(): Promise<void> {
   // 获取设置
@@ -50,13 +60,19 @@ export async function playNotificationSound(): Promise<void> {
       currentAudio = null;
     }
 
-    // 获取提示音文件路径
-    const path = await invoke<string>('get_notification_sound_path', {
-      name: settings.soundName,
-    });
+    let src: string;
 
-    // 转换为可访问的 URL
-    const src = convertFileSrc(path);
+    if (isMobile()) {
+      // Android：使用本地 HTTP 服务器
+      // 服务器端口固定为 9527（与视频服务共用）
+      src = `http://127.0.0.1:9527/audio/${settings.soundName}`;
+    } else {
+      // 桌面端：获取提示音文件路径并转换
+      const path = await invoke<string>('get_notification_sound_path', {
+        name: settings.soundName,
+      });
+      src = convertFileSrc(path);
+    }
 
     // 创建并播放音频
     const audio = new Audio(src);

@@ -23,13 +23,15 @@ import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { initWindowSize } from './services/windowSize';
+import { isMobile } from './utils/platform';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
 const pathname = window.location.pathname;
 
-// 主窗口初始化窗口大小
-if (pathname === '/' || pathname === '') {
+// 主窗口初始化窗口大小（仅桌面端）
+// 移动端不需要 window-state 插件，跳过以加快启动速度
+if ((pathname === '/' || pathname === '') && !isMobile()) {
   initWindowSize().catch((err) => {
     console.error('[Main] 窗口大小初始化失败:', err);
   });

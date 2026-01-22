@@ -1,5 +1,8 @@
 /**
  * 移动端抽屉侧边栏样式
+ *
+ * 使用与桌面端一致的毛玻璃效果变量
+ * 颜色通过 CSS 变量统一管理，支持主题切换
  */
 
 .mobile-drawer {
@@ -9,33 +12,43 @@
   width: 75%;
   max-width: 320px;
   height: 100%;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
+  /* 毛玻璃背景 - 与弹窗一致的 95% 不透明度 */
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
   z-index: 101;
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);
   transition: transform 0.3s ease;
   box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+  border-right: 1px solid var(--glass-border);
 }
 
 .mobile-drawer.open {
   transform: translateX(0);
 }
 
-/* 用户信息区域 */
+/* 用户信息区域 - 与弹窗一致的毛玻璃效果 */
 .mobile-drawer-profile {
-  padding: 48px 20px 24px;
+  padding: calc(48px + env(safe-area-inset-top, 0px)) 20px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  /* 毛玻璃渐变背景 - 与弹窗一致 */
   background: linear-gradient(
     135deg,
-    var(--color-primary-2) 0%,
-    var(--color-primary-3) 100%
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
   );
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border-bottom: 1px solid var(--glass-border-subtle);
 }
 
 .mobile-drawer-avatar {
@@ -43,9 +56,10 @@
   height: 72px;
   border-radius: 50%;
   overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.8);
+  border: 3px solid var(--glass-border-light);
   cursor: pointer;
   transition: transform 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .mobile-drawer-avatar:active {
@@ -72,23 +86,40 @@
 /* 菜单列表 */
 .mobile-drawer-menu {
   flex: 1;
-  padding: 16px 0;
+  padding: 16px 12px;
   overflow-y: auto;
 }
 
+/* 菜单项 - 毛玻璃按钮效果 */
 .mobile-drawer-item {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 24px;
+  padding: 14px 16px;
+  margin: 4px 0;
   color: var(--text-primary);
   font-size: 15px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  border-radius: 12px;
+  /* 毛玻璃效果 - 与弹窗按钮一致 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-70) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid var(--glass-border-subtle);
+  transition: all 0.2s ease;
 }
 
 .mobile-drawer-item:active {
-  background: rgba(0, 0, 0, 0.05);
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  transform: scale(0.98);
 }
 
 .mobile-drawer-item svg {
@@ -100,17 +131,18 @@
 /* 分割线 */
 .mobile-drawer-divider {
   height: 1px;
-  background: rgba(0, 0, 0, 0.06);
-  margin: 8px 24px;
+  background: var(--glass-border-subtle);
+  margin: 8px 16px;
 }
 
-/* 底部退出按钮 */
+/* 底部退出按钮区域 */
 .mobile-drawer-footer {
-  padding: 16px 24px;
+  padding: 16px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--glass-border-subtle);
 }
 
+/* 退出按钮 - 毛玻璃效果 */
 .mobile-drawer-logout {
   display: flex;
   align-items: center;
@@ -118,18 +150,30 @@
   gap: 8px;
   width: 100%;
   padding: 12px;
-  background: rgba(255, 59, 48, 0.1);
-  border: none;
+  /* 红色毛玻璃背景 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 59, 48, 0.15) 0%,
+    rgba(255, 59, 48, 0.1) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid rgba(255, 59, 48, 0.3);
   border-radius: 12px;
   color: #ff3b30;
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .mobile-drawer-logout:active {
-  background: rgba(255, 59, 48, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 59, 48, 0.25) 0%,
+    rgba(255, 59, 48, 0.2) 100%
+  );
+  transform: scale(0.98);
 }
 
 .mobile-drawer-logout svg {

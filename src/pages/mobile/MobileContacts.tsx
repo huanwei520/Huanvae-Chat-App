@@ -53,10 +53,8 @@ export function MobileContacts({
       return friends;
     }
     const query = searchQuery.toLowerCase();
-    return friends.filter(
-      (f) =>
-        f.friend_nickname.toLowerCase().includes(query) ||
-        (f.remark_name && f.remark_name.toLowerCase().includes(query)),
+    return friends.filter((f) =>
+      f.friend_nickname.toLowerCase().includes(query),
     );
   }, [friends, searchQuery]);
 
@@ -129,18 +127,13 @@ export function MobileContacts({
                     className="mobile-contact-card"
                     onClick={() => handleFriendClick(friend)}
                   >
-                    <div className="mobile-contact-avatar">
-                      <FriendAvatar friend={friend} size={44} />
+                    <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+                      <FriendAvatar friend={friend} />
                     </div>
                     <div className="mobile-contact-info">
                       <div className="mobile-contact-name">
-                        {friend.remark_name || friend.friend_nickname}
+                        {friend.friend_nickname}
                       </div>
-                      {friend.remark_name && (
-                        <div className="mobile-contact-role">
-                          昵称: {friend.friend_nickname}
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))
@@ -189,14 +182,14 @@ export function MobileContacts({
                     className="mobile-contact-card"
                     onClick={() => handleGroupClick(group)}
                   >
-                    <div className="mobile-contact-avatar">
-                      <GroupAvatar group={group} size={44} />
+                    <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+                      <GroupAvatar group={group} />
                     </div>
                     <div className="mobile-contact-info">
                       <div className="mobile-contact-name">{group.group_name}</div>
-                      {getRoleLabel(group.user_role) && (
+                      {getRoleLabel(group.role) && (
                         <div className="mobile-contact-role">
-                          {getRoleLabel(group.user_role)}
+                          {getRoleLabel(group.role)}
                         </div>
                       )}
                     </div>

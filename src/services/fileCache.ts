@@ -48,6 +48,46 @@ import {
   createPresignedUrlErrorContext,
 } from './diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
+import { isMobile } from '../utils/platform';
+
+// ============================================
+// Android asset URL 修复
+// ============================================
+
+/**
+ * 修复 Android 上 convertFileSrc 返回的 URL
+ *
+ * 问题：Tauri 的 convertFileSrc 在 Android 上返回的 URL 路径被 URL 编码
+ * 例如：http://asset.localhost/%2Fdata%2Fuser%2F0%2F...
+ * 应该是：http://asset.localhost/data/user/0/...
+ *
+ * 这导致 video/audio 元素报告 MEDIA_ERR_SRC_NOT_SUPPORTED 错误
+ */
+export function fixAssetUrl(url: string): string {
+  // 只在移动端处理
+  if (!isMobile()) {
+    return url;
+  }
+
+  // 检查是否是 asset 协议 URL（Android 上是 http://asset.localhost/...）
+  if (url.startsWith('http://asset.localhost/')) {
+    // 提取路径部分并解码
+    const prefix = 'http://asset.localhost/';
+    const encodedPath = url.substring(prefix.length);
+    const decodedPath = decodeURIComponent(encodedPath);
+    return prefix + decodedPath;
+  }
+
+  // 桌面端格式 asset://localhost/...
+  if (url.startsWith('asset://localhost/')) {
+    const prefix = 'asset://localhost/';
+    const encodedPath = url.substring(prefix.length);
+    const decodedPath = decodeURIComponent(encodedPath);
+    return prefix + decodedPath;
+  }
+
+  return url;
+}
 
 // ============================================
 // 类型定义
@@ -257,8 +297,11 @@ export async function getFileSource(
   if (fileHash) {
     const localPath = await getCachedFilePath(fileHash);
     if (localPath) {
+      // 使用 fixAssetUrl 修复 Android 上的 URL 编码问题
+      const rawSrc = convertFileSrc(localPath);
+      const src = fixAssetUrl(rawSrc);
       return {
-        src: convertFileSrc(localPath),
+        src,
         isLocal: true,
         fileHash,
         localPath,
@@ -267,6 +310,68 @@ export async function getFileSource(
   }
 
   // 2. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
+  const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
+  return {
+    src: url,
+    isLocal: false,
+    fileHash: fileHash ?? undefined,
+  };
+}
+
+/**
+ * 获取移动端本地视频的 HTTP URL
+ *
+ * 调用 Rust 端命令，如果视频已缓存，返回本地服务器 URL
+ */
+async function getLocalVideoUrl(fileHash: string): Promise<string | null> {
+  if (!isMobile()) {
+    return null;
+  }
+  try {
+    const url = await invoke<string | null>('get_local_video_url', { fileHash });
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 获取视频文件源（移动端优化版本）
+ *
+ * 移动端问题：Android WebView 无法通过 asset:// 协议播放本地视频
+ * 解决方案：使用 Rust 端本地 HTTP 服务器提供视频文件
+ *
+ * @param api - API 客户端
+ * @param fileUuid - 文件 UUID
+ * @param fileHash - 文件哈希（用于缓存查找）
+ * @param urlType - URL 类型
+ * @param options - 额外选项
+ */
+export async function getVideoSource(
+  api: ApiClient,
+  fileUuid: string,
+  fileHash: string | null | undefined,
+  urlType: 'user' | 'friend' | 'group' = 'user',
+  options?: {
+    friendId?: string;
+    fileType?: 'image' | 'video' | 'document';
+  },
+): Promise<FileSourceResult> {
+  // 1. 移动端：优先尝试本地 HTTP 服务器
+  if (isMobile() && fileHash) {
+    const localVideoUrl = await getLocalVideoUrl(fileHash);
+    if (localVideoUrl) {
+      // eslint-disable-next-line no-console
+      console.log('[FileCache] 使用移动端本地视频服务器:', localVideoUrl);
+      return {
+        src: localVideoUrl,
+        isLocal: true,
+        fileHash,
+      };
+    }
+  }
+
+  // 2. 无本地缓存或桌面端，获取预签名 URL
   const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
   return {
     src: url,

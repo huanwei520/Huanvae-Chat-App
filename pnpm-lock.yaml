@@ -11,6 +11,9 @@ importers:
       '@impierce/tauri-plugin-keystore':
         specifier: 2.1.0-alpha.1
         version: 2.1.0-alpha.1
+      '@kingsword/tauri-plugin-mobile-onbackpressed-listener':
+        specifier: jsr:^2.0.1
+        version: '@jsr/kingsword__tauri-plugin-mobile-onbackpressed-listener@2.0.1'
       '@tauri-apps/api':
         specifier: ^2
         version: 2.9.1
@@ -41,6 +44,9 @@ importers:
       '@tauri-apps/plugin-sql':
         specifier: ^2.3.1
         version: 2.3.1
+      '@tauri-apps/plugin-store':
+        specifier: ^2.4.2
+        version: 2.4.2
       '@tauri-apps/plugin-updater':
         specifier: ^2.9.0
         version: 2.9.0
@@ -559,6 +565,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
+  '@jsr/kingsword__tauri-plugin-mobile-onbackpressed-listener@2.0.1':
+    resolution: {integrity: sha512-ar5kx47BAaRrQf5HRtG2b1BTQk6WXhwuZOzGHQw6y1EEgDJnGuWw8D6xNMXIl6iHfoMo9qS3qPLbhA0fDlH8/g==, tarball: https://npm.jsr.io/~/11/@jsr/kingsword__tauri-plugin-mobile-onbackpressed-listener/2.0.1.tgz}
+
   '@material-tailwind/react@2.1.10':
     resolution: {integrity: sha512-xGU/mLDKDBp/qZ8Dp2XR7fKcTpDuFeZEBqoL9Bk/29kakKxNxjUGYSRHEFLsyOFf4VIhU6WGHdIS7tOA3QGJHA==}
     peerDependencies:
@@ -1015,6 +1024,9 @@ packages:
 
   '@tauri-apps/plugin-sql@2.3.1':
     resolution: {integrity: sha512-iNgHnFIR+jRkx9INKVKepzMlxXtNkJUaWuhagFjT4dOttPaNyRnVHgwTjpqZhyVjiklDh2UdEPAJkQKiCPAekw==}
+
+  '@tauri-apps/plugin-store@2.4.2':
+    resolution: {integrity: sha512-0ClHS50Oq9HEvLPhNzTNFxbWVOqoAp3dRvtewQBeqfIQ0z5m3JRnOISIn2ZVPCrQC0MyGyhTS9DWhHjpigQE7A==}
 
   '@tauri-apps/plugin-updater@2.9.0':
     resolution: {integrity: sha512-j++sgY8XpeDvzImTrzWA08OqqGqgkNyxczLD7FjNJJx/uXxMZFz5nDcfkyoI/rCjYuj2101Tci/r/HFmOmoxCg==}
@@ -3605,6 +3617,10 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@jsr/kingsword__tauri-plugin-mobile-onbackpressed-listener@2.0.1':
+    dependencies:
+      '@tauri-apps/api': 2.9.1
+
   '@material-tailwind/react@2.1.10(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@floating-ui/react': 0.19.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -3933,6 +3949,10 @@ snapshots:
       '@tauri-apps/api': 2.9.1
 
   '@tauri-apps/plugin-sql@2.3.1':
+    dependencies:
+      '@tauri-apps/api': 2.9.1
+
+  '@tauri-apps/plugin-store@2.4.2':
     dependencies:
       '@tauri-apps/api': 2.9.1
 

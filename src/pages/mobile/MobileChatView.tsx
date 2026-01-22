@@ -46,7 +46,6 @@ interface MobileChatViewProps {
   groupMessages: GroupMessage[];
   isLoading: boolean;
   isSending: boolean;
-  totalMessageCount: number;
 
   // 加载更多
   hasMore: boolean;
@@ -91,7 +90,7 @@ interface MobileChatViewProps {
 
 function getChatTitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'friend') {
-    return chatTarget.data.remark_name || chatTarget.data.friend_nickname || '好友';
+    return chatTarget.data.friend_nickname || '好友';
   }
   return chatTarget.data.group_name || '群聊';
 }
@@ -103,7 +102,6 @@ export function MobileChatView({
   groupMessages,
   isLoading,
   isSending: _isSending,
-  totalMessageCount,
   hasMore,
   loadingMore,
   onLoadMore,
@@ -178,7 +176,6 @@ export function MobileChatView({
             messages={friendMessages}
             session={session}
             friend={friend}
-            totalMessageCount={totalMessageCount}
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={onLoadMore}
@@ -186,8 +183,8 @@ export function MobileChatView({
             selectedMessages={selectedMessages}
             onToggleSelect={onToggleSelect}
             onEnterMultiSelect={onEnterMultiSelect}
-            onRecallMessage={onRecallMessage}
-            onDeleteMessage={onDeleteMessage}
+            onRecall={onRecallMessage}
+            onDelete={onDeleteMessage}
           />
         )}
         {chatTarget.type === 'group' && group && (
@@ -195,9 +192,9 @@ export function MobileChatView({
             key={`group-${chatKey}`}
             loading={isLoading}
             messages={groupMessages}
-            session={session}
-            group={group}
-            totalMessageCount={totalMessageCount}
+            currentUserId={session.userId}
+            userRole={group.role}
+            groupId={group.group_id}
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={onLoadMore}
@@ -205,8 +202,8 @@ export function MobileChatView({
             selectedMessages={selectedMessages}
             onToggleSelect={onToggleSelect}
             onEnterMultiSelect={onEnterMultiSelect}
-            onRecallMessage={onRecallMessage}
-            onDeleteMessage={onDeleteMessage}
+            onRecall={onRecallMessage}
+            onDelete={onDeleteMessage}
           />
         )}
       </div>
@@ -216,11 +213,12 @@ export function MobileChatView({
         {isMultiSelectMode ? (
           <MultiSelectActionBar
             selectedCount={selectedMessages.size}
-            canRecall={canBatchRecall}
+            totalCount={chatTarget.type === 'friend' ? friendMessages.length : groupMessages.length}
+            canBatchRecall={canBatchRecall}
             onSelectAll={onSelectAll}
             onDeselectAll={onDeselectAll}
-            onDelete={onBatchDelete}
-            onRecall={onBatchRecall}
+            onBatchDelete={onBatchDelete}
+            onBatchRecall={onBatchRecall}
             onCancel={onExitMultiSelect}
           />
         ) : (
