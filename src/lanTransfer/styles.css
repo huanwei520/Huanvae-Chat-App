@@ -670,21 +670,27 @@
 .lan-main::-webkit-scrollbar,
 .lan-debug-content::-webkit-scrollbar,
 .lan-debug-logs::-webkit-scrollbar,
-.lan-debug-interfaces::-webkit-scrollbar {
+.lan-debug-interfaces::-webkit-scrollbar,
+.lan-peer-transfer-content::-webkit-scrollbar,
+.lan-trusted-devices-list::-webkit-scrollbar {
   width: 6px;
 }
 
 .lan-main::-webkit-scrollbar-track,
 .lan-debug-content::-webkit-scrollbar-track,
 .lan-debug-logs::-webkit-scrollbar-track,
-.lan-debug-interfaces::-webkit-scrollbar-track {
+.lan-debug-interfaces::-webkit-scrollbar-track,
+.lan-peer-transfer-content::-webkit-scrollbar-track,
+.lan-trusted-devices-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .lan-main::-webkit-scrollbar-thumb,
 .lan-debug-content::-webkit-scrollbar-thumb,
 .lan-debug-logs::-webkit-scrollbar-thumb,
-.lan-debug-interfaces::-webkit-scrollbar-thumb {
+.lan-debug-interfaces::-webkit-scrollbar-thumb,
+.lan-peer-transfer-content::-webkit-scrollbar-thumb,
+.lan-trusted-devices-list::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0.3);
   border-radius: 3px;
 }
@@ -692,7 +698,9 @@
 .lan-main::-webkit-scrollbar-thumb:hover,
 .lan-debug-content::-webkit-scrollbar-thumb:hover,
 .lan-debug-logs::-webkit-scrollbar-thumb:hover,
-.lan-debug-interfaces::-webkit-scrollbar-thumb:hover {
+.lan-debug-interfaces::-webkit-scrollbar-thumb:hover,
+.lan-peer-transfer-content::-webkit-scrollbar-thumb:hover,
+.lan-trusted-devices-list::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);
 }
 

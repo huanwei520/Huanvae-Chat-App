@@ -1,3 +1,15 @@
+# ============================================
+# Huanvae Chat App - Tauri 后端配置
+# ============================================
+#
+# ## 平台支持
+# - 桌面端 (Windows/macOS/Linux): 完整功能
+# - 移动端 (Android/iOS): 部分功能（无托盘、无会话锁）
+#
+# ## 更新日志
+# - 2026-01-22: 添加桌面/移动端平台分离，条件编译依赖
+# ============================================
+
 [package]
 name = "huanvae-chat-app"
 version = "1.0.22"
@@ -17,15 +29,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# ============================================
+# 共享依赖（所有平台）
+# ============================================
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2.5.2"
 tauri-plugin-fs = "2.4.4"
 tauri-plugin-http = "2.5.4"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-os = "2"
 
 # 序列化
 serde = { version = "1", features = ["derive"] }
@@ -58,18 +73,11 @@ once_cell = "1.21.3"
 # 互斥锁
 parking_lot = "0.12.5"
 
-# 系统进程信息（用于会话锁检测）
-sysinfo = "0.33"
-
-# 操作系统信息插件
-tauri-plugin-os = "2"
-
 # MAC 地址获取
 mac_address = "1.1"
-tauri-plugin-window-state = "2.4.1"
 
 # ============================================
-# 局域网文件互传
+# 局域网文件互传（所有平台共享）
 # ============================================
 
 # mDNS 服务发现
@@ -95,8 +103,22 @@ mime_guess = "2.0.5"
 hostname = "0.4.2"
 
 # ============================================
-# 平台特定的密钥链依赖
+# 桌面平台专属依赖 (Windows/macOS/Linux)
+# ============================================
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# 托盘图标支持
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+# 窗口状态记忆
+tauri-plugin-window-state = "2.4.1"
+# 更新器
+tauri-plugin-updater = "2"
+# 系统进程信息（用于会话锁检测）
+sysinfo = "0.33"
+
+# ============================================
+# 桌面平台专属：密钥链依赖
 # keyring 3.x 默认不启用任何后端，必须显式指定 feature
+# Android/iOS 不使用 keyring，使用平台原生安全存储
 # ============================================
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -107,3 +129,16 @@ keyring = { version = "3", features = ["linux-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+
+# ============================================
+# 移动平台专属依赖 (Android/iOS)
+# ============================================
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+# 安全密钥存储（使用 Android Keystore / iOS Keychain）
+# 要求 Android API 28+ (Android 9.0+)
+tauri-plugin-keystore = "2.1.0-alpha.1"
+
+# 生物识别认证 + 安全会话存储
+# 用于后台被杀后恢复会话，无需重新登录
+# 官方插件：https://v2.tauri.app/plugin/biometric/
+tauri-plugin-biometric = "2"

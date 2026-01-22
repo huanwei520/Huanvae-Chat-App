@@ -1,0 +1,79 @@
+/**
+ * 移动端主页面样式
+ */
+
+/* 主容器 - 使用 100vh 确保在移动端正确填充屏幕 */
+.mobile-main {
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-2) 0%,
+    var(--color-neutral-1) 25%,
+    var(--bg-primary) 50%,
+    var(--color-neutral-1) 75%,
+    var(--color-primary-2) 100%
+  );
+}
+
+/* 内容区域 */
+.mobile-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 页面切换动画容器 */
+.mobile-view-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* 聊天页面滑入动画 */
+.mobile-chat-enter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: translateX(100%);
+}
+
+.mobile-chat-enter-active {
+  transform: translateX(0);
+  transition: transform 0.3s ease-out;
+}
+
+.mobile-chat-exit {
+  transform: translateX(0);
+}
+
+.mobile-chat-exit-active {
+  transform: translateX(100%);
+  transition: transform 0.3s ease-in;
+}
+
+/* 遮罩层 */
+.mobile-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.mobile-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}

@@ -1,8 +1,14 @@
-//! 会话锁模块
+//! 会话锁模块（桌面平台专属）
 //!
 //! 实现同设备同账户单开：
 //! - 同一账户在同一设备上只能运行一个实例
 //! - 不同账户可以同时运行多个实例
+//!
+//! ## 平台支持
+//! - Windows: ✅
+//! - macOS: ✅
+//! - Linux: ✅
+//! - Android/iOS: ❌ (移动端由系统管理应用生命周期)
 //!
 //! ## 实现原理
 //!
@@ -28,6 +34,9 @@
 //!
 //! `activate_existing_instance` 命令保留但当前未被前端使用，
 //! 可用于将来实现窗口激活功能。
+//!
+//! ## 更新日志
+//! - 2026-01-22: 移至 desktop 模块，添加平台支持说明
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -110,7 +119,6 @@ fn is_process_running(pid: u32) -> bool {
 /// # 返回
 ///
 /// - `SessionCheckResult`: 包含是否存在冲突、进程是否存活、进程 ID
-#[tauri::command(rename_all = "camelCase")]
 pub fn check_session_lock(
     app: AppHandle,
     server_url: String,
@@ -175,7 +183,6 @@ pub fn check_session_lock(
 /// - `app`: Tauri 应用句柄
 /// - `server_url`: 服务器地址
 /// - `user_id`: 用户 ID
-#[tauri::command(rename_all = "camelCase")]
 pub fn create_session_lock(
     app: AppHandle,
     server_url: String,
@@ -220,7 +227,6 @@ pub fn create_session_lock(
 /// - `app`: Tauri 应用句柄
 /// - `server_url`: 服务器地址
 /// - `user_id`: 用户 ID
-#[tauri::command(rename_all = "camelCase")]
 pub fn remove_session_lock(
     app: AppHandle,
     server_url: String,
@@ -246,7 +252,6 @@ pub fn remove_session_lock(
 /// # 参数
 ///
 /// - `pid`: 目标进程 ID
-#[tauri::command(rename_all = "camelCase")]
 pub fn activate_existing_instance(pid: u32) -> Result<(), String> {
     println!("[SessionLock] 尝试激活 PID {} 的窗口", pid);
 

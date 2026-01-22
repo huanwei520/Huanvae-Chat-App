@@ -11,22 +11,38 @@
 //! - 文件管理：在系统文件管理器中显示本地文件
 //! - WebView 权限管理：重置麦克风/摄像头权限缓存
 //! - 媒体权限恢复：跨平台权限修复指南和系统设置打开
-//! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行
-//! - 会话锁：同设备同账户单开，不同账户可多开
+//! - 系统托盘：关闭窗口时最小化到托盘，后台静默运行（桌面端）
+//! - 会话锁：同设备同账户单开，不同账户可多开（桌面端）
 //! - 设备信息：获取设备标识用于登录
 //! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
 //! - 局域网传输：局域网内设备发现和文件互传
+//!
+//! ## 平台支持
+//! - 桌面端 (Windows/macOS/Linux): 完整功能
+//! - 移动端 (Android): 部分功能（无托盘、无会话锁），使用 Tauri API 初始化数据目录
+//! - 移动端 (iOS): 暂未支持
+//!
+//! ## 更新日志
+//! - 2026-01-21: Android 数据目录初始化修复，使用 app.path().app_data_dir() 替代 TMPDIR
+//! - 2026-01-22: 添加桌面/移动端条件编译，分离平台专属模块
 
+// ============================================
+// 共享模块（所有平台）
+// ============================================
 mod db;
 mod device_info;
 mod download;
 mod lan_transfer;
 mod permissions;
-mod session_lock;
 mod sounds;
 mod storage;
-mod tray;
 mod user_data;
+
+// ============================================
+// 桌面专属模块 (Windows/macOS/Linux)
+// ============================================
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod desktop;
 
 use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
 use storage::SavedAccount;
@@ -81,8 +97,90 @@ fn update_account_nickname(
     user_id: String,
     nickname: String,
 ) -> Result<(), String> {
-    storage::update_account_nickname(&server_url, &user_id, &nickname)
-        .map_err(|e| e.to_string())
+    storage::update_account_nickname(&server_url, &user_id, &nickname).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// 会话锁管理 Commands（桌面端专属）
+// ============================================================================
+
+/// 检查会话锁（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn check_session_lock(
+    app: tauri::AppHandle,
+    server_url: String,
+    user_id: String,
+) -> Result<desktop::session_lock::SessionCheckResult, String> {
+    desktop::check_session_lock(app, server_url, user_id)
+}
+
+/// 检查会话锁（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn check_session_lock(
+    _server_url: String,
+    _user_id: String,
+) -> Result<serde_json::Value, String> {
+    // 移动端不支持会话锁，直接返回无冲突
+    Ok(serde_json::json!({
+        "exists": false,
+        "process_alive": false,
+        "pid": null
+    }))
+}
+
+/// 创建会话锁（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn create_session_lock(
+    app: tauri::AppHandle,
+    server_url: String,
+    user_id: String,
+) -> Result<(), String> {
+    desktop::create_session_lock(app, server_url, user_id)
+}
+
+/// 创建会话锁（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn create_session_lock(_server_url: String, _user_id: String) -> Result<(), String> {
+    // 移动端不需要会话锁
+    Ok(())
+}
+
+/// 移除会话锁（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn remove_session_lock(
+    app: tauri::AppHandle,
+    server_url: String,
+    user_id: String,
+) -> Result<(), String> {
+    desktop::remove_session_lock(app, server_url, user_id)
+}
+
+/// 移除会话锁（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn remove_session_lock(_server_url: String, _user_id: String) -> Result<(), String> {
+    Ok(())
+}
+
+/// 激活已存在的实例（桌面端）
+///
+/// 注意：此函数接收 PID 参数，尝试激活指定进程的窗口
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn activate_existing_instance(pid: u32) -> Result<(), String> {
+    desktop::activate_existing_instance(pid)
+}
+
+/// 激活已存在的实例（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn activate_existing_instance(_pid: u32) -> Result<(), String> {
+    Ok(())
 }
 
 // ============================================================================
@@ -368,35 +466,92 @@ fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // 桌面端：包含 updater 和 window-state 插件
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::new().build());
+
+    // 移动端：不包含 updater 和 window-state 插件
+    // - keystore: 存储密码
+    // - biometric: 生物识别 + 会话持久化存储
+    // 要求 Android API 28+ (minSdk 已提升)
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_keystore::init())
+        .plugin(tauri_plugin_biometric::init());
+
+    builder
         .setup(|app| {
-            // 清理过期的会话锁（进程已死但锁文件还在）
-            if let Err(e) = session_lock::cleanup_stale_locks(app.handle()) {
+            // 桌面端：清理过期的会话锁
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Err(e) = desktop::cleanup_stale_locks(app.handle()) {
                 eprintln!("[SessionLock] 清理过期锁失败: {}", e);
             }
 
-            // 初始化系统托盘
-            if let Err(e) = tray::setup_tray(app) {
+            // 桌面端：初始化系统托盘
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Err(e) = desktop::setup_tray(app) {
                 eprintln!("[Tray] 初始化托盘失败: {}", e);
             }
+
+            // Android：初始化应用数据目录
+            #[cfg(target_os = "android")]
+            {
+                use tauri::Manager;
+                match app.path().app_data_dir() {
+                    Ok(data_dir) => {
+                        // 初始化 storage 模块的数据目录
+                        if let Err(e) = storage::init_android_data_dir(data_dir.clone()) {
+                            eprintln!("[Storage] Android 数据目录初始化失败: {}", e);
+                        }
+                        // 初始化 user_data 模块的数据根目录
+                        if let Err(e) = user_data::init_android_app_root(data_dir) {
+                            eprintln!("[UserData] Android 数据根目录初始化失败: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Storage] 获取 Android app_data_dir 失败: {}", e);
+                    }
+                }
+            }
+
+            // iOS：暂无特定初始化
+            #[cfg(target_os = "ios")]
+            {
+                let _ = app; // 避免未使用警告
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 拦截主窗口关闭事件，隐藏到托盘而不是退出
+            // 桌面端：拦截主窗口关闭事件，隐藏到托盘而不是退出
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
                 && window.label() == "main"
             {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+
+            // 移动端：不拦截关闭事件
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
+                let _ = (window, event); // 避免未使用警告
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -460,11 +615,11 @@ pub fn run() {
             sounds::delete_notification_sound,
             sounds::get_notification_sound_path,
             sounds::ensure_sounds_directory,
-            // 会话锁管理
-            session_lock::check_session_lock,
-            session_lock::create_session_lock,
-            session_lock::remove_session_lock,
-            session_lock::activate_existing_instance,
+            // 会话锁管理（桌面端专属）
+            check_session_lock,
+            create_session_lock,
+            remove_session_lock,
+            activate_existing_instance,
             // 设备信息
             device_info::get_mac_address_cmd,
             // 局域网传输（基础）

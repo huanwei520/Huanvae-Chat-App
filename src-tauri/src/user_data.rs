@@ -12,12 +12,51 @@
 //!           ├── pictures/   # 图片文件
 //!           └── documents/  # 文档文件
 //! ```
+//!
+//! ## 平台差异
+//! - 桌面端：使用可执行文件目录或用户 home 目录
+//! - Android：使用 Tauri app.path().app_data_dir() API 获取可写目录
+//!
+//! ## 更新日志
+//! - 2026-01-21: Android 路径修复，使用 Tauri API 替代 current_exe()
 
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(target_os = "android")]
+use std::sync::OnceLock;
+
+// ============================================================================
+// Android 专属：全局应用数据根目录
+// ============================================================================
+
+/// Android 平台的应用数据根目录（由 Tauri API 初始化）
+#[cfg(target_os = "android")]
+static ANDROID_APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// 初始化 Android 应用数据根目录
+///
+/// 必须在应用启动时（setup 阶段）调用一次
+/// 使用 Tauri 的 app.path().app_data_dir() 获取正确的可写目录
+#[cfg(target_os = "android")]
+pub fn init_android_app_root(path: PathBuf) -> Result<(), String> {
+    let app_root = path.join("data");
+
+    // 确保目录存在
+    if !app_root.exists() {
+        fs::create_dir_all(&app_root).map_err(|e| {
+            format!("Android 创建数据根目录失败 {:?}: {}", app_root, e)
+        })?;
+    }
+
+    // 设置全局变量（只能设置一次）
+    let _ = ANDROID_APP_ROOT.set(app_root.clone());
+
+    println!("[UserData] Android 数据根目录初始化: {:?}", app_root);
+    Ok(())
+}
 
 // ============================================================================
 // 当前用户上下文
@@ -40,58 +79,76 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 // ============================================================================
 
 /// 获取应用数据根目录
-/// 开发模式：相对于 src-tauri 的 ../data（项目根目录）
-/// 生产模式：
+///
+/// ## 平台差异
+/// - Android：使用 init_android_app_root() 初始化的全局变量
+/// - 桌面端开发模式：相对于 src-tauri 的 ../data（项目根目录）
+/// - 桌面端生产模式：
 ///   - Linux 系统安装: ~/huanvae-chat-app/data/（用户 home 目录，可见且可写）
 ///   - Windows/macOS: 可执行文件旁边的 data 目录
 fn get_app_root() -> PathBuf {
-    // 获取可执行文件所在目录
-    let Ok(exe_path) = std::env::current_exe() else {
-        return PathBuf::from("data");
-    };
-
-    let Some(exe_dir) = exe_path.parent() else {
-        return PathBuf::from("data");
-    };
-
-    // 检查是否在 target/debug 或 target/release 目录（开发模式）
-    let exe_dir_str = exe_dir.to_string_lossy();
-    let is_dev_mode = exe_dir_str.contains("target\\debug")
-        || exe_dir_str.contains("target/debug")
-        || exe_dir_str.contains("target\\release")
-        || exe_dir_str.contains("target/release");
-
-    if is_dev_mode {
-        // 开发模式：往上跳到项目根目录
-        // src-tauri/target/debug -> src-tauri -> 项目根目录
-        if let Some(project_root) = exe_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .and_then(|p| p.parent())
-        {
-            return project_root.join("data");
+    // Android: 使用预初始化的全局变量
+    #[cfg(target_os = "android")]
+    {
+        if let Some(path) = ANDROID_APP_ROOT.get() {
+            return path.clone();
         }
+        // 备用：如果未初始化，尝试使用默认路径（不应该发生）
+        eprintln!("[UserData] 警告: Android 数据根目录未初始化");
+        return PathBuf::from("/data/local/tmp/huanvae-chat/data");
     }
 
-    // Linux 生产模式：检查是否安装在系统目录（/opt, /usr, /snap 等）
-    // 如果是，则使用用户 home 目录存储数据
-    #[cfg(target_os = "linux")]
+    // 桌面端: 使用可执行文件路径
+    #[cfg(not(target_os = "android"))]
     {
-        let exe_dir_lower = exe_dir_str.to_lowercase();
-        let is_system_install = exe_dir_lower.starts_with("/opt")
-            || exe_dir_lower.starts_with("/usr")
-            || exe_dir_lower.starts_with("/snap");
+        // 获取可执行文件所在目录
+        let Ok(exe_path) = std::env::current_exe() else {
+            return PathBuf::from("data");
+        };
 
-        if is_system_install {
-            // 使用用户 home 目录：~/huanvae-chat-app/data/
-            if let Some(home_dir) = dirs::home_dir() {
-                return home_dir.join("huanvae-chat-app").join("data");
+        let Some(exe_dir) = exe_path.parent() else {
+            return PathBuf::from("data");
+        };
+
+        // 检查是否在 target/debug 或 target/release 目录（开发模式）
+        let exe_dir_str = exe_dir.to_string_lossy();
+        let is_dev_mode = exe_dir_str.contains("target\\debug")
+            || exe_dir_str.contains("target/debug")
+            || exe_dir_str.contains("target\\release")
+            || exe_dir_str.contains("target/release");
+
+        if is_dev_mode {
+            // 开发模式：往上跳到项目根目录
+            // src-tauri/target/debug -> src-tauri -> 项目根目录
+            if let Some(project_root) = exe_dir
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+            {
+                return project_root.join("data");
             }
         }
-    }
 
-    // Windows/macOS 生产模式：可执行文件旁边的 data 目录
-    exe_dir.join("data")
+        // Linux 生产模式：检查是否安装在系统目录（/opt, /usr, /snap 等）
+        // 如果是，则使用用户 home 目录存储数据
+        #[cfg(target_os = "linux")]
+        {
+            let exe_dir_lower = exe_dir_str.to_lowercase();
+            let is_system_install = exe_dir_lower.starts_with("/opt")
+                || exe_dir_lower.starts_with("/usr")
+                || exe_dir_lower.starts_with("/snap");
+
+            if is_system_install {
+                // 使用用户 home 目录：~/huanvae-chat-app/data/
+                if let Some(home_dir) = dirs::home_dir() {
+                    return home_dir.join("huanvae-chat-app").join("data");
+                }
+            }
+        }
+
+        // Windows/macOS 生产模式：可执行文件旁边的 data 目录
+        exe_dir.join("data")
+    }
 }
 
 /// 清理服务器地址，生成安全的目录名

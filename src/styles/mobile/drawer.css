@@ -1,0 +1,138 @@
+/**
+ * 移动端抽屉侧边栏样式
+ */
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 75%;
+  max-width: 320px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+/* 用户信息区域 */
+.mobile-drawer-profile {
+  padding: 48px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-2) 0%,
+    var(--color-primary-3) 100%
+  );
+}
+
+.mobile-drawer-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.mobile-drawer-avatar:active {
+  transform: scale(0.95);
+}
+
+.mobile-drawer-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-drawer-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-drawer-id {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 菜单列表 */
+.mobile-drawer-menu {
+  flex: 1;
+  padding: 16px 0;
+  overflow-y: auto;
+}
+
+.mobile-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  color: var(--text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-drawer-item:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mobile-drawer-item svg {
+  width: 22px;
+  height: 22px;
+  color: var(--text-secondary);
+}
+
+/* 分割线 */
+.mobile-drawer-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  margin: 8px 24px;
+}
+
+/* 底部退出按钮 */
+.mobile-drawer-footer {
+  padding: 16px 24px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.mobile-drawer-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  background: rgba(255, 59, 48, 0.1);
+  border: none;
+  border-radius: 12px;
+  color: #ff3b30;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-drawer-logout:active {
+  background: rgba(255, 59, 48, 0.2);
+}
+
+.mobile-drawer-logout svg {
+  width: 20px;
+  height: 20px;
+}

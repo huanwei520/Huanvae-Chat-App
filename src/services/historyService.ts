@@ -3,6 +3,9 @@
  *
  * 用于从服务器加载全部聊天记录并保存到本地数据库
  * 支持好友和群聊两种类型
+ *
+ * ## 更新日志
+ * - 2026-01-22: 修复外键约束失败问题，保存消息前确保会话存在
  */
 
 import type { ApiClient } from '../api/client';
@@ -14,6 +17,36 @@ import type { Message } from '../types/chat';
 
 // 每批次加载的消息数量
 const BATCH_SIZE = 100;
+
+/**
+ * 确保会话记录存在
+ *
+ * 在保存消息之前调用，避免外键约束失败
+ */
+async function ensureConversationExists(
+  conversationId: string,
+  targetType: 'friend' | 'group',
+  targetId: string,
+): Promise<void> {
+  const existing = await db.getConversation(conversationId);
+  if (!existing) {
+    // 创建一个基本的会话记录
+    await db.saveConversation({
+      id: conversationId,
+      type: targetType,
+      name: targetId, // 临时使用 ID 作为名称，后续会被正确更新
+      avatar_url: null,
+      last_message: null,
+      last_message_time: null,
+      last_seq: 0,
+      unread_count: 0,
+      is_muted: false,
+      is_pinned: false,
+      updated_at: new Date().toISOString(),
+    });
+    console.warn('[HistoryService] 创建会话记录:', conversationId);
+  }
+}
 
 /**
  * 加载全部历史消息
@@ -41,6 +74,9 @@ export async function loadAllHistoryMessages(
     : targetId;
 
   onProgress('正在连接服务器...');
+
+  // 确保会话记录存在，避免外键约束失败
+  await ensureConversationExists(conversationId, targetType, targetId);
 
   while (hasMore) {
     try {
