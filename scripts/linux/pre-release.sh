@@ -40,10 +40,40 @@ echo -e "${MAGENTA}     Huanvae Chat App 预发布检查${NC}"
 echo -e "${MAGENTA}================================================${NC}"
 
 # ============================================
-# 1. TypeScript 类型检查
+# 1. 版本号一致性检查
 # ============================================
 echo ""
-echo -e "${CYAN}[1/8] TypeScript 类型检查...${NC}"
+echo -e "${CYAN}[1/9] 版本号一致性检查...${NC}"
+
+# 读取各文件中的版本号
+PKG_VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+CARGO_VERSION=$(grep '^version = ' src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+TAURI_VERSION=$(grep '"version"' src-tauri/tauri.conf.json | sed 's/.*: "\(.*\)".*/\1/')
+
+VERSION_MATCH=true
+if [[ "$PKG_VERSION" != "$CARGO_VERSION" ]]; then
+    VERSION_MATCH=false
+fi
+if [[ "$PKG_VERSION" != "$TAURI_VERSION" ]]; then
+    VERSION_MATCH=false
+fi
+
+if [[ "$VERSION_MATCH" == "true" ]]; then
+    echo -e "  ${GREEN}✓ 版本号一致: $PKG_VERSION${NC}"
+    add_result "版本号" "true"
+else
+    echo -e "  ${RED}✗ 版本号不一致${NC}"
+    echo -e "    package.json:      $PKG_VERSION"
+    echo -e "    Cargo.toml:        $CARGO_VERSION"
+    echo -e "    tauri.conf.json:   $TAURI_VERSION"
+    add_result "版本号" "false"
+fi
+
+# ============================================
+# 2. TypeScript 类型检查
+# ============================================
+echo ""
+echo -e "${CYAN}[2/9] TypeScript 类型检查...${NC}"
 
 if pnpm tsc --noEmit >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 类型检查通过${NC}"
@@ -58,7 +88,7 @@ fi
 # 2. ESLint 代码检查
 # ============================================
 echo ""
-echo -e "${CYAN}[2/8] ESLint 代码检查...${NC}"
+echo -e "${CYAN}[3/9] ESLint 代码检查...${NC}"
 
 ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
 if [[ $? -eq 0 ]] && ! echo "$ESLINT_OUTPUT" | grep -qE "(error|warning)"; then
@@ -74,7 +104,7 @@ fi
 # 3. 单元测试
 # ============================================
 echo ""
-echo -e "${CYAN}[3/8] 单元测试...${NC}"
+echo -e "${CYAN}[4/9] 单元测试...${NC}"
 
 if pnpm test --run >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 单元测试通过${NC}"
@@ -89,7 +119,7 @@ fi
 # 4. 前端构建测试
 # ============================================
 echo ""
-echo -e "${CYAN}[4/8] 前端构建测试...${NC}"
+echo -e "${CYAN}[5/9] 前端构建测试...${NC}"
 
 if pnpm build >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 前端构建成功${NC}"
@@ -104,7 +134,7 @@ fi
 # 5. Cargo Clippy 代码审查 (桌面端)
 # ============================================
 echo ""
-echo -e "${CYAN}[5/8] Cargo Clippy 桌面端代码审查...${NC}"
+echo -e "${CYAN}[6/9] Cargo Clippy 桌面端代码审查...${NC}"
 
 cd "$PROJECT_ROOT/src-tauri"
 if cargo clippy --all-targets --all-features -- -D warnings >/dev/null 2>&1; then
@@ -121,7 +151,7 @@ cd "$PROJECT_ROOT"
 # 6. Cargo Clippy 代码审查 (Android)
 # ============================================
 echo ""
-echo -e "${CYAN}[6/8] Cargo Clippy Android 代码审查...${NC}"
+echo -e "${CYAN}[7/9] Cargo Clippy Android 代码审查...${NC}"
 
 # 检查 Android NDK
 if [[ -z "$NDK_HOME" ]]; then
@@ -158,7 +188,7 @@ fi
 # 7. 配置文件检查
 # ============================================
 echo ""
-echo -e "${CYAN}[7/8] 配置文件检查...${NC}"
+echo -e "${CYAN}[8/9] 配置文件检查...${NC}"
 
 CONFIG_OK=true
 TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
@@ -194,7 +224,7 @@ fi
 # 8. 人工功能检查
 # ============================================
 echo ""
-echo -e "${CYAN}[8/8] 人工功能检查...${NC}"
+echo -e "${CYAN}[9/9] 人工功能检查...${NC}"
 echo ""
 echo -e "${YELLOW}请确认以下核心功能正常工作：${NC}"
 echo ""
