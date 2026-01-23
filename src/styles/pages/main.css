@@ -1929,6 +1929,36 @@
 }
 
 /* ============================================
+   移动端水平菜单（微信风格）
+   ============================================ */
+.message-context-menu.mobile-horizontal {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: auto;
+  padding: 4px 8px;
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.message-context-menu.mobile-horizontal .context-menu-item {
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  font-size: 11px;
+  min-width: 44px;
+}
+
+.message-context-menu.mobile-horizontal .context-menu-item svg {
+  width: 18px;
+  height: 18px;
+}
+
+.message-context-menu.mobile-horizontal .context-menu-divider {
+  display: none;
+}
+
+/* ============================================
    消息多选模式
    ============================================ */
 .message-bubble.multi-select-mode {

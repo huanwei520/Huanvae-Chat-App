@@ -243,3 +243,20 @@
 /* 移动端视频缩略图                             */
 /* ============================================ */
 /* 已改用 video 元素显示第一帧，不再需要占位符样式 */
+
+/* ============================================ */
+/* 移动端消息气泡 - 禁用原生文本选择             */
+/* ============================================ */
+/**
+ * 禁用 Android WebView 原生文本选择手柄
+ * 长按消息时只显示自定义上下文菜单，不触发系统选择
+ */
+.mobile-chat-messages .bubble-text,
+.mobile-chat-messages .bubble-content,
+.mobile-chat-messages .message-bubble {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none; /* 禁用 iOS 长按弹出菜单 */
+}
