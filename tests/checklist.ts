@@ -233,7 +233,7 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
     items: [
       {
         name: '文件上传',
-        description: '上传文件到服务器',
+        description: '上传文件到服务器（Android 使用 tauri-plugin-android-fs 处理 content:// URI）',
         critical: true,
       },
       {
