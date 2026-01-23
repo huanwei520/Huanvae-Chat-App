@@ -115,15 +115,21 @@ pub fn get_lan_transfer_state() -> Arc<LanTransferState> {
 // ============================================================================
 
 /// 启动局域网传输服务
+///
+/// # 参数
+/// - `user_id`: 用户 ID
+/// - `user_nickname`: 用户昵称
+/// - `device_name`: 设备名称（可选，Android 传递设备型号，桌面端传 None 使用 hostname）
 #[tauri::command]
 pub async fn start_lan_transfer_service(
     user_id: String,
     user_nickname: String,
+    device_name: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     set_app_handle(app_handle);
 
-    discovery::start_service(user_id, user_nickname)
+    discovery::start_service(user_id, user_nickname, device_name)
         .await
         .map_err(|e| e.to_string())
 }

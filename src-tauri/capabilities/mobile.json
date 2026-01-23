@@ -10,6 +10,11 @@
     "fs:default",
     "fs:allow-stat",
     "fs:read-all",
+    "fs:allow-copy-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-exists",
+    "fs:allow-appdata-write-recursive",
     "dialog:default",
     "notification:default",
     "notification:allow-is-permission-granted",
@@ -29,6 +34,15 @@
     "mobile-onbackpressed-listener:allow-register-back-event",
     "mobile-onbackpressed-listener:allow-registerListener",
     "store:default",
+    "android-fs:all",
+    {
+      "identifier": "android-fs:scope",
+      "allow": [
+        "$APPDATA/**/*",
+        "$APPCACHE/**/*",
+        "$APPLOCALDATA/**/*"
+      ]
+    },
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",

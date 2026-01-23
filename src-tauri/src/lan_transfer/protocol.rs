@@ -372,6 +372,10 @@ pub struct PrepareUploadRequest {
     pub file: FileMetadata,
     /// 是否尝试断点续传
     pub resume: bool,
+    /// 目标文件路径（Android 直接写入公共目录时使用）
+    /// 如果提供，则跳过临时文件，直接写入此路径
+    #[serde(default)]
+    pub target_path: Option<String>,
 }
 
 /// 传输准备响应（支持断点续传）

@@ -71,6 +71,9 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.2.3(react@19.2.3)
+      tauri-plugin-android-fs-api:
+        specifier: ^24.1.0
+        version: 24.1.0
       zustand:
         specifier: ^5.0.2
         version: 5.0.9(@types/react@19.2.7)(react@19.2.3)
@@ -2941,6 +2944,9 @@ packages:
   tapable@2.3.0:
     resolution: {integrity: sha512-g9ljZiwki/LfxmQADO3dEY1CbpmXT5Hm2fJ+QaGKwSXUylMybePR7/67YW7jOrrvjEgL1Fmz5kzyAjWVWLlucg==}
     engines: {node: '>=6'}
+
+  tauri-plugin-android-fs-api@24.1.0:
+    resolution: {integrity: sha512-wcSlKxcU9fUuwp+7kKQhm7drTAAh6bnHM602FWdfH9IUZptoJ9EmeI9eirncXchF876SroCpOLWny8XrYevwQA==}
 
   thenify-all@1.6.0:
     resolution: {integrity: sha512-RNxQH/qI8/t3thXJDwcstUO4zeqo64+Uy/+sNVRBx4Xn2OX+OZ9oP+iJnNFqplFra2ZUVeKCSa2oVWi3T4uVmA==}
@@ -6361,6 +6367,10 @@ snapshots:
   tailwindcss@4.1.18: {}
 
   tapable@2.3.0: {}
+
+  tauri-plugin-android-fs-api@24.1.0:
+    dependencies:
+      '@tauri-apps/api': 2.9.1
 
   thenify-all@1.6.0:
     dependencies:

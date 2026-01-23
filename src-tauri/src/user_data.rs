@@ -86,7 +86,7 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 /// - 桌面端生产模式：
 ///   - Linux 系统安装: ~/huanvae-chat-app/data/（用户 home 目录，可见且可写）
 ///   - Windows/macOS: 可执行文件旁边的 data 目录
-fn get_app_root() -> PathBuf {
+pub fn get_app_root() -> PathBuf {
     // Android: 使用预初始化的全局变量
     #[cfg(target_os = "android")]
     {

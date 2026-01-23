@@ -178,6 +178,8 @@ impl ResumeManager {
     }
 
     /// 创建临时文件
+    /// 注：Android 新传输直接写入公共目录，此方法仅用于非 Android 平台和断点续传
+    #[allow(dead_code)]
     pub fn create_temp_file(&self, file_id: &str) -> Result<File, ResumeError> {
         let path = self.get_temp_file_path(file_id);
 

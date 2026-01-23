@@ -1,0 +1,43 @@
+/**
+ * 移动端设置页面样式
+ *
+ * 使用与抽屉一致的毛玻璃效果变量
+ * 颜色通过 CSS 变量统一管理，支持主题切换
+ */
+
+.mobile-settings-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 毛玻璃背景 - 与抽屉一致的 95-97% 不透明度 */
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 覆盖 SettingsPanel 的头部样式，添加安全区域 */
+.mobile-settings-page .settings-panel-header {
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+}
+
+/* 覆盖 SettingsPanel 的内容区域，添加底部安全区域 */
+.mobile-settings-page .settings-panel-content {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 覆盖 SettingsPanel 的背景，使用移动端毛玻璃效果 */
+.mobile-settings-page .settings-panel {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

@@ -510,6 +510,7 @@ pub fn run() {
     // 移动端：不包含 updater 和 window-state 插件
     // - keystore: 存储密码
     // - biometric: 生物识别 + 会话持久化存储
+    // - android-fs: 处理 content:// URI 文件读取（局域网传输需要）
     // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
     // 要求 Android API 28+ (minSdk 已提升)
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -523,7 +524,8 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_keystore::init())
         .plugin(tauri_plugin_biometric::init())
-        .plugin(tauri_plugin_store::Builder::default().build());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_android_fs::init());
 
     builder
         .setup(|app| {
@@ -559,8 +561,12 @@ pub fn run() {
                             eprintln!("[Storage] Android 数据目录初始化失败: {}", e);
                         }
                         // 初始化 user_data 模块的数据根目录
-                        if let Err(e) = user_data::init_android_app_root(data_dir) {
+                        if let Err(e) = user_data::init_android_app_root(data_dir.clone()) {
                             eprintln!("[UserData] Android 数据根目录初始化失败: {}", e);
+                        }
+                        // 初始化 lan_transfer 模块的数据目录（接收文件保存位置）
+                        if let Err(e) = lan_transfer::config::init_android_data_dir(data_dir.clone()) {
+                            eprintln!("[LanTransfer] Android 数据目录初始化失败: {}", e);
                         }
 
                         // 启动本地媒体服务器（后台异步）

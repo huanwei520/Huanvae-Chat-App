@@ -1083,6 +1083,7 @@ async fn do_file_transfer_with_resume(
         session_id: session_id.to_string(),
         file: file_meta.clone(),
         resume: true, // 尝试断点续传
+        target_path: None, // 由接收方决定保存路径
     };
 
     let prepare_response = client

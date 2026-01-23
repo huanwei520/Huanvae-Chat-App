@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全配置 - 局域网文件传输
+  
+  用途：
+  - 允许局域网文件传输使用 HTTP 明文通信
+  - Android 9+ (API 28+) 默认禁止明文 HTTP 流量
+  
+  官方文档：
+  - https://developer.android.com/privacy-and-security/security-config
+  
+  注意：
+  - 此配置仅用于开发和局域网传输功能
+  - 生产环境应限制为特定域名
+-->
+<network-security-config>
+    <!-- 基础配置：允许所有明文流量（用于局域网传输） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+    
+    <!-- 调试配置 -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user"/>
+            <certificates src="system"/>
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
