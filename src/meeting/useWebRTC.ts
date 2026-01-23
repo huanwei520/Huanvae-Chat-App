@@ -1052,6 +1052,8 @@ export function useWebRTC(): UseWebRTCReturn {
    * - 关闭：停止麦克风流，停止所有 transceiver，停止音量检测
    */
   const toggleMic = useCallback(async () => {
+    console.warn('[WebRTC] toggleMic 调用, 当前状态:', mediaState.micEnabled);
+    console.warn('[WebRTC] 当前 PeerConnections 数量:', peerConnectionsRef.current.size);
     if (mediaState.micEnabled) {
       // ========== 关闭麦克风 ==========
       // 停止音量检测
@@ -1082,7 +1084,9 @@ export function useWebRTC(): UseWebRTCReturn {
     } else {
       // ========== 开启麦克风 ==========
       try {
+        console.warn('[WebRTC] 正在获取麦克风权限...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.warn('[WebRTC] 麦克风权限获取成功, track:', stream.getAudioTracks().length);
         micStreamRef.current = stream;
         const track = stream.getAudioTracks()[0];
 
@@ -1119,6 +1123,8 @@ export function useWebRTC(): UseWebRTCReturn {
    * - 关闭：停止摄像头流，停止所有 transceiver
    */
   const toggleCamera = useCallback(async () => {
+    console.warn('[WebRTC] toggleCamera 调用, 当前状态:', mediaState.cameraEnabled);
+    console.warn('[WebRTC] 当前 PeerConnections 数量:', peerConnectionsRef.current.size);
     if (mediaState.cameraEnabled) {
       // ========== 关闭摄像头 ==========
       const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
@@ -1263,6 +1269,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 清理所有资源 */
   const cleanup = useCallback(() => {
+    console.warn('[WebRTC] cleanup 被调用');
     // 停止音量检测
     stopVolumeDetection();
 
@@ -1293,7 +1300,9 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 连接信令服务器 */
   const connect = useCallback((roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => {
+    console.warn('[WebRTC] connect 开始, roomId:', roomId);
     const url = getSignalingUrl(roomId, token, serverUrl);
+    console.warn('[WebRTC] 信令 URL:', url);
     iceServersRef.current = iceServers;
     setMeetingState('connecting');
     setError(null);
@@ -1305,6 +1314,7 @@ export function useWebRTC(): UseWebRTCReturn {
     let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
     ws.onopen = () => {
+      console.warn('[WebRTC] WebSocket 已连接');
       heartbeatInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
@@ -1315,18 +1325,21 @@ export function useWebRTC(): UseWebRTCReturn {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data) as ServerMessage;
+        console.warn('[WebRTC] 收到消息:', msg.type);
         handleMessage(msg);
       } catch {
         // 忽略解析错误
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      console.error('[WebRTC] WebSocket 错误:', err);
       setError('信令连接失败');
       setMeetingState('error');
     };
 
     ws.onclose = (event) => {
+      console.warn('[WebRTC] WebSocket 关闭, code:', event.code);
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
       }

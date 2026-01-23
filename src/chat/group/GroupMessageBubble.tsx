@@ -7,9 +7,10 @@
  * 功能：
  * - 类似 Telegram 的入场动画（从侧边滑入 + 从下往上 + 淡入）
  * - 退出动画（反方向滑出）
- * - 右键菜单（撤回/删除）
+ * - 右键菜单（桌面端右键/移动端长按触发：复制、撤回、删除、多选）
  * - 多选模式选中效果
  * - 点击头像显示用户信息弹出框
+ * - 移动端双击全屏预览（仅文本消息）
  *
  * 动画机制：
  * - 自己的消息：从右往左、从下往上滑入
@@ -24,6 +25,7 @@ import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
+import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { getCachedFilePath } from '../../services/fileCache';
 import { useChatStore } from '../../stores';
 import { isMobile } from '../../utils/platform';
@@ -192,6 +194,11 @@ export function GroupMessageBubble({
   // 本地文件路径（用于"在文件夹中显示"功能）
   const [localPath, setLocalPath] = useState<string | null>(null);
 
+  // 移动端全屏预览状态
+  const [showFullPreview, setShowFullPreview] = useState(false);
+  // 双击检测
+  const lastTapTimeRef = useRef<number>(0);
+
   // 获取文件消息的本地缓存路径
   useEffect(() => {
     if (message.message_type !== 'text' && message.message_type !== 'system' && message.file_hash) {
@@ -303,12 +310,25 @@ export function GroupMessageBubble({
     }
   }, []);
 
-  // 点击消息
+  // 点击消息（多选模式下切换选中状态，移动端双击显示全屏预览）
   const handleClick = useCallback(() => {
     if (isMultiSelectMode && onToggleSelect) {
       onToggleSelect();
+      return;
     }
-  }, [isMultiSelectMode, onToggleSelect]);
+
+    // 移动端双击检测（仅文本消息）
+    if (isMobile() && message.message_type === 'text') {
+      const now = Date.now();
+      if (now - lastTapTimeRef.current < 300) {
+        // 双击触发全屏预览
+        setShowFullPreview(true);
+        lastTapTimeRef.current = 0; // 重置，避免连续触发
+      } else {
+        lastTapTimeRef.current = now;
+      }
+    }
+  }, [isMultiSelectMode, onToggleSelect, message.message_type]);
 
   // 关闭菜单
   const handleCloseMenu = useCallback(() => {
@@ -437,6 +457,17 @@ export function GroupMessageBubble({
           onClose={handleCloseProfile}
           isSelf={currentUserId === profilePopup.user.userId}
           onSendMessage={handleSendMessage}
+        />
+      )}
+
+      {/* 移动端全屏消息预览（双击触发） */}
+      {isMobile() && message.message_type === 'text' && (
+        <MobileMessageFullPreview
+          isOpen={showFullPreview}
+          content={message.message_content}
+          senderName={message.sender_nickname}
+          sendTime={formatMessageTime(message.send_time)}
+          onClose={() => setShowFullPreview(false)}
         />
       )}
     </>

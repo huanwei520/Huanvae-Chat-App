@@ -456,17 +456,18 @@
 
 .video-grid {
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
   align-content: center;
   justify-content: center;
-  align-items: center;
+  justify-items: center;
   transition: all 0.3s;
   min-height: 0;
   overflow: hidden;
   width: 100%;
   height: 100%;
+  padding: 16px;
 }
 
 .video-grid.with-sidebar {
@@ -489,16 +490,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1 1 calc(50% - 16px);
-  min-width: 280px;
-  max-width: calc(100% - 32px);
+  width: 100%;
+  max-width: 600px;
 }
 
 /* 单人时视频框更大 */
 .video-grid .participant-video:only-child {
-  flex: 0 1 auto;
-  width: min(100%, 900px);
-  max-height: 100%;
+  max-width: 900px;
 }
 
 .participant-video.local {
