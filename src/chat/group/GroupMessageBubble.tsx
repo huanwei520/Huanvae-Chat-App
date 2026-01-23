@@ -26,6 +26,7 @@ import { FileMessageContent } from '../shared/FileMessageContent';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { getCachedFilePath } from '../../services/fileCache';
 import { useChatStore } from '../../stores';
+import { isMobile } from '../../utils/platform';
 import type { GroupMessage } from '../../api/groupMessages';
 
 interface GroupMessageBubbleProps {
@@ -252,7 +253,11 @@ export function GroupMessageBubble({
     }
   }, [friends, setChatTarget]);
 
-  // 右键打开菜单
+  // 长按计时器（移动端用）
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 右键打开菜单（桌面端）
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (isMultiSelectMode) { return; }
@@ -262,6 +267,41 @@ export function GroupMessageBubble({
       position: { x: e.clientX, y: e.clientY },
     });
   }, [isMultiSelectMode]);
+
+  // 长按开始（移动端）
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobile() || isMultiSelectMode) { return; }
+
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+    // 500ms 长按触发菜单
+    longPressTimerRef.current = setTimeout(() => {
+      if (touchStartPosRef.current) {
+        setContextMenu({
+          isOpen: true,
+          position: { x: touchStartPosRef.current.x, y: touchStartPosRef.current.y },
+        });
+      }
+    }, 500);
+  }, [isMultiSelectMode]);
+
+  // 长按取消（手指移动或抬起）
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+  }, []);
+
+  const handleTouchMove = useCallback(() => {
+    // 手指移动时取消长按
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
 
   // 点击消息
   const handleClick = useCallback(() => {
@@ -305,6 +345,10 @@ export function GroupMessageBubble({
         transition={transition}
         onContextMenu={handleContextMenu}
         onClick={handleClick}
+        // 移动端长按触发菜单
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
       >
         {/* 发送状态指示器（在左侧显示） */}
         {isOwn && <SendStatusIndicator status={message.sendStatus} />}
@@ -371,12 +415,13 @@ export function GroupMessageBubble({
         </div>
       </motion.div>
 
-      {/* 右键菜单 */}
+      {/* 右键菜单（桌面端右键/移动端长按触发） */}
       <MessageContextMenu
         isOpen={contextMenu.isOpen}
         position={contextMenu.position}
         canRecall={canRecallMessage(message, isOwn, isAdmin)}
         localPath={localPath}
+        messageContent={message.message_type === 'text' ? message.message_content : null}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}

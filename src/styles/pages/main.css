@@ -510,7 +510,7 @@
   z-index: 5;
 }
 
-/* 会话卡片 - 毛玻璃效果 */
+/* 会话卡片 - 毛玻璃效果（使用主题管理的卡片透明度变量） */
 .conversation-item {
   position: relative;
   display: flex;
@@ -519,20 +519,20 @@
   padding: 12px;
   margin-bottom: 4px;
   
-  /* 毛玻璃背景 - 使用主题变量 */
+  /* 毛玻璃背景 - 使用卡片专用变量（接入主题管理） */
   background: linear-gradient(
     135deg,
-    var(--white-alpha-80) 0%,
-    var(--white-alpha-70) 100%
+    var(--card-bg-start) 0%,
+    var(--card-bg-end) 100%
   );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
   
   /* 圆角 */
   border-radius: 12px;
   
-  /* 边框和阴影 */
-  border: 1px solid var(--white-alpha-50);
+  /* 边框和阴影 - 使用卡片专用边框变量 */
+  border: 1px solid var(--card-border);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   
   cursor: pointer;
@@ -545,24 +545,28 @@
 .conversation-item:hover {
   background: linear-gradient(
     135deg,
-    var(--white-alpha-90) 0%,
-    var(--white-alpha-85) 100%
+    var(--card-bg-hover-start) 0%,
+    var(--card-bg-hover-end) 100%
   );
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
-/* 选中背景层 - 渲染在列表容器层级，通过 top 动画移动 */
+/* 选中边框层 - 渲染在列表容器层级，通过 top 动画移动 */
+/* 桌面端专用：使用蓝色边框作为选中指示，边框在卡片外围 */
 .conversation-selected-bg {
   position: absolute;
-  left: 0;
-  right: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(147, 197, 253, 0.25) 0%,
-    rgba(147, 197, 253, 0.15) 100%
-  );
-  border-radius: 12px;
-  z-index: 0;
+  /* 比卡片稍大（向外扩展 3px），让边框显示在卡片外围 */
+  left: 5px;
+  right: 5px;
+  
+  /* 透明背景，不使用渐变填充 */
+  background: transparent;
+  
+  /* 蓝色边框作为选中指示 */
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  
+  z-index: 2;
   pointer-events: none;
 }
 
