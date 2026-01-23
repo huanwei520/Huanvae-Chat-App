@@ -162,3 +162,11 @@ tokio-util = { version = "0.7", features = ["io"] }
 # 处理 Android 手势返回和 iOS 返回按钮
 # 参考: https://jsr.io/@kingsword/tauri-plugin-mobile-onbackpressed-listener
 tauri-plugin-mobile-onbackpressed-listener = "2.0.0"
+
+# ============================================
+# Android 文件系统访问
+# ============================================
+# 处理 Android content:// URI 文件读取
+# 解决 Android 原生文件选择器返回的 URI 无法直接读取的问题
+# 参考: https://github.com/aiueo13/tauri-plugin-android-fs
+tauri-plugin-android-fs = "24"

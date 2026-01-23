@@ -1,0 +1,751 @@
+/**
+ * 移动端局域网互传页面样式
+ *
+ * 使用与抽屉一致的毛玻璃效果变量
+ * 颜色通过 CSS 变量统一管理，支持主题切换
+ * 调试面板风格与桌面端一致
+ */
+
+.mobile-lan-transfer-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 毛玻璃背景 - 与抽屉一致的 95-97% 不透明度 */
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 顶部栏 */
+.mobile-lan-transfer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+  /* 毛玻璃效果 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.mobile-lan-transfer-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-lan-transfer-back:active {
+  background: var(--white-alpha-50);
+}
+
+.mobile-lan-transfer-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-lan-transfer-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mobile-lan-transfer-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-lan-transfer-action:active {
+  background: var(--white-alpha-50);
+}
+
+.mobile-lan-transfer-action.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* 状态栏 */
+.mobile-lan-transfer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.running {
+  background: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.5);
+}
+
+.status-dot.stopped {
+  background: #ff3b30;
+}
+
+/* ============================================ */
+/* 调试面板 - 与桌面端风格一致 */
+/* ============================================ */
+
+.mobile-lan-debug-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.02) 0%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  border-bottom: 1px solid var(--glass-border-subtle);
+  overflow: hidden;
+}
+
+.mobile-lan-debug-block {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.mobile-lan-debug-block:last-child {
+  border-bottom: none;
+}
+
+.mobile-lan-debug-block h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mobile-lan-debug-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-lan-debug-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.mobile-lan-debug-item .label {
+  color: var(--text-tertiary);
+}
+
+.mobile-lan-debug-item .value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.mobile-lan-debug-item .value.mono {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+}
+
+.mobile-lan-debug-item .value.success {
+  color: #34c759;
+}
+
+.mobile-lan-debug-item .value.error {
+  color: #ff3b30;
+}
+
+.mobile-lan-debug-interfaces {
+  margin-top: 8px;
+}
+
+.mobile-lan-debug-interfaces .label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+}
+
+.mobile-lan-debug-interfaces .iface-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--white-alpha-60);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.mobile-lan-debug-interfaces .iface-name {
+  color: var(--text-secondary);
+}
+
+.mobile-lan-debug-interfaces .iface-ip {
+  color: var(--text-primary);
+}
+
+.mobile-lan-debug-interfaces .iface-more {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 4px;
+}
+
+.mobile-lan-debug-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.mobile-lan-debug-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.mobile-lan-debug-log-header h3 {
+  margin-bottom: 0;
+}
+
+.mobile-lan-debug-log-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.mobile-lan-debug-log-actions button {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--white-alpha-80);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mobile-lan-debug-log-actions button:active {
+  background: var(--white-alpha-90);
+}
+
+.mobile-lan-debug-logs {
+  max-height: 150px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+  padding: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-lan-debug-log-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 16px;
+}
+
+.mobile-lan-debug-log-entry {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 0;
+}
+
+/* ============================================ */
+/* 传输请求 */
+/* ============================================ */
+
+.mobile-lan-transfer-requests {
+  padding: 12px 16px;
+  background: rgba(255, 149, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 149, 0, 0.2);
+}
+
+.mobile-lan-transfer-requests h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ff9500;
+  margin-bottom: 8px;
+}
+
+.transfer-request-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.request-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.request-from {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.request-files {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.request-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.accept-btn,
+.reject-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.accept-btn {
+  background: #34c759;
+  color: white;
+}
+
+.accept-btn:active {
+  background: #2db34f;
+}
+
+.reject-btn {
+  background: var(--white-alpha-80);
+  color: var(--text-secondary);
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.reject-btn:active {
+  background: var(--white-alpha-90);
+}
+
+/* 传输任务 */
+.mobile-lan-transfer-tasks {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.mobile-lan-transfer-tasks h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.transfer-task-card {
+  padding: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.task-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}
+
+.task-progress {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.task-progress-bar {
+  height: 4px;
+  background: var(--white-alpha-50);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.task-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+/* 内容区域 */
+.mobile-lan-transfer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-lan-transfer-content h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+/* 无设备状态 */
+.no-devices {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 16px;
+  color: var(--text-tertiary);
+}
+
+/* 设备列表 */
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.device-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  /* 毛玻璃卡片效果 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.device-card.selected {
+  border-color: var(--primary);
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-95) 0%,
+    var(--white-alpha-90) 100%
+  );
+}
+
+.device-card.connected {
+  border-color: #34c759;
+}
+
+.device-card:active {
+  transform: scale(0.98);
+}
+
+.device-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: var(--white-alpha-80);
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+
+.device-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.device-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connected-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #34c759;
+  background: rgba(52, 199, 89, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.device-user {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.device-ip {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-tertiary);
+}
+
+.device-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.connect-btn:active {
+  background: var(--white-alpha-90);
+  color: var(--primary);
+}
+
+/* 已连接时文件夹按钮样式 */
+.connect-btn.connected {
+  background: rgba(52, 199, 89, 0.15);
+  border-color: rgba(52, 199, 89, 0.3);
+  color: #34c759;
+}
+
+.connect-btn.connected:active {
+  background: rgba(52, 199, 89, 0.25);
+}
+
+.send-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: white;
+  background: var(--primary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.send-btn:active {
+  background: var(--primary-hover);
+  transform: scale(0.96);
+}
+
+/* 连接请求样式 */
+.mobile-lan-transfer-requests.connection-requests {
+  background: rgba(0, 122, 255, 0.1);
+  border-bottom-color: rgba(0, 122, 255, 0.2);
+}
+
+.mobile-lan-transfer-requests.connection-requests h3 {
+  color: #007aff;
+}
+
+/* ============================================ */
+/* 存储目录栏 */
+/* ============================================ */
+
+.mobile-lan-save-directory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--white-alpha-80);
+  border-bottom: 1px solid var(--glass-border-subtle);
+  font-size: 12px;
+}
+
+.save-directory-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.save-directory-path {
+  flex: 1;
+  color: var(--text-primary);
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-directory-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+  background: var(--white-alpha-90);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.save-directory-btn:active {
+  background: var(--primary);
+  color: white;
+}
+
+/* ============================================ */
+/* 批量传输进度 */
+/* ============================================ */
+
+.mobile-lan-batch-progress {
+  padding: 12px 16px;
+  background: rgba(0, 122, 255, 0.08);
+  border-bottom: 1px solid rgba(0, 122, 255, 0.15);
+}
+
+.batch-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.batch-progress-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.batch-progress-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.batch-current-file {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-progress-bar {
+  height: 6px;
+  background: rgba(0, 122, 255, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.batch-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.batch-progress-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ============================================ */
+/* 增强的传输任务卡片 */
+/* ============================================ */
+
+.task-direction {
+  font-size: 14px;
+  margin-right: 4px;
+}
+
+.task-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}

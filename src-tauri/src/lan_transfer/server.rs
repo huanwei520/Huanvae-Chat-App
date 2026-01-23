@@ -141,6 +141,9 @@ struct UploadSession {
     start_time: std::time::Instant,
     /// 续传起始字节（用于速度计算）
     resume_offset: u64,
+    /// 目标文件路径（Android 直接写入公共目录时使用）
+    /// 如果有值，表示直接写入目标路径，完成时不需要移动文件
+    target_paths: HashMap<String, String>,
 }
 
 // ============================================================================
@@ -815,8 +818,9 @@ async fn handle_prepare_upload(
     };
 
     // 创建或打开文件
-    let (writer_file, hasher) = if resume_offset > 0 {
-        // 断点续传：打开已有文件
+    // direct_target_path: Android 直接写入模式时的目标路径
+    let (writer_file, hasher, direct_target_path): (std::fs::File, Sha256, Option<String>) = if resume_offset > 0 {
+        // 断点续传：打开已有文件（不支持直接写入模式）
         let mut f = resume_manager
             .open_temp_file(file_id, resume_offset)
             .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
@@ -853,17 +857,45 @@ async fn handle_prepare_upload(
             file.file_name, resume_offset
         );
 
-        (f, hasher)
+        (f, hasher, None)
     } else {
-        // 新传输：创建临时文件
-        let f = resume_manager
-            .create_temp_file(file_id)
-            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
-        let hasher = Sha256::new();
+        // 新传输
+        // Android 平台：直接写入公共 Download 目录，避免临时文件和跨文件系统复制
+        #[cfg(target_os = "android")]
+        {
+            // 获取最终保存路径
+            let final_path = config::get_file_save_path(&file.file_name);
 
-        println!("[LanTransfer] 新传输: {} (大小: {} 字节)", file.file_name, file.file_size);
+            // 确保目标目录存在
+            if let Some(parent) = final_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| ServerError::FileWriteFailed(format!("创建目标目录失败: {}", e)))?;
+            }
 
-        (f, hasher)
+            let f = std::fs::File::create(&final_path)
+                .map_err(|e| ServerError::FileWriteFailed(format!("创建目标文件失败: {}", e)))?;
+            let hasher = Sha256::new();
+
+            println!(
+                "[LanTransfer] 新传输 (Android 直接写入): {} -> {:?} (大小: {} 字节)",
+                file.file_name, final_path, file.file_size
+            );
+
+            (f, hasher, Some(final_path.to_string_lossy().to_string()))
+        }
+
+        // 非 Android 平台：使用临时文件
+        #[cfg(not(target_os = "android"))]
+        {
+            let f = resume_manager
+                .create_temp_file(file_id)
+                .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+            let hasher = Sha256::new();
+
+            println!("[LanTransfer] 新传输 (临时文件): {} (大小: {} 字节)", file.file_name, file.file_size);
+
+            (f, hasher, None)
+        }
     };
 
     // 创建上传会话
@@ -871,11 +903,17 @@ async fn handle_prepare_upload(
     let mut writers = HashMap::new();
     let mut hashers = HashMap::new();
     let mut received_bytes = HashMap::new();
+    let mut target_paths = HashMap::new();
 
     files.insert(file_id.clone(), file.clone());
     writers.insert(file_id.clone(), writer_file);
     hashers.insert(file_id.clone(), hasher);
     received_bytes.insert(file_id.clone(), resume_offset);
+
+    // 保存目标路径（Android 直接写入模式）
+    if let Some(ref target_path) = direct_target_path {
+        target_paths.insert(file_id.clone(), target_path.clone());
+    }
 
     let session = UploadSession {
         session_id: request.session_id.clone(),
@@ -886,6 +924,7 @@ async fn handle_prepare_upload(
         last_progress_time: std::time::Instant::now(),
         start_time: std::time::Instant::now(),
         resume_offset,
+        target_paths,
     };
 
     // 保存会话
@@ -1062,7 +1101,7 @@ async fn handle_finish(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (file_meta, computed_hash, sha256_match) = {
+    let (file_meta, computed_hash, sha256_match, target_path) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -1086,35 +1125,59 @@ async fn handle_finish(
         let computed_hash = hex::encode(hasher.finalize());
         let sha256_match = computed_hash == file_meta.sha256;
 
+        // 获取目标路径（如果有）
+        let target_path = session.target_paths.get(&file_id).cloned();
+
         // 关闭文件
         session.writers.remove(&file_id);
 
-        (file_meta, computed_hash, sha256_match)
+        (file_meta, computed_hash, sha256_match, target_path)
     };
 
     let resume_manager = get_resume_manager();
 
     let (response, saved_path_str) = if sha256_match {
-        // 哈希匹配，移动文件到最终位置
-        match resume_manager.finalize_transfer(&file_id, &file_meta.file_name) {
-            Ok(final_path) => {
-                let saved_path_str = final_path.to_string_lossy().to_string();
-                let response = FinishUploadResponse {
-                    success: true,
-                    sha256_match: true,
-                    saved_path: Some(saved_path_str.clone()),
-                    error: None,
-                };
-                (response, saved_path_str)
-            }
-            Err(e) => {
-                let response = FinishUploadResponse {
-                    success: false,
-                    sha256_match: true,
-                    saved_path: None,
-                    error: Some(format!("文件保存失败: {}", e)),
-                };
-                (response, String::new())
+        // 哈希匹配
+        // 检查是否使用了直接写入模式（有 target_path）
+        if let Some(ref direct_path) = target_path {
+            // 直接写入模式：文件已在目标位置，无需移动
+            println!(
+                "[LanTransfer] ✅ 接收完成 (直接写入): {} -> {}",
+                file_meta.file_name, direct_path
+            );
+
+            // 清理续传信息（如果有）
+            let _ = resume_manager.clear_resume_info(&file_id);
+
+            let response = FinishUploadResponse {
+                success: true,
+                sha256_match: true,
+                saved_path: Some(direct_path.clone()),
+                error: None,
+            };
+            (response, direct_path.clone())
+        } else {
+            // 临时文件模式：移动文件到最终位置
+            match resume_manager.finalize_transfer(&file_id, &file_meta.file_name) {
+                Ok(final_path) => {
+                    let saved_path_str = final_path.to_string_lossy().to_string();
+                    let response = FinishUploadResponse {
+                        success: true,
+                        sha256_match: true,
+                        saved_path: Some(saved_path_str.clone()),
+                        error: None,
+                    };
+                    (response, saved_path_str)
+                }
+                Err(e) => {
+                    let response = FinishUploadResponse {
+                        success: false,
+                        sha256_match: true,
+                        saved_path: None,
+                        error: Some(format!("文件保存失败: {}", e)),
+                    };
+                    (response, String::new())
+                }
             }
         }
     } else {

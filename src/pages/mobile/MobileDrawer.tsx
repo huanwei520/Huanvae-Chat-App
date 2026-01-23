@@ -36,6 +36,40 @@ const SettingsIcon = () => (
   </svg>
 );
 
+// 文件图标
+const FilesIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
+    />
+  </svg>
+);
+
+// 局域网传输图标
+const LanTransferIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
+    />
+  </svg>
+);
+
 // 退出图标
 const LogoutIcon = () => (
   <svg
@@ -62,11 +96,15 @@ interface MobileDrawerProps {
   onClose: () => void;
   /** 头像点击回调（打开个人资料） */
   onProfileClick: () => void;
+  /** 我的文件点击回调 */
+  onFilesClick: () => void;
+  /** 局域网互传点击回调 */
+  onLanTransferClick: () => void;
   /** 设置点击回调 */
   onSettingsClick: () => void;
   /** 退出登录回调 */
   onLogout: () => void;
-  // 注意：视频会议、文件互传、局域网传输功能在移动端不可用（使用 WebviewWindow）
+  // 注意：视频会议功能在移动端不可用（使用 WebviewWindow）
 }
 
 export function MobileDrawer({
@@ -74,6 +112,8 @@ export function MobileDrawer({
   session,
   onClose,
   onProfileClick,
+  onFilesClick,
+  onLanTransferClick,
   onSettingsClick,
   onLogout,
 }: MobileDrawerProps) {
@@ -119,6 +159,31 @@ export function MobileDrawer({
 
         {/* 菜单列表 */}
         <nav className="mobile-drawer-menu">
+          {/* 我的文件 */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onFilesClick();
+              onClose();
+            }}
+          >
+            <FilesIcon />
+            <span>我的文件</span>
+          </div>
+
+          {/* 局域网互传 */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onLanTransferClick();
+              onClose();
+            }}
+          >
+            <LanTransferIcon />
+            <span>局域网互传</span>
+          </div>
+
+          {/* 设置 */}
           <div
             className="mobile-drawer-item"
             onClick={() => {

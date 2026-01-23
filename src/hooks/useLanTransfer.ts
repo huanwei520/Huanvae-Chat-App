@@ -217,7 +217,7 @@ export interface UseLanTransferReturn {
 
   // ========== 服务管理 ==========
   /** 启动服务 */
-  startService: (userId: string, userNickname: string) => Promise<void>;
+  startService: (userId: string, userNickname: string, deviceName?: string) => Promise<void>;
   /** 停止服务 */
   stopService: () => Promise<void>;
   /** 刷新设备列表 */
@@ -276,14 +276,14 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [currentConnection, setCurrentConnection] = useState<PeerConnection | null>(null);
 
   // 启动服务
-  const startService = useCallback(async (userId: string, userNickname: string) => {
+  const startService = useCallback(async (userId: string, userNickname: string, deviceName?: string) => {
     if (loading) {
       return;
     }
 
     setLoading(true);
     try {
-      await invoke('start_lan_transfer_service', { userId, userNickname });
+      await invoke('start_lan_transfer_service', { userId, userNickname, deviceName: deviceName ?? null });
       setIsRunning(true);
     } catch (error) {
       console.error('[LanTransfer] 启动服务失败:', error);

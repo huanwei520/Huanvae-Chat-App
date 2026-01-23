@@ -18,6 +18,70 @@ use std::sync::Arc;
 use thiserror::Error;
 
 // ============================================================================
+// Android 数据目录（全局变量）
+// ============================================================================
+
+/// Android 上使用 Tauri 提供的应用数据目录（用于配置文件）
+/// 必须在应用启动时通过 init_android_data_dir 初始化
+#[cfg(target_os = "android")]
+static ANDROID_DATA_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+/// Android 公共 Download 目录（用于接收文件，用户可访问）
+#[cfg(target_os = "android")]
+static ANDROID_PUBLIC_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+/// 初始化 Android 数据目录
+/// 必须在应用启动时（setup 阶段）调用一次
+#[cfg(target_os = "android")]
+pub fn init_android_data_dir(path: PathBuf) -> Result<(), String> {
+    // 应用内部目录（用于配置文件）
+    let lan_transfer_dir = path.join("LanTransfer");
+    if !lan_transfer_dir.exists() {
+        fs::create_dir_all(&lan_transfer_dir).map_err(|e| {
+            format!(
+                "Android 创建 LanTransfer 目录失败 {:?}: {}",
+                lan_transfer_dir, e
+            )
+        })?;
+    }
+
+    ANDROID_DATA_DIR
+        .set(lan_transfer_dir)
+        .map_err(|_| "Android LanTransfer 数据目录已初始化".to_string())?;
+
+    // 公共 Download 目录（用于接收文件，用户可在文件管理器中访问）
+    // 路径: /storage/emulated/0/Download/HuanvaeChat
+    let public_download = PathBuf::from("/storage/emulated/0/Download/HuanvaeChat");
+    if !public_download.exists() {
+        if let Err(e) = fs::create_dir_all(&public_download) {
+            // 如果无法创建公共目录，使用应用外部存储目录
+            eprintln!(
+                "[LanTransfer] 警告: 无法创建公共 Download 目录 {:?}: {}",
+                public_download, e
+            );
+            eprintln!("[LanTransfer] 将使用应用外部存储目录作为备选");
+            // 备选: /storage/emulated/0/Android/data/{package}/files/LanTransfer
+            let fallback = PathBuf::from("/storage/emulated/0/Android/data/com.github.huanwei520.huanvae_chat_app/files/LanTransfer");
+            let _ = fs::create_dir_all(&fallback);
+            let _ = ANDROID_PUBLIC_DIR.set(fallback);
+            return Ok(());
+        }
+    }
+
+    let _ = ANDROID_PUBLIC_DIR.set(public_download);
+    Ok(())
+}
+
+/// 获取 Android 公共保存目录
+#[cfg(target_os = "android")]
+pub fn get_android_public_save_dir() -> PathBuf {
+    ANDROID_PUBLIC_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("/storage/emulated/0/Download/HuanvaeChat"))
+}
+
+// ============================================================================
 // 错误类型
 // ============================================================================
 
@@ -71,8 +135,16 @@ impl Default for LanTransferConfig {
     fn default() -> Self {
         let base_dir = get_base_directory();
 
+        // Android：使用公共 Download 目录保存接收的文件
+        // 其他平台：使用应用数据目录
+        #[cfg(target_os = "android")]
+        let save_dir = get_android_public_save_dir().join("Received");
+
+        #[cfg(not(target_os = "android"))]
+        let save_dir = base_dir.join("Received");
+
         Self {
-            save_directory: base_dir.join("Received"),
+            save_directory: save_dir,
             temp_directory: base_dir.join(".temp"),
             group_by_date: true,
             auto_accept_trusted: false,
@@ -255,10 +327,26 @@ impl ConfigManager {
 
 /// 获取基础目录
 fn get_base_directory() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("HuanvaeChat")
-        .join("LanTransfer")
+    // Android：使用 Tauri 提供的应用数据目录
+    #[cfg(target_os = "android")]
+    {
+        ANDROID_DATA_DIR
+            .get()
+            .cloned()
+            .unwrap_or_else(|| {
+                eprintln!("[LanTransfer] 警告: Android 数据目录未初始化，使用临时目录");
+                PathBuf::from("/data/local/tmp/HuanvaeChat/LanTransfer")
+            })
+    }
+
+    // 其他平台：使用 dirs crate
+    #[cfg(not(target_os = "android"))]
+    {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("HuanvaeChat")
+            .join("LanTransfer")
+    }
 }
 
 /// 获取配置文件路径

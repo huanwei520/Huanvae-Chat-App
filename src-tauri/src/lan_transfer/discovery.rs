@@ -17,6 +17,7 @@ use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -31,6 +32,7 @@ pub enum DiscoveryError {
     ServiceStartFailed(String),
     #[error("获取本地 IP 失败: {0}")]
     LocalIpError(String),
+    #[allow(dead_code)]
     #[error("获取 MAC 地址失败: {0}")]
     MacAddressError(String),
     #[allow(dead_code)]
@@ -71,7 +73,11 @@ pub fn subscribe_events() -> broadcast::Receiver<LanTransferEvent> {
 // ============================================================================
 
 /// 启动局域网传输服务
-pub async fn start_service(user_id: String, user_nickname: String) -> Result<(), DiscoveryError> {
+pub async fn start_service(
+    user_id: String,
+    user_nickname: String,
+    custom_device_name: Option<String>,
+) -> Result<(), DiscoveryError> {
     let state = get_lan_transfer_state();
 
     println!("[LanTransfer] ========== 启动服务 ==========");
@@ -106,15 +112,19 @@ pub async fn start_service(user_id: String, user_nickname: String) -> Result<(),
         }
     }
 
-    // 获取设备 ID（基于 MAC 地址）
-    println!("[LanTransfer] 正在获取 MAC 地址...");
+    // 获取设备 ID（UUID）
+    println!("[LanTransfer] 正在获取设备 ID...");
     let device_id = get_device_id()?;
-    println!("[LanTransfer] ✓ 设备 ID (MAC): {}", device_id);
+    println!("[LanTransfer] ✓ 设备 ID: {}", device_id);
 
-    // 获取设备名称
-    let device_name = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "Unknown".to_string());
+    // 获取设备名称（优先使用前端传入的，否则使用 hostname）
+    let device_name = custom_device_name
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| {
+            hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "Unknown".to_string())
+        });
     println!("[LanTransfer] ✓ 设备名称: {}", device_name);
 
     // 获取操作系统信息
@@ -348,12 +358,67 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
 // 内部函数
 // ============================================================================
 
-/// 获取设备唯一标识（基于 MAC 地址）
+/// 获取设备唯一标识（UUID）
+///
+/// 使用持久化的 UUID 作为设备标识，确保重启应用后 ID 保持一致
 fn get_device_id() -> Result<String, DiscoveryError> {
-    match mac_address::get_mac_address() {
-        Ok(Some(mac)) => Ok(mac.to_string().replace(':', "")),
-        Ok(None) => Err(DiscoveryError::MacAddressError("未找到 MAC 地址".to_string())),
-        Err(e) => Err(DiscoveryError::MacAddressError(e.to_string())),
+    get_or_create_device_uuid()
+}
+
+/// 获取或创建设备 UUID（Android 备用方案）
+///
+/// 使用文件持久化，确保重启应用后 ID 保持一致
+fn get_or_create_device_uuid() -> Result<String, DiscoveryError> {
+    use std::fs;
+
+    // 获取存储路径
+    let uuid_file = get_uuid_storage_path();
+
+    // 尝试读取已存储的 UUID
+    if uuid_file.exists()
+        && let Ok(stored) = fs::read_to_string(&uuid_file)
+    {
+        let uuid = stored.trim().to_string();
+        if !uuid.is_empty() {
+            println!("[LanTransfer] 使用已存储的设备 UUID: {}", &uuid[..8.min(uuid.len())]);
+            return Ok(uuid);
+        }
+    }
+
+    // 生成新的 UUID
+    let new_uuid = uuid::Uuid::new_v4().to_string().replace('-', "");
+    println!("[LanTransfer] 生成新的设备 UUID: {}", &new_uuid[..8]);
+
+    // 确保父目录存在
+    if let Some(parent) = uuid_file.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // 保存 UUID
+    if let Err(e) = fs::write(&uuid_file, &new_uuid) {
+        println!("[LanTransfer] 警告: 保存设备 UUID 失败: {}", e);
+        // 即使保存失败，仍然返回生成的 UUID（本次运行有效）
+    }
+
+    Ok(new_uuid)
+}
+
+/// 获取 UUID 存储路径
+fn get_uuid_storage_path() -> PathBuf {
+    // Android：使用应用数据目录
+    #[cfg(target_os = "android")]
+    {
+        crate::user_data::get_app_root().join(".lan_device_uuid")
+    }
+
+    // 桌面端：使用用户数据目录
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Some(data_dir) = dirs::data_local_dir() {
+            data_dir.join("huanvae-chat").join(".lan_device_uuid")
+        } else {
+            PathBuf::from(".lan_device_uuid")
+        }
     }
 }
 

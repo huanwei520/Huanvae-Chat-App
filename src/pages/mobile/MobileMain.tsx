@@ -14,7 +14,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 import { useMainPage } from '../../hooks/useMainPage';
 import { useInitialSync } from '../../hooks/useInitialSync';
 import { useMobileNavigation } from '../../hooks/useMobileNavigation';
@@ -28,9 +28,12 @@ import { MobileDrawer } from './MobileDrawer';
 import { MobileChatList } from './MobileChatList';
 import { MobileContacts } from './MobileContacts';
 import { MobileChatView } from './MobileChatView';
-import { ProfileModal } from '../../components/ProfileModal';
-import { SettingsPanel } from '../../components/settings';
+import { MobileProfilePage } from './MobileProfilePage';
+import { MobileFilesPage } from './MobileFilesPage';
+import { MobileSettingsPage } from './MobileSettingsPage';
+import { MobileLanTransferPage } from './MobileLanTransferPage';
 // 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
+// import { ProfileModal } from '../../components/ProfileModal';
 // import { FilesModal } from '../../components/files/FilesModal';
 // import { MeetingEntryModal } from '../../meeting';
 // import { openLanTransferWindow } from '../../lanTransfer';
@@ -44,10 +47,12 @@ export function MobileMain() {
   const page = useMainPage();
   const nav = useMobileNavigation();
 
-  // 弹窗状态
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  // 页面状态（用独立页面替代弹窗）
+  const [showProfilePage, setShowProfilePage] = useState(false);
+  const [showFilesPage, setShowFilesPage] = useState(false);
+  const [showLanTransferPage, setShowLanTransferPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  // 注意：FilesModal 和 MeetingEntryModal 在移动端不可用（使用 WebviewWindow）
+  // 注意：MeetingEntryModal 在移动端不可用（使用 WebviewWindow）
 
   // 登录后全量增量同步
   useInitialSync({
@@ -81,19 +86,31 @@ export function MobileMain() {
       return true;
     }
 
-    // 优先级 2：个人资料模态框打开 → 关闭模态框
-    if (showProfileModal) {
-      setShowProfileModal(false);
+    // 优先级 2：个人资料页面打开 → 关闭页面
+    if (showProfilePage) {
+      setShowProfilePage(false);
       return true;
     }
 
-    // 优先级 3：抽屉打开 → 关闭抽屉
+    // 优先级 3：我的文件页面打开 → 关闭页面
+    if (showFilesPage) {
+      setShowFilesPage(false);
+      return true;
+    }
+
+    // 优先级 4：局域网互传页面打开 → 关闭页面
+    if (showLanTransferPage) {
+      setShowLanTransferPage(false);
+      return true;
+    }
+
+    // 优先级 5：抽屉打开 → 关闭抽屉
     if (nav.isDrawerOpen) {
       nav.closeDrawer();
       return true;
     }
 
-    // 优先级 4：在聊天页面 → 返回列表
+    // 优先级 5：在聊天页面 → 返回列表
     if (nav.currentView === 'chat') {
       nav.exitChat();
       return true;
@@ -101,7 +118,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showSettings, showProfileModal, nav]);
+  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, nav]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -124,60 +141,124 @@ export function MobileMain() {
         session={page.session}
         onClose={nav.closeDrawer}
         onProfileClick={() => {
-          setShowProfileModal(true);
+          setShowProfilePage(true);
+          nav.closeDrawer();
+        }}
+        onFilesClick={() => {
+          setShowFilesPage(true);
+          nav.closeDrawer();
+        }}
+        onLanTransferClick={() => {
+          setShowLanTransferPage(true);
           nav.closeDrawer();
         }}
         onSettingsClick={() => setShowSettings(true)}
         onLogout={page.handleLogout}
       />
 
-      {/* 主内容区域 */}
-      {nav.currentView === 'list' ? (
-        <>
-          {/* 顶部栏 */}
-          <MobileHeader
-            session={page.session}
-            searchQuery={page.searchQuery}
-            onSearchChange={page.setSearchQuery}
-            onAvatarClick={nav.openDrawer}
-          />
+      {/* 主内容区域 - 使用 AnimatePresence 实现列表和聊天页面的滑动过渡 */}
+      {/* 不使用 mode="wait"，让退出和进入动画同时进行，避免中间空白 */}
+      <AnimatePresence initial={false}>
+        {nav.currentView === 'list' ? (
+          <motion.div
+            key="list-view"
+            className="mobile-list-container"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'tween', duration: 0.25 }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* 顶部栏 */}
+            <MobileHeader
+              session={page.session}
+              searchQuery={page.searchQuery}
+              onSearchChange={page.setSearchQuery}
+              onAvatarClick={nav.openDrawer}
+            />
 
-          {/* 内容区域 */}
-          <div className="mobile-content">
-            <AnimatePresence mode="wait">
-              {nav.activeTab === 'chat' ? (
-                <MobileChatList
-                  key="chat-list"
-                  friends={page.friends}
-                  groups={page.groups}
-                  searchQuery={page.searchQuery}
-                  selectedTarget={page.chatTarget}
-                  onSelectTarget={handleSelectTarget}
-                  unreadSummary={page.unreadSummary}
-                />
-              ) : (
-                <MobileContacts
-                  key="contacts"
-                  friends={page.friends}
-                  groups={page.groups}
-                  searchQuery={page.searchQuery}
-                  onSelectTarget={handleSelectTarget}
-                />
-              )}
-            </AnimatePresence>
-          </div>
+            {/* 内容区域 - 支持左右滑动切换 */}
+            <motion.div
+              className="mobile-content"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.2}
+              onDragEnd={(_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+                const threshold = 50; // 滑动阈值
+                const velocity = info.velocity.x;
+                const offset = info.offset.x;
 
-          {/* 底部Tab栏 */}
-          <MobileTabBar
-            activeTab={nav.activeTab}
-            onTabChange={nav.setActiveTab}
-            unreadCount={totalUnread}
-          />
-        </>
-      ) : (
-        /* 聊天页面 */
-        <AnimatePresence mode="wait">
-          {page.chatTarget && (
+                // 快速滑动或滑动距离足够
+                if (velocity < -300 || offset < -threshold) {
+                  // 向左滑动 → 切换到通讯录
+                  if (nav.activeTab === 'chat') {
+                    nav.setActiveTab('contacts');
+                  }
+                } else if (velocity > 300 || offset > threshold) {
+                  // 向右滑动 → 切换到消息
+                  if (nav.activeTab === 'contacts') {
+                    nav.setActiveTab('chat');
+                  }
+                }
+              }}
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                {nav.activeTab === 'chat' ? (
+                  <motion.div
+                    key="chat-list"
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: -20, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ height: '100%' }}
+                  >
+                    <MobileChatList
+                      friends={page.friends}
+                      groups={page.groups}
+                      searchQuery={page.searchQuery}
+                      selectedTarget={page.chatTarget}
+                      onSelectTarget={handleSelectTarget}
+                      unreadSummary={page.unreadSummary}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="contacts"
+                    initial={{ x: 20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: 20, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    style={{ height: '100%' }}
+                  >
+                    <MobileContacts
+                      friends={page.friends}
+                      groups={page.groups}
+                      searchQuery={page.searchQuery}
+                      onSelectTarget={handleSelectTarget}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+
+            {/* 底部Tab栏 */}
+            <MobileTabBar
+              activeTab={nav.activeTab}
+              onTabChange={nav.setActiveTab}
+              unreadCount={totalUnread}
+            />
+          </motion.div>
+        ) : (
+          /* 聊天页面 */
+          page.chatTarget && (
             <MobileChatView
               key="chat-view"
               session={page.session}
@@ -215,33 +296,33 @@ export function MobileMain() {
               onHistoryLoaded={page.handleHistoryLoaded}
               onBack={handleBack}
             />
-          )}
-        </AnimatePresence>
-      )}
+          )
+        )}
+      </AnimatePresence>
 
-      {/* 弹窗组件 */}
-      <ProfileModal
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-      />
-      {/* 注意：FilesModal 和 MeetingEntryModal 使用 WebviewWindow，在移动端不可用 */}
+      {/* 全屏页面组件 */}
+      <AnimatePresence>
+        {showProfilePage && (
+          <MobileProfilePage onClose={() => setShowProfilePage(false)} />
+        )}
+      </AnimatePresence>
 
-      {/* 设置面板（全屏显示） */}
+      <AnimatePresence>
+        {showFilesPage && (
+          <MobileFilesPage onClose={() => setShowFilesPage(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showLanTransferPage && (
+          <MobileLanTransferPage onClose={() => setShowLanTransferPage(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* 设置页面 */}
       <AnimatePresence>
         {showSettings && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 200,
-              background: 'var(--bg-primary)',
-            }}
-          >
-            <SettingsPanel onClose={() => setShowSettings(false)} />
-          </div>
+          <MobileSettingsPage onClose={() => setShowSettings(false)} />
         )}
       </AnimatePresence>
     </div>
