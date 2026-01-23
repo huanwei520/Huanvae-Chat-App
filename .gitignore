@@ -33,3 +33,6 @@ data/
 
 huanvae-chat-app.jks
 huanvae-chat-app.jks.base64
+
+# Android 签名配置
+src-tauri/gen/android/app/keystore.properties

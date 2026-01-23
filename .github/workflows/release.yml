@@ -5,7 +5,8 @@
 # - 构建 Windows (NSIS + MSI)
 # - 构建 Linux (AppImage + .deb)
 # - 构建 macOS (DMG, x64 + ARM64)
-# - 自动生成带代理 URL 的 latest.json
+# - 构建 Android (APK)
+# - 自动生成带代理 URL 的 latest.json 和 android-latest.json
 # - 上传到 GitHub Releases
 
 name: Release
@@ -116,6 +117,7 @@ jobs:
             | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS Intel | `_x64.dmg` |
             | macOS M1/M2 | `_aarch64.dmg` |
+            | Android | `_android.apk` |
             
             > 💡 国内用户如下载缓慢，可使用代理链接（Release 附件中的 `latest.json` 包含加速链接）
             
@@ -302,10 +304,99 @@ jobs:
           echo "✅ Successfully re-uploaded: $(basename $DEB_FILE)"
 
   # ============================================
+  # Android 构建任务
+  # ============================================
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # 初始化 Android 项目（如果 gen/android 不存在）
+      - name: Initialize Android project
+        run: pnpm tauri android init || true
+
+      # 配置 Android 签名
+      - name: Setup Android Signing
+        run: |
+          cd src-tauri/gen/android/app
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
+          echo "password=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
+          base64 -d <<< "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" > $RUNNER_TEMP/keystore.jks
+          echo "storeFile=$RUNNER_TEMP/keystore.jks" >> keystore.properties
+
+      # 构建 Android APK
+      - name: Build Android APK
+        run: pnpm tauri android build --apk true
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          CI: false
+
+      # 上传 APK 到 Release
+      - name: Upload APK to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
+          # 查找生成的 APK 文件（release 版本）
+          APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release -name "*.apk" -type f 2>/dev/null | head -1)
+          
+          # 如果没找到 universal，尝试 arm64
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find src-tauri/gen/android/app/build/outputs/apk -name "*release*.apk" -type f 2>/dev/null | head -1)
+          fi
+          
+          if [ -f "$APK_PATH" ]; then
+            # 重命名为标准格式
+            APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
+            cp "$APK_PATH" "$APK_NAME"
+            
+            # 创建或更新 Release
+            gh release upload ${{ github.ref_name }} "$APK_NAME" --clobber || \
+              gh release create ${{ github.ref_name }} "$APK_NAME" --title "Huanvae Chat ${{ github.ref_name }}" --notes "Android APK"
+            
+            echo "✅ Uploaded: $APK_NAME"
+          else
+            echo "❌ APK not found"
+            find src-tauri/gen/android -name "*.apk" -type f 2>/dev/null
+            exit 1
+          fi
+
+  # ============================================
   # 生成更新清单
   # ============================================
   generate-manifest:
-    needs: build
+    needs: [build, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -539,4 +630,38 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} latest-all-proxies.json --clobber
           echo "✅ Uploaded proxy reference file"
+
+      # ============================================
+      # 生成 Android 更新清单
+      # ============================================
+      - name: Generate android-latest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          TAG="${{ github.ref_name }}"
+          PROXY="https://edgeone.gh-proxy.org/"
+          
+          # Android APK 文件名格式（与 build-android job 上传的文件名一致）
+          APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
+          
+          cat > android-latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
+            "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "size": 0,
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          
+          echo "Generated android-latest.json:"
+          cat android-latest.json
+
+      - name: Upload android-latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} android-latest.json --clobber
+          echo "✅ Uploaded android-latest.json to release"
 

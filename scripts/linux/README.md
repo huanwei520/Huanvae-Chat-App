@@ -51,18 +51,25 @@ chmod +x scripts/linux/*.sh
 ```
 
 检查内容：
-1. **package.json 验证** - JSON 格式和重复键检查
-2. **TypeScript 类型检查** - `pnpm tsc --noEmit`
-3. **ESLint 代码检查** - 严格模式，0 errors, 0 warnings
-4. **单元测试** - `pnpm test --run`
-5. **前端构建测试** - 检查 Vite 优化警告
-6. **Cargo check** - Rust 编译检查
-7. **Cargo clippy** - Rust 代码审查，禁止任何警告
+1. **NSIS 钩子检查** - Windows 更新兼容性
+2. **package.json 验证** - JSON 格式和重复键检查
+3. **TypeScript 类型检查** - `pnpm tsc --noEmit`
+4. **ESLint 代码检查** - 严格模式，0 errors, 0 warnings
+5. **单元测试** - `pnpm test --run`
+6. **前端构建测试** - 检查 Vite 优化警告
+7. **Cargo check** - Rust 编译检查
+8. **Cargo clippy 桌面端** - Rust 代码审查，禁止任何警告
+9. **Cargo clippy Android** - 移动端 Rust 代码审查
 
 可选参数：
 ```bash
-./scripts/linux/test-all.sh --skip-rust  # 跳过 Rust 检查
+./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查
+./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
 ```
+
+Android clippy 需要：
+- 已安装 Android NDK（设置 `$NDK_HOME` 环境变量）
+- 已安装 Rust Android 目标：`rustup target add aarch64-linux-android`
 
 ### 预发布检查
 
@@ -137,6 +144,29 @@ cargo clippy --fix --allow-dirty
 # 查看详细建议
 cargo clippy --all-targets --all-features 2>&1 | less
 ```
+
+### Q: Android clippy 如何单独运行？
+
+```bash
+cd src-tauri
+
+# 设置 NDK 环境变量
+export NDK_HOME=$HOME/Android/Sdk/ndk/29.0.14206865  # 替换为你的版本
+export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+
+# 运行 Android clippy
+cargo clippy --target aarch64-linux-android
+```
+
+### Q: Android NDK 未找到怎么办？
+
+1. 确保已安装 Android NDK（通过 Android Studio SDK Manager）
+2. 设置 `NDK_HOME` 环境变量：
+   ```bash
+   export NDK_HOME=$HOME/Android/Sdk/ndk/29.0.14206865
+   ```
+3. 或在 `~/.bashrc` 中永久设置
 
 ### Q: ESLint 报警告怎么办？
 

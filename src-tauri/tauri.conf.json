@@ -75,7 +75,7 @@
         ],
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine",
+        "installMode": "currentUser",
         "installerHooks": "./nsis/installer-hooks.nsh"
       },
       "wix": {

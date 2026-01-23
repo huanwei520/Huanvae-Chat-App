@@ -12,7 +12,7 @@
 
 [package]
 name = "huanvae-chat-app"
-version = "1.0.22"
+version = "1.0.23"
 description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
@@ -170,3 +170,11 @@ tauri-plugin-mobile-onbackpressed-listener = "2.0.1"
 # 解决 Android 原生文件选择器返回的 URI 无法直接读取的问题
 # 参考: https://github.com/aiueo13/tauri-plugin-android-fs
 tauri-plugin-android-fs = "24.1.0"
+
+# ============================================
+# Android APK 安装
+# ============================================
+# 用于应用内自动更新：下载 APK 后调用系统安装器
+# 提供权限检查、请求和安装功能
+# 参考: https://jsr.io/@kingsword/tauri-plugin-android-package-install
+tauri-plugin-android-package-install = "2.0.1"

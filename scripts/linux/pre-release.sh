@@ -43,7 +43,7 @@ echo -e "${MAGENTA}================================================${NC}"
 # 1. TypeScript 类型检查
 # ============================================
 echo ""
-echo -e "${CYAN}[1/7] TypeScript 类型检查...${NC}"
+echo -e "${CYAN}[1/8] TypeScript 类型检查...${NC}"
 
 if pnpm tsc --noEmit >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 类型检查通过${NC}"
@@ -58,7 +58,7 @@ fi
 # 2. ESLint 代码检查
 # ============================================
 echo ""
-echo -e "${CYAN}[2/7] ESLint 代码检查...${NC}"
+echo -e "${CYAN}[2/8] ESLint 代码检查...${NC}"
 
 ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
 if [[ $? -eq 0 ]] && ! echo "$ESLINT_OUTPUT" | grep -qE "(error|warning)"; then
@@ -74,7 +74,7 @@ fi
 # 3. 单元测试
 # ============================================
 echo ""
-echo -e "${CYAN}[3/7] 单元测试...${NC}"
+echo -e "${CYAN}[3/8] 单元测试...${NC}"
 
 if pnpm test --run >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 单元测试通过${NC}"
@@ -89,7 +89,7 @@ fi
 # 4. 前端构建测试
 # ============================================
 echo ""
-echo -e "${CYAN}[4/7] 前端构建测试...${NC}"
+echo -e "${CYAN}[4/8] 前端构建测试...${NC}"
 
 if pnpm build >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 前端构建成功${NC}"
@@ -101,27 +101,64 @@ else
 fi
 
 # ============================================
-# 5. Cargo Clippy 代码审查
+# 5. Cargo Clippy 代码审查 (桌面端)
 # ============================================
 echo ""
-echo -e "${CYAN}[5/7] Cargo Clippy 代码审查...${NC}"
+echo -e "${CYAN}[5/8] Cargo Clippy 桌面端代码审查...${NC}"
 
 cd "$PROJECT_ROOT/src-tauri"
 if cargo clippy --all-targets --all-features -- -D warnings >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Clippy 检查通过${NC}"
-    add_result "Cargo Clippy" "true"
+    echo -e "  ${GREEN}✓ Clippy 桌面端检查通过${NC}"
+    add_result "Cargo Clippy 桌面端" "true"
 else
-    echo -e "  ${RED}✗ Clippy 检查失败${NC}"
+    echo -e "  ${RED}✗ Clippy 桌面端检查失败${NC}"
     cargo clippy --all-targets --all-features -- -D warnings 2>&1 | grep -E "^(error|warning)" | head -10
-    add_result "Cargo Clippy" "false"
+    add_result "Cargo Clippy 桌面端" "false"
 fi
 cd "$PROJECT_ROOT"
 
 # ============================================
-# 6. 配置文件检查
+# 6. Cargo Clippy 代码审查 (Android)
 # ============================================
 echo ""
-echo -e "${CYAN}[6/7] 配置文件检查...${NC}"
+echo -e "${CYAN}[6/8] Cargo Clippy Android 代码审查...${NC}"
+
+# 检查 Android NDK
+if [[ -z "$NDK_HOME" ]]; then
+    if [[ -d "$HOME/Android/Sdk/ndk" ]]; then
+        NDK_HOME=$(ls -d "$HOME/Android/Sdk/ndk"/*/ 2>/dev/null | tail -1 | sed 's:/$::')
+    fi
+fi
+
+if [[ -z "$NDK_HOME" || ! -d "$NDK_HOME" ]]; then
+    echo -e "  ${YELLOW}⚠ 跳过: Android NDK 未找到${NC}"
+    add_result "Cargo Clippy Android" "skip"
+elif ! rustup target list --installed | grep -q "aarch64-linux-android"; then
+    echo -e "  ${YELLOW}⚠ 跳过: aarch64-linux-android 目标未安装${NC}"
+    add_result "Cargo Clippy Android" "skip"
+else
+    cd "$PROJECT_ROOT/src-tauri"
+    
+    export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+    export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+    
+    if cargo clippy --target aarch64-linux-android -- -D warnings >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✓ Clippy Android 检查通过${NC}"
+        add_result "Cargo Clippy Android" "true"
+    else
+        echo -e "  ${RED}✗ Clippy Android 检查失败${NC}"
+        cargo clippy --target aarch64-linux-android -- -D warnings 2>&1 | grep -E "^(error|warning)" | head -10
+        add_result "Cargo Clippy Android" "false"
+    fi
+    
+    cd "$PROJECT_ROOT"
+fi
+
+# ============================================
+# 7. 配置文件检查
+# ============================================
+echo ""
+echo -e "${CYAN}[7/8] 配置文件检查...${NC}"
 
 CONFIG_OK=true
 TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
@@ -154,10 +191,10 @@ else
 fi
 
 # ============================================
-# 7. 人工功能检查
+# 8. 人工功能检查
 # ============================================
 echo ""
-echo -e "${CYAN}[7/7] 人工功能检查...${NC}"
+echo -e "${CYAN}[8/8] 人工功能检查...${NC}"
 echo ""
 echo -e "${YELLOW}请确认以下核心功能正常工作：${NC}"
 echo ""
@@ -195,11 +232,15 @@ echo ""
 
 PASSED_COUNT=0
 FAILED_COUNT=0
+SKIPPED_COUNT=0
 
 for i in "${!RESULTS_NAME[@]}"; do
     if [[ "${RESULTS_PASS[$i]}" == "true" ]]; then
         echo -e "  ${GREEN}✓ ${RESULTS_NAME[$i]}${NC}"
         ((PASSED_COUNT++))
+    elif [[ "${RESULTS_PASS[$i]}" == "skip" ]]; then
+        echo -e "  ${YELLOW}⚠ ${RESULTS_NAME[$i]} (跳过)${NC}"
+        ((SKIPPED_COUNT++))
     else
         echo -e "  ${RED}✗ ${RESULTS_NAME[$i]}${NC}"
         ((FAILED_COUNT++))

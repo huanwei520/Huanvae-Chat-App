@@ -52,20 +52,18 @@ pub fn init_android_data_dir(path: PathBuf) -> Result<(), String> {
     // 公共 Download 目录（用于接收文件，用户可在文件管理器中访问）
     // 路径: /storage/emulated/0/Download/HuanvaeChat
     let public_download = PathBuf::from("/storage/emulated/0/Download/HuanvaeChat");
-    if !public_download.exists() {
-        if let Err(e) = fs::create_dir_all(&public_download) {
-            // 如果无法创建公共目录，使用应用外部存储目录
-            eprintln!(
-                "[LanTransfer] 警告: 无法创建公共 Download 目录 {:?}: {}",
-                public_download, e
-            );
-            eprintln!("[LanTransfer] 将使用应用外部存储目录作为备选");
-            // 备选: /storage/emulated/0/Android/data/{package}/files/LanTransfer
-            let fallback = PathBuf::from("/storage/emulated/0/Android/data/com.github.huanwei520.huanvae_chat_app/files/LanTransfer");
-            let _ = fs::create_dir_all(&fallback);
-            let _ = ANDROID_PUBLIC_DIR.set(fallback);
-            return Ok(());
-        }
+    if !public_download.exists() && let Err(e) = fs::create_dir_all(&public_download) {
+        // 如果无法创建公共目录，使用应用外部存储目录
+        eprintln!(
+            "[LanTransfer] 警告: 无法创建公共 Download 目录 {:?}: {}",
+            public_download, e
+        );
+        eprintln!("[LanTransfer] 将使用应用外部存储目录作为备选");
+        // 备选: /storage/emulated/0/Android/data/{package}/files/LanTransfer
+        let fallback = PathBuf::from("/storage/emulated/0/Android/data/com.github.huanwei520.huanvae_chat_app/files/LanTransfer");
+        let _ = fs::create_dir_all(&fallback);
+        let _ = ANDROID_PUBLIC_DIR.set(fallback);
+        return Ok(());
     }
 
     let _ = ANDROID_PUBLIC_DIR.set(public_download);
