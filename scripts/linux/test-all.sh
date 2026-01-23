@@ -9,7 +9,8 @@
 #
 # 使用方法：
 #   ./scripts/linux/test-all.sh
-#   ./scripts/linux/test-all.sh --skip-rust  # 跳过 Rust 检查
+#   ./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查
+#   ./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
 
 set -e
 
@@ -24,9 +25,11 @@ NC='\033[0m'
 
 # 参数处理
 SKIP_RUST=false
+SKIP_ANDROID=false
 for arg in "$@"; do
     case $arg in
         --skip-rust) SKIP_RUST=true ;;
+        --skip-android) SKIP_ANDROID=true ;;
     esac
 done
 
@@ -44,9 +47,12 @@ echo ""
 
 START_TIME=$(date +%s)
 ALL_PASSED=true
-TOTAL_STEPS=8
+TOTAL_STEPS=9
 if $SKIP_RUST; then
-    TOTAL_STEPS=7
+    TOTAL_STEPS=$((TOTAL_STEPS - 2))
+fi
+if $SKIP_ANDROID; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
 fi
 
 # ============================================
@@ -225,9 +231,8 @@ fi
 # ============================================
 # 8. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
-CLIPPY_STEP=$TOTAL_STEPS
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo clippy (代码审查 - 禁止警告)...${NC}"
+    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -236,14 +241,60 @@ if ! $SKIP_RUST; then
     CLIPPY_EXIT=$?
     
     if [[ $CLIPPY_EXIT -eq 0 ]]; then
-        echo -e "  ${GREEN}✓ PASS: Cargo clippy (0 warnings)${NC}"
+        echo -e "  ${GREEN}✓ PASS: Cargo clippy 桌面端 (0 warnings)${NC}"
     else
-        echo -e "  ${RED}✗ FAIL: Cargo clippy${NC}"
+        echo -e "  ${RED}✗ FAIL: Cargo clippy 桌面端${NC}"
         echo "$CLIPPY_OUTPUT" | grep -E "^(error|warning)" | head -20
         ALL_PASSED=false
     fi
     
     cd "$PROJECT_ROOT"
+fi
+
+# ============================================
+# 9. Android Cargo Clippy (移动端代码审查)
+# ============================================
+if ! $SKIP_RUST && ! $SKIP_ANDROID; then
+    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
+    
+    # 检查 Android NDK 是否存在
+    if [[ -z "$NDK_HOME" ]]; then
+        # 尝试常见路径
+        if [[ -d "$HOME/Android/Sdk/ndk" ]]; then
+            NDK_HOME=$(ls -d "$HOME/Android/Sdk/ndk"/*/ 2>/dev/null | tail -1 | sed 's:/$::')
+        elif [[ -d "/opt/android-ndk" ]]; then
+            NDK_HOME="/opt/android-ndk"
+        fi
+    fi
+    
+    if [[ -z "$NDK_HOME" || ! -d "$NDK_HOME" ]]; then
+        echo -e "  ${YELLOW}⚠ SKIP: Android NDK 未找到 (设置 NDK_HOME 或使用 --skip-android)${NC}"
+    else
+        # 检查目标是否已安装
+        if ! rustup target list --installed | grep -q "aarch64-linux-android"; then
+            echo -e "  ${YELLOW}⚠ SKIP: aarch64-linux-android 目标未安装${NC}"
+            echo -e "  ${GRAY}  运行: rustup target add aarch64-linux-android${NC}"
+        else
+            cd "$PROJECT_ROOT/src-tauri"
+            
+            # 设置 NDK 编译器环境变量
+            export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+            export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+            
+            ANDROID_CLIPPY_OUTPUT=$(cargo clippy --target aarch64-linux-android -- -D warnings 2>&1) || true
+            ANDROID_CLIPPY_EXIT=$?
+            
+            if [[ $ANDROID_CLIPPY_EXIT -eq 0 ]]; then
+                echo -e "  ${GREEN}✓ PASS: Cargo clippy Android (0 warnings)${NC}"
+            else
+                echo -e "  ${RED}✗ FAIL: Cargo clippy Android${NC}"
+                echo "$ANDROID_CLIPPY_OUTPUT" | grep -E "^(error|warning)" | head -20
+                ALL_PASSED=false
+            fi
+            
+            cd "$PROJECT_ROOT"
+        fi
+    fi
 fi
 
 # ============================================

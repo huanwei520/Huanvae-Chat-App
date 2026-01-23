@@ -1,7 +1,7 @@
 {
   "name": "Huanvae-Chat-App",
   "private": true,
-  "version": "1.0.22",
+  "version": "1.0.23",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@impierce/tauri-plugin-keystore": "2.1.0-alpha.1",
+    "@kingsword/tauri-plugin-android-package-install": "jsr:^2.0.1",
     "@kingsword/tauri-plugin-mobile-onbackpressed-listener": "jsr:^2.0.1",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-biometric": "^2.3.2",

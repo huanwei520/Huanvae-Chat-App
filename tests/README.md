@@ -303,6 +303,19 @@ unset CI && pnpm tauri android dev
 | 返回手势 | 手势返回可关闭页面 | 待测试 |
 | 屏幕共享 | 移动端不支持屏幕共享，按钮隐藏 | 待测试 |
 
+#### Android 自动更新
+
+| 测试项 | 预期结果 | 状态 |
+|--------|----------|------|
+| 版本检测 | 启动后自动检查 android-latest.json | 待测试 |
+| 代理切换 | 多个代理依次尝试，失败自动切换 | 待测试 |
+| 更新弹窗 | 有新版本时显示灵动岛风格弹窗 | 待测试 |
+| 下载进度 | 显示下载进度、已下载大小、代理信息 | 待测试 |
+| APK 安装 | 下载完成后调用系统安装器 | 待测试 |
+| 权限请求 | 首次安装时请求"安装未知应用"权限 | 待测试 |
+| 稍后按钮 | 点击稍后关闭弹窗 | 待测试 |
+| 重试功能 | 下载失败后可重试 | 待测试 |
+
 ### 已知限制
 
 | 功能 | 限制说明 | 替代方案 |
@@ -312,6 +325,7 @@ unset CI && pnpm tauri android dev
 | 媒体预览窗口 | 使用 WebviewWindow，移动端不可用 | ✅ 使用全屏模态框替代 |
 | 视频缩略图 | video 元素 preload 在移动端不可靠 | ✅ 使用本地服务器 + video 元素显示第一帧 |
 | asset:// 视频 | Android WebView 不支持 asset:// 播放视频 | ✅ 使用本地 HTTP 服务器替代 |
+| 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
 
@@ -332,6 +346,11 @@ unset CI && pnpm tauri android dev
 - 2026-01-23: 移动端设置页面独立化、滑动切换、局域网互传页面
 - 2026-01-23: 添加 tauri-plugin-android-fs 解决 Android content:// URI 文件读取问题
 - 2026-01-23: 添加移动端视频会议入口页面和会议页面（使用 WebRTC，不支持屏幕共享）
+- 2026-01-23: 添加 Android 自动更新功能（tauri-plugin-android-package-install）
+  - 检测 android-latest.json 获取版本信息
+  - 多代理自动切换下载
+  - 灵动岛风格更新弹窗（与桌面端 UI 一致）
+  - APK 下载完成后调用系统安装器
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

@@ -16,6 +16,7 @@
 //! - 设备信息：获取设备标识用于登录
 //! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
 //! - 局域网传输：局域网内设备发现和文件互传
+//! - Android 更新：应用内 APK 下载和安装（Android 专属）
 //!
 //! ## 平台支持
 //! - 桌面端 (Windows/macOS/Linux): 完整功能
@@ -49,6 +50,11 @@ mod desktop;
 // ============================================
 #[cfg(any(target_os = "android", target_os = "ios"))]
 mod mobile_media_server;
+
+// ============================================
+// Android 更新模块
+// ============================================
+mod android_update;
 
 use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
 use storage::SavedAccount;
@@ -511,6 +517,7 @@ pub fn run() {
     // - keystore: 存储密码
     // - biometric: 生物识别 + 会话持久化存储
     // - android-fs: 处理 content:// URI 文件读取（局域网传输需要）
+    // - android-package-install: 应用内 APK 安装（自动更新需要）
     // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
     // 要求 Android API 28+ (minSdk 已提升)
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -525,7 +532,8 @@ pub fn run() {
         .plugin(tauri_plugin_keystore::init())
         .plugin(tauri_plugin_biometric::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_android_fs::init());
+        .plugin(tauri_plugin_android_fs::init())
+        .plugin(tauri_plugin_android_package_install::init());
 
     builder
         .setup(|app| {
@@ -725,6 +733,10 @@ pub fn run() {
             permissions::can_open_permission_settings,
             // 移动端本地视频 URL
             get_local_video_url,
+            // Android 更新（版本检测、APK 下载）
+            android_update::get_app_version,
+            android_update::fetch_update_json,
+            android_update::download_apk,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

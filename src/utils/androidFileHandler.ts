@@ -21,30 +21,10 @@ import { appDataDir, join } from '@tauri-apps/api/path';
 import { mkdir, remove, exists } from '@tauri-apps/plugin-fs';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 
-// 类型定义
-interface AndroidFsUri {
-  uri: string;
-  documentTopTreeUri: string | null;
-}
-
-interface AndroidFileMetadata {
-  type: 'File';
-  name: string;
-  lastModified: Date;
-  byteLength: number;
-  mimeType: string;
-}
-
 // 动态导入 Android FS 插件（仅在 Android 上可用）
-let AndroidFs: {
-  showOpenFilePicker: (options?: {
-    mimeTypes?: string[] | string;
-    multiple?: boolean;
-  }) => Promise<AndroidFsUri[]>;
-  getFsPath: (uri: AndroidFsUri | string) => Promise<string>;
-  getMetadata: (uri: AndroidFsUri | string) => Promise<AndroidFileMetadata>;
-  copyFile: (src: AndroidFsUri | string, dest: string) => Promise<void>;
-} | null = null;
+// 使用 any 类型避免 tauri-plugin-android-fs 版本间的类型兼容问题
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let AndroidFs: any = null;
 
 let isAndroidFsLoaded = false;
 

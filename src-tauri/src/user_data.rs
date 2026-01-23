@@ -95,7 +95,7 @@ pub fn get_app_root() -> PathBuf {
         }
         // 备用：如果未初始化，尝试使用默认路径（不应该发生）
         eprintln!("[UserData] 警告: Android 数据根目录未初始化");
-        return PathBuf::from("/data/local/tmp/huanvae-chat/data");
+        PathBuf::from("/data/local/tmp/huanvae-chat/data")
     }
 
     // 桌面端: 使用可执行文件路径
