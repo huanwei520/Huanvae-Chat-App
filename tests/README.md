@@ -423,6 +423,11 @@ unset CI && pnpm tauri android dev
   - 触摸其他地方自动关闭菜单（菜单互斥）
 - 2026-01-24: 移动端局域网链接按钮样式统一
   - 圆形蓝底白字样式与桌面端一致
+- 2026-01-24: Windows NSIS 安装器更新流程优化
+  - 精确终止 WebView2 子进程（使用 WMIC/PowerShell）
+  - 更新前运行旧版卸载程序（静默模式）
+  - 解决文件被占用导致更新失败的问题
+  - 保持安装路径一致
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
