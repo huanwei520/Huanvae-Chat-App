@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
+import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
 
@@ -182,6 +183,9 @@ export function MobileChatList({
 
   return (
     <div className="mobile-contacts">
+      {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
+      <MobileDownloadCard />
+
       <AnimatePresence mode="popLayout">
         {sortedCards.map((card) => (
           <motion.div

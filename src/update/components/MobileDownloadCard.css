@@ -1,0 +1,98 @@
+/**
+ * 移动端下载进度卡片样式
+ *
+ * 与消息卡片同级，嵌入消息列表顶部
+ * 使用白色毛玻璃效果，与消息卡片样式一致（使用主题变量）
+ */
+
+.mobile-download-card {
+  overflow: hidden;
+}
+
+.mobile-download-card-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 4px 12px;
+  margin-bottom: 8px;
+
+  /* 毛玻璃背景 - 与消息卡片一致的主题变量 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-70) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+
+  /* 圆角 */
+  border-radius: 12px;
+
+  /* 边框和阴影 - 与消息卡片一致 */
+  border: 1px solid var(--white-alpha-50);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* 加载动画 */
+.mobile-download-card-spinner {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: mobile-download-spin 0.8s linear infinite;
+}
+
+@keyframes mobile-download-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 信息区域 */
+.mobile-download-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 标题行 */
+.mobile-download-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.mobile-download-card-percent {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3b82f6;
+  margin-left: 8px;
+}
+
+/* 进度条 */
+.mobile-download-card-progress {
+  height: 6px;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mobile-download-card-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 3px;
+}
+
+/* 元信息 */
+.mobile-download-card-meta {
+  font-size: 12px;
+  color: #60a5fa;
+}

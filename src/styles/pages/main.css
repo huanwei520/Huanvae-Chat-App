@@ -510,18 +510,45 @@
   z-index: 5;
 }
 
+/* 会话卡片 - 毛玻璃效果 */
 .conversation-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px;
+  margin-bottom: 4px;
+  
+  /* 毛玻璃背景 - 使用主题变量 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-70) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  
+  /* 圆角 */
   border-radius: 12px;
+  
+  /* 边框和阴影 */
+  border: 1px solid var(--white-alpha-50);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  
   cursor: pointer;
-  overflow: hidden; /* 让内容自然被裁剪 */
-  z-index: 1; /* 确保卡片在选中背景层之上 */
-  /* 只对 background 使用 CSS transition，避免与 Framer Motion 动画冲突 */
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+  z-index: 1;
+  
+  transition: all 0.2s ease;
+}
+
+.conversation-item:hover {
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
 /* 选中背景层 - 渲染在列表容器层级，通过 top 动画移动 */

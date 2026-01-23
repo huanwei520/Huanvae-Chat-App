@@ -216,7 +216,7 @@
 }
 
 /* ============================================
-   响应式调整
+   响应式调整 - 平板/小屏幕
    ============================================ */
 @media (max-width: 520px) {
   .update-toast-container {
@@ -241,4 +241,125 @@
     margin-top: 8px;
   }
 }
+
+/* ============================================
+   响应式调整 - 移动端（手机）
+   ============================================ */
+@media (max-width: 400px) {
+  .update-toast-container {
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: 8px;
+    right: 8px;
+  }
+
+  .update-toast {
+    padding: 10px 12px;
+    gap: 8px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .update-toast-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+  }
+
+  .update-toast-spinner {
+    width: 18px;
+    height: 18px;
+  }
+
+  .update-toast-title {
+    font-size: 13px;
+  }
+
+  .update-toast-notes,
+  .update-toast-error {
+    font-size: 11px;
+  }
+
+  .update-toast-progress-text {
+    font-size: 10px;
+    min-width: 32px;
+  }
+
+  .update-toast-meta {
+    font-size: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .update-toast-proxy {
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+
+  .update-toast-info {
+    flex: 1;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .update-toast-actions {
+    flex-shrink: 0;
+    gap: 6px;
+    margin-top: 0;
+    flex-basis: auto;
+  }
+
+  .update-toast-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 12px;
+  }
+}
+
+/* ============================================
+   响应式调整 - 超窄屏幕（小于 360px）
+   ============================================ */
+@media (max-width: 360px) {
+  .update-toast-container {
+    left: 4px;
+    right: 4px;
+  }
+
+  .update-toast {
+    padding: 8px 10px;
+    gap: 6px;
+    border-radius: 16px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .update-toast-icon {
+    display: none;
+  }
+
+  .update-toast-title {
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .update-toast-notes,
+  .update-toast-error {
+    text-align: center;
+  }
+
+  .update-toast-actions {
+    justify-content: center;
+    margin-top: 4px;
+  }
+
+  .update-toast-btn {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+/* ============================================
+   移动端下载进度卡片
+   已移至 MobileDownloadCard.css，嵌入消息列表
+   ============================================ */
 

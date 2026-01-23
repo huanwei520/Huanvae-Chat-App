@@ -1,134 +1,57 @@
 /**
- * 静默更新 Hook
+ * 桌面端静默更新 Hook
  *
- * 在应用启动时自动检查更新，使用灵动岛风格弹窗提示：
- * - 检测到更新时显示顶部弹窗，用户可选择更新或稍后
- * - 点击更新后显示下载进度和当前代理链接
- * - 下载完成后提示重启
- * - 发生错误时显示错误信息，可重试
+ * 在应用启动时自动检查更新，使用全局 store 管理状态。
+ *
+ * 注意：此 Hook 仅负责触发检查，弹窗渲染由 App.tsx 统一处理。
  *
  * 使用方式：
  * ```tsx
- * function App() {
- *   const { toastProps } = useSilentUpdate();
- *   return (
- *     <>
- *       <UpdateToast {...toastProps} />
- *       <div>...</div>
- *     </>
- *   );
+ * function Main() {
+ *   // 启动时自动检查更新
+ *   useAutoUpdateCheck();
+ *   return <div>...</div>;
  * }
  * ```
  */
 
-import { useEffect, useCallback, useRef } from 'react';
-import { checkForUpdates, downloadAndInstall, restartApp, type UpdateInfo } from './service';
-import { useUpdateToast, type UpdateToastProps } from './components';
-
-/** 更新检查延迟时间（毫秒） */
-const CHECK_DELAY = 3000;
-
-/** 开发环境模拟更新（设为 true 可在本地测试弹窗） */
-const DEBUG_UPDATE = false;
+import { useEffect } from 'react';
+import { useUpdateStore } from './store';
+import { UPDATE_CHECK_DELAY, DEBUG_UPDATE } from './config';
 
 /**
- * 静默更新 Hook
+ * 自动更新检查 Hook（桌面端）
  *
- * @returns 更新弹窗的 props
+ * 在组件挂载后延迟检查更新，使用全局 store 管理状态
  */
-export function useSilentUpdate(): { toastProps: UpdateToastProps } {
-  const toast = useUpdateToast();
-  const updateInfoRef = useRef<UpdateInfo | null>(null);
-  const currentProxyRef = useRef<string>('');
+export function useAutoUpdateCheck(): void {
+  const checkUpdate = useUpdateStore((s) => s.checkUpdate);
+  const showAvailable = useUpdateStore((s) => s.showAvailable);
 
-  // 检查更新
-  const checkUpdate = useCallback(async () => {
+  useEffect(() => {
     // 开发环境模拟更新弹窗
     if (DEBUG_UPDATE) {
-      toast.showAvailable('1.0.8', '这是一个测试更新说明');
-      return;
+      const timer = setTimeout(() => {
+        showAvailable('1.0.99', '这是桌面端测试更新说明');
+      }, UPDATE_CHECK_DELAY);
+      return () => clearTimeout(timer);
     }
 
-    try {
-      const info = await checkForUpdates();
-      if (info.available && info.update && info.version) {
-        updateInfoRef.current = info;
-        toast.showAvailable(info.version, info.notes);
-      }
-    } catch (err) {
-      // 静默失败，不显示错误
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      console.warn('[Update] 检查更新失败:', errorMsg);
-    }
-  }, [toast]);
-
-  // 开始下载
-  const handleUpdate = useCallback(async () => {
-    const info = updateInfoRef.current;
-    if (!info?.update) {
-      return;
-    }
-
-    toast.startDownload();
-
-    try {
-      await downloadAndInstall(info.update, (progress) => {
-        toast.updateProgress(
-          progress.percent || 0,
-          progress.downloaded || 0,
-          progress.contentLength || 0,
-          currentProxyRef.current,
-        );
-      });
-
-      toast.downloadComplete();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      toast.showError(errorMsg);
-    }
-  }, [toast]);
-
-  // 重启应用
-  const handleRestart = useCallback(async () => {
-    try {
-      await restartApp();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      toast.showError(`重启失败: ${errorMsg}`);
-    }
-  }, [toast]);
-
-  // 重试更新
-  const handleRetry = useCallback(() => {
-    handleUpdate();
-  }, [handleUpdate]);
-
-  // 关闭弹窗
-  const handleDismiss = useCallback(() => {
-    toast.dismiss();
-  }, [toast]);
-
-  // 启动时检查更新
-  useEffect(() => {
-    const timer = setTimeout(checkUpdate, CHECK_DELAY);
+    // 延迟检查更新
+    const timer = setTimeout(checkUpdate, UPDATE_CHECK_DELAY);
     return () => clearTimeout(timer);
-  }, [checkUpdate]);
+  }, [checkUpdate, showAvailable]);
+}
 
-  // 构建 props
-  const toastProps: UpdateToastProps = {
-    status: toast.status,
-    version: toast.version,
-    notes: toast.notes,
-    progress: toast.progress,
-    downloaded: toast.downloaded,
-    total: toast.total,
-    proxyUrl: toast.proxyUrl,
-    errorMessage: toast.errorMessage,
-    onUpdate: handleUpdate,
-    onDismiss: handleDismiss,
-    onRestart: handleRestart,
-    onRetry: handleRetry,
-  };
+/**
+ * @deprecated 请使用 useAutoUpdateCheck() 替代
+ * 保留此导出以兼容旧代码，内部使用全局 store
+ */
+export function useSilentUpdate() {
+  // 触发自动检查
+  useAutoUpdateCheck();
 
+  // 返回全局 store 的 toast props
+  const toastProps = useUpdateStore((s) => s.getToastProps());
   return { toastProps };
 }

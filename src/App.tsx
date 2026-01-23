@@ -32,6 +32,8 @@ import type { AppPage, SavedAccount } from './types/account';
 import type { Session } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
+import { UpdateToast } from './update';
+import { useUpdateToastProps } from './update/store';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -49,6 +51,9 @@ function App() {
 
   const { session, setSession, isLoggedIn, restoreSession: restoreSessionToContext } = useSession();
 
+  // 全局更新弹窗 props（所有平台共用，防止多实例）
+  const updateToastProps = useUpdateToastProps();
+
   const [currentPage, setCurrentPage] = useState<AppPage>('loading');
   const [authForm, setAuthForm] = useState<AuthFormType>('login');
   const [formDirection, setFormDirection] = useState(1);
@@ -57,7 +62,8 @@ function App() {
 
   // 用于标记会话恢复状态
   const sessionRestoreAttempted = useRef(false);  // 是否已开始尝试
-  const sessionRestoreCompleted = useRef(false);  // 是否已完成（成功或失败）
+  // 使用 useState 而非 useRef，确保状态变化触发重渲染
+  const [sessionRestoreCompleted, setSessionRestoreCompleted] = useState(false);  // 是否已完成（成功或失败）
 
   // 切换到注册表单
   const goToRegister = useCallback(() => {
@@ -333,7 +339,7 @@ function App() {
         if (!savedSession) {
           console.warn('[App] 无持久化会话，等待账号加载完成');
           // 无保存的会话，标记完成，等待 accounts 加载后决定显示哪个页面
-          sessionRestoreCompleted.current = true;
+          setSessionRestoreCompleted(true);
           return;
         }
 
@@ -371,7 +377,7 @@ function App() {
       } catch (err) {
         console.error('[App] 恢复会话出错:', err);
         // 恢复失败，标记完成，等待 accounts 加载完成后显示登录页
-        sessionRestoreCompleted.current = true;
+        setSessionRestoreCompleted(true);
       } finally {
         setIsLoading(false);
       }
@@ -386,12 +392,12 @@ function App() {
       return;
     }
     // 只有在会话恢复**完成**且未登录时才设置页面
-    // 使用 sessionRestoreCompleted 而非 sessionRestoreAttempted，避免恢复进行中就跳转登录页
-    if (sessionRestoreCompleted.current && currentPage === 'loading') {
+    // sessionRestoreCompleted 是 useState，变化时会触发重渲染
+    if (sessionRestoreCompleted && currentPage === 'loading') {
       setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
       setIsLoading(false);
     }
-  }, [accountsLoading, accounts.length, isLoggedIn, currentPage]);
+  }, [accountsLoading, accounts.length, isLoggedIn, currentPage, sessionRestoreCompleted]);
 
   // 监听账号加载完成（桌面端，或移动端恢复失败后）
   if (currentPage === 'loading' && !accountsLoading && !isMobile()) {
@@ -400,7 +406,13 @@ function App() {
 
   // 如果已登录，根据平台显示对应主界面
   if (isLoggedIn && session) {
-    return isMobile() ? <MobileMain /> : <Main />;
+    return (
+      <>
+        {/* 全局更新提示弹窗 - 灵动岛风格（所有平台唯一实例） */}
+        <UpdateToast {...updateToastProps} />
+        {isMobile() ? <MobileMain /> : <Main />}
+      </>
+    );
   }
 
   // 加载中显示
