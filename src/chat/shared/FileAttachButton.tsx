@@ -5,6 +5,15 @@
  * - 点击显示文件类型选择菜单（图片、视频、文件）
  * - 使用 Tauri dialog API 打开系统文件选择器
  * - 获取完整本地文件路径用于本地文件映射
+ *
+ * 平台适配：
+ * - 桌面端：使用 @tauri-apps/plugin-dialog + @tauri-apps/plugin-fs
+ * - Android：使用 tauri-plugin-android-fs 处理 content:// URI
+ *   - Android 文件选择器返回 content:// URI
+ *   - 标准 fs 插件无法读取 content:// URI
+ *   - 需要先复制到应用缓存目录再读取
+ *
+ * @since 2026-01-21 添加 Android 平台适配
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -12,6 +21,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { stat, readFile } from '@tauri-apps/plugin-fs';
+import { platform } from '@tauri-apps/plugin-os';
+import { selectFilesForTransfer } from '../../utils/androidFileHandler';
 
 // ============================================
 // 类型定义
@@ -182,44 +193,78 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
     setIsOpen(true);
   }, [disabled, isLoading]);
 
-  // 选择文件类型并打开 Tauri 对话框
+  // 选择文件类型并打开文件选择器
+  // Android 平台使用 tauri-plugin-android-fs 处理 content:// URI
+  // 桌面端使用标准 Tauri dialog API
   const handleSelectType = useCallback(async (item: MenuItem) => {
     setIsOpen(false);
     setIsLoading(true);
 
     try {
-      // 使用 Tauri dialog API 打开文件选择器
-      const selected = await openDialog({
-        multiple: false,
-        filters: item.extensions.length > 0
-          ? [{
-            name: item.label,
-            extensions: item.extensions,
-          }]
-          : undefined,
-      });
+      const os = await platform();
 
-      if (selected && typeof selected === 'string') {
-        // 获取文件路径
-        const localPath = selected;
-        const fileName = localPath.split(/[/\\]/).pop() || 'file';
+      if (os === 'android') {
+        // Android 平台：使用 Android FS 插件处理 content:// URI
+        // selectFilesForTransfer 会自动复制文件到缓存目录并返回可读路径
+        console.warn('[FileAttach] Android 平台，使用 Android FS 插件');
 
-        // 获取文件信息
-        const fileStat = await stat(localPath);
+        const paths = await selectFilesForTransfer({ multiple: false });
 
-        // 读取文件内容
-        const fileContent = await readFile(localPath);
+        if (paths.length > 0) {
+          const localPath = paths[0];
+          const fileName = localPath.split(/[/\\]/).pop() || 'file';
 
-        // 创建 File 对象
-        const mimeType = getMimeType(fileName, item.type);
-        const blob = new Blob([fileContent], { type: mimeType });
-        const file = new File([blob], fileName, {
-          type: mimeType,
-          lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
+          // 获取文件信息
+          const fileStat = await stat(localPath);
+
+          // 读取文件内容（现在可以正常读取缓存目录中的文件）
+          const fileContent = await readFile(localPath);
+
+          // 创建 File 对象
+          const mimeType = getMimeType(fileName, item.type);
+          const blob = new Blob([fileContent], { type: mimeType });
+          const file = new File([blob], fileName, {
+            type: mimeType,
+            lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
+          });
+
+          // 回调，带上本地路径
+          onFileSelect(file, item.type, localPath);
+        }
+      } else {
+        // 桌面端：使用标准 Tauri dialog API
+        const selected = await openDialog({
+          multiple: false,
+          filters: item.extensions.length > 0
+            ? [{
+              name: item.label,
+              extensions: item.extensions,
+            }]
+            : undefined,
         });
 
-        // 回调，带上本地路径
-        onFileSelect(file, item.type, localPath);
+        if (selected && typeof selected === 'string') {
+          // 获取文件路径
+          const localPath = selected;
+          const fileName = localPath.split(/[/\\]/).pop() || 'file';
+
+          // 获取文件信息
+          const fileStat = await stat(localPath);
+
+          // 读取文件内容
+          const fileContent = await readFile(localPath);
+
+          // 创建 File 对象
+          const mimeType = getMimeType(fileName, item.type);
+          const blob = new Blob([fileContent], { type: mimeType });
+          const file = new File([blob], fileName, {
+            type: mimeType,
+            lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
+          });
+
+          // 回调，带上本地路径
+          onFileSelect(file, item.type, localPath);
+        }
       }
     } catch (error) {
       // 用户取消选择时会抛出错误，这是正常的
