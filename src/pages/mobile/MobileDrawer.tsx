@@ -3,13 +3,12 @@
  *
  * 从左侧滑出，包含：
  * - 顶部：用户头像和信息
- * - 菜单：设置
+ * - 菜单：我的文件、局域网互传、视频会议、设置
  * - 底部：退出登录
  *
- * 注意：以下功能在移动端不可用（使用 WebviewWindow 多窗口 API）：
- * - 视频会议
- * - 文件互传
- * - 局域网传输
+ * 注意：
+ * - 视频会议在移动端使用页面内渲染，不使用 WebviewWindow
+ * - 屏幕共享功能在 Android 上不可用（WebView 限制）
  */
 
 import type { Session } from '../../types/session';
@@ -70,6 +69,22 @@ const LanTransferIcon = () => (
   </svg>
 );
 
+// 视频会议图标
+const MeetingIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"
+    />
+  </svg>
+);
+
 // 退出图标
 const LogoutIcon = () => (
   <svg
@@ -100,11 +115,12 @@ interface MobileDrawerProps {
   onFilesClick: () => void;
   /** 局域网互传点击回调 */
   onLanTransferClick: () => void;
+  /** 视频会议点击回调 */
+  onMeetingClick: () => void;
   /** 设置点击回调 */
   onSettingsClick: () => void;
   /** 退出登录回调 */
   onLogout: () => void;
-  // 注意：视频会议功能在移动端不可用（使用 WebviewWindow）
 }
 
 export function MobileDrawer({
@@ -114,6 +130,7 @@ export function MobileDrawer({
   onProfileClick,
   onFilesClick,
   onLanTransferClick,
+  onMeetingClick,
   onSettingsClick,
   onLogout,
 }: MobileDrawerProps) {
@@ -183,6 +200,18 @@ export function MobileDrawer({
             <span>局域网互传</span>
           </div>
 
+          {/* 视频会议 */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onMeetingClick();
+              onClose();
+            }}
+          >
+            <MeetingIcon />
+            <span>视频会议</span>
+          </div>
+
           {/* 设置 */}
           <div
             className="mobile-drawer-item"
@@ -194,7 +223,6 @@ export function MobileDrawer({
             <SettingsIcon />
             <span>设置</span>
           </div>
-          {/* 注意：视频会议、文件互传、局域网传输功能在移动端不可用（使用 WebviewWindow 多窗口） */}
         </nav>
 
         {/* 退出登录 */}

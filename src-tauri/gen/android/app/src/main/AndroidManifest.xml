@@ -8,6 +8,16 @@
         android:maxSdkVersion="29" />
     <!-- Android 11+ 使用分区存储，无需 WRITE_EXTERNAL_STORAGE -->
 
+    <!-- WebRTC 视频会议权限 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
+    <!-- 摄像头硬件特性（非必需，允许没有摄像头的设备安装） -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 

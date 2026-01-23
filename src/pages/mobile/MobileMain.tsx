@@ -6,11 +6,11 @@
  * - 顶部栏（头像+搜索）
  * - 抽屉侧边栏
  * - 聊天页面（右滑进入）
+ * - 全屏页面（个人资料、我的文件、局域网传输、视频会议、设置）
  *
- * 注意：移动端不支持以下桌面端功能（使用 WebviewWindow 多窗口）：
- * - 视频会议（MeetingEntryModal）
- * - 局域网传输（openLanTransferWindow）
- * 这些功能在抽屉菜单中已隐藏
+ * 移动端功能说明：
+ * - 视频会议：使用全屏页面替代桌面端的多窗口，不支持屏幕共享
+ * - 局域网传输：使用全屏页面，文件直接保存到公共 Download 目录
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -32,6 +32,8 @@ import { MobileProfilePage } from './MobileProfilePage';
 import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
+import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
+import { MobileMeetingPage } from './MobileMeetingPage';
 // 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
 // import { ProfileModal } from '../../components/ProfileModal';
 // import { FilesModal } from '../../components/files/FilesModal';
@@ -51,8 +53,9 @@ export function MobileMain() {
   const [showProfilePage, setShowProfilePage] = useState(false);
   const [showFilesPage, setShowFilesPage] = useState(false);
   const [showLanTransferPage, setShowLanTransferPage] = useState(false);
+  const [showMeetingEntryPage, setShowMeetingEntryPage] = useState(false);
+  const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  // 注意：MeetingEntryModal 在移动端不可用（使用 WebviewWindow）
 
   // 登录后全量增量同步
   useInitialSync({
@@ -104,13 +107,25 @@ export function MobileMain() {
       return true;
     }
 
-    // 优先级 5：抽屉打开 → 关闭抽屉
+    // 优先级 5：视频会议页面打开 → 关闭页面
+    if (showMeetingPage) {
+      setShowMeetingPage(false);
+      return true;
+    }
+
+    // 优先级 6：会议入口页面打开 → 关闭页面
+    if (showMeetingEntryPage) {
+      setShowMeetingEntryPage(false);
+      return true;
+    }
+
+    // 优先级 7：抽屉打开 → 关闭抽屉
     if (nav.isDrawerOpen) {
       nav.closeDrawer();
       return true;
     }
 
-    // 优先级 5：在聊天页面 → 返回列表
+    // 优先级 8：在聊天页面 → 返回列表
     if (nav.currentView === 'chat') {
       nav.exitChat();
       return true;
@@ -118,7 +133,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, nav]);
+  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, nav]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -150,6 +165,10 @@ export function MobileMain() {
         }}
         onLanTransferClick={() => {
           setShowLanTransferPage(true);
+          nav.closeDrawer();
+        }}
+        onMeetingClick={() => {
+          setShowMeetingEntryPage(true);
           nav.closeDrawer();
         }}
         onSettingsClick={() => setShowSettings(true)}
@@ -316,6 +335,24 @@ export function MobileMain() {
       <AnimatePresence>
         {showLanTransferPage && (
           <MobileLanTransferPage onClose={() => setShowLanTransferPage(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMeetingEntryPage && (
+          <MobileMeetingEntryPage
+            onClose={() => setShowMeetingEntryPage(false)}
+            onEnterMeeting={() => {
+              setShowMeetingEntryPage(false);
+              setShowMeetingPage(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMeetingPage && (
+          <MobileMeetingPage onClose={() => setShowMeetingPage(false)} />
         )}
       </AnimatePresence>
 
