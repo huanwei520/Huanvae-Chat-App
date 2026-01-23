@@ -6,11 +6,17 @@
  * 功能：
  * - 启动/停止局域网传输服务
  * - 获取发现的设备列表
+ * - 点对点连接管理（带去重检查，防止重复连接）
  * - 发送传输请求（需确认）
  * - 多文件批量传输
  * - 断点续传支持
  * - 实时进度跟踪
  * - 配置管理
+ *
+ * 连接去重机制：
+ * - 前端：requestPeerConnection 调用前检查 activeConnections
+ * - 后端：request_peer_connection 和 server 端都有去重检查
+ * - 如果已存在连接，返回现有 connectionId 而不是创建新连接
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -322,11 +328,20 @@ export function useLanTransfer(): UseLanTransferReturn {
 
   // ========== 点对点连接函数 ==========
 
-  // 请求建立点对点连接
+  // 请求建立点对点连接（带去重检查）
   const requestPeerConnection = useCallback(async (deviceId: string) => {
+    // 前端去重：检查是否已与该设备建立连接
+    const existingConnection = activeConnections.find(
+      (c) => c.peerDevice.deviceId === deviceId && c.status === 'connected',
+    );
+    if (existingConnection) {
+      console.warn(`[LanTransfer] 已存在与 ${deviceId} 的连接: ${existingConnection.connectionId}`);
+      return existingConnection.connectionId;
+    }
+
     const connectionId = await invoke<string>('request_peer_connection', { deviceId });
     return connectionId;
-  }, []);
+  }, [activeConnections]);
 
   // 响应点对点连接请求
   const respondPeerConnection = useCallback(async (connectionId: string, accept: boolean) => {

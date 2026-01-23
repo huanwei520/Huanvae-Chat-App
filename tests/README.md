@@ -428,6 +428,11 @@ unset CI && pnpm tauri android dev
   - 更新前运行旧版卸载程序（静默模式）
   - 解决文件被占用导致更新失败的问题
   - 保持安装路径一致
+- 2026-01-24: 局域网传输连接去重机制
+  - 前端：requestPeerConnection 调用前检查 activeConnections
+  - 后端：request_peer_connection 和 server 端都有去重检查
+  - 已存在连接时返回现有 connectionId，防止重复连接
+  - 已存在待处理请求时返回现有请求 ID，防止重复请求
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
