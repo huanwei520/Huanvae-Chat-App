@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
 import { useInitialSync } from '../hooks/useInitialSync';
-import { useSilentUpdate, UpdateToast } from '../update';
+import { useAutoUpdateCheck } from '../update/useSilentUpdate';
 
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
@@ -49,8 +49,8 @@ export function Main() {
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
 
-  // 应用启动时静默检查更新，获取弹窗 props
-  const { toastProps } = useSilentUpdate();
+  // 应用启动时静默检查更新（弹窗在 App.tsx 统一渲染）
+  useAutoUpdateCheck();
 
   // Early return 检查
   if (!page.session) {
@@ -62,8 +62,7 @@ export function Main() {
       <div className="chat-bg-orb orb-1" />
       <div className="chat-bg-orb orb-2" />
 
-      {/* 更新提示弹窗 - 灵动岛风格 */}
-      <UpdateToast {...toastProps} />
+      {/* 更新提示弹窗已移至 App.tsx 统一渲染 */}
 
       {/* 左侧边栏 */}
       <Sidebar

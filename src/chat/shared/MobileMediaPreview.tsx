@@ -14,6 +14,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 
 // 调试日志（Android logcat 不支持 %c 样式，使用 JSON.stringify 显示对象）
 function logMedia(action: string, data?: unknown) {
@@ -68,6 +69,16 @@ export function MobileMediaPreview({
   // 视频/图片加载状态
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
+
+  // 移动端返回手势处理：预览打开时拦截返回操作
+  useMobileBackHandler(() => {
+    if (isOpen) {
+      logMedia('返回手势关闭预览');
+      onClose();
+      return true; // 已处理，不继续传递
+    }
+    return false; // 未打开，不处理
+  });
 
   // 调试：打印媒体信息
   useEffect(() => {

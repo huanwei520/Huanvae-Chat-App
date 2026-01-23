@@ -23,14 +23,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../../stores/settingsStore';
-import {
-  checkForUpdates,
-  downloadAndInstall,
-  restartApp,
-  useUpdateToast,
-  UpdateToast,
-  type UpdateInfo,
-} from '../../update';
+import { useUpdateStore, useIsChecking } from '../../update/store';
 import { openThemeEditorWindow, useThemeStore, getPresetConfig } from '../../theme';
 import { SettingsSection } from './SettingsSection';
 import { SettingsGroup } from './SettingsGroup';
@@ -286,13 +279,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const [resetting, setResetting] = useState(false);
   const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // 更新检查状态
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  // 更新检查状态（使用全局 store）
+  const checkingUpdate = useIsChecking();
+  const checkUpdate = useUpdateStore((s) => s.checkUpdate);
   const [isLatestVersion, setIsLatestVersion] = useState(false);
-
-  // 更新弹窗状态
-  const toast = useUpdateToast();
 
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
@@ -366,69 +356,32 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
     }
   };
 
-  // 检查更新
+  // 检查更新（使用全局 store，自动处理平台差异和防抖）
   const handleCheckUpdate = useCallback(async () => {
     if (checkingUpdate) {
       return;
     }
 
-    setCheckingUpdate(true);
     setResult(null);
-    setUpdateInfo(null);
     setIsLatestVersion(false);
 
     try {
-      const info = await checkForUpdates();
-      setUpdateInfo(info);
+      await checkUpdate();
 
-      if (info.available && info.version && info.update) {
-        // 有新版本，弹出升级窗口
-        toast.showAvailable(info.version, info.notes);
-      } else {
-        // 已是最新版本，更新按钮状态
-        setIsLatestVersion(true);
-      }
-    } catch {
+      // 检查完成后，如果弹窗没有显示（即没有新版本），则设置为最新版本
+      // 这里通过延迟检查状态来判断
+      setTimeout(() => {
+        const currentStatus = useUpdateStore.getState().status;
+        if (currentStatus === 'idle') {
+          setIsLatestVersion(true);
+        }
+      }, 100);
+    } catch (err) {
+      console.error('[Settings] 检查更新失败:', err);
       setResult({ type: 'error', message: '检查更新失败，请稍后重试' });
       setTimeout(() => setResult(null), 3000);
-    } finally {
-      setCheckingUpdate(false);
     }
-  }, [checkingUpdate, toast]);
-
-  // 处理更新下载
-  const handleUpdate = useCallback(async () => {
-    if (!updateInfo?.update) {
-      return;
-    }
-
-    toast.startDownload();
-
-    try {
-      await downloadAndInstall(updateInfo.update, (progress) => {
-        toast.updateProgress(
-          progress.percent || 0,
-          progress.downloaded || 0,
-          progress.contentLength || 0,
-        );
-      });
-
-      toast.downloadComplete();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      toast.showError(errorMsg);
-    }
-  }, [updateInfo, toast]);
-
-  // 重启应用
-  const handleRestart = useCallback(async () => {
-    try {
-      await restartApp();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      toast.showError(`重启失败: ${errorMsg}`);
-    }
-  }, [toast]);
+  }, [checkingUpdate, checkUpdate]);
 
   return (
     <motion.div
@@ -607,21 +560,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* 更新弹窗 */}
-      <UpdateToast
-        status={toast.status}
-        version={toast.version}
-        notes={toast.notes}
-        progress={toast.progress}
-        downloaded={toast.downloaded}
-        total={toast.total}
-        proxyUrl={toast.proxyUrl}
-        errorMessage={toast.errorMessage}
-        onUpdate={handleUpdate}
-        onDismiss={toast.dismiss}
-        onRestart={handleRestart}
-        onRetry={handleUpdate}
-      />
+      {/* 更新弹窗已移至 App.tsx 统一渲染 */}
     </motion.div>
   );
 };

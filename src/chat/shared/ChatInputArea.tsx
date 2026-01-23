@@ -294,7 +294,11 @@ export function ChatInputArea({
         />
         <motion.button
           className="send-btn"
-          onClick={onSendMessage}
+          onClick={() => {
+            onSendMessage();
+            // 点击按钮发送后，将焦点返回输入框以便继续输入
+            textareaRef.current?.focus();
+          }}
           disabled={!messageInput.trim() || uploading}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}

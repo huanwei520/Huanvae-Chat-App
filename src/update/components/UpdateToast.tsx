@@ -7,10 +7,14 @@
  * - 不阻塞用户操作，可点击交互
  * - 完全隔离样式，不受其他组件影响
  *
+ * 移动端下载状态优化：
+ * - 下载时显示底部迷你进度卡片，不遮挡页面
+ * - 类似聊天信息卡片的紧凑设计
+ *
  * 状态流程：
  * 1. idle: 隐藏状态
  * 2. available: 显示有新版本可用，可点击更新
- * 3. downloading: 显示下载进度和代理链接
+ * 3. downloading: 显示下载进度和代理链接（移动端底部迷你卡片）
  * 4. ready: 下载完成，等待重启
  * 5. error: 显示错误信息
  */
@@ -18,6 +22,7 @@
 import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isMobile } from '../../utils/platform';
 import './UpdateToast.css';
 
 // ============================================
@@ -126,6 +131,7 @@ export function UpdateToast({
   };
 
   // 渲染内容
+  // 注意：移动端下载状态使用 MobileDownloadCard 组件在消息列表中渲染，不在这里处理
   const renderContent = () => {
     switch (status) {
       case 'available':
@@ -156,6 +162,10 @@ export function UpdateToast({
         );
 
       case 'downloading':
+        // 移动端使用底部迷你卡片，不在这里渲染
+        if (isMobile()) {
+          return null;
+        }
         return (
           <>
             <div className="update-toast-icon">
@@ -238,10 +248,13 @@ export function UpdateToast({
     }
   };
 
+  // 移动端下载状态使用 MobileDownloadCard 在消息列表中渲染，此处不显示
+  const shouldShowTopToast = isVisible && !(isMobile() && status === 'downloading');
+
   // 使用 Portal 渲染到 body，确保相对于整个 viewport 居中
   return createPortal(
     <AnimatePresence>
-      {isVisible && (
+      {shouldShowTopToast && (
         <motion.div
           className="update-toast-container"
           variants={toastVariants}

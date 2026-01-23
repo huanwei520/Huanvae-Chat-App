@@ -20,6 +20,7 @@ import { useInitialSync } from '../../hooks/useInitialSync';
 import { useMobileNavigation } from '../../hooks/useMobileNavigation';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { requestNotificationPermission } from '../../services/notificationService';
+import { useAutoUpdateCheckAndroid } from '../../update/useSilentUpdate.android';
 
 // 组件导入
 import { MobileHeader } from './MobileHeader';
@@ -62,6 +63,9 @@ export function MobileMain() {
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
+
+  // Android 应用启动时静默检查更新（弹窗在 App.tsx 统一渲染）
+  useAutoUpdateCheckAndroid();
 
   // Android 启动时请求通知权限
   useEffect(() => {
@@ -150,6 +154,8 @@ export function MobileMain() {
 
   return (
     <div className="mobile-main">
+      {/* 更新提示弹窗已移至 App.tsx 统一渲染 */}
+
       {/* 抽屉侧边栏 */}
       <MobileDrawer
         isOpen={nav.isDrawerOpen}

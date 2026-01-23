@@ -1,5 +1,12 @@
 /**
  * 移动端通讯录样式
+ *
+ * 设计特点：
+ * - 毛玻璃效果卡片，使用主题变量（--white-alpha-*、--blur-xs）
+ * - 圆角设计，与桌面端样式统一
+ * - 接入设置中的主题颜色管理
+ *
+ * @see src/styles/variables.css 主题变量定义
  */
 
 .mobile-contacts {
@@ -13,20 +20,41 @@
   margin-bottom: 8px;
 }
 
-/* 折叠面板头部 */
+/* 折叠面板头部 - 使用主题变量 */
 .mobile-contacts-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.6);
+  margin: 4px 12px;
+  
+  /* 毛玻璃背景 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-70) 0%,
+    var(--white-alpha-60) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  
+  /* 圆角 */
+  border-radius: 10px;
+  
+  /* 边框 */
+  border: 1px solid var(--white-alpha-40);
+  
   cursor: pointer;
   user-select: none;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .mobile-contacts-header:active {
-  background: rgba(255, 255, 255, 0.8);
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-85) 0%,
+    var(--white-alpha-80) 100%
+  );
+  transform: scale(0.98);
 }
 
 .mobile-contacts-header-left {
@@ -67,19 +95,41 @@
   height: 0;
 }
 
-/* 联系人卡片 */
+/* 联系人卡片 - 毛玻璃效果 */
 .mobile-contact-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.4);
+  margin: 4px 12px;
+  
+  /* 毛玻璃背景 - 使用主题变量 */
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-70) 100%
+  );
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  
+  /* 圆角 */
+  border-radius: 12px;
+  
+  /* 边框和阴影 */
+  border: 1px solid var(--white-alpha-50);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .mobile-contact-card:active {
-  background: rgba(255, 255, 255, 0.8);
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  transform: scale(0.98);
 }
 
 .mobile-contact-avatar {
