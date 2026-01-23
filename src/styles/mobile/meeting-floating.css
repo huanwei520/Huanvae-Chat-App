@@ -1,0 +1,188 @@
+/**
+ * 移动端会议悬浮图标样式
+ *
+ * 设计特点：
+ * - 圆形悬浮图标，轻量展示
+ * - 可拖拽移动
+ * - 长按显示操作菜单
+ * - 接入主题变量
+ *
+ * 仅移动端使用
+ */
+
+/* 悬浮圆形图标 */
+.meeting-floating-icon {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* 主题色背景 */
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #2563eb) 100%);
+
+  /* 圆形 */
+  border-radius: 50%;
+
+  /* 边框 */
+  border: 2px solid rgba(255, 255, 255, 0.3);
+
+  /* 阴影 */
+  box-shadow:
+    0 4px 16px rgba(59, 130, 246, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+
+  /* 层级 */
+  z-index: 9999;
+
+  /* 图标颜色 */
+  color: white;
+
+  /* 禁止选择 */
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* 触摸操作 */
+  touch-action: none;
+  cursor: pointer;
+}
+
+/* 会议进行中脉冲动画 */
+.floating-pulse {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 2px solid white;
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+/* 参与者数量徽章 */
+.floating-participant-badge {
+  position: absolute;
+  bottom: -4px;
+  left: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: var(--primary);
+  border-radius: 9px;
+  border: 2px solid white;
+
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 挂断菜单遮罩 */
+.floating-end-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* 挂断菜单 */
+.floating-end-menu {
+  width: 100%;
+  max-width: 280px;
+
+  background: var(--card-bg-start);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+
+  border-radius: 16px;
+  border: 1px solid var(--card-border);
+  padding: 16px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.floating-end-menu-title {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.floating-end-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+
+  transition: all 0.2s ease;
+}
+
+.floating-end-menu-btn.expand {
+  background: var(--primary);
+  color: white;
+}
+
+.floating-end-menu-btn.expand:active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+.floating-end-menu-btn.end {
+  background: #ef4444;
+  color: white;
+}
+
+.floating-end-menu-btn.end:active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+.floating-end-menu-btn.end svg {
+  width: 18px;
+  height: 18px;
+}
+
+.floating-end-menu-btn.cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.floating-end-menu-btn.cancel:active {
+  background: rgba(255, 255, 255, 0.15);
+}

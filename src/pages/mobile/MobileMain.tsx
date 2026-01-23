@@ -10,6 +10,7 @@
  *
  * 移动端功能说明：
  * - 视频会议：使用全屏页面替代桌面端的多窗口，不支持屏幕共享
+ *   - 支持最小化为悬浮窗，可在会议进行中查看其他页面和聊天
  * - 局域网传输：使用全屏页面，文件直接保存到公共 Download 目录
  */
 
@@ -35,6 +36,9 @@ import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
 import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
 import { MobileMeetingPage } from './MobileMeetingPage';
+import { MeetingFloatingWindow } from './MeetingFloatingWindow';
+import { useWebRTC } from '../../meeting/useWebRTC';
+import { loadMeetingData, clearMeetingData, type IceServer } from '../../meeting/api';
 // 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
 // import { ProfileModal } from '../../components/ProfileModal';
 // import { FilesModal } from '../../components/files/FilesModal';
@@ -57,6 +61,14 @@ export function MobileMain() {
   const [showMeetingEntryPage, setShowMeetingEntryPage] = useState(false);
   const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // 会议状态（提升到此层级以支持最小化时保持连接）
+  const [meetingMinimized, setMeetingMinimized] = useState(false);
+  const [meetingActive, setMeetingActive] = useState(false);
+  const [meetingRoomName, setMeetingRoomName] = useState<string | undefined>();
+
+  // WebRTC 实例（提升到 MobileMain 层级，最小化时保持连接）
+  const webrtc = useWebRTC();
 
   // 登录后全量增量同步
   useInitialSync({
@@ -85,6 +97,55 @@ export function MobileMain() {
     nav.exitChat();
   };
 
+  // 进入会议（初始化 WebRTC 连接）
+  const handleEnterMeeting = useCallback(async () => {
+    console.warn('[MobileMain] handleEnterMeeting 开始');
+    const data = loadMeetingData();
+    if (!data) {
+      console.error('[MobileMain] 无法加载会议数据');
+      return;
+    }
+    console.warn('[MobileMain] 会议数据:', data.roomId, data.roomName);
+
+    setMeetingRoomName(data.roomName);
+    setMeetingActive(true);
+    setShowMeetingEntryPage(false);
+    setShowMeetingPage(true);
+
+    try {
+      // 初始化本地媒体流
+      console.warn('[MobileMain] 初始化本地媒体流...');
+      const initResult = await webrtc.initLocalStream();
+      console.warn('[MobileMain] 初始化结果:', initResult);
+
+      // 获取 ICE 服务器配置
+      const iceServers: IceServer[] = data.iceServers?.length
+        ? data.iceServers
+        : [
+          { urls: ['stun:stun.l.google.com:19302'] },
+          { urls: ['stun1.l.google.com:19302'] },
+        ];
+
+      // 连接信令服务器
+      console.warn('[MobileMain] 连接信令服务器:', data.serverUrl);
+      webrtc.connect(data.roomId, data.token, iceServers, data.serverUrl);
+      console.warn('[MobileMain] connect 调用完成');
+    } catch (err) {
+      console.error('[MobileMain] 会议初始化失败:', err);
+    }
+  }, [webrtc]);
+
+  // 离开会议（断开连接并清理）
+  const handleLeaveMeeting = useCallback(() => {
+    webrtc.disconnect();
+    webrtc.stopLocalStream();
+    clearMeetingData();
+    setMeetingActive(false);
+    setMeetingMinimized(false);
+    setShowMeetingPage(false);
+    setMeetingRoomName(undefined);
+  }, [webrtc]);
+
   // 处理移动端手势返回
   const handleMobileBack = useCallback(() => {
     // 优先级 1：设置面板打开 → 关闭设置
@@ -111,8 +172,9 @@ export function MobileMain() {
       return true;
     }
 
-    // 优先级 5：视频会议页面打开 → 关闭页面
-    if (showMeetingPage) {
+    // 优先级 5：视频会议页面打开 → 最小化（而不是直接关闭）
+    if (showMeetingPage && !meetingMinimized) {
+      setMeetingMinimized(true);
       setShowMeetingPage(false);
       return true;
     }
@@ -137,7 +199,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, nav]);
+  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -348,17 +410,37 @@ export function MobileMain() {
         {showMeetingEntryPage && (
           <MobileMeetingEntryPage
             onClose={() => setShowMeetingEntryPage(false)}
-            onEnterMeeting={() => {
-              setShowMeetingEntryPage(false);
-              setShowMeetingPage(true);
-            }}
+            onEnterMeeting={handleEnterMeeting}
           />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
-        {showMeetingPage && (
-          <MobileMeetingPage onClose={() => setShowMeetingPage(false)} />
+        {showMeetingPage && !meetingMinimized && meetingActive && (
+          <MobileMeetingPage
+            webrtc={webrtc}
+            roomName={meetingRoomName}
+            onClose={handleLeaveMeeting}
+            onMinimize={() => {
+              setMeetingMinimized(true);
+              setShowMeetingPage(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 会议悬浮图标（最小化时显示） */}
+      <AnimatePresence>
+        {meetingMinimized && meetingActive && (
+          <MeetingFloatingWindow
+            roomName={meetingRoomName}
+            participantCount={webrtc.participants.length + 1}
+            onExpand={() => {
+              setMeetingMinimized(false);
+              setShowMeetingPage(true);
+            }}
+            onEnd={handleLeaveMeeting}
+          />
         )}
       </AnimatePresence>
 

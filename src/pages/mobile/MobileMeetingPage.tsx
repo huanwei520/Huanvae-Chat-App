@@ -6,6 +6,12 @@
  * - 移除屏幕共享功能（Android WebView 不支持）
  * - 全屏视频显示
  * - 适配触摸操作
+ * - 支持最小化为悬浮图标（可同时使用其他功能）
+ *
+ * 架构说明：
+ * - WebRTC 实例在 MobileMain.tsx 中创建，通过 props 传入
+ * - 最小化时组件卸载，但 WebRTC 连接保持（由 MobileMain 维护）
+ * - 展开时重新挂载组件，复用同一个 WebRTC 实例
  *
  * 注意：
  * - Android 需要 CAMERA 和 RECORD_AUDIO 权限
@@ -14,13 +20,10 @@
  * @module pages/mobile/MobileMeetingPage
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  useWebRTC,
-  type RemoteParticipant,
-} from '../../meeting/useWebRTC';
-import { loadMeetingData, clearMeetingData, type MeetingWindowData, type IceServer } from '../../meeting/api';
+import type { RemoteParticipant } from '../../meeting/useWebRTC';
+import { loadMeetingData, type MeetingWindowData } from '../../meeting/api';
 import {
   MicOnIcon,
   MicOffIcon,
@@ -29,6 +32,25 @@ import {
   PhoneEndIcon,
   ParticipantsIcon,
 } from '../../components/common/Icons';
+
+// 最小化图标（内联定义）
+const MinimizeIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={2}
+    stroke="currentColor"
+    width="24"
+    height="24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
+    />
+  </svg>
+);
 import '../../styles/mobile/meeting-page.css';
 
 // ============================================
@@ -152,73 +174,41 @@ function ParticipantVideo({
 // 主组件
 // ============================================
 
+/** WebRTC 实例类型（从 useWebRTC 推导） */
+type WebRTCInstance = ReturnType<typeof import('../../meeting/useWebRTC').useWebRTC>;
+
 interface MobileMeetingPageProps {
+  /** WebRTC 实例（从 MobileMain 传入，最小化时保持连接） */
+  webrtc: WebRTCInstance;
+  /** 会议房间名 */
+  roomName?: string;
+  /** 关闭/离开会议回调 */
   onClose: () => void;
+  /** 最小化回调 */
+  onMinimize?: () => void;
 }
 
-export function MobileMeetingPage({ onClose }: MobileMeetingPageProps) {
+export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: MobileMeetingPageProps) {
   const [meetingData, setMeetingData] = useState<MeetingWindowData | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
-  const [permissionError, setPermissionError] = useState<string | null>(null);
 
-  const webrtc = useWebRTC();
-
-  // 初始化：读取会议数据
+  // 读取会议数据（仅用于显示）
   useEffect(() => {
     const data = loadMeetingData();
-    if (!data) {
-      onClose();
-      return;
+    if (data) {
+      setMeetingData(data);
     }
-    setMeetingData(data);
-  }, [onClose]);
+  }, []);
 
-  // 初始化媒体设备并连接
-  useEffect(() => {
-    if (!meetingData) { return; }
+  // 使用传入的 roomName 作为备选显示
+  const displayRoomName = meetingData?.roomName || roomName || '会议';
 
-    const init = async () => {
-      try {
-        // 初始化本地媒体流
-        await webrtc.initLocalStream();
-
-        // 获取 ICE 服务器配置
-        const iceServers: IceServer[] = meetingData.iceServers?.length
-          ? meetingData.iceServers
-          : [
-            { urls: ['stun:stun.l.google.com:19302'] },
-            { urls: ['stun1.l.google.com:19302'] },
-          ];
-
-        // 连接信令服务器
-        webrtc.connect(
-          meetingData.roomId,
-          meetingData.token,
-          iceServers,
-          meetingData.serverUrl,
-        );
-      } catch (err) {
-        console.error('[MobileMeeting] 初始化失败:', err);
-        setPermissionError('无法访问摄像头或麦克风，请检查权限设置');
-      }
-    };
-
-    init();
-
-    return () => {
-      webrtc.disconnect();
-      webrtc.stopLocalStream();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetingData]);
-
-  // 离开会议
-  const handleLeave = useCallback(() => {
-    webrtc.disconnect();
-    webrtc.stopLocalStream();
-    clearMeetingData();
-    onClose();
-  }, [webrtc, onClose]);
+  // 最小化会议（保持连接，显示悬浮图标）
+  const handleMinimize = useCallback(() => {
+    if (onMinimize) {
+      onMinimize();
+    }
+  }, [onMinimize]);
 
   // 加载中
   if (!meetingData) {
@@ -240,7 +230,7 @@ export function MobileMeetingPage({ onClose }: MobileMeetingPageProps) {
       {/* 顶部栏 */}
       <header className="mobile-meeting-header">
         <div className="mobile-meeting-info">
-          <h1>{meetingData.roomName}</h1>
+          <h1>{displayRoomName}</h1>
           <span className="mobile-meeting-id">房间: {meetingData.roomId}</span>
         </div>
         <button
@@ -332,9 +322,9 @@ export function MobileMeetingPage({ onClose }: MobileMeetingPageProps) {
         )}
 
         {/* 错误提示 */}
-        {(webrtc.error || permissionError) && (
+        {webrtc.error && (
           <div className="mobile-meeting-error">
-            <span>{webrtc.error || permissionError}</span>
+            <span>{webrtc.error}</span>
           </div>
         )}
 
@@ -354,7 +344,10 @@ export function MobileMeetingPage({ onClose }: MobileMeetingPageProps) {
         {/* 麦克风 */}
         <button
           className={`mobile-control-btn ${!webrtc.mediaState.micEnabled ? 'off' : ''}`}
-          onClick={webrtc.toggleMic}
+          onClick={() => {
+            console.warn('[MobileMeeting] 点击麦克风按钮');
+            webrtc.toggleMic();
+          }}
         >
           {webrtc.mediaState.micEnabled ? <MicOnIcon /> : <MicOffIcon />}
           <span>麦克风</span>
@@ -363,14 +356,25 @@ export function MobileMeetingPage({ onClose }: MobileMeetingPageProps) {
         {/* 摄像头 */}
         <button
           className={`mobile-control-btn ${!webrtc.mediaState.cameraEnabled ? 'off' : ''}`}
-          onClick={webrtc.toggleCamera}
+          onClick={() => {
+            console.warn('[MobileMeeting] 点击摄像头按钮');
+            webrtc.toggleCamera();
+          }}
         >
           {webrtc.mediaState.cameraEnabled ? <VideoOnIcon /> : <VideoOffIcon />}
           <span>摄像头</span>
         </button>
 
+        {/* 最小化（悬浮窗模式） */}
+        {onMinimize && (
+          <button className="mobile-control-btn" onClick={handleMinimize}>
+            <MinimizeIcon />
+            <span>最小化</span>
+          </button>
+        )}
+
         {/* 离开会议 */}
-        <button className="mobile-control-btn end-call" onClick={handleLeave}>
+        <button className="mobile-control-btn end-call" onClick={onClose}>
           <PhoneEndIcon />
           <span>离开</span>
         </button>
