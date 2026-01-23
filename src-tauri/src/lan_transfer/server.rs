@@ -407,6 +407,8 @@ struct PeerDisconnectBody {
 }
 
 /// 处理点对点连接请求（接收方收到）
+///
+/// 如果已与该设备建立连接，则返回现有连接 ID（防止重复连接）
 async fn handle_peer_connection_request(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -414,6 +416,78 @@ async fn handle_peer_connection_request(
 ) -> Result<(), ServerError> {
     let req_body: PeerConnectionRequestBody =
         serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+
+    let from_device_id = req_body.from_device.device_id.clone();
+
+    // ========== 检查是否已存在与该设备的连接（去重）==========
+    // 注意：先提取数据，释放锁，再调用 async 函数
+    let existing_connection_id: Option<String> = {
+        let connections = get_active_peer_connections_map();
+        let connections = connections.lock();
+        connections
+            .iter()
+            .find(|(_, conn)| {
+                conn.peer_device.device_id == from_device_id
+                    && conn.status == PeerConnectionStatus::Connected
+            })
+            .map(|(conn_id, _)| conn_id.clone())
+    };
+
+    if let Some(conn_id) = existing_connection_id {
+        println!(
+            "[LanTransfer] 已存在与 {} 的连接: {}，返回现有连接",
+            from_device_id, conn_id
+        );
+
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            connection_id: String,
+            status: String,
+        }
+
+        return send_json_response(
+            writer,
+            &Response {
+                connection_id: conn_id,
+                status: "connected".to_string(),
+            },
+        )
+        .await;
+    }
+
+    // ========== 检查是否已有待处理的连接请求（防止重复请求）==========
+    let existing_request_id: Option<String> = {
+        let requests = get_pending_peer_connection_requests_map();
+        let requests = requests.lock();
+        requests
+            .iter()
+            .find(|(_, req)| req.from_device.device_id == from_device_id)
+            .map(|(conn_id, _)| conn_id.clone())
+    };
+
+    if let Some(conn_id) = existing_request_id {
+        println!(
+            "[LanTransfer] 已存在来自 {} 的待处理请求: {}，返回现有请求",
+            from_device_id, conn_id
+        );
+
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            connection_id: String,
+            status: String,
+        }
+
+        return send_json_response(
+            writer,
+            &Response {
+                connection_id: conn_id,
+                status: "pending".to_string(),
+            },
+        )
+        .await;
+    }
 
     let connection_id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();

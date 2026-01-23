@@ -185,8 +185,27 @@ pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), Tr
 // ============================================================================
 
 /// 请求建立点对点连接
+///
+/// 如果已与该设备建立连接，则返回现有连接 ID（防止重复连接）
 pub async fn request_peer_connection(device_id: &str) -> Result<String, TransferError> {
     use super::server::get_active_peer_connections_map;
+
+    // ========== 检查是否已存在与该设备的连接（去重）==========
+    {
+        let connections = get_active_peer_connections_map();
+        let connections = connections.lock();
+        for (conn_id, conn) in connections.iter() {
+            if conn.peer_device.device_id == device_id
+                && conn.status == PeerConnectionStatus::Connected
+            {
+                println!(
+                    "[LanTransfer] 已存在与 {} 的连接: {}，跳过重复请求",
+                    device_id, conn_id
+                );
+                return Ok(conn_id.clone());
+            }
+        }
+    }
 
     let state = get_lan_transfer_state();
 
