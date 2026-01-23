@@ -2,18 +2,21 @@
  * 消息右键菜单组件
  *
  * 功能：
+ * - 复制消息（文本消息）
  * - 撤回消息（自己发送的消息，2分钟内）
  * - 删除消息（本地删除）
  * - 进入多选模式
  * - 在文件夹中显示（仅文件消息且有本地缓存时）
  *
  * 使用 createPortal 渲染到 body，避免被其他元素遮挡
+ * 桌面端通过右键触发，移动端通过长按触发
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
+import { isMobile } from '../../utils/platform';
 
 interface MessageContextMenuProps {
   isOpen: boolean;
@@ -21,6 +24,8 @@ interface MessageContextMenuProps {
   canRecall: boolean;
   /** 本地文件路径（如果有，则显示"在文件夹中显示"选项） */
   localPath?: string | null;
+  /** 消息文本内容（用于复制，仅文本消息有效） */
+  messageContent?: string | null;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -32,14 +37,29 @@ export function MessageContextMenu({
   position,
   canRecall,
   localPath,
+  messageContent,
   onRecall,
   onDelete,
   onMultiSelect,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const mobile = isMobile();
 
-  // 在文件夹中显示
+  // 复制消息内容
+  const handleCopy = useCallback(async () => {
+    if (!messageContent) { return; }
+    try {
+      await navigator.clipboard.writeText(messageContent);
+      // 可以添加 Toast 提示，这里暂时只打印日志
+      console.warn('[ContextMenu] 消息已复制');
+    } catch (error) {
+      console.error('[ContextMenu] 复制失败:', error);
+    }
+    onClose();
+  }, [messageContent, onClose]);
+
+  // 在文件夹中显示（桌面端专用）
   const handleShowInFolder = useCallback(async () => {
     if (!localPath) { return; }
     try {
@@ -86,13 +106,15 @@ export function MessageContextMenu({
   }, [isOpen, onClose]);
 
   // 计算菜单项数量以确定高度
-  const hasLocalPath = !!localPath;
+  const hasLocalPath = !!localPath && !mobile; // 在文件夹中显示仅桌面端
+  const hasMessageContent = !!messageContent;
 
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
     const menuWidth = 160;
     // 基础高度（删除 + 多选 + 分隔线）约 100，每增加一项约 36
     let menuHeight = 100;
+    if (hasMessageContent) { menuHeight += 36; } // 复制
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
     const padding = 10;
@@ -140,6 +162,16 @@ export function MessageContextMenu({
           exit={{ opacity: 0, scale: 0.9, y: -5 }}
           transition={{ duration: 0.15, ease: [0, 0, 0.2, 1] }}
         >
+          {/* 复制（仅文本消息） */}
+          {hasMessageContent && (
+            <button
+              className="context-menu-item"
+              onClick={handleCopy}
+            >
+              <CopyIcon />
+              <span>复制</span>
+            </button>
+          )}
           {canRecall && (
             <button
               className="context-menu-item"
@@ -162,6 +194,7 @@ export function MessageContextMenu({
             <DeleteIcon />
             <span>删除</span>
           </button>
+          {/* 在文件夹中显示（仅桌面端） */}
           {hasLocalPath && (
             <button
               className="context-menu-item"
@@ -190,6 +223,13 @@ export function MessageContextMenu({
   // 使用 createPortal 渲染到 body
   return createPortal(menuContent, document.body);
 }
+
+// 复制图标
+const CopyIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+  </svg>
+);
 
 // 撤回图标
 const RecallIcon = () => (

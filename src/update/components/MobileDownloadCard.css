@@ -17,20 +17,20 @@
   margin: 4px 12px;
   margin-bottom: 8px;
 
-  /* 毛玻璃背景 - 与消息卡片一致的主题变量 */
+  /* 毛玻璃背景 - 使用卡片专用变量（接入主题管理） */
   background: linear-gradient(
     135deg,
-    var(--white-alpha-80) 0%,
-    var(--white-alpha-70) 100%
+    var(--card-bg-start) 0%,
+    var(--card-bg-end) 100%
   );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
 
   /* 圆角 */
   border-radius: 12px;
 
-  /* 边框和阴影 - 与消息卡片一致 */
-  border: 1px solid var(--white-alpha-50);
+  /* 边框和阴影 - 使用卡片专用边框变量 */
+  border: 1px solid var(--card-border);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
