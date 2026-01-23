@@ -1,0 +1,659 @@
+/**
+ * 移动端视频会议样式
+ *
+ * 设计原则：
+ * - 全屏沉浸式体验
+ * - 大号控制按钮，适合触摸操作
+ * - 简化的 UI，移除屏幕共享
+ * - 使用 CSS 变量，支持主题切换
+ */
+
+/* ============================================
+   页面容器
+   ============================================ */
+
+.mobile-meeting-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  z-index: 9999;
+}
+
+.mobile-meeting-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  color: #fff;
+  gap: 16px;
+  z-index: 9999;
+}
+
+.mobile-meeting-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   顶部栏
+   ============================================ */
+
+.mobile-meeting-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mobile-meeting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-meeting-info h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mobile-meeting-id {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mobile-meeting-header-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mobile-meeting-header-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mobile-meeting-header-btn.active {
+  background: var(--primary-color, #3b82f6);
+}
+
+.mobile-meeting-header-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mobile-participant-count {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ============================================
+   视频区域
+   ============================================ */
+
+.mobile-meeting-main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.mobile-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(45%, 1fr));
+  gap: 4px;
+  padding: 4px;
+  height: 100%;
+  align-content: center;
+}
+
+/* 单人时全屏 */
+.mobile-video-grid:has(.mobile-participant-video:only-child) {
+  grid-template-columns: 1fr;
+}
+
+.mobile-video-grid:has(.mobile-participant-video:only-child) .mobile-participant-video {
+  height: 100%;
+}
+
+/* ============================================
+   参与者视频卡片
+   ============================================ */
+
+.mobile-participant-video {
+  position: relative;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+}
+
+.mobile-participant-video.local {
+  order: -1;
+}
+
+.mobile-participant-video.speaking {
+  box-shadow: 0 0 0 3px #22c55e;
+}
+
+.mobile-participant-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-participant-video.local video {
+  transform: scaleX(-1);
+}
+
+.mobile-participant-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #374151, #1f2937);
+}
+
+.mobile-avatar-image {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.mobile-avatar-placeholder {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-color, #3b82f6);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.mobile-participant-name {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.mobile-creator-badge {
+  padding: 2px 6px;
+  background: #f59e0b;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* ============================================
+   参与者列表面板
+   ============================================ */
+
+.mobile-participants-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 260px;
+  max-width: 80%;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mobile-participants-panel h3 {
+  margin: 0 0 16px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.mobile-participants-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-participant-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.mobile-participant-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.mobile-participant-avatar-placeholder {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #4b5563;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mobile-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.mobile-badge.host {
+  background: #f59e0b;
+  color: #fff;
+}
+
+/* ============================================
+   状态提示
+   ============================================ */
+
+.mobile-meeting-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 30px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.mobile-meeting-error {
+  position: absolute;
+  bottom: 100px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.9);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+
+.mobile-error-hint {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+/* ============================================
+   控制栏
+   ============================================ */
+
+.mobile-meeting-controls {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mobile-control-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 16px;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 70px;
+}
+
+.mobile-control-btn:active {
+  transform: scale(0.95);
+}
+
+.mobile-control-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
+.mobile-control-btn.off {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+.mobile-control-btn.off svg {
+  color: #fca5a5;
+}
+
+.mobile-control-btn.end-call {
+  background: #ef4444;
+  color: #fff;
+}
+
+.mobile-control-btn.end-call:active {
+  background: #dc2626;
+}
+
+/* ============================================
+   会议入口页面样式
+   ============================================ */
+
+.mobile-meeting-entry-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary, #f5f5f5);
+  z-index: 9999;
+}
+
+.mobile-meeting-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top));
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.mobile-meeting-entry-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+  margin: 0;
+}
+
+.mobile-meeting-entry-header .mobile-back-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-primary, #1a1a1a);
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.mobile-meeting-entry-header .mobile-back-btn:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mobile-meeting-entry-header .mobile-header-placeholder {
+  width: 40px;
+}
+
+.mobile-meeting-entry-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 16px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+.mobile-meeting-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.mobile-meeting-icon svg {
+  width: 64px;
+  height: 64px;
+  color: var(--accent-color, #3b82f6);
+}
+
+/* 标签页切换 */
+.mobile-meeting-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.6));
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.mobile-meeting-tab {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-meeting-tab.active {
+  background: var(--glass-bg, rgba(255, 255, 255, 0.9));
+  color: var(--accent-color, #3b82f6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 错误提示 */
+.mobile-meeting-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* 表单样式 */
+.mobile-meeting-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mobile-meeting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-meeting-field label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+}
+
+.mobile-meeting-field input,
+.mobile-meeting-field select,
+.mobile-meeting-field textarea {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  border-radius: 12px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  color: var(--text-primary, #1a1a1a);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.mobile-meeting-field input:focus,
+.mobile-meeting-field select:focus,
+.mobile-meeting-field textarea:focus {
+  border-color: var(--accent-color, #3b82f6);
+}
+
+.mobile-meeting-field textarea {
+  resize: none;
+  font-family: inherit;
+}
+
+.mobile-meeting-field .parse-success {
+  font-size: 13px;
+  color: #22c55e;
+}
+
+.mobile-meeting-submit {
+  margin-top: 8px;
+  padding: 14px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-color, #3b82f6);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.mobile-meeting-submit:active {
+  opacity: 0.8;
+}
+
+.mobile-meeting-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 创建成功后的房间信息 */
+.mobile-meeting-created {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.mobile-meeting-info {
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.mobile-meeting-info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+}
+
+.mobile-meeting-info-item:last-child {
+  border-bottom: none;
+}
+
+.mobile-meeting-info-item .label {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+}
+
+.mobile-meeting-info-item .value {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a1a);
+}
+
+.mobile-meeting-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-meeting-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 24px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--accent-color, #3b82f6);
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border: 1px solid var(--accent-color, #3b82f6);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-meeting-copy:active {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.mobile-meeting-copy svg {
+  width: 18px;
+  height: 18px;
+}
