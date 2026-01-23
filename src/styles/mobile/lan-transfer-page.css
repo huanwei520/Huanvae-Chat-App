@@ -577,28 +577,28 @@
   justify-content: center;
   width: 36px;
   height: 36px;
-  background: var(--white-alpha-80);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 8px;
-  color: var(--text-secondary);
+  background: var(--primary);
+  border: none;
+  border-radius: 50%;
+  color: white;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .connect-btn:active {
-  background: var(--white-alpha-90);
-  color: var(--primary);
+  background: var(--primary-dark, #2563eb);
+  transform: scale(0.95);
 }
 
 /* 已连接时文件夹按钮样式 */
 .connect-btn.connected {
-  background: rgba(52, 199, 89, 0.15);
-  border-color: rgba(52, 199, 89, 0.3);
-  color: #34c759;
+  background: #34c759;
+  color: white;
 }
 
 .connect-btn.connected:active {
-  background: rgba(52, 199, 89, 0.25);
+  background: #2db84e;
 }
 
 .send-btn {
