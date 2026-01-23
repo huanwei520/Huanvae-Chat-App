@@ -178,10 +178,15 @@ export function MessageBubble({
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
     position: { x: number; y: number };
+    bubbleRect?: DOMRect | null;
   }>({
     isOpen: false,
     position: { x: 0, y: 0 },
+    bubbleRect: null,
   });
+
+  // 气泡元素 ref（用于移动端菜单定位）
+  const bubbleRef = useRef<HTMLDivElement>(null);
 
   // 本地文件路径（用于"在文件夹中显示"功能）
   const [localPath, setLocalPath] = useState<string | null>(null);
@@ -286,9 +291,13 @@ export function MessageBubble({
     // 500ms 长按触发菜单
     longPressTimerRef.current = setTimeout(() => {
       if (touchStartPosRef.current) {
+        // 获取气泡元素的位置
+        const rect = bubbleRef.current?.getBoundingClientRect() || null;
+
         setContextMenu({
           isOpen: true,
           position: { x: touchStartPosRef.current.x, y: touchStartPosRef.current.y },
+          bubbleRect: rect,
         });
       }
     }, 500);
@@ -355,6 +364,7 @@ export function MessageBubble({
   return (
     <>
       <motion.div
+        ref={bubbleRef}
         className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
         // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
         layout={message.sendStatus === 'sending' ? 'position' : false}
@@ -431,12 +441,14 @@ export function MessageBubble({
       <MessageContextMenu
         isOpen={contextMenu.isOpen}
         position={contextMenu.position}
+        bubbleRect={contextMenu.bubbleRect}
         canRecall={canRecallMessage(message, isOwn)}
         localPath={localPath}
         messageContent={message.message_type === 'text' ? message.message_content : null}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
+        onSelectText={message.message_type === 'text' ? () => setShowFullPreview(true) : undefined}
         onClose={handleCloseMenu}
       />
 

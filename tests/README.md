@@ -415,6 +415,14 @@ unset CI && pnpm tauri android dev
   - 使用 CSS Grid 替代 Flexbox 布局
   - 所有参与者视频窗口大小一致
   - 自适应列数，最大宽度 600px（单人时 900px）
+- 2026-01-24: 移动端消息长按菜单优化
+  - 菜单显示在气泡上方（微信风格）
+  - 水平排列的菜单项
+  - 新增"选取"选项（移动端专属）
+  - 点击"选取"打开全屏预览页面，可自由选择文字复制
+  - 触摸其他地方自动关闭菜单（菜单互斥）
+- 2026-01-24: 移动端局域网链接按钮样式统一
+  - 圆形蓝底白字样式与桌面端一致
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
