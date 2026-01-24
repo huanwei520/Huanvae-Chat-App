@@ -439,6 +439,19 @@ async fn handle_peer_connection_request(
             from_device_id, conn_id
         );
 
+        // 重新发送连接建立事件，确保前端知道这个连接
+        let connection: Option<PeerConnection> = {
+            let connections = get_active_peer_connections_map();
+            let connections = connections.lock();
+            connections.get(&conn_id).cloned()
+        };
+
+        if let Some(conn) = connection {
+            let event = LanTransferEvent::PeerConnectionEstablished { connection: conn };
+            let _ = get_event_sender().send(event.clone());
+            emit_lan_event(&event);
+        }
+
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Response {
@@ -457,20 +470,27 @@ async fn handle_peer_connection_request(
     }
 
     // ========== 检查是否已有待处理的连接请求（防止重复请求）==========
-    let existing_request_id: Option<String> = {
+    let existing_request: Option<PeerConnectionRequest> = {
         let requests = get_pending_peer_connection_requests_map();
         let requests = requests.lock();
         requests
             .iter()
             .find(|(_, req)| req.from_device.device_id == from_device_id)
-            .map(|(conn_id, _)| conn_id.clone())
+            .map(|(_, req)| req.clone())
     };
 
-    if let Some(conn_id) = existing_request_id {
+    if let Some(request) = existing_request {
         println!(
-            "[LanTransfer] 已存在来自 {} 的待处理请求: {}，返回现有请求",
-            from_device_id, conn_id
+            "[LanTransfer] 已存在来自 {} 的待处理请求: {}，重新发送事件",
+            from_device_id, request.connection_id
         );
+
+        // 重新发送事件到前端，确保前端知道这个请求
+        let event = LanTransferEvent::PeerConnectionRequest {
+            request: request.clone(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
 
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -482,7 +502,7 @@ async fn handle_peer_connection_request(
         return send_json_response(
             writer,
             &Response {
-                connection_id: conn_id,
+                connection_id: request.connection_id,
                 status: "pending".to_string(),
             },
         )
