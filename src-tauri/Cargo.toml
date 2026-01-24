@@ -123,6 +123,8 @@ sysinfo = "0.33.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", features = ["windows-native"] }
+# Windows 注册表访问（用于检测安装类型：MSI vs NSIS）
+winreg = "0.55.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6.3", features = ["linux-native"] }
