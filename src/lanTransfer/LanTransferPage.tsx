@@ -177,11 +177,13 @@ const cardVariants = {
 interface DeviceCardProps {
   device: DiscoveredDevice;
   onRequestConnection: () => void;
+  onSendFiles?: () => void;
+  onDisconnect?: () => void;
   isTrusted?: boolean;
   isConnected?: boolean;
 }
 
-function DeviceCard({ device, onRequestConnection, isTrusted, isConnected }: DeviceCardProps) {
+function DeviceCard({ device, onRequestConnection, onSendFiles, onDisconnect, isTrusted, isConnected }: DeviceCardProps) {
   return (
     <motion.div
       className={`lan-device-card ${isConnected ? 'connected' : ''}`}
@@ -206,15 +208,35 @@ function DeviceCard({ device, onRequestConnection, isTrusted, isConnected }: Dev
         </div>
         <div className="lan-device-ip">{device.ipAddress}</div>
       </div>
-      {!isConnected && (
-        <button
-          className="lan-device-connect-btn"
-          onClick={(e) => { e.stopPropagation(); onRequestConnection(); }}
-          title="请求连接"
-        >
-          <LinkIcon />
-        </button>
-      )}
+      <div className="lan-device-actions">
+        {isConnected ? (
+          <>
+            {/* 已连接：显示发送文件和断开连接按钮 */}
+            <button
+              className="lan-device-connect-btn connected"
+              onClick={(e) => { e.stopPropagation(); onSendFiles?.(); }}
+              title="发送文件"
+            >
+              <FolderIcon />
+            </button>
+            <button
+              className="lan-device-disconnect-btn"
+              onClick={(e) => { e.stopPropagation(); onDisconnect?.(); }}
+              title="断开连接"
+            >
+              <DisconnectIcon />
+            </button>
+          </>
+        ) : (
+          <button
+            className="lan-device-connect-btn"
+            onClick={(e) => { e.stopPropagation(); onRequestConnection(); }}
+            title="请求连接"
+          >
+            <LinkIcon />
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -848,6 +870,47 @@ export default function LanTransferPage() {
     return activeConnections.some((c) => c.peerDevice.deviceId === deviceId);
   };
 
+  // 获取设备的连接
+  const getConnectionForDevice = (deviceId: string) => {
+    return activeConnections.find((c) => c.peerDevice.deviceId === deviceId);
+  };
+
+  // 从设备卡片发送文件（在已建立的连接中）
+  const handleSendFilesFromCard = async (device: DiscoveredDevice) => {
+    const connection = getConnectionForDevice(device.deviceId);
+    if (!connection) { return; }
+
+    try {
+      const result = await open({
+        multiple: true,
+        title: '选择要发送的文件',
+      });
+
+      if (result && result.length > 0) {
+        addDebugLog(`发送 ${result.length} 个文件到 ${device.deviceName}`);
+        await sendFilesToPeer(connection.connectionId, result);
+      }
+    } catch (error) {
+      console.error('[LanTransfer] 选择文件失败:', error);
+      addDebugLog(`❌ 选择文件失败: ${error}`);
+    }
+  };
+
+  // 断开与设备的连接
+  const handleDisconnectDevice = async (device: DiscoveredDevice) => {
+    const connection = getConnectionForDevice(device.deviceId);
+    if (!connection) { return; }
+
+    try {
+      addDebugLog(`断开与 ${device.deviceName} 的连接`);
+      await disconnectPeer(connection.connectionId);
+      addDebugLog('✓ 已断开连接');
+    } catch (error) {
+      console.error('[LanTransfer] 断开连接失败:', error);
+      addDebugLog(`❌ 断开连接失败: ${error}`);
+    }
+  };
+
   // 键盘事件
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1109,6 +1172,8 @@ export default function LanTransferPage() {
                   key={device.deviceId}
                   device={device}
                   onRequestConnection={() => handleRequestConnection(device)}
+                  onSendFiles={() => handleSendFilesFromCard(device)}
+                  onDisconnect={() => handleDisconnectDevice(device)}
                   isTrusted={isDeviceTrusted(device.deviceId)}
                   isConnected={isDeviceConnected(device.deviceId)}
                 />

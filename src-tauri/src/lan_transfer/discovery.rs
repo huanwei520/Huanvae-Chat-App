@@ -304,6 +304,12 @@ pub async fn start_service(
 }
 
 /// 停止局域网传输服务
+///
+/// 执行以下清理操作：
+/// 1. 断开所有活跃的点对点连接
+/// 2. 停止 mDNS 服务
+/// 3. 停止 HTTP 服务器
+/// 4. 清空设备列表和连接状态
 pub async fn stop_service() -> Result<(), DiscoveryError> {
     let state = get_lan_transfer_state();
 
@@ -313,6 +319,36 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
         if !*is_running {
             return Err(DiscoveryError::NotRunning);
         }
+    }
+
+    // 断开所有活跃的点对点连接
+    {
+        let connections = server::get_active_peer_connections_map();
+        let connection_ids: Vec<String> = {
+            let conns = connections.lock();
+            conns.keys().cloned().collect()
+        };
+
+        for conn_id in connection_ids {
+            println!("[LanTransfer] 断开连接: {}", conn_id);
+            // 发送连接关闭事件
+            let event = LanTransferEvent::PeerConnectionClosed {
+                connection_id: conn_id.clone(),
+            };
+            let _ = get_event_sender().send(event.clone());
+            emit_lan_event(&event);
+        }
+
+        // 清空连接列表
+        let mut conns = connections.lock();
+        conns.clear();
+    }
+
+    // 清空待处理的连接请求
+    {
+        let requests = server::get_pending_peer_connection_requests_map();
+        let mut reqs = requests.lock();
+        reqs.clear();
     }
 
     // 停止 mDNS 服务

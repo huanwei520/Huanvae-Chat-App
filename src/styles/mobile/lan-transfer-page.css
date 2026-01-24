@@ -601,6 +601,35 @@
   background: #2db84e;
 }
 
+/* 断开连接按钮样式 */
+.disconnect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 50%;
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.disconnect-btn:active {
+  background: rgba(239, 68, 68, 0.25);
+  transform: scale(0.95);
+}
+
+/* 设备操作按钮容器 */
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .send-btn {
   padding: 8px 16px;
   font-size: 13px;

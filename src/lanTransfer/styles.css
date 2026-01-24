@@ -1118,6 +1118,43 @@
   transform: scale(1.1);
 }
 
+/* 已连接时文件夹按钮样式 */
+.lan-device-connect-btn.connected {
+  background: var(--success);
+}
+
+.lan-device-connect-btn.connected:hover {
+  background: #16a34a;
+}
+
+/* 断开连接按钮 */
+.lan-device-disconnect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.lan-device-disconnect-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.1);
+}
+
+/* 设备操作按钮容器 */
+.lan-device-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 连接请求卡片 */
 .lan-peer-connection-request {
   border-color: var(--primary);
