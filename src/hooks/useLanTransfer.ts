@@ -503,6 +503,10 @@ export function useLanTransfer(): UseLanTransferReturn {
               }
               return [...prev, payload.connection];
             });
+            // 连接建立后，清理来自该设备的待处理请求（解决互相请求时的重复显示问题）
+            setPendingPeerConnectionRequests((prev) =>
+              prev.filter((r) => r.fromDevice.deviceId !== payload.connection.peerDevice.deviceId),
+            );
             // 自动设置为当前连接（可以用于打开传输窗口）
             setCurrentConnection(payload.connection);
             break;

@@ -443,10 +443,17 @@ unset CI && pnpm tauri android dev
   - 拒绝后发送 PeerConnectionClosed 事件通知前端
   - 修复拒绝后无法重新申请连接的问题
   - 修复发起连接时对方没有收到请求提示的问题
+  - 连接建立后自动清理来自该设备的待处理请求（解决互相请求时的重复显示问题）
 - 2026-01-24: 桌面端局域网传输 UI 优化
   - 删除独立的"已建立的连接"模块
   - 已连接状态通过设备卡片上的绿色按钮+断开连接按钮显示
   - 与移动端逻辑保持一致
+- 2026-01-24: mDNS 设备下线检测机制修复
+  - 修复 fullname 格式不匹配问题：mDNS instance_name 限制为 15 字符，device_id 为 32 字符 UUID
+  - 添加 fullname 到 device_id 的映射表，正确处理 ServiceRemoved 事件
+  - 添加验证失败计数器，连续失败 3 次后主动移除设备
+  - 验证任务使用正确的 fullname 进行 mDNS verify() 调用
+  - 设备发现时保存映射，离线时清理映射和计数器
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
