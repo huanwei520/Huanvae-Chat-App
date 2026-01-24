@@ -2,60 +2,46 @@
 ; Huanvae Chat - NSIS 安装器钩子
 ; ============================================================================
 ;
-; 功能：自动配置防火墙规则，使局域网文件传输功能无需手动配置
+; 功能：
+; 1. 自动配置防火墙规则，使局域网文件传输功能无需手动配置
+; 2. 更新时自动卸载旧版本，避免文件锁定问题
 ;
-; 添加的规则：
+; 防火墙规则：
 ; - mDNS (UDP 5353) - 用于设备发现
 ; - 传输端口 (TCP 53317) - 用于文件传输
 ; - 应用程序规则 - 允许应用所有网络访问
 ;
-; 更新流程：
-; 1. 终止主进程和 WebView2 子进程
+; 更新流程（卸载优先策略）：
+; 1. 从注册表读取已安装路径
 ; 2. 运行旧版卸载程序（静默模式）
+;    - 卸载程序的 PREUNINSTALL 钩子会终止主进程及所有 WebView2 子进程
+;    - 使用 taskkill /T 进程树终止，确保不遗漏子进程
 ; 3. 在原目录安装新版本
+; 4. 重新添加防火墙规则
+;
+; 用户数据：
+; - 存储在 AppData 目录，卸载/更新不受影响
 ;
 ; 参考文档：
 ; - Tauri NSIS Hooks: https://v2.tauri.app/distribute/windows-installer/
 ; - Windows netsh: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-advfirewall
+; - taskkill /T: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill
 ;
 ; ============================================================================
 
 ; ============================================================================
-; 安装前钩子 - 关闭应用 + 运行卸载程序 + 读取安装路径
+; 安装前钩子 - 先卸载旧版本，再安装新版本
+; ============================================================================
+; 
+; 更新策略：卸载优先
+; - 不手动终止进程，让卸载程序统一处理
+; - 卸载程序会触发 PREUNINSTALL 钩子，正确关闭所有进程（包括 WebView2）
+; - 卸载完成后再安装，避免文件锁定问题
+; - 用户数据在 AppData 目录，不受影响
+;
 ; ============================================================================
 !macro NSIS_HOOK_PREINSTALL
-  ; ========== 第一步：关闭正在运行的应用程序 ==========
-  ; 使用 taskkill 命令终止正在运行的应用，避免 "无法写入" 错误
-  ; /F = 强制终止, /IM = 按进程名匹配
-  
-  ; 终止主进程（小写形式，Tauri 实际生成的进程名）
-  nsExec::Exec 'taskkill /F /IM "huanvae-chat-app.exe"'
-  Pop $0
-  
-  ; 终止主进程（大写形式）
-  nsExec::Exec 'taskkill /F /IM "Huanvae-Chat-App.exe"'
-  Pop $0
-  
-  ; 等待主进程退出
-  Sleep 500
-  
-  ; ========== 终止 WebView2 子进程 ==========
-  ; WebView2 子进程可能不会随主进程自动退出，需要单独终止
-  ; 使用 WMIC/PowerShell 只终止与 Huanvae 相关的 WebView2 进程
-  ; 避免影响其他使用 WebView2 的应用
-  
-  ; 方法1：使用 WMIC 终止包含 huanvae 的 WebView2 进程
-  nsExec::Exec 'cmd /c wmic process where "name=''msedgewebview2.exe'' and commandline like ''%huanvae%''" call terminate >nul 2>&1'
-  Pop $0
-  
-  ; 方法2：使用 PowerShell 作为备用（更精确）
-  nsExec::Exec 'cmd /c powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object {$_.Name -eq ''msedgewebview2.exe'' -and $_.CommandLine -like ''*huanvae*''} | ForEach-Object {Stop-Process -Id $_.ProcessId -Force -EA 0}" >nul 2>&1'
-  Pop $0
-  
-  ; 等待所有进程完全退出
-  Sleep 1500
-  
-  ; ========== 第二步：从注册表读取已安装版本的路径 ==========
+  ; ========== 第一步：从注册表读取已安装版本的路径 ==========
   ; 需要先获取安装路径，才能找到卸载程序
   
   ; 首先尝试读取 perMachine (HKLM) 安装的路径
@@ -72,17 +58,25 @@
     ; 找到了已安装路径，保存到变量
     StrCpy $1 $0
     
-    ; ========== 第三步：运行旧版卸载程序（静默模式）==========
-    ; 这可以彻底清理旧版 exe 文件，避免文件锁定问题
+    ; ========== 第二步：运行旧版卸载程序（静默模式）==========
+    ; 卸载程序会自动：
+    ;   1. 触发 PREUNINSTALL 钩子，终止主进程和所有 WebView2 子进程
+    ;   2. 删除程序文件
+    ;   3. 触发 POSTUNINSTALL 钩子，清理防火墙规则
+    ; 
     ; /S = 静默模式，不显示界面
     ; 用户数据在 AppData 目录，不会被删除
     
     IfFileExists "$1\uninstall.exe" 0 preinstall_skip_uninstall
-      DetailPrint "正在卸载旧版本..."
+      DetailPrint "检测到已安装版本，正在卸载..."
+      
       ; 静默运行卸载程序，等待完成
+      ; 卸载程序的 PREUNINSTALL 会负责终止所有进程
       ExecWait '"$1\uninstall.exe" /S' $2
+      
       ; 等待卸载完成，确保所有文件句柄释放
       Sleep 2000
+      
       DetailPrint "旧版本卸载完成"
     
     preinstall_skip_uninstall:
@@ -129,22 +123,40 @@
 !macroend
 
 ; ============================================================================
-; 卸载前钩子 - 关闭应用程序
+; 卸载前钩子 - 关闭应用程序及所有子进程
+; ============================================================================
+; 
+; 使用 taskkill /T 参数终止进程树，确保：
+; - 主进程被终止
+; - 所有 WebView2 子进程（GPU、网络、渲染等）被一并终止
+; - 不会遗漏任何子进程导致文件锁定
+;
 ; ============================================================================
 !macro NSIS_HOOK_PREUNINSTALL
-  ; 卸载前也需要关闭应用程序，避免文件被占用
+  ; ========== 终止主进程及其所有子进程 ==========
+  ; /F = 强制终止
+  ; /T = 终止进程树（包括所有子进程）
+  ; /IM = 按进程名匹配
   
-  ; 终止主进程
-  nsExec::Exec 'taskkill /F /IM "huanvae-chat-app.exe"'
-  Pop $0
-  nsExec::Exec 'taskkill /F /IM "Huanvae-Chat-App.exe"'
+  ; 终止主进程及所有子进程（小写形式）
+  nsExec::Exec 'taskkill /F /T /IM "huanvae-chat-app.exe"'
   Pop $0
   
-  ; 终止 WebView2 子进程
-  nsExec::Exec 'cmd /c wmic process where "name=''msedgewebview2.exe'' and commandline like ''%huanvae%''" call terminate >nul 2>&1'
+  ; 终止主进程及所有子进程（大写形式）
+  nsExec::Exec 'taskkill /F /T /IM "Huanvae-Chat-App.exe"'
   Pop $0
   
   ; 等待进程退出
+  Sleep 500
+  
+  ; ========== 备用方案：确保 WebView2 进程被清理 ==========
+  ; 如果进程树终止未能覆盖所有 WebView2 进程，使用命令行匹配作为备用
+  ; 只终止与 Huanvae 相关的 WebView2 进程，不影响其他应用
+  
+  nsExec::Exec 'cmd /c wmic process where "name=''msedgewebview2.exe'' and commandline like ''%huanvae%''" call terminate >nul 2>&1'
+  Pop $0
+  
+  ; 最终等待，确保所有进程完全退出
   Sleep 1000
 !macroend
 
