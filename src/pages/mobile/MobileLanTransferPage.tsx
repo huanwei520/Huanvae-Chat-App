@@ -193,6 +193,25 @@ const FolderIcon = () => (
   </svg>
 );
 
+// 断开连接图标
+const DisconnectIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    width="18"
+    height="18"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M6 18L18 6M6 6l12 12"
+    />
+  </svg>
+);
+
 // 设备图标
 const DeviceIcon = ({ deviceName }: { deviceName: string }) => {
   const isPhone = deviceName.toLowerCase().includes('phone') ||
@@ -472,6 +491,22 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
   const isDeviceConnected = useCallback((deviceId: string) => {
     return transfer.activeConnections.some((c) => c.peerDevice.deviceId === deviceId);
   }, [transfer.activeConnections]);
+
+  // 断开与设备的连接
+  const handleDisconnectDevice = useCallback(async (device: DiscoveredDevice) => {
+    const connection = transfer.activeConnections.find(
+      (c) => c.peerDevice.deviceId === device.deviceId,
+    );
+    if (!connection) { return; }
+
+    try {
+      addDebugLog(`断开与 ${device.deviceName} 的连接`);
+      await transfer.disconnectPeer(connection.connectionId);
+      addDebugLog('✓ 已断开连接');
+    } catch (err) {
+      addDebugLog(`❌ 断开连接失败: ${err}`);
+    }
+  }, [transfer, addDebugLog]);
 
   // 选择文件并发送（在已建立的连接中）
   // 使用 selectFilesForTransfer 处理 Android content:// URI 问题
@@ -872,23 +907,43 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
                     <span className="device-ip">{device.ipAddress}</span>
                   </div>
                   <div className="device-actions">
-                    {/* 未连接：显示连接图标；已连接：显示文件夹图标 */}
-                    <button
-                      className={`connect-btn ${connected ? 'connected' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (connected) {
-                          // 已连接时打开文件选择发送
-                          handleSendFiles(device);
-                        } else {
-                          // 未连接时请求连接
+                    {connected ? (
+                      <>
+                        {/* 已连接：显示发送文件和断开连接按钮 */}
+                        <button
+                          className="connect-btn connected"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSendFiles(device);
+                          }}
+                          title="发送文件"
+                        >
+                          <FolderIcon />
+                        </button>
+                        <button
+                          className="disconnect-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDisconnectDevice(device);
+                          }}
+                          title="断开连接"
+                        >
+                          <DisconnectIcon />
+                        </button>
+                      </>
+                    ) : (
+                      /* 未连接：显示连接图标 */
+                      <button
+                        className="connect-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleRequestConnection(device);
-                        }
-                      }}
-                      title={connected ? '发送文件' : '请求连接'}
-                    >
-                      {connected ? <FolderIcon /> : <LinkIcon />}
-                    </button>
+                        }}
+                        title="请求连接"
+                      >
+                        <LinkIcon />
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               );

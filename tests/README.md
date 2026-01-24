@@ -433,6 +433,11 @@ unset CI && pnpm tauri android dev
   - 后端：request_peer_connection 和 server 端都有去重检查
   - 已存在连接时返回现有 connectionId，防止重复连接
   - 已存在待处理请求时返回现有请求 ID，防止重复请求
+- 2026-01-24: 局域网传输断开连接功能
+  - 桌面端和移动端设备卡片添加断开连接按钮
+  - 已连接设备显示：发送文件按钮 + 断开连接按钮
+  - 应用退出/服务停止时自动断开所有活跃连接
+  - 清空待处理的连接请求
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
