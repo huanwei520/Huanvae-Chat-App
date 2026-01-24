@@ -10,6 +10,13 @@
  * - 显示传输进度（支持批量）
  * - 断点续传
  * - 设置面板（保存目录、信任设备）
+ *
+ * 窗口生命周期：
+ * - 启动时：自动启动 mDNS 服务（startService）
+ * - 关闭时：用户通过原生窗口 X 按钮关闭，mDNS 服务注销由以下机制保障：
+ *   1. api.ts 中的 tauri://close-requested 事件监听（主要）
+ *   2. beforeunload 事件（备选）
+ *   3. React 组件卸载清理函数（备选）
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -27,7 +34,7 @@ import {
   PeerConnection,
   PeerConnectionRequest,
 } from '../hooks/useLanTransfer';
-import { loadLanTransferData, clearLanTransferData } from './api';
+import { loadLanTransferData } from './api';
 import './styles.css';
 
 // ============================================================================
@@ -775,21 +782,26 @@ export default function LanTransferPage() {
   }, [isRunning, devices.length, isScanning]);
 
   // 关闭窗口时停止服务
+  // 注意：主要依赖 api.ts 中的 tauri://close-requested 事件监听
+  // 这里的 beforeunload 和 cleanup 作为备选保障
   useEffect(() => {
+    // beforeunload 事件作为备选（某些情况下可能先于 close-requested 触发）
+    const handleBeforeUnload = () => {
+      if (isRunning) {
+        // 尝试停止服务（异步，但我们尽力而为）
+        invoke('stop_lan_transfer_service').catch(() => {});
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // 组件卸载时也尝试停止服务
       if (isRunning) {
         stopService();
       }
     };
-  }, [isRunning, stopService]);
-
-  // 关闭窗口
-  const handleClose = useCallback(async () => {
-    if (isRunning) {
-      await stopService();
-    }
-    clearLanTransferData();
-    window.close();
   }, [isRunning, stopService]);
 
   // 请求建立点对点连接
@@ -869,20 +881,16 @@ export default function LanTransferPage() {
     }
   };
 
-  // 键盘事件
+  // 键盘事件：ESC 关闭设置面板
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (showSettings) {
-          setShowSettings(false);
-        } else {
-          handleClose();
-        }
+      if (e.key === 'Escape' && showSettings) {
+        setShowSettings(false);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose, showSettings]);
+  }, [showSettings]);
 
   // 检查设备是否受信任
   const isDeviceTrusted = (deviceId: string) => {
@@ -926,9 +934,6 @@ export default function LanTransferPage() {
             title="调试信息"
           >
             <DebugIcon />
-          </button>
-          <button className="lan-action-btn close" onClick={handleClose} title="关闭 (Esc)">
-            <CloseIcon />
           </button>
         </div>
       </header>

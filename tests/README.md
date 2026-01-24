@@ -454,6 +454,11 @@ unset CI && pnpm tauri android dev
   - 添加验证失败计数器，连续失败 3 次后主动移除设备
   - 验证任务使用正确的 fullname 进行 mDNS verify() 调用
   - 设备发现时保存映射，离线时清理映射和计数器
+- 2026-01-24: 局域网传输窗口关闭时服务停止修复
+  - 问题：用户通过原生 X 按钮关闭窗口时，mDNS 服务无法正确注销
+  - 解决：在 api.ts 中监听 tauri://close-requested 事件，在窗口关闭前停止服务
+  - 备选：添加 beforeunload 事件和 React 清理函数作为多重保障
+  - 确保无论通过哪种方式关闭窗口，mDNS 服务都能正确注销
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
