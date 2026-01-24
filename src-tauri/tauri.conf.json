@@ -79,7 +79,9 @@
         "installerHooks": "./nsis/installer-hooks.nsh"
       },
       "wix": {
-        "language": "zh-CN"
+        "language": "zh-CN",
+        "fragmentPaths": ["./wix/firewall.wxs"],
+        "componentGroupRefs": ["FirewallComponents"]
       }
     },
     "linux": {
