@@ -72,10 +72,21 @@
       
       ; 静默运行卸载程序，等待完成
       ; 卸载程序的 PREUNINSTALL 会负责终止所有进程
-      ExecWait '"$1\uninstall.exe" /S' $2
+      ;
+      ; 关键参数 _?=$1：
+      ;   NSIS 卸载程序默认会复制自己到临时目录再执行，
+      ;   这会导致原进程立即退出，ExecWait 无法正确等待。
+      ;   添加 _?= 参数可以阻止复制到临时目录，使 ExecWait 正确等待卸载完成。
+      ;   参考: https://nsis.sourceforge.io/When_I_use_ExecWait_uninstaller.exe_it_doesn't_wait_for_the_uninstaller
+      ;
+      ; 参数说明：
+      ;   /S = 静默模式，不显示界面
+      ;   _?=$1 = 指定安装目录，阻止复制到临时目录（必须是最后一个参数）
+      ;
+      ExecWait '"$1\uninstall.exe" /S _?=$1' $2
       
-      ; 等待卸载完成，确保所有文件句柄释放
-      Sleep 2000
+      ; 等待文件句柄释放
+      Sleep 1000
       
       DetailPrint "旧版本卸载完成"
     
