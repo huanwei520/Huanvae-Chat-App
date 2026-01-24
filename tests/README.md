@@ -438,6 +438,14 @@ unset CI && pnpm tauri android dev
   - 已连接设备显示：发送文件按钮 + 断开连接按钮
   - 应用退出/服务停止时自动断开所有活跃连接
   - 清空待处理的连接请求
+- 2026-01-24: 局域网传输连接拒绝后清理修复
+  - 拒绝连接请求后，从发起方的 ACTIVE_PEER_CONNECTIONS 中移除连接记录
+  - 发送 PeerConnectionClosed 事件通知前端
+  - 修复拒绝后无法重新申请连接的问题
+- 2026-01-24: 桌面端局域网传输 UI 优化
+  - 删除独立的"已建立的连接"模块
+  - 已连接状态通过设备卡片上的绿色按钮+断开连接按钮显示
+  - 与移动端逻辑保持一致
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
