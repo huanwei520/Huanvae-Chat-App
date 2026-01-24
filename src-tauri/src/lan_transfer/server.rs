@@ -598,7 +598,21 @@ async fn handle_peer_connection_response(
             println!("[LanTransfer] 连接已建立: {}", connection_id);
         }
     } else {
-        println!("[LanTransfer] 连接请求被拒绝: {}", connection_id);
+        // 连接被拒绝，从发起方的活跃连接中移除
+        {
+            let connections = get_active_peer_connections_map();
+            let mut connections = connections.lock();
+            connections.remove(&connection_id);
+        }
+
+        // 发送连接关闭事件通知前端
+        let event = LanTransferEvent::PeerConnectionClosed {
+            connection_id: connection_id.clone(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        println!("[LanTransfer] 连接请求被拒绝: {}，已清理连接记录", connection_id);
     }
 
     // 返回确认

@@ -319,48 +319,6 @@ function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnecti
   );
 }
 
-interface PeerConnectionCardProps {
-  connection: PeerConnection;
-  onOpen: () => void;
-  onDisconnect: () => void;
-}
-
-function PeerConnectionCard({ connection, onOpen, onDisconnect }: PeerConnectionCardProps) {
-  return (
-    <motion.div
-      className="lan-connection-card"
-      variants={cardVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      whileHover={{ scale: 1.02 }}
-    >
-      <div className="lan-connection-icon">
-        <LinkIcon />
-      </div>
-      <div className="lan-connection-info" onClick={onOpen}>
-        <div className="lan-connection-name">
-          {connection.peerDevice.deviceName}
-        </div>
-        <div className="lan-connection-user">
-          {connection.peerDevice.userNickname}
-        </div>
-        <div className="lan-connection-status">
-          {connection.isInitiator ? '由你发起' : '由对方发起'}
-        </div>
-      </div>
-      <div className="lan-connection-actions">
-        <button className="lan-connection-open" onClick={onOpen} title="打开传输窗口">
-          <FolderIcon />
-        </button>
-        <button className="lan-connection-disconnect" onClick={onDisconnect} title="断开连接">
-          <DisconnectIcon />
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
 interface PeerTransferWindowProps {
   connection: PeerConnection;
   batchProgress: BatchTransferProgress | null;
@@ -1017,32 +975,6 @@ export default function LanTransferPage() {
                     request={request}
                     onAccept={() => respondPeerConnection(request.connectionId, true)}
                     onReject={() => respondPeerConnection(request.connectionId, false)}
-                  />
-                ))}
-              </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
-
-        {/* 已建立的连接 */}
-        <AnimatePresence>
-          {activeConnections.length > 0 && (
-            <motion.section
-              className="lan-section"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-            >
-              <h2 className="lan-section-title">
-                已建立的连接 ({activeConnections.length})
-              </h2>
-              <div className="lan-cards-list">
-                {activeConnections.map((connection) => (
-                  <PeerConnectionCard
-                    key={connection.connectionId}
-                    connection={connection}
-                    onOpen={() => setCurrentConnection(connection)}
-                    onDisconnect={() => disconnectPeer(connection.connectionId)}
                   />
                 ))}
               </div>
