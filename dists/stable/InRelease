@@ -8,28 +8,28 @@ Codename: stable
 Architectures: amd64
 Components: main
 Description: Huanvae Chat APT Repository
-Date: Sat, 24 Jan 2026 15:09:20 +0000
+Date: Sat, 24 Jan 2026 23:18:04 +0000
 MD5Sum:
  478a1c98b5c6500029627f23809e87e7 476 main/binary-amd64/Packages.xz
  3d361de06e7efae68f613c6d7f22f5bf 563 main/binary-amd64/Packages
- 3312010ad3e59efe8b7d0e80c144c138 432 main/binary-amd64/Packages.gz
+ b7af2b1b6497d7bf0847a337d2082b08 432 main/binary-amd64/Packages.gz
 SHA256:
  cd5871baff9f95331f5f11f188bd23876f99db1da14a3723bb1f92c1c573daf4 476 main/binary-amd64/Packages.xz
  1bc12cf9a97bfe936877ee12cb479586f1c6e917b89b30848c2c9ce97b2cd091 563 main/binary-amd64/Packages
- 2201552238b1d8dda50a001ddda8a88184637ed14b5894ab66cb8f666cc89fe4 432 main/binary-amd64/Packages.gz
+ 8216e0ff85312b94fdc17fc52ee1db3a03ccfac3ae468be6a9757d0a7aa2e0cd 432 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEDae9H18L6XfZzmr1WZnoxteTlwoFAml04KEACgkQWZnoxteT
-lwrjxA/9H/8+5pz6HhFV0PKMkRe+QJkKyvyK3YxniXTp4erHKDaV3EoSP8UZC5nR
-5sDjIEQqMKfRYq6oKfbjAvci0V0U/fZ1fUlqnFGNyu3MX8Fz3+pHU4hfnK5bvez+
-zRXwTUB6GmGclJliwyMew1bdmavTNvC+okGcLzpUanWE8nFIVbM/0O9GHfn+HrqY
-t0alQbZ5G7hNMmw4K2N9ZteLj2C+xmMrHdcS9c8OUL34qY+/INjwk+UVc13fBVCs
-GvMy9AOLRkzxRYMceASHAft8pFgMYtPOLWjoNs33AUArekE9j3S5FjyIHQrlAX55
-o6VlbBg23xK8Wzv6CVT5/oR6LBNc+d/D0PiBJ66L7xj3jttJLc39nbB/S9QbfhYs
-Qil7H87GF1WAhOc1TqYSM/nB0a4j2/R//p2++klRvDOmVfsxKBRGHZzd4Ql2FgmR
-4EMkEbvlViPDH2cf3ZjmwzRF+7aajGDQL1Gzewyjj6bonf5mTIW5xlsK471yN5LR
-Wo4URzmDVjHpicbx5Xb30FvmSPljGDfxNIc1VjPDGW2aOYlBPhTpV6Y36ChqlKKK
-PXFD71GMkhSpP1HbImsArE638n1rtcuLY1/rF8g1wL4EMpsYcF86bx0yT0XaRIkP
-Kl2ZcyGlVIcL1yDV3L+ufsBXRronHqXW+ZcpNYNnhUPSihygEME=
-=BzjS
+iQIzBAEBCgAdFiEEDae9H18L6XfZzmr1WZnoxteTlwoFAml1UywACgkQWZnoxteT
+lwqHTA//emE5luRi9fnCp+rbQWMGoFiYl+U5nEldcVTd1M3EekAo07XIYXWyFexn
+IvKPVcBisDxubbnJdyI1cY0XapuxagtvwQGZP8T1fjR76olCef7H7RAtEVwzABJI
+ZndLisPsG58cvbX049ZaIO8wJjemSRDU0l3k1KpLKUIWZfxk3SY6nvongKcSz/wN
+UjldThgVWafs4ghFx8qiS4vdTz7zJ9yIN4mpZWQ/cit4r68FIfJwfmXQxPCyzi8q
+atb5YZ/Cu7ZzVZs7CguJOzs6kYSFkdBSygxeEWZ+yacbXNaJJhjLsKWfkos93J3f
+/gZy2Vuo/ukO594y1ycNo7FUMMh26ikkF8uy2psmQ6544QgRGbeR/IUr0Uu3zFjM
+qkrZYxy4a38jATmv6BjY77SFyDy7+cIhGh1cpt02idgSQlD3w2z/FdPuvalJHJrJ
+PHXt1G11HF69kdR1zzutX0J7IPEpwNTPBTDZ4VDQ3JSCxxUlNOUnmoUbOvED52eW
+4EofKHV1HGoejK0jCgd9uM+ulvcX6OacWImpZm5e3qs6laM+gsQSrOB/RNRfcNYr
+Q2CN/wInQKsEcxblAwwRl4py4aTzM/eTSeyE2t2gg9BY79Umqv8L6bmji10XOqjZ
+2isAqSf6Uf9CgcR79j5EHshn3duW7iekRfLLAzRh9ALRwDO0LPY=
+=ZTVv
 -----END PGP SIGNATURE-----
