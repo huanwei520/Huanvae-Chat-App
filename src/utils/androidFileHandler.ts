@@ -121,23 +121,22 @@ export async function selectFilesForTransfer(options?: {
       console.warn(`[AndroidFileHandler] 缓存目录: ${cacheDir}`);
       const filePaths: string[] = [];
 
-      // 处理每个选择的文件
+      // 处理每个选择的文件（顺序处理以避免并发问题）
       for (const uri of uris) {
         try {
           // 获取文件元数据
-          console.warn(`[AndroidFileHandler] 获取文件元数据: ${JSON.stringify(uri)}`);
+          // eslint-disable-next-line no-await-in-loop
           const metadata = await androidFs.getMetadata(uri);
-          console.warn(`[AndroidFileHandler] 文件: ${metadata.name}, 大小: ${metadata.byteLength}`);
 
           // 生成临时文件名并复制到缓存目录
           const tempFileName = generateTempFileName(metadata.name);
+          // eslint-disable-next-line no-await-in-loop
           const destPath = await join(cacheDir, tempFileName);
 
           // 使用 AndroidFs.copyFile 直接从 content:// URI 复制到目标路径
           // 这个方法可以处理 content:// URI，而 @tauri-apps/plugin-fs 的 copyFile 不能
-          console.warn(`[AndroidFileHandler] 使用 AndroidFs.copyFile 复制到: ${destPath}`);
+          // eslint-disable-next-line no-await-in-loop
           await androidFs.copyFile(uri, destPath);
-          console.warn(`[AndroidFileHandler] 复制完成: ${destPath}`);
 
           filePaths.push(destPath);
         } catch (fileError) {
@@ -154,8 +153,6 @@ export async function selectFilesForTransfer(options?: {
     }
   } else {
     // 其他平台使用标准 dialog
-    console.log('[AndroidFileHandler] 使用标准 dialog 选择文件');
-
     const files = await dialogOpen({
       multiple: options?.multiple ?? true,
       title: options?.title ?? '选择要发送的文件',
@@ -189,11 +186,11 @@ export async function cleanupTempFiles(filePaths: string[]): Promise<void> {
     try {
       // 只清理缓存目录中的文件
       if (filePath.startsWith(cacheDir)) {
+        // eslint-disable-next-line no-await-in-loop
         await remove(filePath);
-        console.log(`[AndroidFileHandler] 已清理临时文件: ${filePath}`);
       }
-    } catch (error) {
-      console.warn(`[AndroidFileHandler] 清理临时文件失败: ${filePath}`, error);
+    } catch {
+      // 忽略清理失败（文件可能已被删除）
     }
   }
 }
@@ -214,9 +211,8 @@ export async function cleanupAllTempFiles(): Promise<void> {
 
     if (await exists(cacheDir)) {
       await remove(cacheDir, { recursive: true });
-      console.log('[AndroidFileHandler] 已清理所有临时文件');
     }
-  } catch (error) {
-    console.warn('[AndroidFileHandler] 清理临时文件目录失败:', error);
+  } catch {
+    // 忽略清理失败（目录可能不存在或已被删除）
   }
 }

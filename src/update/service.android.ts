@@ -114,6 +114,7 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
   console.warn('[Android Update] 代理源数量:', PROXY_URLS.length);
   console.warn('[Android Update] 超时设置:', PROXY_TIMEOUT_SECONDS, '秒');
 
+  // 依次尝试多个代理源，直到成功（需要顺序执行）
   for (let i = 0; i < PROXY_URLS.length; i++) {
     const proxy = PROXY_URLS[i];
     const proxyName = proxy || '直连';
@@ -121,9 +122,9 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
     try {
       const url = `${proxy}${GITHUB_RELEASE_BASE}${ANDROID_LATEST_JSON_PATH}`;
       console.warn(`[Android Update] 尝试代理 ${i + 1}/${PROXY_URLS.length}: ${proxyName}`);
-      console.warn('[Android Update] 请求 URL:', url);
 
       // 使用 Rust 后端发起请求（更好的超时控制）
+      // eslint-disable-next-line no-await-in-loop
       const response = await invoke<string>('fetch_update_json', {
         url,
         timeoutSecs: PROXY_TIMEOUT_SECONDS,

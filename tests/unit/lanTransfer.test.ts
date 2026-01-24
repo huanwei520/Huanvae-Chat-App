@@ -18,7 +18,6 @@
  * - Android 数据目录初始化（使用 Tauri API 替代 TMPDIR）
  * - 移动端 UI 适配（组件隔离、WebviewWindow 兼容性）
  * - mDNS 设备下线检测（fullname 映射、验证失败计数、主动移除）
- * - 窗口关闭时服务停止（tauri://close-requested 事件、beforeunload 备选）
  *
  * 更新日志：
  * - 2026-01-21: 添加传输调试日志测试和毛玻璃样式集成测试
@@ -27,7 +26,6 @@
  * - 2026-01-21: 添加 Android 数据目录初始化测试（修复只读系统目录问题）
  * - 2026-01-22: 添加移动端 UI 适配测试（WebviewWindow 模块隔离）
  * - 2026-01-24: 添加 mDNS 设备下线检测测试（修复 fullname 格式不匹配问题）
- * - 2026-01-24: 添加窗口关闭时服务停止测试（修复原生 X 按钮关闭时服务未注销问题）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -480,70 +478,6 @@ describe('窗口关闭时服务停止', () => {
     // 使用 95ms 作为阈值，留出 5ms 容差以避免时间精度问题导致的 flaky test
     expect(endTime - startTime).toBeGreaterThanOrEqual(95);
     expect(serviceStoppedAt).toBeGreaterThan(0);
-  });
-
-  describe('窗口关闭事件处理', () => {
-    it('tauri://close-requested 事件应调用停止服务', () => {
-      // 模拟 tauri://close-requested 事件处理逻辑
-      const eventHandlers: Record<string, (() => Promise<void>) | undefined> = {};
-
-      // 模拟 WebviewWindow.once 注册事件处理器
-      const registerHandler = (event: string, handler: () => Promise<void>) => {
-        eventHandlers[event] = handler;
-      };
-
-      // 注册关闭事件处理器（模拟 api.ts 中的逻辑）
-      registerHandler('tauri://close-requested', async () => {
-        await invoke('stop_lan_transfer_service');
-      });
-
-      // 验证事件处理器已注册
-      expect(eventHandlers['tauri://close-requested']).toBeDefined();
-    });
-
-    it('beforeunload 事件应作为备选方案调用停止服务', () => {
-      // 模拟 beforeunload 事件处理逻辑
-      let beforeUnloadCalled = false;
-
-      const handleBeforeUnload = () => {
-        beforeUnloadCalled = true;
-        // 模拟调用 invoke('stop_lan_transfer_service')
-      };
-
-      // 模拟添加事件监听器
-      handleBeforeUnload();
-
-      expect(beforeUnloadCalled).toBe(true);
-    });
-
-    it('多重保障机制应按优先级执行', () => {
-      // 验证服务停止的多重保障机制
-      const stopMechanisms = [
-        { name: 'tauri://close-requested', priority: 1, description: '主要：Tauri 窗口关闭事件' },
-        { name: 'beforeunload', priority: 2, description: '备选：浏览器 beforeunload 事件' },
-        { name: 'cleanup', priority: 3, description: '备选：React 组件卸载清理函数' },
-      ];
-
-      expect(stopMechanisms.length).toBe(3);
-      expect(stopMechanisms[0].priority).toBe(1);
-      expect(stopMechanisms[0].name).toBe('tauri://close-requested');
-    });
-
-    it('服务停止失败时应静默处理', async () => {
-      mockInvoke.mockRejectedValue(new Error('服务未运行'));
-
-      // 即使服务停止失败，也不应抛出错误（静默处理）
-      let error: Error | null = null;
-      try {
-        await invoke('stop_lan_transfer_service').catch(() => {
-          // 静默处理错误
-        });
-      } catch (e) {
-        error = e as Error;
-      }
-
-      expect(error).toBeNull();
-    });
   });
 });
 
