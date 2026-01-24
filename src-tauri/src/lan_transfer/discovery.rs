@@ -8,6 +8,16 @@
  * - 监听局域网内其他设备的广播
  * - 维护发现的设备列表
  * - 设备上下线通知
+ * - 定期验证设备在线状态（解决强制杀掉应用无法检测的问题）
+ *
+ * 设备下线检测机制：
+ * - mDNS ServiceRemoved 事件：当设备正常关闭时触发
+ * - 主动验证任务：定期对已发现设备调用 mDNS verify()
+ * - 验证失败计数：连续失败 MAX_VERIFY_FAILURES 次后主动移除设备
+ *
+ * 关键映射关系：
+ * - fullname -> device_id：mDNS fullname 使用截断后的 instance_name（最多15字符），
+ *   而设备列表使用完整的 device_id（32字符 UUID），需要映射表进行转换
  */
 
 use super::protocol::{DeviceInfo, DiscoveredDevice, LanTransferEvent, PROTOCOL_VERSION, SERVICE_PORT, SERVICE_TYPE};
@@ -49,6 +59,41 @@ pub enum DiscoveryError {
 /// mDNS 服务守护进程
 static MDNS_DAEMON: OnceCell<Arc<Mutex<Option<ServiceDaemon>>>> = OnceCell::new();
 
+/// 验证任务运行标志
+static VERIFY_TASK_RUNNING: OnceCell<Arc<std::sync::atomic::AtomicBool>> = OnceCell::new();
+
+/// 设备验证间隔（秒）
+const DEVICE_VERIFY_INTERVAL_SECS: u64 = 5;
+
+/// 设备验证超时（秒）
+const DEVICE_VERIFY_TIMEOUT_SECS: u64 = 3;
+
+/// 最大验证失败次数，超过后主动移除设备
+const MAX_VERIFY_FAILURES: u32 = 3;
+
+/// mDNS fullname 到完整 device_id 的映射
+/// 由于 mDNS instance_name 限制为 15 字符，而 device_id 为 32 字符 UUID，
+/// 需要此映射表来正确处理 ServiceRemoved 事件
+static FULLNAME_TO_DEVICE_ID: OnceCell<Arc<Mutex<HashMap<String, String>>>> = OnceCell::new();
+
+/// 设备验证失败计数器
+/// key: device_id, value: 连续失败次数
+static VERIFY_FAILURE_COUNT: OnceCell<Arc<Mutex<HashMap<String, u32>>>> = OnceCell::new();
+
+/// 获取 fullname 到 device_id 的映射表
+fn get_fullname_to_device_id_map() -> Arc<Mutex<HashMap<String, String>>> {
+    FULLNAME_TO_DEVICE_ID
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+/// 获取验证失败计数器
+fn get_verify_failure_count_map() -> Arc<Mutex<HashMap<String, u32>>> {
+    VERIFY_FAILURE_COUNT
+        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
 /// 事件广播通道
 static EVENT_SENDER: OnceCell<broadcast::Sender<LanTransferEvent>> = OnceCell::new();
 
@@ -66,6 +111,13 @@ pub fn get_event_sender() -> broadcast::Sender<LanTransferEvent> {
 #[allow(dead_code)]
 pub fn subscribe_events() -> broadcast::Receiver<LanTransferEvent> {
     get_event_sender().subscribe()
+}
+
+/// 获取验证任务运行标志
+fn get_verify_task_flag() -> Arc<std::sync::atomic::AtomicBool> {
+    VERIFY_TASK_RUNNING
+        .get_or_init(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
+        .clone()
 }
 
 // ============================================================================
@@ -282,6 +334,14 @@ pub async fn start_service(
         handle_mdns_events(browse_receiver, my_device_id).await;
     });
 
+    // 启动设备验证任务（定期检测设备是否在线）
+    let verify_flag = get_verify_task_flag();
+    verify_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    let verify_device_id = device_id.clone();
+    tokio::spawn(async move {
+        run_device_verify_task(verify_device_id).await;
+    });
+
     // 标记服务已启动
     {
         let mut is_running = state.is_running.write();
@@ -297,6 +357,7 @@ pub async fn start_service(
     println!("[LanTransfer] ✅ 服务启动成功!");
     println!("[LanTransfer]   设备: {} ({})", device_info.device_name, device_info.ip_address);
     println!("[LanTransfer]   端口: {}", SERVICE_PORT);
+    println!("[LanTransfer]   设备验证间隔: {}秒", DEVICE_VERIFY_INTERVAL_SECS);
     println!("[LanTransfer]   等待发现其他设备...");
     println!("[LanTransfer] ========================================");
 
@@ -306,10 +367,11 @@ pub async fn start_service(
 /// 停止局域网传输服务
 ///
 /// 执行以下清理操作：
-/// 1. 断开所有活跃的点对点连接
-/// 2. 停止 mDNS 服务
-/// 3. 停止 HTTP 服务器
-/// 4. 清空设备列表和连接状态
+/// 1. 停止设备验证任务
+/// 2. 断开所有活跃的点对点连接
+/// 3. 停止 mDNS 服务
+/// 4. 停止 HTTP 服务器
+/// 5. 清空设备列表和连接状态
 pub async fn stop_service() -> Result<(), DiscoveryError> {
     let state = get_lan_transfer_state();
 
@@ -319,6 +381,13 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
         if !*is_running {
             return Err(DiscoveryError::NotRunning);
         }
+    }
+
+    // 停止设备验证任务
+    {
+        let verify_flag = get_verify_task_flag();
+        verify_flag.store(false, std::sync::atomic::Ordering::SeqCst);
+        println!("[LanTransfer] 设备验证任务已停止");
     }
 
     // 断开所有活跃的点对点连接
@@ -366,6 +435,20 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
     {
         let mut devices = state.devices.write();
         devices.clear();
+    }
+
+    // 清空 fullname 到 device_id 的映射
+    {
+        let map = get_fullname_to_device_id_map();
+        let mut map = map.lock();
+        map.clear();
+    }
+
+    // 清空验证失败计数器
+    {
+        let map = get_verify_failure_count_map();
+        let mut map = map.lock();
+        map.clear();
     }
 
     // 清空本机信息
@@ -550,6 +633,16 @@ async fn handle_mdns_events(
                             last_seen: now,
                         };
 
+                        // 保存 fullname 到 device_id 的映射
+                        // 这对于正确处理 ServiceRemoved 事件至关重要
+                        let fullname = info.get_fullname().to_string();
+                        {
+                            let map = get_fullname_to_device_id_map();
+                            let mut map = map.lock();
+                            map.insert(fullname.clone(), device_id.clone());
+                            println!("[LanTransfer]   📝 保存映射: {} -> {}", fullname, device_id);
+                        }
+
                         // 添加到设备列表
                         {
                             let mut devices = state.devices.write();
@@ -557,6 +650,13 @@ async fn handle_mdns_events(
                             devices.insert(device_id.clone(), device.clone());
 
                             if is_new {
+                                // 重置验证失败计数
+                                {
+                                    let count_map = get_verify_failure_count_map();
+                                    let mut count_map = count_map.lock();
+                                    count_map.remove(&device_id);
+                                }
+
                                 println!("[LanTransfer] ✅ 发现新设备!");
                                 println!("[LanTransfer]   名称: {}", device_name);
                                 println!("[LanTransfer]   用户: {} ({})", user_nickname, user_id);
@@ -567,6 +667,12 @@ async fn handle_mdns_events(
                                 let _ = event_sender.send(event.clone());
                                 emit_lan_event(&event);
                             } else {
+                                // 设备重新响应，重置验证失败计数
+                                {
+                                    let count_map = get_verify_failure_count_map();
+                                    let mut count_map = count_map.lock();
+                                    count_map.remove(&device_id);
+                                }
                                 println!("[LanTransfer]   ℹ️ 设备已存在，更新信息");
                             }
                         }
@@ -577,19 +683,58 @@ async fn handle_mdns_events(
                         println!("[LanTransfer]   类型: {}", service_type);
                         println!("[LanTransfer]   全名: {}", fullname);
 
-                        // 从设备列表中移除
-                        let device_id = fullname.split('.').next().unwrap_or("").to_string();
-                        println!("[LanTransfer]   设备 ID: {}", device_id);
+                        // 使用映射表查找完整的 device_id
+                        // 注意：mDNS fullname 使用截断后的 instance_name（最多15字符），
+                        // 而设备列表使用完整的 device_id（32字符 UUID）
+                        let device_id = {
+                            let map = get_fullname_to_device_id_map();
+                            let map = map.lock();
+                            map.get(&fullname).cloned()
+                        };
+
+                        let device_id = match device_id {
+                            Some(id) => {
+                                println!("[LanTransfer]   📝 通过映射找到设备 ID: {}", id);
+                                id
+                            }
+                            None => {
+                                // 回退：尝试从 fullname 提取（可能是旧版本的设备）
+                                let fallback_id = fullname.split('.').next().unwrap_or("").to_string();
+                                println!("[LanTransfer]   ⚠️ 映射未找到，使用回退 ID: {}", fallback_id);
+                                fallback_id
+                            }
+                        };
+
+                        if device_id.is_empty() {
+                            println!("[LanTransfer]   ⚠️ 无法确定设备 ID，跳过");
+                            continue;
+                        }
 
                         if device_id == my_device_id {
                             println!("[LanTransfer]   ⏭️ 跳过：这是本机设备");
                             continue;
                         }
 
+                        // 从设备列表中移除
                         {
                             let mut devices = state.devices.write();
                             if devices.remove(&device_id).is_some() {
                                 println!("[LanTransfer] ❌ 设备离线: {}", device_id);
+                                
+                                // 清理映射表
+                                {
+                                    let map = get_fullname_to_device_id_map();
+                                    let mut map = map.lock();
+                                    map.remove(&fullname);
+                                }
+                                
+                                // 清理验证失败计数
+                                {
+                                    let count_map = get_verify_failure_count_map();
+                                    let mut count_map = count_map.lock();
+                                    count_map.remove(&device_id);
+                                }
+
                                 let event = LanTransferEvent::DeviceLeft {
                                     device_id: device_id.clone(),
                                 };
@@ -624,5 +769,175 @@ async fn handle_mdns_events(
     println!("[LanTransfer] mDNS 事件监听已结束，共处理 {} 个事件", event_count);
 }
 
+/// 设备验证任务
+///
+/// 定期验证已发现的设备是否仍然在线。
+/// 这可以解决设备被强制杀掉（如手机杀后台）时无法检测的问题。
+///
+/// 工作原理：
+/// 1. 每隔 DEVICE_VERIFY_INTERVAL_SECS 秒执行一次
+/// 2. 对每个已发现的设备调用 mDNS verify() 方法
+/// 3. 如果设备在 DEVICE_VERIFY_TIMEOUT_SECS 秒内没有响应，mDNS 会自动发送 ServiceRemoved 事件
+/// 4. 如果连续验证失败 MAX_VERIFY_FAILURES 次，主动移除设备
+///
+/// 关键修复：
+/// - 使用 fullname 到 device_id 的映射表获取正确的 fullname
+/// - mDNS instance_name 限制为 15 字符，而 device_id 为 32 字符 UUID
+/// - 验证失败计数器用于处理 mDNS verify 无法触发 ServiceRemoved 的情况
+async fn run_device_verify_task(my_device_id: String) {
+    use std::time::Duration;
 
+    println!("[LanTransfer] 🔍 设备验证任务已启动");
+    println!("[LanTransfer] 🔍 验证间隔: {}s, 超时: {}s, 最大失败次数: {}",
+        DEVICE_VERIFY_INTERVAL_SECS, DEVICE_VERIFY_TIMEOUT_SECS, MAX_VERIFY_FAILURES);
 
+    let verify_flag = get_verify_task_flag();
+    let event_sender = get_event_sender();
+
+    loop {
+        // 检查是否应该停止
+        if !verify_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("[LanTransfer] 🔍 设备验证任务收到停止信号");
+            break;
+        }
+
+        // 等待间隔
+        tokio::time::sleep(Duration::from_secs(DEVICE_VERIFY_INTERVAL_SECS)).await;
+
+        // 再次检查是否应该停止（避免在 sleep 期间服务已停止）
+        if !verify_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            println!("[LanTransfer] 🔍 设备验证任务收到停止信号");
+            break;
+        }
+
+        // 获取所有已发现的设备
+        let state = get_lan_transfer_state();
+        let device_ids: Vec<String> = {
+            let devices = state.devices.read();
+            devices.keys().cloned().collect()
+        };
+
+        if device_ids.is_empty() {
+            continue;
+        }
+
+        // 获取 mDNS daemon
+        let mdns_opt = {
+            let daemon_guard = MDNS_DAEMON
+                .get_or_init(|| Arc::new(Mutex::new(None)))
+                .lock();
+            daemon_guard.clone()
+        };
+
+        let mdns = match mdns_opt {
+            Some(m) => m,
+            None => {
+                // mDNS 服务未运行，退出验证任务
+                println!("[LanTransfer] 🔍 mDNS 服务未运行，验证任务退出");
+                break;
+            }
+        };
+
+        // 从映射表中获取所有 device_id 到 fullname 的反向映射
+        let device_to_fullname: HashMap<String, String> = {
+            let map = get_fullname_to_device_id_map();
+            let map = map.lock();
+            // 反转映射：device_id -> fullname
+            map.iter()
+                .map(|(fullname, device_id)| (device_id.clone(), fullname.clone()))
+                .collect()
+        };
+
+        // 验证每个设备
+        for device_id in device_ids {
+            // 跳过自己
+            if device_id == my_device_id {
+                continue;
+            }
+
+            // 从映射表获取正确的 fullname
+            let fullname = match device_to_fullname.get(&device_id) {
+                Some(name) => name.clone(),
+                None => {
+                    // 没有找到映射，可能是旧版本设备或映射丢失
+                    // 尝试使用截断后的 device_id 构建 fullname
+                    let instance_name: String = device_id.chars().take(15).collect();
+                    format!("{}.{}", instance_name, SERVICE_TYPE)
+                }
+            };
+
+            // 调用 verify 方法，如果设备不响应会触发 ServiceRemoved 事件
+            let verify_result = mdns.verify(
+                fullname.clone(),
+                Duration::from_secs(DEVICE_VERIFY_TIMEOUT_SECS),
+            );
+
+            match verify_result {
+                Ok(_) => {
+                    // 验证成功，重置失败计数
+                    let count_map = get_verify_failure_count_map();
+                    let mut count_map = count_map.lock();
+                    if count_map.remove(&device_id).is_some() {
+                        println!("[LanTransfer] 🔍 设备 {} 验证成功，重置失败计数", device_id);
+                    }
+                }
+                Err(e) => {
+                    // 验证失败，增加失败计数
+                    let failure_count = {
+                        let count_map = get_verify_failure_count_map();
+                        let mut count_map = count_map.lock();
+                        let count = count_map.entry(device_id.clone()).or_insert(0);
+                        *count += 1;
+                        *count
+                    };
+
+                    println!(
+                        "[LanTransfer] 🔍 验证设备 {} 失败 ({}/{}): {}",
+                        device_id, failure_count, MAX_VERIFY_FAILURES, e
+                    );
+
+                    // 如果连续失败次数超过阈值，主动移除设备
+                    if failure_count >= MAX_VERIFY_FAILURES {
+                        println!(
+                            "[LanTransfer] 🔍 设备 {} 连续验证失败 {} 次，主动移除",
+                            device_id, failure_count
+                        );
+
+                        // 从设备列表中移除
+                        let removed = {
+                            let mut devices = state.devices.write();
+                            devices.remove(&device_id).is_some()
+                        };
+
+                        if removed {
+                            // 清理映射表
+                            {
+                                let map = get_fullname_to_device_id_map();
+                                let mut map = map.lock();
+                                map.remove(&fullname);
+                            }
+
+                            // 清理验证失败计数
+                            {
+                                let count_map = get_verify_failure_count_map();
+                                let mut count_map = count_map.lock();
+                                count_map.remove(&device_id);
+                            }
+
+                            // 发送设备离线事件
+                            let event = LanTransferEvent::DeviceLeft {
+                                device_id: device_id.clone(),
+                            };
+                            let _ = event_sender.send(event.clone());
+                            emit_lan_event(&event);
+
+                            println!("[LanTransfer] ❌ 设备已主动移除: {}", device_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("[LanTransfer] 🔍 设备验证任务已结束");
+}
