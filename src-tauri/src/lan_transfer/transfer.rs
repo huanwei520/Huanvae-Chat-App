@@ -277,24 +277,12 @@ pub async fn request_peer_connection(device_id: &str) -> Result<String, Transfer
         .await
         .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
 
-    // 保存连接（等待对方确认后才真正建立）
-    // 这里先记录为发起方等待状态
-    let connection = PeerConnection {
-        connection_id: resp.connection_id.clone(),
-        peer_device: target_device.clone(),
-        established_at: Utc::now().to_rfc3339(),
-        status: PeerConnectionStatus::Connected, // 先设置为连接状态，等待对方确认
-        is_initiator: true,
-    };
-
-    {
-        let connections = get_active_peer_connections_map();
-        let mut connections = connections.lock();
-        connections.insert(resp.connection_id.clone(), connection);
-    }
+    // 注意：不在此处保存连接！
+    // 连接只在对方接受后，通过 handle_peer_connection_response 创建
+    // 这样可以避免去重检查误判，以及拒绝后需要清理的问题
 
     println!(
-        "[LanTransfer] 连接请求已发送到 {} ({})",
+        "[LanTransfer] 连接请求已发送到 {} ({})，等待对方确认",
         target_device.device_name, target_device.ip_address
     );
 
