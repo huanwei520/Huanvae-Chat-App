@@ -196,6 +196,29 @@ fn activate_existing_instance(_pid: u32) -> Result<(), String> {
 }
 
 // ============================================================================
+// Windows 安装类型检测 Commands（桌面端专属）
+// ============================================================================
+
+/// 获取 Windows 安装类型（桌面端）
+///
+/// 返回 "msi"、"nsis" 或 "unknown"
+/// 用于更新器选择正确的更新包类型
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn get_windows_installer_type() -> String {
+    desktop::get_windows_installer_type()
+}
+
+/// 获取 Windows 安装类型（移动端存根）
+///
+/// 移动端不使用此功能，返回 "unknown"
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn get_windows_installer_type() -> String {
+    "unknown".to_string()
+}
+
+// ============================================================================
 // 移动端本地视频 URL Commands
 // ============================================================================
 
@@ -688,6 +711,8 @@ pub fn run() {
             create_session_lock,
             remove_session_lock,
             activate_existing_instance,
+            // Windows 安装类型检测（桌面端专属，用于更新器）
+            get_windows_installer_type,
             // 设备信息
             device_info::get_mac_address_cmd,
             // 局域网传输（基础）

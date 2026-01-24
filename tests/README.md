@@ -15,12 +15,13 @@ tests/
 ├── utils/
 │   └── test-utils.tsx           # 测试工具函数
 ├── unit/                        # 单元测试
-│   ├── update.test.ts           # 更新服务测试
+│   ├── update.test.ts           # 更新服务测试（含 Windows 安装类型检测）
 │   ├── notification.test.ts     # 通知服务测试
 │   ├── notificationSounds.test.ts # 提示音管理 Hook 测试
 │   ├── settings.test.ts         # 设置状态管理测试（含大文件阈值）
 │   ├── diagnosticService.test.ts # 诊断上报服务测试
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
+│   ├── lanTransfer.test.ts      # 局域网传输测试
 │   └── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
@@ -107,8 +108,10 @@ describe('MyComponent', () => {
 | `@tauri-apps/plugin-notification` | 权限默认授予 |
 | `@tauri-apps/plugin-fs` | 文件操作返回空 |
 | `@tauri-apps/plugin-http` | `fetch()` 为空函数 |
+| `@tauri-apps/plugin-os` | `platform()` 返回 `"linux"` |
 | `@tauri-apps/plugin-window-state` | `restoreStateCurrent()` 返回 Promise |
 | `@tauri-apps/api/window` | `getCurrentWindow()` 返回 mock 窗口对象 |
+| `@tauri-apps/api/core` | `invoke()` 返回空函数（可按需 mock） |
 
 ### 浏览器 API Mock
 
@@ -458,6 +461,13 @@ unset CI && pnpm tauri android dev
   - 移动端 max-width 从 70% 扩展到 calc(100% - 52px)
   - 消息可延伸到对侧，只保留一个头像位置的距离
   - 桌面端保持原有 70% 宽度不变
+- 2026-01-24: Windows 安装类型检测（MSI/NSIS 更新包区分）
+  - 后端添加 get_windows_installer_type 命令，通过注册表检测安装类型
+  - 前端 checkForUpdates 根据安装类型自动选择正确的更新包
+  - MSI 安装用户使用 target: "windows-x86_64-msi"
+  - NSIS 安装用户使用默认 target
+  - 参考文档: https://v2.tauri.app/plugin/updater/#custom-target
+  - 解决 MSI 安装用户被更新成 EXE 包的问题
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
