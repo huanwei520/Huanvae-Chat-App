@@ -335,14 +335,15 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
 
   // 监听批量进度
   useEffect(() => {
-    if (transfer.batchProgress) {
-      const bp = transfer.batchProgress;
-      const progress = bp.totalBytes > 0
-        ? Math.round((bp.transferredBytes / bp.totalBytes) * 100)
-        : 0;
-      addDebugLog(`📊 批量传输: ${bp.completedFiles}/${bp.totalFiles} 文件, ${progress}%`);
+    if (transfer.batchProgressMap.size > 0) {
+      transfer.batchProgressMap.forEach((bp, sessionId) => {
+        const progress = bp.totalBytes > 0
+          ? Math.round((bp.transferredBytes / bp.totalBytes) * 100)
+          : 0;
+        addDebugLog(`📊 批量传输 [${sessionId.slice(0, 8)}]: ${bp.completedFiles}/${bp.totalFiles} 文件, ${progress}%`);
+      });
     }
-  }, [transfer.batchProgress, addDebugLog]);
+  }, [transfer.batchProgressMap, addDebugLog]);
 
   // 刷新设备列表
   const handleRefresh = useCallback(() => {

@@ -24,7 +24,6 @@
  * 进度更新：
  * - activeTransfers: 单文件传输进度（TransferProgress 事件）
  * - batchProgressMap: 支持多个并行会话的批量传输进度
- * - batchProgress: 兼容旧代码，返回第一个活跃会话的进度
  * - 两者同步更新，确保 UI 显示正确
  *
  * 设备发现：
@@ -234,8 +233,6 @@ export interface UseLanTransferReturn {
   activeTransfers: TransferTask[];
   /** 批量传输进度（支持多个并行会话） */
   batchProgressMap: Map<string, BatchTransferProgress>;
-  /** 批量传输进度（兼容旧代码，返回第一个活跃会话） */
-  batchProgress: BatchTransferProgress | null;
   /** 哈希计算进度（大文件预处理时显示） */
   hashingProgress: HashingProgress | null;
   /** 活跃的传输会话 */
@@ -317,9 +314,6 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [activeTransfers, setActiveTransfers] = useState<TransferTask[]>([]);
   const [batchProgressMap, setBatchProgressMap] = useState<Map<string, BatchTransferProgress>>(new Map());
   const [hashingProgress, setHashingProgress] = useState<HashingProgress | null>(null);
-  
-  // 兼容旧代码：返回第一个活跃会话的进度
-  const batchProgress = batchProgressMap.size > 0 ? Array.from(batchProgressMap.values())[0] : null;
   const [activeSessions, setActiveSessions] = useState<TransferSession[]>([]);
   const [saveDirectory, setSaveDirectoryState] = useState<string>('');
   const [config, setConfig] = useState<LanTransferConfig | null>(null);
@@ -752,7 +746,6 @@ export function useLanTransfer(): UseLanTransferReturn {
     pendingTransferRequests,
     activeTransfers,
     batchProgressMap,
-    batchProgress,
     hashingProgress,
     activeSessions,
     saveDirectory,

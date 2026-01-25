@@ -520,8 +520,9 @@ unset CI && pnpm tauri android dev
   - 避免高负载传输时 mDNS 响应慢导致误判设备离线
 - 2026-01-25: 支持多个并行传输会话
   - 前端 batchProgressMap 替代单一 batchProgress
-  - 保留 batchProgress 兼容旧代码
+  - 移除旧的兼容代码，统一使用 batchProgressMap
   - 移动端和桌面端 UI 支持显示多个批量传输进度卡片
+  - 每个传输会话卡片增加单独的取消按钮
   - 传输途中添加新文件会创建独立的传输会话并单独显示
 
 ```typescript
