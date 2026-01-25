@@ -770,6 +770,34 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         )}
       </AnimatePresence>
 
+      {/* 哈希计算进度（大文件预处理） */}
+      {transfer.hashingProgress && !transfer.batchProgress && (
+        <div className="mobile-lan-batch-progress hashing">
+          <div className="batch-progress-header">
+            <span className="batch-progress-title">正在计算校验值...</span>
+            <span className="batch-progress-count">
+              {transfer.hashingProgress.currentFile}/{transfer.hashingProgress.totalFiles} 文件
+            </span>
+          </div>
+          <div className="batch-current-file">
+            {transfer.hashingProgress.fileName}
+          </div>
+          <div className="batch-progress-bar">
+            <div
+              className="batch-progress-fill hashing"
+              style={{
+                width: `${transfer.hashingProgress.fileSize > 0
+                  ? (transfer.hashingProgress.processedBytes / transfer.hashingProgress.fileSize) * 100
+                  : 0}%`,
+              }}
+            />
+          </div>
+          <div className="batch-progress-stats">
+            <span>{formatSize(transfer.hashingProgress.processedBytes)} / {formatSize(transfer.hashingProgress.fileSize)}</span>
+          </div>
+        </div>
+      )}
+
       {/* 批量传输进度 */}
       {transfer.batchProgress && (
         <div className="mobile-lan-batch-progress">
@@ -778,6 +806,12 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
             <span className="batch-progress-count">
               {transfer.batchProgress.completedFiles}/{transfer.batchProgress.totalFiles} 文件
             </span>
+            <button
+              className="batch-cancel-btn"
+              onClick={() => transfer.cancelSession(transfer.batchProgress!.sessionId)}
+            >
+              取消
+            </button>
           </div>
           {transfer.batchProgress.currentFile && (
             <div className="batch-current-file">
@@ -818,6 +852,15 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
                   <span className="task-direction">{task.direction === 'send' ? '📤' : '📥'}</span>
                   <span className="task-name">{task.file.fileName}</span>
                   <span className="task-progress">{Math.round(progress * 100)}%</span>
+                  {task.status === 'transferring' && (
+                    <button
+                      className="task-cancel-btn"
+                      onClick={() => transfer.cancelFileTransfer(task.file.fileId)}
+                      title="取消传输"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 <div className="task-progress-bar">
                   <div

@@ -740,6 +740,7 @@ pub fn run() {
             lan_transfer::get_transfer_session,
             lan_transfer::get_all_transfer_sessions,
             lan_transfer::cancel_transfer_session,
+            lan_transfer::cancel_file_transfer,
             // 局域网传输配置
             lan_transfer::get_lan_transfer_save_directory,
             lan_transfer::set_lan_transfer_save_directory,

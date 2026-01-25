@@ -483,6 +483,20 @@ unset CI && pnpm tauri android dev
   - 流式处理: 无需将整个文件读入内存
   - 协议字段名保持不变（sha256）以兼容现有版本
   - 参考文档: https://docs.rs/crc32fast/, https://android.googlesource.com/platform/external/rust/crates/crc32fast/
+- 2026-01-25: 添加大文件哈希计算进度反馈
+  - 新增 HashingProgress 事件类型（后端 + 前端）
+  - 每处理 100MB 数据发送一次进度更新
+  - UI 显示橙色脉冲进度条，区分于蓝色传输进度条
+  - 显示当前文件名、处理进度、文件数量
+- 2026-01-25: 重构批量传输为并行传输
+  - 多文件同时传输（默认并行度 3）
+  - 使用 Semaphore 限制并发数，避免带宽竞争
+  - 每个文件独立的 CancellationToken，支持单文件取消
+  - 一个文件失败不影响其他文件继续传输
+  - 使用原子操作（AtomicU64/AtomicU32）更新全局进度
+  - 新增 cancel_file_transfer 命令（后端 + 前端）
+  - 移动端添加取消按钮（单文件取消 + 批量取消）
+  - 新增依赖: tokio-util（CancellationToken）, futures（join_all）
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

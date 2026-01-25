@@ -99,6 +99,13 @@ uuid = { version = "1.19.0", features = ["v4"] }
 # 异步通道（用于事件通知）
 async-channel = "2.5.0"
 
+# 并行传输支持
+# - tokio-util: CancellationToken 用于取消单个文件传输, io 用于移动端媒体服务器
+# - futures: join_all 用于等待所有并行任务完成
+# 注意: CancellationToken 在 sync 模块中，默认包含无需额外 feature
+tokio-util = { version = "0.7.18", features = ["io"] }
+futures = "0.3"
+
 # MIME 类型猜测
 mime_guess = "2.0.5"
 
@@ -159,7 +166,6 @@ tauri-plugin-store = "2.4.2"
 # 提供本地 HTTP 服务器 + Range 请求支持，实现流式播放
 # 参考 Issue: https://github.com/tauri-apps/tauri/issues/12019
 axum = "0.8.8"
-tokio-util = { version = "0.7.18", features = ["io"] }
 
 # ============================================
 # 移动端返回按钮监听

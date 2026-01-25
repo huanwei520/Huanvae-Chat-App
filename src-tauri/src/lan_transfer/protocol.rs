@@ -561,5 +561,20 @@ pub enum LanTransferEvent {
     TransferFailed { task_id: String, error: String },
     /// 服务状态变化
     ServiceStateChanged { is_running: bool },
+
+    // ========== 哈希计算进度事件 ==========
+    /// 文件哈希计算进度（大文件预处理时显示）
+    HashingProgress {
+        /// 文件名
+        file_name: String,
+        /// 文件大小（字节）
+        file_size: u64,
+        /// 已处理字节数
+        processed_bytes: u64,
+        /// 当前文件索引（从 1 开始）
+        current_file: u32,
+        /// 总文件数
+        total_files: u32,
+    },
 }
 

@@ -25,6 +25,7 @@ import {
   TransferTask,
   TransferRequest,
   BatchTransferProgress,
+  HashingProgress,
   FileMetadata,
   PeerConnection,
   PeerConnectionRequest,
@@ -308,6 +309,7 @@ function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnecti
 interface PeerTransferWindowProps {
   connection: PeerConnection;
   batchProgress: BatchTransferProgress | null;
+  hashingProgress: HashingProgress | null;
   onSendFiles: () => void;
   onSendFilePaths: (paths: string[]) => void;
   onDisconnect: () => void;
@@ -317,6 +319,7 @@ interface PeerTransferWindowProps {
 function PeerTransferWindow({
   connection,
   batchProgress,
+  hashingProgress,
   onSendFiles,
   onSendFilePaths,
   onDisconnect,
@@ -383,6 +386,30 @@ function PeerTransferWindow({
             <span className="lan-peer-transfer-hint">支持多文件选择</span>
           </div>
         </div>
+
+        {/* 哈希计算进度（大文件预处理） */}
+        {hashingProgress && !batchProgress && (
+          <div className="lan-peer-transfer-progress">
+            <div className="lan-peer-transfer-progress-header">
+              <span>正在计算文件校验值...</span>
+              <span>{hashingProgress.currentFile}/{hashingProgress.totalFiles} 个文件</span>
+            </div>
+            <div className="lan-peer-transfer-progress-bar">
+              <div
+                className="lan-peer-transfer-progress-fill hashing"
+                style={{
+                  width: `${(hashingProgress.processedBytes / hashingProgress.fileSize) * 100}%`,
+                }}
+              />
+            </div>
+            <div className="lan-peer-transfer-progress-info">
+              <span>
+                {formatSize(hashingProgress.processedBytes)} / {formatSize(hashingProgress.fileSize)}
+              </span>
+              <span>{hashingProgress.fileName}</span>
+            </div>
+          </div>
+        )}
 
         {/* 传输进度 */}
         {batchProgress && (
@@ -676,6 +703,7 @@ export default function LanTransferPage() {
     pendingTransferRequests,
     activeTransfers,
     batchProgress,
+    hashingProgress,
     saveDirectory,
     config,
     // 点对点连接
@@ -694,6 +722,7 @@ export default function LanTransferPage() {
     respondToRequest,
     respondToTransferRequest,
     cancelTransfer,
+    cancelFileTransfer,
     cancelSession,
     // 配置
     setSaveDirectory,
@@ -1096,7 +1125,7 @@ export default function LanTransferPage() {
                   <TransferProgressCard
                     key={task.taskId}
                     task={task}
-                    onCancel={() => cancelTransfer(task.taskId)}
+                    onCancel={() => cancelFileTransfer(task.file.fileId)}
                   />
                 ))}
               </div>
@@ -1286,6 +1315,7 @@ export default function LanTransferPage() {
             <PeerTransferWindow
               connection={currentConnection}
               batchProgress={batchProgress}
+              hashingProgress={hashingProgress}
               onSendFiles={handleSendFilesToPeer}
               onSendFilePaths={handleSendFilePathsToPeer}
               onDisconnect={() => disconnectPeer(currentConnection.connectionId)}
