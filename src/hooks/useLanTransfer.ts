@@ -23,7 +23,8 @@
  *
  * 进度更新：
  * - activeTransfers: 单文件传输进度（TransferProgress 事件）
- * - batchProgress: 批量传输进度（BatchProgress 事件）
+ * - batchProgressMap: 支持多个并行会话的批量传输进度
+ * - batchProgress: 兼容旧代码，返回第一个活跃会话的进度
  * - 两者同步更新，确保 UI 显示正确
  *
  * 设备发现：
@@ -37,6 +38,7 @@
  *
  * 更新日志：
  * - 2026-01-25: 修复设备 IP 不更新、批量进度不更新、取消按钮不工作问题
+ * - 2026-01-25: 支持多个并行传输会话（batchProgressMap）
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -230,7 +232,9 @@ export interface UseLanTransferReturn {
   pendingTransferRequests: TransferRequest[];
   /** 活跃的传输任务 */
   activeTransfers: TransferTask[];
-  /** 批量传输进度 */
+  /** 批量传输进度（支持多个并行会话） */
+  batchProgressMap: Map<string, BatchTransferProgress>;
+  /** 批量传输进度（兼容旧代码，返回第一个活跃会话） */
   batchProgress: BatchTransferProgress | null;
   /** 哈希计算进度（大文件预处理时显示） */
   hashingProgress: HashingProgress | null;
@@ -311,8 +315,11 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [pendingRequests, setPendingRequests] = useState<ConnectionRequest[]>([]);
   const [pendingTransferRequests, setPendingTransferRequests] = useState<TransferRequest[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<TransferTask[]>([]);
-  const [batchProgress, setBatchProgress] = useState<BatchTransferProgress | null>(null);
+  const [batchProgressMap, setBatchProgressMap] = useState<Map<string, BatchTransferProgress>>(new Map());
   const [hashingProgress, setHashingProgress] = useState<HashingProgress | null>(null);
+  
+  // 兼容旧代码：返回第一个活跃会话的进度
+  const batchProgress = batchProgressMap.size > 0 ? Array.from(batchProgressMap.values())[0] : null;
   const [activeSessions, setActiveSessions] = useState<TransferSession[]>([]);
   const [saveDirectory, setSaveDirectoryState] = useState<string>('');
   const [config, setConfig] = useState<LanTransferConfig | null>(null);
@@ -348,7 +355,7 @@ export function useLanTransfer(): UseLanTransferReturn {
       setDevices([]);
       setPendingRequests([]);
       setPendingTransferRequests([]);
-      setBatchProgress(null);
+      setBatchProgressMap(new Map());
       setActiveConnections([]);
       setPendingPeerConnectionRequests([]);
       setCurrentConnection(null);
@@ -607,7 +614,11 @@ export function useLanTransfer(): UseLanTransferReturn {
             break;
 
           case 'batch_progress':
-            setBatchProgress(payload.progress);
+            setBatchProgressMap((prev) => {
+              const newMap = new Map(prev);
+              newMap.set(payload.progress.sessionId, payload.progress);
+              return newMap;
+            });
             // 传输开始后清除哈希进度
             setHashingProgress(null);
             break;
@@ -630,7 +641,11 @@ export function useLanTransfer(): UseLanTransferReturn {
             break;
 
           case 'batch_transfer_completed':
-            setBatchProgress(null);
+            setBatchProgressMap((prev) => {
+              const newMap = new Map(prev);
+              newMap.delete(payload.session_id);
+              return newMap;
+            });
             // 刷新会话列表
             invoke<TransferSession[]>('get_all_transfer_sessions').then(setActiveSessions);
             break;
@@ -736,6 +751,7 @@ export function useLanTransfer(): UseLanTransferReturn {
     pendingRequests,
     pendingTransferRequests,
     activeTransfers,
+    batchProgressMap,
     batchProgress,
     hashingProgress,
     activeSessions,

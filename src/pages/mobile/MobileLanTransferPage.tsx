@@ -771,7 +771,7 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
       </AnimatePresence>
 
       {/* 哈希计算进度（大文件预处理） */}
-      {transfer.hashingProgress && !transfer.batchProgress && (
+      {transfer.hashingProgress && transfer.batchProgressMap.size === 0 && (
         <div className="mobile-lan-batch-progress hashing">
           <div className="batch-progress-header">
             <span className="batch-progress-title">正在计算校验值...</span>
@@ -798,48 +798,50 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         </div>
       )}
 
-      {/* 批量传输进度 */}
-      {transfer.batchProgress && (
-        <div className="mobile-lan-batch-progress">
+      {/* 批量传输进度（支持多个并行会话） */}
+      {Array.from(transfer.batchProgressMap.entries()).map(([sessionId, bp]) => (
+        <div key={sessionId} className="mobile-lan-batch-progress">
           <div className="batch-progress-header">
-            <span className="batch-progress-title">批量传输</span>
+            <span className="batch-progress-title">
+              批量传输 {transfer.batchProgressMap.size > 1 ? `#${Array.from(transfer.batchProgressMap.keys()).indexOf(sessionId) + 1}` : ''}
+            </span>
             <span className="batch-progress-count">
-              {transfer.batchProgress.completedFiles}/{transfer.batchProgress.totalFiles} 文件
+              {bp.completedFiles}/{bp.totalFiles} 文件
             </span>
             <button
               className="batch-cancel-btn"
-              onClick={() => transfer.cancelSession(transfer.batchProgress!.sessionId)}
+              onClick={() => transfer.cancelSession(sessionId)}
             >
               取消
             </button>
           </div>
-          {transfer.batchProgress.currentFile && (
+          {bp.currentFile && (
             <div className="batch-current-file">
-              当前: {transfer.batchProgress.currentFile.fileName}
+              当前: {bp.currentFile.fileName}
             </div>
           )}
           <div className="batch-progress-bar">
             <div
               className="batch-progress-fill"
               style={{
-                width: `${transfer.batchProgress.totalBytes > 0
-                  ? (transfer.batchProgress.transferredBytes / transfer.batchProgress.totalBytes) * 100
+                width: `${bp.totalBytes > 0
+                  ? (bp.transferredBytes / bp.totalBytes) * 100
                   : 0}%`,
               }}
             />
           </div>
           <div className="batch-progress-stats">
-            <span>{formatSize(transfer.batchProgress.transferredBytes)} / {formatSize(transfer.batchProgress.totalBytes)}</span>
-            <span>{formatSpeed(transfer.batchProgress.speed)}</span>
-            {transfer.batchProgress.etaSeconds && (
-              <span>剩余 {formatEta(transfer.batchProgress.etaSeconds)}</span>
+            <span>{formatSize(bp.transferredBytes)} / {formatSize(bp.totalBytes)}</span>
+            <span>{formatSpeed(bp.speed)}</span>
+            {bp.etaSeconds && (
+              <span>剩余 {formatEta(bp.etaSeconds)}</span>
             )}
           </div>
         </div>
-      )}
+      ))}
 
       {/* 单文件传输进度 */}
-      {transfer.activeTransfers.length > 0 && !transfer.batchProgress && (
+      {transfer.activeTransfers.length > 0 && transfer.batchProgressMap.size === 0 && (
         <div className="mobile-lan-transfer-tasks">
           <h3>传输中</h3>
           {transfer.activeTransfers.map((task: TransferTask) => {
