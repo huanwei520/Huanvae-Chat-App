@@ -528,6 +528,14 @@ unset CI && pnpm tauri android dev
   - emit_batch_progress 函数在发送事件前检查会话状态
   - 如果会话已取消（SessionStatus::Cancelled），不发送进度事件
   - 避免取消后残留的进度事件覆盖 BatchTransferCompleted 事件
+- 2026-01-25: 统一传输进度 UI
+  - 移除单文件传输进度 UI（TransferProgressCard）
+  - 统一使用批量传输进度 UI（BatchProgressCard/batchProgressMap）
+  - 桌面端和移动端保持一致
+- 2026-01-25: 修复拖放传输时出现重复批量传输 UI 的问题
+  - 问题原因：useEffect 依赖项变化导致事件监听器未正确清理
+  - 解决方案：使用 useRef 保存回调引用，空依赖数组确保只设置一次监听器
+  - 使用 async/await 替代 then，确保清理时监听器已就绪
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
