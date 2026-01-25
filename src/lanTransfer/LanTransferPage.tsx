@@ -48,26 +48,10 @@ interface DebugInfo {
 }
 
 // ============================================================================
-// 工具函数
+// 工具函数（使用统一的 format.ts）
 // ============================================================================
 
-const formatSize = (bytes: number) => {
-  if (bytes < 1024) { return `${bytes} B`; }
-  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
-  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-};
-
-const formatSpeed = (bytesPerSec: number) => {
-  return `${formatSize(bytesPerSec)}/s`;
-};
-
-const formatEta = (seconds?: number) => {
-  if (!seconds || seconds <= 0) { return ''; }
-  if (seconds < 60) { return `${seconds}秒`; }
-  if (seconds < 3600) { return `${Math.floor(seconds / 60)}分${seconds % 60}秒`; }
-  return `${Math.floor(seconds / 3600)}时${Math.floor((seconds % 3600) / 60)}分`;
-};
+import { formatSize, formatSpeed, formatEta } from '../utils/format';
 
 // ============================================================================
 // 图标组件

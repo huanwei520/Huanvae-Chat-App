@@ -147,6 +147,13 @@ import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
 import * as useLanTransfer from '../../src/hooks/useLanTransfer';
 
+// 工具模块
+import * as formatUtils from '../../src/utils/format';
+
+// 聊天共享模块
+import * as chatAnimations from '../../src/chat/shared/animations';
+import * as SendStatusIndicator from '../../src/chat/shared/SendStatusIndicator';
+
 // 主题系统
 import * as themeIndex from '../../src/theme/index';
 import * as themeStore from '../../src/theme/store';
@@ -286,6 +293,11 @@ const COMPONENT_MAP = {
   updateService,
   settingsStore,
   windowSize,
+  // 工具模块
+  formatUtils,
+  // 聊天共享模块
+  chatAnimations,
+  SendStatusIndicator,
 };
 
 // ============== 页面组件测试 ==============

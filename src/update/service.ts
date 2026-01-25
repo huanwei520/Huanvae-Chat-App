@@ -253,15 +253,8 @@ export async function checkAndUpdate(
 }
 
 // ============================================
-// 格式化工具
+// 格式化工具（重新导出，保持向后兼容）
 // ============================================
 
-/**
- * 格式化文件大小
- */
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) { return `${bytes} B`; }
-  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
-  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
+// 使用统一的格式化函数，重新导出以保持 API 兼容
+export { formatSize } from '../utils/format';

@@ -50,102 +50,14 @@ interface MessageBubbleProps {
   onEnterMultiSelect?: () => void;
 }
 
-/**
- * 发送状态指示器
- * - sending: 旋转的圆圈
- * - failed: 红色感叹号
- */
-function SendStatusIndicator({ status }: { status?: Message['sendStatus'] }) {
-  if (!status || status === 'sent') {
-    return null;
-  }
+// 使用统一的发送状态指示器组件
+import { SendStatusIndicator } from '../shared/SendStatusIndicator';
 
-  if (status === 'sending') {
-    return (
-      <motion.div
-        className="send-status-indicator sending"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.8 }}
-        title="发送中..."
-      >
-        <svg className="sending-spinner" viewBox="0 0 24 24" width={16} height={16}>
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeDasharray="31.4 31.4"
-            strokeLinecap="round"
-          />
-        </svg>
-      </motion.div>
-    );
-  }
+// 使用统一的消息动画配置
+import { getMessageVariants, messageTransition } from '../shared/animations';
 
-  if (status === 'failed') {
-    return (
-      <motion.div
-        className="send-status-indicator failed"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.8 }}
-        title="发送失败"
-      >
-        <svg viewBox="0 0 24 24" width={16} height={16} fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-        </svg>
-      </motion.div>
-    );
-  }
-
-  return null;
-}
-
-/**
- * 生成消息动画变体（类似 Telegram）
- * - 自己的消息：从右往左、从下往上滑入
- * - 对方的消息：从左往右、从下往上滑入
- * - 退出时反方向播放
- */
-function getMessageVariants(isOwn: boolean) {
-  const xOffset = isOwn ? 20 : -20; // 自己的消息从右边来，对方的从左边来
-  const yOffset = 10; // 从下往上
-
-  return {
-    initial: {
-      opacity: 0,
-      x: xOffset,
-      y: yOffset,
-      scale: 0.98,
-    },
-    animate: {
-      opacity: 1,
-      x: 0,
-      y: 0,
-      scale: 1,
-    },
-    exit: {
-      opacity: 0,
-      x: xOffset, // 退出时往原方向滑出
-      y: yOffset,
-      scale: 0.98,
-    },
-  };
-}
-
-// 动画过渡配置（使用 as const 确保类型正确）
-const transition = {
-  // 入场/退出动画
-  opacity: { duration: 0.2, ease: [0.0, 0.0, 0.2, 1] as const },
-  x: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] as const },
-  y: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] as const },
-  scale: { duration: 0.2, ease: [0.2, 0.8, 0.2, 1] as const },
-  // 布局动画（消息位置变化时）
-  layout: { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const },
-};
+// 重命名为 transition 以保持兼容
+const transition = messageTransition;
 
 /**
  * 检查消息是否可以撤回

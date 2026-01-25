@@ -199,6 +199,11 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
   { name: 'windowSize', path: 'services/windowSize', category: 'services', description: '窗口大小服务' },
+  // 工具模块
+  { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
+  // 聊天共享模块
+  { name: 'chatAnimations', path: 'chat/shared/animations', category: 'services', description: '消息动画配置' },
+  { name: 'SendStatusIndicator', path: 'chat/shared/SendStatusIndicator', category: 'components', description: '发送状态指示器' },
 ];
 
 // ============== 所有组件汇总 ==============

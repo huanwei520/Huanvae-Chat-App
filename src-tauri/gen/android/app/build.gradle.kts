@@ -72,8 +72,13 @@ android {
             }
         }
     }
+    // Java 21 编译选项（消除过时警告）
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "21"
     }
     buildFeatures {
         buildConfig = true
