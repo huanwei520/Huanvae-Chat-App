@@ -505,7 +505,7 @@ export function UnifiedList({
         />
       </div>
 
-      {/* 同步状态横幅：仅在消息 tab 显示，位于搜索框下方、聊天卡片上方 */}
+      {/* 同步状态横幅：仅在消息 tab 显示，位于搜索栏下方 */}
       {activeTab === 'chat' && syncStatus && (
         <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
       )}
