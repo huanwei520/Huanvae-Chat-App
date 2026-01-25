@@ -503,11 +503,12 @@ export function UnifiedList({
           panelWidth={panelWidth}
           placeholder={getPlaceholder()}
         />
-        {/* 同步状态横幅：仅在消息 tab 显示 */}
-        {activeTab === 'chat' && syncStatus && (
-          <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
-        )}
       </div>
+
+      {/* 同步状态横幅：仅在消息 tab 显示，位于搜索框下方、聊天卡片上方 */}
+      {activeTab === 'chat' && syncStatus && (
+        <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
+      )}
 
       <div className="conversation-list" ref={listRef}>
         {/* 选中背景层：绝对定位，通过 top 动画实现上下移动 */}

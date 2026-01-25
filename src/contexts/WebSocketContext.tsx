@@ -91,6 +91,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
+  /** 是否正在断开连接（用于阻止闭包中的重连逻辑和消息处理） */
+  const isDisconnectingRef = useRef(false);
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
   const recalledListeners = useRef<Set<(msg: WsMessageRecalled) => void>>(new Set());
   const notificationListeners = useRef<Set<(msg: WsSystemNotification) => void>>(new Set());
@@ -128,6 +130,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   // ============================================
 
   const handleMessage = useCallback((data: string) => {
+    // 如果正在断开连接，忽略所有消息（防止退出登录后仍触发通知）
+    if (isDisconnectingRef.current) {
+      return;
+    }
+
     handleWebSocketMessage(data, {
       activeChatRef,
       currentUserId: session?.userId ?? null,
@@ -148,6 +155,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       return;
     }
 
+    // 重置断开连接标志，允许消息处理和重连
+    isDisconnectingRef.current = false;
     setConnecting(true);
     const wsUrl = `${session.serverUrl.replace(/^http/, 'ws')}/ws`;
     const url = `${wsUrl}?token=${encodeURIComponent(session.accessToken)}`;
@@ -185,6 +194,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           pingIntervalRef.current = null;
         }
 
+        // 如果是主动断开连接（退出登录），不重连
+        // 使用 ref 而非闭包中的 session，确保获取最新状态
+        if (isDisconnectingRef.current) {
+          return;
+        }
+
         if (session && !reconnectTimerRef.current) {
           reconnectTimerRef.current = setTimeout(() => {
             reconnectTimerRef.current = null;
@@ -207,6 +222,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, [session, connecting, handleMessage]);
 
   const disconnect = useCallback(() => {
+    // 设置断开连接标志，阻止消息处理和重连
+    isDisconnectingRef.current = true;
+
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
       pingIntervalRef.current = null;

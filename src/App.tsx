@@ -399,6 +399,26 @@ function App() {
     }
   }, [accountsLoading, accounts.length, isLoggedIn, currentPage, sessionRestoreCompleted]);
 
+  // 用于追踪上一次的登录状态，检测退出登录
+  const prevLoggedInRef = useRef(isLoggedIn);
+
+  // 监听退出登录（isLoggedIn 从 true 变为 false）
+  useEffect(() => {
+    const wasLoggedIn = prevLoggedInRef.current;
+    prevLoggedInRef.current = isLoggedIn;
+
+    // 检测退出登录：之前已登录，现在未登录
+    if (wasLoggedIn && !isLoggedIn) {
+      console.warn('[App] 检测到退出登录，跳转到账号选择页面');
+      // 重置会话恢复状态，避免卡在 loading
+      setSessionRestoreCompleted(true);
+      // 根据是否有保存的账号决定显示哪个页面
+      setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
+      setIsLoading(false);
+      setError(null);
+    }
+  }, [isLoggedIn, accounts.length]);
+
   // 监听账号加载完成（桌面端，或移动端恢复失败后）
   if (currentPage === 'loading' && !accountsLoading && !isMobile()) {
     setCurrentPage(accounts.length > 0 ? 'account-selector' : 'login');
