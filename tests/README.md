@@ -10,7 +10,7 @@ Huanvae Chat App 使用 Vitest 作为测试框架，配合 Testing Library 进�
 tests/
 ├── setup.ts                     # 全局测试设置（Mock Tauri API）
 ├── checklist.ts                 # 功能检查清单定义
-├── registry.ts                  # 组件注册表（103 个模块，含 windowSize 服务）
+├── registry.ts                  # 组件注册表（118 个模块，含工具函数和共享组件）
 ├── README.md                    # 本文档
 ├── utils/
 │   └── test-utils.tsx           # 测试工具函数
@@ -22,7 +22,8 @@ tests/
 │   ├── diagnosticService.test.ts # 诊断上报服务测试
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
 │   ├── lanTransfer.test.ts      # 局域网传输测试
-│   └── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
+│   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
+│   └── format.test.ts           # 格式化工具函数测试（12 个用例）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
@@ -468,6 +469,13 @@ unset CI && pnpm tauri android dev
   - NSIS 安装用户使用默认 target
   - 参考文档: https://v2.tauri.app/plugin/updater/#custom-target
   - 解决 MSI 安装用户被更新成 EXE 包的问题
+- 2026-01-24: 前端代码优化（重复代码提取）
+  - 创建 `src/utils/format.ts` 统一格式化函数（formatSize/formatSpeed/formatEta）
+  - 替换 LanTransferPage、MobileLanTransferPage、update/service 中的重复实现
+  - 创建 `src/chat/shared/animations.ts` 统一消息动画配置
+  - 创建 `src/chat/shared/SendStatusIndicator.tsx` 发送状态指示器组件
+  - 减少约 200 行重复代码，提高可维护性
+  - 参考文档: Vite tree-shaking、Atlassian barrel files 研究
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

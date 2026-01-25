@@ -55,44 +55,10 @@ interface DebugInfo {
 }
 
 // ============================================
-// 辅助函数
+// 辅助函数（使用统一的 format.ts）
 // ============================================
 
-/** 格式化文件大小 */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  if (bytes < 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-/** 格式化传输速度 */
-function formatSpeed(bytesPerSecond: number): string {
-  if (bytesPerSecond < 1024) {
-    return `${bytesPerSecond.toFixed(0)} B/s`;
-  }
-  if (bytesPerSecond < 1024 * 1024) {
-    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-  }
-  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
-}
-
-/** 格式化剩余时间 */
-function formatEta(seconds: number): string {
-  if (seconds < 60) {
-    return `${Math.round(seconds)}秒`;
-  }
-  if (seconds < 3600) {
-    return `${Math.round(seconds / 60)}分钟`;
-  }
-  return `${(seconds / 3600).toFixed(1)}小时`;
-}
+import { formatSize, formatSpeed, formatEta } from '../../utils/format';
 
 // ============================================
 // 图标组件
