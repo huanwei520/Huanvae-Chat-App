@@ -44,7 +44,6 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis",
       "msi",
       "appimage",
       "deb",
@@ -68,17 +67,8 @@
       "entitlements": "./Entitlements.plist"
     },
     "windows": {
-      "nsis": {
-        "languages": [
-          "SimpChinese",
-          "English"
-        ],
-        "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico",
-        "installMode": "currentUser",
-        "installerHooks": "./nsis/installer-hooks.nsh"
-      },
       "wix": {
+        "template": "./wix/main.wxs",
         "language": "zh-CN",
         "fragmentPaths": ["./wix/firewall.wxs"],
         "componentGroupRefs": ["FirewallComponents"]
@@ -112,7 +102,10 @@
         "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
         "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
         "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
-      ]
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

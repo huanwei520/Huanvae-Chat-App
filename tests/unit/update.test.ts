@@ -2,10 +2,10 @@
  * 更新服务单元测试
  *
  * 测试更新检查功能，包括：
- * - Windows 安装类型检测
- * - 正确的更新目标选择
+ * - Windows 使用 MSI 更新目标
+ * - 其他平台使用默认目标
  *
- * @updated 2026-01-24 添加 Windows 安装类型检测测试
+ * @updated 2026-01-25 简化为仅 MSI 更新
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -52,25 +52,20 @@ describe('Update Service', () => {
       expect(check).toHaveBeenCalledWith(undefined);
     });
 
-    it('should return "windows-x86_64-msi" for MSI installations on Windows', async () => {
-      const { platform } = await import('@tauri-apps/plugin-os');
-      const { invoke } = await import('@tauri-apps/api/core');
-      const { check } = await import('@tauri-apps/plugin-updater');
-
-      vi.mocked(platform).mockResolvedValue('windows');
-      vi.mocked(invoke).mockResolvedValue('msi');
-      vi.mocked(check).mockResolvedValue(null);
-
-      // 需要重新导入以应用新的 mocks
+    it('should return "windows-x86_64-msi" for Windows platform', async () => {
+      // Windows 平台始终使用 MSI 更新包
       vi.resetModules();
       vi.doMock('@tauri-apps/plugin-os', () => ({
         platform: vi.fn().mockResolvedValue('windows'),
       }));
       vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn().mockResolvedValue('msi'),
+        invoke: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
         check: vi.fn().mockResolvedValue(null),
+      }));
+      vi.doMock('@tauri-apps/plugin-process', () => ({
+        relaunch: vi.fn(),
       }));
 
       const service = await import('../../src/update/service');
@@ -78,51 +73,6 @@ describe('Update Service', () => {
 
       const { check: checkMock } = await import('@tauri-apps/plugin-updater');
       expect(checkMock).toHaveBeenCalledWith({ target: 'windows-x86_64-msi' });
-    });
-
-    it('should return undefined for NSIS installations on Windows', async () => {
-      vi.resetModules();
-      vi.doMock('@tauri-apps/plugin-os', () => ({
-        platform: vi.fn().mockResolvedValue('windows'),
-      }));
-      vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn().mockResolvedValue('nsis'),
-      }));
-      vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockResolvedValue(null),
-      }));
-      vi.doMock('@tauri-apps/plugin-process', () => ({
-        relaunch: vi.fn(),
-      }));
-
-      const service = await import('../../src/update/service');
-      await service.checkForUpdates();
-
-      const { check: checkMock } = await import('@tauri-apps/plugin-updater');
-      // NSIS 使用默认 target（undefined）
-      expect(checkMock).toHaveBeenCalledWith(undefined);
-    });
-
-    it('should return undefined for unknown installation type on Windows', async () => {
-      vi.resetModules();
-      vi.doMock('@tauri-apps/plugin-os', () => ({
-        platform: vi.fn().mockResolvedValue('windows'),
-      }));
-      vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn().mockResolvedValue('unknown'),
-      }));
-      vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockResolvedValue(null),
-      }));
-      vi.doMock('@tauri-apps/plugin-process', () => ({
-        relaunch: vi.fn(),
-      }));
-
-      const service = await import('../../src/update/service');
-      await service.checkForUpdates();
-
-      const { check: checkMock } = await import('@tauri-apps/plugin-updater');
-      expect(checkMock).toHaveBeenCalledWith(undefined);
     });
   });
 

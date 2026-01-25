@@ -23,7 +23,7 @@
 .mobile-header-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
   flex-shrink: 0;

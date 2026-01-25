@@ -8,8 +8,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `release.sh` | 自动化发布脚本（版本控制 + 测试 + 发布） |
-| `pre-release.sh` | 预发布检查脚本（含人工确认） |
+| `release.sh` | 自动化发布脚本（测试通过后自动推送，无需确认） |
 | `test-all.sh` | 完整代码质量检查 |
 | `setup-deps.sh` | 开发环境依赖安装 |
 
@@ -54,7 +53,7 @@ chmod +x scripts/linux/*.sh
 
 | 步骤 | 检查项 | 说明 |
 |------|--------|------|
-| 1 | NSIS 钩子检查 | Windows 更新兼容性 |
+| 1 | Windows 安装配置检查 | WiX 模板 perUser 模式、更新器 passive 模式 |
 | 2 | package.json 验证 | JSON 格式和重复键检查 |
 | 3 | TypeScript 类型检查 | `pnpm tsc --noEmit` |
 | 4 | ESLint 代码检查 | 严格模式，0 errors, 0 warnings |
@@ -81,14 +80,6 @@ chmod +x scripts/linux/*.sh
 - 已安装 Android NDK（设置 `$NDK_HOME` 环境变量）
 - 已安装 Rust Android 目标：`rustup target add aarch64-linux-android`
 
-### 预发布检查
-
-```bash
-./scripts/linux/pre-release.sh
-```
-
-包含自动检查 + 人工功能确认清单。
-
 ---
 
 ## 发布流程
@@ -97,7 +88,7 @@ chmod +x scripts/linux/*.sh
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   release.sh 发布流程                    │
+│            release.sh 自动发布流程                       │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  1. 读取 release-config.txt 目标版本号                  │
@@ -115,13 +106,11 @@ chmod +x scripts/linux/*.sh
 │     ├─ 通过 → 继续                                      │
 │     └─ 失败 → ❌ 报错退出                               │
 │                     ↓                                   │
-│  5. 验证 Tauri 配置                                     │
+│  5. 同步 pnpm-lock.yaml                                 │
 │                     ↓                                   │
-│  6. 同步 pnpm-lock.yaml                                 │
+│  6. Git 提交 + 创建标签                                 │
 │                     ↓                                   │
-│  7. Git 提交 + 创建标签                                 │
-│                     ↓                                   │
-│  8. 确认后推送到 GitHub                                 │
+│  7. 自动推送到 GitHub（无需确认）                       │
 │                     ↓                                   │
 │  ✅ 发布完成，GitHub Actions 自动构建                   │
 │                                                         │
@@ -133,8 +122,8 @@ chmod +x scripts/linux/*.sh
 编辑 `scripts/release-config.txt`：
 
 ```txt
-VERSION=1.0.25
-MESSAGE=mDNS设备下线检测修复、移动端消息气泡宽度优化
+VERSION=1.0.26
+MESSAGE=局域网传输优化、统一MSI安装包
 ```
 
 **注意：**
@@ -147,6 +136,8 @@ MESSAGE=mDNS设备下线检测修复、移动端消息气泡宽度优化
 ./scripts/linux/release.sh
 ```
 
+**测试通过后自动推送发布，无需手动确认！**
+
 ### 发布脚本自动执行的操作
 
 | 步骤 | 操作 | 说明 |
@@ -154,11 +145,10 @@ MESSAGE=mDNS设备下线检测修复、移动端消息气泡宽度优化
 | 1 | 版本一致性检查 | 确保三个配置文件版本号相同 |
 | 2 | 版本对比与更新 | 自动更新到目标版本 |
 | 3 | 完整测试 | 运行 `test-all.sh`，必须全部通过 |
-| 4 | 配置验证 | 检查 tauri.conf.json |
-| 5 | 依赖同步 | 运行 `pnpm install` |
-| 6 | Git 提交 | 自动 commit 所有变更 |
-| 7 | 创建标签 | 创建 `v{VERSION}` 标签 |
-| 8 | 推送发布 | 推送到 GitHub 触发 Actions 构建 |
+| 4 | 依赖同步 | 运行 `pnpm install` |
+| 5 | Git 提交 | 自动 commit 所有变更 |
+| 6 | 创建标签 | 创建 `v{VERSION}` 标签 |
+| 7 | 自动推送 | 推送到 GitHub 触发 Actions 构建 |
 
 ### 版本号说明
 
@@ -277,6 +267,11 @@ git push origin main --force
 ---
 
 ## 更新日志
+
+- **2026-01-25**: 简化发布流程
+  - 移除预发布脚本 (pre-release.sh)
+  - 测试通过后自动推送发布，无需手动确认
+  - 更新 Windows 安装配置检查（WiX perUser + updater passive）
 
 - **2026-01-24**: 优化发布流程
   - 添加版本号一致性检查

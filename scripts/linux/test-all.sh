@@ -56,22 +56,39 @@ if $SKIP_ANDROID; then
 fi
 
 # ============================================
-# 1. NSIS 安装钩子检查 (Windows 更新兼容性)
+# 1. Windows 安装配置检查
 # ============================================
-echo -e "${CYAN}[1/$TOTAL_STEPS] NSIS 安装钩子检查...${NC}"
+echo -e "${CYAN}[1/$TOTAL_STEPS] Windows 安装配置检查...${NC}"
 
-NSIS_HOOKS="$PROJECT_ROOT/src-tauri/nsis/installer-hooks.nsh"
-if [[ -f "$NSIS_HOOKS" ]]; then
-    # 检查是否包含关闭运行中应用的逻辑（必须包含小写进程名）
-    if grep -qi "taskkill.*huanvae-chat-app.exe" "$NSIS_HOOKS"; then
-        echo -e "  ${GREEN}✓ PASS: NSIS 钩子包含关闭运行中应用逻辑${NC}"
+WIX_TEMPLATE="$PROJECT_ROOT/src-tauri/wix/main.wxs"
+TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
+
+# 检查 WiX 模板
+if [[ -f "$WIX_TEMPLATE" ]]; then
+    # 检查是否配置为 perUser 安装模式
+    if grep -q 'InstallScope="perUser"' "$WIX_TEMPLATE"; then
+        echo -e "  ${GREEN}✓ PASS: WiX 模板配置为 perUser 安装模式${NC}"
     else
-        echo -e "  ${RED}✗ FAIL: NSIS 钩子缺少关闭运行中应用逻辑${NC}"
-        echo -e "  ${RED}  Windows 更新时可能出现 'exe 无法写入' 错误${NC}"
+        echo -e "  ${RED}✗ FAIL: WiX 模板未配置 perUser 安装模式${NC}"
+        ALL_PASSED=false
+    fi
+    # 检查是否配置为 limited 权限
+    if grep -q 'InstallPrivileges="limited"' "$WIX_TEMPLATE"; then
+        echo -e "  ${GREEN}✓ PASS: WiX 模板配置为无需管理员权限${NC}"
+    else
+        echo -e "  ${RED}✗ FAIL: WiX 模板未配置 limited 权限${NC}"
         ALL_PASSED=false
     fi
 else
-    echo -e "  ${YELLOW}⚠ SKIP: NSIS 钩子文件不存在${NC}"
+    echo -e "  ${RED}✗ FAIL: WiX 模板文件不存在${NC}"
+    ALL_PASSED=false
+fi
+
+# 检查 updater installMode 配置
+if grep -q '"installMode".*"passive"' "$TAURI_CONF"; then
+    echo -e "  ${GREEN}✓ PASS: 更新器配置为静默安装模式${NC}"
+else
+    echo -e "  ${YELLOW}⚠ WARN: 更新器未配置 installMode: passive${NC}"
 fi
 
 # ============================================

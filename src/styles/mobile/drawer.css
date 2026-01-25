@@ -54,7 +54,7 @@
 .mobile-drawer-avatar {
   width: 72px;
   height: 72px;
-  border-radius: 50%;
+  border-radius: 16px;
   overflow: hidden;
   border: 3px solid var(--glass-border-light);
   cursor: pointer;

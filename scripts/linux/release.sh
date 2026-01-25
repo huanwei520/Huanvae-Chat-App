@@ -4,6 +4,7 @@
 #
 # ## 功能
 # 严格的版本发布流程，确保代码质量和版本一致性
+# 测试通过后自动推送发布，无需手动确认
 #
 # ## 发布流程
 # 1. 读取 release-config.txt 中的目标版本号
@@ -11,7 +12,7 @@
 # 3. 对比配置版本与当前版本
 # 4. 如果版本不一致，先更新所有版本号
 # 5. 运行完整测试（前后端 0 errors, 0 warnings）
-# 6. 测试通过后进行 Git 提交、创建标签、推送发布
+# 6. 测试通过后自动进行 Git 提交、创建标签、推送发布
 #
 # ## 使用方法
 # 1. 编辑 scripts/release-config.txt 设置版本号和更新说明
@@ -23,8 +24,8 @@
 #   - ESLint no-await-in-loop (已用 eslint-disable 标记的合理用法)
 #   - console.warn/error 调试日志（允许使用）
 #
-# @version 2.0
-# @date 2026-01-24
+# @version 3.0
+# @date 2026-01-25
 
 set -e
 
@@ -78,7 +79,7 @@ print_warn() {
 # ============================================
 # 读取配置文件
 # ============================================
-print_header "Huanvae Chat App 发布流程"
+print_header "Huanvae Chat App 自动发布"
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
     print_error "配置文件未找到: $CONFIG_PATH"
@@ -115,7 +116,7 @@ echo ""
 # ============================================
 # 步骤 1: 检查当前版本号一致性
 # ============================================
-print_step "1/7" "检查当前项目版本号一致性..."
+print_step "1/6" "检查当前项目版本号一致性..."
 
 # 读取各文件版本号
 PKG_VERSION=$(grep '"version"' "$PROJECT_ROOT/package.json" | head -1 | sed 's/.*: "\([^"]*\)".*/\1/')
@@ -141,7 +142,7 @@ fi
 # ============================================
 # 步骤 2: 对比目标版本与当前版本
 # ============================================
-print_step "2/7" "对比目标版本与当前版本..."
+print_step "2/6" "对比目标版本与当前版本..."
 
 echo -e "  ${GRAY}当前版本: v$CURRENT_VERSION${NC}"
 echo -e "  ${GRAY}目标版本: v$TARGET_VERSION${NC}"
@@ -186,7 +187,7 @@ fi
 # ============================================
 # 步骤 3: 运行完整测试
 # ============================================
-print_step "3/7" "运行完整代码质量测试..."
+print_step "3/6" "运行完整代码质量测试..."
 echo ""
 echo -e "${YELLOW}  测试标准: 前后端 0 errors, 0 warnings${NC}"
 echo -e "${GRAY}  (忽略: Vite动态导入提示、已标记的await-in-loop、console调试日志)${NC}"
@@ -208,36 +209,9 @@ echo ""
 print_ok "所有测试检查通过！"
 
 # ============================================
-# 步骤 4: 验证配置文件
+# 步骤 4: 同步依赖
 # ============================================
-print_step "4/7" "验证 Tauri 配置..."
-
-TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
-
-# 检查 Windows 更新器配置
-if grep -q '"installMode"' "$TAURI_CONF" 2>/dev/null; then
-    if python3 -c "
-import json
-with open('$TAURI_CONF') as f:
-    conf = json.load(f)
-updater_windows = conf.get('plugins', {}).get('updater', {}).get('windows', {})
-if 'installMode' in updater_windows:
-    exit(1)
-exit(0)
-" 2>/dev/null; then
-        print_ok "Windows 更新器配置正确"
-    else
-        print_error "plugins.updater.windows.installMode 必须移除"
-        exit 1
-    fi
-else
-    print_ok "Windows 更新器配置正确"
-fi
-
-# ============================================
-# 步骤 5: 同步依赖
-# ============================================
-print_step "5/7" "同步 pnpm-lock.yaml..."
+print_step "4/6" "同步 pnpm-lock.yaml..."
 
 if pnpm install --frozen-lockfile >/dev/null 2>&1; then
     print_ok "依赖已同步 (frozen-lockfile)"
@@ -251,9 +225,9 @@ else
 fi
 
 # ============================================
-# 步骤 6: Git 提交和标签
+# 步骤 5: Git 提交和标签
 # ============================================
-print_step "6/7" "Git 提交和创建标签..."
+print_step "5/6" "Git 提交和创建标签..."
 
 COMMIT_MSG="v$TARGET_VERSION: $RELEASE_MESSAGE"
 
@@ -263,13 +237,7 @@ if git diff --quiet && git diff --staged --quiet; then
     
     # 检查标签是否已存在
     if git tag -l "v$TARGET_VERSION" | grep -q "v$TARGET_VERSION"; then
-        print_warn "标签 v$TARGET_VERSION 已存在"
-        read -p "是否强制更新标签? (y/n): " FORCE_TAG
-        if [[ "$FORCE_TAG" != "y" && "$FORCE_TAG" != "Y" ]]; then
-            echo ""
-            echo -e "${YELLOW}发布已取消${NC}"
-            exit 0
-        fi
+        print_warn "标签 v$TARGET_VERSION 已存在，将强制更新"
         git tag -d "v$TARGET_VERSION" 2>/dev/null || true
     fi
 else
@@ -285,24 +253,14 @@ git tag "v$TARGET_VERSION"
 print_ok "标签 v$TARGET_VERSION 已创建"
 
 # ============================================
-# 步骤 7: 推送到 GitHub
+# 步骤 6: 自动推送到 GitHub
 # ============================================
-print_step "7/7" "推送到 GitHub..."
+print_step "6/6" "推送到 GitHub..."
 
 echo ""
-echo -e "${YELLOW}  即将推送:${NC}"
-echo -e "    • 分支: main"
-echo -e "    • 标签: v$TARGET_VERSION"
+echo -e "  ${WHITE}推送分支: main${NC}"
+echo -e "  ${WHITE}推送标签: v$TARGET_VERSION${NC}"
 echo ""
-read -p "确认推送? (y/n): " CONFIRM_PUSH
-
-if [[ "$CONFIRM_PUSH" != "y" && "$CONFIRM_PUSH" != "Y" ]]; then
-    echo ""
-    echo -e "${YELLOW}推送已取消。标签已在本地创建，可稍后手动推送：${NC}"
-    echo "  git push origin main"
-    echo "  git push origin v$TARGET_VERSION"
-    exit 0
-fi
 
 git push origin main
 git push origin "v$TARGET_VERSION" --force
