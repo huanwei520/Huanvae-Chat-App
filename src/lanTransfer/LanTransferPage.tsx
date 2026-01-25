@@ -308,22 +308,24 @@ function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnecti
 
 interface PeerTransferWindowProps {
   connection: PeerConnection;
-  batchProgress: BatchTransferProgress | null;
+  batchProgressMap: Map<string, BatchTransferProgress>;
   hashingProgress: HashingProgress | null;
   onSendFiles: () => void;
   onSendFilePaths: (paths: string[]) => void;
   onDisconnect: () => void;
   onClose: () => void;
+  onCancelSession: (sessionId: string) => void;
 }
 
 function PeerTransferWindow({
   connection,
-  batchProgress,
+  batchProgressMap,
   hashingProgress,
   onSendFiles,
   onSendFilePaths,
   onDisconnect,
   onClose,
+  onCancelSession,
 }: PeerTransferWindowProps) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -388,7 +390,7 @@ function PeerTransferWindow({
         </div>
 
         {/* 哈希计算进度（大文件预处理） */}
-        {hashingProgress && !batchProgress && (
+        {hashingProgress && batchProgressMap.size === 0 && (
           <div className="lan-peer-transfer-progress">
             <div className="lan-peer-transfer-progress-header">
               <span>正在计算文件校验值...</span>
@@ -411,38 +413,45 @@ function PeerTransferWindow({
           </div>
         )}
 
-        {/* 传输进度 */}
-        {batchProgress && (
-          <div className="lan-peer-transfer-progress">
+        {/* 传输进度（支持多个并行会话） */}
+        {Array.from(batchProgressMap.entries()).map(([sessionId, bp]) => (
+          <div key={sessionId} className="lan-peer-transfer-progress">
             <div className="lan-peer-transfer-progress-header">
-              <span>传输进度</span>
-              <span>{batchProgress.completedFiles}/{batchProgress.totalFiles} 个文件</span>
+              <span>传输进度 {batchProgressMap.size > 1 ? `#${Array.from(batchProgressMap.keys()).indexOf(sessionId) + 1}` : ''}</span>
+              <span>{bp.completedFiles}/{bp.totalFiles} 个文件</span>
+              <button
+                className="lan-peer-transfer-cancel"
+                onClick={() => onCancelSession(sessionId)}
+                title="取消传输"
+              >
+                ✕
+              </button>
             </div>
             <div className="lan-peer-transfer-progress-bar">
               <div
                 className="lan-peer-transfer-progress-fill"
                 style={{
-                  width: `${(batchProgress.transferredBytes / batchProgress.totalBytes) * 100}%`,
+                  width: `${bp.totalBytes > 0 ? (bp.transferredBytes / bp.totalBytes) * 100 : 0}%`,
                 }}
               />
             </div>
             <div className="lan-peer-transfer-progress-info">
               <span>
-                {formatSize(batchProgress.transferredBytes)} / {formatSize(batchProgress.totalBytes)}
+                {formatSize(bp.transferredBytes)} / {formatSize(bp.totalBytes)}
               </span>
-              <span>{formatSpeed(batchProgress.speed)}</span>
-              {batchProgress.etaSeconds && (
-                <span>剩余 {formatEta(batchProgress.etaSeconds)}</span>
+              <span>{formatSpeed(bp.speed)}</span>
+              {bp.etaSeconds && (
+                <span>剩余 {formatEta(bp.etaSeconds)}</span>
               )}
             </div>
-            {batchProgress.currentFile && (
+            {bp.currentFile && (
               <div className="lan-peer-transfer-current-file">
                 <FileIcon />
-                <span>{batchProgress.currentFile.fileName}</span>
+                <span>{bp.currentFile.fileName}</span>
               </div>
             )}
           </div>
-        )}
+        ))}
       </div>
 
       <div className="lan-peer-transfer-footer">
@@ -703,7 +712,6 @@ export default function LanTransferPage() {
     pendingTransferRequests,
     activeTransfers,
     batchProgressMap,
-    batchProgress,
     hashingProgress,
     saveDirectory,
     config,
@@ -1320,12 +1328,13 @@ export default function LanTransferPage() {
           <div className="lan-peer-transfer-overlay">
             <PeerTransferWindow
               connection={currentConnection}
-              batchProgress={batchProgress}
+              batchProgressMap={batchProgressMap}
               hashingProgress={hashingProgress}
               onSendFiles={handleSendFilesToPeer}
               onSendFilePaths={handleSendFilePathsToPeer}
               onDisconnect={() => disconnectPeer(currentConnection.connectionId)}
               onClose={() => setCurrentConnection(null)}
+              onCancelSession={cancelSession}
             />
           </div>
         )}
