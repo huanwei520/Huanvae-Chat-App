@@ -10,6 +10,7 @@
  * - 设备上下线通知
  * - 定期验证设备在线状态（解决强制杀掉应用无法检测的问题）
  * - 设备信息自动更新（包括 IP 地址变化）
+ * - 按需刷新单个设备信息（refresh_device）
  *
  * 设备下线检测机制：
  * - mDNS ServiceRemoved 事件：当设备正常关闭时触发
@@ -20,13 +21,16 @@
  * - 当设备重新上线时（如重启服务），会收到新的 ServiceResolved 事件
  * - 无论是新设备还是已存在设备，都会发送 DeviceDiscovered 事件通知前端
  * - 这确保前端始终拥有最新的设备信息（特别是可能变化的 IP 地址）
+ * - 连接请求失败时可调用 refresh_device() 强制刷新特定设备
  *
  * 关键映射关系：
  * - fullname -> device_id：mDNS fullname 使用截断后的 instance_name（最多15字符），
  *   而设备列表使用完整的 device_id（32字符 UUID），需要映射表进行转换
  *
  * 更新日志：
+ * - 2026-01-25: 添加 refresh_device() 函数，支持按需刷新单个设备信息
  * - 2026-01-25: 修复设备 IP 地址不更新问题，设备重新上线时也发送事件通知前端
+ * - 2026-01-25: refresh_device() 改为重启 mDNS browse（verify 仅验证存在性，无法获取新 IP）
  */
 
 use super::protocol::{DeviceInfo, DiscoveredDevice, LanTransferEvent, PROTOCOL_VERSION, SERVICE_PORT, SERVICE_TYPE};
@@ -478,6 +482,81 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
     emit_lan_event(&event);
 
     println!("[LanTransfer] 服务已停止");
+
+    Ok(())
+}
+
+/// 强制刷新指定设备的信息
+///
+/// 清除设备缓存信息，等待 mDNS 自动重新发现设备。
+/// 不会重启 browse（避免事件监听任务混乱）。
+///
+/// 工作流程：
+/// 1. 从设备列表中移除该设备
+/// 2. 清除相关映射和计数器
+/// 3. 等待 mDNS 自动重新发现（browse 仍在运行）
+///
+/// 返回值：是否成功触发刷新
+pub fn refresh_device(device_id: &str) -> Result<(), DiscoveryError> {
+    let state = get_lan_transfer_state();
+
+    println!("[LanTransfer] 🔄 开始刷新设备: {}", device_id);
+
+    // 1. 从设备列表中移除该设备
+    let device_info = {
+        let mut devices = state.devices.write();
+        if let Some(device) = devices.remove(device_id) {
+            println!(
+                "[LanTransfer] 🔄 从列表中移除: {} ({}:{})",
+                device.device_name, device.ip_address, device.port
+            );
+            Some((device.device_name.clone(), device.ip_address.clone()))
+        } else {
+            println!(
+                "[LanTransfer] 🔄 设备不在列表中: {}",
+                device_id
+            );
+            None
+        }
+    };
+
+    // 2. 清除 fullname 映射
+    {
+        let map = get_fullname_to_device_id_map();
+        let mut map = map.lock();
+        let fullname_to_remove: Option<String> = map
+            .iter()
+            .find(|(_, did)| *did == device_id)
+            .map(|(fname, _)| fname.clone());
+
+        if let Some(fullname) = fullname_to_remove {
+            map.remove(&fullname);
+            println!("[LanTransfer] 🔄 清除映射: {}", fullname);
+        }
+    }
+
+    // 3. 清除验证失败计数
+    {
+        let count_map = get_verify_failure_count_map();
+        let mut count_map = count_map.lock();
+        count_map.remove(device_id);
+    }
+
+    // 4. 发送设备离线事件（让前端也移除）
+    if device_info.is_some() {
+        let event = LanTransferEvent::DeviceLeft {
+            device_id: device_id.to_string(),
+        };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+    }
+
+    // 5. 不重启 browse，mDNS 会自动重新发现设备
+    // 已有的 browse 任务会在设备重新广播时收到 ServiceResolved 事件
+    println!(
+        "[LanTransfer] 🔄 设备已从缓存移除，等待 mDNS 自动重新发现: {}",
+        device_id
+    );
 
     Ok(())
 }

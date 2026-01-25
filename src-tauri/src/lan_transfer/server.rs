@@ -50,7 +50,6 @@ use std::io::{Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -152,13 +151,25 @@ struct UploadSession {
 
 /// 启动 HTTP 服务器
 pub async fn start_server(device_info: DeviceInfo) -> Result<(), ServerError> {
+    use tokio::net::TcpSocket;
+    
     let addr = SocketAddr::from(([0, 0, 0, 0], SERVICE_PORT));
 
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| ServerError::StartFailed(e.to_string()))?;
+    // 使用 TcpSocket 来设置 SO_REUSEADDR，避免 TIME_WAIT 导致端口占用
+    let socket = TcpSocket::new_v4()
+        .map_err(|e| ServerError::StartFailed(format!("创建 socket 失败: {}", e)))?;
+    
+    // 设置端口复用，允许快速重启服务
+    socket.set_reuseaddr(true)
+        .map_err(|e| ServerError::StartFailed(format!("设置 SO_REUSEADDR 失败: {}", e)))?;
+    
+    socket.bind(addr)
+        .map_err(|e| ServerError::StartFailed(format!("绑定端口 {} 失败: {}", SERVICE_PORT, e)))?;
+    
+    let listener = socket.listen(128)
+        .map_err(|e| ServerError::StartFailed(format!("监听失败: {}", e)))?;
 
-    println!("[LanTransfer] HTTP 服务器启动: {}", addr);
+    println!("[LanTransfer] HTTP 服务器启动: {} (SO_REUSEADDR 已启用)", addr);
 
     // 创建关闭信号
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
@@ -174,15 +185,16 @@ pub async fn start_server(device_info: DeviceInfo) -> Result<(), ServerError> {
             result = listener.accept() => {
                 match result {
                     Ok((stream, peer_addr)) => {
+                        println!("[LanTransfer] 📥 收到 TCP 连接: 来自 {}", peer_addr);
                         let device_info = device_info.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(stream, peer_addr, device_info).await {
-                                eprintln!("[LanTransfer] 处理连接失败: {}", e);
+                                eprintln!("[LanTransfer] ❌ 处理连接失败 (来自 {}): {}", peer_addr, e);
                             }
                         });
                     }
                     Err(e) => {
-                        eprintln!("[LanTransfer] 接受连接失败: {}", e);
+                        eprintln!("[LanTransfer] ❌ 接受连接失败: {}", e);
                     }
                 }
             }
@@ -414,10 +426,22 @@ async fn handle_peer_connection_request(
     body: &[u8],
     peer_addr: SocketAddr,
 ) -> Result<(), ServerError> {
+    println!("[LanTransfer] ========== 收到连接请求 ==========");
+    println!("[LanTransfer] 来源 TCP 地址: {}", peer_addr);
+    
     let req_body: PeerConnectionRequestBody =
-        serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+        serde_json::from_slice(body).map_err(|e| {
+            println!("[LanTransfer] ❌ 解析请求 JSON 失败: {}", e);
+            ServerError::RequestFailed(e.to_string())
+        })?;
 
     let from_device_id = req_body.from_device.device_id.clone();
+    
+    println!("[LanTransfer] 请求来自:");
+    println!("[LanTransfer]   设备 ID: {}", from_device_id);
+    println!("[LanTransfer]   设备名: {}", req_body.from_device.device_name);
+    println!("[LanTransfer]   声称 IP: {}:{}", req_body.from_device.ip_address, req_body.from_device.port);
+    println!("[LanTransfer]   实际 TCP 来源: {}", peer_addr);
 
     // ========== 检查是否已存在与该设备的连接（去重）==========
     // 注意：先提取数据，释放锁，再调用 async 函数
@@ -522,11 +546,15 @@ async fn handle_peer_connection_request(
         requested_at: now,
     };
 
+    println!("[LanTransfer] ✓ 创建新连接请求: {}", connection_id);
+    println!("[LanTransfer]   修正后的 IP: {} (使用 TCP 来源地址)", peer_addr.ip());
+
     // 保存到待处理请求
     {
         let requests = get_pending_peer_connection_requests_map();
         let mut requests = requests.lock();
         requests.insert(connection_id.clone(), request.clone());
+        println!("[LanTransfer] ✓ 已保存到待处理请求列表 (共 {} 个)", requests.len());
     }
 
     // 发送事件通知前端
@@ -534,10 +562,8 @@ async fn handle_peer_connection_request(
     let _ = get_event_sender().send(event.clone());
     emit_lan_event(&event);
 
-    println!(
-        "[LanTransfer] 收到连接请求: {} 来自 {}",
-        connection_id, peer_addr
-    );
+    println!("[LanTransfer] ✓ 已发送 PeerConnectionRequest 事件到前端");
+    println!("[LanTransfer] ========== 等待用户响应 ==========");
 
     // 返回连接 ID
     #[derive(serde::Serialize)]
@@ -563,11 +589,24 @@ async fn handle_peer_connection_response(
     body: &[u8],
     peer_addr: SocketAddr,
 ) -> Result<(), ServerError> {
+    println!("[LanTransfer] ========== 收到连接响应 ==========");
+    println!("[LanTransfer] 来源 TCP 地址: {}", peer_addr);
+    
     let req_body: PeerConnectionResponseBody =
-        serde_json::from_slice(body).map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+        serde_json::from_slice(body).map_err(|e| {
+            println!("[LanTransfer] ❌ 解析响应 JSON 失败: {}", e);
+            ServerError::RequestFailed(e.to_string())
+        })?;
 
     let connection_id = req_body.connection_id.clone();
     let now = Utc::now().to_rfc3339();
+    
+    println!("[LanTransfer] 连接 ID: {}", connection_id);
+    println!("[LanTransfer] 接受连接: {}", req_body.accepted);
+    if let Some(ref from_device) = req_body.from_device {
+        println!("[LanTransfer] 响应设备: {} @ {}:{}", 
+            from_device.device_name, from_device.ip_address, from_device.port);
+    }
 
     if req_body.accepted {
         // 接收方接受了连接，创建连接对象

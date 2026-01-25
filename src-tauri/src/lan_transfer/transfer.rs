@@ -5,6 +5,7 @@
  *
  * 功能：
  * - 点对点连接管理（请求、响应、断开）
+ * - 连接请求失败自动重试（刷新设备信息后重试一次）
  * - 向已连接设备发送文件（无需再次确认）
  * - 多文件并行批量传输（可配置并行度）
  * - 单文件取消支持（CancellationToken）
@@ -14,6 +15,12 @@
  * - 取消传输
  * - 详细传输调试日志
  * - 块上传自动重试（最多 3 次）
+ *
+ * 连接请求重试机制：
+ * - 如果 HTTP 请求失败（连接超时/拒绝），可能是设备 IP 已变化
+ * - 自动调用 discovery::refresh_device() 刷新设备信息
+ * - 等待 1.5 秒让 mDNS 事件处理
+ * - 使用最新 IP 地址重试一次（只重试一次）
  *
  * 并行传输说明：
  * - 默认并行度: 3 个文件同时传输
@@ -37,6 +44,7 @@
  * - ❌ 错误信息: 详细的错误位置和原因
  *
  * 更新日志：
+ * - 2026-01-25: 添加连接请求失败自动重试机制（刷新设备 IP 后重试）
  * - 2026-01-25: 修复批量进度不更新问题，在并行传输中同步发送 BatchProgress 事件
  * - 2026-01-25: 修复会话取消不生效问题，取消时正确触发所有文件的 CancellationToken
  * - 2026-01-25: 重构为并行传输，添加单文件取消支持
@@ -280,6 +288,10 @@ pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), Tr
 /// 请求建立点对点连接
 ///
 /// 如果已与该设备建立连接，则返回现有连接 ID（防止重复连接）
+///
+/// 失败重试机制：
+/// - 如果 HTTP 请求失败（连接超时/拒绝），可能是设备 IP 已变化
+/// - 自动触发 mDNS 刷新，等待短暂时间后用最新 IP 重试一次
 pub async fn request_peer_connection(device_id: &str) -> Result<String, TransferError> {
     use super::server::get_active_peer_connections_map;
 
@@ -300,24 +312,76 @@ pub async fn request_peer_connection(device_id: &str) -> Result<String, Transfer
         }
     }
 
+    // 尝试发送请求，失败后刷新设备信息并重试一次
+    match do_request_peer_connection(device_id).await {
+        Ok(connection_id) => Ok(connection_id),
+        Err(first_error) => {
+            println!(
+                "[LanTransfer] ⚠️ 连接请求失败: {}，尝试刷新设备信息后重试",
+                first_error
+            );
+
+            // 触发 mDNS 刷新
+            if let Err(e) = super::discovery::refresh_device(device_id) {
+                println!("[LanTransfer] 刷新设备失败: {}", e);
+            }
+
+            // 等待 mDNS 事件处理（1.5 秒）
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+            // 用最新信息重试一次
+            println!("[LanTransfer] 🔄 使用最新设备信息重试连接请求...");
+            do_request_peer_connection(device_id).await.map_err(|retry_error| {
+                println!(
+                    "[LanTransfer] ❌ 重试失败: {}（原始错误: {}）",
+                    retry_error, first_error
+                );
+                retry_error
+            })
+        }
+    }
+}
+
+/// 实际执行连接请求的内部函数
+async fn do_request_peer_connection(device_id: &str) -> Result<String, TransferError> {
     let state = get_lan_transfer_state();
+
+    println!("[LanTransfer] ========== 发起连接请求 ==========");
+    println!("[LanTransfer] 目标设备 ID: {}", device_id);
 
     // 获取目标设备信息
     let target_device = {
         let devices = state.devices.read();
+        println!("[LanTransfer] 当前设备列表 ({} 个):", devices.len());
+        for (id, dev) in devices.iter() {
+            println!("[LanTransfer]   - {} ({}) @ {}:{}", 
+                dev.device_name, id, dev.ip_address, dev.port);
+        }
         devices
             .get(device_id)
             .cloned()
-            .ok_or_else(|| TransferError::DeviceNotFound(device_id.to_string()))?
+            .ok_or_else(|| {
+                println!("[LanTransfer] ❌ 目标设备不在列表中: {}", device_id);
+                TransferError::DeviceNotFound(device_id.to_string())
+            })?
     };
+
+    println!("[LanTransfer] ✓ 找到目标设备: {} @ {}:{}", 
+        target_device.device_name, target_device.ip_address, target_device.port);
 
     // 获取本机设备信息
     let local_device = {
         let local = state.local_device.read();
         local
             .clone()
-            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+            .ok_or_else(|| {
+                println!("[LanTransfer] ❌ 本地服务未启动");
+                TransferError::ConnectionFailed("本地服务未启动".to_string())
+            })?
     };
+
+    println!("[LanTransfer] 本机信息: {} @ {}:{}", 
+        local_device.device_name, local_device.ip_address, local_device.port);
 
     // 构建请求数据
     let from_device = DiscoveredDevice {
@@ -343,16 +407,31 @@ pub async fn request_peer_connection(device_id: &str) -> Result<String, Transfer
         target_device.ip_address, target_device.port
     );
 
+    println!("[LanTransfer] 📡 HTTP POST 请求:");
+    println!("[LanTransfer]   URL: {}", url);
+    println!("[LanTransfer]   本机 IP: {}:{}", local_device.ip_address, local_device.port);
+    println!("[LanTransfer]   目标 IP: {}:{}", target_device.ip_address, target_device.port);
+    println!("[LanTransfer]   超时: 5 秒");
+
+    let start_time = std::time::Instant::now();
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
         .json(&RequestBody { from_device })
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(5)) // 缩短超时时间以加快重试
         .send()
         .await
-        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+        .map_err(|e| {
+            let elapsed = start_time.elapsed();
+            println!("[LanTransfer] ❌ HTTP 请求失败 (耗时 {:?}): {}", elapsed, e);
+            TransferError::ConnectionFailed(format!("{} (目标: {}:{})", e, target_device.ip_address, target_device.port))
+        })?;
+
+    let elapsed = start_time.elapsed();
+    println!("[LanTransfer] ✓ HTTP 响应收到 (耗时 {:?}): 状态码 {}", elapsed, response.status());
 
     if !response.status().is_success() {
+        println!("[LanTransfer] ❌ 服务器返回错误状态码");
         return Err(TransferError::ConnectionFailed(format!(
             "服务器返回错误: {}",
             response.status()
@@ -368,16 +447,17 @@ pub async fn request_peer_connection(device_id: &str) -> Result<String, Transfer
     let resp: Response = response
         .json()
         .await
-        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+        .map_err(|e| {
+            println!("[LanTransfer] ❌ 解析响应 JSON 失败: {}", e);
+            TransferError::ConnectionFailed(e.to_string())
+        })?;
 
     // 注意：不在此处保存连接！
     // 连接只在对方接受后，通过 handle_peer_connection_response 创建
     // 这样可以避免去重检查误判，以及拒绝后需要清理的问题
 
-    println!(
-        "[LanTransfer] 连接请求已发送到 {} ({})，等待对方确认",
-        target_device.device_name, target_device.ip_address
-    );
+    println!("[LanTransfer] ✅ 连接请求成功，connection_id: {}", resp.connection_id);
+    println!("[LanTransfer] ========== 等待对方确认 ==========");
 
     Ok(resp.connection_id)
 }
@@ -389,14 +469,29 @@ pub async fn respond_peer_connection(
 ) -> Result<(), TransferError> {
     use super::server::{get_active_peer_connections_map, get_pending_peer_connection_requests_map};
 
+    println!("[LanTransfer] ========== 响应连接请求 ==========");
+    println!("[LanTransfer] 连接 ID: {}", connection_id);
+    println!("[LanTransfer] 接受连接: {}", accept);
+
     // 获取待处理的连接请求
     let request = {
         let requests = get_pending_peer_connection_requests_map();
         let mut requests = requests.lock();
+        println!("[LanTransfer] 待处理请求列表 ({} 个):", requests.len());
+        for (id, req) in requests.iter() {
+            println!("[LanTransfer]   - {} 来自 {} @ {}:{}", 
+                id, req.from_device.device_name, req.from_device.ip_address, req.from_device.port);
+        }
         requests
             .remove(connection_id)
-            .ok_or_else(|| TransferError::RequestNotFound(connection_id.to_string()))?
+            .ok_or_else(|| {
+                println!("[LanTransfer] ❌ 找不到连接请求: {}", connection_id);
+                TransferError::RequestNotFound(connection_id.to_string())
+            })?
     };
+
+    println!("[LanTransfer] ✓ 找到请求，来自: {} @ {}:{}", 
+        request.from_device.device_name, request.from_device.ip_address, request.from_device.port);
 
     let state = get_lan_transfer_state();
 
@@ -405,8 +500,14 @@ pub async fn respond_peer_connection(
         let local = state.local_device.read();
         local
             .clone()
-            .ok_or_else(|| TransferError::ConnectionFailed("本地服务未启动".to_string()))?
+            .ok_or_else(|| {
+                println!("[LanTransfer] ❌ 本地服务未启动");
+                TransferError::ConnectionFailed("本地服务未启动".to_string())
+            })?
     };
+
+    println!("[LanTransfer] 本机信息: {} @ {}:{}", 
+        local_device.device_name, local_device.ip_address, local_device.port);
 
     // 构建响应数据
     let from_device = if accept {
@@ -438,6 +539,13 @@ pub async fn respond_peer_connection(
         request.from_device.ip_address, request.from_device.port
     );
 
+    println!("[LanTransfer] 📡 发送 HTTP 响应:");
+    println!("[LanTransfer]   URL: {}", url);
+    println!("[LanTransfer]   本机 IP: {}:{}", local_device.ip_address, local_device.port);
+    println!("[LanTransfer]   目标 IP: {}:{}", request.from_device.ip_address, request.from_device.port);
+    println!("[LanTransfer]   超时: 10 秒");
+
+    let start_time = std::time::Instant::now();
     let client = reqwest::Client::new();
     let _ = client
         .post(&url)
@@ -449,7 +557,14 @@ pub async fn respond_peer_connection(
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
-        .map_err(|e| TransferError::ConnectionFailed(e.to_string()))?;
+        .map_err(|e| {
+            let elapsed = start_time.elapsed();
+            println!("[LanTransfer] ❌ HTTP 响应发送失败 (耗时 {:?}): {}", elapsed, e);
+            TransferError::ConnectionFailed(format!("{} (目标: {}:{})", e, request.from_device.ip_address, request.from_device.port))
+        })?;
+
+    let elapsed = start_time.elapsed();
+    println!("[LanTransfer] ✓ HTTP 响应发送成功 (耗时 {:?})", elapsed);
 
     if accept {
         // 接收方也创建连接
@@ -465,14 +580,20 @@ pub async fn respond_peer_connection(
             let connections = get_active_peer_connections_map();
             let mut connections = connections.lock();
             connections.insert(connection_id.to_string(), connection.clone());
+            println!("[LanTransfer] ✓ 连接已保存 (共 {} 个活跃连接)", connections.len());
         }
 
         // 发送事件通知前端
         let event = LanTransferEvent::PeerConnectionEstablished { connection };
         let _ = get_event_sender().send(event.clone());
         emit_lan_event(&event);
+        println!("[LanTransfer] ✓ 已发送 PeerConnectionEstablished 事件到前端");
     }
 
+    println!(
+        "[LanTransfer] ========== {} 完成 ==========",
+        if accept { "接受连接" } else { "拒绝连接" }
+    );
     println!(
         "[LanTransfer] 连接请求 {} 已{}: {} ({})",
         connection_id,
