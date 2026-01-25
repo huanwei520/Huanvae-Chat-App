@@ -524,6 +524,10 @@ unset CI && pnpm tauri android dev
   - 移动端和桌面端 UI 支持显示多个批量传输进度卡片
   - 每个传输会话卡片增加单独的取消按钮
   - 传输途中添加新文件会创建独立的传输会话并单独显示
+- 2026-01-25: 修复取消传输后进度条仍然显示的问题
+  - emit_batch_progress 函数在发送事件前检查会话状态
+  - 如果会话已取消（SessionStatus::Cancelled），不发送进度事件
+  - 避免取消后残留的进度事件覆盖 BatchTransferCompleted 事件
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

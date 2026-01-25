@@ -1339,7 +1339,19 @@ pub async fn start_batch_transfer(
 }
 
 /// 发送批量进度事件
+/// 如果会话已取消，则不发送事件（避免取消后进度事件覆盖完成事件）
 fn emit_batch_progress(progress: &ParallelProgress, current_file: Option<FileMetadata>) {
+    // 检查会话状态，如果已取消则不发送进度事件
+    {
+        let sessions = get_active_sessions();
+        let sessions = sessions.read();
+        if let Some(session) = sessions.get(&progress.session_id)
+            && session.status == SessionStatus::Cancelled
+        {
+            return;
+        }
+    }
+
     let batch_progress = BatchTransferProgress {
         session_id: progress.session_id.clone(),
         total_files: progress.total_files,
