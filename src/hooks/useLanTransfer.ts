@@ -5,24 +5,38 @@
  *
  * 功能：
  * - 启动/停止局域网传输服务
- * - 获取发现的设备列表
+ * - 获取发现的设备列表（自动更新设备信息，包括 IP 地址变化）
  * - 点对点连接管理（带去重检查，防止重复连接）
  * - 发送传输请求（需确认）
  * - 多文件并行批量传输（默认并行度 3）
  * - 单文件取消支持（cancelFileTransfer）
+ * - 会话级批量取消支持（cancelSession）
  * - 断点续传支持
- * - 实时进度跟踪
+ * - 实时进度跟踪（单文件 + 批量进度）
  * - 配置管理
  *
  * 并行传输：
  * - 后端使用 Semaphore 限制并发数
  * - 每个文件有独立的 CancellationToken
+ * - 会话取消时批量取消所有正在传输的文件
  * - 一个文件失败不影响其他文件继续传输
+ *
+ * 进度更新：
+ * - activeTransfers: 单文件传输进度（TransferProgress 事件）
+ * - batchProgress: 批量传输进度（BatchProgress 事件）
+ * - 两者同步更新，确保 UI 显示正确
+ *
+ * 设备发现：
+ * - DeviceDiscovered 事件：新设备发现或已有设备信息更新
+ * - 前端自动合并更新设备列表，保持最新状态
  *
  * 连接去重机制：
  * - 前端：requestPeerConnection 调用前检查 activeConnections
  * - 后端：request_peer_connection 和 server 端都有去重检查
  * - 如果已存在连接，返回现有 connectionId 而不是创建新连接
+ *
+ * 更新日志：
+ * - 2026-01-25: 修复设备 IP 不更新、批量进度不更新、取消按钮不工作问题
  */
 
 import { useState, useCallback, useEffect } from 'react';
