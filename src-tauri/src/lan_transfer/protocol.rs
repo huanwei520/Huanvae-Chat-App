@@ -7,7 +7,7 @@
  * 1. 设备通过 mDNS 广播自身信息（服务类型：_huanvae-transfer._tcp.local）
  * 2. 发送方向接收方发送连接请求
  * 3. 接收方确认后建立传输通道
- * 4. 文件分块传输，每块进行 SHA-256 校验
+ * 4. 文件分块传输，每块进行 CRC32 校验（高性能跨平台）
  */
 
 use serde::{Deserialize, Serialize};
@@ -194,8 +194,9 @@ pub struct FileMetadata {
     pub file_size: u64,
     /// 文件 MIME 类型
     pub mime_type: String,
-    /// 文件 SHA-256 哈希
-    pub sha256: String,
+    /// 文件哈希 (CRC32，8字符十六进制)
+    /// 用于传输完整性验证，采用高性能 crc32fast 库
+    pub sha256: String,  // 字段名保持不变以兼容现有协议
 }
 
 // ============================================================================
@@ -258,7 +259,8 @@ pub struct TransferRequestResponse {
 pub struct ResumeInfo {
     /// 文件 ID
     pub file_id: String,
-    /// 文件 SHA-256（用于校验是否是同一个文件）
+    /// 文件哈希（CRC32，用于校验是否是同一个文件）
+    /// 字段名保持 file_sha256 以兼容现有协议
     pub file_sha256: String,
     /// 本地临时文件路径
     pub temp_file_path: String,
@@ -405,7 +407,7 @@ pub struct ChunkInfo {
     pub chunk_index: u64,
     /// 块大小
     pub chunk_size: usize,
-    /// 块 SHA-256 哈希
+    /// 块哈希 (CRC32，8字符十六进制)
     pub chunk_hash: String,
     /// 起始偏移
     pub offset: u64,
@@ -440,7 +442,8 @@ pub struct FinishUploadRequest {
 pub struct FinishUploadResponse {
     /// 是否成功
     pub success: bool,
-    /// SHA-256 是否匹配
+    /// 哈希是否匹配 (CRC32)
+    /// 字段名保持 sha256_match 以兼容现有协议
     pub sha256_match: bool,
     /// 保存路径
     pub saved_path: Option<String>,

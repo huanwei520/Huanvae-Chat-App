@@ -31,7 +31,7 @@ use super::protocol::*;
 use super::{emit_lan_event, get_lan_transfer_state};
 use chrono::Utc;
 use parking_lot::RwLock;
-use sha2::{Digest, Sha256};
+use crc32fast::Hasher as Crc32Hasher;
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::io::{Read, Seek, SeekFrom};
@@ -1447,12 +1447,17 @@ pub async fn send_file(
 // 辅助函数
 // ============================================================================
 
-/// 计算文件哈希
+/// 计算文件哈希 (CRC32)
+///
+/// 使用 crc32fast 库进行高性能哈希计算
+/// - 速度: ~7.3 GB/s (比 SHA-256 快约 14 倍)
+/// - 流式处理: 无需将整个文件读入内存
+/// - 跨平台: 支持 Android AOSP, Windows, macOS, Linux, iOS
 fn calculate_file_hash(path: &Path) -> Result<String, TransferError> {
     let mut file =
         std::fs::File::open(path).map_err(|e| TransferError::FileReadFailed(e.to_string()))?;
 
-    let mut hasher = Sha256::new();
+    let mut hasher = Crc32Hasher::new();
     let mut buffer = vec![0u8; CHUNK_SIZE];
 
     loop {
@@ -1467,7 +1472,8 @@ fn calculate_file_hash(path: &Path) -> Result<String, TransferError> {
         hasher.update(&buffer[..bytes_read]);
     }
 
-    Ok(hex::encode(hasher.finalize()))
+    // CRC32 输出为 32 位无符号整数，转换为 8 字符十六进制字符串
+    Ok(format!("{:08x}", hasher.finalize()))
 }
 
 /// 取消传输

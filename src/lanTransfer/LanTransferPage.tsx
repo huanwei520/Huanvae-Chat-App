@@ -16,6 +16,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { TauriEvent } from '@tauri-apps/api/event';
 import {
   useLanTransfer,
   DiscoveredDevice,
@@ -307,6 +309,7 @@ interface PeerTransferWindowProps {
   connection: PeerConnection;
   batchProgress: BatchTransferProgress | null;
   onSendFiles: () => void;
+  onSendFilePaths: (paths: string[]) => void;
   onDisconnect: () => void;
   onClose: () => void;
 }
@@ -315,9 +318,42 @@ function PeerTransferWindow({
   connection,
   batchProgress,
   onSendFiles,
+  onSendFilePaths,
   onDisconnect,
   onClose,
 }: PeerTransferWindowProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  // 监听 Tauri 文件拖放事件
+  useEffect(() => {
+    const window = getCurrentWindow();
+    const unlisteners: Array<() => void> = [];
+
+    // 拖拽进入
+    window.listen<{ paths: string[] }>(TauriEvent.DRAG_ENTER, (event) => {
+      if (event.payload.paths && event.payload.paths.length > 0) {
+        setIsDragging(true);
+      }
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    // 拖拽离开
+    window.listen(TauriEvent.DRAG_LEAVE, () => {
+      setIsDragging(false);
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    // 文件放下
+    window.listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
+      setIsDragging(false);
+      if (event.payload.paths && event.payload.paths.length > 0) {
+        onSendFilePaths(event.payload.paths);
+      }
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    return () => {
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, [onSendFilePaths]);
+
   return (
     <motion.div
       className="lan-peer-transfer-window"
@@ -339,11 +375,11 @@ function PeerTransferWindow({
         {/* 发送文件区域 */}
         <div className="lan-peer-transfer-send">
           <div
-            className="lan-peer-transfer-dropzone"
+            className={`lan-peer-transfer-dropzone${isDragging ? ' dragging' : ''}`}
             onClick={onSendFiles}
           >
             <UploadIcon />
-            <span>点击选择文件或拖拽文件到此处</span>
+            <span>{isDragging ? '松开鼠标发送文件' : '点击选择文件或拖拽文件到此处'}</span>
             <span className="lan-peer-transfer-hint">支持多文件选择</span>
           </div>
         </div>
@@ -787,7 +823,7 @@ export default function LanTransferPage() {
     }
   };
 
-  // 处理文件发送（在已建立的连接中）
+  // 处理文件发送（在已建立的连接中）- 通过对话框选择
   const handleSendFilesToPeer = async () => {
     if (!currentConnection) { return; }
 
@@ -806,6 +842,19 @@ export default function LanTransferPage() {
       addDebugLog(`❌ 选择文件失败: ${error}`);
     }
   };
+
+  // 处理文件发送（在已建立的连接中）- 通过拖放
+  const handleSendFilePathsToPeer = useCallback(async (paths: string[]) => {
+    if (!currentConnection) { return; }
+
+    try {
+      addDebugLog(`拖放发送 ${paths.length} 个文件到 ${currentConnection.peerDevice.deviceName}`);
+      await sendFilesToPeer(currentConnection.connectionId, paths);
+    } catch (error) {
+      console.error('[LanTransfer] 拖放发送文件失败:', error);
+      addDebugLog(`❌ 拖放发送文件失败: ${error}`);
+    }
+  }, [currentConnection, sendFilesToPeer, addDebugLog]);
 
   // 检查设备是否已连接
   const isDeviceConnected = (deviceId: string) => {
@@ -1238,6 +1287,7 @@ export default function LanTransferPage() {
               connection={currentConnection}
               batchProgress={batchProgress}
               onSendFiles={handleSendFilesToPeer}
+              onSendFilePaths={handleSendFilePathsToPeer}
               onDisconnect={() => disconnectPeer(currentConnection.connectionId)}
               onClose={() => setCurrentConnection(null)}
             />

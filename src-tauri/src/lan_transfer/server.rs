@@ -44,7 +44,7 @@ use super::{emit_lan_event, get_lan_transfer_state};
 use chrono::Utc;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
-use sha2::{Digest, Sha256};
+use crc32fast::Hasher as Crc32Hasher;
 use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
 use std::net::SocketAddr;
@@ -131,8 +131,8 @@ struct UploadSession {
     files: HashMap<String, FileMetadata>,
     /// 文件写入器
     writers: HashMap<String, std::fs::File>,
-    /// 文件哈希计算器
-    hashers: HashMap<String, Sha256>,
+    /// 文件哈希计算器 (CRC32)
+    hashers: HashMap<String, Crc32Hasher>,
     /// 已接收的字节数
     received_bytes: HashMap<String, u64>,
     /// 上次进度更新时间（用于限制更新频率）
@@ -927,7 +927,7 @@ async fn handle_prepare_upload(
 
     // 创建或打开文件
     // direct_target_path: Android 直接写入模式时的目标路径
-    let (writer_file, hasher, direct_target_path): (std::fs::File, Sha256, Option<String>) = if resume_offset > 0 {
+    let (writer_file, hasher, direct_target_path): (std::fs::File, Crc32Hasher, Option<String>) = if resume_offset > 0 {
         // 断点续传：打开已有文件（不支持直接写入模式）
         let mut f = resume_manager
             .open_temp_file(file_id, resume_offset)
@@ -935,7 +935,7 @@ async fn handle_prepare_upload(
 
         // 需要重新计算哈希（从头读取）
         let temp_path = resume_manager.get_temp_file_path(file_id);
-        let mut hasher = Sha256::new();
+        let mut hasher = Crc32Hasher::new();
 
         // 读取已有内容计算哈希
         let mut temp_reader = std::fs::File::open(&temp_path)
@@ -982,7 +982,7 @@ async fn handle_prepare_upload(
 
             let f = std::fs::File::create(&final_path)
                 .map_err(|e| ServerError::FileWriteFailed(format!("创建目标文件失败: {}", e)))?;
-            let hasher = Sha256::new();
+            let hasher = Crc32Hasher::new();
 
             println!(
                 "[LanTransfer] 新传输 (Android 直接写入): {} -> {:?} (大小: {} 字节)",
@@ -998,7 +998,7 @@ async fn handle_prepare_upload(
             let f = resume_manager
                 .create_temp_file(file_id)
                 .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
-            let hasher = Sha256::new();
+            let hasher = Crc32Hasher::new();
 
             println!("[LanTransfer] 新传输 (临时文件): {} (大小: {} 字节)", file.file_name, file.file_size);
 
@@ -1209,7 +1209,7 @@ async fn handle_finish(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (file_meta, computed_hash, sha256_match, target_path) = {
+    let (file_meta, computed_hash, hash_match, target_path) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -1230,8 +1230,9 @@ async fn handle_finish(
             .remove(&file_id)
             .ok_or_else(|| ServerError::RequestFailed("哈希计算器不存在".to_string()))?;
 
-        let computed_hash = hex::encode(hasher.finalize());
-        let sha256_match = computed_hash == file_meta.sha256;
+        // CRC32 输出为 32 位无符号整数，转换为 8 字符十六进制字符串
+        let computed_hash = format!("{:08x}", hasher.finalize());
+        let hash_match = computed_hash == file_meta.sha256;
 
         // 获取目标路径（如果有）
         let target_path = session.target_paths.get(&file_id).cloned();
@@ -1239,12 +1240,12 @@ async fn handle_finish(
         // 关闭文件
         session.writers.remove(&file_id);
 
-        (file_meta, computed_hash, sha256_match, target_path)
+        (file_meta, computed_hash, hash_match, target_path)
     };
 
     let resume_manager = get_resume_manager();
 
-    let (response, saved_path_str) = if sha256_match {
+    let (response, saved_path_str) = if hash_match {
         // 哈希匹配
         // 检查是否使用了直接写入模式（有 target_path）
         if let Some(ref direct_path) = target_path {

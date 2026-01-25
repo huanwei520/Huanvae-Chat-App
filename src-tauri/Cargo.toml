@@ -86,8 +86,11 @@ mdns-sd = "0.17.2"
 # 本地 IP 地址获取
 local-ip-address = "0.6.9"
 
-# 文件哈希 (SHA-256)
-sha2 = "0.10.9"
+# 文件哈希 (CRC32 - 高性能跨平台校验)
+# 官方支持: Android AOSP, Windows, macOS, Linux, iOS
+# 性能: ~7.3 GB/s (比 SHA-256 快约 14 倍)
+# 文档: https://docs.rs/crc32fast/
+crc32fast = "1.4"
 hex = "0.4.3"
 
 # UUID 生成
