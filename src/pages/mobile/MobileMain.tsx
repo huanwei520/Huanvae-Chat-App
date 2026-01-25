@@ -12,6 +12,10 @@
  * - 视频会议：使用全屏页面替代桌面端的多窗口，不支持屏幕共享
  *   - 支持最小化为悬浮窗，可在会议进行中查看其他页面和聊天
  * - 局域网传输：使用全屏页面，文件直接保存到公共 Download 目录
+ *
+ * 同步状态：
+ * - 登录后自动同步所有会话的增量消息
+ * - 在消息列表顶部显示同步进度横幅
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -71,7 +75,7 @@ export function MobileMain() {
   const webrtc = useWebRTC();
 
   // 登录后全量增量同步
-  useInitialSync({
+  const { status: syncStatus, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
@@ -314,6 +318,8 @@ export function MobileMain() {
                       selectedTarget={page.chatTarget}
                       onSelectTarget={handleSelectTarget}
                       unreadSummary={page.unreadSummary}
+                      syncStatus={syncStatus}
+                      onSyncRetry={triggerSync}
                     />
                   </motion.div>
                 ) : (

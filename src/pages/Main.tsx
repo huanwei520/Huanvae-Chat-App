@@ -8,6 +8,10 @@
  *
  * 使用 UnifiedList 组件实现单卡片级别的动画效果
  * 切换 tab 时旧卡片飞出、新卡片飞入
+ *
+ * 同步状态：
+ * - 登录后自动同步所有会话的增量消息
+ * - 在消息列表顶部显示同步进度横幅
  */
 
 import { useState } from 'react';
@@ -44,7 +48,7 @@ export function Main() {
   };
 
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
-  useInitialSync({
+  const { status: syncStatus, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
@@ -110,6 +114,8 @@ export function Main() {
               onSelectTarget={page.handleSelectTarget}
               unreadSummary={page.unreadSummary}
               panelWidth={page.panelWidth}
+              syncStatus={syncStatus}
+              onSyncRetry={triggerSync}
             />
           )}
         </AnimatePresence>

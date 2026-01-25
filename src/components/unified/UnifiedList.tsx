@@ -8,12 +8,17 @@
  * - 只有一个 AnimatePresence，切换 tab 时旧卡片飞出、新卡片飞入
  * - 相同 key 的卡片在切换时保持不动（如好友卡片在"消息"和"好友"tab 间切换）
  * - 代码结构更简单，无嵌套 AnimatePresence 问题
+ *
+ * 同步状态横幅：
+ * - 在搜索框下方显示消息同步进度
+ * - 同步完成后自动淡出
  */
 
 import { useMemo, useRef, useLayoutEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
+import { SyncStatusBanner, type SyncStatus } from '../common/SyncStatusBanner';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
 import { cardVariants } from '../../constants/listAnimations';
@@ -77,6 +82,10 @@ interface UnifiedListProps {
   unreadSummary: UnreadSummary | null;
   /** 面板宽度 */
   panelWidth?: number;
+  /** 消息同步状态（可选） */
+  syncStatus?: SyncStatus;
+  /** 同步重试回调（可选） */
+  onSyncRetry?: () => void;
 }
 
 // ============================================
@@ -164,6 +173,8 @@ export function UnifiedList({
   onSelectTarget,
   unreadSummary,
   panelWidth = 280,
+  syncStatus,
+  onSyncRetry,
 }: UnifiedListProps) {
 
   // 获取本地会话预览（用于 fallback）
@@ -492,6 +503,10 @@ export function UnifiedList({
           panelWidth={panelWidth}
           placeholder={getPlaceholder()}
         />
+        {/* 同步状态横幅：仅在消息 tab 显示 */}
+        {activeTab === 'chat' && syncStatus && (
+          <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
+        )}
       </div>
 
       <div className="conversation-list" ref={listRef}>
