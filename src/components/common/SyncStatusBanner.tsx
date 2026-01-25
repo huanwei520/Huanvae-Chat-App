@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import '../../styles/components/sync-banner.css';
 
 /** 同步状态 */
@@ -171,19 +171,20 @@ export function SyncStatusBanner({ status, onRetry }: SyncStatusBannerProps) {
     return null;
   };
 
+  // 不显示时直接返回 null，避免动画问题
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          className="sync-status-banner"
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          {renderContent()}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <motion.div
+      className="sync-status-banner"
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.2 }}
+    >
+      {renderContent()}
+    </motion.div>
   );
 }
