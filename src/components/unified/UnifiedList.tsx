@@ -334,7 +334,8 @@ export function UnifiedList({
       top: cardRect.top - listRect.top + listRef.current.scrollTop,
       height: cardRect.height,
     });
-  }, [getSelectedKey, filteredCards]);
+    // 同步横幅显隐时需要重新计算位置，只监听关键状态避免频繁触发
+  }, [getSelectedKey, filteredCards, syncStatus?.syncing, syncStatus?.lastSyncTime]);
 
   // 处理卡片点击
   const handleCardClick = (card: UnifiedCard) => {
@@ -440,7 +441,6 @@ export function UnifiedList({
         initial="initial"
         animate="animate"
         exit="exit"
-        layout="position"
       >
         {renderCardContent(card)}
       </motion.div>
@@ -547,7 +547,7 @@ export function UnifiedList({
         </AnimatePresence>
 
         {/* 卡片列表：正常文档流 */}
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence mode="sync">
           {renderCards()}
         </AnimatePresence>
       </div>
