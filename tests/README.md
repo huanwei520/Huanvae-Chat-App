@@ -536,6 +536,16 @@ unset CI && pnpm tauri android dev
   - 问题原因：useEffect 依赖项变化导致事件监听器未正确清理
   - 解决方案：使用 useRef 保存回调引用，空依赖数组确保只设置一次监听器
   - 使用 async/await 替代 then，确保清理时监听器已就绪
+- 2026-01-25: Windows 安装包切换到 MSI perUser 模式
+  - 移除 NSIS 安装包，只构建 MSI
+  - MSI 使用 perUser 安装模式，无需管理员权限
+  - 安装到 `%LocalAppData%\Programs\` 而非 `C:\Program Files`
+  - 利用 Windows Restart Manager 处理运行中程序更新
+  - 深度链接协议注册改用 HKCU（用户级）
+  - 创建自定义 WiX 模板 `src-tauri/wix/main.wxs`
+  - 解决 NSIS 更新时"文件无法写入"的问题
+  - 参考文档: https://wixtoolset.org/docs/v3/xsd/wix/package (InstallScope)
+  - 参考文档: https://learn.microsoft.com/en-us/windows/win32/msi/installation-context
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
