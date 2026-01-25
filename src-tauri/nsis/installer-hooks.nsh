@@ -1,117 +1,14 @@
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Huanvae-Chat-App",
-  "version": "1.0.25",
-  "identifier": "com.github.huanwei520.huanvae-chat-app",
-  "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Huanvae Chat",
-        "width": 1024,
-        "height": 820,
-        "minWidth": 600,
-        "minHeight": 400,
-        "dragDropEnabled": false
-      }
-    ],
-    "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "$DATA/**",
-          "$LOCALDATA/**",
-          "$APPDATA/**",
-          "$HOME/.local/share/huanvae-chat/**",
-          "$PICTURE/**",
-          "$VIDEO/**",
-          "$DOCUMENT/**",
-          "$DOWNLOAD/**",
-          "$DESKTOP/**",
-          "$HOME/**",
-          "**"
-        ]
-      }
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "nsis",
-      "msi",
-      "appimage",
-      "deb",
-      "dmg"
-    ],
-    "createUpdaterArtifacts": true,
-    "resources": {
-      "../Notification-Sounds/*": "Notification-Sounds/"
-    },
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "macOS": {
-      "signingIdentity": null,
-      "minimumSystemVersion": "10.13",
-      "infoPlist": "./Info.plist",
-      "entitlements": "./Entitlements.plist"
-    },
-    "windows": {
-      "nsis": {
-        "languages": [
-          "SimpChinese",
-          "English"
-        ],
-        "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico",
-        "installMode": "currentUser",
-        "installerHooks": "./nsis/installer-hooks.nsh",
-        "runAfterInstall": false
-      },
-      "wix": {
-        "language": "zh-CN"
-      }
-    },
-    "linux": {
-      "appimage": {
-        "bundleMediaFramework": true
-      },
-      "deb": {
-        "depends": [
-          "libwebkit2gtk-4.1-0",
-          "libgtk-3-0",
-          "libayatana-appindicator3-1"
-        ],
-        "recommends": [
-          "avahi-daemon"
-        ],
-        "section": "net",
-        "postInstallScript": "./scripts/linux/postinst.sh",
-        "postRemoveScript": "./scripts/linux/postrm.sh"
-      }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOTFDMzBGQTkxQTc1NUEKUldSYWRScXBEOE9SUDVCWUJjZnYvaHBSdzNkbk5PTWRmUzNkVjdlamtDK2xTOXI4UmVZYUhDbGMK",
-      "endpoints": [
-        "https://edgeone.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-        "https://cdn.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-        "https://hk.gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-        "https://gh-proxy.org/https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json",
-        "https://github.com/huanwei520/huanvae-chat-app/releases/latest/download/latest.json"
-      ]
-    }
-  }
-}
+; Huanvae Chat App NSIS 安装钩子
+; 在安装前关闭运行中的应用程序，避免 "exe 无法写入" 错误
+
+!macro NSIS_HOOK_PREINSTALL
+  ; 关闭运行中的主程序
+  nsExec::ExecToLog 'taskkill /F /IM huanvae-chat-app.exe'
+  
+  ; 等待进程完全退出
+  Sleep 1000
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  ; 安装后的操作（可选）
+!macroend

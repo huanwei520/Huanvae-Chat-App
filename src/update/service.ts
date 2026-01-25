@@ -84,6 +84,7 @@ async function getWindowsUpdateTarget(): Promise<string | undefined> {
     }
 
     const installerType = await invoke<string>('get_windows_installer_type');
+    // eslint-disable-next-line no-console
     console.log('[Update] 检测到安装类型:', installerType);
 
     if (installerType === 'msi') {
@@ -116,6 +117,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     const update = await check(target ? { target } : undefined);
 
     if (update) {
+      // eslint-disable-next-line no-console
       console.log('[Update] 发现新版本:', update.version, target ? `(target: ${target})` : '');
       return {
         available: true,
