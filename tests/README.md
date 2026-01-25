@@ -501,6 +501,18 @@ unset CI && pnpm tauri android dev
   - 修复设备 IP 地址不更新问题：设备重新上线时发送 DeviceDiscovered 事件通知前端
   - 修复批量进度不更新问题：并行传输中同步发送 BatchProgress 事件
   - 修复会话取消不生效问题：取消时正确触发所有文件的 CancellationToken
+- 2026-01-25: 连接请求失败自动重试机制
+  - 如果连接请求 HTTP 失败（超时/拒绝），自动刷新设备信息
+  - 等待 1.5 秒让 mDNS 事件处理后，使用最新 IP 重试一次
+  - 解决设备重启服务后短时间内连接失败的问题
+  - 新增 refresh_device() 函数支持按需刷新单个设备信息
+  - 刷新机制改为重启 mDNS browse（verify 仅验证存在性，无法获取新 IP）
+- 2026-01-25: 添加详细的局域网传输调试日志
+  - mDNS 服务注册：输出服务类型、实例名称、主机名、端口、IP
+  - 设备发现：输出 ServiceResolved 事件详情、属性、地址列表
+  - 连接请求：输出本机/目标设备 IP、当前设备列表、HTTP 请求详情
+  - 连接响应：输出待处理请求列表、响应发送详情、耗时统计
+  - HTTP 服务器：输出收到的 TCP 连接来源地址
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
