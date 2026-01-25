@@ -513,6 +513,16 @@ unset CI && pnpm tauri android dev
   - 连接请求：输出本机/目标设备 IP、当前设备列表、HTTP 请求详情
   - 连接响应：输出待处理请求列表、响应发送详情、耗时统计
   - HTTP 服务器：输出收到的 TCP 连接来源地址
+- 2026-01-25: 传输期间暂停设备验证
+  - 后端添加 HAS_ACTIVE_TRANSFERS 标志位
+  - 批量传输开始时设置标志，结束时清除
+  - 设备验证任务检测到活跃传输时跳过验证
+  - 避免高负载传输时 mDNS 响应慢导致误判设备离线
+- 2026-01-25: 支持多个并行传输会话
+  - 前端 batchProgressMap 替代单一 batchProgress
+  - 保留 batchProgress 兼容旧代码
+  - 移动端和桌面端 UI 支持显示多个批量传输进度卡片
+  - 传输途中添加新文件会创建独立的传输会话并单独显示
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

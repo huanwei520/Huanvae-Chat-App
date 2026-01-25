@@ -702,6 +702,7 @@ export default function LanTransferPage() {
     pendingRequests,
     pendingTransferRequests,
     activeTransfers,
+    batchProgressMap,
     batchProgress,
     hashingProgress,
     saveDirectory,
@@ -1092,27 +1093,32 @@ export default function LanTransferPage() {
           )}
         </AnimatePresence>
 
-        {/* 批量传输进度 */}
+        {/* 批量传输进度（支持多个并行会话） */}
         <AnimatePresence>
-          {batchProgress && (
+          {batchProgressMap.size > 0 && (
             <motion.section
               className="lan-section"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
             >
-              <h2 className="lan-section-title">批量传输</h2>
-              <BatchProgressCard
-                progress={batchProgress}
-                onCancel={() => cancelSession(batchProgress.sessionId)}
-              />
+              <h2 className="lan-section-title">
+                批量传输 {batchProgressMap.size > 1 ? `(${batchProgressMap.size} 个会话)` : ''}
+              </h2>
+              {Array.from(batchProgressMap.entries()).map(([sessionId, bp]) => (
+                <BatchProgressCard
+                  key={sessionId}
+                  progress={bp}
+                  onCancel={() => cancelSession(sessionId)}
+                />
+              ))}
             </motion.section>
           )}
         </AnimatePresence>
 
         {/* 单文件传输进度 */}
         <AnimatePresence>
-          {activeTransfers.length > 0 && !batchProgress && (
+          {activeTransfers.length > 0 && batchProgressMap.size === 0 && (
             <motion.section
               className="lan-section"
               initial={{ opacity: 0, height: 0 }}

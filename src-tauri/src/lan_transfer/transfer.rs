@@ -1141,6 +1141,8 @@ pub async fn respond_to_transfer_request(
 ///
 /// 使用 Semaphore 限制并发数，每个文件有独立的 CancellationToken
 /// 一个文件失败不影响其他文件继续传输
+///
+/// 传输期间会暂停设备验证任务，避免高负载时误判设备离线
 pub async fn start_batch_transfer(
     request_id: &str,
     file_paths: Vec<String>,
@@ -1153,6 +1155,10 @@ pub async fn start_batch_transfer(
     };
 
     let session = session.ok_or_else(|| TransferError::RequestNotFound(request_id.to_string()))?;
+
+    // 设置活跃传输标志（暂停设备验证）
+    // 在确认会话存在后设置，避免无效请求也暂停验证
+    super::discovery::set_active_transfer(true);
 
     let target_device = session.target_device.clone();
     let session_id = session.session_id.clone();
@@ -1322,11 +1328,14 @@ pub async fn start_batch_transfer(
         success_count, total_files, fail_count, target_device.device_name
     );
 
-    if fail_count > 0 && success_count == 0 {
-        return Err(TransferError::TransferFailed("所有文件传输失败".to_string()));
-    }
+    // 清除活跃传输标志（恢复设备验证）
+    super::discovery::set_active_transfer(false);
 
-    Ok(())
+    if fail_count > 0 && success_count == 0 {
+        Err(TransferError::TransferFailed("所有文件传输失败".to_string()))
+    } else {
+        Ok(())
+    }
 }
 
 /// 发送批量进度事件

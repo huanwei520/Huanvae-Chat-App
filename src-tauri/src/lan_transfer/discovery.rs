@@ -27,10 +27,16 @@
  * - fullname -> device_id：mDNS fullname 使用截断后的 instance_name（最多15字符），
  *   而设备列表使用完整的 device_id（32字符 UUID），需要映射表进行转换
  *
+ * 传输期间设备验证暂停：
+ * - 高负载传输期间，mDNS 响应可能变慢导致设备被误判为离线
+ * - 批量传输开始时设置 HAS_ACTIVE_TRANSFERS 标志，暂停设备验证任务
+ * - 传输完成后清除标志，恢复正常的设备验证
+ *
  * 更新日志：
  * - 2026-01-25: 添加 refresh_device() 函数，支持按需刷新单个设备信息
  * - 2026-01-25: 修复设备 IP 地址不更新问题，设备重新上线时也发送事件通知前端
- * - 2026-01-25: refresh_device() 改为重启 mDNS browse（verify 仅验证存在性，无法获取新 IP）
+ * - 2026-01-25: refresh_device() 改为清除缓存等待自动发现（不重启 browse）
+ * - 2026-01-25: 添加活跃传输标志，传输期间暂停设备验证避免误判离线
  */
 
 use super::protocol::{DeviceInfo, DiscoveredDevice, LanTransferEvent, PROTOCOL_VERSION, SERVICE_PORT, SERVICE_TYPE};
@@ -92,6 +98,30 @@ static FULLNAME_TO_DEVICE_ID: OnceCell<Arc<Mutex<HashMap<String, String>>>> = On
 /// 设备验证失败计数器
 /// key: device_id, value: 连续失败次数
 static VERIFY_FAILURE_COUNT: OnceCell<Arc<Mutex<HashMap<String, u32>>>> = OnceCell::new();
+
+/// 是否有活跃的传输任务
+/// 传输期间暂停设备验证，避免高负载时误判设备离线
+static HAS_ACTIVE_TRANSFERS: OnceCell<Arc<std::sync::atomic::AtomicBool>> = OnceCell::new();
+
+/// 获取活跃传输标志
+fn get_active_transfer_flag() -> Arc<std::sync::atomic::AtomicBool> {
+    HAS_ACTIVE_TRANSFERS
+        .get_or_init(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
+        .clone()
+}
+
+/// 设置活跃传输状态
+/// 
+/// 在批量传输开始时设置为 true，结束时设置为 false。
+/// 传输期间设备验证任务会跳过验证，避免高负载时误判设备离线。
+pub fn set_active_transfer(active: bool) {
+    get_active_transfer_flag().store(active, std::sync::atomic::Ordering::SeqCst);
+    if active {
+        println!("[LanTransfer] 🔄 活跃传输标志已设置，暂停设备验证");
+    } else {
+        println!("[LanTransfer] 🔄 活跃传输标志已清除，恢复设备验证");
+    }
+}
 
 /// 获取 fullname 到 device_id 的映射表
 fn get_fullname_to_device_id_map() -> Arc<Mutex<HashMap<String, String>>> {
@@ -895,6 +925,12 @@ async fn run_device_verify_task(my_device_id: String) {
         if !verify_flag.load(std::sync::atomic::Ordering::SeqCst) {
             println!("[LanTransfer] 🔍 设备验证任务收到停止信号");
             break;
+        }
+
+        // 检查是否有活跃传输，如果有则跳过本次验证
+        if get_active_transfer_flag().load(std::sync::atomic::Ordering::SeqCst) {
+            println!("[LanTransfer] 🔍 有活跃传输，跳过本次设备验证");
+            continue;
         }
 
         // 获取所有已发现的设备
