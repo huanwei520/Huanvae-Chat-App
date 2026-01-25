@@ -28,6 +28,7 @@ tests/
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
+    ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
     └── registry.test.tsx        # 组件注册表测试（109 个测试用例）
 ```
@@ -546,6 +547,15 @@ unset CI && pnpm tauri android dev
   - 解决 NSIS 更新时"文件无法写入"的问题
   - 参考文档: https://wixtoolset.org/docs/v3/xsd/wix/package (InstallScope)
   - 参考文档: https://learn.microsoft.com/en-us/windows/win32/msi/installation-context
+- 2026-01-25: 登录后消息同步进度 UI
+  - 新增 SyncStatusBanner 组件，显示消息同步进度
+  - 桌面端：消息列表（UnifiedList）搜索框下方显示
+  - 移动端：消息列表（MobileChatList）下载卡片下方显示
+  - 同步中：显示旋转图标 + "正在同步消息... (X/Y)"
+  - 同步完成：显示成功图标 + "已同步 X 条新消息"（1.5 秒后淡出）
+  - 同步失败：显示错误图标 + "同步失败，点击重试"（可点击重试）
+  - 6 个测试用例（tests/components/SyncStatusBanner.test.tsx）
+  - 2 个功能检查项（tests/checklist.ts）
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

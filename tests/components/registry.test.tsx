@@ -36,6 +36,7 @@ import * as LoadingSpinner from '../../src/components/common/LoadingSpinner';
 import * as LoadingOverlay from '../../src/components/common/LoadingOverlay';
 import * as SearchBox from '../../src/components/common/SearchBox';
 import * as ListStates from '../../src/components/common/ListStates';
+import * as SyncStatusBanner from '../../src/components/common/SyncStatusBanner';
 import * as Sidebar from '../../src/components/sidebar/Sidebar';
 import * as UnifiedList from '../../src/components/unified/UnifiedList';
 import * as CardStack from '../../src/components/account/CardStack';
@@ -181,6 +182,7 @@ const COMPONENT_MAP = {
   LoadingOverlay,
   SearchBox,
   ListStates,
+  SyncStatusBanner,
   Sidebar,
   UnifiedList,
   CardStack,

@@ -3,11 +3,16 @@
  *
  * 复用 UnifiedList 的数据逻辑，但使用移动端专属的UI布局
  * 修复：使用正确的 useLocalConversations 返回值和 Friend 类型字段名
+ *
+ * 同步状态横幅：
+ * - 在下载卡片下方显示消息同步进度
+ * - 同步完成后自动淡出
  */
 
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
+import { SyncStatusBanner, type SyncStatus } from '../../components/common/SyncStatusBanner';
 import { formatMessageTime } from '../../utils/time';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
@@ -27,6 +32,10 @@ interface MobileChatListProps {
   onSelectTarget: (target: ChatTarget) => void;
   /** 未读消息摘要 */
   unreadSummary: UnreadSummary | null;
+  /** 消息同步状态（可选） */
+  syncStatus?: SyncStatus;
+  /** 同步重试回调（可选） */
+  onSyncRetry?: () => void;
 }
 
 interface ConversationCard {
@@ -47,6 +56,8 @@ export function MobileChatList({
   searchQuery,
   onSelectTarget,
   unreadSummary,
+  syncStatus,
+  onSyncRetry,
 }: MobileChatListProps) {
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
@@ -185,6 +196,11 @@ export function MobileChatList({
     <div className="mobile-contacts">
       {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
       <MobileDownloadCard />
+
+      {/* 同步状态横幅 - 下载卡片下方 */}
+      {syncStatus && (
+        <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
+      )}
 
       <AnimatePresence mode="popLayout">
         {sortedCards.map((card) => (

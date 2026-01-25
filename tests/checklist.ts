@@ -140,6 +140,29 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
     name: '消息模块',
     items: [
       {
+        name: '登录后消息同步',
+        description: '登录后自动同步所有会话的增量消息',
+        critical: true,
+        steps: [
+          '登录账号',
+          '等待好友和群聊列表加载完成',
+          '验证消息列表顶部显示同步进度横幅',
+          '验证横幅显示"正在同步消息... (X/Y)"',
+          '验证同步完成后显示"已同步 X 条新消息"',
+          '验证横幅 1.5 秒后自动淡出消失',
+        ],
+      },
+      {
+        name: '同步状态重试',
+        description: '同步失败时可点击重试',
+        critical: false,
+        steps: [
+          '模拟网络错误导致同步失败',
+          '验证横幅显示"同步失败，点击重试"',
+          '点击横幅验证重新开始同步',
+        ],
+      },
+      {
         name: '发送文本消息',
         description: '发送纯文本消息',
         critical: true,

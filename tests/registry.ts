@@ -41,6 +41,7 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'LoadingOverlay', path: 'components/common/LoadingOverlay', category: 'components', description: '加载遮罩' },
   { name: 'SearchBox', path: 'components/common/SearchBox', category: 'components', description: '搜索框' },
   { name: 'ListStates', path: 'components/common/ListStates', category: 'components', description: '列表状态组件' },
+  { name: 'SyncStatusBanner', path: 'components/common/SyncStatusBanner', category: 'components', description: '消息同步状态横幅' },
   
   // 侧边栏
   { name: 'Sidebar', path: 'components/sidebar/Sidebar', category: 'components', description: '侧边栏' },

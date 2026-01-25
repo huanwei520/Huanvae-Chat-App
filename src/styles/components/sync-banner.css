@@ -1,0 +1,118 @@
+/**
+ * 同步状态横幅样式
+ *
+ * 在消息列表顶部显示同步进度，桌面端和移动端共用
+ * 设计：紧凑、半透明毛玻璃、不突兀
+ */
+
+/* ============================================
+   横幅容器
+   ============================================ */
+
+.sync-status-banner {
+  overflow: hidden;
+  padding: 0 12px;
+}
+
+.sync-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+
+/* ============================================
+   状态变体
+   ============================================ */
+
+/* 同步中 - 蓝色调 */
+.sync-banner-syncing {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* 成功 - 绿色调 */
+.sync-banner-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+/* 错误 - 红色调，可点击 */
+.sync-banner-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  cursor: pointer;
+}
+
+.sync-banner-error:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.sync-banner-error:active {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ============================================
+   内部元素
+   ============================================ */
+
+.sync-banner-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 图标样式 */
+.sync-banner-content svg {
+  flex-shrink: 0;
+}
+
+/* ============================================
+   深色模式适配
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  .sync-banner-syncing {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .sync-banner-success {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .sync-banner-error {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+
+  .sync-banner-error:hover {
+    background: rgba(239, 68, 68, 0.2);
+  }
+}
+
+/* ============================================
+   移动端适配
+   ============================================ */
+
+@media (max-width: 768px) {
+  .sync-status-banner {
+    padding: 0 8px;
+  }
+
+  .sync-banner-content {
+    padding: 6px 10px;
+    margin: 6px 0;
+    font-size: 12px;
+  }
+}
