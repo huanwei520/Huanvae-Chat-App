@@ -11,22 +11,21 @@
  */
 
 // 卡片动画变体：从左飞入，向右飞出
-// 使用较短的动画时长配合 AnimatePresence mode="wait"
 export const cardVariants = {
-  initial: { opacity: 0, x: -20 },
+  initial: { opacity: 0, x: -30 },
   animate: {
     opacity: 1,
     x: 0,
     transition: {
-      duration: 0.2,
+      duration: 0.3,
       ease: [0.33, 1, 0.68, 1] as const, // 平滑的 ease-out
     },
   },
   exit: {
     opacity: 0,
-    x: 20,
+    x: 30,
     transition: {
-      duration: 0.15,
+      duration: 0.25,
       ease: [0.33, 1, 0.68, 1] as const,
     },
   },
