@@ -22,7 +22,6 @@ import {
   useLanTransfer,
   DiscoveredDevice,
   ConnectionRequest,
-  TransferTask,
   TransferRequest,
   BatchTransferProgress,
   HashingProgress,
@@ -705,8 +704,6 @@ export default function LanTransferPage() {
     // 旧版兼容
     respondToRequest,
     respondToTransferRequest,
-    cancelTransfer,
-    cancelFileTransfer,
     cancelSession,
     // 配置
     setSaveDirectory,

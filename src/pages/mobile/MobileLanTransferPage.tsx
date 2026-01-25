@@ -22,7 +22,6 @@ import { selectFilesForTransfer, cleanupTempFiles } from '../../utils/androidFil
 import {
   useLanTransfer,
   type DiscoveredDevice,
-  type TransferTask,
   type TransferRequest,
   type PeerConnectionRequest,
 } from '../../hooks/useLanTransfer';
