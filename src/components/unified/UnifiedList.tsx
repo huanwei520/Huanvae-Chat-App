@@ -313,28 +313,36 @@ export function UnifiedList({
 
   // 计算选中背景位置
   useLayoutEffect(() => {
-    const selectedKey = getSelectedKey();
+    const updatePosition = () => {
+      const selectedKey = getSelectedKey();
 
-    if (!selectedKey || !listRef.current) {
-      setSelectedBgStyle(null);
-      return;
-    }
+      if (!selectedKey || !listRef.current) {
+        setSelectedBgStyle(null);
+        return;
+      }
 
-    const cardElement = cardRefs.current.get(selectedKey);
-    if (!cardElement) {
-      setSelectedBgStyle(null);
-      return;
-    }
+      const cardElement = cardRefs.current.get(selectedKey);
+      if (!cardElement) {
+        setSelectedBgStyle(null);
+        return;
+      }
 
-    // 计算相对于列表容器的位置
-    const listRect = listRef.current.getBoundingClientRect();
-    const cardRect = cardElement.getBoundingClientRect();
+      // 计算相对于列表容器的位置
+      const listRect = listRef.current.getBoundingClientRect();
+      const cardRect = cardElement.getBoundingClientRect();
 
-    setSelectedBgStyle({
-      top: cardRect.top - listRect.top + listRef.current.scrollTop,
-      height: cardRect.height,
-    });
-    // 同步横幅显隐时需要重新计算位置，只监听关键状态避免频繁触发
+      setSelectedBgStyle({
+        top: cardRect.top - listRect.top + listRef.current.scrollTop,
+        height: cardRect.height,
+      });
+    };
+
+    // 立即计算一次
+    updatePosition();
+
+    // 同步横幅显隐时，等待动画完成后再次计算（横幅动画 200ms）
+    const timer = setTimeout(updatePosition, 220);
+    return () => clearTimeout(timer);
   }, [getSelectedKey, filteredCards, syncStatus?.syncing, syncStatus?.lastSyncTime]);
 
   // 处理卡片点击
@@ -546,8 +554,8 @@ export function UnifiedList({
           {renderOverlay()}
         </AnimatePresence>
 
-        {/* 卡片列表：正常文档流 */}
-        <AnimatePresence mode="sync">
+        {/* 卡片列表：正常文档流，wait 模式确保先退出再进入 */}
+        <AnimatePresence mode="wait">
           {renderCards()}
         </AnimatePresence>
       </div>
