@@ -328,36 +328,56 @@ function PeerTransferWindow({
   onCancelSession,
 }: PeerTransferWindowProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const onSendFilePathsRef = useRef(onSendFilePaths);
 
-  // 监听 Tauri 文件拖放事件
+  // 保持 ref 最新
+  useEffect(() => {
+    onSendFilePathsRef.current = onSendFilePaths;
+  }, [onSendFilePaths]);
+
+  // 监听 Tauri 文件拖放事件（只在组件挂载时设置一次）
   useEffect(() => {
     const window = getCurrentWindow();
-    const unlisteners: Array<() => void> = [];
+    let unlistenEnter: (() => void) | null = null;
+    let unlistenLeave: (() => void) | null = null;
+    let unlistenDrop: (() => void) | null = null;
+    let mounted = true;
 
-    // 拖拽进入
-    window.listen<{ paths: string[] }>(TauriEvent.DRAG_ENTER, (event) => {
-      if (event.payload.paths && event.payload.paths.length > 0) {
-        setIsDragging(true);
-      }
-    }).then((unlisten) => unlisteners.push(unlisten));
+    const setupListeners = async () => {
+      // 拖拽进入
+      unlistenEnter = await window.listen<{ paths: string[] }>(TauriEvent.DRAG_ENTER, (event) => {
+        if (mounted && event.payload.paths && event.payload.paths.length > 0) {
+          setIsDragging(true);
+        }
+      });
 
-    // 拖拽离开
-    window.listen(TauriEvent.DRAG_LEAVE, () => {
-      setIsDragging(false);
-    }).then((unlisten) => unlisteners.push(unlisten));
+      // 拖拽离开
+      unlistenLeave = await window.listen(TauriEvent.DRAG_LEAVE, () => {
+        if (mounted) {
+          setIsDragging(false);
+        }
+      });
 
-    // 文件放下
-    window.listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
-      setIsDragging(false);
-      if (event.payload.paths && event.payload.paths.length > 0) {
-        onSendFilePaths(event.payload.paths);
-      }
-    }).then((unlisten) => unlisteners.push(unlisten));
+      // 文件放下
+      unlistenDrop = await window.listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
+        if (mounted) {
+          setIsDragging(false);
+          if (event.payload.paths && event.payload.paths.length > 0) {
+            onSendFilePathsRef.current(event.payload.paths);
+          }
+        }
+      });
+    };
+
+    setupListeners();
 
     return () => {
-      unlisteners.forEach((unlisten) => unlisten());
+      mounted = false;
+      unlistenEnter?.();
+      unlistenLeave?.();
+      unlistenDrop?.();
     };
-  }, [onSendFilePaths]);
+  }, []);  // 空依赖，只在挂载时设置一次
 
   return (
     <motion.div
@@ -513,51 +533,6 @@ function TransferRequestCard({ request, onAccept, onReject }: TransferRequestCar
           接受
         </button>
       </div>
-    </motion.div>
-  );
-}
-
-interface TransferProgressCardProps {
-  task: TransferTask;
-  onCancel: () => void;
-}
-
-function TransferProgressCard({ task, onCancel }: TransferProgressCardProps) {
-  const progress = task.file.fileSize > 0
-    ? (task.transferredBytes / task.file.fileSize) * 100
-    : 0;
-
-  return (
-    <motion.div
-      className="lan-transfer-progress-card"
-      variants={cardVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-    >
-      <div className="lan-transfer-info">
-        <div className="lan-transfer-filename">{task.file.fileName}</div>
-        <div className="lan-transfer-meta">
-          {task.direction === 'send' ? '发送到' : '接收自'}: {task.targetDevice.deviceName}
-        </div>
-        <div className="lan-transfer-progress-bar">
-          <div
-            className="lan-transfer-progress-fill"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="lan-transfer-stats">
-          <span>{formatSize(task.transferredBytes)} / {formatSize(task.file.fileSize)}</span>
-          <span>{formatSpeed(task.speed)}</span>
-          <span>{progress.toFixed(1)}%</span>
-          {task.etaSeconds && <span>剩余 {formatEta(task.etaSeconds)}</span>}
-        </div>
-      </div>
-      {task.status === 'transferring' && (
-        <button className="lan-transfer-cancel" onClick={onCancel}>
-          <XIcon />
-        </button>
-      )}
     </motion.div>
   );
 }
@@ -1120,29 +1095,6 @@ export default function LanTransferPage() {
                   onCancel={() => cancelSession(sessionId)}
                 />
               ))}
-            </motion.section>
-          )}
-        </AnimatePresence>
-
-        {/* 单文件传输进度 */}
-        <AnimatePresence>
-          {activeTransfers.length > 0 && batchProgressMap.size === 0 && (
-            <motion.section
-              className="lan-section"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-            >
-              <h2 className="lan-section-title">传输中</h2>
-              <div className="lan-cards-list">
-                {activeTransfers.map((task) => (
-                  <TransferProgressCard
-                    key={task.taskId}
-                    task={task}
-                    onCancel={() => cancelFileTransfer(task.file.fileId)}
-                  />
-                ))}
-              </div>
             </motion.section>
           )}
         </AnimatePresence>

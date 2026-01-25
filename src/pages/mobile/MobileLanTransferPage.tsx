@@ -841,47 +841,6 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         </div>
       ))}
 
-      {/* 单文件传输进度 */}
-      {transfer.activeTransfers.length > 0 && transfer.batchProgressMap.size === 0 && (
-        <div className="mobile-lan-transfer-tasks">
-          <h3>传输中</h3>
-          {transfer.activeTransfers.map((task: TransferTask) => {
-            const progress = task.file.fileSize > 0
-              ? task.transferredBytes / task.file.fileSize
-              : 0;
-            return (
-              <div key={task.taskId} className="transfer-task-card">
-                <div className="task-info">
-                  <span className="task-direction">{task.direction === 'send' ? '📤' : '📥'}</span>
-                  <span className="task-name">{task.file.fileName}</span>
-                  <span className="task-progress">{Math.round(progress * 100)}%</span>
-                  {task.status === 'transferring' && (
-                    <button
-                      className="task-cancel-btn"
-                      onClick={() => transfer.cancelFileTransfer(task.file.fileId)}
-                      title="取消传输"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <div className="task-progress-bar">
-                  <div
-                    className="task-progress-fill"
-                    style={{ width: `${progress * 100}%` }}
-                  />
-                </div>
-                <div className="task-stats">
-                  <span>{formatSize(task.transferredBytes)} / {formatSize(task.file.fileSize)}</span>
-                  <span>{formatSpeed(task.speed)}</span>
-                  {task.etaSeconds && <span>剩余 {formatEta(task.etaSeconds)}</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* 设备列表 */}
       <div className="mobile-lan-transfer-content">
         <h3>发现的设备</h3>
