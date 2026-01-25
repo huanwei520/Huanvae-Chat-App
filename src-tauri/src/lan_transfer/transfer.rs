@@ -8,8 +8,9 @@
  * - 向已连接设备发送文件（无需再次确认）
  * - 多文件并行批量传输（可配置并行度）
  * - 单文件取消支持（CancellationToken）
+ * - 会话级批量取消支持
  * - 断点续传支持
- * - 传输进度跟踪
+ * - 传输进度跟踪（单文件 + 批量进度同步更新）
  * - 取消传输
  * - 详细传输调试日志
  * - 块上传自动重试（最多 3 次）
@@ -18,7 +19,13 @@
  * - 默认并行度: 3 个文件同时传输
  * - 使用 Semaphore 限制并发数，避免带宽竞争
  * - 每个文件有独立的 CancellationToken，支持单独取消
+ * - 会话取消时批量取消所有正在传输的文件
  * - 一个文件失败不影响其他文件继续传输
+ *
+ * 进度更新机制：
+ * - 单文件进度: TransferProgress 事件，每 100ms 更新一次
+ * - 批量进度: BatchProgress 事件，与单文件进度同步更新
+ * - 使用原子操作（AtomicU64/AtomicU32）保证并行更新安全
  *
  * 调试日志说明：
  * - 📤 开始传输: 文件名、大小、目标地址
@@ -26,9 +33,12 @@
  * - 📦 分块上传: 块大小、块数量、传输进度
  * - 📊 进度日志: 每传输 5MB 打印一次进度（百分比、速度、剩余时间）
  * - 🔄 断点续传/重试: 恢复偏移量、重试次数
+ * - 📛 取消传输: 单文件取消或会话取消
  * - ❌ 错误信息: 详细的错误位置和原因
  *
  * 更新日志：
+ * - 2026-01-25: 修复批量进度不更新问题，在并行传输中同步发送 BatchProgress 事件
+ * - 2026-01-25: 修复会话取消不生效问题，取消时正确触发所有文件的 CancellationToken
  * - 2026-01-25: 重构为并行传输，添加单文件取消支持
  * - 2026-01-21: 添加详细传输调试日志，用于排查跨平台传输问题
  * - 2026-01-21: 添加块上传重试机制（最多 3 次），提高传输稳定性
@@ -1382,10 +1392,13 @@ async fn do_file_transfer_with_resume_parallel(
                 transfers.insert(file_meta.file_id.clone(), task.clone());
             }
 
-            // 发送进度事件
+            // 发送单文件进度事件
             let event = LanTransferEvent::TransferProgress { task: task.clone() };
             let _ = get_event_sender().send(event.clone());
             emit_lan_event(&event);
+
+            // 发送批量进度事件（确保前端批量进度条正确更新）
+            emit_batch_progress(&progress, Some(file_meta.clone()));
         }
     }
 
@@ -1943,8 +1956,11 @@ pub async fn cancel_transfer(transfer_id: &str) -> Result<(), TransferError> {
     Ok(())
 }
 
-/// 取消会话
+/// 取消会话（取消所有正在传输的文件）
 pub async fn cancel_session(request_id: &str) -> Result<(), TransferError> {
+    // 收集需要取消的文件 ID
+    let file_ids_to_cancel: Vec<String>;
+
     // 更新会话状态
     {
         let sessions = get_active_sessions();
@@ -1952,18 +1968,52 @@ pub async fn cancel_session(request_id: &str) -> Result<(), TransferError> {
         if let Some(session) = sessions.get_mut(request_id) {
             session.status = SessionStatus::Cancelled;
 
-            // 取消所有文件
-            for file_state in &mut session.files {
-                if file_state.status == TransferStatus::Pending
-                    || file_state.status == TransferStatus::Transferring
-                {
-                    file_state.status = TransferStatus::Cancelled;
-                }
+            // 收集正在传输的文件 ID 并更新状态
+            file_ids_to_cancel = session
+                .files
+                .iter_mut()
+                .filter_map(|file_state| {
+                    if file_state.status == TransferStatus::Pending
+                        || file_state.status == TransferStatus::Transferring
+                    {
+                        file_state.status = TransferStatus::Cancelled;
+                        Some(file_state.file.file_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        } else {
+            file_ids_to_cancel = Vec::new();
+        }
+    }
+
+    // 取消所有文件的 CancellationToken
+    let tokens = get_file_cancel_tokens();
+    {
+        let tokens_read = tokens.read();
+        for file_id in &file_ids_to_cancel {
+            if let Some(token) = tokens_read.get(file_id) {
+                token.cancel();
+                println!("[LanTransfer] 📛 取消文件传输: {}", file_id);
             }
         }
     }
 
-    println!("[LanTransfer] 会话已取消: {}", request_id);
+    // 发送批量取消事件
+    let event = LanTransferEvent::BatchTransferCompleted {
+        session_id: request_id.to_string(),
+        total_files: 0,
+        save_directory: String::new(),
+    };
+    let _ = get_event_sender().send(event.clone());
+    emit_lan_event(&event);
+
+    println!(
+        "[LanTransfer] 会话已取消: {}, 取消了 {} 个文件",
+        request_id,
+        file_ids_to_cancel.len()
+    );
 
     Ok(())
 }

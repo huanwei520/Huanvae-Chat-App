@@ -497,6 +497,10 @@ unset CI && pnpm tauri android dev
   - 新增 cancel_file_transfer 命令（后端 + 前端）
   - 移动端添加取消按钮（单文件取消 + 批量取消）
   - 新增依赖: tokio-util（CancellationToken）, futures（join_all）
+- 2026-01-25: 修复局域网传输多项问题
+  - 修复设备 IP 地址不更新问题：设备重新上线时发送 DeviceDiscovered 事件通知前端
+  - 修复批量进度不更新问题：并行传输中同步发送 BatchProgress 事件
+  - 修复会话取消不生效问题：取消时正确触发所有文件的 CancellationToken
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

@@ -9,15 +9,24 @@
  * - 维护发现的设备列表
  * - 设备上下线通知
  * - 定期验证设备在线状态（解决强制杀掉应用无法检测的问题）
+ * - 设备信息自动更新（包括 IP 地址变化）
  *
  * 设备下线检测机制：
  * - mDNS ServiceRemoved 事件：当设备正常关闭时触发
  * - 主动验证任务：定期对已发现设备调用 mDNS verify()
  * - 验证失败计数：连续失败 MAX_VERIFY_FAILURES 次后主动移除设备
  *
+ * 设备信息更新机制：
+ * - 当设备重新上线时（如重启服务），会收到新的 ServiceResolved 事件
+ * - 无论是新设备还是已存在设备，都会发送 DeviceDiscovered 事件通知前端
+ * - 这确保前端始终拥有最新的设备信息（特别是可能变化的 IP 地址）
+ *
  * 关键映射关系：
  * - fullname -> device_id：mDNS fullname 使用截断后的 instance_name（最多15字符），
  *   而设备列表使用完整的 device_id（32字符 UUID），需要映射表进行转换
+ *
+ * 更新日志：
+ * - 2026-01-25: 修复设备 IP 地址不更新问题，设备重新上线时也发送事件通知前端
  */
 
 use super::protocol::{DeviceInfo, DiscoveredDevice, LanTransferEvent, PROTOCOL_VERSION, SERVICE_PORT, SERVICE_TYPE};
@@ -649,32 +658,31 @@ async fn handle_mdns_events(
                             let is_new = !devices.contains_key(&device_id);
                             devices.insert(device_id.clone(), device.clone());
 
-                            if is_new {
-                                // 重置验证失败计数
-                                {
-                                    let count_map = get_verify_failure_count_map();
-                                    let mut count_map = count_map.lock();
-                                    count_map.remove(&device_id);
-                                }
+                            // 重置验证失败计数
+                            {
+                                let count_map = get_verify_failure_count_map();
+                                let mut count_map = count_map.lock();
+                                count_map.remove(&device_id);
+                            }
 
+                            if is_new {
                                 println!("[LanTransfer] ✅ 发现新设备!");
                                 println!("[LanTransfer]   名称: {}", device_name);
                                 println!("[LanTransfer]   用户: {} ({})", user_nickname, user_id);
                                 println!("[LanTransfer]   IP: {}:{}", ip_address, info.get_port());
-                                let event = LanTransferEvent::DeviceDiscovered {
-                                    device: device.clone(),
-                                };
-                                let _ = event_sender.send(event.clone());
-                                emit_lan_event(&event);
                             } else {
-                                // 设备重新响应，重置验证失败计数
-                                {
-                                    let count_map = get_verify_failure_count_map();
-                                    let mut count_map = count_map.lock();
-                                    count_map.remove(&device_id);
-                                }
-                                println!("[LanTransfer]   ℹ️ 设备已存在，更新信息");
+                                // 设备重新响应，更新设备信息（包括可能变化的 IP 地址）
+                                println!("[LanTransfer]   🔄 设备已存在，更新信息");
+                                println!("[LanTransfer]   IP: {}:{}", ip_address, info.get_port());
                             }
+
+                            // 无论新设备还是已存在设备，都发送事件通知前端
+                            // 这样前端可以获取最新的设备信息（特别是 IP 地址可能变化）
+                            let event = LanTransferEvent::DeviceDiscovered {
+                                device: device.clone(),
+                            };
+                            let _ = event_sender.send(event.clone());
+                            emit_lan_event(&event);
                         }
                     }
                     ServiceEvent::ServiceRemoved(service_type, fullname) => {
