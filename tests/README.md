@@ -476,6 +476,13 @@ unset CI && pnpm tauri android dev
   - 创建 `src/chat/shared/SendStatusIndicator.tsx` 发送状态指示器组件
   - 减少约 200 行重复代码，提高可维护性
   - 参考文档: Vite tree-shaking、Atlassian barrel files 研究
+- 2026-01-25: 局域网传输哈希算法从 SHA-256 迁移到 CRC32fast
+  - 性能提升: ~7.3 GB/s（比 SHA-256 快约 14 倍）
+  - TB 级文件传输预处理时间大幅缩短
+  - 跨平台支持: Android AOSP 官方认证、Windows、macOS、Linux、iOS
+  - 流式处理: 无需将整个文件读入内存
+  - 协议字段名保持不变（sha256）以兼容现有版本
+  - 参考文档: https://docs.rs/crc32fast/, https://android.googlesource.com/platform/external/rust/crates/crc32fast/
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

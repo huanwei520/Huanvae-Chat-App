@@ -11,7 +11,7 @@
 use super::config;
 use super::protocol::ResumeInfo;
 use chrono::Utc;
-use sha2::{Digest, Sha256};
+use crc32fast::Hasher as Crc32Hasher;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -289,9 +289,10 @@ impl ResumeManager {
                 break;
             }
 
-            let mut hasher = Sha256::new();
+            // CRC32 哈希计算
+            let mut hasher = Crc32Hasher::new();
             hasher.update(&buffer[..bytes_read]);
-            let actual_hash = hex::encode(hasher.finalize());
+            let actual_hash = format!("{:08x}", hasher.finalize());
 
             if &actual_hash != expected_hash {
                 println!(

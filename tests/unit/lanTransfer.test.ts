@@ -26,6 +26,7 @@
  * - 2026-01-21: 添加 Android 数据目录初始化测试（修复只读系统目录问题）
  * - 2026-01-22: 添加移动端 UI 适配测试（WebviewWindow 模块隔离）
  * - 2026-01-24: 添加 mDNS 设备下线检测测试（修复 fullname 格式不匹配问题）
+ * - 2026-01-25: 哈希算法从 SHA-256 迁移到 CRC32fast（协议字段名保持兼容）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

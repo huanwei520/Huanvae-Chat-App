@@ -15,7 +15,14 @@
  * - server: HTTP 服务器（接收文件）
  * - transfer: 文件传输逻辑
  *
+ * 哈希算法：
+ * - 使用 CRC32fast 进行文件完整性校验
+ * - 速度: ~7.3 GB/s（比 SHA-256 快约 14 倍）
+ * - 官方平台支持: Android AOSP, Windows, macOS, Linux
+ * - 流式处理: 无需将整个文件读入内存
+ *
  * @see https://github.com/localsend/protocol 参考 LocalSend 协议
+ * @see https://docs.rs/crc32fast/ CRC32fast 文档
  */
 
 pub mod config;

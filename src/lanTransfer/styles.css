@@ -1354,6 +1354,13 @@
   background: rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.15);
 }
 
+.lan-peer-transfer-dropzone.dragging {
+  border-color: var(--primary);
+  border-style: solid;
+  background: rgba(var(--color-primary-4-rgb, 147, 197, 253), 0.25);
+  transform: scale(1.02);
+}
+
 .lan-peer-transfer-dropzone svg {
   color: var(--text-muted);
 }
