@@ -10,4 +10,5 @@ export type {
   ConnectionRequest,
   TransferTask,
   LanTransferEvent,
+  HashingProgress,
 } from '../../hooks/useLanTransfer';

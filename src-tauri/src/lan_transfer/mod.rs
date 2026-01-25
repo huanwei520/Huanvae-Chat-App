@@ -8,18 +8,27 @@
  * - 设备信息展示：显示设备名称和登录用户
  * - 连接确认：双向确认机制确保安全
  * - 文件传输：支持大文件分块传输、校验、断点续传
+ * - 并行传输：多文件同时传输（默认并行度 3）
+ * - 单文件取消：使用 CancellationToken 支持取消正在传输的单个文件
  *
  * 模块结构：
  * - discovery: mDNS 设备发现
  * - protocol: 协议定义（消息类型、数据结构）
  * - server: HTTP 服务器（接收文件）
- * - transfer: 文件传输逻辑
+ * - transfer: 文件传输逻辑（并行传输、取消机制）
+ *
+ * 并行传输：
+ * - 使用 Semaphore 限制最大并发数（默认 3）
+ * - 每个文件独立的 CancellationToken，支持单独取消
+ * - 一个文件失败不影响其他文件继续传输
+ * - 使用原子操作更新全局进度
  *
  * 哈希算法：
  * - 使用 CRC32fast 进行文件完整性校验
  * - 速度: ~7.3 GB/s（比 SHA-256 快约 14 倍）
  * - 官方平台支持: Android AOSP, Windows, macOS, Linux
  * - 流式处理: 无需将整个文件读入内存
+ * - 大文件进度反馈: 每 100MB 发送 HashingProgress 事件到前端
  *
  * @see https://github.com/localsend/protocol 参考 LocalSend 协议
  * @see https://docs.rs/crc32fast/ CRC32fast 文档
@@ -206,6 +215,16 @@ pub fn get_active_transfers() -> Vec<TransferTask> {
 #[tauri::command]
 pub async fn cancel_transfer(transfer_id: String) -> Result<(), String> {
     transfer::cancel_transfer(&transfer_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 取消单个文件传输（并行传输中的单文件取消）
+///
+/// 使用 CancellationToken 机制，可立即中断正在传输的文件
+#[tauri::command]
+pub async fn cancel_file_transfer(file_id: String) -> Result<(), String> {
+    transfer::cancel_file_transfer(&file_id)
         .await
         .map_err(|e| e.to_string())
 }

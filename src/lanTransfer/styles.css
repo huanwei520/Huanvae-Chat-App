@@ -1405,6 +1405,17 @@
   transition: width 0.3s ease;
 }
 
+/* 哈希计算进度条（橙色表示预处理） */
+.lan-peer-transfer-progress-fill.hashing {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+  animation: hashing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hashing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .lan-peer-transfer-progress-info {
   display: flex;
   justify-content: space-between;

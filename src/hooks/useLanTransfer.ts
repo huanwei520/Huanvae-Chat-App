@@ -8,10 +8,16 @@
  * - 获取发现的设备列表
  * - 点对点连接管理（带去重检查，防止重复连接）
  * - 发送传输请求（需确认）
- * - 多文件批量传输
+ * - 多文件并行批量传输（默认并行度 3）
+ * - 单文件取消支持（cancelFileTransfer）
  * - 断点续传支持
  * - 实时进度跟踪
  * - 配置管理
+ *
+ * 并行传输：
+ * - 后端使用 Semaphore 限制并发数
+ * - 每个文件有独立的 CancellationToken
+ * - 一个文件失败不影响其他文件继续传输
  *
  * 连接去重机制：
  * - 前端：requestPeerConnection 调用前检查 activeConnections
@@ -159,6 +165,20 @@ export interface LanTransferConfig {
   version: string;
 }
 
+/** 哈希计算进度 */
+export interface HashingProgress {
+  /** 文件名 */
+  fileName: string;
+  /** 文件大小（字节） */
+  fileSize: number;
+  /** 已处理字节数 */
+  processedBytes: number;
+  /** 当前文件索引（从 1 开始） */
+  currentFile: number;
+  /** 总文件数 */
+  totalFiles: number;
+}
+
 /** 局域网传输事件 */
 export type LanTransferEvent =
   | { type: 'device_discovered'; device: DiscoveredDevice }
@@ -178,7 +198,9 @@ export type LanTransferEvent =
   | { type: 'transfer_completed'; task_id: string; saved_path: string }
   | { type: 'batch_transfer_completed'; session_id: string; total_files: number; save_directory: string }
   | { type: 'transfer_failed'; task_id: string; error: string }
-  | { type: 'service_state_changed'; is_running: boolean };
+  | { type: 'service_state_changed'; is_running: boolean }
+  // 哈希计算进度（大文件预处理时显示）
+  | { type: 'hashing_progress'; file_name: string; file_size: number; processed_bytes: number; current_file: number; total_files: number };
 
 /** Hook 返回值 */
 export interface UseLanTransferReturn {
@@ -196,6 +218,8 @@ export interface UseLanTransferReturn {
   activeTransfers: TransferTask[];
   /** 批量传输进度 */
   batchProgress: BatchTransferProgress | null;
+  /** 哈希计算进度（大文件预处理时显示） */
+  hashingProgress: HashingProgress | null;
   /** 活跃的传输会话 */
   activeSessions: TransferSession[];
   /** 保存目录 */
@@ -242,6 +266,8 @@ export interface UseLanTransferReturn {
   respondToTransferRequest: (requestId: string, accept: boolean) => Promise<void>;
   /** 取消传输 */
   cancelTransfer: (transferId: string) => Promise<void>;
+  /** 取消单个文件传输（并行传输中） */
+  cancelFileTransfer: (fileId: string) => Promise<void>;
   /** 取消传输会话 */
   cancelSession: (requestId: string) => Promise<void>;
 
@@ -272,6 +298,7 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [pendingTransferRequests, setPendingTransferRequests] = useState<TransferRequest[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<TransferTask[]>([]);
   const [batchProgress, setBatchProgress] = useState<BatchTransferProgress | null>(null);
+  const [hashingProgress, setHashingProgress] = useState<HashingProgress | null>(null);
   const [activeSessions, setActiveSessions] = useState<TransferSession[]>([]);
   const [saveDirectory, setSaveDirectoryState] = useState<string>('');
   const [config, setConfig] = useState<LanTransferConfig | null>(null);
@@ -404,6 +431,11 @@ export function useLanTransfer(): UseLanTransferReturn {
   // 取消传输
   const cancelTransfer = useCallback(async (transferId: string) => {
     await invoke('cancel_transfer', { transferId });
+  }, []);
+
+  // 取消单个文件传输（并行传输中的单文件取消）
+  const cancelFileTransfer = useCallback(async (fileId: string) => {
+    await invoke('cancel_file_transfer', { fileId });
   }, []);
 
   // 取消传输会话
@@ -562,6 +594,19 @@ export function useLanTransfer(): UseLanTransferReturn {
 
           case 'batch_progress':
             setBatchProgress(payload.progress);
+            // 传输开始后清除哈希进度
+            setHashingProgress(null);
+            break;
+
+          case 'hashing_progress':
+            // 大文件哈希计算进度
+            setHashingProgress({
+              fileName: payload.file_name,
+              fileSize: payload.file_size,
+              processedBytes: payload.processed_bytes,
+              currentFile: payload.current_file,
+              totalFiles: payload.total_files,
+            });
             break;
 
           case 'transfer_completed':
@@ -678,6 +723,7 @@ export function useLanTransfer(): UseLanTransferReturn {
     pendingTransferRequests,
     activeTransfers,
     batchProgress,
+    hashingProgress,
     activeSessions,
     saveDirectory,
     config,
@@ -704,6 +750,7 @@ export function useLanTransfer(): UseLanTransferReturn {
     sendTransferRequest,
     respondToTransferRequest,
     cancelTransfer,
+    cancelFileTransfer,
     cancelSession,
 
     // 配置管理
