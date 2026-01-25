@@ -311,9 +311,6 @@ export function UnifiedList({
       : `group-${selectedTarget.data.group_id}`;
   }, [selectedTarget]);
 
-  // 追踪同步横幅的显示状态（用于检测横幅显隐变化）
-  const prevSyncingRef = useRef<boolean | undefined>(undefined);
-
   // 计算选中背景位置
   useLayoutEffect(() => {
     const updatePosition = () => {
@@ -342,37 +339,13 @@ export function UnifiedList({
 
     // 立即计算一次
     updatePosition();
-  }, [getSelectedKey, filteredCards]);
 
-  // 单独监听同步状态变化，等待横幅动画完成后重新计算位置
-  useLayoutEffect(() => {
-    const currentSyncing = syncStatus?.syncing;
-    const wasSyncing = prevSyncingRef.current;
-    prevSyncingRef.current = currentSyncing;
-
-    // 只有当同步状态从 true->false 或 false->true 变化时才延迟重新计算
-    if (wasSyncing !== undefined && wasSyncing !== currentSyncing) {
-      const timer = setTimeout(() => {
-        const selectedKey = getSelectedKey();
-        if (!selectedKey || !listRef.current) {
-          setSelectedBgStyle(null);
-          return;
-        }
-        const cardElement = cardRefs.current.get(selectedKey);
-        if (!cardElement) {
-          setSelectedBgStyle(null);
-          return;
-        }
-        const listRect = listRef.current.getBoundingClientRect();
-        const cardRect = cardElement.getBoundingClientRect();
-        setSelectedBgStyle({
-          top: cardRect.top - listRect.top + listRef.current.scrollTop,
-          height: cardRect.height,
-        });
-      }, 220); // 等待横幅动画完成
+    // 同步状态变化时，等待动画完成后再次计算（横幅动画 200ms）
+    if (syncStatus) {
+      const timer = setTimeout(updatePosition, 220);
       return () => clearTimeout(timer);
     }
-  }, [syncStatus?.syncing, getSelectedKey]);
+  }, [getSelectedKey, filteredCards, syncStatus]);
 
   // 处理卡片点击
   const handleCardClick = (card: UnifiedCard) => {
