@@ -313,39 +313,28 @@ export function UnifiedList({
 
   // 计算选中背景位置
   useLayoutEffect(() => {
-    const updatePosition = () => {
-      const selectedKey = getSelectedKey();
+    const selectedKey = getSelectedKey();
 
-      if (!selectedKey || !listRef.current) {
-        setSelectedBgStyle(null);
-        return;
-      }
-
-      const cardElement = cardRefs.current.get(selectedKey);
-      if (!cardElement) {
-        setSelectedBgStyle(null);
-        return;
-      }
-
-      // 计算相对于列表容器的位置
-      const listRect = listRef.current.getBoundingClientRect();
-      const cardRect = cardElement.getBoundingClientRect();
-
-      setSelectedBgStyle({
-        top: cardRect.top - listRect.top + listRef.current.scrollTop,
-        height: cardRect.height,
-      });
-    };
-
-    // 立即计算一次
-    updatePosition();
-
-    // 同步状态变化时，等待动画完成后再次计算（横幅动画 200ms）
-    if (syncStatus) {
-      const timer = setTimeout(updatePosition, 220);
-      return () => clearTimeout(timer);
+    if (!selectedKey || !listRef.current) {
+      setSelectedBgStyle(null);
+      return;
     }
-  }, [getSelectedKey, filteredCards, syncStatus]);
+
+    const cardElement = cardRefs.current.get(selectedKey);
+    if (!cardElement) {
+      setSelectedBgStyle(null);
+      return;
+    }
+
+    // 计算相对于列表容器的位置
+    const listRect = listRef.current.getBoundingClientRect();
+    const cardRect = cardElement.getBoundingClientRect();
+
+    setSelectedBgStyle({
+      top: cardRect.top - listRect.top + listRef.current.scrollTop,
+      height: cardRect.height,
+    });
+  }, [getSelectedKey, filteredCards]);
 
   // 处理卡片点击
   const handleCardClick = (card: UnifiedCard) => {
