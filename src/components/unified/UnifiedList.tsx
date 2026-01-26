@@ -385,7 +385,7 @@ export function UnifiedList({
     }
     return filteredCards.map((card) => {
       const isSelected = card.uniqueKey === selectedKey;
-      
+
       return (
         <motion.div
           key={card.uniqueKey}
