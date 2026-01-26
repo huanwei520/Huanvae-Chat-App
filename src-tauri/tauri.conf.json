@@ -69,9 +69,7 @@
     },
     "windows": {
       "wix": {
-        "language": "zh-CN",
-        "fragmentPaths": ["./wix/firewall.wxs"],
-        "componentGroupRefs": ["FirewallComponents"]
+        "language": "zh-CN"
       },
       "nsis": {
         "languages": ["SimpChinese", "English"],
