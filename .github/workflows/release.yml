@@ -78,6 +78,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Windows 依赖：WiX 需要 .NET Framework 3.5
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          # 启用 .NET Framework 3.5（WiX 3.x 需要）
+          DISM /Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart
+        shell: cmd
+
       # Linux 依赖
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
