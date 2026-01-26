@@ -536,10 +536,13 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   
   cursor: pointer;
-  overflow: hidden;
+  /* 注意：不使用 overflow: hidden，以便选中边框的 layoutId 动画能够跨卡片平滑过渡 */
+  /* 文本截断已在子元素（.conv-name, .conv-preview 等）上单独处理 */
   z-index: 1;
   
-  transition: all 0.2s ease;
+  /* 只对背景、阴影、边框应用 CSS transition，不影响 transform/opacity */
+  /* transform 和 opacity 由 Framer Motion 控制，避免两套动画冲突 */
+  transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .conversation-item:hover {
@@ -551,22 +554,25 @@
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
-/* 选中边框层 - 渲染在列表容器层级，通过 top 动画移动 */
+/* 选中边框层 - 使用 layoutId 实现跨卡片的平滑动画 */
 /* 桌面端专用：使用蓝色边框作为选中指示，边框在卡片外围 */
-.conversation-selected-bg {
+.conversation-selected-border {
   position: absolute;
   /* 比卡片稍大（向外扩展 3px），让边框显示在卡片外围 */
-  left: 5px;
-  right: 5px;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
   
   /* 透明背景，不使用渐变填充 */
   background: transparent;
   
   /* 蓝色边框作为选中指示 */
   border: 2px solid var(--primary);
-  border-radius: 14px;
+  border-radius: 14px;  /* 比卡片圆角稍大 */
   
-  z-index: 2;
+  /* z-index 设置为 10，确保在卡片内容之上 */
+  z-index: 10;
   pointer-events: none;
 }
 
