@@ -2,7 +2,7 @@
 #
 # 触发条件：推送 v* 标签（如 v1.0.0）
 # 功能：
-# - 构建 Windows (MSI 默认模式 + NSIS EXE 自定义升级)
+# - 构建 Windows (NSIS EXE，自定义升级流程)
 # - 构建 Linux (AppImage + .deb)
 # - 构建 macOS (DMG, ARM64)
 # - 构建 Android (APK)
@@ -124,7 +124,7 @@ jobs:
             
             | 平台 | 推荐格式 |
             |------|---------|
-            | Windows | `.exe` (推荐，自动升级) 或 `.msi` (传统安装) |
+            | Windows | `.exe` (推荐，支持自动升级) |
             | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS M1/M2 | `_aarch64.dmg` |
             | Android | `_android.apk` |
@@ -524,12 +524,12 @@ jobs:
             fi
           }
           
-          # 获取各平台签名（已移除 NSIS，只使用 MSI）
-          WIN_MSI_SIG=$(get_signature_from_release "_x64_zh-CN.msi")
+          # 获取各平台签名（使用 NSIS EXE）
+          WIN_NSIS_SIG=$(get_signature_from_release "_x64-setup.exe")
           MAC_SIG=$(get_signature_from_release "_aarch64.dmg")
           LINUX_SIG=$(get_signature_from_release "_amd64.AppImage")
           
-          echo "Windows MSI signature: ${WIN_MSI_SIG:0:50}..."
+          echo "Windows NSIS signature: ${WIN_NSIS_SIG:0:50}..."
           echo "macOS signature: ${MAC_SIG:0:50}..."
           echo "Linux signature: ${LINUX_SIG:0:50}..."
           
@@ -553,14 +553,13 @@ jobs:
           
           echo ""
           echo "=== 签名版本验证 ==="
-          verify_signature_version "$WIN_MSI_SIG" "Windows MSI"
+          verify_signature_version "$WIN_NSIS_SIG" "Windows NSIS"
           verify_signature_version "$LINUX_SIG" "Linux AppImage"
           
           # 构建 JSON（文件名必须与 tauri 实际生成的一致）
           # productName: Huanvae-Chat-App
-          # 支持的平台键（已移除 NSIS，只使用 MSI）：
-          # - windows-x86_64: 默认 Windows (MSI, perUser 模式)
-          # - windows-x86_64-msi: 明确指定 MSI
+          # 支持的平台键（使用 NSIS EXE）：
+          # - windows-x86_64: 默认 Windows (NSIS EXE)
           # - darwin-aarch64: macOS ARM64
           # - linux-x86_64: 默认 Linux (AppImage)
           # - linux-x86_64-appimage: 明确指定 AppImage
@@ -571,12 +570,8 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
-                "signature": "${WIN_MSI_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi"
-              },
-              "windows-x86_64-msi": {
-                "signature": "${WIN_MSI_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi"
+                "signature": "${WIN_NSIS_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "darwin-aarch64": {
                 "signature": "${MAC_SIG}",
