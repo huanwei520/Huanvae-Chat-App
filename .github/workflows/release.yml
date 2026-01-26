@@ -2,7 +2,7 @@
 #
 # 触发条件：推送 v* 标签（如 v1.0.0）
 # 功能：
-# - 构建 Windows (MSI, perUser 模式)
+# - 构建 Windows (MSI, perMachine 模式，需要管理员权限)
 # - 构建 Linux (AppImage + .deb)
 # - 构建 macOS (DMG, ARM64)
 # - 构建 Android (APK)
@@ -78,12 +78,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Windows 依赖：WiX 需要 .NET Framework 3.5
-      - name: Install Windows dependencies
+      # Windows 依赖：WiX MSI 构建需要 VBSCRIPT 功能
+      # 参考: https://tauri.app/start/prerequisites/#vbscript-for-msi-installers
+      - name: Enable VBSCRIPT for MSI builds
         if: matrix.platform == 'windows-latest'
         run: |
-          # 启用 .NET Framework 3.5（WiX 3.x 需要）
-          DISM /Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart
+          # 添加 VBSCRIPT 能力（WiX light.exe 需要）
+          DISM /Online /Add-Capability /CapabilityName:VBSCRIPT~~~~
         shell: cmd
 
       # Linux 依赖
@@ -121,7 +122,7 @@ jobs:
             
             | 平台 | 推荐格式 |
             |------|---------|
-            | Windows | `.msi` (用户级安装，无需管理员权限) |
+            | Windows | `.msi` (安装到 Program Files，需要管理员权限) |
             | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS M1/M2 | `_aarch64.dmg` |
             | Android | `_android.apk` |
