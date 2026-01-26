@@ -591,6 +591,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  user-select: none;  /* 禁止复制 */
 }
 
 .conv-avatar svg {
@@ -641,6 +642,7 @@
   font-size: 11px;
   color: var(--text-light);
   flex-shrink: 0;
+  user-select: none;  /* 禁止复制 */
 }
 
 .conv-footer {
@@ -658,6 +660,7 @@
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+  user-select: none;  /* 禁止复制 */
 }
 
 .conv-unread {
