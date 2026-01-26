@@ -44,7 +44,6 @@
   "bundle": {
     "active": true,
     "targets": [
-      "msi",
       "nsis",
       "appimage",
       "deb",
@@ -68,11 +67,6 @@
       "entitlements": "./Entitlements.plist"
     },
     "windows": {
-      "wix": {
-        "language": "zh-CN",
-        "fragmentPaths": ["./wix/firewall.wxs"],
-        "componentGroupRefs": ["FirewallComponents"]
-      },
       "nsis": {
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true,
