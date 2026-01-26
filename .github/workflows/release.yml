@@ -2,7 +2,7 @@
 #
 # 触发条件：推送 v* 标签（如 v1.0.0）
 # 功能：
-# - 构建 Windows (MSI 默认模式 + NSIS EXE 自定义升级)
+# - 构建 Windows (NSIS EXE，自定义升级流程)
 # - 构建 Linux (AppImage + .deb)
 # - 构建 macOS (DMG, ARM64)
 # - 构建 Android (APK)
@@ -78,16 +78,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Windows 依赖：WiX MSI 构建需要 VBSCRIPT 功能
-      # 参考: https://tauri.app/start/prerequisites/#vbscript-for-msi-installers
-      - name: Enable VBSCRIPT for MSI builds
-        if: matrix.platform == 'windows-latest'
-        run: |
-          # 添加 VBSCRIPT 能力（WiX light.exe 需要）
-          DISM /Online /Add-Capability /CapabilityName:VBSCRIPT~~~~
-        shell: cmd
-        continue-on-error: true
-
       # Linux 依赖
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
@@ -124,7 +114,7 @@ jobs:
             
             | 平台 | 推荐格式 |
             |------|---------|
-            | Windows | `.exe` (推荐，自动升级) 或 `.msi` (传统安装) |
+            | Windows | `.exe` (NSIS 安装包) |
             | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS M1/M2 | `_aarch64.dmg` |
             | Android | `_android.apk` |
@@ -135,17 +125,6 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-      # Windows: 构建失败时上传 WiX 日志用于调试
-      - name: Upload WiX logs on failure
-        if: failure() && matrix.platform == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: wix-logs
-          path: |
-            src-tauri/target/release/wix/
-            ${{ runner.temp }}/**/*.log
-          if-no-files-found: ignore
 
       # ============================================
       # Linux: 重新打包 deb 到 /opt（解决用户权限问题）
