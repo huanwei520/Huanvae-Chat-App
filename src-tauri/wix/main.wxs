@@ -12,8 +12,8 @@
   Huanvae Chat App - 自定义 WiX MSI 模板
   
   特性：
-  - perUser 安装模式（无需管理员权限）
-  - 安装到 LocalAppData\Programs 目录
+  - perMachine 安装模式（需要管理员权限）
+  - 安装到 Program Files 目录
   - 利用 Windows Restart Manager 处理运行中的程序
   - 支持 MajorUpgrade 自动升级
   
@@ -29,17 +29,17 @@
             Version="{{version}}">
 
         <!-- 
-          关键修改：perUser 安装
-          - InstallScope="perUser" 表示用户级安装
-          - InstallPrivileges="limited" 表示无需管理员权限
+          perMachine 安装
+          - InstallScope="perMachine" 表示机器级安装
+          - InstallPrivileges="elevated" 表示需要管理员权限
         -->
         <Package Id="*"
                  Keywords="Installer"
                  InstallerVersion="450"
                  Languages="0"
                  Compressed="yes"
-                 InstallScope="perUser"
-                 InstallPrivileges="limited"
+                 InstallScope="perMachine"
+                 InstallPrivileges="elevated"
                  SummaryCodepage="!(loc.TauriCodepage)"/>
 
         <!-- https://docs.microsoft.com/en-us/windows/win32/msi/reinstallmode -->
@@ -121,8 +121,8 @@
         <UIRef Id="WixUI_InstallDir" />
 
         <!-- 
-          关键修改：perUser 安装目录
-          使用 LocalAppDataFolder\Programs 代替 ProgramFilesFolder
+          perMachine 安装目录
+          使用 ProgramFilesFolder 作为安装目录
         -->
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="DesktopFolder" Name="Desktop">
@@ -132,11 +132,9 @@
                     <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="Desktop Shortcut" Type="integer" Value="1" KeyPath="yes" />
                 </Component>
             </Directory>
-            <!-- perUser: 使用 LocalAppDataFolder\Programs -->
-            <Directory Id="LocalAppDataFolder">
-                <Directory Id="LocalAppDataProgramsFolder" Name="Programs">
-                    <Directory Id="INSTALLDIR" Name="{{product_name}}"/>
-                </Directory>
+            <!-- perMachine: 使用 ProgramFilesFolder -->
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLDIR" Name="{{product_name}}"/>
             </Directory>
             <Directory Id="ProgramMenuFolder">
                 <Directory Id="ApplicationProgramsFolder" Name="{{product_name}}"/>
@@ -148,7 +146,7 @@
                 <RegistryKey Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}">
                     <RegistryValue Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
                 </RegistryKey>
-                <!-- perUser: 深度链接使用 HKCU 代替 HKLM -->
+                <!-- 深度链接注册表配置 -->
                 {{#each deep_link_protocols as |protocol| ~}}
                 <RegistryKey Root="HKCU" Key="Software\Classes\\{{protocol}}">
                     <RegistryValue Type="string" Name="URL Protocol" Value=""/>
@@ -199,8 +197,7 @@
 						  Target="[System64Folder]msiexec.exe"
 						  Arguments="/x [ProductCode]" />
 
-				<RemoveFolder Id="INSTALLDIR"
-							  On="uninstall" />
+				<RemoveFolder Id="INSTALLDIR" On="uninstall" />
 
 				<RegistryValue Root="HKCU"
 							   Key="Software\\{{manufacturer}}\\{{product_name}}"
