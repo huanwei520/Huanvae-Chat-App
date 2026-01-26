@@ -14,14 +14,14 @@
  * - 同步完成后自动淡出
  */
 
-import { useMemo, useRef, useLayoutEffect, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMemo } from 'react';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
 import { SyncStatusBanner, type SyncStatus } from '../common/SyncStatusBanner';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
-import { cardVariants } from '../../constants/listAnimations';
+import { cardVariants, cardTransition } from '../../constants/listAnimations';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
@@ -181,22 +181,6 @@ export function UnifiedList({
   // initialized 标记首次加载是否完成，用于避免卡片排序跳变
   const { getFriendPreview, getGroupPreview, initialized: localConversationsReady } = useLocalConversations();
 
-  // ============================================
-  // 选中背景动画相关状态
-  // ============================================
-
-  // 列表容器引用
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // 卡片元素引用映射
-  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  // 选中背景位置状态
-  const [selectedBgStyle, setSelectedBgStyle] = useState<{
-    top: number;
-    height: number;
-  } | null>(null);
-
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
     return (friends || []).map((friend) => {
@@ -304,37 +288,12 @@ export function UnifiedList({
   const error = friendsError || groupsError;
 
   // 获取选中卡片的 uniqueKey
-  const getSelectedKey = useCallback((): string | null => {
+  const selectedKey = useMemo((): string | null => {
     if (!selectedTarget) { return null; }
     return selectedTarget.type === 'friend'
       ? `friend-${selectedTarget.data.friend_id}`
       : `group-${selectedTarget.data.group_id}`;
   }, [selectedTarget]);
-
-  // 计算选中背景位置
-  useLayoutEffect(() => {
-    const selectedKey = getSelectedKey();
-
-    if (!selectedKey || !listRef.current) {
-      setSelectedBgStyle(null);
-      return;
-    }
-
-    const cardElement = cardRefs.current.get(selectedKey);
-    if (!cardElement) {
-      setSelectedBgStyle(null);
-      return;
-    }
-
-    // 计算相对于列表容器的位置
-    const listRect = listRef.current.getBoundingClientRect();
-    const cardRect = cardElement.getBoundingClientRect();
-
-    setSelectedBgStyle({
-      top: cardRect.top - listRect.top + listRef.current.scrollTop,
-      height: cardRect.height,
-    });
-  }, [getSelectedKey, filteredCards]);
 
   // 处理卡片点击
   const handleCardClick = (card: UnifiedCard) => {
@@ -424,27 +383,38 @@ export function UnifiedList({
     if (loading || error || filteredCards.length === 0) {
       return null;
     }
-    return filteredCards.map((card) => (
-      <motion.div
-        key={card.uniqueKey}
-        ref={(el) => {
-          if (el) {
-            cardRefs.current.set(card.uniqueKey, el);
-          } else {
-            cardRefs.current.delete(card.uniqueKey);
-          }
-        }}
-        className="conversation-item"
-        onClick={() => handleCardClick(card)}
-        variants={cardVariants}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-        layout="position"
-      >
-        {renderCardContent(card)}
-      </motion.div>
-    ));
+    return filteredCards.map((card) => {
+      const isSelected = card.uniqueKey === selectedKey;
+      
+      return (
+        <motion.div
+          key={card.uniqueKey}
+          className="conversation-item"
+          onClick={() => handleCardClick(card)}
+          variants={cardVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          layout="position"
+          transition={cardTransition}
+        >
+          {/* 选中指示器：使用 layoutId 实现跨卡片的平滑动画 */}
+          {isSelected && (
+            <motion.div
+              layoutId="selected-border"
+              className="conversation-selected-border"
+              style={{ borderRadius: 14 }}
+              transition={{
+                type: 'spring',
+                stiffness: 500,
+                damping: 35,
+              }}
+            />
+          )}
+          {renderCardContent(card)}
+        </motion.div>
+      );
+    });
   };
 
   // 渲染状态覆盖层（loading/error/empty 使用绝对定位，不影响卡片布局）
@@ -510,47 +480,24 @@ export function UnifiedList({
         <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
       )}
 
-      <div className="conversation-list" ref={listRef}>
-        {/* 选中背景层：绝对定位，通过 top 动画实现上下移动 */}
-        <AnimatePresence>
-          {selectedBgStyle && (
-            <motion.div
-              key="selected-bg"
-              className="conversation-selected-bg"
-              initial={{ opacity: 0, top: selectedBgStyle.top }}
-              animate={{
-                opacity: 1,
-                top: selectedBgStyle.top,
-                height: selectedBgStyle.height,
-              }}
-              exit={{ opacity: 0 }}
-              transition={{
-                top: {
-                  type: 'spring',
-                  stiffness: 500,
-                  damping: 35,
-                },
-                height: {
-                  type: 'spring',
-                  stiffness: 500,
-                  damping: 35,
-                },
-                opacity: { duration: 0.15 },
-              }}
-            />
-          )}
-        </AnimatePresence>
+      {/* 使用 LayoutGroup 确保选中指示器的 layoutId 动画正确同步 */}
+      <LayoutGroup>
+        <motion.div
+          className="conversation-list"
+          layoutScroll  // 关键：让 Motion 正确计算滚动偏移
+          style={{ overflow: 'auto' }}
+        >
+          {/* 状态覆盖层：绝对定位，不影响卡片布局 */}
+          <AnimatePresence>
+            {renderOverlay()}
+          </AnimatePresence>
 
-        {/* 状态覆盖层：绝对定位，不影响卡片布局 */}
-        <AnimatePresence>
-          {renderOverlay()}
-        </AnimatePresence>
-
-        {/* 卡片列表：正常文档流 */}
-        <AnimatePresence mode="popLayout">
-          {renderCards()}
-        </AnimatePresence>
-      </div>
+          {/* 卡片列表：正常文档流 */}
+          <AnimatePresence mode="popLayout">
+            {renderCards()}
+          </AnimatePresence>
+        </motion.div>
+      </LayoutGroup>
     </section>
   );
 }
