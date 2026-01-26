@@ -45,6 +45,7 @@
     "active": true,
     "targets": [
       "msi",
+      "nsis",
       "appimage",
       "deb",
       "dmg"
@@ -68,10 +69,14 @@
     },
     "windows": {
       "wix": {
-        "template": "./wix/main.wxs",
         "language": "zh-CN",
         "fragmentPaths": ["./wix/firewall.wxs"],
         "componentGroupRefs": ["FirewallComponents"]
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installerHooks": "./windows/hooks.nsi"
       }
     },
     "linux": {
