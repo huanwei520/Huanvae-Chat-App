@@ -96,9 +96,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOTFDMzBGQTkxQTc1NUEKUldSYWRScXBEOE9SUDVCWUJjZnYvaHBSdzNkbk5PTWRmUzNkVjdlamtDK2xTOXI4UmVZYUhDbGMK",
       "endpoints": [
-        "https://edgeone.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/latest/download/latest.json",
         "https://cdn.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/latest/download/latest.json",
-        "https://hk.gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/latest/download/latest.json",
         "https://gh-proxy.org/https://github.com/huanwei520/Huanvae-Chat-App/releases/latest/download/latest.json",
         "https://github.com/huanwei520/Huanvae-Chat-App/releases/latest/download/latest.json"
       ],

@@ -507,7 +507,7 @@ jobs:
           TAG="${{ github.ref_name }}"
           
           # 代理源列表（使用第一个作为默认）
-          PROXY="https://edgeone.gh-proxy.org/"
+          PROXY="https://cdn.gh-proxy.org/"
           
           # 获取 release 资产信息
           echo "Fetching release assets..."
@@ -650,7 +650,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
-          PROXY="https://edgeone.gh-proxy.org/"
+          PROXY="https://cdn.gh-proxy.org/"
           
           # Android APK 文件名格式（与 build-android job 上传的文件名一致）
           APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
