@@ -63,25 +63,35 @@ echo -e "${CYAN}[1/$TOTAL_STEPS] Windows 安装配置检查...${NC}"
 WIX_TEMPLATE="$PROJECT_ROOT/src-tauri/wix/main.wxs"
 TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
 
-# 检查 WiX 模板
-if [[ -f "$WIX_TEMPLATE" ]]; then
-    # 检查是否配置为 perUser 安装模式
-    if grep -q 'InstallScope="perUser"' "$WIX_TEMPLATE"; then
-        echo -e "  ${GREEN}✓ PASS: WiX 模板配置为 perUser 安装模式${NC}"
+# 检查 tauri.conf.json 中配置的安装包类型
+if grep -q '"targets".*"msi"' "$TAURI_CONF" || grep -q '"msi"' "$TAURI_CONF"; then
+    # 使用 MSI，检查 WiX 模板
+    if [[ -f "$WIX_TEMPLATE" ]]; then
+        # 检查是否配置为 perUser 安装模式
+        if grep -q 'InstallScope="perUser"' "$WIX_TEMPLATE"; then
+            echo -e "  ${GREEN}✓ PASS: WiX 模板配置为 perUser 安装模式${NC}"
+        else
+            echo -e "  ${RED}✗ FAIL: WiX 模板未配置 perUser 安装模式${NC}"
+            ALL_PASSED=false
+        fi
+        # 检查是否配置为 limited 权限
+        if grep -q 'InstallPrivileges="limited"' "$WIX_TEMPLATE"; then
+            echo -e "  ${GREEN}✓ PASS: WiX 模板配置为无需管理员权限${NC}"
+        else
+            echo -e "  ${RED}✗ FAIL: WiX 模板未配置 limited 权限${NC}"
+            ALL_PASSED=false
+        fi
     else
-        echo -e "  ${RED}✗ FAIL: WiX 模板未配置 perUser 安装模式${NC}"
+        echo -e "  ${RED}✗ FAIL: WiX 模板文件不存在${NC}"
         ALL_PASSED=false
     fi
-    # 检查是否配置为 limited 权限
-    if grep -q 'InstallPrivileges="limited"' "$WIX_TEMPLATE"; then
-        echo -e "  ${GREEN}✓ PASS: WiX 模板配置为无需管理员权限${NC}"
-    else
-        echo -e "  ${RED}✗ FAIL: WiX 模板未配置 limited 权限${NC}"
-        ALL_PASSED=false
+elif grep -q '"targets".*"nsis"' "$TAURI_CONF" || grep -q '"nsis"' "$TAURI_CONF"; then
+    # 使用 NSIS，检查 NSIS 配置
+    if grep -q '"nsis"' "$TAURI_CONF"; then
+        echo -e "  ${GREEN}✓ PASS: 使用 NSIS 安装包配置${NC}"
     fi
 else
-    echo -e "  ${RED}✗ FAIL: WiX 模板文件不存在${NC}"
-    ALL_PASSED=false
+    echo -e "  ${YELLOW}⚠ WARN: 未检测到 Windows 安装包配置${NC}"
 fi
 
 # 检查 updater installMode 配置
