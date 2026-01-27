@@ -31,6 +31,13 @@ export const PAGE_COMPONENTS: ComponentEntry[] = [
   { name: 'AccountSelector', path: 'pages/AccountSelector', category: 'pages', description: '账号选择页面' },
 ];
 
+// ============== 移动端组件 ==============
+export const MOBILE_COMPONENTS: ComponentEntry[] = [
+  { name: 'MobileHeader', path: 'pages/mobile/MobileHeader', category: 'components', description: '移动端顶部栏（含 WebSocket 连接状态指示器）' },
+  { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
+  { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
+];
+
 // ============== 通用组件 ==============
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
@@ -210,6 +217,7 @@ export const SERVICES: ComponentEntry[] = [
 // ============== 所有组件汇总 ==============
 export const ALL_COMPONENTS: ComponentEntry[] = [
   ...PAGE_COMPONENTS,
+  ...MOBILE_COMPONENTS,
   ...COMMON_COMPONENTS,
   ...MODAL_COMPONENTS,
   ...CHAT_COMPONENTS,
@@ -223,6 +231,7 @@ export const ALL_SERVICES = SERVICES;
 // ============== 统计信息 ==============
 export const REGISTRY_STATS = {
   pages: PAGE_COMPONENTS.length,
+  mobile: MOBILE_COMPONENTS.length,
   common: COMMON_COMPONENTS.length,
   modals: MODAL_COMPONENTS.length,
   chat: CHAT_COMPONENTS.length,

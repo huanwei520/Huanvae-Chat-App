@@ -24,7 +24,9 @@ import { useMainPage } from '../../hooks/useMainPage';
 import { useInitialSync } from '../../hooks/useInitialSync';
 import { useMobileNavigation } from '../../hooks/useMobileNavigation';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
-import { requestNotificationPermission } from '../../services/notificationService';
+import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useChatStore } from '../../stores/chatStore';
+import { requestNotificationPermission, initNotificationChannels } from '../../services/notificationService';
 import { useAutoUpdateCheckAndroid } from '../../update/useSilentUpdate.android';
 
 // 组件导入
@@ -38,6 +40,8 @@ import { MobileProfilePage } from './MobileProfilePage';
 import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
+import { MobileThemePage } from './MobileThemePage';
+import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
 import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
 import { MobileMeetingPage } from './MobileMeetingPage';
 import { MeetingFloatingWindow } from './MeetingFloatingWindow';
@@ -57,6 +61,8 @@ import type { ChatTarget } from '../../types/chat';
 export function MobileMain() {
   const page = useMainPage();
   const nav = useMobileNavigation();
+  const { setActiveChat } = useWebSocket();
+  const setChatTarget = useChatStore((state) => state.setChatTarget);
 
   // 页面状态（用独立页面替代弹窗）
   const [showProfilePage, setShowProfilePage] = useState(false);
@@ -65,6 +71,7 @@ export function MobileMain() {
   const [showMeetingEntryPage, setShowMeetingEntryPage] = useState(false);
   const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showThemePage, setShowThemePage] = useState(false);
 
   // 会议状态（提升到此层级以支持最小化时保持连接）
   const [meetingMinimized, setMeetingMinimized] = useState(false);
@@ -83,11 +90,18 @@ export function MobileMain() {
   // Android 应用启动时静默检查更新（弹窗在 App.tsx 统一渲染）
   useAutoUpdateCheckAndroid();
 
-  // Android 启动时请求通知权限
+  // Android 启动时请求通知权限并初始化通知渠道
   useEffect(() => {
-    requestNotificationPermission().then((granted) => {
+    async function initNotifications() {
+      const granted = await requestNotificationPermission();
       console.warn('[MobileMain] 通知权限:', granted ? '已授权' : '未授权');
-    });
+
+      // 权限获取后初始化通知渠道（设置自定义声音等）
+      if (granted) {
+        await initNotificationChannels();
+      }
+    }
+    initNotifications();
   }, []);
 
   // 选中聊天目标时进入聊天页面
@@ -97,9 +111,12 @@ export function MobileMain() {
   };
 
   // 返回列表页
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
+    // 清除活跃聊天状态，确保后续消息能正确显示未读红点
+    setActiveChat(null, null);
+    setChatTarget(null);
     nav.exitChat();
-  };
+  }, [setActiveChat, setChatTarget, nav]);
 
   // 进入会议（初始化 WebRTC 连接）
   const handleEnterMeeting = useCallback(async () => {
@@ -152,58 +169,65 @@ export function MobileMain() {
 
   // 处理移动端手势返回
   const handleMobileBack = useCallback(() => {
-    // 优先级 1：设置面板打开 → 关闭设置
+    // 优先级 1：主题设置页面打开 → 关闭主题页面
+    if (showThemePage) {
+      setShowThemePage(false);
+      return true;
+    }
+
+    // 优先级 2：设置面板打开 → 关闭设置
     if (showSettings) {
       setShowSettings(false);
       return true;
     }
 
-    // 优先级 2：个人资料页面打开 → 关闭页面
+    // 优先级 3：个人资料页面打开 → 关闭页面
     if (showProfilePage) {
       setShowProfilePage(false);
       return true;
     }
 
-    // 优先级 3：我的文件页面打开 → 关闭页面
+    // 优先级 4：我的文件页面打开 → 关闭页面
     if (showFilesPage) {
       setShowFilesPage(false);
       return true;
     }
 
-    // 优先级 4：局域网互传页面打开 → 关闭页面
+    // 优先级 5：局域网互传页面打开 → 关闭页面
     if (showLanTransferPage) {
       setShowLanTransferPage(false);
       return true;
     }
 
-    // 优先级 5：视频会议页面打开 → 最小化（而不是直接关闭）
+    // 优先级 6：视频会议页面打开 → 最小化（而不是直接关闭）
     if (showMeetingPage && !meetingMinimized) {
       setMeetingMinimized(true);
       setShowMeetingPage(false);
       return true;
     }
 
-    // 优先级 6：会议入口页面打开 → 关闭页面
+    // 优先级 7：会议入口页面打开 → 关闭页面
     if (showMeetingEntryPage) {
       setShowMeetingEntryPage(false);
       return true;
     }
 
-    // 优先级 7：抽屉打开 → 关闭抽屉
+    // 优先级 8：抽屉打开 → 关闭抽屉
     if (nav.isDrawerOpen) {
       nav.closeDrawer();
       return true;
     }
 
-    // 优先级 8：在聊天页面 → 返回列表
+    // 优先级 9：在聊天页面 → 返回列表
     if (nav.currentView === 'chat') {
-      nav.exitChat();
+      // 使用 handleBack 来正确清除活跃聊天状态
+      handleBack();
       return true;
     }
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav]);
+  }, [showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -276,6 +300,11 @@ export function MobileMain() {
               onAvatarClick={nav.openDrawer}
             />
 
+            {/* 同步状态横幅 - 独立渲染，不随页面切换重新挂载 */}
+            {nav.activeTab === 'chat' && (
+              <SyncStatusBanner status={syncStatus} onRetry={triggerSync} />
+            )}
+
             {/* 内容区域 - 支持左右滑动切换 */}
             <motion.div
               className="mobile-content"
@@ -318,8 +347,6 @@ export function MobileMain() {
                       selectedTarget={page.chatTarget}
                       onSelectTarget={handleSelectTarget}
                       unreadSummary={page.unreadSummary}
-                      syncStatus={syncStatus}
-                      onSyncRetry={triggerSync}
                     />
                   </motion.div>
                 ) : (
@@ -453,7 +480,17 @@ export function MobileMain() {
       {/* 设置页面 */}
       <AnimatePresence>
         {showSettings && (
-          <MobileSettingsPage onClose={() => setShowSettings(false)} />
+          <MobileSettingsPage
+            onClose={() => setShowSettings(false)}
+            onThemeClick={() => setShowThemePage(true)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 主题设置页面 */}
+      <AnimatePresence>
+        {showThemePage && (
+          <MobileThemePage onClose={() => setShowThemePage(false)} />
         )}
       </AnimatePresence>
     </div>

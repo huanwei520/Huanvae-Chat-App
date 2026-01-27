@@ -21,14 +21,54 @@
 
 /* 头像按钮 */
 .mobile-header-avatar {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible; /* 允许指示器溢出 */
   cursor: pointer;
   flex-shrink: 0;
   border: 2px solid transparent;
   transition: border-color 0.2s ease;
+}
+
+/* 头像图片/内容需要裁剪 */
+.mobile-header-avatar > img,
+.mobile-header-avatar > div:first-child {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* WebSocket 连接状态指示器 */
+.connection-indicator {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
+  z-index: 1;
+}
+
+.connection-indicator.connected {
+  background-color: #22c55e; /* 绿色 - 已连接 */
+}
+
+.connection-indicator.connecting {
+  background-color: #facc15; /* 黄色 - 连接中 */
+  animation: indicator-pulse 1s infinite;
+}
+
+.connection-indicator.disconnected {
+  background-color: #ef4444; /* 红色 - 断开 */
+}
+
+@keyframes indicator-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .mobile-header-avatar:active {

@@ -5,6 +5,7 @@
  * - 状态栏安全区域
  * - 页面过渡动画
  * - 与其他移动端页面一致的毛玻璃效果
+ * - 主题设置使用页面导航而非独立窗口
  *
  * 样式：
  * - 使用与抽屉一致的白色毛玻璃效果
@@ -21,13 +22,15 @@ import { SettingsPanel } from '../../components/settings';
 interface MobileSettingsPageProps {
   /** 关闭页面回调 */
   onClose: () => void;
+  /** 打开主题设置页面回调（移动端专用） */
+  onThemeClick?: () => void;
 }
 
 // ============================================
 // 主组件
 // ============================================
 
-export function MobileSettingsPage({ onClose }: MobileSettingsPageProps) {
+export function MobileSettingsPage({ onClose, onThemeClick }: MobileSettingsPageProps) {
   // 页面动画
   const pageVariants = {
     initial: { x: '100%', opacity: 0 },
@@ -43,7 +46,7 @@ export function MobileSettingsPage({ onClose }: MobileSettingsPageProps) {
       animate="animate"
       exit="exit"
     >
-      <SettingsPanel onClose={onClose} />
+      <SettingsPanel onClose={onClose} onThemeClick={onThemeClick} />
     </motion.div>
   );
 }

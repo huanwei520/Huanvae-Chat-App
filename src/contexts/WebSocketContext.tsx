@@ -8,6 +8,11 @@
  * - 消息撤回通知（message_recalled）
  * - 标记已读
  * - 系统通知（好友请求、群邀请等）
+ * - 重连事件（用于触发消息增量同步）
+ *
+ * 重连同步机制：
+ * - 首次连接不触发 onReconnected
+ * - 断线重连成功后触发 onReconnected，通知 useInitialSync 执行增量同步
  *
  * 消息处理逻辑已提取到 wsHandlers.ts
  */
@@ -71,6 +76,8 @@ interface WebSocketContextType {
   onNewMessage: (callback: (msg: WsNewMessage) => void) => () => void;
   onMessageRecalled: (callback: (msg: WsMessageRecalled) => void) => () => void;
   onSystemNotification: (callback: (msg: WsSystemNotification) => void) => () => void;
+  /** 订阅重连成功事件（用于触发消息增量同步） */
+  onReconnected: (callback: () => void) => () => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -93,9 +100,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
   /** 是否正在断开连接（用于阻止闭包中的重连逻辑和消息处理） */
   const isDisconnectingRef = useRef(false);
+  /** 是否是首次连接（用于区分首次连接和重连） */
+  const isFirstConnectRef = useRef(true);
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
   const recalledListeners = useRef<Set<(msg: WsMessageRecalled) => void>>(new Set());
   const notificationListeners = useRef<Set<(msg: WsSystemNotification) => void>>(new Set());
+  const reconnectedListeners = useRef<Set<() => void>>(new Set());
 
   // State
   const [connected, setConnected] = useState(false);
@@ -182,6 +192,15 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
             ws.send(JSON.stringify({ type: 'ping' }));
           }
         }, 25000);
+
+        // 重连成功后触发事件，通知 useInitialSync 执行增量同步
+        if (!isFirstConnectRef.current) {
+          console.warn('[WebSocket] 重连成功，触发消息增量同步');
+          reconnectedListeners.current.forEach(callback => callback());
+        } else {
+          // 首次连接后标记为非首次
+          isFirstConnectRef.current = false;
+        }
       };
 
       ws.onclose = () => {
@@ -224,6 +243,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const disconnect = useCallback(() => {
     // 设置断开连接标志，阻止消息处理和重连
     isDisconnectingRef.current = true;
+    // 重置首次连接标志，下次登录时重新标记为首次连接
+    isFirstConnectRef.current = true;
 
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
@@ -352,6 +373,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     return () => { notificationListeners.current.delete(callback); };
   }, []);
 
+  const onReconnected = useCallback((callback: () => void) => {
+    reconnectedListeners.current.add(callback);
+    return () => { reconnectedListeners.current.delete(callback); };
+  }, []);
+
   // ============================================
   // 自动连接/断开
   // ============================================
@@ -384,6 +410,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,
+    onReconnected,
   };
 
   return (

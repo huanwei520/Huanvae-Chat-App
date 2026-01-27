@@ -11,3 +11,4 @@ export { MobileProfilePage } from './MobileProfilePage';
 export { MobileFilesPage } from './MobileFilesPage';
 export { MobileSettingsPage } from './MobileSettingsPage';
 export { MobileLanTransferPage } from './MobileLanTransferPage';
+export { MobileThemePage } from './MobileThemePage';

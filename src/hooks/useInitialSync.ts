@@ -8,10 +8,15 @@
  * 2. 为每个好友/群聊确保本地会话存在
  * 3. 调用 syncService 进行增量消息同步
  * 4. 更新本地会话的最后消息预览
+ *
+ * 重连同步：
+ * - 订阅 WebSocket 重连成功事件（onReconnected）
+ * - 断线重连后自动执行与登录一致的全列表消息增量更新
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
 import * as db from '../db';
 import type { LocalConversation, ConversationType } from '../db';
 import { getSyncService } from '../services/syncService';
@@ -51,6 +56,7 @@ interface UseInitialSyncReturn {
 
 export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncProps): UseInitialSyncReturn {
   const { session } = useSession();
+  const { onReconnected } = useWebSocket();
   const syncRef = useRef(false);
   const [status, setStatus] = useState<SyncStatus>({
     syncing: false,
@@ -213,6 +219,15 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     syncRef.current = true;
     performSync();
   }, [session, friendsLoaded, groupsLoaded, performSync]);
+
+  // 订阅 WebSocket 重连事件，断线重连后执行增量同步
+  useEffect(() => {
+    const unsubscribe = onReconnected(() => {
+      console.warn('[InitialSync] 收到重连事件，执行消息增量同步');
+      performSync();
+    });
+    return unsubscribe;
+  }, [onReconnected, performSync]);
 
   return {
     status,

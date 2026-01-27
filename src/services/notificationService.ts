@@ -3,7 +3,7 @@
  *
  * 使用 Tauri 通知插件实现跨平台系统通知：
  * - Windows、macOS、Linux 桌面端
- * - Android、iOS 移动端（需要额外配置）
+ * - Android、iOS 移动端
  *
  * 功能：
  * - 权限请求和检查
@@ -13,22 +13,79 @@
  * ## 平台差异
  *
  * - **桌面端**：使用 HTML Audio + convertFileSrc 播放提示音
- * - **Android**：使用本地 HTTP 服务器播放提示音
+ * - **Android**：使用通知渠道（Channel）播放原生声音
+ *   - 声音文件位于 res/raw/ 目录
+ *   - 通过 createChannel 设置声音
  *
  * 注意事项：
  * - 当前聊天窗口的消息不发送通知
  * - 通知内容会根据消息类型显示不同文本
+ * - Android 通知渠道一旦创建，声音设置无法修改（需删除重建）
  */
 
 import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
+  createChannel,
+  Importance,
 } from '@tauri-apps/plugin-notification';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isMobile } from '../utils/platform';
+
+// ============================================
+// Android 通知渠道
+// ============================================
+
+/** 消息通知渠道 ID */
+const MESSAGE_CHANNEL_ID = 'huanvae_messages';
+
+/** 系统通知渠道 ID */
+const SYSTEM_CHANNEL_ID = 'huanvae_system';
+
+/** 渠道是否已初始化 */
+let channelsInitialized = false;
+
+/**
+ * 初始化 Android 通知渠道
+ *
+ * 在移动端启动时调用，创建消息和系统通知渠道
+ * 桌面端调用此函数无效果
+ */
+export async function initNotificationChannels(): Promise<void> {
+  if (!isMobile() || channelsInitialized) {
+    return;
+  }
+
+  try {
+    // 创建消息通知渠道（带自定义声音）
+    await createChannel({
+      id: MESSAGE_CHANNEL_ID,
+      name: '消息通知',
+      description: '新消息提醒',
+      importance: Importance.High,
+      vibration: true,
+      sound: 'water', // res/raw/water.mp3
+    });
+
+    // 创建系统通知渠道（使用默认声音）
+    await createChannel({
+      id: SYSTEM_CHANNEL_ID,
+      name: '系统通知',
+      description: '好友请求、群邀请等系统通知',
+      importance: Importance.Default,
+      vibration: true,
+    });
+
+    channelsInitialized = true;
+    // eslint-disable-next-line no-console
+    console.log('[Notification] Android 通知渠道初始化成功');
+  } catch (error) {
+    console.warn('[Notification] 初始化通知渠道失败:', error);
+  }
+}
 
 // ============================================
 // 提示音播放
@@ -164,10 +221,14 @@ export interface NotificationOptions {
   body: string;
   /** 图标路径（可选） */
   icon?: string;
+  /** 通知渠道 ID（移动端使用） */
+  channelId?: string;
 }
 
 /**
  * 发送系统通知
+ *
+ * 移动端会使用指定的渠道 ID，渠道决定了通知的声音、振动等行为
  */
 export async function notify(options: NotificationOptions): Promise<void> {
   const granted = await ensureNotificationPermission();
@@ -177,11 +238,21 @@ export async function notify(options: NotificationOptions): Promise<void> {
   }
 
   try {
-    sendNotification({
-      title: options.title,
-      body: options.body,
-      icon: options.icon,
-    });
+    if (isMobile()) {
+      // 移动端：使用通知渠道
+      sendNotification({
+        title: options.title,
+        body: options.body,
+        channelId: options.channelId || MESSAGE_CHANNEL_ID,
+      });
+    } else {
+      // 桌面端：不使用渠道
+      sendNotification({
+        title: options.title,
+        body: options.body,
+        icon: options.icon,
+      });
+    }
   } catch (error) {
     console.warn('[Notification] 发送通知失败:', error);
   }
@@ -238,6 +309,10 @@ export interface NewMessageNotificationParams {
  * 发送新消息通知
  *
  * 如果用户当前正在查看该聊天，不发送系统通知但仍播放提示音
+ *
+ * 平台差异：
+ * - 桌面端：手动播放提示音 + 发送系统通知
+ * - 移动端：通知渠道自动播放声音，无需手动播放
  */
 export async function notifyNewMessage(params: NewMessageNotificationParams): Promise<void> {
   const {
@@ -250,16 +325,22 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     activeChat,
   } = params;
 
-  // 无论是否是当前聊天，都播放提示音
-  playNotificationSound();
-
-  // 如果当前正在查看该聊天，不发送系统通知
-  if (
-    activeChat &&
+  // 如果当前正在查看该聊天
+  const isActiveChat = activeChat &&
     activeChat.type === sourceType &&
-    activeChat.id === sourceId
-  ) {
+    activeChat.id === sourceId;
+
+  if (isActiveChat) {
+    // 仅播放提示音（桌面端），不发送系统通知
+    if (!isMobile()) {
+      playNotificationSound();
+    }
     return;
+  }
+
+  // 桌面端：手动播放提示音
+  if (!isMobile()) {
+    playNotificationSound();
   }
 
   const preview = getMessagePreview(messageType, content);
@@ -277,7 +358,8 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     body = preview;
   }
 
-  await notify({ title, body });
+  // 移动端使用消息渠道（自动播放 water.mp3）
+  await notify({ title, body, channelId: MESSAGE_CHANNEL_ID });
 }
 
 // ============================================
@@ -305,6 +387,10 @@ export interface SystemNotificationParams {
 
 /**
  * 发送系统通知
+ *
+ * 平台差异：
+ * - 桌面端：手动播放提示音 + 发送系统通知
+ * - 移动端：使用系统通知渠道（默认声音）
  */
 export async function notifySystemEvent(params: SystemNotificationParams): Promise<void> {
   const { type, data } = params;
@@ -367,8 +453,11 @@ export async function notifySystemEvent(params: SystemNotificationParams): Promi
       return; // 未知类型，不发送通知
   }
 
-  await notify({ title, body });
+  // 移动端使用系统通知渠道（默认声音）
+  await notify({ title, body, channelId: SYSTEM_CHANNEL_ID });
 
-  // 播放提示音
-  playNotificationSound();
+  // 桌面端：手动播放提示音
+  if (!isMobile()) {
+    playNotificationSound();
+  }
 }
