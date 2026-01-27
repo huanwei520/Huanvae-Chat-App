@@ -1,8 +1,14 @@
 /**
  * 侧边栏组件
+ *
+ * WebSocket 连接状态指示器：
+ * - 绿色：已连接
+ * - 黄色闪烁：连接中
+ * - 红色：断开连接
  */
 
 import { motion } from 'framer-motion';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { UserAvatar, type SessionInfo } from '../common/Avatar';
 import {
   ChatIcon,
@@ -71,6 +77,19 @@ export function Sidebar({
   onSettingsClick,
   onLogout,
 }: SidebarProps) {
+  const { connected, connecting } = useWebSocket();
+
+  // 根据 WebSocket 连接状态确定指示器样式
+  const getStatusClass = () => {
+    if (connected) {
+      return 'connected';
+    }
+    if (connecting) {
+      return 'connecting';
+    }
+    return 'disconnected';
+  };
+
   return (
     <motion.aside
       className="chat-sidebar"
@@ -89,7 +108,7 @@ export function Sidebar({
         >
           <UserAvatar session={session} />
         </motion.div>
-        <div className="online-indicator" />
+        <div className={`online-indicator ${getStatusClass()}`} />
       </div>
 
       <nav className="sidebar-nav">

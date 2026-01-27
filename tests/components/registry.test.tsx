@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PAGE_COMPONENTS,
+  MOBILE_COMPONENTS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -27,6 +28,11 @@ import * as MainPage from '../../src/pages/Main';
 import * as LoginPage from '../../src/pages/Login';
 import * as RegisterPage from '../../src/pages/Register';
 import * as AccountSelectorPage from '../../src/pages/AccountSelector';
+
+// 移动端组件
+import * as MobileHeader from '../../src/pages/mobile/MobileHeader';
+import * as MobileMain from '../../src/pages/mobile/MobileMain';
+import * as MobileThemePage from '../../src/pages/mobile/MobileThemePage';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -174,6 +180,10 @@ const COMPONENT_MAP = {
   Login: LoginPage,
   Register: RegisterPage,
   AccountSelector: AccountSelectorPage,
+  // 移动端组件
+  MobileHeader,
+  MobileMain,
+  MobileThemePage,
   // 通用组件
   Avatar,
   CircularProgress,
@@ -311,6 +321,15 @@ describe('页面组件 (Pages)', () => {
   });
 });
 
+// ============== 移动端组件测试 ==============
+describe('移动端组件 (Mobile Components)', () => {
+  it.each(MOBILE_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
 // ============== 通用组件测试 ==============
 describe('通用组件 (Common Components)', () => {
   it.each(COMMON_COMPONENTS)('$name - $description', (entry) => {
@@ -419,6 +438,7 @@ describe('注册表完整性', () => {
 
   it('统计信息应正确', () => {
     expect(REGISTRY_STATS.pages).toBe(PAGE_COMPONENTS.length);
+    expect(REGISTRY_STATS.mobile).toBe(MOBILE_COMPONENTS.length);
     expect(REGISTRY_STATS.common).toBe(COMMON_COMPONENTS.length);
     expect(REGISTRY_STATS.modals).toBe(MODAL_COMPONENTS.length);
     expect(REGISTRY_STATS.chat).toBe(CHAT_COMPONENTS.length);
@@ -428,11 +448,18 @@ describe('注册表完整性', () => {
     expect(REGISTRY_STATS.services).toBe(SERVICES.length);
   });
 
+  it('应包含移动端核心组件', () => {
+    const mobileNames = MOBILE_COMPONENTS.map((c) => c.name);
+    expect(mobileNames).toContain('MobileHeader');
+    expect(mobileNames).toContain('MobileMain');
+  });
+
   it('总组件数应大于 60', () => {
     // 确保我们没有遗漏组件
     expect(REGISTRY_STATS.total).toBeGreaterThanOrEqual(60);
     console.log(`📊 组件注册表统计: 共 ${REGISTRY_STATS.total} 个模块`);
     console.log(`   - 页面: ${REGISTRY_STATS.pages}`);
+    console.log(`   - 移动端: ${REGISTRY_STATS.mobile}`);
     console.log(`   - 通用组件: ${REGISTRY_STATS.common}`);
     console.log(`   - 模态框: ${REGISTRY_STATS.modals}`);
     console.log(`   - 聊天组件: ${REGISTRY_STATS.chat}`);

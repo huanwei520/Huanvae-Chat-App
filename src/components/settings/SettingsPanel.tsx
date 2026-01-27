@@ -37,7 +37,10 @@ import './styles.css';
 // ============================================
 
 interface SettingsPanelProps {
+  /** 关闭面板回调 */
   onClose: () => void;
+  /** 打开主题设置页面回调（移动端使用页面导航，桌面端使用独立窗口） */
+  onThemeClick?: () => void;
 }
 
 // ============================================
@@ -270,7 +273,7 @@ const ResultToast: React.FC<ResultToastProps> = ({ type, message }) => (
 // 主组件实现
 // ============================================
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeClick }) => {
   const { notification, setNotificationEnabled, fileCache, setLargeFileThreshold } = useSettingsStore();
 
   // 数据管理状态
@@ -415,7 +418,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               title="主题设置"
               subtitle={`当前: ${getPresetConfig(themePreset).name}`}
               type="arrow"
-              onClick={() => openThemeEditorWindow()}
+              onClick={() => {
+                // 移动端使用页面导航，桌面端使用独立窗口
+                if (onThemeClick) {
+                  onThemeClick();
+                } else {
+                  openThemeEditorWindow();
+                }
+              }}
               showDivider={false}
             />
           </SettingsGroup>
