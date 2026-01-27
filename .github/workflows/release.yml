@@ -442,9 +442,9 @@ jobs:
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
           
-          # 期望的签名文件列表（已移除 NSIS，只使用 MSI）
+          # 期望的签名文件列表（使用 NSIS EXE）
           EXPECTED_SIGS=(
-            "Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi.sig"
+            "Huanvae-Chat-App_${VERSION}_x64-setup.exe.sig"
             "Huanvae-Chat-App_${VERSION}_amd64.AppImage.sig"
           )
           
