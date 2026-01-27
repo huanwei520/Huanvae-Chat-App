@@ -560,6 +560,7 @@ jobs:
           # productName: Huanvae-Chat-App
           # 支持的平台键（使用 NSIS EXE）：
           # - windows-x86_64: 默认 Windows (NSIS EXE)
+          # - windows-x86_64-msi: 兼容旧版本（v1.0.28及之前请求此key，指向同一个EXE）
           # - darwin-aarch64: macOS ARM64
           # - linux-x86_64: 默认 Linux (AppImage)
           # - linux-x86_64-appimage: 明确指定 AppImage
@@ -570,6 +571,10 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
+                "signature": "${WIN_NSIS_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+              },
+              "windows-x86_64-msi": {
                 "signature": "${WIN_NSIS_SIG}",
                 "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },

@@ -36,31 +36,10 @@ describe('Update Service', () => {
     vi.restoreAllMocks();
   });
 
-  describe('getWindowsUpdateTarget', () => {
-    it('should return undefined for non-Windows platforms', async () => {
-      const { platform } = await import('@tauri-apps/plugin-os');
-      vi.mocked(platform).mockResolvedValue('linux');
-
-      // 重新导入模块以获取最新的 mock
-      const { checkForUpdates } = await import('../../src/update/service');
-      const { check } = await import('@tauri-apps/plugin-updater');
-      vi.mocked(check).mockResolvedValue(null);
-
-      await checkForUpdates();
-
-      // check 应该被调用时没有 target 参数
-      expect(check).toHaveBeenCalledWith(undefined);
-    });
-
-    it('should return "windows-x86_64-msi" for Windows platform', async () => {
-      // Windows 平台始终使用 MSI 更新包
+  describe('update check', () => {
+    it('should call check() without target parameter (use default NSIS)', async () => {
+      // 所有平台使用默认 target，Tauri 自动匹配
       vi.resetModules();
-      vi.doMock('@tauri-apps/plugin-os', () => ({
-        platform: vi.fn().mockResolvedValue('windows'),
-      }));
-      vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn(),
-      }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
         check: vi.fn().mockResolvedValue(null),
       }));
@@ -72,7 +51,8 @@ describe('Update Service', () => {
       await service.checkForUpdates();
 
       const { check: checkMock } = await import('@tauri-apps/plugin-updater');
-      expect(checkMock).toHaveBeenCalledWith({ target: 'windows-x86_64-msi' });
+      // check() 应该被无参数调用
+      expect(checkMock).toHaveBeenCalledWith();
     });
   });
 
