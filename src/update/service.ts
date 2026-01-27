@@ -14,18 +14,17 @@
  * 5. github.com（直连备选）
  *
  * ## Windows 更新
- * Windows 使用 MSI 安装包（perUser 模式），通过 Restart Manager 处理文件锁定
+ * Windows 使用 NSIS EXE 安装包，通过自定义 hooks.nsi 处理旧版本卸载
  *
  * 参考文档：
  * - Tauri 2 Updater: https://v2.tauri.app/plugin/updater/
  *
  * @module update/service
- * @updated 2026-01-25 简化为仅 MSI 更新
+ * @updated 2026-01-27 使用 NSIS EXE 更新
  */
 
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { platform } from '@tauri-apps/plugin-os';
 
 // ============================================
 // 类型定义
@@ -63,46 +62,27 @@ export type ProgressCallback = (progress: DownloadProgress) => void;
 // 更新检查
 // ============================================
 
-/**
- * 获取 Windows 更新目标类型
- *
- * Windows 使用 MSI 安装包，返回 "windows-x86_64-msi"
- *
- * @returns target 字符串或 undefined
- */
-async function getWindowsUpdateTarget(): Promise<string | undefined> {
-  try {
-    const currentPlatform = await platform();
-    if (currentPlatform !== 'windows') {
-      return undefined;
-    }
-
-    // Windows 只使用 MSI 安装包
-    return 'windows-x86_64-msi';
-  } catch (error) {
-    console.warn('[Update] 获取平台信息失败:', error);
-    return undefined;
-  }
-}
+// Windows 使用默认的 NSIS EXE 更新，无需指定特殊 target
+// latest.json 中的平台键为 "windows-x86_64"（Tauri 默认值）
 
 /**
  * 检查是否有可用更新
  *
- * Windows 使用 MSI 更新包，其他平台使用默认格式
+ * 所有平台使用默认 target，Tauri 会自动匹配：
+ * - Windows: windows-x86_64 (NSIS EXE)
+ * - Linux: linux-x86_64 (AppImage)
+ * - macOS: darwin-aarch64 (DMG)
  *
  * @returns 更新信息
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
   try {
-    // 获取 Windows 安装类型对应的 target
-    const target = await getWindowsUpdateTarget();
-
-    // 调用更新检查，传递 target（如果有）
-    const update = await check(target ? { target } : undefined);
+    // 使用默认 target，Tauri 自动根据平台匹配
+    const update = await check();
 
     if (update) {
       // eslint-disable-next-line no-console
-      console.log('[Update] 发现新版本:', update.version, target ? `(target: ${target})` : '');
+      console.log('[Update] 发现新版本:', update.version);
       return {
         available: true,
         version: update.version,
