@@ -14,6 +14,12 @@
  * - 首次连接不触发 onReconnected
  * - 断线重连成功后触发 onReconnected，通知 useInitialSync 执行增量同步
  *
+ * Token 刷新机制：
+ * - 使用 ref 存储最新 token，避免闭包陈旧问题
+ * - 重连失败达到阈值时，尝试刷新 token
+ * - Token 刷新后自动使用新 token 重连
+ * - 刷新失败则退出登录，避免无限循环
+ *
  * 消息处理逻辑已提取到 wsHandlers.ts
  */
 
@@ -40,6 +46,17 @@ import type {
   WsMessageRecalled,
   WsSystemNotification,
 } from '../types/websocket';
+
+// ============================================
+// 常量
+// ============================================
+
+/** 最大重连尝试次数（超过后尝试刷新 token） */
+const MAX_RECONNECT_ATTEMPTS = 3;
+/** 重连间隔（毫秒） */
+const RECONNECT_INTERVAL = 5000;
+/** Token 刷新后重连延迟（毫秒），等待 ref 更新 */
+const TOKEN_REFRESH_RECONNECT_DELAY = 100;
 
 // ============================================
 // 类型定义
@@ -91,9 +108,9 @@ interface WebSocketProviderProps {
 }
 
 export function WebSocketProvider({ children }: WebSocketProviderProps) {
-  const { session } = useSession();
+  const { session, api, clearSession } = useSession();
 
-  // Refs
+  // Refs - 使用 ref 存储最新值，避免闭包陈旧问题
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,6 +119,17 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const isDisconnectingRef = useRef(false);
   /** 是否是首次连接（用于区分首次连接和重连） */
   const isFirstConnectRef = useRef(true);
+  /** 是否正在刷新 token（防止重复刷新） */
+  const isRefreshingTokenRef = useRef(false);
+  /** 重连尝试次数（连续失败次数） */
+  const reconnectAttemptsRef = useRef(0);
+  /** 最新的 accessToken（避免闭包陈旧） */
+  const tokenRef = useRef<string | null>(null);
+  /** 最新的 serverUrl（避免闭包陈旧） */
+  const serverUrlRef = useRef<string | null>(null);
+  /** 当前用户 ID（用于消息处理） */
+  const userIdRef = useRef<string | null>(null);
+
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
   const recalledListeners = useRef<Set<(msg: WsMessageRecalled) => void>>(new Set());
   const notificationListeners = useRef<Set<(msg: WsSystemNotification) => void>>(new Set());
@@ -118,6 +146,16 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   });
 
   const totalUnread = unreadSummary?.total_count ?? 0;
+
+  // ============================================
+  // 保持 Refs 与 Session 同步
+  // ============================================
+
+  useEffect(() => {
+    tokenRef.current = session?.accessToken ?? null;
+    serverUrlRef.current = session?.serverUrl ?? null;
+    userIdRef.current = session?.userId ?? null;
+  }, [session?.accessToken, session?.serverUrl, session?.userId]);
 
   // ============================================
   // 未读数查询
@@ -147,29 +185,72 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
     handleWebSocketMessage(data, {
       activeChatRef,
-      currentUserId: session?.userId ?? null,
+      currentUserId: userIdRef.current,
       setUnreadSummary,
       setPendingNotifications,
       newMessageListeners,
       recalledListeners,
       notificationListeners,
     });
-  }, [session?.userId]);
+  }, []); // 使用 ref，不需要依赖
+
+  // ============================================
+  // Token 刷新
+  // ============================================
+
+  /**
+   * 尝试刷新 Token
+   * @returns 是否刷新成功
+   */
+  const refreshToken = useCallback(async (): Promise<boolean> => {
+    if (isRefreshingTokenRef.current) {
+      return false;
+    }
+
+    if (!api) {
+      console.error('[WebSocket] 无法刷新 token：API 客户端不可用');
+      return false;
+    }
+
+    isRefreshingTokenRef.current = true;
+
+    try {
+      // 调用任意需要认证的 API，触发 API Client 的自动刷新机制
+      // 如果 token 过期，API Client 会自动刷新并更新 SessionContext
+      await api.get('/api/profile');
+      console.warn('[WebSocket] Token 刷新成功');
+      return true;
+    } catch (error) {
+      console.error('[WebSocket] Token 刷新失败:', error);
+      return false;
+    } finally {
+      isRefreshingTokenRef.current = false;
+    }
+  }, [api]);
 
   // ============================================
   // 连接管理
   // ============================================
 
   const connect = useCallback(() => {
-    if (!session || wsRef.current?.readyState === WebSocket.OPEN || connecting) {
+    const token = tokenRef.current;
+    const serverUrl = serverUrlRef.current;
+
+    // 使用 ref 检查，避免闭包陈旧
+    if (!token || !serverUrl) {
+      return;
+    }
+
+    if (wsRef.current?.readyState === WebSocket.OPEN || connecting) {
       return;
     }
 
     // 重置断开连接标志，允许消息处理和重连
     isDisconnectingRef.current = false;
     setConnecting(true);
-    const wsUrl = `${session.serverUrl.replace(/^http/, 'ws')}/ws`;
-    const url = `${wsUrl}?token=${encodeURIComponent(session.accessToken)}`;
+
+    const wsUrl = `${serverUrl.replace(/^http/, 'ws')}/ws`;
+    const url = `${wsUrl}?token=${encodeURIComponent(token)}`;
 
     try {
       const ws = new WebSocket(url);
@@ -178,6 +259,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       ws.onopen = () => {
         setConnected(true);
         setConnecting(false);
+        // 连接成功，重置重连计数
+        reconnectAttemptsRef.current = 0;
 
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
@@ -203,7 +286,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = async (event) => {
         setConnected(false);
         setConnecting(false);
         wsRef.current = null;
@@ -214,16 +297,44 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         }
 
         // 如果是主动断开连接（退出登录），不重连
-        // 使用 ref 而非闭包中的 session，确保获取最新状态
         if (isDisconnectingRef.current) {
           return;
         }
 
-        if (session && !reconnectTimerRef.current) {
+        // 检查是否需要刷新 token
+        // WebSocket 关闭码 1008 表示策略违规（通常是认证失败）
+        const isAuthError = event.code === 1008;
+        const tooManyAttempts = reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS;
+
+        if (isAuthError || tooManyAttempts) {
+          console.warn('[WebSocket] 认证问题或重连次数过多，尝试刷新 token...');
+
+          const success = await refreshToken();
+
+          if (success) {
+            // Token 刷新成功，重置计数，稍后重连（等待 tokenRef 更新）
+            reconnectAttemptsRef.current = 0;
+            reconnectTimerRef.current = setTimeout(() => {
+              reconnectTimerRef.current = null;
+              connect();
+            }, TOKEN_REFRESH_RECONNECT_DELAY);
+          } else {
+            // Token 刷新失败，退出登录
+            console.error('[WebSocket] Token 刷新失败，退出登录');
+            clearSession();
+          }
+          return;
+        }
+
+        // 普通重连
+        reconnectAttemptsRef.current++;
+        console.warn(`[WebSocket] 连接断开，${RECONNECT_INTERVAL / 1000}s 后重连 (第 ${reconnectAttemptsRef.current} 次)`);
+
+        if (!reconnectTimerRef.current) {
           reconnectTimerRef.current = setTimeout(() => {
             reconnectTimerRef.current = null;
             connect();
-          }, 5000);
+          }, RECONNECT_INTERVAL);
         }
       };
 
@@ -238,7 +349,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       console.error('📡 WebSocket 连接失败:', err);
       setConnecting(false);
     }
-  }, [session, connecting, handleMessage]);
+  }, [connecting, handleMessage, refreshToken, clearSession]);
 
   const disconnect = useCallback(() => {
     // 设置断开连接标志，阻止消息处理和重连
@@ -382,6 +493,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   // 自动连接/断开
   // ============================================
 
+  // 登录/退出时连接/断开
   useEffect(() => {
     if (session) {
       connect();
@@ -390,7 +502,22 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }
     return () => { disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [!!session]); // 只依赖 session 是否存在，不依赖具体值
+
+  // Token 变化时重连（使用新 token）
+  useEffect(() => {
+    if (!session?.accessToken) {
+      return;
+    }
+
+    // 如果 WebSocket 已连接且 token 变化，关闭连接触发重连
+    // 重连时会使用 tokenRef 中的最新 token
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.warn('[WebSocket] Token 已刷新，使用新 token 重连...');
+      // 不设置 isDisconnectingRef，允许自动重连
+      wsRef.current.close(1000, 'Token refreshed');
+    }
+  }, [session?.accessToken]);
 
   const contextValue: WebSocketContextType = {
     connected,

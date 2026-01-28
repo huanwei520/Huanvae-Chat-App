@@ -280,3 +280,66 @@
 .mobile-chat-messages .message-bubble {
   max-width: calc(100% - 58px);
 }
+
+/* ============================================ */
+/* 移动端多选模式                               */
+/* ============================================ */
+/**
+ * 移动端多选模式：
+ * - 选择框统一在左侧
+ * - 整行可点击
+ * - 蓝色背景覆盖整行
+ */
+.mobile-chat-messages .message-row.multi-select-mode {
+  padding-left: 28px;  /* 移动端间距稍小 */
+}
+
+.mobile-chat-messages .message-row.multi-select-mode.own {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.mobile-chat-messages .message-row .select-indicator {
+  left: 2px;
+}
+
+/* ============================================ */
+/* 移动端多选操作栏 - 固定高度，按钮紧凑         */
+/* ============================================ */
+/**
+ * 移动端多选操作栏：
+ * - 固定高度，不随按钮数量变化
+ * - 按钮更紧凑，只显示图标
+ * - 与输入框高度一致
+ */
+.mobile-chat-input .multi-select-action-bar {
+  min-height: 50px;
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+/* 移动端：按钮只显示图标，隐藏文字 */
+.mobile-chat-input .action-bar-btn {
+  padding: 8px 12px;
+  gap: 4px;
+}
+
+.mobile-chat-input .action-bar-btn span {
+  display: none;  /* 隐藏文字，只显示图标 */
+}
+
+.mobile-chat-input .action-bar-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* 移动端：中间的选中计数简化 */
+.mobile-chat-input .action-bar-center {
+  flex: 0;
+  min-width: auto;
+}
+
+.mobile-chat-input .selected-count {
+  font-size: 12px;
+  white-space: nowrap;
+}

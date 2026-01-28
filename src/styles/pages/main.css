@@ -1733,22 +1733,19 @@
   position: relative;
   display: flex;
   gap: 10px;
-  margin-bottom: 16px;
   max-width: 70%;
-  overflow-anchor: auto; /* 消息可作为滚动锚点 */
-  /* 多选模式切换的过渡动画（位置动画由 Framer Motion layout 处理） */
-  transition: padding 0.35s cubic-bezier(0.25, 0.1, 0.25, 1),
-              background 0.25s ease,
+  z-index: 1; /* 在背景层上方 */
+  /* 多选模式切换的过渡动画 */
+  transition: background 0.25s ease,
               border-radius 0.25s ease;
 }
 
 .message-bubble.own {
   flex-direction: row-reverse;
-  margin-left: auto;
 }
 
 .message-bubble.other {
-  margin-right: auto;
+  /* 对方消息默认左对齐 */
 }
 
 .bubble-avatar {
@@ -1992,48 +1989,88 @@
 }
 
 /* ============================================
-   消息多选模式
+   消息行容器（用于多选模式整行可点击）
    ============================================ */
-.message-bubble.multi-select-mode {
-  cursor: pointer;
-  padding-left: 40px;
+/**
+ * .message-row 是消息的外层容器
+ * - 宽度 100%，多选模式下整行可点击
+ * - 包含选择指示器和消息气泡
+ * - 背景色在这一层处理
+ */
+.message-row {
   position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  overflow-anchor: auto; /* 消息可作为滚动锚点 */
 }
 
-.message-bubble.multi-select-mode.own {
+.message-row.own {
+  justify-content: flex-end;
+}
+
+/* 多选模式下整行可点击 */
+.message-row.multi-select-mode {
+  cursor: pointer;
+  padding-left: 32px; /* 给选择框留空间 */
+  overflow-anchor: none; /* 多选模式下禁用滚动锚定 */
+}
+
+.message-row.multi-select-mode.own {
   padding-left: 0;
-  padding-right: 40px;
+  padding-right: 0; /* 自己的消息不需要额外 padding */
 }
 
-.message-bubble.multi-select-mode:hover {
+/* 整行背景层 */
+.message-row.multi-select-mode::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  transition: background 0.1s ease; /* 缩短过渡时间，减少延迟感 */
+  pointer-events: none;
+}
+
+/* 多选模式下禁用图片/视频/文件的点击交互，让点击穿透到父元素触发选中 */
+.message-row.multi-select-mode .file-message {
+  pointer-events: none;
+}
+
+.message-row.multi-select-mode:hover::before {
   background: rgba(59, 130, 246, 0.05);
-  border-radius: 12px;
 }
 
-.message-bubble.selected {
+.message-row.selected::before {
   background: rgba(59, 130, 246, 0.1);
-  border-radius: 12px;
 }
 
-.message-bubble.selected .bubble-text {
+.message-row.selected .bubble-text {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
 }
 
-/* 选择指示器 */
-.select-indicator {
+/* 选择指示器 - 固定在行左侧 */
+.message-row .select-indicator {
   position: absolute;
-  left: 0;
+  left: 4px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 5;
 }
 
-.message-bubble.own .select-indicator {
-  left: auto;
-  right: 0;
-}
+/* ============================================
+   消息气泡（在 message-row 内部）
+   ============================================ */
+/**
+ * .message-bubble 现在只负责消息内容的布局
+ * 多选相关的样式已移到 .message-row
+ */
 
 .select-checkbox {
   width: 22px;

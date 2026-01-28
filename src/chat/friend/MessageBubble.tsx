@@ -134,7 +134,11 @@ export function MessageBubble({
   // 点击头像显示/隐藏用户信息
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isMultiSelectMode) { return; }
+    // 多选模式下，点击头像也触发选中
+    if (isMultiSelectMode) {
+      onToggleSelect?.();
+      return;
+    }
 
     const targetUserId = isOwn ? session.userId : friend.friend_id;
 
@@ -171,7 +175,7 @@ export function MessageBubble({
         isSelf: false,
       });
     }
-  }, [isMultiSelectMode, isOwn, session, friend, profilePopup.isOpen, profilePopup.user?.userId]);
+  }, [isMultiSelectMode, onToggleSelect, isOwn, session, friend, profilePopup.isOpen, profilePopup.user?.userId]);
 
   // 关闭用户信息弹出框
   const handleCloseProfile = useCallback(() => {
@@ -233,8 +237,9 @@ export function MessageBubble({
   }, []);
 
   // 点击消息（多选模式下切换选中状态，移动端双击显示全屏预览）
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (isMultiSelectMode && onToggleSelect) {
+      e.stopPropagation(); // 阻止冒泡到 message-row，避免重复触发
       onToggleSelect();
       return;
     }
@@ -273,30 +278,23 @@ export function MessageBubble({
     onToggleSelect?.(); // 同时选中当前消息
   }, [onEnterMultiSelect, onToggleSelect]);
 
+  // 多选模式下的行点击处理
+  const handleRowClick = useCallback((e: React.MouseEvent) => {
+    // 只在多选模式下处理
+    if (!isMultiSelectMode) { return; }
+    // 阻止事件冒泡
+    e.stopPropagation();
+    onToggleSelect?.();
+  }, [isMultiSelectMode, onToggleSelect]);
+
   return (
     <>
-      <motion.div
-        ref={bubbleRef}
-        className={`message-bubble ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
-        // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
-        layout={message.sendStatus === 'sending' ? 'position' : false}
-        variants={getMessageVariants(isOwn)}
-        // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
-        initial={message.clientId ? 'initial' : false}
-        animate="animate"
-        exit="exit"
-        transition={transition}
-        onContextMenu={handleContextMenu}
-        onClick={handleClick}
-        // 移动端长按触发菜单
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
+      {/* 外层行容器：多选模式下整行可点击 */}
+      <div
+        className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
+        onClick={handleRowClick}
       >
-        {/* 发送状态指示器（在左侧显示） */}
-        {isOwn && <SendStatusIndicator status={message.sendStatus} />}
-
-        {/* 多选模式下的选择指示器 */}
+        {/* 多选模式下的选择指示器 - 移到行容器内 */}
         {isMultiSelectMode && (
           <motion.div
             className="select-indicator"
@@ -323,31 +321,53 @@ export function MessageBubble({
           </motion.div>
         )}
 
-        <div
-          ref={avatarRef}
-          className="bubble-avatar clickable"
-          onClick={handleAvatarClick}
+        <motion.div
+          ref={bubbleRef}
+          className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
+          // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
+          layout={message.sendStatus === 'sending' ? 'position' : false}
+          variants={getMessageVariants(isOwn)}
+          // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
+          initial={message.clientId ? 'initial' : false}
+          animate="animate"
+          exit="exit"
+          transition={transition}
+          onContextMenu={handleContextMenu}
+          onClick={handleClick}
+          // 移动端长按触发菜单
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={handleTouchMove}
         >
-          {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
-        </div>
-        <div className="bubble-content">
-          {message.message_type === 'text' ? (
-            <div className="bubble-text">{message.message_content}</div>
-          ) : (
-            <FileMessageContent
-              messageType={message.message_type}
-              messageContent={message.message_content}
-              fileUuid={message.file_uuid}
-              fileSize={message.file_size}
-              fileHash={message.file_hash}
-              urlType="friend"
-              imageWidth={message.image_width}
-              imageHeight={message.image_height}
-            />
-          )}
-          <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-        </div>
-      </motion.div>
+          {/* 发送状态指示器（在左侧显示） */}
+          {isOwn && <SendStatusIndicator status={message.sendStatus} />}
+
+          <div
+            ref={avatarRef}
+            className="bubble-avatar clickable"
+            onClick={handleAvatarClick}
+          >
+            {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
+          </div>
+          <div className="bubble-content">
+            {message.message_type === 'text' ? (
+              <div className="bubble-text">{message.message_content}</div>
+            ) : (
+              <FileMessageContent
+                messageType={message.message_type}
+                messageContent={message.message_content}
+                fileUuid={message.file_uuid}
+                fileSize={message.file_size}
+                fileHash={message.file_hash}
+                urlType="friend"
+                imageWidth={message.image_width}
+                imageHeight={message.image_height}
+              />
+            )}
+            <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
+          </div>
+        </motion.div>
+      </div>
 
       {/* 右键菜单（桌面端右键/移动端长按触发） */}
       <MessageContextMenu
