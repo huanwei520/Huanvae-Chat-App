@@ -15,6 +15,12 @@
  * │    │             │                      │
  * └────┴─────────────┴──────────────────────┘
  *  60px    280px           flex: 1
+ *
+ * ## 响应式布局
+ * - 会话列表面板支持拖拽调整宽度
+ * - 最小宽度 84px（保证搜索框/头像可见）
+ * - 极窄宽度（<120px）时隐藏会话信息，只显示头像
+ * - 使用 CSS Container Query 实现响应式布局
  */
 
 /* ============================================
@@ -219,6 +225,12 @@
   display: flex;
   z-index: 10;
   transition: width 0.05s ease-out;
+  /* 最小宽度：确保搜索框与卡片头像对齐
+   * 卡片最小宽度 = padding 12px + avatar 48px + gap 12px + padding 12px = 84px
+   * 使用 container-type 支持 @container 查询实现响应式布局 */
+  min-width: 84px;
+  container-type: inline-size;
+  container-name: chat-list;
 }
 
 .chat-list-container.resizing {
@@ -302,11 +314,10 @@
   transition: padding 0.15s ease;
 }
 
-/* 折叠时调整 header padding 使搜索图标与下方头像对齐 */
-.chat-list-header:has(.search-box-wrapper.collapsed) {
-  /* 头像 48px，搜索图标 48px，卡片 padding 12px，需要 header padding 也是 12px */
-  padding: 16px 12px;
-}
+/* 折叠时：搜索图标与下方头像水平对齐
+ * 卡片结构：padding 12px + avatar 48px + gap 12px + info
+ * 极窄宽度时 info 被隐藏，但 gap 仍占位
+ * 搜索栏保持相同的 padding 12px，搜索框 48px，实现左对齐 */
 
 /* 搜索框包装器 - 支持平滑过渡动画 */
 .search-box-wrapper {
@@ -625,6 +636,23 @@
   flex: 1;
   min-width: 0;
   overflow: hidden; /* 让内容自然被裁剪 */
+}
+
+/* 极窄宽度响应式：当容器宽度 < 120px 时隐藏会话信息，只显示头像 */
+@container chat-list (max-width: 120px) {
+  .conversation-item {
+    justify-content: center;
+    gap: 0;
+  }
+  
+  .conv-info {
+    display: none;
+  }
+  
+  /* 搜索栏也居中显示 */
+  .chat-list-header {
+    justify-content: center;
+  }
 }
 
 .conv-header {

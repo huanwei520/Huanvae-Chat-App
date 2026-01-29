@@ -242,6 +242,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
         const { downloadAndInstall } = await import('./service');
 
+        store.startDownload();
+
         await downloadAndInstall(info.update, (progress) => {
           store.updateProgress(
             progress.percent || 0,
