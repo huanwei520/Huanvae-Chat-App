@@ -573,6 +573,12 @@ unset CI && pnpm tauri android dev
   - useInitialSync 订阅 onReconnected 事件
   - 重连后执行与登录一致的全列表消息增量更新
   - 适用于桌面端和移动端
+- 2026-01-28: 会话列表面板响应式布局修复
+  - 添加 min-width: 84px 最小宽度约束，确保搜索框/头像可见
+  - 使用 CSS Container Query 实现响应式布局
+  - 极窄宽度（<120px）时隐藏会话信息，只显示头像
+  - 搜索框和卡片在极窄宽度时自动居中对齐
+  - 修复搜索按钮与下方头像对齐问题
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
