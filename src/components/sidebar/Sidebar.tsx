@@ -46,6 +46,14 @@ const LanTransferIcon = () => (
   </svg>
 );
 
+// 低代码编辑器图标（流程图/节点连线风格）
+const LowcodeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h3M10.5 18h3M6 10.5v3M18 10.5v3" />
+  </svg>
+);
+
 export type NavTab = 'chat' | 'group' | 'friends';
 
 interface SidebarProps {
@@ -59,6 +67,7 @@ interface SidebarProps {
     onFilesClick: () => void; // 打开文件弹窗
     onLanTransferClick: () => void; // 打开局域网传输弹窗
     onMeetingClick: () => void; // 打开会议弹窗
+    onLowcodeClick: () => void; // 打开低代码编辑器（仅桌面端）
     onSettingsClick: () => void; // 打开设置面板
     onLogout: () => void;
 }
@@ -74,6 +83,7 @@ export function Sidebar({
   onFilesClick,
   onLanTransferClick,
   onMeetingClick,
+  onLowcodeClick,
   onSettingsClick,
   onLogout,
 }: SidebarProps) {
@@ -165,6 +175,15 @@ export function Sidebar({
           title="视频会议"
         >
           <VideoMeetingIcon />
+        </motion.button>
+        <motion.button
+          className="nav-btn"
+          onClick={onLowcodeClick}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          title="低代码编辑器"
+        >
+          <LowcodeIcon />
         </motion.button>
         <motion.button
           className="nav-btn add-btn"

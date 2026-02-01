@@ -2,6 +2,11 @@
  * SyncStatusBanner 组件测试
  *
  * 测试消息同步状态横幅的渲染和交互
+ *
+ * 触发控制测试：
+ * - 只有 trigger 不为 null 时才显示横幅
+ * - 组件挂载时不会自动显示历史同步状态
+ * - 使用 lastSyncTime 时间戳防止重复显示
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -19,6 +24,7 @@ function createSyncStatus(overrides: Partial<SyncStatus> = {}): SyncStatus {
     newMessagesCount: 0,
     error: null,
     lastSyncTime: null,
+    trigger: null, // 默认无触发原因
     ...overrides,
   };
 }
@@ -29,6 +35,7 @@ describe('SyncStatusBanner', () => {
       syncing: true,
       totalConversations: 10,
       syncedConversations: 3,
+      trigger: 'initial', // 需要有触发原因才会显示
     });
 
     await act(async () => {
@@ -42,7 +49,8 @@ describe('SyncStatusBanner', () => {
     const status = createSyncStatus({
       syncing: false,
       newMessagesCount: 28,
-      lastSyncTime: new Date(),
+      lastSyncTime: Date.now(), // 改为时间戳
+      trigger: 'initial', // 需要有触发原因才会显示
     });
 
     await act(async () => {
@@ -56,7 +64,8 @@ describe('SyncStatusBanner', () => {
     const status = createSyncStatus({
       syncing: false,
       newMessagesCount: 0,
-      lastSyncTime: new Date(),
+      lastSyncTime: Date.now(), // 改为时间戳
+      trigger: 'reconnect', // 需要有触发原因才会显示
     });
 
     await act(async () => {
@@ -70,6 +79,7 @@ describe('SyncStatusBanner', () => {
     const status = createSyncStatus({
       syncing: false,
       error: '网络错误',
+      trigger: 'initial', // 需要有触发原因才会显示
     });
 
     const onRetry = vi.fn();
@@ -105,6 +115,7 @@ describe('SyncStatusBanner', () => {
     const status = createSyncStatus({
       syncing: false,
       error: '网络错误',
+      trigger: 'initial', // 需要有触发原因才会显示
     });
 
     const onRetry = vi.fn();

@@ -30,6 +30,7 @@ import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
+import { openLowcodeWindow } from '../lowcode';
 
 export function Main() {
   const page = useMainPage();
@@ -43,6 +44,18 @@ export function Main() {
       openLanTransferWindow(
         page.session.userId,
         page.session.profile?.user_nickname || page.session.userId,
+      );
+    }
+  };
+
+  // 打开低代码编辑器独立窗口
+  const handleLowcodeClick = () => {
+    if (page.session) {
+      openLowcodeWindow(
+        page.session.userId,
+        page.session.serverUrl,
+        page.session.accessToken,
+        page.session.refreshToken,
       );
     }
   };
@@ -83,6 +96,7 @@ export function Main() {
         onFilesClick={() => setShowFilesModal(true)}
         onLanTransferClick={handleLanTransferClick}
         onMeetingClick={() => setShowMeetingModal(true)}
+        onLowcodeClick={handleLowcodeClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
       />

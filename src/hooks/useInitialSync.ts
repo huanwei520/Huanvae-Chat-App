@@ -12,6 +12,11 @@
  * 重连同步：
  * - 订阅 WebSocket 重连成功事件（onReconnected）
  * - 断线重连后自动执行与登录一致的全列表消息增量更新
+ *
+ * 同步触发控制：
+ * - 使用 trigger 字段标识同步原因（initial/reconnect）
+ * - SyncStatusBanner 只响应有明确 trigger 的同步事件
+ * - 组件挂载/卸载不会触发重复显示
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -22,8 +27,16 @@ import type { LocalConversation, ConversationType } from '../db';
 import { getSyncService } from '../services/syncService';
 import { getFriendConversationId } from '../utils/conversationId';
 
+/**
+ * 同步触发原因
+ * - 'initial': 登录后首次同步
+ * - 'reconnect': WebSocket 断线重连后同步
+ * - null: 无待显示的同步事件
+ */
+export type SyncTrigger = 'initial' | 'reconnect' | null;
+
 /** 同步状态 */
-interface SyncStatus {
+export interface SyncStatus {
   /** 是否正在同步 */
   syncing: boolean;
   /** 同步进度（0-100） */
@@ -36,8 +49,10 @@ interface SyncStatus {
   newMessagesCount: number;
   /** 错误信息 */
   error: string | null;
-  /** 最后同步时间 */
-  lastSyncTime: Date | null;
+  /** 最后同步时间（时间戳，便于精确比较） */
+  lastSyncTime: number | null;
+  /** 同步触发原因（null 表示无待显示的同步事件） */
+  trigger: SyncTrigger;
 }
 
 interface UseInitialSyncProps {
@@ -66,6 +81,7 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     newMessagesCount: 0,
     error: null,
     lastSyncTime: null,
+    trigger: null, // 初始为 null，组件挂载时不会触发显示
   });
 
   /**
@@ -104,8 +120,9 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
 
   /**
    * 执行全量增量同步
+   * @param trigger 同步触发原因（用于控制 SyncStatusBanner 显示）
    */
-  const performSync = useCallback(async () => {
+  const performSync = useCallback(async (trigger: SyncTrigger = null) => {
     if (!session) {
       return;
     }
@@ -121,6 +138,7 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       syncing: true,
       progress: 0,
       error: null,
+      trigger, // 设置同步触发原因
     }));
 
     try {
@@ -138,7 +156,8 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
           ...prev,
           syncing: false,
           progress: 100,
-          lastSyncTime: new Date(),
+          lastSyncTime: Date.now(),
+          // trigger 保持不变
         }));
         return;
       }
@@ -195,7 +214,8 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
         syncedConversations: result.updatedConversations.length,
         newMessagesCount: result.newMessagesCount,
         error: null,
-        lastSyncTime: new Date(),
+        lastSyncTime: Date.now(),
+        trigger, // 保持同步触发原因
       });
 
     } catch (error) {
@@ -205,6 +225,7 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
         ...prev,
         syncing: false,
         error: errorMessage,
+        // trigger 保持不变，让错误状态可以显示
       }));
     }
   }, [session, ensureConversation]);
@@ -217,20 +238,25 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     }
 
     syncRef.current = true;
-    performSync();
+    performSync('initial'); // 登录后首次同步
   }, [session, friendsLoaded, groupsLoaded, performSync]);
 
   // 订阅 WebSocket 重连事件，断线重连后执行增量同步
   useEffect(() => {
     const unsubscribe = onReconnected(() => {
       console.warn('[InitialSync] 收到重连事件，执行消息增量同步');
-      performSync();
+      performSync('reconnect'); // WebSocket 重连后同步
     });
     return unsubscribe;
   }, [onReconnected, performSync]);
 
+  // 包装手动触发同步函数，传入 'initial' 作为触发原因
+  const triggerSync = useCallback(async () => {
+    await performSync('initial');
+  }, [performSync]);
+
   return {
     status,
-    triggerSync: performSync,
+    triggerSync,
   };
 }
