@@ -87,6 +87,8 @@ export interface UseFileCacheResult {
   cacheFile: () => Promise<void>;
   /** 重新加载 */
   reload: () => void;
+  /** 打开文件/文件夹（桌面端显示在文件夹中，移动端直接打开文件，文件不存在时自动重新下载） */
+  openInFolder: (localPath: string | null) => Promise<void>;
 }
 
 // ============================================
@@ -283,6 +285,47 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     loadSource();
   }, [loadSource]);
 
+  // 打开文件/文件夹（统一逻辑，文件不存在时自动重新下载）
+  const openInFolder = useCallback(async (localPath: string | null) => {
+    if (!localPath) { return; }
+
+    try {
+      if (isMobile()) {
+        // 移动端：直接打开文件
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(localPath);
+      } else {
+        // 桌面端：在文件夹中显示
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('show_in_folder', { path: localPath });
+      }
+    } catch (error) {
+      // 文件不存在或已被移动，重新加载并从云端下载
+      console.warn('[useFileCache] 打开文件夹失败，尝试重新下载:', error);
+
+      // 重新加载文件源（会检测到文件不存在并清除映射）
+      reload();
+
+      // 清除下载任务状态，允许重新下载
+      const currentFileHash = fileHashRef.current;
+      if (currentFileHash) {
+        useFileCacheStore.getState().removeDownloadTask(currentFileHash);
+      }
+
+      // 触发重新下载
+      const currentResult = resultRef.current;
+      if (currentResult?.src && currentFileHash) {
+        await triggerBackgroundDownload(
+          currentResult.src,
+          currentFileHash,
+          fileName,
+          fileType,
+          fileSize,
+        );
+      }
+    }
+  }, [reload, fileName, fileType, fileSize]);
+
   return {
     src: result?.src ?? null,
     isLocal: result?.isLocal ?? false,
@@ -291,6 +334,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     localPath: result?.localPath ?? null,
     cacheFile,
     reload,
+    openInFolder,
   };
 }
 

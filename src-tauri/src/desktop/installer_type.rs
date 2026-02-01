@@ -94,10 +94,10 @@ pub fn detect_installer_type() -> InstallerType {
             }
 
             // 备用检查：WindowsInstaller 值（MSI 特有）
-            if let Ok(windows_installer) = key.get_value::<u32, _>("WindowsInstaller") {
-                if windows_installer == 1 {
-                    return InstallerType::Msi;
-                }
+            if let Ok(windows_installer) = key.get_value::<u32, _>("WindowsInstaller")
+                && windows_installer == 1
+            {
+                return InstallerType::Msi;
             }
         }
     }
@@ -110,28 +110,27 @@ pub fn detect_installer_type() -> InstallerType {
             for subkey_name in uninstall_key.enum_keys().filter_map(|r| r.ok()) {
                 if let Ok(subkey) = uninstall_key.open_subkey(&subkey_name) {
                     // 检查 DisplayName 是否匹配
-                    if let Ok(display_name) = subkey.get_value::<String, _>("DisplayName") {
-                        if display_name.contains(PRODUCT_NAME) || display_name.contains("Huanvae") {
-                            // 找到了，检查安装类型
-                            if let Ok(uninstall_string) =
-                                subkey.get_value::<String, _>("UninstallString")
-                            {
-                                let uninstall_lower = uninstall_string.to_lowercase();
-                                if uninstall_lower.contains("msiexec") {
-                                    return InstallerType::Msi;
-                                } else if uninstall_lower.contains("uninstall.exe") {
-                                    return InstallerType::Nsis;
-                                }
+                    if let Ok(display_name) = subkey.get_value::<String, _>("DisplayName")
+                        && (display_name.contains(PRODUCT_NAME) || display_name.contains("Huanvae"))
+                    {
+                        // 找到了，检查安装类型
+                        if let Ok(uninstall_string) =
+                            subkey.get_value::<String, _>("UninstallString")
+                        {
+                            let uninstall_lower = uninstall_string.to_lowercase();
+                            if uninstall_lower.contains("msiexec") {
+                                return InstallerType::Msi;
+                            } else if uninstall_lower.contains("uninstall.exe") {
+                                return InstallerType::Nsis;
                             }
+                        }
 
-                            // 备用检查
-                            if let Ok(windows_installer) =
-                                subkey.get_value::<u32, _>("WindowsInstaller")
-                            {
-                                if windows_installer == 1 {
-                                    return InstallerType::Msi;
-                                }
-                            }
+                        // 备用检查
+                        if let Ok(windows_installer) =
+                            subkey.get_value::<u32, _>("WindowsInstaller")
+                            && windows_installer == 1
+                        {
+                            return InstallerType::Msi;
                         }
                     }
                 }

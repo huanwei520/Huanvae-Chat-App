@@ -6,6 +6,7 @@
  * - /media: 媒体预览页面（独立窗口，认证信息通过 localStorage 传递）
  * - /lan-transfer: 局域网传输页面（独立窗口，用户信息通过 localStorage 传递）
  * - /theme-editor: 主题编辑页面（独立窗口）
+ * - /lowcode: 低代码编辑器页面（独立窗口，仅桌面端）
  * - 其他路径: 主应用
  *
  * 窗口大小策略：
@@ -22,6 +23,7 @@ import App from './App';
 import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
+import { LowcodePage } from './lowcode';
 import { initWindowSize } from './services/windowSize';
 import { isMobile } from './utils/platform';
 import './index.css';
@@ -56,6 +58,11 @@ function RootApp() {
   // 主题编辑页面（独立窗口）
   if (pathname === '/theme-editor') {
     return <ThemeEditorPage />;
+  }
+
+  // 低代码编辑器页面（独立窗口，仅桌面端）
+  if (pathname === '/lowcode') {
+    return <LowcodePage />;
   }
 
   // 主应用

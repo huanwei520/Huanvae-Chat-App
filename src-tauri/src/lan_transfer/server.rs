@@ -315,7 +315,7 @@ async fn handle_connection(
             handle_upload(&mut writer, &body, path, &headers).await
         }
         ("POST", path) if path.starts_with("/api/finish") => {
-            handle_finish(&mut writer, path).await
+            handle_finish(&mut writer, path, &body).await
         }
         ("POST", "/api/cancel") => {
             handle_cancel(&mut writer, &body).await
@@ -1078,6 +1078,12 @@ async fn handle_prepare_upload(
     let sessions = get_upload_sessions();
     {
         let mut sessions = sessions.lock();
+        println!(
+            "[LanTransfer] 创建会话: {} (文件: {}, 当前会话数: {})",
+            request.session_id,
+            file.file_name,
+            sessions.len() + 1
+        );
         sessions.insert(request.session_id.clone(), session);
     }
 
@@ -1132,9 +1138,17 @@ async fn handle_upload(
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
-        let session = sessions
-            .get_mut(&session_id)
-            .ok_or_else(|| ServerError::RequestFailed("会话不存在".to_string()))?;
+        let session = match sessions.get_mut(&session_id) {
+            Some(s) => s,
+            None => {
+                let existing_sessions: Vec<&String> = sessions.keys().collect();
+                println!(
+                    "[LanTransfer] ⚠️ upload 会话不存在: {} (现有会话: {:?})",
+                    session_id, existing_sessions
+                );
+                return Err(ServerError::RequestFailed("会话不存在".to_string()));
+            }
+        };
 
         // 写入数据
         let file_writer = session
@@ -1232,10 +1246,21 @@ async fn handle_upload(
     send_json_response(writer, &response).await
 }
 
+/// Finish 请求体（用于从 JSON body 解析）
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct FinishRequest {
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    file_id: String,
+}
+
 /// 处理上传完成
 async fn handle_finish(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     path: &str,
+    body: &[u8],
 ) -> Result<(), ServerError> {
     // 解析查询参数
     let query = path.split('?').nth(1).unwrap_or("");
@@ -1244,17 +1269,47 @@ async fn handle_finish(
         .filter_map(|s| s.split_once('='))
         .collect();
 
-    let session_id = params.get("sessionId").unwrap_or(&"").to_string();
-    let file_id = params.get("fileId").unwrap_or(&"").to_string();
+    // 优先从 URL 参数获取，如果为空则尝试从请求体解析
+    let mut session_id = params.get("sessionId").unwrap_or(&"").to_string();
+    let mut file_id = params.get("fileId").unwrap_or(&"").to_string();
+
+    // 如果 URL 参数为空，尝试从请求体解析
+    if session_id.is_empty() || file_id.is_empty() {
+        if let Ok(body_request) = serde_json::from_slice::<FinishRequest>(body) {
+            if session_id.is_empty() && !body_request.session_id.is_empty() {
+                session_id = body_request.session_id;
+            }
+            if file_id.is_empty() && !body_request.file_id.is_empty() {
+                file_id = body_request.file_id;
+            }
+            println!(
+                "[LanTransfer] finish 请求 (从请求体解析): session={}, file={}",
+                session_id, file_id
+            );
+        }
+    } else {
+        println!(
+            "[LanTransfer] finish 请求 (从URL解析): session={}, file={}",
+            session_id, file_id
+        );
+    }
 
     // 在锁的作用域内完成所有同步操作
     let (file_meta, computed_hash, hash_match, target_path) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
-        let session = sessions
-            .get_mut(&session_id)
-            .ok_or_else(|| ServerError::RequestFailed("会话不存在".to_string()))?;
+        let session = match sessions.get_mut(&session_id) {
+            Some(s) => s,
+            None => {
+                let existing_sessions: Vec<&String> = sessions.keys().collect();
+                println!(
+                    "[LanTransfer] ⚠️ finish 会话不存在: {} (现有会话: {:?})",
+                    session_id, existing_sessions
+                );
+                return Err(ServerError::RequestFailed("会话不存在".to_string()));
+            }
+        };
 
         // 获取文件元信息
         let file_meta = session

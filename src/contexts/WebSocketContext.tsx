@@ -356,6 +356,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     isDisconnectingRef.current = true;
     // 重置首次连接标志，下次登录时重新标记为首次连接
     isFirstConnectRef.current = true;
+    // 重置重连计数，避免下次登录时立即触发 token 刷新逻辑
+    reconnectAttemptsRef.current = 0;
 
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);

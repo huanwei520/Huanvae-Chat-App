@@ -183,14 +183,14 @@ pub async fn respond_to_connection_request(
         .map_err(|e| e.to_string())
 }
 
-/// 发送文件
+/// 发送文件（使用新版传输请求机制）
 #[tauri::command]
 pub async fn send_file_to_device(
     device_id: String,
     file_path: String,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    transfer::send_file(&device_id, &file_path, app_handle)
+    transfer::send_transfer_request(&device_id, vec![file_path])
         .await
         .map_err(|e| e.to_string())
 }

@@ -152,6 +152,20 @@ import * as windowSize from '../../src/services/windowSize';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
+
+// 低代码编辑器
+import * as LowcodePage from '../../src/lowcode/LowcodePage';
+import * as lowcodeApi from '../../src/lowcode/api';
+import * as FlowCanvas from '../../src/lowcode/components/FlowCanvas';
+import * as OperatorPanel from '../../src/lowcode/components/OperatorPanel';
+import * as PropertyPanel from '../../src/lowcode/components/PropertyPanel';
+import * as Toolbar from '../../src/lowcode/components/Toolbar';
+import * as ExecuteDialog from '../../src/lowcode/components/ExecuteDialog';
+import * as WorkflowListDialog from '../../src/lowcode/components/WorkflowListDialog';
+import * as flowStore from '../../src/lowcode/stores/flowStore';
+import * as operatorService from '../../src/lowcode/services/operatorService';
+import * as workflowService from '../../src/lowcode/services/workflowService';
+import * as workflowSerializer from '../../src/lowcode/utils/workflowSerializer';
 import * as useLanTransfer from '../../src/hooks/useLanTransfer';
 
 // 工具模块
@@ -214,6 +228,19 @@ const COMPONENT_MAP = {
   LanTransferPage,
   lanTransferApi,
   lanTransferIndex,
+  // 低代码编辑器
+  LowcodePage,
+  lowcodeApi,
+  FlowCanvas,
+  OperatorPanel,
+  PropertyPanel,
+  Toolbar,
+  ExecuteDialog,
+  WorkflowListDialog,
+  flowStore,
+  operatorService,
+  workflowService,
+  workflowSerializer,
   // 主题系统
   themeIndex,
   themeStore,

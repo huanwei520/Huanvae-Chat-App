@@ -3874,6 +3874,21 @@
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* 文档操作按钮区域 */
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 文档下载进度 */
+.document-download-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* 本地文件标识 */
 .file-local-badge {
   position: absolute;
