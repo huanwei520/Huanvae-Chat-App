@@ -729,18 +729,52 @@ function CategoryConfigDialogComponent({
                   {validation.is_valid ? '✓ 配置有效' : '✕ 配置无效'}
                 </div>
                 {validation.errors.length > 0 && (
-                  <ul className="validation-errors">
-                    {validation.errors.map((err, i) => (
-                      <li key={i}>{err}</li>
-                    ))}
-                  </ul>
+                  <div className="validation-section">
+                    <div className="validation-section-title error">
+                      错误 ({validation.errors.length})
+                    </div>
+                    <ul className="validation-list">
+                      {validation.errors.map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {validation.warnings.length > 0 && (
-                  <ul className="validation-warnings">
-                    {validation.warnings.map((warn, i) => (
-                      <li key={i}>{warn}</li>
-                    ))}
-                  </ul>
+                  <div className="validation-section">
+                    <div className="validation-section-title warning">
+                      警告 ({validation.warnings.length})
+                    </div>
+                    <ul className="validation-list">
+                      {validation.warnings.map((warn, i) => (
+                        <li key={i}>{warn}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {validation.missing_operators.length > 0 && (
+                  <div className="validation-section">
+                    <div className="validation-section-title missing">
+                      缺失的算子 ({validation.missing_operators.length})
+                    </div>
+                    <ul className="validation-list">
+                      {validation.missing_operators.map((op, i) => (
+                        <li key={i}><code>{op}</code></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {validation.duplicate_operators.length > 0 && (
+                  <div className="validation-section">
+                    <div className="validation-section-title duplicate">
+                      重复的算子 ({validation.duplicate_operators.length})
+                    </div>
+                    <ul className="validation-list">
+                      {validation.duplicate_operators.map((op, i) => (
+                        <li key={i}><code>{op}</code></li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}

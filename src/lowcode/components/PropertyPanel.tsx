@@ -8,6 +8,7 @@
 
 import { memo, useCallback, useMemo, useState, useEffect } from 'react';
 import { useFlowStore } from '../stores/flowStore';
+import { MathFormula } from './MathFormula';
 import type { Operator, OperatorInput, OperatorOutput } from '../types/lowcode';
 
 // ============================================================================
@@ -239,6 +240,11 @@ function PortItem({
   // 检查是否为输入端口（有 required 属性）
   const isRequired = 'required' in port && port.required;
 
+  // 获取端口的扩展属性
+  const portLatexName = port.latex_name;
+  const portDescription = port.description;
+  const portPaperRef = (port as { paper_ref?: string }).paper_ref;
+
   return (
     <div className="property-port-item">
       <div className="port-info">
@@ -247,6 +253,25 @@ function PortItem({
         <span className="port-type">{getDataTypeLabel(port)}</span>
         {isRequired && <span className="port-required">*</span>}
       </div>
+
+      {/* LaTeX 名称、描述和论文引用 */}
+      {(portLatexName || portDescription || portPaperRef) && (
+        <div className="port-meta">
+          {portLatexName && (
+            <span className="port-latex-name">
+              <MathFormula latex={portLatexName} inline />
+            </span>
+          )}
+          {portDescription && (
+            <span className="port-description">{portDescription}</span>
+          )}
+          {portPaperRef && (
+            <span className="port-paper-ref" title="论文引用">
+              📄 {portPaperRef}
+            </span>
+          )}
+        </div>
+      )}
       <div className="port-actions">
         <label className="port-bind-toggle">
           <input
@@ -491,6 +516,30 @@ function PropertyPanelComponent({
               <label>描述</label>
               <div className="property-value property-description">
                 {operator.description}
+              </div>
+            </div>
+          )}
+
+          {/* 算子类型 */}
+          {(operator as { operator_type?: string }).operator_type && (
+            <div className="property-field">
+              <label>类型</label>
+              <div className="property-value">
+                <span className="operator-type-badge">
+                  {(operator as { operator_type?: string }).operator_type === 'operator' && '运算符'}
+                  {(operator as { operator_type?: string }).operator_type === 'formula' && '公式'}
+                  {(operator as { operator_type?: string }).operator_type === 'equation_network' && '方程网络'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* LaTeX 公式 */}
+          {(operator as { latex_formula?: string }).latex_formula && (
+            <div className="property-field">
+              <label>公式</label>
+              <div className="property-value property-formula">
+                <MathFormula latex={(operator as { latex_formula?: string }).latex_formula!} />
               </div>
             </div>
           )}

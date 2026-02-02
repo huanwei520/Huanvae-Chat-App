@@ -89,6 +89,14 @@ export interface ExportedWorkflow {
   };
 }
 
+/** 导入配置结果 */
+export interface ImportConfigResult {
+  /** 导入的流程 */
+  workflow: Workflow;
+  /** 是否为新创建（false 表示更新了已有流程） */
+  created: boolean;
+}
+
 // ============================================================================
 // 使用 API 客户端的服务工厂
 // ============================================================================
@@ -242,11 +250,15 @@ export function createWorkflowService(client: LowcodeApiClient) {
     async importConfig(
       config: WorkflowConfig,
       overwrite: boolean = false,
-    ): Promise<Workflow> {
-      return client.post<Workflow>('/api/lowcode/workflow_config/import', {
+    ): Promise<ImportConfigResult> {
+      const result = await client.post<{ workflow: Workflow; created?: boolean }>('/api/lowcode/workflow_config/import', {
         config,
         overwrite,
       });
+      return {
+        workflow: result.workflow || result as unknown as Workflow,
+        created: result.created ?? true,
+      };
     },
   };
 }

@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { fetchOperators } from '../services/operatorService';
+import { OperatorDetailDialog } from './OperatorDetailDialog';
 import type { Operator, CategoryConfig, CategoryNode } from '../types/lowcode';
 import type { CategoryService } from '../services/categoryService';
 
@@ -108,9 +109,10 @@ const FolderIcon = () => (
 interface OperatorCardProps {
   operator: Operator;
   onDragStart?: (operator: Operator) => void;
+  onShowDetail?: (operator: Operator) => void;
 }
 
-function OperatorCard({ operator, onDragStart }: OperatorCardProps) {
+function OperatorCard({ operator, onDragStart, onShowDetail }: OperatorCardProps) {
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       // 设置拖拽数据（使用多种 MIME 类型确保兼容性）
@@ -125,6 +127,10 @@ function OperatorCard({ operator, onDragStart }: OperatorCardProps) {
     [operator, onDragStart],
   );
 
+  const handleDoubleClick = useCallback(() => {
+    onShowDetail?.(operator);
+  }, [operator, onShowDetail]);
+
   return (
     <motion.div
       className="operator-card"
@@ -135,7 +141,8 @@ function OperatorCard({ operator, onDragStart }: OperatorCardProps) {
         className="operator-card-inner"
         draggable
         onDragStart={handleDragStart}
-        title={operator.description || operator.name}
+        onDoubleClick={handleDoubleClick}
+        title={`${operator.description || operator.name}\n双击查看详情`}
       >
         <div className="operator-card-icon">
           <OperatorIcon />
@@ -163,6 +170,7 @@ interface CategoryTreeNodeProps {
   operatorMap: Map<string, Operator>;
   level: number;
   onDragStart?: (operator: Operator) => void;
+  onShowDetail?: (operator: Operator) => void;
 }
 
 function CategoryTreeNode({
@@ -171,6 +179,7 @@ function CategoryTreeNode({
   operatorMap,
   level,
   onDragStart,
+  onShowDetail,
 }: CategoryTreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
 
@@ -206,6 +215,7 @@ function CategoryTreeNode({
                 operatorMap={operatorMap}
                 level={level + 1}
                 onDragStart={onDragStart}
+                onShowDetail={onShowDetail}
               />
             ))}
 
@@ -213,7 +223,12 @@ function CategoryTreeNode({
           {nodeOperators.length > 0 && (
             <div className="category-tree-operators" style={{ paddingLeft: (level + 1) * 12 + 8 }}>
               {nodeOperators.map((op) => (
-                <OperatorCard key={op.id} operator={op} onDragStart={onDragStart} />
+                <OperatorCard
+                  key={op.id}
+                  operator={op}
+                  onDragStart={onDragStart}
+                  onShowDetail={onShowDetail}
+                />
               ))}
             </div>
           )}
@@ -239,6 +254,12 @@ export function OperatorPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [useCustomCategories, setUseCustomCategories] = useState(false);
+  const [detailOperator, setDetailOperator] = useState<Operator | null>(null);
+
+  // 显示算子详情
+  const handleShowDetail = useCallback((operator: Operator) => {
+    setDetailOperator(operator);
+  }, []);
 
   // 算子 ID 到算子的映射
   const operatorMap = useMemo(() => {
@@ -372,6 +393,7 @@ export function OperatorPanel({
               operatorMap={operatorMap}
               level={0}
               onDragStart={onDragStart}
+              onShowDetail={handleShowDetail}
             />
           ))}
 
@@ -390,7 +412,12 @@ export function OperatorPanel({
                   .map((id) => operatorMap.get(id))
                   .filter((op): op is Operator => op !== undefined)
                   .map((op) => (
-                    <OperatorCard key={op.id} operator={op} onDragStart={onDragStart} />
+                    <OperatorCard
+                      key={op.id}
+                      operator={op}
+                      onDragStart={onDragStart}
+                      onShowDetail={handleShowDetail}
+                    />
                   ))}
               </div>
             </div>
@@ -429,6 +456,7 @@ export function OperatorPanel({
                   key={operator.id}
                   operator={operator}
                   onDragStart={onDragStart}
+                  onShowDetail={handleShowDetail}
                 />
               ))
             )}
@@ -440,6 +468,13 @@ export function OperatorPanel({
       <div className="operator-panel-footer">
         共 {operators.length} 个算子
       </div>
+
+      {/* 算子详情对话框 */}
+      <OperatorDetailDialog
+        isOpen={detailOperator !== null}
+        onClose={() => setDetailOperator(null)}
+        operator={detailOperator}
+      />
     </div>
   );
 }

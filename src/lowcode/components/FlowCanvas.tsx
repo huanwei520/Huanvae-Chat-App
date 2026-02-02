@@ -5,9 +5,10 @@
  * 支持节点拖拽、连线、缩放和平移
  *
  * @module lowcode/components/FlowCanvas
+ * @updated 2026-02-02 添加自动布局功能（动态节点尺寸）
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -15,11 +16,14 @@ import {
   Background,
   BackgroundVariant,
   useReactFlow,
+  useNodesInitialized,
   type NodeMouseHandler,
 } from '@xyflow/react';
 import { useFlowStore } from '../stores/flowStore';
 import { nodeTypes } from './OperatorNode';
+import { getNodeSizesFromInternals } from '../utils/layout';
 import type { Operator } from '../types/lowcode';
+import type { LayoutDirection } from '../utils/layout';
 
 // 导入 React Flow 样式
 import '@xyflow/react/dist/style.css';
@@ -35,6 +39,16 @@ function generateNodeId(): string {
   return `node-${Date.now()}-${nodeIdCounter}`;
 }
 
+/** FlowCanvas 组件属性 */
+interface FlowCanvasProps {
+  /** 布局触发器（值变化时触发重新布局） */
+  layoutTrigger?: number;
+  /** 布局方向 */
+  layoutDirection?: LayoutDirection;
+  /** 布局完成回调 */
+  onLayoutComplete?: () => void;
+}
+
 /**
  * 画布组件
  *
@@ -45,10 +59,21 @@ function generateNodeId(): string {
  * - 小地图导航
  * - 网格背景
  * - 拖放算子创建节点
+ * - 自动布局（使用实际测量的节点尺寸）
  */
-export function FlowCanvas() {
+export function FlowCanvas({
+  layoutTrigger,
+  layoutDirection = 'LR',
+  onLayoutComplete,
+}: FlowCanvasProps = {}) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getInternalNode, fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  
+  // 追踪已处理的 layoutTrigger 值
+  const lastProcessedTrigger = useRef<number>(0);
+  // 追踪待处理的布局请求
+  const [pendingLayout, setPendingLayout] = useState<number>(0);
 
   const {
     nodes,
@@ -58,7 +83,38 @@ export function FlowCanvas() {
     onConnect,
     addNode,
     selectNode,
+    autoLayout,
   } = useFlowStore();
+
+  // 当 layoutTrigger 变化时，标记为待处理
+  useEffect(() => {
+    if (layoutTrigger !== undefined && layoutTrigger > lastProcessedTrigger.current) {
+      setPendingLayout(layoutTrigger);
+    }
+  }, [layoutTrigger]);
+
+  // 当节点初始化完成且有待处理的布局请求时执行布局
+  useEffect(() => {
+    if (pendingLayout > 0 && nodesInitialized && nodes.length > 0) {
+      // 标记为已处理
+      lastProcessedTrigger.current = pendingLayout;
+      setPendingLayout(0);
+
+      // 获取实际测量的节点尺寸
+      const nodeSizes = getNodeSizesFromInternals(nodes, getInternalNode);
+      
+      console.log('[FlowCanvas] 执行自动布局，节点数:', nodes.length, '尺寸映射:', nodeSizes.size);
+      
+      // 执行布局
+      autoLayout(layoutDirection, nodeSizes);
+      
+      // 延迟执行 fitView 以确保布局完成
+      setTimeout(() => {
+        fitView({ padding: 0.2, duration: 300 });
+        onLayoutComplete?.();
+      }, 50);
+    }
+  }, [pendingLayout, nodesInitialized, nodes.length, layoutDirection, getInternalNode, autoLayout, fitView, onLayoutComplete]);
 
   // 节点点击处理
   const handleNodeClick: NodeMouseHandler = useCallback(

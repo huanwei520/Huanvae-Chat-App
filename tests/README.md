@@ -10,7 +10,7 @@ Huanvae Chat App 使用 Vitest 作为测试框架，配合 Testing Library 进�
 tests/
 ├── setup.ts                     # 全局测试设置（Mock Tauri API）
 ├── checklist.ts                 # 功能检查清单定义
-├── registry.ts                  # 组件注册表（122 个模块，含移动端组件、工具函数和共享组件）
+├── registry.ts                  # 组件注册表（142 个模块，含移动端组件、工具函数和共享组件）
 ├── README.md                    # 本文档
 ├── utils/
 │   └── test-utils.tsx           # 测试工具函数
@@ -30,7 +30,7 @@ tests/
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
     ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
-    └── registry.test.tsx        # 组件注册表测试（129 个测试用例，含移动端组件）
+    └── registry.test.tsx        # 组件注册表测试（149 个测试用例，含移动端组件）
 ```
 
 ## 测试命令
@@ -579,6 +579,52 @@ unset CI && pnpm tauri android dev
   - 极窄宽度（<120px）时隐藏会话信息，只显示头像
   - 搜索框和卡片在极窄宽度时自动居中对齐
   - 修复搜索按钮与下方头像对齐问题
+- 2026-02-02: 低代码编辑器功能增强
+  - **MathJax 公式支持**：节点和属性面板支持 LaTeX 公式渲染
+    - 新增 `MathFormula` 组件（`src/lowcode/components/MathFormula.tsx`）
+    - 使用 `better-react-mathjax` 库，支持行内和块级公式
+    - 节点显示算子的 `latex_formula` 属性
+    - 属性面板显示端口的 `latex_name` 和 `description`
+  - **DAG 自动布局优化**：使用动态节点尺寸实现精确布局
+    - 修改 `layout.ts`：支持 `nodeSizes` 参数接收实际测量的节点尺寸
+    - 新增 `getNodeSizesFromInternals()` 工具函数
+    - 添加 `align`（对齐方式）和 `ranker`（层级算法）配置项
+    - `FlowCanvas` 组件：使用 `useNodesInitialized` 等待节点渲染完成
+    - 通过 `getInternalNode` API 获取节点实际测量尺寸
+    - 布局完成后自动执行 `fitView` 调整视口
+    - 解决节点尺寸不匹配导致的对角线布局问题
+    - **自动布局触发**：模板加载、工作流加载、版本回滚后自动执行布局
+  - **多节点类型支持**：三种节点视觉样式
+    - `operator`：运算符（圆角矩形）
+    - `formula`：公式（矩形，默认）
+    - `equation_network`：方程网络（菱形边框）
+    - 节点根据 `operator_type` 自动选择样式
+  - 新增依赖：`better-react-mathjax`、`dagre`、`@types/dagre`
+  - 测试用例更新：注册表测试增加 8 个模块导入（总计 353 个用例）
+- 2026-02-02: 低代码编辑器功能完善（第二阶段）
+  - **论文引用显示**：属性面板支持显示端口的 `paper_ref` 论文引用说明
+    - 更新 `OperatorInput` 类型定义添加 `paper_ref`、`latex_name`、`default_value` 字段
+    - 更新 `Operator` 类型定义添加 `operator_type`、`latex_formula` 字段
+    - 属性面板端口信息区域显示论文引用（带 📄 图标和左侧蓝色边框）
+  - **配置文件导入**：支持从 JSON 文件导入流程配置
+    - 新增 `ImportConfigDialog` 组件（`src/lowcode/components/ImportConfigDialog.tsx`）
+    - 工具栏添加"导入"按钮
+    - 支持选择文件、预览配置信息、验证配置、导入并自动布局
+    - 导入后自动加载流程到画布
+  - **分类验证结果完整显示**：CategoryConfigDialog 显示完整验证信息
+    - 显示错误列表（红色）
+    - 显示警告列表（黄色）
+    - 显示缺失的算子列表
+    - 显示重复的算子列表
+  - **算子详情弹窗**：双击算子卡片查看完整信息
+    - 新增 `OperatorDetailDialog` 组件（`src/lowcode/components/OperatorDetailDialog.tsx`）
+    - 显示基本信息、LaTeX 公式、输入/输出端口详情
+    - 端口详情包含 latex_name、paper_ref、default_value
+  - **执行结果导出**：ExecuteDialog 支持导出执行结果为 JSON
+    - 执行状态栏添加"导出"按钮
+    - 导出内容包含执行 ID、状态、输出、追踪信息、导出时间
+  - **流程配置导出**：工具栏"导出"按钮下载 JSON 配置文件
+  - 测试用例更新：lowcode.test.ts 新增 5 个类型测试（总计 358 个用例）
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

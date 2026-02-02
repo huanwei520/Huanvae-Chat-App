@@ -65,6 +65,17 @@ function ExportIcon() {
   );
 }
 
+/** 导入图标 */
+function ImportIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17,8 12,3 7,8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
 /** 列表图标 */
 function ListIcon() {
   return (
@@ -131,6 +142,19 @@ function BatchIcon() {
   );
 }
 
+/** 自动布局图标 */
+function LayoutIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="8.5" y="14" width="7" height="7" rx="1" />
+      <path d="M6.5 10v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
+      <line x1="12" y1="12.5" x2="12" y2="14" />
+    </svg>
+  );
+}
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -173,6 +197,10 @@ interface ToolbarProps {
   onOpenCategories?: () => void;
   /** 批量执行 */
   onBatchRun?: () => void;
+  /** 自动布局 */
+  onAutoLayout?: () => void;
+  /** 导入配置文件 */
+  onImport?: () => void;
 }
 
 // ============================================================================
@@ -203,6 +231,8 @@ function ToolbarComponent({
   onOpenVersions,
   onOpenCategories,
   onBatchRun,
+  onAutoLayout,
+  onImport,
 }: ToolbarProps) {
   /** 处理名称变更 */
   const handleNameChange = useCallback(
@@ -357,6 +387,17 @@ function ToolbarComponent({
           <span>导出</span>
         </button>
 
+        {onImport && (
+          <button
+            className="toolbar-btn"
+            onClick={onImport}
+            title="导入配置文件"
+          >
+            <ImportIcon />
+            <span>导入</span>
+          </button>
+        )}
+
         {onOpenCategories && (
           <button
             className="toolbar-btn"
@@ -365,6 +406,18 @@ function ToolbarComponent({
           >
             <CategoryIcon />
             <span>分类</span>
+          </button>
+        )}
+
+        {onAutoLayout && (
+          <button
+            className="toolbar-btn"
+            onClick={onAutoLayout}
+            disabled={nodeCount < 2}
+            title="自动布局"
+          >
+            <LayoutIcon />
+            <span>布局</span>
           </button>
         )}
 
