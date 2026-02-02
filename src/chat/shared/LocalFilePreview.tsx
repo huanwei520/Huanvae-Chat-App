@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getFileSource, type FileSource } from '../../services/fileService';
+import { formatFileSize } from '../../utils/format';
 
 // ============================================================================
 // 类型定义
@@ -200,15 +201,8 @@ function LocalBadge() {
 }
 
 // ============================================================================
-// 辅助函数
+// 辅助函数（formatFileSize 已迁移至 utils/format.ts）
 // ============================================================================
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) { return `${bytes} B`; }
-  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
-  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 // ============================================================================
 // 样式（内联，或者可以提取到单独的 CSS 文件）

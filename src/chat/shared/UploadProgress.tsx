@@ -9,7 +9,7 @@
 
 import { motion } from 'framer-motion';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
-import { formatFileSize } from '../../hooks/useFileUpload';
+import { formatFileSize } from '../../utils/format';
 
 // ============================================
 // 类型定义

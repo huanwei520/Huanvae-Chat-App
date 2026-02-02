@@ -7,10 +7,13 @@
  * - 发送按钮
  * - 上传进度条
  * - 禁言状态检测和提示
+ * - 剪贴板图片粘贴（桌面端，类似 QQ/微信）
  */
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { FileAttachButton, type AttachmentType, getMimeType } from './FileAttachButton';
 import { UploadProgress } from './UploadProgress';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
@@ -222,6 +225,89 @@ export function ChatInputArea({
     onFileSelect(finalFile, attachmentType);
   }, [uploading, isMuted, onFileSelect]);
 
+  // ============================================
+  // 剪贴板图片粘贴处理（仅桌面端）
+  // ============================================
+
+  /**
+   * 处理粘贴事件
+   * 如果剪贴板包含图片，则调用 Tauri 后端保存为 PNG 文件并上传
+   * 类似 QQ/微信 的粘贴图片功能
+   */
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    // 禁用状态或移动端不处理
+    if (uploading || isMuted || isMobile()) {
+      return;
+    }
+
+    // 检查剪贴板是否包含图片文件
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+
+      // 检查是否是图片
+      if (file.type.startsWith('image/')) {
+        e.preventDefault(); // 阻止默认粘贴行为
+
+        // 生成文件名（截图默认没有名称）
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const ext = file.type.split('/')[1] || 'png';
+        const filename = file.name || `clipboard-${timestamp}.${ext}`;
+
+        // 创建带正确文件名的 File 对象
+        const imageFile = new File([file], filename, {
+          type: file.type,
+          lastModified: Date.now(),
+        });
+
+        // 调用已有的 onFileSelect 回调（无本地路径）
+        onFileSelect(imageFile, 'image');
+        return;
+      }
+    }
+
+    // 尝试使用 Tauri 剪贴板插件读取图片（桌面端专属）
+    // 这可以处理通过截图工具复制到剪贴板的图片
+    try {
+      // 动态导入，避免移动端加载失败
+      const { readImage } = await import('@tauri-apps/plugin-clipboard-manager');
+
+      const clipboardImage = await readImage();
+
+      // 获取 RGBA 数据和尺寸（size() 是异步方法）
+      const rgbaData = await clipboardImage.rgba();
+      const imageSize = await clipboardImage.size();
+
+      if (!rgbaData || rgbaData.length === 0) {
+        return;
+      }
+
+      e.preventDefault(); // 阻止默认粘贴行为
+
+      // 调用 Rust 后端保存为 PNG 文件，获取本地路径
+      const localPath = await invoke<string>('save_clipboard_image', {
+        rgbaData: Array.from(rgbaData),
+        width: imageSize.width,
+        height: imageSize.height,
+      });
+
+      // 读取保存的文件，创建 File 对象
+      const fileBytes = await readFile(localPath);
+      const filename = localPath.split(/[/\\]/).pop() || 'clipboard.png';
+
+      const file = new File([fileBytes], filename, {
+        type: 'image/png',
+        lastModified: Date.now(),
+      });
+
+      // 调用现有的文件选择回调，传入本地路径
+      onFileSelect(file, 'image', localPath);
+    } catch {
+      // 剪贴板没有图片或读取失败，继续默认粘贴行为（粘贴文本）
+      // 这是正常情况，不需要记录错误
+    }
+  }, [uploading, isMuted, onFileSelect]);
+
   // 禁言状态变化后重新聚焦（移动端禁用自动聚焦以避免键盘弹出）
   useEffect(() => {
     if (!isMuted && !isMobile()) {
@@ -289,6 +375,7 @@ export function ChatInputArea({
             adjustTextareaHeight();
           }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           disabled={uploading}
           rows={1}
         />

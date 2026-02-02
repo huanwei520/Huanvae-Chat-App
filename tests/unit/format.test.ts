@@ -3,11 +3,19 @@
  *
  * 测试 src/utils/format.ts 中的格式化函数
  *
+ * 包含测试：
+ * - formatSize: 格式化文件大小
+ * - formatFileSize: formatSize 的别名（向后兼容）
+ * - formatSpeed: 格式化传输速度
+ * - formatEta: 格式化剩余时间
+ * - formatDuration: 格式化时长
+ *
  * @created 2026-01-24
+ * @updated 2026-01-26 添加 formatFileSize 别名测试
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatSize, formatSpeed, formatEta, formatDuration } from '../../src/utils/format';
+import { formatSize, formatFileSize, formatSpeed, formatEta, formatDuration } from '../../src/utils/format';
 
 describe('格式化工具函数 (utils/format)', () => {
   describe('formatSize - 格式化文件大小', () => {
@@ -34,6 +42,16 @@ describe('格式化工具函数 (utils/format)', () => {
       expect(formatSize(1024 * 1024 * 1024)).toBe('1.00 GB');
       expect(formatSize(1.5 * 1024 * 1024 * 1024)).toBe('1.50 GB');
       expect(formatSize(10 * 1024 * 1024 * 1024)).toBe('10.00 GB');
+    });
+  });
+
+  describe('formatFileSize - formatSize 别名', () => {
+    it('应与 formatSize 行为完全相同', () => {
+      // formatFileSize 是 formatSize 的别名，用于保持向后兼容
+      expect(formatFileSize(0)).toBe(formatSize(0));
+      expect(formatFileSize(1024)).toBe(formatSize(1024));
+      expect(formatFileSize(1024 * 1024)).toBe(formatSize(1024 * 1024));
+      expect(formatFileSize(1024 * 1024 * 1024)).toBe(formatSize(1024 * 1024 * 1024));
     });
   });
 

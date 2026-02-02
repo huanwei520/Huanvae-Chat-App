@@ -44,6 +44,8 @@ mod user_data;
 // ============================================
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod clipboard;
 
 // ============================================
 // 移动专属模块 (Android/iOS)
@@ -523,7 +525,7 @@ fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 桌面端：包含 updater 和 window-state 插件
+    // 桌面端：包含 updater、window-state 和 clipboard-manager 插件
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -534,7 +536,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_window_state::Builder::new().build());
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init());
 
     // 移动端：不包含 updater 和 window-state 插件
     // - keystore: 存储密码
@@ -759,6 +762,11 @@ pub fn run() {
             permissions::can_open_permission_settings,
             // 移动端本地视频 URL
             get_local_video_url,
+            // 剪贴板图片处理（桌面端专属）
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            clipboard::save_clipboard_image,
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            clipboard::cleanup_clipboard_temp_files,
             // Android 更新（版本检测、APK 下载）
             android_update::get_app_version,
             android_update::fetch_update_json,

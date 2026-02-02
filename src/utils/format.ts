@@ -2,13 +2,14 @@
  * 通用格式化工具函数
  *
  * 提供文件大小、传输速度、剩余时间等格式化功能
- * 用于局域网传输、更新下载等场景
+ * 用于局域网传输、更新下载、文件上传等场景
  *
  * ## 使用方式
  * ```typescript
- * import { formatSize, formatSpeed, formatEta } from '../utils/format';
+ * import { formatSize, formatFileSize, formatSpeed, formatEta } from '../utils/format';
  *
  * formatSize(1536);     // "1.5 KB"
+ * formatFileSize(1536); // "1.5 KB" (formatSize 的别名)
  * formatSpeed(1048576); // "1.0 MB/s"
  * formatEta(125);       // "2分5秒"
  * ```
@@ -16,9 +17,11 @@
  * ## 注意事项
  * - 直接导入所需函数，不要通过 index.ts barrel 导入（避免 tree-shaking 问题）
  * - 所有函数为纯函数，无副作用
+ * - formatFileSize 是 formatSize 的别名，为兼容历史代码保留
  *
  * @module utils/format
  * @created 2026-01-24
+ * @updated 2026-01-26 添加 formatFileSize 别名，统一项目中的文件大小格式化函数
  */
 
 /**
@@ -112,3 +115,15 @@ export function formatDuration(ms: number): string {
   const seconds = Math.round((ms % 60000) / 1000);
   return seconds > 0 ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`;
 }
+
+/**
+ * 格式化文件大小（formatSize 的别名）
+ *
+ * 为兼容历史代码保留，推荐使用 formatSize
+ *
+ * @param bytes 字节数
+ * @returns 格式化字符串，如 "1.5 MB"
+ *
+ * @see formatSize
+ */
+export const formatFileSize = formatSize;

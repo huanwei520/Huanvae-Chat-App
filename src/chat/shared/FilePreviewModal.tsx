@@ -12,7 +12,7 @@ import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { useFileCache } from '../../hooks/useFileCache';
-import { formatFileSize } from '../../hooks/useFileUpload';
+import { formatFileSize } from '../../utils/format';
 
 // ============================================
 // 类型定义

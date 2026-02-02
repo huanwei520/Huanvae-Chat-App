@@ -124,6 +124,11 @@ tauri-plugin-window-state = "2.4.1"
 tauri-plugin-updater = "2.9.0"
 # 系统进程信息（用于会话锁检测）
 sysinfo = "0.33.1"
+# 剪贴板管理（用于粘贴图片功能）
+# 官方插件：https://v2.tauri.app/plugin/clipboard/
+tauri-plugin-clipboard-manager = "2.3.2"
+# PNG 编码（将剪贴板 RGBA 数据转为 PNG 文件）
+png = "0.17"
 
 # ============================================
 # 桌面平台专属：密钥链依赖

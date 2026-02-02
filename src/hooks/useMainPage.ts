@@ -67,6 +67,108 @@ import type {
 const MIN_PANEL_WIDTH = 88;
 const MAX_PANEL_WIDTH = 280;
 
+// ============================================
+// 文件上传成功后的公共处理逻辑
+// ============================================
+
+/**
+ * 上传成功后处理：缓存文件、保存消息、保存映射
+ *
+ * 提取此函数是为了消除好友/群聊文件上传的重复代码（约 80 行）
+ */
+interface UploadSuccessOptions {
+  result: {
+    fileHash?: string;
+    fileUuid?: string;
+    fileUrl?: string;
+    messageUuid?: string;
+    messageSendTime?: string;
+    imageWidth?: number | null;
+    imageHeight?: number | null;
+  };
+  file: File;
+  localPath?: string;
+  messageType: 'image' | 'video' | 'file';
+  timestamp: string;
+  session: { userId: string; profile: { user_nickname: string; user_avatar_url: string | null } };
+  conversationType: 'friend' | 'group';
+  conversationId: string;
+}
+
+async function processUploadSuccess(options: UploadSuccessOptions): Promise<void> {
+  const { result, file, localPath, messageType, timestamp, session, conversationType, conversationId } = options;
+
+  if (!result.fileUuid || !result.fileHash) {
+    return;
+  }
+
+  // 1. 保存 file_uuid 到 file_hash 的映射
+  await saveFileUuidHash(result.fileUuid, result.fileHash);
+  // eslint-disable-next-line no-console
+  console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
+    fileUuid: result.fileUuid,
+    fileHash: result.fileHash,
+  });
+
+  // 2. 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
+  if (localPath) {
+    try {
+      const { fileCache } = useSettingsStore.getState();
+      const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
+      const cachedPath = await invoke<string>('copy_file_to_cache', {
+        sourcePath: localPath,
+        fileHash: result.fileHash,
+        fileName: file.name,
+        fileType: messageType,
+        fileSize: file.size,
+        largeFileThreshold: thresholdBytes,
+      });
+      // eslint-disable-next-line no-console
+      console.log('%c[FileUpload] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
+        fileHash: result.fileHash,
+        originalPath: localPath,
+        cachedPath,
+        isLargeFile: file.size >= thresholdBytes,
+      });
+    } catch (cacheErr) {
+      console.error('[FileUpload] 缓存文件失败:', cacheErr);
+    }
+  }
+
+  // 3. 保存消息到本地数据库（后端上传时会自动发送消息）
+  if (result.messageUuid) {
+    await saveMessage({
+      message_uuid: result.messageUuid,
+      conversation_id: conversationId,
+      conversation_type: conversationType,
+      sender_id: session.userId,
+      sender_name: session.profile.user_nickname,
+      sender_avatar: session.profile.user_avatar_url,
+      content: file.name,
+      content_type: messageType,
+      file_uuid: result.fileUuid,
+      file_url: result.fileUrl || null,
+      file_size: file.size,
+      file_hash: result.fileHash,
+      image_width: result.imageWidth ?? null,
+      image_height: result.imageHeight ?? null,
+      seq: 0,
+      reply_to: null,
+      is_recalled: false,
+      is_deleted: false,
+      send_time: result.messageSendTime || timestamp,
+    });
+    // eslint-disable-next-line no-console
+    console.log('%c[FileUpload] 保存消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
+      messageUuid: result.messageUuid,
+      fileName: file.name,
+      conversationId,
+      imageWidth: result.imageWidth,
+      imageHeight: result.imageHeight,
+    });
+  }
+}
+
 export function useMainPage() {
   const { session, clearSession } = useSession();
   const api = useApi();
@@ -533,74 +635,18 @@ export function useMainPage() {
             instant: result.instant,
           });
 
-          // 保存 file_uuid 到 file_hash 的映射，用于后续消息显示时查找本地文件
-          if (result.fileUuid && result.fileHash) {
-            await saveFileUuidHash(result.fileUuid, result.fileHash);
-
-            // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
-            if (localPath) {
-              try {
-                const { fileCache } = useSettingsStore.getState();
-                const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
-                const cachedPath = await invoke<string>('copy_file_to_cache', {
-                  sourcePath: localPath,
-                  fileHash: result.fileHash,
-                  fileName: file.name,
-                  fileType: messageType,
-                  fileSize: file.size,
-                  largeFileThreshold: thresholdBytes,
-                });
-                // eslint-disable-next-line no-console
-                console.log('%c[FileUpload] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
-                  fileHash: result.fileHash,
-                  originalPath: localPath,
-                  cachedPath,
-                  isLargeFile: file.size >= thresholdBytes,
-                });
-              } catch (cacheErr) {
-                console.error('[FileUpload] 缓存文件失败:', cacheErr);
-              }
-            }
-
-            // 保存消息到本地数据库（后端上传时会自动发送消息）
-            if (result.messageUuid && session) {
-              // 使用正确的 conversation_id 格式
-              const conversationId = getFriendConversationId(session.userId, chatTarget.data.friend_id);
-              await saveMessage({
-                message_uuid: result.messageUuid,
-                conversation_id: conversationId,
-                conversation_type: 'friend',
-                sender_id: session.userId,
-                sender_name: session.profile.user_nickname,
-                sender_avatar: session.profile.user_avatar_url,
-                content: file.name,
-                content_type: messageType,
-                file_uuid: result.fileUuid,
-                file_url: result.fileUrl || null,
-                file_size: file.size,
-                file_hash: result.fileHash,
-                image_width: result.imageWidth ?? null,
-                image_height: result.imageHeight ?? null,
-                seq: 0,
-                reply_to: null,
-                is_recalled: false,
-                is_deleted: false,
-                send_time: result.messageSendTime || timestamp,
-              });
-              // eslint-disable-next-line no-console
-              console.log('%c[FileUpload] 保存消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
-                messageUuid: result.messageUuid,
-                fileName: file.name,
-                conversationId,
-                imageWidth: result.imageWidth,
-                imageHeight: result.imageHeight,
-              });
-            }
-
-            // eslint-disable-next-line no-console
-            console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
-              fileUuid: result.fileUuid,
-              fileHash: result.fileHash,
+          // 使用公共函数处理上传成功后的逻辑（缓存、保存消息、映射）
+          if (session) {
+            const conversationId = getFriendConversationId(session.userId, chatTarget.data.friend_id);
+            await processUploadSuccess({
+              result,
+              file,
+              localPath,
+              messageType,
+              timestamp,
+              session,
+              conversationType: 'friend',
+              conversationId,
             });
           }
 
@@ -621,71 +667,17 @@ export function useMainPage() {
             instant: result.instant,
           });
 
-          // 保存 file_uuid 到 file_hash 的映射
-          if (result.fileUuid && result.fileHash) {
-            await saveFileUuidHash(result.fileUuid, result.fileHash);
-
-            // 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
-            if (localPath) {
-              try {
-                const { fileCache } = useSettingsStore.getState();
-                const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
-                const cachedPath = await invoke<string>('copy_file_to_cache', {
-                  sourcePath: localPath,
-                  fileHash: result.fileHash,
-                  fileName: file.name,
-                  fileType: messageType,
-                  fileSize: file.size,
-                  largeFileThreshold: thresholdBytes,
-                });
-                // eslint-disable-next-line no-console
-                console.log('%c[FileUpload] 群文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
-                  fileHash: result.fileHash,
-                  originalPath: localPath,
-                  cachedPath,
-                  isLargeFile: file.size >= thresholdBytes,
-                });
-              } catch (cacheErr) {
-                console.error('[FileUpload] 缓存群文件失败:', cacheErr);
-              }
-            }
-
-            // 保存消息到本地数据库（后端上传时会自动发送消息）
-            if (result.messageUuid && session) {
-              await saveMessage({
-                message_uuid: result.messageUuid,
-                conversation_id: chatTarget.data.group_id,
-                conversation_type: 'group',
-                sender_id: session.userId,
-                sender_name: session.profile.user_nickname,
-                sender_avatar: session.profile.user_avatar_url,
-                content: file.name,
-                content_type: messageType,
-                file_uuid: result.fileUuid,
-                file_url: result.fileUrl || null,
-                file_size: file.size,
-                file_hash: result.fileHash,
-                image_width: result.imageWidth ?? null,
-                image_height: result.imageHeight ?? null,
-                seq: 0,
-                reply_to: null,
-                is_recalled: false,
-                is_deleted: false,
-                send_time: result.messageSendTime || timestamp,
-              });
-              // eslint-disable-next-line no-console
-              console.log('%c[FileUpload] 保存群消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
-                messageUuid: result.messageUuid,
-                fileName: file.name,
-                imageWidth: result.imageWidth,
-                imageHeight: result.imageHeight,
-              });
-            }
-
-            // eslint-disable-next-line no-console
-            console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
-              fileUuid: result.fileUuid,
-              fileHash: result.fileHash,
+          // 使用公共函数处理上传成功后的逻辑（缓存、保存消息、映射）
+          if (session) {
+            await processUploadSuccess({
+              result,
+              file,
+              localPath,
+              messageType,
+              timestamp,
+              session,
+              conversationType: 'group',
+              conversationId: chatTarget.data.group_id,
             });
           }
 

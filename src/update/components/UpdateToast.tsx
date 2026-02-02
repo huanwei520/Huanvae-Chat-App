@@ -23,6 +23,7 @@ import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
+import { formatSize } from '../../utils/format';
 import './UpdateToast.css';
 
 // ============================================
@@ -64,15 +65,8 @@ export interface UpdateToastProps {
 }
 
 // ============================================
-// 工具函数
+// 工具函数（formatSize 已迁移至 utils/format.ts）
 // ============================================
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) { return `${bytes} B`; }
-  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KB`; }
-  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 function extractProxyHost(url: string): string {
   try {
