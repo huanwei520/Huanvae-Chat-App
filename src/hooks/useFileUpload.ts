@@ -14,6 +14,7 @@
 
 import { useState, useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
+import { formatFileSize } from '../utils/format';
 
 // ============================================
 // 类型定义
@@ -664,14 +665,4 @@ export function clearPresignedUrlCache(fileUuid?: string) {
   } else {
     presignedUrlCache.clear();
   }
-}
-
-/**
- * 格式化文件大小
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) { return `${bytes  } B`; }
-  if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)  } KB`; }
-  if (bytes < 1024 * 1024 * 1024) { return `${(bytes / 1024 / 1024).toFixed(1)  } MB`; }
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)  } GB`;
 }

@@ -36,7 +36,7 @@ import {
   downloadAndSaveFile,
   type FileDownloadCompletedEvent,
 } from '../services/fileCache';
-import { formatFileSize } from '../hooks/useFileUpload';
+import { formatFileSize } from '../utils/format';
 import {
   reportFriendPermissionError,
   createPresignedUrlErrorContext,

@@ -204,6 +204,19 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
         ],
       },
       {
+        name: '剪贴板粘贴图片（桌面端）',
+        description: '在输入框中按 Ctrl+V 粘贴剪贴板图片',
+        critical: true,
+        steps: [
+          '桌面端打开聊天窗口',
+          '使用截图工具截取图片或复制图片',
+          '在输入框中按 Ctrl+V（或 Cmd+V）',
+          '验证图片自动识别并开始上传',
+          '验证图片发送成功',
+          '验证移动端粘贴图片时不触发此功能',
+        ],
+      },
+      {
         name: '发送文件消息',
         description: '发送普通文件',
         critical: false,

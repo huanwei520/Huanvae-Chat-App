@@ -33,7 +33,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { triggerBackgroundDownload } from '../../services/fileCache';
 import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
-import { formatFileSize } from '../../hooks/useFileUpload';
+import { formatFileSize } from '../../utils/format';
 import { FilePreviewModal } from './FilePreviewModal';
 import { MobileMediaPreview } from './MobileMediaPreview';
 import { openMediaWindow } from '../../media';

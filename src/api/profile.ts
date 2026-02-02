@@ -66,12 +66,13 @@ export function changePassword(
   return api.put('/api/profile/password', data as unknown as Record<string, unknown>);
 }
 
-/** 进度回调类型 */
-export type ProgressCallback = (progress: number) => void;
+import type { ProgressCallback } from '../types/api';
+import { uploadWithProgress } from './upload';
 
 /**
  * 上传头像
- * 注意：使用 XMLHttpRequest 以获取上传进度
+ *
+ * 使用通用上传函数，支持上传进度回调
  */
 export function uploadAvatar(
   serverUrl: string,
@@ -79,40 +80,11 @@ export function uploadAvatar(
   file: File,
   onProgress?: ProgressCallback,
 ): Promise<UploadAvatarResponse> {
-  return new Promise((resolve, reject) => {
-    const formData = new FormData();
-    formData.append('avatar', file);
-
-    const xhr = new XMLHttpRequest();
-
-    // 监听上传进度
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        onProgress(progress);
-      }
-    };
-
-    // 完成时处理响应
-    xhr.onload = () => {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(data as UploadAvatarResponse);
-        } else {
-          reject(new Error(data.error || data.message || `HTTP ${xhr.status}`));
-        }
-      } catch {
-        reject(new Error('解析响应失败'));
-      }
-    };
-
-    xhr.onerror = () => {
-      reject(new Error('网络错误'));
-    };
-
-    xhr.open('POST', `${serverUrl}/api/profile/avatar`);
-    xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
-    xhr.send(formData);
-  });
+  return uploadWithProgress<UploadAvatarResponse>(
+    `${serverUrl}/api/profile/avatar`,
+    accessToken,
+    file,
+    'avatar',
+    onProgress,
+  );
 }

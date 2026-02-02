@@ -209,13 +209,14 @@ export function joinGroupByCode(
 // 群头像管理
 // ============================================
 
-/** 进度回调类型 */
-export type ProgressCallback = (progress: number) => void;
+import type { ProgressCallback } from '../types/api';
+import { uploadWithProgress } from './upload';
 
 /**
  * 上传群头像
+ *
  * 权限：群主或管理员
- * 使用 XMLHttpRequest 以获取上传进度
+ * 使用通用上传函数，支持上传进度回调
  */
 export function uploadGroupAvatar(
   api: ApiClient,
@@ -223,42 +224,13 @@ export function uploadGroupAvatar(
   file: File,
   onProgress?: ProgressCallback,
 ): Promise<{ success: boolean; data: { avatar_url: string } }> {
-  return new Promise((resolve, reject) => {
-    const formData = new FormData();
-    formData.append('avatar', file);
-
-    const xhr = new XMLHttpRequest();
-
-    // 监听上传进度
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        onProgress(progress);
-      }
-    };
-
-    // 完成时处理响应
-    xhr.onload = () => {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(data);
-        } else {
-          reject(new Error(data.error || '上传群头像失败'));
-        }
-      } catch {
-        reject(new Error('解析响应失败'));
-      }
-    };
-
-    xhr.onerror = () => {
-      reject(new Error('网络错误'));
-    };
-
-    xhr.open('POST', `${api.getBaseUrl()}/api/groups/${groupId}/avatar`);
-    xhr.setRequestHeader('Authorization', `Bearer ${api.getAccessToken()}`);
-    xhr.send(formData);
-  });
+  return uploadWithProgress(
+    `${api.getBaseUrl()}/api/groups/${groupId}/avatar`,
+    api.getAccessToken(),
+    file,
+    'avatar',
+    onProgress,
+  );
 }
 
 // ============================================

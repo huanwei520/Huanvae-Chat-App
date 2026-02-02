@@ -64,11 +64,13 @@ export {
   downloadApk,
   installApk,
   extractProxyHost,
-  formatSize as formatSizeAndroid,
   type AndroidUpdateInfo,
   type AndroidDownloadProgress,
   type AndroidProgressCallback,
 } from './service.android';
+
+// formatSize 统一从 utils/format 导出
+export { formatSize as formatSizeAndroid } from '../utils/format';
 
 // ============================================
 // 跨平台 Hook（已废弃，推荐使用 useUpdateStore）
