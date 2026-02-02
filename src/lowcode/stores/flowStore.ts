@@ -18,6 +18,7 @@ import {
   addEdge,
 } from '@xyflow/react';
 import type { InputBinding, OutputBinding } from '../utils/workflowSerializer';
+import { getLayoutedElements, type LayoutDirection, type NodeSize } from '../utils/layout';
 
 // ============================================================================
 // 类型定义
@@ -66,6 +67,8 @@ interface FlowState {
   selectNode: (nodeId: string | null) => void;
   /** 清空画布 */
   clearCanvas: () => void;
+  /** 自动布局 */
+  autoLayout: (direction?: LayoutDirection, nodeSizes?: Map<string, NodeSize>) => void;
 
   // ---- 流程 Actions ----
   /** 设置流程 ID */
@@ -196,6 +199,24 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       workflowOutputs: [],
       isDirty: true,
     });
+  },
+
+  autoLayout: (direction = 'TB', nodeSizes) => {
+    const { nodes, edges } = get();
+    if (nodes.length === 0) { return; }
+
+    // 根据布局方向调整间距参数
+    const isVertical = direction === 'TB' || direction === 'BT';
+    const layoutedNodes = getLayoutedElements(nodes, edges, {
+      direction,
+      nodeSizes,
+      // 优化参数：垂直布局时增加层级间距，减少同层间距
+      nodesep: isVertical ? 30 : 50,
+      ranksep: isVertical ? 80 : 100,
+      align: 'UL',
+      ranker: 'tight-tree', // 使用 tight-tree 使布局更紧凑有序
+    });
+    set({ nodes: layoutedNodes, isDirty: true });
   },
 
   // ---- 流程 Actions ----

@@ -162,9 +162,17 @@ import * as PropertyPanel from '../../src/lowcode/components/PropertyPanel';
 import * as Toolbar from '../../src/lowcode/components/Toolbar';
 import * as ExecuteDialog from '../../src/lowcode/components/ExecuteDialog';
 import * as WorkflowListDialog from '../../src/lowcode/components/WorkflowListDialog';
+import * as CategoryConfigDialog from '../../src/lowcode/components/CategoryConfigDialog';
+import * as TemplateDialog from '../../src/lowcode/components/TemplateDialog';
+import * as VersionHistoryPanel from '../../src/lowcode/components/VersionHistoryPanel';
+import * as BatchExecuteDialog from '../../src/lowcode/components/BatchExecuteDialog';
 import * as flowStore from '../../src/lowcode/stores/flowStore';
 import * as operatorService from '../../src/lowcode/services/operatorService';
 import * as workflowService from '../../src/lowcode/services/workflowService';
+import * as apiClient from '../../src/lowcode/services/apiClient';
+import * as categoryService from '../../src/lowcode/services/categoryService';
+import * as templateService from '../../src/lowcode/services/templateService';
+import * as versionService from '../../src/lowcode/services/versionService';
 import * as workflowSerializer from '../../src/lowcode/utils/workflowSerializer';
 import * as useLanTransfer from '../../src/hooks/useLanTransfer';
 
@@ -237,9 +245,17 @@ const COMPONENT_MAP = {
   Toolbar,
   ExecuteDialog,
   WorkflowListDialog,
+  CategoryConfigDialog,
+  TemplateDialog,
+  VersionHistoryPanel,
+  BatchExecuteDialog,
   flowStore,
   operatorService,
   workflowService,
+  apiClient,
+  categoryService,
+  templateService,
+  versionService,
   workflowSerializer,
   // 主题系统
   themeIndex,

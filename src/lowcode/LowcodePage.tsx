@@ -25,6 +25,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
+import { MathJaxContext } from 'better-react-mathjax';
 import { FlowCanvas } from './components/FlowCanvas';
 import { OperatorPanel } from './components/OperatorPanel';
 import { PropertyPanel } from './components/PropertyPanel';
@@ -35,6 +36,7 @@ import { CategoryConfigDialog } from './components/CategoryConfigDialog';
 import { TemplateDialog } from './components/TemplateDialog';
 import { VersionHistoryPanel } from './components/VersionHistoryPanel';
 import { BatchExecuteDialog } from './components/BatchExecuteDialog';
+import { ImportConfigDialog } from './components/ImportConfigDialog';
 import { useFlowStore } from './stores/flowStore';
 import { createLowcodeApiClient } from './services/apiClient';
 import { createWorkflowService } from './services/workflowService';
@@ -53,6 +55,8 @@ import type {
   Operator,
   InputHistoryEntry,
   BatchExecutionResult,
+  WorkflowConfig,
+  ConfigValidationResult,
 } from './types/lowcode';
 import './LowcodePage.css';
 
@@ -112,9 +116,13 @@ function LowcodePage() {
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showVersionPanel, setShowVersionPanel] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // ---- 历史记录状态 ----
   const [inputHistory, setInputHistory] = useState<InputHistoryEntry[]>([]);
+
+  // ---- 布局状态 ----
+  const [layoutTrigger, setLayoutTrigger] = useState(0);
 
   // ---- Store 状态 ----
   const {
@@ -412,6 +420,11 @@ function LowcodePage() {
         inputBindings,
         outputBindings,
       );
+
+      // 延迟触发自动布局，等待节点渲染完成
+      setTimeout(() => {
+        setLayoutTrigger((prev) => prev + 1);
+      }, 100);
     },
     [workflowService, isDirty, operators, loadWorkflow],
   );
@@ -435,6 +448,11 @@ function LowcodePage() {
   const handleClear = useCallback(() => {
     clearCanvas();
   }, [clearCanvas]);
+
+  /** 自动布局 - 通过增加 trigger 触发 FlowCanvas 中的布局逻辑 */
+  const handleAutoLayout = useCallback(() => {
+    setLayoutTrigger((prev) => prev + 1);
+  }, []);
 
   // ---- 新增功能处理器 ----
 
@@ -468,6 +486,11 @@ function LowcodePage() {
           inputBindings,
           outputBindings,
         );
+
+        // 延迟触发自动布局，等待节点渲染完成
+        setTimeout(() => {
+          setLayoutTrigger((prev) => prev + 1);
+        }, 100);
       }
     },
     [templateService, operators, loadWorkflow],
@@ -501,6 +524,11 @@ function LowcodePage() {
           inputBindings,
           outputBindings,
         );
+
+        // 延迟触发自动布局
+        setTimeout(() => {
+          setLayoutTrigger((prev) => prev + 1);
+        }, 100);
       }
     },
     [versionService, workflowId, workflowService, operators, loadWorkflow],
@@ -515,6 +543,59 @@ function LowcodePage() {
   const handleBatchRun = useCallback(() => {
     setShowBatchDialog(true);
   }, []);
+
+  /** 打开导入对话框 */
+  const handleOpenImport = useCallback(() => {
+    setShowImportDialog(true);
+  }, []);
+
+  /** 验证配置文件 */
+  const handleValidateConfig = useCallback(
+    async (config: WorkflowConfig): Promise<ConfigValidationResult> => {
+      if (!workflowService) {
+        throw new Error('服务未初始化');
+      }
+      return workflowService.validateConfig(config);
+    },
+    [workflowService],
+  );
+
+  /** 导入配置文件 */
+  const handleImportConfig = useCallback(
+    async (config: WorkflowConfig, overwrite: boolean) => {
+      if (!workflowService) {
+        throw new Error('服务未初始化');
+      }
+
+      const imported = await workflowService.importConfig(config, overwrite);
+
+      // 加载导入的流程
+      if (imported.workflow.definition) {
+        const { result, inputBindings, outputBindings } = deserializeFromWorkflow(
+          imported.workflow.definition,
+          operators,
+        );
+        loadWorkflow(
+          imported.workflow.id,
+          imported.workflow.name,
+          imported.workflow.description || '',
+          result.nodes,
+          result.edges,
+          inputBindings,
+          outputBindings,
+        );
+
+        // 延迟触发自动布局
+        setTimeout(() => {
+          setLayoutTrigger((prev) => prev + 1);
+        }, 100);
+      }
+
+      // eslint-disable-next-line no-alert
+      alert(`导入成功！${imported.created ? '创建了新流程' : '更新了已有流程'}`);
+    },
+    [workflowService, operators, loadWorkflow],
+  );
 
   /** 批量执行流程 */
   const handleBatchExecute = useCallback(
@@ -577,10 +658,19 @@ function LowcodePage() {
     );
   }
 
+  // MathJax 配置
+  const mathJaxConfig = useMemo(() => ({
+    tex: {
+      inlineMath: [['$', '$']],
+      displayMath: [['$$', '$$']],
+    },
+  }), []);
+
   return (
-    <div className="lowcode-page">
-      {/* 顶部工具栏 */}
-      <Toolbar
+    <MathJaxContext config={mathJaxConfig}>
+      <div className="lowcode-page">
+        {/* 顶部工具栏 */}
+        <Toolbar
         workflowName={workflowName}
         onNameChange={setWorkflowName}
         isDirty={isDirty}
@@ -599,6 +689,8 @@ function LowcodePage() {
         onOpenVersions={handleOpenVersions}
         onOpenCategories={handleOpenCategories}
         onBatchRun={handleBatchRun}
+        onAutoLayout={handleAutoLayout}
+        onImport={handleOpenImport}
       />
 
       {/* 主内容区 */}
@@ -612,7 +704,10 @@ function LowcodePage() {
         {/* 中间画布区域 */}
         <div className="lowcode-canvas-wrapper">
           <ReactFlowProvider>
-            <FlowCanvas />
+            <FlowCanvas
+              layoutTrigger={layoutTrigger}
+              layoutDirection="TB"
+            />
           </ReactFlowProvider>
         </div>
 
@@ -676,14 +771,23 @@ function LowcodePage() {
       />
 
       {/* 批量执行对话框 */}
-      <BatchExecuteDialog
-        isOpen={showBatchDialog}
-        onClose={() => setShowBatchDialog(false)}
-        workflowName={workflowName}
-        inputs={executeInputs}
-        onExecute={handleBatchExecute}
-      />
-    </div>
+        <BatchExecuteDialog
+          isOpen={showBatchDialog}
+          onClose={() => setShowBatchDialog(false)}
+          workflowName={workflowName}
+          inputs={executeInputs}
+          onExecute={handleBatchExecute}
+        />
+
+      {/* 导入配置对话框 */}
+        <ImportConfigDialog
+          isOpen={showImportDialog}
+          onClose={() => setShowImportDialog(false)}
+          onValidate={handleValidateConfig}
+          onImport={handleImportConfig}
+        />
+      </div>
+    </MathJaxContext>
   );
 }
 

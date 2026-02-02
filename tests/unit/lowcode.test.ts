@@ -30,6 +30,10 @@ import type {
   Workflow,
   WorkflowNode,
   WorkflowEdge,
+  OperatorInput,
+  WorkflowConfig,
+  ConfigValidationResult,
+  CategoryValidationResult,
 } from '../../src/lowcode/types/lowcode';
 
 describe('lowcode/api', () => {
@@ -264,5 +268,79 @@ describe('lowcode/types', () => {
     expect(workflow.id).toBe('workflow-1');
     expect(workflow.name).toBe('Test Workflow');
     expect(workflow.definition.nodes).toEqual([]);
+  });
+
+  it('should have correct OperatorInput with paper_ref and latex_name', () => {
+    const input: OperatorInput = {
+      name: 'temperature',
+      data_type: 'number',
+      required: true,
+      description: '温度参数',
+      latex_name: 'T_K',
+      paper_ref: 'Eq. 3.2 in Smith et al. 2023',
+      default_value: 300,
+    };
+
+    expect(input.name).toBe('temperature');
+    expect(input.latex_name).toBe('T_K');
+    expect(input.paper_ref).toBe('Eq. 3.2 in Smith et al. 2023');
+    expect(input.default_value).toBe(300);
+  });
+
+  it('should have correct Operator with operator_type and latex_formula', () => {
+    const operator: Operator = {
+      id: 'thermo.heat_transfer',
+      name: '热传导计算',
+      category: 'thermodynamics',
+      inputs: [],
+      outputs: [],
+      operator_type: 'formula',
+      latex_formula: 'Q = kA\\frac{dT}{dx}',
+    };
+
+    expect(operator.operator_type).toBe('formula');
+    expect(operator.latex_formula).toBe('Q = kA\\frac{dT}{dx}');
+  });
+
+  it('should have correct WorkflowConfig structure', () => {
+    const config: WorkflowConfig = {
+      name: 'Test Config',
+      description: 'Test workflow configuration',
+      definition: {
+        nodes: [{ id: 'n1', operator_id: 'op1' }],
+        edges: [],
+        inputs: [],
+        outputs: [],
+      },
+    };
+
+    expect(config.name).toBe('Test Config');
+    expect(config.definition.nodes).toHaveLength(1);
+  });
+
+  it('should have correct ConfigValidationResult structure', () => {
+    const result: ConfigValidationResult = {
+      is_valid: false,
+      errors: ['Missing required operator'],
+      warnings: ['Node position not set'],
+      missing_operators: ['math.add'],
+    };
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors).toContain('Missing required operator');
+    expect(result.missing_operators).toContain('math.add');
+  });
+
+  it('should have correct CategoryValidationResult structure', () => {
+    const result: CategoryValidationResult = {
+      is_valid: true,
+      errors: [],
+      warnings: ['Some operators not categorized'],
+      missing_operators: ['new.operator'],
+      duplicate_operators: ['math.add'],
+    };
+
+    expect(result.is_valid).toBe(true);
+    expect(result.duplicate_operators).toContain('math.add');
   });
 });

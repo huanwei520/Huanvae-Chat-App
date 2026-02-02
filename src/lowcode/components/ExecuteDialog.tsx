@@ -53,6 +53,8 @@ interface InputDefinition extends WorkflowInput {
   data_type?: DataType;
   description?: string;
   required?: boolean;
+  /** 默认值（可选） */
+  default_value?: unknown;
 }
 
 /** 对话框 Props */
@@ -247,6 +249,28 @@ function ExecutionResultView({ result }: ExecutionResultViewProps) {
     }
   }, [result.status]);
 
+  // 导出执行结果
+  const handleExportResult = useCallback(() => {
+    const exportData = {
+      execution_id: result.execution_id,
+      status: result.status,
+      outputs: result.outputs,
+      error: result.error,
+      total_duration_ms: result.total_duration_ms,
+      trace: result.trace,
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `execution-result-${result.execution_id || Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [result]);
+
   return (
     <div className="execution-result">
       <div className="execution-status">
@@ -256,6 +280,13 @@ function ExecutionResultView({ result }: ExecutionResultViewProps) {
         <span className="execution-duration">
           耗时: {result.total_duration_ms}ms
         </span>
+        <button
+          className="export-result-btn"
+          onClick={handleExportResult}
+          title="导出执行结果"
+        >
+          导出
+        </button>
       </div>
 
       {result.error && (
@@ -337,7 +368,11 @@ function ExecuteDialogComponent({
   const [inputValues, setInputValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     inputs.forEach((input) => {
-      initial[input.name] = formatValue(getDefaultValue(input.data_type), input.data_type);
+      // 优先使用算子定义的 default_value，其次使用数据类型的默认值
+      const defaultVal = input.default_value !== undefined
+        ? input.default_value
+        : getDefaultValue(input.data_type);
+      initial[input.name] = formatValue(defaultVal, input.data_type);
     });
     return initial;
   });
@@ -386,12 +421,24 @@ function ExecuteDialogComponent({
     setShowHistory(false);
   }, [inputs]);
 
-  // 关闭时重置历史下拉
+  // 打开时重置输入值和历史下拉
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen) {
+      // 重置输入值为默认值
+      const initial: Record<string, string> = {};
+      inputs.forEach((input) => {
+        const defaultVal = input.default_value !== undefined
+          ? input.default_value
+          : getDefaultValue(input.data_type);
+        initial[input.name] = formatValue(defaultVal, input.data_type);
+      });
+      setInputValues(initial);
+      setResult(null);
+      setError(null);
+    } else {
       setShowHistory(false);
     }
-  }, [isOpen]);
+  }, [isOpen, inputs]);
 
   // 处理输入变更
   const handleInputChange = useCallback((name: string, value: string) => {

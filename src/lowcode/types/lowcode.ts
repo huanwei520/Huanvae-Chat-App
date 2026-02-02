@@ -24,6 +24,12 @@ export interface OperatorInput {
   required?: boolean;
   /** 端口描述 */
   description?: string;
+  /** LaTeX 格式的参数名（如 T_K, \xi） */
+  latex_name?: string;
+  /** 论文引用说明（参数在论文中的含义） */
+  paper_ref?: string;
+  /** 默认值 */
+  default_value?: unknown;
 }
 
 /** 算子输出端口 */
@@ -35,7 +41,12 @@ export interface OperatorOutput {
   type?: DataType;
   /** 端口描述 */
   description?: string;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
 }
+
+/** 算子类型 */
+export type OperatorType = 'operator' | 'formula' | 'equation_network';
 
 /** 算子定义 */
 export interface Operator {
@@ -53,6 +64,10 @@ export interface Operator {
   inputs: OperatorInput[];
   /** 输出端口列表 */
   outputs: OperatorOutput[];
+  /** 算子类型：operator=运算符, formula=公式, equation_network=方程网络 */
+  operator_type?: OperatorType;
+  /** LaTeX 公式 */
+  latex_formula?: string;
 }
 
 // ============================================================================
