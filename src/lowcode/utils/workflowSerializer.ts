@@ -14,6 +14,8 @@ import type {
   WorkflowInput,
   WorkflowOutput,
   Operator,
+  ControlFlowConfig,
+  VisualizationConfig,
 } from '../types/lowcode';
 
 // ============================================================================
@@ -37,13 +39,37 @@ export interface InputBinding {
   name: string;
   nodeId: string;
   port: string;
+  /** 数据类型 */
+  type?: string;
+  /** 是否必填 */
+  required?: boolean;
+  /** 参数描述 */
+  description?: string;
+  /** 默认值 */
+  default?: string;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
+  /** 论文引用说明 */
+  paper_ref?: string;
 }
 
 /** 流程输出绑定（前端格式） */
 export interface OutputBinding {
   name: string;
-  nodeId: string;
-  port: string;
+  /** 节点 ID（节点端口来源时使用） */
+  nodeId?: string;
+  /** 端口名称（节点端口来源时使用） */
+  port?: string;
+  /** 累加器名称（累加器来源时使用） */
+  accumulator?: string;
+  /** 数据类型 */
+  type?: string;
+  /** 参数描述 */
+  description?: string;
+  /** 来源类型：node=节点端口, accumulator=累加器 */
+  source_type?: 'node' | 'accumulator';
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
 }
 
 // ============================================================================
@@ -52,11 +78,13 @@ export interface OutputBinding {
 
 /**
  * 将 React Flow 节点转换为 API 格式的节点
+ *
+ * 保留节点的增强字段：type, latex_formula, input_params, output_params
  */
 function serializeNode(node: Node): WorkflowNode {
   const data = node.data as unknown as OperatorNodeData;
 
-  return {
+  const result: WorkflowNode = {
     id: node.id,
     operator_id: data.operator.id,
     position: {
@@ -65,6 +93,18 @@ function serializeNode(node: Node): WorkflowNode {
     },
     name: data.label || data.operator.name,
   };
+
+  // 保留算子类型字段
+  if (data.operator.operator_type) {
+    result.type = data.operator.operator_type;
+  }
+
+  // 保留 LaTeX 公式字段
+  if (data.operator.latex_formula) {
+    result.latex_formula = data.operator.latex_formula;
+  }
+
+  return result;
 }
 
 /**
@@ -100,28 +140,73 @@ function serializeEdge(edge: Edge): WorkflowEdge {
 
 /**
  * 将前端输入绑定转换为 API 格式
+ *
+ * 保留增强字段：type, required, description, default, latex_name, paper_ref
  */
 function serializeInputBindings(bindings: InputBinding[]): WorkflowInput[] {
-  return bindings.map((binding) => ({
-    name: binding.name,
-    bind_to: {
-      node: binding.nodeId,
-      port: binding.port,
-    },
-  }));
+  return bindings.map((binding) => {
+    const result: WorkflowInput = {
+      name: binding.name,
+      bind_to: {
+        node: binding.nodeId,
+        port: binding.port,
+      },
+    };
+
+    // 保留可选字段
+    if (binding.type) result.type = binding.type;
+    if (binding.required !== undefined) result.required = binding.required;
+    if (binding.description) result.description = binding.description;
+    if (binding.default) result.default = binding.default;
+    if (binding.latex_name) result.latex_name = binding.latex_name;
+    if (binding.paper_ref) result.paper_ref = binding.paper_ref;
+
+    return result;
+  });
 }
 
 /**
  * 将前端输出绑定转换为 API 格式
+ *
+ * 保留增强字段：type, description, source_type, latex_name
+ * 支持两种来源格式：节点端口 和 累加器
  */
 function serializeOutputBindings(bindings: OutputBinding[]): WorkflowOutput[] {
-  return bindings.map((binding) => ({
-    name: binding.name,
-    bind_from: {
-      node: binding.nodeId,
-      port: binding.port,
-    },
-  }));
+  return bindings.map((binding) => {
+    // 根据来源类型构建 bind_from
+    let bindFrom: WorkflowOutput['bind_from'];
+    if (binding.accumulator) {
+      bindFrom = { accumulator: binding.accumulator };
+    } else {
+      bindFrom = {
+        node: binding.nodeId || '',
+        port: binding.port || '',
+      };
+    }
+
+    const result: WorkflowOutput = {
+      name: binding.name,
+      bind_from: bindFrom,
+    };
+
+    // 保留可选字段
+    if (binding.type) result.type = binding.type;
+    if (binding.description) result.description = binding.description;
+    if (binding.source_type) result.source_type = binding.source_type;
+    if (binding.latex_name) result.latex_name = binding.latex_name;
+
+    return result;
+  });
+}
+
+/** 序列化选项 */
+export interface SerializeOptions {
+  /** 默认输入参数值 */
+  defaultInputs?: Record<string, unknown>;
+  /** 控制流配置 */
+  controlFlow?: ControlFlowConfig;
+  /** 可视化配置 */
+  visualization?: VisualizationConfig;
 }
 
 /**
@@ -131,6 +216,7 @@ function serializeOutputBindings(bindings: OutputBinding[]): WorkflowOutput[] {
  * @param edges - React Flow 边列表
  * @param inputBindings - 流程输入绑定
  * @param outputBindings - 流程输出绑定
+ * @param options - 可选的额外配置（control_flow, default_inputs, visualization）
  * @returns API 格式的流程定义
  */
 export function serializeToWorkflow(
@@ -138,13 +224,27 @@ export function serializeToWorkflow(
   edges: Edge[],
   inputBindings: InputBinding[],
   outputBindings: OutputBinding[],
+  options?: SerializeOptions,
 ): WorkflowDefinition {
-  return {
+  const definition: WorkflowDefinition = {
     nodes: nodes.map(serializeNode),
     edges: edges.map(serializeEdge),
     inputs: serializeInputBindings(inputBindings),
     outputs: serializeOutputBindings(outputBindings),
   };
+
+  // 添加可选配置
+  if (options?.defaultInputs && Object.keys(options.defaultInputs).length > 0) {
+    definition.default_inputs = options.defaultInputs;
+  }
+  if (options?.controlFlow) {
+    definition.control_flow = options.controlFlow;
+  }
+  if (options?.visualization) {
+    definition.visualization = options.visualization;
+  }
+
+  return definition;
 }
 
 // ============================================================================
@@ -199,24 +299,61 @@ function deserializeEdge(workflowEdge: WorkflowEdge): Edge {
 
 /**
  * 将 API 格式的输入绑定转换为前端格式
+ *
+ * 保留增强字段：type, required, description, default, latex_name, paper_ref
  */
 function deserializeInputBindings(inputs: WorkflowInput[]): InputBinding[] {
-  return inputs.map((input) => ({
-    name: input.name,
-    nodeId: input.bind_to.node,
-    port: input.bind_to.port,
-  }));
+  return inputs.map((input) => {
+    const result: InputBinding = {
+      name: input.name,
+      nodeId: input.bind_to.node,
+      port: input.bind_to.port,
+    };
+
+    // 保留可选字段
+    if (input.type) result.type = input.type;
+    if (input.required !== undefined) result.required = input.required;
+    if (input.description) result.description = input.description;
+    if (input.default) result.default = input.default;
+    if (input.latex_name) result.latex_name = input.latex_name;
+    if (input.paper_ref) result.paper_ref = input.paper_ref;
+
+    return result;
+  });
 }
 
 /**
  * 将 API 格式的输出绑定转换为前端格式
+ *
+ * 保留增强字段：type, description, source_type, latex_name
+ * 支持两种来源格式：节点端口 和 累加器
  */
 function deserializeOutputBindings(outputs: WorkflowOutput[]): OutputBinding[] {
-  return outputs.map((output) => ({
-    name: output.name,
-    nodeId: output.bind_from.node,
-    port: output.bind_from.port,
-  }));
+  return outputs.map((output) => {
+    const result: OutputBinding = {
+      name: output.name,
+    };
+
+    // 根据 bind_from 格式设置来源
+    if ('accumulator' in output.bind_from) {
+      result.accumulator = output.bind_from.accumulator;
+      result.source_type = 'accumulator';
+    } else {
+      result.nodeId = output.bind_from.node;
+      result.port = output.bind_from.port;
+      result.source_type = 'node';
+    }
+
+    // 覆盖 source_type（如果 API 明确指定）
+    if (output.source_type) result.source_type = output.source_type;
+
+    // 保留其他可选字段
+    if (output.type) result.type = output.type;
+    if (output.description) result.description = output.description;
+    if (output.latex_name) result.latex_name = output.latex_name;
+
+    return result;
+  });
 }
 
 /**
@@ -322,11 +459,15 @@ export function validateDefinition(
 
   // 验证输出绑定的节点存在
   for (const output of definition.outputs) {
-    if (!nodeIds.has(output.bind_from.node)) {
-      errors.push(
-        `输出 ${output.name} 绑定了不存在的节点: ${output.bind_from.node}`,
-      );
+    // 检查是否是节点端口绑定（有 node 属性）还是累加器绑定（有 accumulator 属性）
+    if ('node' in output.bind_from && output.bind_from.node) {
+      if (!nodeIds.has(output.bind_from.node)) {
+        errors.push(
+          `输出 ${output.name} 绑定了不存在的节点: ${output.bind_from.node}`,
+        );
+      }
     }
+    // 累加器绑定不需要验证节点存在性
   }
 
   // 检查循环依赖（简单检测）

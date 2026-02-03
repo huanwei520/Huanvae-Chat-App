@@ -810,6 +810,18 @@
   border-left: 2px solid var(--color-primary, #1976d2);
 }
 
+.port-default-value {
+  display: block;
+  color: var(--color-text-secondary, #666666);
+  font-size: 11px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--color-surface-alt, #f8f8f8);
+  border-radius: 4px;
+  border-left: 2px solid var(--color-success, #4caf50);
+  font-family: monospace;
+}
+
 /* 算子类型徽章 */
 .operator-type-badge {
   display: inline-block;
@@ -1269,6 +1281,53 @@
   margin-top: 4px;
 }
 
+/* 输入标签 LaTeX 样式 */
+.input-label-with-latex {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.input-label-name {
+  font-weight: 500;
+}
+
+.input-label-latex {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666);
+  white-space: nowrap;
+  gap: 0;
+}
+
+/* 确保 MathJax 输出为内联显示 */
+.input-label-latex > span {
+  display: inline-flex !important;
+  align-items: baseline;
+}
+
+.input-label-latex mjx-container,
+.input-label-latex .MathJax {
+  display: inline !important;
+  vertical-align: baseline;
+}
+
+.input-label-latex mjx-container[jax="CHTML"][display="true"] {
+  display: inline !important;
+  margin: 0 !important;
+  text-align: left !important;
+}
+
+/* 论文引用样式 */
+.form-paper-ref {
+  display: inline-block;
+  color: var(--color-primary, #6366f1);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
 /* 执行结果样式 */
 .execution-result {
   background: var(--color-background, #f5f5f5);
@@ -1335,6 +1394,151 @@
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 执行选项样式 */
+.execute-options {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 6px;
+}
+
+.execute-options-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.execute-options-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.execute-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.execute-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+/* 执行模式指示器样式 */
+.execute-mode-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.execute-mode-indicator .mode-label {
+  color: var(--color-text-secondary, #666666);
+}
+
+.execute-mode-indicator .mode-value {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.execute-mode-indicator .mode-value.mode-single {
+  background: var(--color-info-bg, #e3f2fd);
+  color: var(--color-info, #1976d2);
+}
+
+.execute-mode-indicator .mode-value.mode-iterative {
+  background: var(--color-success-bg, #e8f5e9);
+  color: var(--color-success, #2e7d32);
+}
+
+.execute-mode-indicator .mode-hint {
+  color: var(--color-text-secondary, #888888);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* 迭代信息样式 */
+.iteration-info {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+}
+
+.iteration-info-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: var(--color-primary, #1976d2);
+}
+
+.iteration-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.iteration-info-item {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.iteration-info-label {
+  color: var(--color-text-secondary, #666666);
+}
+
+.iteration-info-value {
+  font-weight: 500;
+}
+
+.iteration-accumulators {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light, #eeeeee);
+}
+
+.accumulator-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--color-text-secondary, #666666);
+}
+
+.accumulator-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.accumulator-item {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 8px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 4px;
+}
+
+.accumulator-name {
+  color: var(--color-text-secondary, #666666);
+}
+
+.accumulator-value {
+  font-weight: 600;
+  color: var(--color-primary, #1976d2);
 }
 
 /* 流程列表样式 */
@@ -2909,4 +3113,686 @@
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
+}
+
+/* ============================================================================
+   控制流配置对话框样式
+   ============================================================================ */
+
+.control-flow-dialog .dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.config-section {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 8px;
+}
+
+.config-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.config-section-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--color-text, #333333);
+}
+
+.config-section-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+  margin-bottom: 12px;
+}
+
+.config-mode-select {
+  display: flex;
+  gap: 12px;
+}
+
+.config-mode-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--color-surface, #ffffff);
+  border: 2px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.config-mode-option:has(input:checked) {
+  border-color: var(--color-primary, #1976d2);
+  background: var(--color-primary-light, #e3f2fd);
+}
+
+.config-mode-option input {
+  margin-bottom: 8px;
+}
+
+.mode-label {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.mode-desc {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.config-table {
+  background: var(--color-surface, #ffffff);
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  overflow: hidden;
+}
+
+.config-table-header {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr 1fr 80px 40px;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-surface-alt, #f5f5f5);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #666666);
+}
+
+.config-table-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr 1fr 80px 40px;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border-light, #eeeeee);
+  align-items: center;
+}
+
+.config-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.config-input-sm {
+  min-width: 60px;
+}
+
+.config-input-wide {
+  min-width: 200px;
+}
+
+.config-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--color-surface, #ffffff);
+}
+
+.config-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--color-primary, #1976d2);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.config-add-btn:hover {
+  background: var(--color-primary-dark, #1565c0);
+}
+
+.config-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #666666);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.config-delete-btn:hover {
+  background: var(--color-error-light, #ffebee);
+  border-color: var(--color-error, #f44336);
+  color: var(--color-error, #f44336);
+}
+
+.time-series-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.time-series-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-primary-light, #e3f2fd);
+  color: var(--color-primary, #1976d2);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.tag-delete {
+  background: none;
+  border: none;
+  color: var(--color-primary, #1976d2);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 2px;
+}
+
+.tag-delete:hover {
+  color: var(--color-error, #f44336);
+}
+
+.time-series-add {
+  display: flex;
+  gap: 4px;
+}
+
+.time-series-add .config-input {
+  width: 120px;
+}
+
+.time-series-add .config-add-btn {
+  padding: 6px 8px;
+}
+
+.termination-config {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.termination-config > .config-select {
+  width: auto;
+  max-width: 200px;
+}
+
+.termination-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: var(--color-surface, #ffffff);
+  border-radius: 6px;
+}
+
+.termination-params label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.termination-params .config-input,
+.termination-params .config-select {
+  width: auto;
+  min-width: 80px;
+}
+
+/* ============================================================================
+   边条件编辑器样式
+   ============================================================================ */
+
+.edge-condition-dialog .dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.condition-info {
+  padding: 12px;
+  background: var(--color-primary-light, #e3f2fd);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.condition-info p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-primary-dark, #1565c0);
+}
+
+.edge-label-hint {
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+  margin-left: 8px;
+}
+
+.condition-expr-editor {
+  padding: 12px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.condition-expr-editor.depth-1 {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+.condition-expr-editor.depth-2 {
+  background: var(--color-surface-alt, #f5f5f5);
+}
+
+.condition-expr-editor.depth-3 {
+  background: var(--color-surface, #ffffff);
+}
+
+.condition-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.condition-type-row .config-select {
+  width: auto;
+  min-width: 120px;
+}
+
+.value-ref-editor {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.value-ref-editor .config-select,
+.value-ref-editor .config-input {
+  flex: 1;
+  min-width: 100px;
+}
+
+.compare-condition {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.compare-operand {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.operand-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666666);
+  font-weight: 600;
+}
+
+.compare-operator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compare-operator .config-select {
+  width: auto;
+  min-width: 60px;
+}
+
+.compound-condition {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compound-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.compound-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-primary, #1976d2);
+}
+
+.not-condition {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.not-label {
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.const-condition {
+  padding: 8px;
+}
+
+.const-condition label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.footer-spacer {
+  flex: 1;
+}
+
+.toolbar-btn.danger {
+  background: var(--color-error, #f44336);
+  color: white;
+  border-color: var(--color-error, #f44336);
+}
+
+.toolbar-btn.danger:hover {
+  background: var(--color-error-dark, #d32f2f);
+}
+
+/* ============================================================================
+   错误处理配置对话框样式
+   ============================================================================ */
+
+.error-handling-dialog .dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.global-options {
+  margin-bottom: 16px;
+}
+
+.global-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.retry-config-editor {
+  margin-top: 12px;
+}
+
+.retry-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.retry-params {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--color-surface, #ffffff);
+  border-radius: 6px;
+}
+
+.retry-param {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.retry-param label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.retry-param .config-input {
+  width: 100%;
+}
+
+.node-handlers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.node-handler-row {
+  padding: 12px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+}
+
+.node-handler-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.node-handler-main .config-select {
+  min-width: 150px;
+}
+
+.handler-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.node-handler-retry {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border-light, #eeeeee);
+}
+
+.retry-param-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+  flex-wrap: wrap;
+}
+
+.retry-param-inline .config-input {
+  width: 70px;
+}
+
+.no-handlers {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-secondary, #666666);
+  font-size: 13px;
+  background: var(--color-surface, #ffffff);
+  border: 1px dashed var(--color-border, #e0e0e0);
+  border-radius: 6px;
+}
+
+/* ============================================================================
+   Mermaid 预览样式
+   ============================================================================ */
+
+.mermaid-preview-dialog {
+  display: flex;
+  flex-direction: column;
+}
+
+.mermaid-preview-dialog.fullscreen {
+  width: 95vw !important;
+  height: 95vh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+}
+
+.toolbar-divider-v {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border, #e0e0e0);
+  margin: 0 4px;
+}
+
+.zoom-level {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666666);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.zoom-level:hover {
+  background: var(--color-hover, #f0f0f0);
+  color: var(--color-primary, #1976d2);
+}
+
+.mermaid-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary, #666666);
+  position: relative;
+  transition: all 0.2s;
+}
+
+.mermaid-toolbar-btn:hover:not(:disabled) {
+  background: var(--color-hover, #f0f0f0);
+  border-color: var(--color-primary, #1976d2);
+  color: var(--color-primary, #1976d2);
+}
+
+.mermaid-toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.copy-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  background: var(--color-success, #4caf50);
+  color: white;
+  font-size: 10px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaid-content {
+  flex: 1;
+  min-height: 300px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--color-surface, #ffffff);
+  position: relative;
+}
+
+.mermaid-container {
+  transition: transform 0.15s ease-out;
+  will-change: transform;
+}
+
+.mermaid-container svg {
+  display: block;
+}
+
+.mermaid-error {
+  padding: 20px;
+  background: var(--color-error-light, #ffebee);
+  border-radius: 8px;
+  color: var(--color-error, #f44336);
+  max-width: 100%;
+}
+
+.mermaid-error strong {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.mermaid-code {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--color-surface-alt, #f5f5f5);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--color-text, #333333);
+  max-height: 200px;
+  overflow: auto;
+}
+
+.mermaid-code-details {
+  flex: 1;
+  margin-right: 12px;
+}
+
+.mermaid-code-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+}
+
+.mermaid-code-details summary:hover {
+  color: var(--color-primary, #1976d2);
+}
+
+.mermaid-code-details[open] .mermaid-code {
+  margin-top: 8px;
 }

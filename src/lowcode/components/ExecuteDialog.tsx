@@ -7,54 +7,48 @@
  */
 
 import { memo, useState, useCallback, useMemo, useEffect } from 'react';
-import type { WorkflowInput, ExecutionResult, DataType, InputHistoryEntry } from '../types/lowcode';
-
-// ============================================================================
-// 图标组件
-// ============================================================================
-
-/** 关闭图标 */
-function CloseIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-/** 运行图标 */
-function RunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polygon points="5,3 19,12 5,21 5,3" />
-    </svg>
-  );
-}
-
-/** 历史图标 */
-function HistoryIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12,6 12,12 16,14" />
-    </svg>
-  );
-}
+import { MathFormula } from './MathFormula';
+import { CloseIcon, RunIcon, HistoryIcon } from './icons';
+import {
+  getDefaultValue,
+  parseValue,
+  formatValue,
+  isNumberType,
+  isBooleanType,
+  isJsonType,
+  isArrayType,
+} from '../utils/formUtils';
+import type {
+  ExecutionResult,
+  DataType,
+  InputHistoryEntry,
+  ExecuteOptions,
+  IterationInfo,
+  PortReference,
+  ExecutionMode,
+} from '../types/lowcode';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
 
 /** 输入定义（包含数据类型） */
-interface InputDefinition extends WorkflowInput {
+export interface InputDefinition {
+  /** 输入参数名称 */
+  name: string;
   /** 用户友好的显示名称（如 "加法.a"） */
   displayName?: string;
+  /** 绑定到的节点端口（时间序列输入可能为空） */
+  bind_to?: PortReference;
   data_type?: DataType;
   description?: string;
   required?: boolean;
   /** 默认值（可选） */
   default_value?: unknown;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
+  /** 论文引用说明 */
+  paper_ref?: string;
 }
 
 /** 对话框 Props */
@@ -68,79 +62,17 @@ interface ExecuteDialogProps {
   /** 流程输入定义 */
   inputs: InputDefinition[];
   /** 执行回调 */
-  onExecute: (inputs: Record<string, unknown>) => Promise<ExecutionResult>;
+  onExecute: (inputs: Record<string, unknown>, options?: ExecuteOptions) => Promise<ExecutionResult>;
   /** 参数历史列表（可选） */
   inputHistory?: InputHistoryEntry[];
   /** 加载参数历史回调（可选） */
   onLoadHistory?: () => Promise<void>;
-}
-
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
-/**
- * 获取输入类型的默认值
- */
-function getDefaultValue(dataType?: DataType): unknown {
-  switch (dataType) {
-    case 'number':
-      return 0;
-    case 'boolean':
-      return false;
-    case 'array':
-      return [];
-    case 'object':
-      return {};
-    case 'string':
-    default:
-      return '';
-  }
-}
-
-/**
- * 解析输入值
- */
-function parseValue(value: string, dataType?: DataType): unknown {
-  if (!value.trim()) {
-    return getDefaultValue(dataType);
-  }
-
-  switch (dataType) {
-    case 'number': {
-      const num = parseFloat(value);
-      return isNaN(num) ? 0 : num;
-    }
-    case 'boolean':
-      return value.toLowerCase() === 'true';
-    case 'array':
-    case 'object':
-      try {
-        return JSON.parse(value);
-      } catch {
-        return dataType === 'array' ? [] : {};
-      }
-    case 'string':
-    default:
-      return value;
-  }
-}
-
-/**
- * 格式化值为字符串
- */
-function formatValue(value: unknown, dataType?: DataType): string {
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  switch (dataType) {
-    case 'array':
-    case 'object':
-      return JSON.stringify(value, null, 2);
-    default:
-      return String(value);
-  }
+  /** 是否显示执行选项 */
+  showOptions?: boolean;
+  /** 当前执行模式（从 control_flow 配置） */
+  executionMode?: ExecutionMode;
+  /** 时间序列输入名称列表 */
+  timeSeriesInputs?: string[];
 }
 
 // ============================================================================
@@ -162,24 +94,27 @@ function InputField({ input, value, onChange }: InputFieldProps) {
   );
 
   const dataType = input.data_type || 'string';
-  const isJsonType = dataType === 'array' || dataType === 'object';
-  const isBooleanType = dataType === 'boolean';
+  // 使用导入的类型判断函数
+  const isArray = isArrayType(dataType);
+  const isJson = isJsonType(dataType);
+  const isBoolean = isBooleanType(dataType);
+  const isNumber = isNumberType(dataType);
 
   // 渲染输入控件
   const renderInputControl = () => {
-    if (isJsonType) {
+    if (isJson) {
       return (
         <textarea
           className="form-input form-textarea"
           value={value}
           onChange={handleChange}
-          placeholder={`输入 ${dataType === 'array' ? '数组' : '对象'} (JSON 格式)`}
+          placeholder={`输入 ${isArray ? '数组' : '对象'} (JSON 格式，如: [1, 2, 3])`}
           rows={4}
         />
       );
     }
 
-    if (isBooleanType) {
+    if (isBoolean) {
       return (
         <select
           className="form-input"
@@ -194,11 +129,11 @@ function InputField({ input, value, onChange }: InputFieldProps) {
 
     return (
       <input
-        type={dataType === 'number' ? 'number' : 'text'}
+        type={isNumber ? 'number' : 'text'}
         className="form-input"
         value={value}
         onChange={handleChange}
-        placeholder={`输入${dataType === 'number' ? '数字' : '文本'}`}
+        placeholder={`输入${isNumber ? '数字' : '文本'}`}
       />
     );
   };
@@ -206,18 +141,41 @@ function InputField({ input, value, onChange }: InputFieldProps) {
   // 使用 displayName 显示，如果没有则回退到 name
   const labelText = input.displayName || input.name;
 
+  // 渲染标签：如果有 latex_name 则使用 MathFormula 渲染
+  const renderLabel = () => {
+    if (input.latex_name) {
+      return (
+        <span className="input-label-with-latex">
+          <span className="input-label-name">{labelText}</span>
+          <span className="input-label-latex">
+            {'('}<MathFormula latex={input.latex_name} inline />{')'}
+          </span>
+        </span>
+      );
+    }
+    return <span>{labelText}</span>;
+  };
+
   return (
     <div className="form-field">
-      <label className="form-label">
-        {labelText}
+      <label className="form-label" title={input.paper_ref || undefined}>
+        {renderLabel()}
         {input.required && <span className="required-mark">*</span>}
         <span className="input-type">({dataType})</span>
       </label>
 
       {renderInputControl()}
 
-      {input.description && (
-        <div className="form-hint">{input.description}</div>
+      {/* 描述和论文引用 */}
+      {(input.description || input.paper_ref) && (
+        <div className="form-hint">
+          {input.description}
+          {input.paper_ref && (
+            <span className="form-paper-ref" title="论文引用">
+              {' '}📄 {input.paper_ref}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -226,6 +184,56 @@ function InputField({ input, value, onChange }: InputFieldProps) {
 // ============================================================================
 // 执行结果组件
 // ============================================================================
+
+// ============================================================================
+// 迭代信息视图组件
+// ============================================================================
+
+interface IterationInfoViewProps {
+  info: IterationInfo;
+}
+
+/**
+ * 迭代执行信息展示
+ */
+function IterationInfoView({ info }: IterationInfoViewProps) {
+  return (
+    <div className="iteration-info">
+      <h4 className="iteration-info-title">迭代执行信息</h4>
+      <div className="iteration-info-grid">
+        <div className="iteration-info-item">
+          <span className="iteration-info-label">总迭代次数:</span>
+          <span className="iteration-info-value">{info.total_iterations}</span>
+        </div>
+        {info.termination_reason && (
+          <div className="iteration-info-item">
+            <span className="iteration-info-label">终止原因:</span>
+            <span className="iteration-info-value">{info.termination_reason}</span>
+          </div>
+        )}
+        {info.terminated_at_index !== undefined && (
+          <div className="iteration-info-item">
+            <span className="iteration-info-label">终止索引:</span>
+            <span className="iteration-info-value">{info.terminated_at_index}</span>
+          </div>
+        )}
+      </div>
+      {Object.keys(info.accumulators).length > 0 && (
+        <div className="iteration-accumulators">
+          <h5 className="accumulator-title">累加器值</h5>
+          <div className="accumulator-grid">
+            {Object.entries(info.accumulators).map(([name, value]) => (
+              <div key={name} className="accumulator-item">
+                <span className="accumulator-name">{name}:</span>
+                <span className="accumulator-value">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface ExecutionResultViewProps {
   result: ExecutionResult;
@@ -302,6 +310,11 @@ function ExecutionResultView({ result }: ExecutionResultViewProps) {
         </div>
       )}
 
+      {/* 迭代执行信息 */}
+      {result.iteration_info && (
+        <IterationInfoView info={result.iteration_info} />
+      )}
+
       {result.trace && result.trace.length > 0 && (
         <div className="execution-trace">
           <button
@@ -363,6 +376,8 @@ function ExecuteDialogComponent({
   onExecute,
   inputHistory,
   onLoadHistory,
+  executionMode = 'single',
+  timeSeriesInputs = [],
 }: ExecuteDialogProps) {
   // 输入值状态
   const [inputValues, setInputValues] = useState<Record<string, string>>(() => {
@@ -381,6 +396,10 @@ function ExecuteDialogComponent({
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 执行选项
+  const [enableTrace, setEnableTrace] = useState(true);
+  const [enableParallel, setEnableParallel] = useState(false);
 
   // 历史下拉状态
   const [showHistory, setShowHistory] = useState(false);
@@ -459,14 +478,20 @@ function ExecuteDialogComponent({
         parsedInputs[input.name] = parseValue(rawValue, input.data_type);
       });
 
-      const executionResult = await onExecute(parsedInputs);
+      // 构建执行选项
+      const options: ExecuteOptions = {
+        trace: enableTrace,
+        parallel: enableParallel,
+      };
+
+      const executionResult = await onExecute(parsedInputs, options);
       setResult(executionResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : '执行失败');
     } finally {
       setIsExecuting(false);
     }
-  }, [inputs, inputValues, onExecute]);
+  }, [inputs, inputValues, onExecute, enableTrace, enableParallel]);
 
   // 处理关闭
   const handleClose = useCallback(() => {
@@ -495,6 +520,19 @@ function ExecuteDialogComponent({
         </div>
 
         <div className="dialog-body">
+          {/* 执行模式指示器 */}
+          <div className="execute-mode-indicator">
+            <span className="mode-label">执行模式:</span>
+            <span className={`mode-value mode-${executionMode}`}>
+              {executionMode === 'iterative' ? '迭代执行' : '单次执行'}
+            </span>
+            {executionMode === 'iterative' && timeSeriesInputs.length > 0 && (
+              <span className="mode-hint">
+                (时间序列: {timeSeriesInputs.join(', ')})
+              </span>
+            )}
+          </div>
+
           {/* 输入表单 */}
           {inputs.length > 0 ? (
             <div className="execute-inputs">
@@ -560,6 +598,29 @@ function ExecuteDialogComponent({
               此流程没有输入参数
             </div>
           )}
+
+          {/* 执行选项 */}
+          <div className="execute-options">
+            <div className="execute-options-title">执行选项</div>
+            <div className="execute-options-row">
+              <label className="execute-option">
+                <input
+                  type="checkbox"
+                  checked={enableTrace}
+                  onChange={(e) => setEnableTrace(e.target.checked)}
+                />
+                <span>启用执行追踪</span>
+              </label>
+              <label className="execute-option">
+                <input
+                  type="checkbox"
+                  checked={enableParallel}
+                  onChange={(e) => setEnableParallel(e.target.checked)}
+                />
+                <span>启用并行执行</span>
+              </label>
+            </div>
+          </div>
 
           {/* 错误信息 */}
           {error && (

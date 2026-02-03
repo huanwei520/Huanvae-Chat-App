@@ -97,8 +97,8 @@ interface OperatorNodeData {
 interface PropertyPanelProps {
   /** 流程输入绑定 */
   workflowInputs: Array<{ name: string; nodeId: string; port: string }>;
-  /** 流程输出绑定 */
-  workflowOutputs: Array<{ name: string; nodeId: string; port: string }>;
+  /** 流程输出绑定（支持节点端口和累加器来源） */
+  workflowOutputs: Array<{ name: string; nodeId?: string; port?: string; accumulator?: string }>;
   /** 添加流程输入 */
   onAddInput: (nodeId: string, port: string, name: string) => void;
   /** 移除流程输入 */
@@ -244,6 +244,7 @@ function PortItem({
   const portLatexName = port.latex_name;
   const portDescription = port.description;
   const portPaperRef = (port as { paper_ref?: string }).paper_ref;
+  const portDefaultValue = (port as { default_value?: unknown }).default_value;
 
   return (
     <div className="property-port-item">
@@ -254,8 +255,8 @@ function PortItem({
         {isRequired && <span className="port-required">*</span>}
       </div>
 
-      {/* LaTeX 名称、描述和论文引用 */}
-      {(portLatexName || portDescription || portPaperRef) && (
+      {/* LaTeX 名称、描述、论文引用和默认值 */}
+      {(portLatexName || portDescription || portPaperRef || portDefaultValue !== undefined) && (
         <div className="port-meta">
           {portLatexName && (
             <span className="port-latex-name">
@@ -268,6 +269,11 @@ function PortItem({
           {portPaperRef && (
             <span className="port-paper-ref" title="论文引用">
               📄 {portPaperRef}
+            </span>
+          )}
+          {portDefaultValue !== undefined && (
+            <span className="port-default-value" title="默认值">
+              默认: {String(portDefaultValue)}
             </span>
           )}
         </div>

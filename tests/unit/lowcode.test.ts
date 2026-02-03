@@ -30,10 +30,25 @@ import type {
   Workflow,
   WorkflowNode,
   WorkflowEdge,
+  WorkflowInput,
+  WorkflowOutput,
   OperatorInput,
   WorkflowConfig,
   ConfigValidationResult,
   CategoryValidationResult,
+  ControlFlowConfig,
+  IterationInfo,
+  ConditionalEdge,
+  ErrorHandlingConfig,
+  ExecuteOptions,
+  ExecutionResult,
+  AccumulatorConfig,
+  StateVarConfig,
+  TerminationCondition,
+  NodeInputParam,
+  NodeOutputParam,
+  AccumulatorReference,
+  OutputBindFrom,
 } from '../../src/lowcode/types/lowcode';
 
 describe('lowcode/api', () => {
@@ -342,5 +357,338 @@ describe('lowcode/types', () => {
 
     expect(result.is_valid).toBe(true);
     expect(result.duplicate_operators).toContain('math.add');
+  });
+
+  it('should have correct ControlFlowConfig structure', () => {
+    const config: ControlFlowConfig = {
+      execution_mode: 'iterative',
+      iteration: {
+        time_series_inputs: ['prices', 'volumes'],
+        accumulators: [
+          {
+            name: 'total_value',
+            source_node: 'calc_node',
+            source_port: 'value',
+            operation: 'sum',
+            initial_value: 0,
+          },
+        ],
+        state_vars: [
+          {
+            name: 'prev_price',
+            source_node: 'calc_node',
+            source_port: 'price',
+            initial_value: 0,
+            lag: 1,
+          },
+        ],
+        termination: {
+          condition: {
+            type: 'fixed_iterations',
+            iterations: 100,
+          },
+        },
+      },
+    };
+
+    expect(config.execution_mode).toBe('iterative');
+    expect(config.iteration?.time_series_inputs).toContain('prices');
+    expect(config.iteration?.accumulators).toHaveLength(1);
+    expect(config.iteration?.state_vars).toHaveLength(1);
+    expect(config.iteration?.termination.condition.type).toBe('fixed_iterations');
+  });
+
+  it('should have correct IterationInfo structure', () => {
+    const info: IterationInfo = {
+      total_iterations: 50,
+      accumulators: {
+        total_value: 12500.5,
+        count: 50,
+      },
+      termination_reason: 'fixed_iterations',
+      terminated_at_index: 49,
+    };
+
+    expect(info.total_iterations).toBe(50);
+    expect(info.accumulators.total_value).toBe(12500.5);
+    expect(info.termination_reason).toBe('fixed_iterations');
+  });
+
+  it('should have correct ConditionalEdge structure', () => {
+    const edge: ConditionalEdge = {
+      edge_id: 'edge-1',
+      condition: {
+        type: 'compare',
+        left: { type: 'node_output', node: 'node-1', port: 'result' },
+        op: 'gt',
+        right: { type: 'literal', value: 100 },
+      },
+    };
+
+    expect(edge.edge_id).toBe('edge-1');
+    expect(edge.condition.type).toBe('compare');
+    expect(edge.condition.left?.type).toBe('node_output');
+    expect(edge.condition.op).toBe('gt');
+  });
+
+  it('should have correct ErrorHandlingConfig structure', () => {
+    const config: ErrorHandlingConfig = {
+      retry: {
+        max_attempts: 3,
+        delay_ms: 1000,
+        backoff_multiplier: 2,
+        max_delay_ms: 30000,
+      },
+      continue_on_error: true,
+      node_handlers: [
+        {
+          node_id: 'node-1',
+          retry: { max_attempts: 5, delay_ms: 500 },
+          fallback_node: 'fallback-node',
+          ignore_error: false,
+        },
+      ],
+    };
+
+    expect(config.retry?.max_attempts).toBe(3);
+    expect(config.continue_on_error).toBe(true);
+    expect(config.node_handlers).toHaveLength(1);
+    expect(config.node_handlers?.[0].fallback_node).toBe('fallback-node');
+  });
+
+  it('should have correct ExecuteOptions structure', () => {
+    const options: ExecuteOptions = {
+      trace: true,
+      timeout_ms: 30000,
+      parallel: true,
+    };
+
+    expect(options.trace).toBe(true);
+    expect(options.parallel).toBe(true);
+    expect(options.timeout_ms).toBe(30000);
+  });
+
+  it('should have correct ExecutionResult with iteration_info', () => {
+    const result: ExecutionResult = {
+      execution_id: 'exec-123',
+      status: 'completed',
+      outputs: { result: 42 },
+      trace: [],
+      error: null,
+      total_duration_ms: 1500,
+      iteration_info: {
+        total_iterations: 10,
+        accumulators: { sum: 100 },
+        termination_reason: 'accumulator_threshold',
+      },
+    };
+
+    expect(result.execution_id).toBe('exec-123');
+    expect(result.iteration_info?.total_iterations).toBe(10);
+    expect(result.iteration_info?.accumulators.sum).toBe(100);
+  });
+
+  it('should have correct AccumulatorConfig structure', () => {
+    const acc: AccumulatorConfig = {
+      name: 'running_total',
+      source_node: 'sum_node',
+      source_port: 'output',
+      operation: 'average',
+      initial_value: 0,
+    };
+
+    expect(acc.name).toBe('running_total');
+    expect(acc.operation).toBe('average');
+    expect(acc.initial_value).toBe(0);
+  });
+
+  it('should have correct StateVarConfig structure', () => {
+    const sv: StateVarConfig = {
+      name: 'previous_value',
+      source_node: 'calc_node',
+      source_port: 'value',
+      initial_value: 0,
+      lag: 2,
+    };
+
+    expect(sv.name).toBe('previous_value');
+    expect(sv.lag).toBe(2);
+  });
+
+  it('should have correct TerminationCondition structure for accumulator_threshold', () => {
+    // 后端格式：termination.condition 包装条件表达式
+    const term: TerminationCondition = {
+      condition: {
+        type: 'accumulator_threshold',
+        name: 'total', // 使用 name 而不是 accumulator_name
+        threshold: 1000,
+        op: 'gte',
+      },
+    };
+
+    expect(term.condition.type).toBe('accumulator_threshold');
+    expect(term.condition.name).toBe('total');
+    expect(term.condition.threshold).toBe(1000);
+    expect(term.condition.op).toBe('gte');
+  });
+
+  // =====================================================
+  // 新增：增强字段测试
+  // =====================================================
+
+  it('should have correct WorkflowInput with enhanced fields', () => {
+    const workflowInput: WorkflowInput = {
+      name: 'temperature',
+      bind_to: { node: 'temp_node', port: 'T' },
+      type: 'Array<Number>',
+      required: true,
+      description: '小时温度序列(摄氏度)',
+      default: '[]',
+      latex_name: 'T',
+      paper_ref: '原始温度输入，单位摄氏度',
+    };
+
+    expect(workflowInput.name).toBe('temperature');
+    expect(workflowInput.bind_to.node).toBe('temp_node');
+    expect(workflowInput.bind_to.port).toBe('T');
+    expect(workflowInput.type).toBe('Array<Number>');
+    expect(workflowInput.required).toBe(true);
+    expect(workflowInput.description).toBe('小时温度序列(摄氏度)');
+    expect(workflowInput.default).toBe('[]');
+    expect(workflowInput.latex_name).toBe('T');
+    expect(workflowInput.paper_ref).toBe('原始温度输入，单位摄氏度');
+  });
+
+  it('should have correct WorkflowOutput with node port source', () => {
+    const workflowOutput: WorkflowOutput = {
+      name: 'bloom_reached',
+      bind_from: { node: 'stage_check', port: 'reached' },
+      type: 'Boolean',
+      description: '是否达到初花期',
+      source_type: 'node',
+      latex_name: 'B',
+    };
+
+    expect(workflowOutput.name).toBe('bloom_reached');
+    expect('node' in workflowOutput.bind_from).toBe(true);
+    if ('node' in workflowOutput.bind_from) {
+      expect(workflowOutput.bind_from.node).toBe('stage_check');
+      expect(workflowOutput.bind_from.port).toBe('reached');
+    }
+    expect(workflowOutput.type).toBe('Boolean');
+    expect(workflowOutput.description).toBe('是否达到初花期');
+    expect(workflowOutput.source_type).toBe('node');
+    expect(workflowOutput.latex_name).toBe('B');
+  });
+
+  it('should have correct WorkflowOutput with accumulator source', () => {
+    const workflowOutput: WorkflowOutput = {
+      name: 'y_final',
+      bind_from: { accumulator: 'y' },
+      type: 'Number',
+      description: '最终冷量累积(CP)',
+      source_type: 'accumulator',
+      latex_name: 'y',
+    };
+
+    expect(workflowOutput.name).toBe('y_final');
+    expect('accumulator' in workflowOutput.bind_from).toBe(true);
+    if ('accumulator' in workflowOutput.bind_from) {
+      expect(workflowOutput.bind_from.accumulator).toBe('y');
+    }
+    expect(workflowOutput.type).toBe('Number');
+    expect(workflowOutput.description).toBe('最终冷量累积(CP)');
+    expect(workflowOutput.source_type).toBe('accumulator');
+    expect(workflowOutput.latex_name).toBe('y');
+  });
+
+  it('should have correct AccumulatorReference structure', () => {
+    const accRef: AccumulatorReference = {
+      accumulator: 'z',
+    };
+
+    expect(accRef.accumulator).toBe('z');
+  });
+
+  it('should have correct OutputBindFrom union type', () => {
+    // 节点端口来源
+    const portRef: OutputBindFrom = { node: 'n1', port: 'out' };
+    expect('node' in portRef).toBe(true);
+
+    // 累加器来源
+    const accRef: OutputBindFrom = { accumulator: 'y' };
+    expect('accumulator' in accRef).toBe(true);
+  });
+
+  it('should have correct NodeInputParam structure', () => {
+    const inputParam: NodeInputParam = {
+      name: 'T',
+      type: 'Number',
+      latex_name: 'T_K',
+      paper_ref: '论文公式(4)，原始温度输入',
+      required: true,
+    };
+
+    expect(inputParam.name).toBe('T');
+    expect(inputParam.type).toBe('Number');
+    expect(inputParam.latex_name).toBe('T_K');
+    expect(inputParam.paper_ref).toBe('论文公式(4)，原始温度输入');
+    expect(inputParam.required).toBe(true);
+  });
+
+  it('should have correct NodeOutputParam structure', () => {
+    const outputParam: NodeOutputParam = {
+      name: 'TK',
+      type: 'Number',
+      latex_name: 'T_K',
+    };
+
+    expect(outputParam.name).toBe('TK');
+    expect(outputParam.type).toBe('Number');
+    expect(outputParam.latex_name).toBe('T_K');
+  });
+
+  it('should have correct WorkflowNode with enhanced fields', () => {
+    const node: WorkflowNode = {
+      id: 'gdh',
+      operator_id: 'phenoflex.gdh',
+      position: { x: 600, y: 300 },
+      name: 'GDH响应函数',
+      type: 'equation_network',
+      latex_formula: 'GDH = \\begin{cases} ... \\end{cases}',
+    };
+
+    expect(node.id).toBe('gdh');
+    expect(node.operator_id).toBe('phenoflex.gdh');
+    expect(node.name).toBe('GDH响应函数');
+    expect(node.type).toBe('equation_network');
+    expect(node.latex_formula).toBe('GDH = \\begin{cases} ... \\end{cases}');
+  });
+
+  it('should have correct WorkflowNode with input_params and output_params', () => {
+    const node: WorkflowNode = {
+      id: 'temp_kelvin',
+      operator_id: 'phenoflex.temp_kelvin',
+      position: { x: 100, y: 100 },
+      name: '温度转开尔文',
+      type: 'formula',
+      latex_formula: 'T_K = T + 273',
+      input_params: [
+        { name: 'T', type: 'Number', latex_name: 'T', paper_ref: '原始温度输入', required: true },
+      ],
+      output_params: [
+        { name: 'TK', type: 'Number', latex_name: 'T_K' },
+      ],
+    };
+
+    expect(node.input_params).toHaveLength(1);
+    expect(node.input_params![0].name).toBe('T');
+    expect(node.input_params![0].latex_name).toBe('T');
+    expect(node.input_params![0].paper_ref).toBe('原始温度输入');
+    expect(node.input_params![0].required).toBe(true);
+
+    expect(node.output_params).toHaveLength(1);
+    expect(node.output_params![0].name).toBe('TK');
+    expect(node.output_params![0].latex_name).toBe('T_K');
   });
 });
