@@ -8,57 +8,14 @@
 
 import { memo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { WorkflowInput, BatchExecutionResult, DataType } from '../types/lowcode';
-
-// ============================================================================
-// 图标组件
-// ============================================================================
-
-function CloseIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function AddIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
-
-function DeleteIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function RunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polygon points="5,3 19,12 5,21 5,3" />
-    </svg>
-  );
-}
+import { CloseIcon, AddIcon, DeleteIcon, RunIcon } from './icons';
+import { getDefaultValue, parseValue } from '../utils/formUtils';
+import type { InputDefinition } from './ExecuteDialog';
+import type { BatchExecutionResult } from '../types/lowcode';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
-
-interface InputDefinition extends WorkflowInput {
-  displayName?: string;
-  data_type?: DataType;
-  description?: string;
-  required?: boolean;
-}
 
 interface BatchExecuteDialogProps {
   isOpen: boolean;
@@ -66,46 +23,6 @@ interface BatchExecuteDialogProps {
   workflowName: string;
   inputs: InputDefinition[];
   onExecute: (batchInputs: Record<string, unknown>[]) => Promise<BatchExecutionResult>;
-}
-
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
-function getDefaultValue(dataType?: DataType): unknown {
-  switch (dataType) {
-    case 'number':
-      return 0;
-    case 'boolean':
-      return false;
-    case 'array':
-      return [];
-    case 'object':
-      return {};
-    case 'string':
-    default:
-      return '';
-  }
-}
-
-function parseValue(value: string, dataType?: DataType): unknown {
-  switch (dataType) {
-    case 'number':
-      return Number(value) || 0;
-    case 'boolean':
-      return value === 'true';
-    case 'array':
-    case 'object': {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return dataType === 'array' ? [] : {};
-      }
-    }
-    case 'string':
-    default:
-      return value;
-  }
 }
 
 // ============================================================================

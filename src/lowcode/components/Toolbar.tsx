@@ -155,6 +155,44 @@ function LayoutIcon() {
   );
 }
 
+/** 临时执行图标 */
+function PlayConfigIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polygon points="5,3 19,12 5,21 5,3" />
+      <circle cx="18" cy="18" r="5" fill="none" />
+      <path d="M18 16v4" />
+      <circle cx="18" cy="21" r="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** 控制流图标 */
+function ControlFlowIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3v6" />
+      <path d="M12 15v6" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M3 12h6" />
+      <path d="M15 12h6" />
+    </svg>
+  );
+}
+
+/** Mermaid 预览图标 */
+function MermaidIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M7 8h10" />
+      <path d="M12 8v8" />
+      <path d="M7 16h2" />
+      <path d="M15 16h2" />
+    </svg>
+  );
+}
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -201,6 +239,12 @@ interface ToolbarProps {
   onAutoLayout?: () => void;
   /** 导入配置文件 */
   onImport?: () => void;
+  /** 临时执行（不保存） */
+  onRunConfig?: () => void;
+  /** 打开控制流配置 */
+  onOpenControlFlow?: () => void;
+  /** 打开 Mermaid 预览 */
+  onOpenMermaidPreview?: () => void;
 }
 
 // ============================================================================
@@ -233,6 +277,9 @@ function ToolbarComponent({
   onBatchRun,
   onAutoLayout,
   onImport,
+  onRunConfig,
+  onOpenControlFlow,
+  onOpenMermaidPreview,
 }: ToolbarProps) {
   /** 处理名称变更 */
   const handleNameChange = useCallback(
@@ -362,6 +409,18 @@ function ToolbarComponent({
           </button>
         )}
 
+        {onRunConfig && (
+          <button
+            className="toolbar-btn"
+            onClick={onRunConfig}
+            disabled={isExecuting || nodeCount === 0}
+            title="临时执行（不保存到数据库）"
+          >
+            <PlayConfigIcon />
+            <span>临时</span>
+          </button>
+        )}
+
         <div className="toolbar-divider" />
 
         {/* 其他操作 */}
@@ -406,6 +465,30 @@ function ToolbarComponent({
           >
             <CategoryIcon />
             <span>分类</span>
+          </button>
+        )}
+
+        {onOpenControlFlow && (
+          <button
+            className="toolbar-btn"
+            onClick={onOpenControlFlow}
+            disabled={nodeCount === 0}
+            title="控制流配置"
+          >
+            <ControlFlowIcon />
+            <span>控制流</span>
+          </button>
+        )}
+
+        {onOpenMermaidPreview && (
+          <button
+            className="toolbar-btn"
+            onClick={onOpenMermaidPreview}
+            disabled={nodeCount === 0}
+            title="Mermaid 图预览"
+          >
+            <MermaidIcon />
+            <span>预览</span>
           </button>
         )}
 

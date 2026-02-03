@@ -88,6 +88,42 @@ export interface PortReference {
   port: string;
 }
 
+/** 累加器引用（用于迭代模式输出） */
+export interface AccumulatorReference {
+  /** 累加器名称 */
+  accumulator: string;
+}
+
+/** 输出来源类型 */
+export type OutputSourceType = 'node' | 'accumulator';
+
+/** 输出绑定来源（支持节点端口或累加器） */
+export type OutputBindFrom = PortReference | AccumulatorReference;
+
+/** 节点输入参数（用于模板定义） */
+export interface NodeInputParam {
+  /** 参数名称 */
+  name: string;
+  /** 数据类型 */
+  type: string;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
+  /** 论文引用说明 */
+  paper_ref?: string;
+  /** 是否必填 */
+  required?: boolean;
+}
+
+/** 节点输出参数（用于模板定义） */
+export interface NodeOutputParam {
+  /** 参数名称 */
+  name: string;
+  /** 数据类型 */
+  type: string;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
+}
+
 /** 流程节点定义 */
 export interface WorkflowNode {
   /** 节点唯一标识 */
@@ -100,6 +136,14 @@ export interface WorkflowNode {
   config?: Record<string, unknown>;
   /** 节点显示名称 */
   name?: string;
+  /** 节点类型（operator/formula/equation_network） */
+  type?: OperatorType;
+  /** LaTeX 公式 */
+  latex_formula?: string;
+  /** 输入参数列表（模板定义时使用） */
+  input_params?: NodeInputParam[];
+  /** 输出参数列表（模板定义时使用） */
+  output_params?: NodeOutputParam[];
 }
 
 /** 流程连接定义 */
@@ -118,14 +162,34 @@ export interface WorkflowInput {
   name: string;
   /** 绑定到的节点端口 */
   bind_to: PortReference;
+  /** 数据类型（如 Number, String, Array<Number>） */
+  type?: string;
+  /** 是否必填 */
+  required?: boolean;
+  /** 参数描述 */
+  description?: string;
+  /** 默认值 */
+  default?: string;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
+  /** 论文引用说明 */
+  paper_ref?: string;
 }
 
 /** 流程输出映射 */
 export interface WorkflowOutput {
   /** 输出参数名称 */
   name: string;
-  /** 来源节点端口 */
-  bind_from: PortReference;
+  /** 来源（节点端口或累加器） */
+  bind_from: OutputBindFrom;
+  /** 数据类型 */
+  type?: string;
+  /** 参数描述 */
+  description?: string;
+  /** 来源类型：node=节点端口, accumulator=累加器 */
+  source_type?: OutputSourceType;
+  /** LaTeX 格式的参数名 */
+  latex_name?: string;
 }
 
 /** 流程定义 */
@@ -140,6 +204,10 @@ export interface WorkflowDefinition {
   outputs: WorkflowOutput[];
   /** 默认输入参数值 */
   default_inputs?: Record<string, unknown>;
+  /** 控制流配置 */
+  control_flow?: ControlFlowConfig;
+  /** 可视化配置 */
+  visualization?: VisualizationConfig;
 }
 
 /** 完整流程数据 */
@@ -199,6 +267,8 @@ export interface ExecutionResult {
   error: string | null;
   /** 总耗时（毫秒） */
   total_duration_ms: number;
+  /** 迭代执行信息（迭代模式时有值） */
+  iteration_info?: IterationInfo;
 }
 
 // ============================================================================
@@ -449,4 +519,222 @@ export interface ConfigValidationResult {
   warnings: string[];
   /** 缺失的算子 ID 列表 */
   missing_operators: string[];
+}
+
+// ============================================================================
+// 控制流配置相关类型
+// ============================================================================
+
+/** 执行模式 */
+export type ExecutionMode = 'single' | 'iterative';
+
+/** 累积操作类型 */
+export type AccumulatorOperation = 'sum' | 'max' | 'min' | 'count' | 'last' | 'average';
+
+/** 累加器配置 */
+export interface AccumulatorConfig {
+  /** 累加器名称 */
+  name: string;
+  /** 数据来源节点 */
+  source_node: string;
+  /** 数据来源端口 */
+  source_port: string;
+  /** 累积操作类型 */
+  operation: AccumulatorOperation;
+  /** 初始值 */
+  initial_value: number;
+}
+
+/** 状态变量配置 */
+export interface StateVarConfig {
+  /** 变量名称 */
+  name: string;
+  /** 数据来源节点 */
+  source_node: string;
+  /** 数据来源端口 */
+  source_port: string;
+  /** 初始值 */
+  initial_value: number;
+  /** 滞后步数（1 = 上一步） */
+  lag?: number;
+}
+
+/** 终止条件类型 */
+export type TerminationConditionType = 'fixed_iterations' | 'accumulator_threshold' | 'exhaust_input' | 'custom';
+
+/** 比较操作符 */
+export type CompareOp = 'eq' | 'neq' | 'lt' | 'lte' | 'gte' | 'gt';
+
+/** 终止条件表达式 */
+export interface TerminationConditionExpr {
+  /** 条件类型 */
+  type: TerminationConditionType;
+  /** 固定迭代次数（fixed_iterations 时使用） */
+  iterations?: number;
+  /** 累加器名称（accumulator_threshold 时使用） */
+  name?: string;
+  /** 阈值（accumulator_threshold 时使用） */
+  threshold?: number;
+  /** 比较操作符（accumulator_threshold 时使用） */
+  op?: CompareOp;
+  /** 自定义表达式（custom 时使用） */
+  expression?: string;
+}
+
+/** 终止条件配置（包装条件表达式） */
+export interface TerminationCondition {
+  /** 条件表达式 */
+  condition: TerminationConditionExpr;
+}
+
+/** 迭代配置 */
+export interface IterationConfig {
+  /** 时间序列输入（每次迭代取一个元素） */
+  time_series_inputs: string[];
+  /** 累加器配置列表 */
+  accumulators: AccumulatorConfig[];
+  /** 状态变量配置列表 */
+  state_vars: StateVarConfig[];
+  /** 终止条件 */
+  termination: TerminationCondition;
+}
+
+// ============================================================================
+// 条件分支相关类型
+// ============================================================================
+
+/** 值引用类型 */
+export type ValueRefType = 'literal' | 'node_output' | 'accumulator' | 'state_var' | 'iteration_index' | 'workflow_input';
+
+/** 值引用 */
+export interface ValueRef {
+  /** 引用类型 */
+  type: ValueRefType;
+  /** 字面量值（literal 时使用） */
+  value?: unknown;
+  /** 节点 ID（node_output 时使用） */
+  node?: string;
+  /** 端口名称（node_output 时使用） */
+  port?: string;
+  /** 名称（accumulator/state_var/workflow_input 时使用） */
+  name?: string;
+}
+
+/** 条件表达式类型 */
+export type ConditionExprType = 'compare' | 'and' | 'or' | 'not' | 'const';
+
+/** 条件表达式 */
+export interface ConditionExpr {
+  /** 表达式类型 */
+  type: ConditionExprType;
+  /** 左操作数（compare 时使用） */
+  left?: ValueRef;
+  /** 比较操作符（compare 时使用） */
+  op?: CompareOp;
+  /** 右操作数（compare 时使用） */
+  right?: ValueRef;
+  /** 子条件列表（and/or 时使用） */
+  conditions?: ConditionExpr[];
+  /** 取反条件（not 时使用） */
+  condition?: ConditionExpr;
+  /** 常量值（const 时使用） */
+  value?: boolean;
+}
+
+/** 条件边 */
+export interface ConditionalEdge {
+  /** 边 ID */
+  edge_id: string;
+  /** 条件表达式 */
+  condition: ConditionExpr;
+}
+
+// ============================================================================
+// 错误处理相关类型
+// ============================================================================
+
+/** 重试策略配置 */
+export interface RetryConfig {
+  /** 最大重试次数 */
+  max_attempts: number;
+  /** 初始重试间隔（毫秒） */
+  delay_ms: number;
+  /** 退避乘数 */
+  backoff_multiplier?: number;
+  /** 最大延迟（毫秒） */
+  max_delay_ms?: number;
+}
+
+/** 节点错误处理配置 */
+export interface NodeErrorHandler {
+  /** 节点 ID */
+  node_id: string;
+  /** 节点级重试策略（覆盖全局） */
+  retry?: RetryConfig;
+  /** 失败后执行的备用节点 */
+  fallback_node?: string;
+  /** 是否忽略错误继续执行 */
+  ignore_error?: boolean;
+}
+
+/** 错误处理配置 */
+export interface ErrorHandlingConfig {
+  /** 全局重试策略 */
+  retry?: RetryConfig;
+  /** 失败时是否继续执行其他独立节点 */
+  continue_on_error?: boolean;
+  /** 节点级错误处理配置 */
+  node_handlers?: NodeErrorHandler[];
+}
+
+// ============================================================================
+// 控制流完整配置
+// ============================================================================
+
+/** 控制流配置 */
+export interface ControlFlowConfig {
+  /** 执行模式：single=单次执行, iterative=迭代执行 */
+  execution_mode: ExecutionMode;
+  /** 迭代配置（iterative 模式时使用） */
+  iteration?: IterationConfig;
+  /** 条件边配置 */
+  conditional_edges?: ConditionalEdge[];
+  /** 错误处理配置 */
+  error_handling?: ErrorHandlingConfig;
+}
+
+/** 可视化配置 */
+export interface VisualizationConfig {
+  /** Mermaid 图形定义 */
+  mermaid?: string;
+}
+
+// ============================================================================
+// 迭代执行结果相关类型
+// ============================================================================
+
+/** 迭代执行信息 */
+export interface IterationInfo {
+  /** 总迭代次数 */
+  total_iterations: number;
+  /** 累加器最终值 */
+  accumulators: Record<string, number>;
+  /** 终止原因 */
+  termination_reason?: string;
+  /** 终止时的迭代索引 */
+  terminated_at_index?: number;
+}
+
+// ============================================================================
+// 执行选项增强
+// ============================================================================
+
+/** 执行选项 */
+export interface ExecuteOptions {
+  /** 是否记录执行追踪 */
+  trace?: boolean;
+  /** 超时时间（毫秒） */
+  timeout_ms?: number;
+  /** 是否启用并行执行 */
+  parallel?: boolean;
 }

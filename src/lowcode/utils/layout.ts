@@ -189,7 +189,8 @@ export function layoutVertical(
  */
 export function getNodeSizesFromInternals(
   nodes: Node[],
-  getInternalNode: (id: string) => { measured?: { width: number; height: number } } | undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getInternalNode: (id: string) => any,
 ): Map<string, NodeSize> {
   const sizes = new Map<string, NodeSize>();
 

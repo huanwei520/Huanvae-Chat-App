@@ -19,6 +19,7 @@ import {
 } from '@xyflow/react';
 import type { InputBinding, OutputBinding } from '../utils/workflowSerializer';
 import { getLayoutedElements, type LayoutDirection, type NodeSize } from '../utils/layout';
+import type { ControlFlowConfig } from '../types/lowcode';
 
 // ============================================================================
 // 类型定义
@@ -45,6 +46,8 @@ interface FlowState {
   workflowInputs: InputBinding[];
   /** 流程输出绑定 */
   workflowOutputs: OutputBinding[];
+  /** 控制流配置 */
+  controlFlowConfig?: ControlFlowConfig;
   /** 是否有未保存的更改 */
   isDirty: boolean;
 
@@ -93,6 +96,8 @@ interface FlowState {
   setWorkflowInputs: (inputs: InputBinding[]) => void;
   /** 设置所有流程输出绑定 */
   setWorkflowOutputs: (outputs: OutputBinding[]) => void;
+  /** 设置控制流配置 */
+  setControlFlowConfig: (config?: ControlFlowConfig) => void;
   /** 标记为已保存 */
   markSaved: () => void;
   /** 标记为已修改 */
@@ -108,6 +113,7 @@ interface FlowState {
     edges: Edge[],
     inputs: InputBinding[],
     outputs: OutputBinding[],
+    controlFlow?: ControlFlowConfig,
   ) => void;
 }
 
@@ -132,6 +138,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   workflowDescription: '',
   workflowInputs: [],
   workflowOutputs: [],
+  controlFlowConfig: undefined,
   isDirty: false,
 
   // ---- 画布 Actions ----
@@ -197,6 +204,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       selectedNodeId: null,
       workflowInputs: [],
       workflowOutputs: [],
+      controlFlowConfig: undefined,
       isDirty: true,
     });
   },
@@ -292,6 +300,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   setWorkflowOutputs: (outputs) => set({ workflowOutputs: outputs }),
 
+  setControlFlowConfig: (config) => set({ controlFlowConfig: config, isDirty: true }),
+
   markSaved: () => set({ isDirty: false }),
 
   markDirty: () => set({ isDirty: true }),
@@ -306,11 +316,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       workflowDescription: '',
       workflowInputs: [],
       workflowOutputs: [],
+      controlFlowConfig: undefined,
       isDirty: false,
     });
   },
 
-  loadWorkflow: (id, name, description, nodes, edges, inputs, outputs) => {
+  loadWorkflow: (id, name, description, nodes, edges, inputs, outputs, controlFlow) => {
     set({
       workflowId: id,
       workflowName: name,
@@ -319,6 +330,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       edges,
       workflowInputs: inputs,
       workflowOutputs: outputs,
+      controlFlowConfig: controlFlow,
       selectedNodeId: null,
       isDirty: false,
     });

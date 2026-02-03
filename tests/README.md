@@ -23,13 +23,15 @@ tests/
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
 │   ├── lanTransfer.test.ts      # 局域网传输测试
 │   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
-│   └── format.test.ts           # 格式化工具函数测试（12 个用例）
+│   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
+│   └── lowcode.test.ts          # 低代码编辑器测试（40 个用例，含类型定义测试）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
     ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
+    ├── LowcodePage.test.tsx     # 低代码编辑器页面测试（6 个测试用例）
     └── registry.test.tsx        # 组件注册表测试（149 个测试用例，含移动端组件）
 ```
 
@@ -625,6 +627,118 @@ unset CI && pnpm tauri android dev
     - 导出内容包含执行 ID、状态、输出、追踪信息、导出时间
   - **流程配置导出**：工具栏"导出"按钮下载 JSON 配置文件
   - 测试用例更新：lowcode.test.ts 新增 5 个类型测试（总计 358 个用例）
+- 2026-02-02: 低代码编辑器功能完善（第三阶段）
+  - **临时执行功能**：工具栏添加"临时执行"按钮
+    - 无需保存流程即可直接执行当前画布配置
+    - 复用 ExecuteDialog 组件
+    - 调用 `workflowService.executeConfig` API
+  - **并行执行选项**：ExecuteDialog 添加执行选项配置
+    - 新增"启用执行追踪"复选框
+    - 新增"启用并行执行"复选框
+    - 执行时传递 `ExecuteOptions` 参数
+  - **迭代执行结果展示**：ExecutionResult 显示迭代信息
+    - 新增 `IterationInfoView` 组件
+    - 显示总迭代次数、终止原因、终止索引
+    - 显示累加器最终值（以标签形式展示）
+  - **控制流配置**：新增 `ControlFlowDialog` 组件
+    - 执行模式选择（单次执行/迭代执行）
+    - 时间序列输入配置
+    - 累加器配置表格（名称、源节点、端口、操作类型、初始值）
+    - 状态变量配置表格（名称、源节点、端口、初始值、滞后步数）
+    - 终止条件配置（固定次数/累加器阈值/耗尽输入/自定义表达式）
+    - 工具栏添加"控制流"按钮
+  - **条件分支配置**：新增 `EdgeConditionEditor` 组件
+    - 可视化条件表达式构建器
+    - 值引用选择器（字面量/节点输出/累加器/状态变量/迭代索引/工作流输入）
+    - 支持比较条件、AND/OR 逻辑、NOT 取反、常量值
+    - 嵌套条件支持（可视化层级缩进）
+  - **错误处理配置**：新增 `ErrorHandlingDialog` 组件
+    - 全局重试策略配置（最大次数、延迟、退避乘数、最大延迟）
+    - 失败时继续执行选项
+    - 节点级错误处理配置表格（节点选择、忽略错误、启用重试、备用节点）
+  - **Mermaid 预览**：新增 `MermaidPreview` 组件
+    - 自动从画布节点和边生成 Mermaid 流程图代码
+    - 使用 `mermaid` 库实时渲染 SVG
+    - 支持全屏预览、刷新、复制代码
+    - 可展开查看 Mermaid 源代码
+    - 工具栏添加"预览"按钮
+    - 新增依赖：`mermaid@11.12.2`
+  - **类型定义增强**：新增 16 个类型
+    - `ExecutionMode`、`AccumulatorOperation`、`AccumulatorConfig`
+    - `StateVarConfig`、`TerminationConditionType`、`TerminationConditionExpr`、`TerminationCondition`
+    - `IterationConfig`、`ValueRefType`、`ValueRef`
+    - `ConditionExprType`、`ConditionExpr`、`ConditionalEdge`
+    - `RetryConfig`、`NodeErrorHandler`、`ErrorHandlingConfig`
+    - `ControlFlowConfig`、`VisualizationConfig`
+    - `IterationInfo`、`ExecuteOptions`
+  - **TerminationCondition 结构修正**：
+    - 嵌套 `condition` 对象匹配后端格式
+    - 使用 `name` 替代 `accumulator_name` 匹配后端字段名
+  - **control_flow 配置保存/加载修复**：
+    - `serializeToWorkflow` 新增 `SerializeOptions` 参数支持 `controlFlow`, `defaultInputs`, `visualization`
+    - `handleSave` 保存时包含 `controlFlowConfig`
+    - 加载流程/模板/回滚/导入时恢复 `control_flow` 配置
+  - **迭代模式时间序列输入支持**：
+    - 执行对话框自动包含 `control_flow.iteration.time_series_inputs` 中定义的输入
+    - `InputDefinition` 类型更新为支持可选 `bind_to`（时间序列输入不绑定到特定节点）
+  - **其他修复**：
+    - `OutputBindFrom` 验证逻辑支持累加器绑定
+    - 测试用例更新以匹配 `TerminationCondition` 嵌套结构
+
+- **第五阶段：控制流状态管理重构**
+  - **flowStore 集成 controlFlowConfig**：
+    - `controlFlowConfig` 从 LowcodePage 本地状态移入 Zustand store
+    - 新增 `setControlFlowConfig` action
+    - `loadWorkflow` 增加 `controlFlow` 参数，一次性加载完整状态
+    - `resetWorkflow` 和 `clearCanvas` 自动清除 controlFlowConfig
+  - **ControlFlowDialog 状态同步**：
+    - 添加 `useEffect` 监听 `config` prop 变化
+    - 切换模板/流程时自动更新对话框内部状态
+  - **ExecuteDialog 执行模式显示**：
+    - 新增执行模式指示器（单次/迭代）
+    - 显示时间序列输入列表
+    - 新增 `executionMode` 和 `timeSeriesInputs` props
+
+- **第六阶段：代码复用优化**
+  - **统一图标组件** (`components/icons.tsx`)：
+    - 集中管理 30+ 个 SVG 图标组件
+    - 使用 `memo` 优化渲染性能
+    - 消除 10+ 个文件中的重复图标定义
+  - **通用表单工具** (`utils/formUtils.ts`)：
+    - `getDefaultValue()` - 根据数据类型获取默认值
+    - `parseValue()` - 解析字符串输入为目标类型
+    - `formatValue()` - 格式化值为显示字符串
+    - 类型判断函数：`isNumberType`, `isBooleanType`, `isArrayType`, `isObjectType`, `isJsonType`
+  - **重构组件**：
+    - `ExecuteDialog` - 使用公共图标和表单工具
+    - `BatchExecuteDialog` - 复用 `InputDefinition` 类型和工具函数
+    - `ControlFlowDialog` - 使用公共图标
+
+- 2026-02-02: 低代码编辑器功能完善（第四阶段）
+  - **类型定义增强**：匹配后端文档增强字段
+    - `WorkflowInput` 新增：`type`, `required`, `description`, `default`, `latex_name`, `paper_ref`
+    - `WorkflowOutput` 新增：`type`, `description`, `source_type`, `latex_name`
+    - `WorkflowNode` 新增：`type`, `latex_formula`, `input_params`, `output_params`
+    - 新增 `NodeInputParam` 和 `NodeOutputParam` 类型
+    - 新增 `AccumulatorReference`、`OutputSourceType`、`OutputBindFrom` 类型
+  - **WorkflowOutput 来源支持两种格式**：
+    - 节点端口来源：`{ node, port }`
+    - 累加器来源：`{ accumulator }`（迭代执行模式）
+  - **序列化工具增强**：
+    - `InputBinding` 和 `OutputBinding` 接口新增增强字段
+    - `serializeInputBindings` 和 `deserializeInputBindings` 保留新字段
+    - `serializeOutputBindings` 和 `deserializeOutputBindings` 保留所有增强字段
+    - `serializeNode` 保留 `type` 和 `latex_formula`
+    - 支持节点端口和累加器两种输出来源格式
+  - **ExecuteDialog 增强**：
+    - 支持使用 `latex_name` + MathFormula 渲染参数标签
+    - 支持显示 `paper_ref` 论文引用提示
+    - 更新 `InputDefinition` 接口
+  - **PropertyPanel 增强**：
+    - 端口信息区域显示 `default_value` 默认值
+  - **LowcodePage 更新**：
+    - `executeInputs` 构建时传递 `latex_name`, `paper_ref`, `default_value`
+  - 测试用例更新：lowcode.test.ts 新增 9 个类型测试（总计 376 个用例）
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

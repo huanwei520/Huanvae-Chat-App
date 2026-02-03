@@ -37,6 +37,8 @@ import { TemplateDialog } from './components/TemplateDialog';
 import { VersionHistoryPanel } from './components/VersionHistoryPanel';
 import { BatchExecuteDialog } from './components/BatchExecuteDialog';
 import { ImportConfigDialog } from './components/ImportConfigDialog';
+import { ControlFlowDialog } from './components/ControlFlowDialog';
+import { MermaidPreview } from './components/MermaidPreview';
 import { useFlowStore } from './stores/flowStore';
 import { createLowcodeApiClient } from './services/apiClient';
 import { createWorkflowService } from './services/workflowService';
@@ -57,6 +59,9 @@ import type {
   BatchExecutionResult,
   WorkflowConfig,
   ConfigValidationResult,
+  ControlFlowConfig,
+  WorkflowNode,
+  DataType,
 } from './types/lowcode';
 import './LowcodePage.css';
 
@@ -117,6 +122,9 @@ function LowcodePage() {
   const [showVersionPanel, setShowVersionPanel] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showRunConfigDialog, setShowRunConfigDialog] = useState(false);
+  const [showControlFlowDialog, setShowControlFlowDialog] = useState(false);
+  const [showMermaidPreview, setShowMermaidPreview] = useState(false);
 
   // ---- 历史记录状态 ----
   const [inputHistory, setInputHistory] = useState<InputHistoryEntry[]>([]);
@@ -130,8 +138,10 @@ function LowcodePage() {
     edges,
     workflowId,
     workflowName,
+    workflowDescription,
     workflowInputs,
     workflowOutputs,
+    controlFlowConfig,
     isDirty,
     setWorkflowName,
     addWorkflowInput,
@@ -140,6 +150,7 @@ function LowcodePage() {
     addWorkflowOutput,
     removeWorkflowOutput,
     renameWorkflowOutput,
+    setControlFlowConfig,
     markSaved,
     resetWorkflow,
     loadWorkflow,
@@ -227,11 +238,15 @@ function LowcodePage() {
 
     setIsSaving(true);
     try {
+      // 包含控制流配置的完整定义
       const definition = serializeToWorkflow(
         nodes,
         edges,
         workflowInputs,
         workflowOutputs,
+        {
+          controlFlow: controlFlowConfig,
+        },
       );
 
       if (workflowId) {
@@ -284,6 +299,7 @@ function LowcodePage() {
           edges,
           workflowInputs,
           workflowOutputs,
+          { controlFlow: controlFlowConfig },
         );
         result = await workflowService.validateDefinition(definition);
       }
@@ -419,6 +435,7 @@ function LowcodePage() {
         result.edges,
         inputBindings,
         outputBindings,
+        workflow.definition.control_flow,
       );
 
       // 延迟触发自动布局，等待节点渲染完成
@@ -485,6 +502,7 @@ function LowcodePage() {
           result.edges,
           inputBindings,
           outputBindings,
+          workflow.definition.control_flow,
         );
 
         // 延迟触发自动布局，等待节点渲染完成
@@ -523,6 +541,7 @@ function LowcodePage() {
           result.edges,
           inputBindings,
           outputBindings,
+          workflow.definition.control_flow,
         );
 
         // 延迟触发自动布局
@@ -548,6 +567,81 @@ function LowcodePage() {
   const handleOpenImport = useCallback(() => {
     setShowImportDialog(true);
   }, []);
+
+  /** 打开临时执行对话框 */
+  const handleOpenRunConfig = useCallback(() => {
+    setShowRunConfigDialog(true);
+  }, []);
+
+  /** 打开控制流配置对话框 */
+  const handleOpenControlFlow = useCallback(() => {
+    setShowControlFlowDialog(true);
+  }, []);
+
+  /** 打开 Mermaid 预览 */
+  const handleOpenMermaidPreview = useCallback(() => {
+    setShowMermaidPreview(true);
+  }, []);
+
+  /** 获取当前流程的节点列表 */
+  const getWorkflowNodes = useCallback((): WorkflowNode[] => {
+    const { nodes } = useFlowStore.getState();
+    return nodes.map((n) => ({
+      id: n.id,
+      operator_id: String(n.data?.operatorId || ''),
+      name: String(n.data?.label || ''),
+      position: n.position,
+    }));
+  }, []);
+
+  /** 保存控制流配置 */
+  const handleSaveControlFlow = useCallback((config: ControlFlowConfig) => {
+    setControlFlowConfig(config);
+    // isDirty 已在 store 的 setControlFlowConfig 中自动设置
+  }, [setControlFlowConfig]);
+
+  /** 临时执行流程（不保存到数据库） */
+  const handleExecuteConfig = useCallback(
+    async (inputs: Record<string, unknown>): Promise<ExecutionResult> => {
+      if (!workflowService) {
+        throw new Error('服务未初始化');
+      }
+
+      const { nodes, edges } = useFlowStore.getState();
+      const definition = serializeToWorkflow(
+        nodes,
+        edges,
+        workflowInputs.map((i) => ({
+          nodeId: i.nodeId,
+          port: i.port,
+          name: i.name,
+        })),
+        workflowOutputs.map((o) => ({
+          nodeId: o.nodeId,
+          port: o.port,
+          name: o.name,
+        })),
+        { controlFlow: controlFlowConfig },
+      );
+
+      setIsExecuting(true);
+      try {
+        const result = await workflowService.executeConfig({
+          config: {
+            name: workflowName || '临时流程',
+            description: workflowDescription,
+            definition,
+          },
+          inputs,
+          options: { trace: true },
+        });
+        return result;
+      } finally {
+        setIsExecuting(false);
+      }
+    },
+    [workflowService, workflowInputs, workflowOutputs, workflowName, workflowDescription, controlFlowConfig],
+  );
 
   /** 验证配置文件 */
   const handleValidateConfig = useCallback(
@@ -583,6 +677,7 @@ function LowcodePage() {
           result.edges,
           inputBindings,
           outputBindings,
+          imported.workflow.definition.control_flow,
         );
 
         // 延迟触发自动布局
@@ -627,7 +722,8 @@ function LowcodePage() {
 
   // ---- 构建执行对话框的输入定义 ----
   const executeInputs = useMemo(() => {
-    return workflowInputs.map((input) => {
+    // 基础工作流输入
+    const baseInputs = workflowInputs.map((input) => {
       // 查找对应节点的算子信息
       const node = nodes.find((n) => n.id === input.nodeId);
       const nodeData = node?.data as { operator?: Operator; label?: string } | undefined;
@@ -639,12 +735,36 @@ function LowcodePage() {
         name: input.name, // 用户自定义的唯一名称
         displayName: input.name, // 直接使用用户定义的名称作为显示名称
         bind_to: { node: input.nodeId, port: input.port },
-        data_type: operatorInput?.data_type || operatorInput?.type,
-        description: operatorInput?.description,
-        required: operatorInput?.required,
+        // 优先使用模板中保存的类型，其次从算子定义获取
+        data_type: (input.type as DataType) || operatorInput?.data_type || operatorInput?.type,
+        // 优先使用模板中保存的描述，其次从算子定义获取
+        description: input.description || operatorInput?.description,
+        // 优先使用模板中保存的必填标记，其次从算子定义获取
+        required: input.required ?? operatorInput?.required,
+        // 新增字段：LaTeX 名称、论文引用、默认值（优先模板，其次算子）
+        latex_name: input.latex_name || operatorInput?.latex_name,
+        paper_ref: input.paper_ref || operatorInput?.paper_ref,
+        default_value: input.default || operatorInput?.default_value,
       };
     });
-  }, [workflowInputs, nodes]);
+
+    // 如果是迭代模式，添加时间序列输入
+    if (controlFlowConfig?.execution_mode === 'iterative' && controlFlowConfig.iteration?.time_series_inputs) {
+      const timeSeriesInputs = controlFlowConfig.iteration.time_series_inputs
+        .filter((tsName) => !baseInputs.some((bi) => bi.name === tsName)) // 避免重复
+        .map((tsName) => ({
+          name: tsName,
+          displayName: `${tsName} (时间序列)`,
+          // bind_to 省略 - 时间序列输入不绑定到特定节点
+          data_type: 'Array<Number>' as DataType,
+          description: `时间序列输入: ${tsName}`,
+          required: true as const,
+        }));
+      return [...baseInputs, ...timeSeriesInputs];
+    }
+
+    return baseInputs;
+  }, [workflowInputs, nodes, controlFlowConfig]);
 
   // ---- 错误状态 ----
   if (error || !windowData) {
@@ -691,6 +811,9 @@ function LowcodePage() {
         onBatchRun={handleBatchRun}
         onAutoLayout={handleAutoLayout}
         onImport={handleOpenImport}
+        onRunConfig={handleOpenRunConfig}
+        onOpenControlFlow={handleOpenControlFlow}
+        onOpenMermaidPreview={handleOpenMermaidPreview}
       />
 
       {/* 主内容区 */}
@@ -733,6 +856,8 @@ function LowcodePage() {
         onExecute={handleExecute}
         inputHistory={inputHistory}
         onLoadHistory={workflowId ? handleLoadInputHistory : undefined}
+        executionMode={controlFlowConfig?.execution_mode}
+        timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
       />
 
       {/* 流程列表对话框 */}
@@ -786,6 +911,41 @@ function LowcodePage() {
           onValidate={handleValidateConfig}
           onImport={handleImportConfig}
         />
+
+      {/* 临时执行对话框（复用 ExecuteDialog） */}
+      {showRunConfigDialog && (
+        <ExecuteDialog
+          isOpen={showRunConfigDialog}
+          onClose={() => setShowRunConfigDialog(false)}
+          workflowName={workflowName || '临时执行'}
+          inputs={executeInputs}
+          onExecute={handleExecuteConfig}
+          executionMode={controlFlowConfig?.execution_mode}
+          timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
+        />
+      )}
+
+      {/* 控制流配置对话框 */}
+      <ControlFlowDialog
+        isOpen={showControlFlowDialog}
+        onClose={() => setShowControlFlowDialog(false)}
+        config={controlFlowConfig}
+        onSave={handleSaveControlFlow}
+        nodes={getWorkflowNodes()}
+      />
+
+      {/* Mermaid 预览 */}
+      <MermaidPreview
+        isOpen={showMermaidPreview}
+        onClose={() => setShowMermaidPreview(false)}
+        nodes={getWorkflowNodes()}
+        edges={useFlowStore.getState().edges.map((e) => ({
+          id: e.id,
+          source: { node: e.source, port: e.sourceHandle || '' },
+          target: { node: e.target, port: e.targetHandle || '' },
+        }))}
+        workflowName={workflowName}
+      />
       </div>
     </MathJaxContext>
   );
