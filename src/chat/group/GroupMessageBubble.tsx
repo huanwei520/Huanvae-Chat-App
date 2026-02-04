@@ -29,6 +29,7 @@ import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { getCachedFilePath } from '../../services/fileCache';
 import { useChatStore } from '../../stores';
 import { isMobile } from '../../utils/platform';
+import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
 
 interface GroupMessageBubbleProps {
@@ -277,6 +278,28 @@ export function GroupMessageBubble({
     onToggleSelect?.();
   }, [onEnterMultiSelect, onToggleSelect]);
 
+  // 保存到相册（移动端）
+  const handleSaveToGallery = useCallback(async () => {
+    if (!localPath) { return; }
+    const fileType = message.message_type === 'image' ? 'image' : 'video';
+    const result = await saveToGallery(localPath, fileType);
+    if (result.success) {
+      console.log('[GroupMessageBubble] 保存成功:', result.savedPath);
+    } else {
+      console.error('[GroupMessageBubble] 保存失败:', result.message);
+    }
+  }, [localPath, message.message_type]);
+
+  // 获取文件类型（用于右键菜单）
+  const getFileType = useCallback((): 'image' | 'video' | 'file' | null => {
+    switch (message.message_type) {
+      case 'image': return 'image';
+      case 'video': return 'video';
+      case 'file': return 'file';
+      default: return null;
+    }
+  }, [message.message_type]);
+
   // 多选模式下的行点击处理
   const handleRowClick = useCallback((e: React.MouseEvent) => {
     // 只在多选模式下处理
@@ -385,10 +408,12 @@ export function GroupMessageBubble({
         canRecall={canRecallMessage(message, isOwn, isAdmin)}
         localPath={localPath}
         messageContent={message.message_type === 'text' ? message.message_content : null}
+        fileType={getFileType()}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
         onSelectText={message.message_type === 'text' ? () => setShowFullPreview(true) : undefined}
+        onSaveToGallery={handleSaveToGallery}
         onClose={handleCloseMenu}
       />
 

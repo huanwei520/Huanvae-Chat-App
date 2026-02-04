@@ -24,6 +24,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { formatSize } from '../../utils/format';
+import { extractProxyHost } from '../../utils/url';
 import './UpdateToast.css';
 
 // ============================================
@@ -62,19 +63,6 @@ export interface UpdateToastProps {
   onRestart?: () => void;
   /** 点击重试按钮 */
   onRetry?: () => void;
-}
-
-// ============================================
-// 工具函数（formatSize 已迁移至 utils/format.ts）
-// ============================================
-
-function extractProxyHost(url: string): string {
-  try {
-    const urlObj = new URL(url);
-    return urlObj.hostname;
-  } catch {
-    return url;
-  }
 }
 
 // ============================================

@@ -8,6 +8,7 @@
  * - 删除消息（本地删除）
  * - 进入多选模式
  * - 在文件夹中显示（仅桌面端，文件消息且有本地缓存时）
+ * - 保存到相册（仅移动端，图片/视频消息且有本地缓存时）
  *
  * 使用 createPortal 渲染到 body，避免被其他元素遮挡
  * 桌面端通过右键触发，移动端通过长按触发
@@ -15,7 +16,10 @@
  * 移动端特性（微信风格）：
  * - 菜单显示在气泡上方，水平排列
  * - "选取文字"选项打开全屏预览页面（用于自由选择文字复制）
+ * - "保存"选项将图片/视频保存到系统相册
  * - 触摸其他地方自动关闭菜单（菜单互斥）
+ *
+ * @updated 2026-02-04 添加保存到相册功能（移动端专属）
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -34,11 +38,15 @@ interface MessageContextMenuProps {
   localPath?: string | null;
   /** 消息文本内容（用于复制，仅文本消息有效） */
   messageContent?: string | null;
+  /** 文件类型（用于移动端保存到相册，仅图片/视频有效） */
+  fileType?: 'image' | 'video' | 'file' | null;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
   /** 选取文字（移动端专属，打开全屏消息预览页面） */
   onSelectText?: () => void;
+  /** 保存到相册（移动端专属，图片/视频有效） */
+  onSaveToGallery?: () => void;
   onClose: () => void;
 }
 
@@ -49,10 +57,12 @@ export function MessageContextMenu({
   canRecall,
   localPath,
   messageContent,
+  fileType,
   onRecall,
   onDelete,
   onMultiSelect,
   onSelectText,
+  onSaveToGallery,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -147,6 +157,8 @@ export function MessageContextMenu({
   // 计算菜单项数量以确定高度
   const hasLocalPath = !!localPath && !mobile; // 在文件夹中显示仅桌面端
   const hasMessageContent = !!messageContent;
+  // 保存到相册：仅移动端 + 图片/视频 + 有本地缓存
+  const canSaveToGallery = mobile && !!localPath && (fileType === 'image' || fileType === 'video');
 
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
@@ -159,6 +171,7 @@ export function MessageContextMenu({
       if (hasMessageContent) { itemCount += 1; } // 复制
       if (hasMessageContent && onSelectText) { itemCount += 1; } // 选取文字
       if (canRecall) { itemCount += 1; }
+      if (canSaveToGallery) { itemCount += 1; } // 保存
       const menuWidth = itemCount * 52 + 16; // 每项 52px + padding
       const menuHeight = 44;
 
@@ -298,6 +311,19 @@ export function MessageContextMenu({
               <span>在文件夹中显示</span>
             </button>
           )}
+          {/* 保存到相册（仅移动端，图片/视频） */}
+          {canSaveToGallery && onSaveToGallery && (
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onSaveToGallery();
+                onClose();
+              }}
+            >
+              <SaveIcon />
+              <span>保存</span>
+            </button>
+          )}
           <div className="context-menu-divider" />
           <button
             className="context-menu-item"
@@ -357,5 +383,12 @@ const FolderIcon = () => (
 const SelectTextIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+  </svg>
+);
+
+// 保存图标（移动端专属）
+const SaveIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
   </svg>
 );

@@ -286,14 +286,15 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
   }, [loadSource]);
 
   // 打开文件/文件夹（统一逻辑，文件不存在时自动重新下载）
+  // Android 上私有目录文件无法直接分享给其他应用，需要先复制到公共目录
   const openInFolder = useCallback(async (localPath: string | null) => {
     if (!localPath) { return; }
 
     try {
       if (isMobile()) {
-        // 移动端：直接打开文件
-        const { openPath } = await import('@tauri-apps/plugin-opener');
-        await openPath(localPath);
+        // 移动端：复制到公共目录后用外部应用打开
+        const { openWithExternalApp } = await import('../utils/openWithExternalApp');
+        await openWithExternalApp(localPath);
       } else {
         // 桌面端：在文件夹中显示
         const { invoke } = await import('@tauri-apps/api/core');

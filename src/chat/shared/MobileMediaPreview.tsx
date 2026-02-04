@@ -9,12 +9,21 @@
  * - 支持双指缩放手势（图片）
  * - 点击背景关闭
  * - 顶部关闭按钮
+ * - 底部操作栏：
+ *   - 下载中：显示进度条（与视频缓存进度同步）
+ *   - 下载完成：显示保存按钮（保存到相册）
+ * - 阻止长按触发底层消息气泡的右键菜单
+ *
+ * @since 2024-01
+ * @updated 2026-02-04 添加保存到相册功能，修复长按穿透问题
+ * @updated 2026-02-04 添加下载进度条，与视频缓存进度同步显示
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { saveToGallery } from '../../utils/saveToGallery';
 
 // 调试日志（Android logcat 不支持 %c 样式，使用 JSON.stringify 显示对象）
 function logMedia(action: string, data?: unknown) {
@@ -32,6 +41,12 @@ export interface MobileMediaPreviewProps {
   src: string;
   /** 文件名 */
   filename: string;
+  /** 本地文件路径（用于保存到相册） */
+  localPath?: string | null;
+  /** 下载进度百分比 (0-100)，用于显示进度条 */
+  downloadProgress?: number;
+  /** 是否正在下载 */
+  isDownloading?: boolean;
   /** 关闭回调 */
   onClose: () => void;
 }
@@ -59,16 +74,44 @@ function CloseIcon() {
   );
 }
 
+/**
+ * 保存图标
+ */
+function SaveIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      width={20}
+      height={20}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+      />
+    </svg>
+  );
+}
+
 export function MobileMediaPreview({
   isOpen,
   type,
   src,
   filename,
+  localPath,
+  downloadProgress = 0,
+  isDownloading = false,
   onClose,
 }: MobileMediaPreviewProps) {
   // 视频/图片加载状态
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
+  // 保存状态
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
 
   // 移动端返回手势处理：预览打开时拦截返回操作
   useMobileBackHandler(() => {
@@ -193,6 +236,49 @@ export function MobileMediaPreview({
     setErrorInfo('图片加载失败');
   }, [src]);
 
+  // 保存到相册
+  const handleSaveToGallery = useCallback(async () => {
+    if (!localPath) {
+      logMedia('保存失败 - 无本地路径');
+      return;
+    }
+
+    setSaveStatus('saving');
+    logMedia('开始保存到相册', { localPath, type });
+
+    const result = await saveToGallery(localPath, type);
+
+    if (result.success) {
+      logMedia('保存成功', { savedPath: result.savedPath });
+      setSaveStatus('success');
+      // 2秒后重置状态
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } else {
+      logMedia('保存失败', { message: result.message });
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    }
+  }, [localPath, type]);
+
+  // 阻止长按触发上下文菜单（解决穿透问题）
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // 阻止事件冒泡，防止触发底层消息气泡的长按菜单
+    e.stopPropagation();
+  }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // 阻止右键菜单
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  // 重置保存状态
+  useEffect(() => {
+    if (!isOpen) {
+      setSaveStatus('idle');
+    }
+  }, [isOpen]);
+
   const content = (
     <AnimatePresence>
       {isOpen && (
@@ -203,6 +289,8 @@ export function MobileMediaPreview({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={handleBackdropClick}
+          onTouchStart={handleTouchStart}
+          onContextMenu={handleContextMenu}
         >
           {/* 顶部栏 */}
           <div className="mobile-media-preview-header">
@@ -268,6 +356,40 @@ export function MobileMediaPreview({
                 style={{ display: loadState === 'error' ? 'none' : 'block' }}
               />
             )}
+          </div>
+
+          {/* 底部操作栏 - 下载进度条或保存按钮 */}
+          <div className="mobile-media-preview-actions">
+            {isDownloading ? (
+              /* 下载中：显示进度条 */
+              <div className="mobile-media-preview-progress">
+                <div className="progress-bar-container">
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${Math.min(downloadProgress, 100)}%` }}
+                  />
+                </div>
+                <span className="progress-text">
+                  缓存中 {Math.round(downloadProgress)}%
+                </span>
+              </div>
+            ) : localPath ? (
+              /* 下载完成：显示保存按钮 */
+              <button
+                className={`mobile-media-preview-save-btn ${saveStatus}`}
+                onClick={handleSaveToGallery}
+                disabled={saveStatus === 'saving'}
+                type="button"
+              >
+                <SaveIcon />
+                <span>
+                  {saveStatus === 'idle' && '保存'}
+                  {saveStatus === 'saving' && '保存中...'}
+                  {saveStatus === 'success' && '已保存'}
+                  {saveStatus === 'error' && '保存失败'}
+                </span>
+              </button>
+            ) : null}
           </div>
         </motion.div>
       )}

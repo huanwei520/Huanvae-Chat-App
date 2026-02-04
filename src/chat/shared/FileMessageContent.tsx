@@ -277,6 +277,7 @@ function ImageMessage({
           type="image"
           src={src}
           filename={filename}
+          localPath={localPath}
           onClose={() => setShowMobilePreview(false)}
         />
       )}
@@ -504,6 +505,9 @@ function VideoMessage({
           type="video"
           src={src}
           filename={filename}
+          localPath={actualLocalPath}
+          downloadProgress={downloadTask?.percent ?? 0}
+          isDownloading={isDownloading}
           onClose={() => setShowMobilePreview(false)}
         />
       )}
