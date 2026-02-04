@@ -6,10 +6,14 @@
  * 功能：
  * - mDNS 服务广播与发现：自动发现局域网内运行该软件的设备
  * - 设备信息展示：显示设备名称和登录用户
- * - 连接确认：双向确认机制确保安全
+ * - 点对点连接：双向确认机制确保安全，建立连接后可自由传输
  * - 文件传输：支持大文件分块传输、校验、断点续传
  * - 并行传输：多文件同时传输（默认并行度 3）
  * - 单文件取消：使用 CancellationToken 支持取消正在传输的单个文件
+ *
+ * 传输模式：
+ * - 仅支持点对点连接模式：需先建立连接后才能传输文件
+ * - 旧版传输请求模式（transfer-request/transfer-response）已移除
  *
  * 模块结构：
  * - discovery: mDNS 设备发现
@@ -30,6 +34,9 @@
  * - 流式处理: 无需将整个文件读入内存
  * - 大文件进度反馈: 每 100MB 发送 HashingProgress 事件到前端
  *
+ * 更新日志：
+ * - 2026-02-04: 移除旧版传输请求模式
+ *
  * @see https://github.com/localsend/protocol 参考 LocalSend 协议
  * @see https://docs.rs/crc32fast/ CRC32fast 文档
  */
@@ -48,10 +55,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Emitter;
 
+#[allow(deprecated)]
 pub use protocol::{
     ConnectionRequest, DiscoveredDevice, DeviceInfo,
     PeerConnection, PeerConnectionRequest,
-    TransferRequest, TransferSession, TransferTask,
+    TransferSession, TransferTask,
 };
 
 // ============================================================================
@@ -85,10 +93,11 @@ pub fn emit_lan_event(event: &protocol::LanTransferEvent) {
 // ============================================================================
 
 /// 局域网传输服务状态
+#[allow(deprecated)]
 pub struct LanTransferState {
     /// 发现的设备列表
     pub devices: RwLock<HashMap<String, DiscoveredDevice>>,
-    /// 待处理的连接请求
+    /// 待处理的连接请求（已废弃，使用 PeerConnectionRequest）
     pub pending_requests: RwLock<HashMap<String, ConnectionRequest>>,
     /// 当前传输任务
     pub active_transfers: RwLock<HashMap<String, TransferTask>>,
@@ -183,19 +192,9 @@ pub async fn respond_to_connection_request(
         .map_err(|e| e.to_string())
 }
 
-/// 发送文件（使用新版传输请求机制）
-#[tauri::command]
-pub async fn send_file_to_device(
-    device_id: String,
-    file_path: String,
-    _app_handle: tauri::AppHandle,
-) -> Result<String, String> {
-    transfer::send_transfer_request(&device_id, vec![file_path])
-        .await
-        .map_err(|e| e.to_string())
-}
 
-/// 获取待处理的连接请求
+/// 获取待处理的连接请求（已废弃，使用 get_pending_peer_connection_requests）
+#[allow(deprecated)]
 #[tauri::command]
 pub fn get_pending_connection_requests() -> Vec<ConnectionRequest> {
     let state = get_lan_transfer_state();
@@ -283,39 +282,6 @@ pub async fn send_files_to_peer(
         .map_err(|e| e.to_string())
 }
 
-// ============================================================================
-// 传输命令（旧版兼容）
-// ============================================================================
-
-/// 发送传输请求（需要对方确认）
-#[tauri::command]
-pub async fn send_transfer_request(
-    device_id: String,
-    file_paths: Vec<String>,
-) -> Result<String, String> {
-    transfer::send_transfer_request(&device_id, file_paths)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// 响应传输请求
-#[tauri::command]
-pub async fn respond_to_transfer_request(
-    request_id: String,
-    accept: bool,
-) -> Result<(), String> {
-    transfer::respond_to_transfer_request(&request_id, accept)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// 获取待处理的传输请求
-#[tauri::command]
-pub fn get_pending_transfer_requests() -> Vec<TransferRequest> {
-    let requests = server::get_pending_transfer_requests_map();
-    let requests = requests.lock();
-    requests.values().cloned().collect()
-}
 
 /// 获取传输会话
 #[tauri::command]

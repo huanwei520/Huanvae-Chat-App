@@ -21,7 +21,7 @@ tests/
 │   ├── settings.test.ts         # 设置状态管理测试（含大文件阈值）
 │   ├── diagnosticService.test.ts # 诊断上报服务测试
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
-│   ├── lanTransfer.test.ts      # 局域网传输测试
+│   ├── lanTransfer.test.ts      # 局域网传输测试（62 个用例，含多文件批量传输）
 │   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
 │   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
 │   └── lowcode.test.ts          # 低代码编辑器测试（40 个用例，含类型定义测试）
@@ -352,6 +352,121 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-04: 修复接收方点击取消无反应问题
+  - **问题 1**: 接收方点击取消按钮没有反应
+    - **原因**: `cancel_file_transfer` 只查找发送方会话，不检查接收方的上传会话
+    - **解决方案**: 
+      - 新增 `cancel_receiver_file` 公共函数处理接收方取消逻辑
+      - `cancel_file_transfer` 现在同时检查发送方和接收方会话
+    - **修改文件**: `src-tauri/src/lan_transfer/transfer.rs`, `src-tauri/src/lan_transfer/server.rs`
+  - **问题 2**: 发送方取消两个文件，接收方只显示一个已跳过
+    - **原因**: `handle_cancel` 没有持久化保存文件的取消状态，每次重新计算时丢失
+    - **解决方案**: 
+      - `UploadSession` 添加 `cancelled_files: HashSet<String>` 字段
+      - 取消时将文件 ID 添加到 `cancelled_files`
+      - 构建 `files_progress` 时优先检查 `cancelled_files`
+    - **修改文件**: `src-tauri/src/lan_transfer/server.rs`
+
+- 2026-02-04: 修复单文件取消后 UI 不消失问题
+  - **问题 1**: 取消单个文件传输后，文件 UI 未消失
+    - **原因**: `cancel_file_transfer` 只发送 `TransferFailed` 事件，未更新会话中的文件状态，也未发送 `BatchProgress` 事件
+    - **解决方案**: 
+      - 更新文件状态为 `Cancelled`
+      - 发送 `BatchProgress` 事件包含更新后的文件列表
+    - **修改文件**: `src-tauri/src/lan_transfer/transfer.rs`
+  - **问题 2**: 发送方取消文件后，接收方 UI 不同步
+    - **原因**: 发送方取消时不会通知接收方
+    - **解决方案**: 
+      - 发送方取消时向接收方发送 `/api/cancel` 请求
+      - 接收方 `handle_cancel` 发送 `BatchProgress` 事件更新 UI
+    - **修改文件**: `src-tauri/src/lan_transfer/transfer.rs`, `src-tauri/src/lan_transfer/server.rs`
+
+- 2026-02-04: 修复多文件传输 UI 显示问题
+  - **问题 1**: 手机端多文件传输只显示 "0/2"，无法单独取消文件
+    - **解决方案**: 添加文件列表显示和单文件取消按钮
+    - **修改文件**: `src/pages/mobile/MobileLanTransferPage.tsx`, `src/styles/mobile/lan-transfer-page.css`
+  - **问题 2**: 桌面端拖动传输导致接收方显示约 3 倍 UI
+    - **原因**: 多个 `InlineTransferPanel` 组件都设置了 Tauri 窗口级别的拖放监听器，导致同一个拖放事件触发多次
+    - **解决方案**: 
+      - 使用全局状态管理器 `globalDragDropState` 确保只注册一次 Tauri 拖放事件
+      - 只有当前活跃的面板处理拖放事件
+      - 使用自定义 DOM 事件 `lan-drag-enter`/`lan-drag-leave` 同步多个面板的拖放状态
+    - **修改文件**: `src/lanTransfer/LanTransferPage.tsx`
+  - **问题 3**: `handle_prepare_upload` 在会话已存在时仍发送初始进度事件
+    - **解决方案**: 只在新建会话时发送初始进度事件
+    - **修改文件**: `src-tauri/src/lan_transfer/server.rs`
+
+- 2026-02-04: 修复多文件传输只接收一个文件的问题
+  - **问题**: 选择多个文件传输时，接收端只收到最后一个文件
+  - **原因**: `handle_prepare_upload` 每次创建新会话并覆盖旧会话，导致只有最后一个文件的会话存在
+  - **解决方案**:
+    - 新增 `/api/batch-prepare` 端点，发送端先通知接收端所有文件列表
+    - 修改 `handle_prepare_upload` 检查会话是否存在，存在则添加文件而非覆盖
+    - 修改发送端调用 `batch-prepare` 预创建会话
+    - 修改进度事件包含完整文件列表和正确的 total_files
+  - **新增类型**:
+    - `BatchPrepareRequest`: 批量传输准备请求
+    - `BatchPrepareResponse`: 批量传输准备响应
+  - **修改文件**:
+    - `src-tauri/src/lan_transfer/protocol.rs`: 新增批量准备类型
+    - `src-tauri/src/lan_transfer/server.rs`: 新增 `/api/batch-prepare` 端点，修改会话管理逻辑
+    - `src-tauri/src/lan_transfer/transfer.rs`: 发送端调用 batch-prepare
+    - `tests/unit/lanTransfer.test.ts`: 新增 6 个多文件传输测试用例（总计 382 个用例）
+
+- 2026-02-04: 修复桌面端发送文件时单文件进度不显示的问题
+  - **问题**: 发送文件时，文件列表中单个文件显示 "0 B / xxx MB"，但总进度正常更新
+  - **原因**: `emit_batch_progress` 读取 session 的 `FileTransferState.transferred_bytes`，但该值仅在文件传输完成时更新
+  - **解决方案**: 在传输进度更新时同步更新 session 的文件状态
+  - **修改文件**: `src-tauri/src/lan_transfer/transfer.rs` - 添加会话文件状态实时更新
+
+- 2026-02-04: 桌面端已连接设备样式与移动端统一
+  - **修改**: `.lan-device-card.connected` 只保留绿色边框，移除绿色背景填充
+  - **修改**: `.lan-connected-badge` 改为透明绿色背景 + 绿色文字
+  - **修改**: `.lan-inline-transfer-panel` 边框改为绿色与设备卡片一致
+  - **修改文件**: `src/lanTransfer/styles.css`
+
+- 2026-02-04: 移除旧版传输请求模式，统一使用点对点连接
+  - **移除功能**: 旧版 transfer-request/transfer-response 传输机制
+  - **统一模式**: 桌面端和移动端都需先建立点对点连接才能传输文件
+  - **后端清理**:
+    - 移除 `send_transfer_request`、`respond_to_transfer_request` 函数
+    - 移除 `/api/transfer-request`、`/api/transfer-response` 端点
+    - 移除 `TransferRequest`、`TransferRequestStatus` 类型
+    - 移除 `PENDING_TRANSFER_REQUESTS` 存储
+  - **前端清理**:
+    - 移除 `sendTransferRequest`、`respondToTransferRequest` 函数
+    - 移除 `TransferRequest` 类型和 `pendingTransferRequests` 状态
+    - 移除 `TransferRequestCard` 组件
+    - 移动端发送文件前必须先建立连接
+  - **修改文件**:
+    - `src-tauri/src/lan_transfer/transfer.rs`: 移除旧版传输逻辑
+    - `src-tauri/src/lan_transfer/server.rs`: 移除旧版 API 端点
+    - `src-tauri/src/lan_transfer/protocol.rs`: 移除旧版类型定义
+    - `src-tauri/src/lan_transfer/mod.rs`: 移除旧版命令
+    - `src/hooks/useLanTransfer.ts`: 移除旧版函数和状态
+    - `src/lanTransfer/LanTransferPage.tsx`: 移除 TransferRequestCard
+    - `src/pages/mobile/MobileLanTransferPage.tsx`: 移除旧版传输回退逻辑
+
+- 2026-02-03: 桌面端局域网传输 UI 重构
+  - **新 UI**: 传输面板从弹窗改为设备卡片内联展开
+  - **文件列表**: 显示每个文件的传输进度和状态
+  - **单文件取消**: 支持跳过单个文件而不影响其他文件
+  - **移除组件**: PeerTransferWindow 弹窗、BatchProgressCard 顶部进度条
+  - **新增组件**: InlineTransferPanel（内联传输面板）、DeviceCard 展开状态
+  - **修改文件**:
+    - `src/lanTransfer/LanTransferPage.tsx`: 重构 DeviceCard、添加 InlineTransferPanel
+    - `src/lanTransfer/styles.css`: 添加内联面板和文件列表样式
+    - `src/hooks/useLanTransfer.ts`: 添加 FileProgressInfo、TransferStatus 类型
+
+- 2026-02-03: 修复发送端传输速度显示为 0 的问题
+  - **问题**: emit_batch_progress() 中 speed 硬编码为 0
+  - **原因**: ParallelProgress 结构体缺少 start_time 字段
+  - **解决方案**: 添加 start_time，计算 speed = transferred_bytes / elapsed
+  - **修改文件**:
+    - `src-tauri/src/lan_transfer/transfer.rs`: 添加速度计算
+    - `src-tauri/src/lan_transfer/protocol.rs`: 添加 FileProgressInfo 结构体
+    - `src-tauri/src/lan_transfer/server.rs`: 更新 BatchTransferProgress 初始化
 
 - 2026-01-22: 添加移动端会话持久化（生物识别 + keystore）
 - 2026-01-22: 修复状态栏/底部安全区域适配
@@ -739,6 +854,31 @@ unset CI && pnpm tauri android dev
   - **LowcodePage 更新**：
     - `executeInputs` 构建时传递 `latex_name`, `paper_ref`, `default_value`
   - 测试用例更新：lowcode.test.ts 新增 9 个类型测试（总计 376 个用例）
+
+- 2026-02-03: 修复 Android VPN 导致局域网传输设备发现失败
+  - **问题**：当 Android 设备开启 VPN 时，mDNS 服务注册在 VPN 接口（tun0: 172.19.0.1）
+    而非 WiFi 接口（wlan0: 192.168.110.206），导致其他设备无法发现移动端
+  - **原因**：`local_ip_address::local_ip()` 默认返回第一个非回环 IP，可能选中 VPN 接口
+  - **解决方案**：优化网络接口选择逻辑
+    - 优先选择 WiFi 接口（wlan0, en0, Wi-Fi）
+    - 排除 VPN/隧道接口（tun0, utun0, tap, ppp）
+    - 排除移动数据接口（rmnet, r_rmnet）
+    - 排除虚拟接口（ifb, dummy）
+    - 排除链路本地地址（169.254.x.x）
+  - **修改文件**：`src-tauri/src/lan_transfer/discovery.rs`
+  - **官方文档参考**：
+    - [Android NsdManager](https://developer.android.com/reference/android/net/nsd/NsdManager): mDNS 仅限本地多播网络
+    - [WifiManager.MulticastLock](https://developer.android.com/reference/android/net/wifi/WifiManager.MulticastLock): Android 默认过滤多播包
+
+- 2026-02-03: Android 局域网传输文件准备动画
+  - **功能**：Android 选择文件后显示"正在准备文件..."加载动画
+  - **原因**：Android content:// URI 需要复制到缓存目录才能被 Rust 读取，大文件复制耗时长
+  - **实现**：
+    - `androidFileHandler.ts`: 添加 `FilePreparationStatus` 接口和 `onStatusChange` 回调
+    - `MobileLanTransferPage.tsx`: 添加文件准备状态和遮罩层 UI
+    - `lan-transfer-page.css`: 添加 `.file-preparation-overlay` 样式
+  - **UI 效果**：毛玻璃遮罩 + 旋转加载图标 + 文件名 + 进度计数
+  - **隔离性**：仅在 Android 平台且处于 preparing 阶段时显示
 
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';

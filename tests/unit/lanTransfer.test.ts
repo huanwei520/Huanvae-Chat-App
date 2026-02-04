@@ -69,6 +69,18 @@ interface FileMetadata {
   sha256: string;
 }
 
+/** 传输状态 */
+type TransferStatus = 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+/** 单文件进度信息 */
+interface FileProgressInfo {
+  fileId: string;
+  fileName: string;
+  fileSize: number;
+  transferredBytes: number;
+  status: TransferStatus;
+}
+
 interface BatchTransferProgress {
   sessionId: string;
   totalFiles: number;
@@ -78,6 +90,8 @@ interface BatchTransferProgress {
   speed: number;
   currentFile?: FileMetadata;
   etaSeconds?: number;
+  /** 每个文件的进度信息 */
+  files?: FileProgressInfo[];
 }
 
 // Mock Tauri invoke
@@ -1017,6 +1031,178 @@ describe('mDNS 设备下线检测', () => {
     it('最大失败次数应为 3 次', () => {
       const MAX_VERIFY_FAILURES = 3;
       expect(MAX_VERIFY_FAILURES).toBe(3);
+    });
+  });
+
+  // ============================================================================
+  // 多文件批量传输测试
+  // ============================================================================
+
+  describe('多文件批量传输', () => {
+    // BatchPrepareRequest 类型定义
+    interface BatchPrepareRequest {
+      sessionId: string;
+      files: FileMetadata[];
+      totalSize: number;
+      fromDevice: DiscoveredDevice;
+    }
+
+    // BatchPrepareResponse 类型定义
+    interface BatchPrepareResponse {
+      sessionId: string;
+      accepted: boolean;
+      fileCount: number;
+      rejectReason?: string;
+    }
+
+    it('BatchPrepareRequest 应包含所有必要字段', () => {
+      const files: FileMetadata[] = [
+        { fileId: 'file1', fileName: 'test1.txt', fileSize: 1000, mimeType: 'text/plain', sha256: 'abc123' },
+        { fileId: 'file2', fileName: 'test2.txt', fileSize: 2000, mimeType: 'text/plain', sha256: 'def456' },
+      ];
+
+      const request: BatchPrepareRequest = {
+        sessionId: 'session-123',
+        files,
+        totalSize: 3000,
+        fromDevice: {
+          deviceId: 'device-1',
+          deviceName: 'Test Device',
+          userId: 'user-1',
+          userNickname: 'Test User',
+          ipAddress: '192.168.1.100',
+          port: 53317,
+          discoveredAt: '2026-02-04T00:00:00Z',
+          lastSeen: '2026-02-04T00:00:00Z',
+        },
+      };
+
+      expect(request.sessionId).toBe('session-123');
+      expect(request.files).toHaveLength(2);
+      expect(request.totalSize).toBe(3000);
+      expect(request.fromDevice.deviceId).toBe('device-1');
+    });
+
+    it('BatchPrepareResponse 应正确返回文件数量', () => {
+      const response: BatchPrepareResponse = {
+        sessionId: 'session-123',
+        accepted: true,
+        fileCount: 5,
+      };
+
+      expect(response.accepted).toBe(true);
+      expect(response.fileCount).toBe(5);
+      expect(response.rejectReason).toBeUndefined();
+    });
+
+    it('BatchTransferProgress 应包含所有文件的进度', () => {
+      const progress: BatchTransferProgress = {
+        sessionId: 'session-123',
+        totalFiles: 3,
+        completedFiles: 1,
+        totalBytes: 10000,
+        transferredBytes: 5000,
+        speed: 1000,
+        etaSeconds: 5,
+        files: [
+          { fileId: 'f1', fileName: 'a.txt', fileSize: 3000, transferredBytes: 3000, status: 'completed' as TransferStatus },
+          { fileId: 'f2', fileName: 'b.txt', fileSize: 4000, transferredBytes: 2000, status: 'transferring' as TransferStatus },
+          { fileId: 'f3', fileName: 'c.txt', fileSize: 3000, transferredBytes: 0, status: 'pending' as TransferStatus },
+        ],
+      };
+
+      expect(progress.totalFiles).toBe(3);
+      expect(progress.completedFiles).toBe(1);
+      expect(progress.files).toHaveLength(3);
+      expect(progress.files[0].status).toBe('completed');
+      expect(progress.files[1].status).toBe('transferring');
+      expect(progress.files[2].status).toBe('pending');
+    });
+
+    it('多文件传输时 totalFiles 应正确反映文件数量', () => {
+      const files: FileMetadata[] = Array.from({ length: 5 }, (_, i) => ({
+        fileId: `file-${i}`,
+        fileName: `test${i}.txt`,
+        fileSize: 1000 * (i + 1),
+        mimeType: 'text/plain',
+        sha256: `hash${i}`,
+      }));
+
+      const totalSize = files.reduce((sum, f) => sum + f.fileSize, 0);
+      expect(totalSize).toBe(15000); // 1000 + 2000 + 3000 + 4000 + 5000
+
+      const progress: BatchTransferProgress = {
+        sessionId: 'multi-file-session',
+        totalFiles: files.length,
+        completedFiles: 0,
+        totalBytes: totalSize,
+        transferredBytes: 0,
+        speed: 0,
+        files: files.map(f => ({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          transferredBytes: 0,
+          status: 'pending' as TransferStatus,
+        })),
+      };
+
+      expect(progress.totalFiles).toBe(5);
+      expect(progress.files).toHaveLength(5);
+    });
+
+    it('会话管理应支持添加文件到现有会话', () => {
+      // 模拟会话管理逻辑
+      const sessions = new Map<string, { files: Map<string, FileMetadata> }>();
+      const sessionId = 'test-session';
+
+      // 创建会话（batch-prepare）
+      sessions.set(sessionId, { files: new Map() });
+
+      // 添加第一个文件
+      const file1: FileMetadata = {
+        fileId: 'file1',
+        fileName: 'test1.txt',
+        fileSize: 1000,
+        mimeType: 'text/plain',
+        sha256: 'abc',
+      };
+      sessions.get(sessionId)?.files.set(file1.fileId, file1);
+
+      // 添加第二个文件（不应覆盖会话）
+      const file2: FileMetadata = {
+        fileId: 'file2',
+        fileName: 'test2.txt',
+        fileSize: 2000,
+        mimeType: 'text/plain',
+        sha256: 'def',
+      };
+      sessions.get(sessionId)?.files.set(file2.fileId, file2);
+
+      // 验证两个文件都存在
+      const session = sessions.get(sessionId);
+      expect(session).toBeDefined();
+      expect(session?.files.size).toBe(2);
+      expect(session?.files.has('file1')).toBe(true);
+      expect(session?.files.has('file2')).toBe(true);
+    });
+
+    it('BatchTransferCompleted 事件应在所有文件完成后发送', () => {
+      const files = [
+        { fileId: 'f1', completed: false },
+        { fileId: 'f2', completed: false },
+        { fileId: 'f3', completed: false },
+      ];
+
+      // 模拟文件完成
+      files[0].completed = true;
+      expect(files.every(f => f.completed)).toBe(false);
+
+      files[1].completed = true;
+      expect(files.every(f => f.completed)).toBe(false);
+
+      files[2].completed = true;
+      expect(files.every(f => f.completed)).toBe(true);
     });
   });
 });

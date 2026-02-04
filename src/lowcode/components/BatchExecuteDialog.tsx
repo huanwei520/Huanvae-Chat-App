@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CloseIcon, AddIcon, DeleteIcon, RunIcon } from './icons';
 import { getDefaultValue, parseValue } from '../utils/formUtils';
 import type { InputDefinition } from './ExecuteDialog';
-import type { BatchExecutionResult } from '../types/lowcode';
+import type { BatchExecutionResult, DataType } from '../types/lowcode';
 
 // ============================================================================
 // 类型定义

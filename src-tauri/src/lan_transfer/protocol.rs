@@ -79,10 +79,12 @@ pub struct DiscoveredDevice {
 }
 
 // ============================================================================
-// 连接请求
+// 连接请求（旧版，已废弃，仅保留类型定义供编译通过）
 // ============================================================================
 
-/// 连接请求
+/// 连接请求（已废弃，使用 PeerConnectionRequest 替代）
+#[allow(dead_code, deprecated)]
+#[deprecated(note = "使用 PeerConnectionRequest 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionRequest {
@@ -96,7 +98,9 @@ pub struct ConnectionRequest {
     pub status: ConnectionStatus,
 }
 
-/// 连接状态
+/// 连接状态（已废弃）
+#[allow(dead_code)]
+#[deprecated(note = "使用 PeerConnectionStatus 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionStatus {
@@ -110,8 +114,9 @@ pub enum ConnectionStatus {
     Expired,
 }
 
-/// 连接响应
+/// 连接响应（已废弃）
 #[allow(dead_code)]
+#[deprecated(note = "使用 PeerConnection 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionResponse {
@@ -197,56 +202,6 @@ pub struct FileMetadata {
     /// 文件哈希 (CRC32，8字符十六进制)
     /// 用于传输完整性验证，采用高性能 crc32fast 库
     pub sha256: String,  // 字段名保持不变以兼容现有协议
-}
-
-// ============================================================================
-// 传输请求（文件传输前的确认）
-// ============================================================================
-
-/// 传输请求（发送文件前需要对方确认）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransferRequest {
-    /// 请求 ID
-    pub request_id: String,
-    /// 请求方设备信息
-    pub from_device: DiscoveredDevice,
-    /// 要传输的文件列表
-    pub files: Vec<FileMetadata>,
-    /// 总大小（字节）
-    pub total_size: u64,
-    /// 请求时间
-    pub requested_at: String,
-    /// 请求状态
-    pub status: TransferRequestStatus,
-}
-
-/// 传输请求状态
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TransferRequestStatus {
-    /// 等待确认
-    Pending,
-    /// 已接受
-    Accepted,
-    /// 已拒绝
-    Rejected,
-    /// 已过期
-    Expired,
-}
-
-/// 传输请求响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransferRequestResponse {
-    /// 请求 ID
-    pub request_id: String,
-    /// 是否接受
-    pub accepted: bool,
-    /// 拒绝原因（如果有）
-    pub reject_reason: Option<String>,
-    /// 保存目录
-    pub save_directory: Option<String>,
 }
 
 // ============================================================================
@@ -338,6 +293,22 @@ pub enum SessionStatus {
 // 批量传输进度
 // ============================================================================
 
+/// 单文件进度信息（用于前端显示文件列表）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileProgressInfo {
+    /// 文件 ID
+    pub file_id: String,
+    /// 文件名
+    pub file_name: String,
+    /// 文件大小（字节）
+    pub file_size: u64,
+    /// 已传输字节数
+    pub transferred_bytes: u64,
+    /// 传输状态
+    pub status: TransferStatus,
+}
+
 /// 批量传输进度
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -358,6 +329,9 @@ pub struct BatchTransferProgress {
     pub current_file: Option<FileMetadata>,
     /// 预计剩余时间（秒）
     pub eta_seconds: Option<u64>,
+    /// 每个文件的进度信息
+    #[serde(default)]
+    pub files: Vec<FileProgressInfo>,
 }
 
 // ============================================================================
@@ -452,6 +426,41 @@ pub struct FinishUploadResponse {
 }
 
 // ============================================================================
+// 批量传输准备 API（多文件传输）
+// ============================================================================
+
+/// 批量传输准备请求
+///
+/// 在传输多个文件前，发送方先调用此 API 通知接收方即将传输的所有文件列表
+/// 接收方创建会话并预分配资源，后续的 prepare-upload 请求会添加到此会话
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchPrepareRequest {
+    /// 会话 ID（由发送方生成）
+    pub session_id: String,
+    /// 文件列表
+    pub files: Vec<FileMetadata>,
+    /// 总字节数
+    pub total_size: u64,
+    /// 发送方设备信息
+    pub from_device: DiscoveredDevice,
+}
+
+/// 批量传输准备响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchPrepareResponse {
+    /// 会话 ID
+    pub session_id: String,
+    /// 是否接受
+    pub accepted: bool,
+    /// 文件数量
+    pub file_count: u32,
+    /// 拒绝原因（如果有）
+    pub reject_reason: Option<String>,
+}
+
+// ============================================================================
 // 传输任务
 // ============================================================================
 
@@ -530,21 +539,17 @@ pub enum LanTransferEvent {
     /// 连接已关闭
     PeerConnectionClosed { connection_id: String },
 
-    // ========== 旧版连接事件（保留兼容） ==========
-    /// 收到连接请求（旧版，保留兼容）
-    ConnectionRequest { request: ConnectionRequest },
-    /// 连接响应（旧版，保留兼容）
+    // ========== 旧版连接事件（已废弃，将在下个版本移除） ==========
+    /// 收到连接请求（已废弃，使用 PeerConnectionRequest 事件替代）
+    #[allow(deprecated)]
+    ConnectionRequest {
+        #[allow(deprecated)]
+        request: ConnectionRequest,
+    },
+    /// 连接响应（已废弃，使用 PeerConnectionEstablished 事件替代）
     ConnectionResponse { request_id: String, accepted: bool },
 
     // ========== 文件传输事件 ==========
-    /// 收到传输请求（文件传输前的确认）
-    TransferRequestReceived { request: TransferRequest },
-    /// 传输请求响应
-    TransferRequestResponse {
-        request_id: String,
-        accepted: bool,
-        reject_reason: Option<String>,
-    },
     /// 单文件传输进度更新
     TransferProgress { task: TransferTask },
     /// 批量传输进度更新

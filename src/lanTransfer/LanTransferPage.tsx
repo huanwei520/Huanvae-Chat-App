@@ -6,10 +6,23 @@
  * 功能：
  * - 显示发现的局域网设备列表
  * - 发送/接收传输请求（需确认）
- * - 多文件选择和传输
+ * - 多文件选择和传输（支持拖放）
  * - 显示传输进度（支持批量）
+ * - 单文件取消支持
  * - 断点续传
  * - 设置面板（保存目录、信任设备）
+ *
+ * UI 架构：
+ * - DeviceCard: 设备卡片，支持展开/收起
+ * - InlineTransferPanel: 内联传输面板（展开后显示在设备卡片下方）
+ *   - 拖放区域
+ *   - 文件列表（显示每个文件的进度和状态）
+ *   - 单文件取消按钮
+ *   - 总体进度和取消全部按钮
+ *
+ * 更新日志：
+ * - 2026-02-03: 重构为内联展开式 UI，移除弹窗覆盖层
+ * - 2026-02-03: 添加文件列表和单文件取消支持
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -22,10 +35,11 @@ import {
   useLanTransfer,
   DiscoveredDevice,
   ConnectionRequest,
-  TransferRequest,
   BatchTransferProgress,
   HashingProgress,
   FileMetadata,
+  FileProgressInfo,
+  TransferStatus,
   PeerConnection,
   PeerConnectionRequest,
 } from '../hooks/useLanTransfer';
@@ -164,65 +178,117 @@ interface DeviceCardProps {
   device: DiscoveredDevice;
   onRequestConnection: () => void;
   onSendFiles?: () => void;
+  onSendFilePaths?: (paths: string[]) => void;
   onDisconnect?: () => void;
+  onCancelFile?: (fileId: string) => void;
+  onCancelSession?: (sessionId: string) => void;
   isTrusted?: boolean;
   isConnected?: boolean;
+  connection?: PeerConnection;
+  batchProgress?: BatchTransferProgress | null;
+  hashingProgress?: HashingProgress | null;
 }
 
-function DeviceCard({ device, onRequestConnection, onSendFiles, onDisconnect, isTrusted, isConnected }: DeviceCardProps) {
+function DeviceCard({
+  device,
+  onRequestConnection,
+  onSendFiles,
+  onSendFilePaths,
+  onDisconnect,
+  onCancelFile,
+  onCancelSession,
+  isTrusted,
+  isConnected,
+  connection,
+  batchProgress,
+  hashingProgress,
+}: DeviceCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // 连接后自动展开
+  useEffect(() => {
+    if (isConnected && connection) {
+      setIsExpanded(true);
+    }
+  }, [isConnected, connection]);
+
+  const handleToggleExpand = () => {
+    if (isConnected) {
+      setIsExpanded((prev) => !prev);
+    }
+  };
+
   return (
     <motion.div
-      className={`lan-device-card ${isConnected ? 'connected' : ''}`}
+      className={`lan-device-card-wrapper ${isExpanded ? 'expanded' : ''}`}
       variants={cardVariants}
       initial="initial"
       animate="animate"
       exit="exit"
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
     >
-      <div className="lan-device-icon">
-        <ComputerIcon />
-      </div>
-      <div className="lan-device-info">
-        <div className="lan-device-name">
-          {device.deviceName}
-          {isTrusted && <span className="lan-trusted-badge">已信任</span>}
-          {isConnected && <span className="lan-connected-badge">已连接</span>}
+      <div
+        className={`lan-device-card ${isConnected ? 'connected' : ''} ${isExpanded ? 'expanded' : ''}`}
+        onClick={handleToggleExpand}
+      >
+        <div className="lan-device-icon">
+          <ComputerIcon />
         </div>
-        <div className="lan-device-user">
-          {device.userNickname} (@{device.userId})
+        <div className="lan-device-info">
+          <div className="lan-device-name">
+            {device.deviceName}
+            {isTrusted && <span className="lan-trusted-badge">已信任</span>}
+            {isConnected && <span className="lan-connected-badge">已连接</span>}
+          </div>
+          <div className="lan-device-user">
+            {device.userNickname} (@{device.userId})
+          </div>
+          <div className="lan-device-ip">{device.ipAddress}</div>
         </div>
-        <div className="lan-device-ip">{device.ipAddress}</div>
+        <div className="lan-device-actions">
+          {isConnected ? (
+            <>
+              {/* 已连接：显示展开/收起和断开连接按钮 */}
+              <button
+                className="lan-device-expand-btn"
+                onClick={(e) => { e.stopPropagation(); handleToggleExpand(); }}
+                title={isExpanded ? '收起' : '展开'}
+              >
+                <ChevronIcon expanded={isExpanded} />
+              </button>
+              <button
+                className="lan-device-disconnect-btn"
+                onClick={(e) => { e.stopPropagation(); onDisconnect?.(); }}
+                title="断开连接"
+              >
+                <DisconnectIcon />
+              </button>
+            </>
+          ) : (
+            <button
+              className="lan-device-connect-btn"
+              onClick={(e) => { e.stopPropagation(); onRequestConnection(); }}
+              title="请求连接"
+            >
+              <LinkIcon />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="lan-device-actions">
-        {isConnected ? (
-          <>
-            {/* 已连接：显示发送文件和断开连接按钮 */}
-            <button
-              className="lan-device-connect-btn connected"
-              onClick={(e) => { e.stopPropagation(); onSendFiles?.(); }}
-              title="发送文件"
-            >
-              <FolderIcon />
-            </button>
-            <button
-              className="lan-device-disconnect-btn"
-              onClick={(e) => { e.stopPropagation(); onDisconnect?.(); }}
-              title="断开连接"
-            >
-              <DisconnectIcon />
-            </button>
-          </>
-        ) : (
-          <button
-            className="lan-device-connect-btn"
-            onClick={(e) => { e.stopPropagation(); onRequestConnection(); }}
-            title="请求连接"
-          >
-            <LinkIcon />
-          </button>
+
+      {/* 展开的传输面板 */}
+      <AnimatePresence>
+        {isExpanded && isConnected && connection && (
+          <InlineTransferPanel
+            connection={connection}
+            batchProgress={batchProgress ?? null}
+            hashingProgress={hashingProgress ?? null}
+            onSendFiles={onSendFiles ?? (() => {})}
+            onSendFilePaths={onSendFilePaths ?? (() => {})}
+            onCancelFile={onCancelFile ?? (() => {})}
+            onCancelSession={onCancelSession ?? (() => {})}
+          />
         )}
-      </div>
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -305,284 +371,232 @@ function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnecti
   );
 }
 
-interface PeerTransferWindowProps {
+// ============================================================================
+// 内联传输面板（展开后显示在设备卡片下方）
+// ============================================================================
+
+interface InlineTransferPanelProps {
   connection: PeerConnection;
-  batchProgressMap: Map<string, BatchTransferProgress>;
+  batchProgress: BatchTransferProgress | null;
   hashingProgress: HashingProgress | null;
   onSendFiles: () => void;
   onSendFilePaths: (paths: string[]) => void;
-  onDisconnect: () => void;
-  onClose: () => void;
+  onCancelFile: (fileId: string) => void;
   onCancelSession: (sessionId: string) => void;
 }
 
-function PeerTransferWindow({
+/** 获取状态标签和样式类 */
+function getStatusInfo(status: TransferStatus): { label: string; className: string } {
+  switch (status) {
+    case 'pending':
+      return { label: '等待中', className: 'pending' };
+    case 'transferring':
+      return { label: '传输中', className: 'transferring' };
+    case 'completed':
+      return { label: '已完成', className: 'completed' };
+    case 'failed':
+      return { label: '失败', className: 'failed' };
+    case 'cancelled':
+      return { label: '已取消', className: 'cancelled' };
+    case 'paused':
+      return { label: '已暂停', className: 'paused' };
+    default:
+      return { label: '未知', className: '' };
+  }
+}
+
+// 全局拖放事件管理器 - 避免多个组件同时注册监听器导致重复触发
+const globalDragDropState = {
+  currentHandler: null as ((paths: string[]) => void) | null,
+  isListenerSetup: false,
+};
+
+function InlineTransferPanel({
   connection,
-  batchProgressMap,
+  batchProgress,
   hashingProgress,
   onSendFiles,
   onSendFilePaths,
-  onDisconnect,
-  onClose,
+  onCancelFile,
   onCancelSession,
-}: PeerTransferWindowProps) {
+}: InlineTransferPanelProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const onSendFilePathsRef = useRef(onSendFilePaths);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
-  // 保持 ref 最新
+  // 处理拖放事件 - 使用全局状态避免重复注册
   useEffect(() => {
-    onSendFilePathsRef.current = onSendFilePaths;
-  }, [onSendFilePaths]);
+    // 注册当前面板为活跃的拖放处理器
+    globalDragDropState.currentHandler = onSendFilePaths;
 
-  // 监听 Tauri 文件拖放事件（只在组件挂载时设置一次）
-  useEffect(() => {
-    const window = getCurrentWindow();
-    let unlistenEnter: (() => void) | null = null;
-    let unlistenLeave: (() => void) | null = null;
-    let unlistenDrop: (() => void) | null = null;
-    let mounted = true;
+    // 只在第一次时设置全局监听器
+    if (!globalDragDropState.isListenerSetup) {
+      globalDragDropState.isListenerSetup = true;
 
-    const setupListeners = async () => {
-      // 拖拽进入
-      unlistenEnter = await window.listen<{ paths: string[] }>(TauriEvent.DRAG_ENTER, (event) => {
-        if (mounted && event.payload.paths && event.payload.paths.length > 0) {
-          setIsDragging(true);
-        }
-      });
+      const setupDragListeners = async () => {
+        const { listen } = await import('@tauri-apps/api/event');
 
-      // 拖拽离开
-      unlistenLeave = await window.listen(TauriEvent.DRAG_LEAVE, () => {
-        if (mounted) {
-          setIsDragging(false);
-        }
-      });
+        await listen(TauriEvent.DRAG_ENTER, () => {
+          // 触发所有 InlineTransferPanel 的 dragging 状态通过 DOM 事件
+          window.dispatchEvent(new CustomEvent('lan-drag-enter'));
+        });
 
-      // 文件放下
-      unlistenDrop = await window.listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
-        if (mounted) {
-          setIsDragging(false);
-          if (event.payload.paths && event.payload.paths.length > 0) {
-            onSendFilePathsRef.current(event.payload.paths);
+        await listen(TauriEvent.DRAG_LEAVE, () => {
+          window.dispatchEvent(new CustomEvent('lan-drag-leave'));
+        });
+
+        await listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
+          window.dispatchEvent(new CustomEvent('lan-drag-leave'));
+          // 只调用当前活跃的处理器，避免重复触发
+          if (event.payload.paths && event.payload.paths.length > 0 && globalDragDropState.currentHandler) {
+            globalDragDropState.currentHandler(event.payload.paths);
           }
-        }
-      });
-    };
+        });
+      };
 
-    setupListeners();
+      setupDragListeners();
+    }
+
+    // 监听本地拖放事件
+    const handleDragEnter = () => setIsDragging(true);
+    const handleDragLeave = () => setIsDragging(false);
+
+    window.addEventListener('lan-drag-enter', handleDragEnter);
+    window.addEventListener('lan-drag-leave', handleDragLeave);
 
     return () => {
-      mounted = false;
-      unlistenEnter?.();
-      unlistenLeave?.();
-      unlistenDrop?.();
+      // 清理本地事件监听
+      window.removeEventListener('lan-drag-enter', handleDragEnter);
+      window.removeEventListener('lan-drag-leave', handleDragLeave);
+      // 如果当前面板是活跃处理器，清除它
+      if (globalDragDropState.currentHandler === onSendFilePaths) {
+        globalDragDropState.currentHandler = null;
+      }
     };
-  }, []);  // 空依赖，只在挂载时设置一次
+  }, [onSendFilePaths]);
 
-  return (
-    <motion.div
-      className="lan-peer-transfer-window"
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-    >
-      <div className="lan-peer-transfer-header">
-        <div className="lan-peer-transfer-title">
-          <LinkIcon />
-          <span>与 {connection.peerDevice.deviceName} 的文件传输</span>
-        </div>
-        <button className="lan-peer-transfer-close" onClick={onClose}>
-          <CloseIcon />
-        </button>
-      </div>
-
-      <div className="lan-peer-transfer-content">
-        {/* 发送文件区域 */}
-        <div className="lan-peer-transfer-send">
-          <div
-            className={`lan-peer-transfer-dropzone${isDragging ? ' dragging' : ''}`}
-            onClick={onSendFiles}
-          >
-            <UploadIcon />
-            <span>{isDragging ? '松开鼠标发送文件' : '点击选择文件或拖拽文件到此处'}</span>
-            <span className="lan-peer-transfer-hint">支持多文件选择</span>
-          </div>
-        </div>
-
-        {/* 哈希计算进度（大文件预处理） */}
-        {hashingProgress && batchProgressMap.size === 0 && (
-          <div className="lan-peer-transfer-progress">
-            <div className="lan-peer-transfer-progress-header">
-              <span>正在计算文件校验值...</span>
-              <span>{hashingProgress.currentFile}/{hashingProgress.totalFiles} 个文件</span>
-            </div>
-            <div className="lan-peer-transfer-progress-bar">
-              <div
-                className="lan-peer-transfer-progress-fill hashing"
-                style={{
-                  width: `${(hashingProgress.processedBytes / hashingProgress.fileSize) * 100}%`,
-                }}
-              />
-            </div>
-            <div className="lan-peer-transfer-progress-info">
-              <span>
-                {formatSize(hashingProgress.processedBytes)} / {formatSize(hashingProgress.fileSize)}
-              </span>
-              <span>{hashingProgress.fileName}</span>
-            </div>
-          </div>
-        )}
-
-        {/* 传输进度（支持多个并行会话） */}
-        {Array.from(batchProgressMap.entries()).map(([sessionId, bp]) => (
-          <div key={sessionId} className="lan-peer-transfer-progress">
-            <div className="lan-peer-transfer-progress-header">
-              <span>传输进度 {batchProgressMap.size > 1 ? `#${Array.from(batchProgressMap.keys()).indexOf(sessionId) + 1}` : ''}</span>
-              <span>{bp.completedFiles}/{bp.totalFiles} 个文件</span>
-              <button
-                className="lan-peer-transfer-cancel"
-                onClick={() => onCancelSession(sessionId)}
-                title="取消传输"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="lan-peer-transfer-progress-bar">
-              <div
-                className="lan-peer-transfer-progress-fill"
-                style={{
-                  width: `${bp.totalBytes > 0 ? (bp.transferredBytes / bp.totalBytes) * 100 : 0}%`,
-                }}
-              />
-            </div>
-            <div className="lan-peer-transfer-progress-info">
-              <span>
-                {formatSize(bp.transferredBytes)} / {formatSize(bp.totalBytes)}
-              </span>
-              <span>{formatSpeed(bp.speed)}</span>
-              {bp.etaSeconds && (
-                <span>剩余 {formatEta(bp.etaSeconds)}</span>
-              )}
-            </div>
-            {bp.currentFile && (
-              <div className="lan-peer-transfer-current-file">
-                <FileIcon />
-                <span>{bp.currentFile.fileName}</span>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="lan-peer-transfer-footer">
-        <button className="lan-btn lan-btn-danger" onClick={() => { onDisconnect(); onClose(); }}>
-          <DisconnectIcon />
-          <span>断开连接</span>
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-interface TransferRequestCardProps {
-  request: TransferRequest;
-  onAccept: () => void;
-  onReject: () => void;
-}
-
-function TransferRequestCard({ request, onAccept, onReject }: TransferRequestCardProps) {
-  return (
-    <motion.div
-      className="lan-transfer-request-card"
-      variants={cardVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-    >
-      <div className="lan-transfer-request-header">
-        <div className="lan-transfer-request-title">文件传输请求</div>
-        <div className="lan-transfer-request-from">
-          来自: {request.fromDevice.deviceName} ({request.fromDevice.userNickname})
-        </div>
-      </div>
-      <div className="lan-transfer-request-files">
-        <div className="lan-transfer-request-files-header">
-          <span>{request.files.length} 个文件</span>
-          <span>总计 {formatSize(request.totalSize)}</span>
-        </div>
-        <div className="lan-transfer-request-files-list">
-          {request.files.slice(0, 5).map((file: FileMetadata) => (
-            <div key={file.fileId} className="lan-transfer-request-file">
-              <FileIcon />
-              <span className="lan-file-name">{file.fileName}</span>
-              <span className="lan-file-size">{formatSize(file.fileSize)}</span>
-            </div>
-          ))}
-          {request.files.length > 5 && (
-            <div className="lan-transfer-request-more">
-              +{request.files.length - 5} 更多文件...
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="lan-transfer-request-actions">
-        <button className="lan-btn lan-btn-reject" onClick={onReject}>
-          拒绝
-        </button>
-        <button className="lan-btn lan-btn-accept" onClick={onAccept}>
-          接受
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-interface BatchProgressCardProps {
-  progress: BatchTransferProgress;
-  onCancel: () => void;
-}
-
-function BatchProgressCard({ progress, onCancel }: BatchProgressCardProps) {
-  const percentage = progress.totalBytes > 0
-    ? (progress.transferredBytes / progress.totalBytes) * 100
+  const overallPercentage = batchProgress && batchProgress.totalBytes > 0
+    ? (batchProgress.transferredBytes / batchProgress.totalBytes) * 100
     : 0;
 
   return (
     <motion.div
-      className="lan-batch-progress-card"
-      variants={cardVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      className="lan-inline-transfer-panel"
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.2 }}
     >
-      <div className="lan-batch-progress-header">
-        <div className="lan-batch-progress-title">批量传输</div>
-        <div className="lan-batch-progress-count">
-          {progress.completedFiles} / {progress.totalFiles} 文件
-        </div>
+      {/* 拖放区域 */}
+      <div
+        ref={dropZoneRef}
+        className={`lan-inline-dropzone${isDragging ? ' dragging' : ''}`}
+        onClick={onSendFiles}
+      >
+        <UploadIcon />
+        <span>拖拽文件到此处或点击选择</span>
       </div>
-      {progress.currentFile && (
-        <div className="lan-batch-current-file">
-          当前: {progress.currentFile.fileName}
+
+      {/* 哈希计算进度 */}
+      {hashingProgress && (
+        <div className="lan-inline-hashing">
+          <div className="lan-inline-hashing-header">
+            <span>正在计算校验值...</span>
+            <span>{hashingProgress.currentFile}/{hashingProgress.totalFiles} 文件</span>
+          </div>
+          <div className="lan-inline-hashing-file">{hashingProgress.fileName}</div>
+          <div className="lan-inline-progress-bar">
+            <div
+              className="lan-inline-progress-fill hashing"
+              style={{
+                width: `${hashingProgress.fileSize > 0 ? (hashingProgress.processedBytes / hashingProgress.fileSize) * 100 : 0}%`,
+              }}
+            />
+          </div>
         </div>
       )}
-      <div className="lan-transfer-progress-bar">
-        <div
-          className="lan-transfer-progress-fill"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      <div className="lan-transfer-stats">
-        <span>{formatSize(progress.transferredBytes)} / {formatSize(progress.totalBytes)}</span>
-        <span>{formatSpeed(progress.speed)}</span>
-        <span>{percentage.toFixed(1)}%</span>
-        {progress.etaSeconds && <span>剩余 {formatEta(progress.etaSeconds)}</span>}
-      </div>
-      <button className="lan-batch-cancel" onClick={onCancel}>
-        取消全部
-      </button>
+
+      {/* 文件列表 */}
+      {batchProgress && batchProgress.files && batchProgress.files.length > 0 && (
+        <div className="lan-file-list">
+          <div className="lan-file-list-header">
+            <span>文件列表</span>
+            <span>{batchProgress.completedFiles}/{batchProgress.totalFiles} 文件</span>
+          </div>
+          <div className="lan-file-list-items">
+            {batchProgress.files.map((file) => {
+              const filePercentage = file.fileSize > 0
+                ? (file.transferredBytes / file.fileSize) * 100
+                : 0;
+              const statusInfo = getStatusInfo(file.status);
+              const canCancel = file.status === 'pending' || file.status === 'transferring';
+
+              return (
+                <div key={file.fileId} className={`lan-file-item ${statusInfo.className}`}>
+                  <div className="lan-file-item-icon">
+                    <FileIcon />
+                  </div>
+                  <div className="lan-file-item-info">
+                    <div className="lan-file-item-name" title={file.fileName}>
+                      {file.fileName}
+                    </div>
+                    <div className="lan-file-item-progress-bar">
+                      <div
+                        className={`lan-file-item-progress-fill ${statusInfo.className}`}
+                        style={{ width: `${filePercentage}%` }}
+                      />
+                    </div>
+                    <div className="lan-file-item-stats">
+                      <span>{formatSize(file.transferredBytes)} / {formatSize(file.fileSize)}</span>
+                      <span className={`lan-file-item-status ${statusInfo.className}`}>
+                        {statusInfo.label}
+                      </span>
+                    </div>
+                  </div>
+                  {canCancel && (
+                    <button
+                      className="lan-file-item-cancel"
+                      onClick={() => onCancelFile(file.fileId)}
+                      title="跳过此文件"
+                    >
+                      <XIcon />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 总体进度 */}
+      {batchProgress && batchProgress.totalBytes > 0 && (
+        <div className="lan-inline-overall">
+          <div className="lan-inline-progress-bar">
+            <div
+              className="lan-inline-progress-fill"
+              style={{ width: `${overallPercentage}%` }}
+            />
+          </div>
+          <div className="lan-inline-stats">
+            <span>{formatSize(batchProgress.transferredBytes)} / {formatSize(batchProgress.totalBytes)}</span>
+            <span>{formatSpeed(batchProgress.speed)}</span>
+            {batchProgress.etaSeconds && <span>剩余 {formatEta(batchProgress.etaSeconds)}</span>}
+            <button
+              className="lan-inline-cancel-all"
+              onClick={() => onCancelSession(batchProgress.sessionId)}
+            >
+              取消全部
+            </button>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
+
+// PeerTransferWindow 和 TransferRequestCard 已移除
+// 传输功能已整合到 InlineTransferPanel 中
+// 只支持点对点连接模式，需先建立连接后才能传输文件
 
 interface SettingsPanelProps {
   saveDirectory: string;
@@ -683,7 +697,6 @@ export default function LanTransferPage() {
     loading,
     devices,
     pendingRequests,
-    pendingTransferRequests,
     activeTransfers,
     batchProgressMap,
     hashingProgress,
@@ -692,8 +705,6 @@ export default function LanTransferPage() {
     // 点对点连接
     activeConnections,
     pendingPeerConnectionRequests,
-    currentConnection,
-    setCurrentConnection,
     requestPeerConnection,
     respondPeerConnection,
     disconnectPeer,
@@ -703,8 +714,8 @@ export default function LanTransferPage() {
     stopService,
     // 旧版兼容
     respondToRequest,
-    respondToTransferRequest,
     cancelSession,
+    cancelFileTransfer,
     // 配置
     setSaveDirectory,
     openSaveDirectory,
@@ -833,39 +844,6 @@ export default function LanTransferPage() {
     }
   };
 
-  // 处理文件发送（在已建立的连接中）- 通过对话框选择
-  const handleSendFilesToPeer = async () => {
-    if (!currentConnection) { return; }
-
-    try {
-      const result = await open({
-        multiple: true,
-        title: '选择要发送的文件',
-      });
-
-      if (result && result.length > 0) {
-        addDebugLog(`发送 ${result.length} 个文件到 ${currentConnection.peerDevice.deviceName}`);
-        await sendFilesToPeer(currentConnection.connectionId, result);
-      }
-    } catch (error) {
-      console.error('[LanTransfer] 选择文件失败:', error);
-      addDebugLog(`❌ 选择文件失败: ${error}`);
-    }
-  };
-
-  // 处理文件发送（在已建立的连接中）- 通过拖放
-  const handleSendFilePathsToPeer = useCallback(async (paths: string[]) => {
-    if (!currentConnection) { return; }
-
-    try {
-      addDebugLog(`拖放发送 ${paths.length} 个文件到 ${currentConnection.peerDevice.deviceName}`);
-      await sendFilesToPeer(currentConnection.connectionId, paths);
-    } catch (error) {
-      console.error('[LanTransfer] 拖放发送文件失败:', error);
-      addDebugLog(`❌ 拖放发送文件失败: ${error}`);
-    }
-  }, [currentConnection, sendFilesToPeer, addDebugLog]);
-
   // 检查设备是否已连接
   const isDeviceConnected = (deviceId: string) => {
     return activeConnections.some((c) => c.peerDevice.deviceId === deviceId);
@@ -874,6 +852,39 @@ export default function LanTransferPage() {
   // 获取设备的连接
   const getConnectionForDevice = (deviceId: string) => {
     return activeConnections.find((c) => c.peerDevice.deviceId === deviceId);
+  };
+
+  // 获取设备连接对应的批量传输进度
+  // batchProgressMap 的 key 是 sessionId，需要遍历查找
+  const getBatchProgressForDevice = (deviceId: string): BatchTransferProgress | null => {
+    // 由于 batchProgressMap 的 key 是 sessionId 而非 connectionId，
+    // 我们需要根据当前连接状态来判断哪个进度属于该设备
+    // 暂时返回 Map 中的第一个匹配的进度（假设一个连接对应一个会话）
+    const connection = getConnectionForDevice(deviceId);
+    if (!connection) return null;
+    
+    // 遍历所有进度，查找可能属于该连接的进度
+    for (const [_sessionId, progress] of batchProgressMap.entries()) {
+      // 如果只有一个设备连接，直接返回
+      if (activeConnections.length === 1) {
+        return progress;
+      }
+    }
+    return null;
+  };
+
+  // 从设备卡片发送文件路径（拖放）
+  const handleSendFilePathsFromCard = async (device: DiscoveredDevice, paths: string[]) => {
+    const connection = getConnectionForDevice(device.deviceId);
+    if (!connection || !paths.length) return;
+
+    try {
+      addDebugLog(`发送 ${paths.length} 个文件到 ${device.deviceName}`);
+      await sendFilesToPeer(connection.connectionId, paths);
+    } catch (error) {
+      console.error('[LanTransfer] 发送文件失败:', error);
+      addDebugLog(`❌ 发送文件失败: ${error}`);
+    }
   };
 
   // 从设备卡片发送文件（在已建立的连接中）
@@ -1025,30 +1036,6 @@ export default function LanTransferPage() {
           )}
         </AnimatePresence>
 
-        {/* 传输请求（旧版兼容） */}
-        <AnimatePresence>
-          {pendingTransferRequests.length > 0 && (
-            <motion.section
-              className="lan-section"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-            >
-              <h2 className="lan-section-title">待处理的传输请求</h2>
-              <div className="lan-cards-list">
-                {pendingTransferRequests.map((request) => (
-                  <TransferRequestCard
-                    key={request.requestId}
-                    request={request}
-                    onAccept={() => respondToTransferRequest(request.requestId, true)}
-                    onReject={() => respondToTransferRequest(request.requestId, false)}
-                  />
-                ))}
-              </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
-
         {/* 连接请求（旧版兼容） */}
         <AnimatePresence>
           {pendingRequests.length > 0 && (
@@ -1069,29 +1056,6 @@ export default function LanTransferPage() {
                   />
                 ))}
               </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
-
-        {/* 批量传输进度（支持多个并行会话） */}
-        <AnimatePresence>
-          {batchProgressMap.size > 0 && (
-            <motion.section
-              className="lan-section"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-            >
-              <h2 className="lan-section-title">
-                批量传输 {batchProgressMap.size > 1 ? `(${batchProgressMap.size} 个会话)` : ''}
-              </h2>
-              {Array.from(batchProgressMap.entries()).map(([sessionId, bp]) => (
-                <BatchProgressCard
-                  key={sessionId}
-                  progress={bp}
-                  onCancel={() => cancelSession(sessionId)}
-                />
-              ))}
             </motion.section>
           )}
         </AnimatePresence>
@@ -1130,9 +1094,15 @@ export default function LanTransferPage() {
                   device={device}
                   onRequestConnection={() => handleRequestConnection(device)}
                   onSendFiles={() => handleSendFilesFromCard(device)}
+                  onSendFilePaths={(paths) => handleSendFilePathsFromCard(device, paths)}
                   onDisconnect={() => handleDisconnectDevice(device)}
+                  onCancelFile={cancelFileTransfer}
+                  onCancelSession={cancelSession}
                   isTrusted={isDeviceTrusted(device.deviceId)}
                   isConnected={isDeviceConnected(device.deviceId)}
+                  connection={getConnectionForDevice(device.deviceId)}
+                  batchProgress={getBatchProgressForDevice(device.deviceId)}
+                  hashingProgress={isDeviceConnected(device.deviceId) ? hashingProgress : null}
                 />
               ))}
             </AnimatePresence>
@@ -1227,10 +1197,6 @@ export default function LanTransferPage() {
                       <span className="lan-debug-value">{devices.length}</span>
                     </div>
                     <div className="lan-debug-item">
-                      <span className="lan-debug-label">待处理传输请求:</span>
-                      <span className="lan-debug-value">{pendingTransferRequests.length}</span>
-                    </div>
-                    <div className="lan-debug-item">
                       <span className="lan-debug-label">活跃传输:</span>
                       <span className="lan-debug-value">{activeTransfers.length}</span>
                     </div>
@@ -1271,23 +1237,6 @@ export default function LanTransferPage() {
         </AnimatePresence>
       </main>
 
-      {/* 点对点传输窗口 */}
-      <AnimatePresence>
-        {currentConnection && (
-          <div className="lan-peer-transfer-overlay">
-            <PeerTransferWindow
-              connection={currentConnection}
-              batchProgressMap={batchProgressMap}
-              hashingProgress={hashingProgress}
-              onSendFiles={handleSendFilesToPeer}
-              onSendFilePaths={handleSendFilePathsToPeer}
-              onDisconnect={() => disconnectPeer(currentConnection.connectionId)}
-              onClose={() => setCurrentConnection(null)}
-              onCancelSession={cancelSession}
-            />
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

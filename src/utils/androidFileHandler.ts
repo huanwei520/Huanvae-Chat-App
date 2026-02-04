@@ -6,13 +6,14 @@
  *
  * 工作原理：
  * 1. 使用 AndroidFs.showOpenFilePicker() 替代 @tauri-apps/plugin-dialog
- * 2. 使用 AndroidFs.getFsPath() 获取可用于 @tauri-apps/plugin-fs 的路径
- * 3. 使用 @tauri-apps/plugin-fs 复制文件到应用缓存目录
- * 4. 返回缓存目录中的真实文件路径供 Rust 后端使用
+ * 2. 使用 AndroidFs.copyFile() 复制文件到应用缓存目录
+ * 3. 返回缓存目录中的真实文件路径供 Rust 后端使用
+ * 4. 支持 onStatusChange 回调通知文件准备进度（用于显示加载动画）
  *
  * 注意：仅在 Android 平台使用此模块，其他平台使用标准 dialog 插件
  *
  * @since 2026-01-22
+ * @updated 2026-02-03 添加文件准备状态回调支持
  * @see https://github.com/aiueo13/tauri-plugin-android-fs
  */
 
@@ -76,22 +77,38 @@ function generateTempFileName(originalName: string): string {
 }
 
 /**
+ * 文件准备状态（仅 Android）
+ */
+export interface FilePreparationStatus {
+  /** 当前阶段: selecting=选择中, preparing=准备中, done=完成 */
+  phase: 'selecting' | 'preparing' | 'done';
+  /** 选择的文件数量 */
+  totalFiles: number;
+  /** 已处理的文件数量 */
+  processedFiles: number;
+  /** 当前处理的文件名 */
+  currentFileName?: string;
+}
+
+/**
  * 选择文件并准备用于传输
  *
  * 在 Android 上：
  * 1. 使用 AndroidFs.showOpenFilePicker() 选择文件
- * 2. 将文件复制到应用缓存目录
+ * 2. 将文件复制到应用缓存目录（此阶段会触发 onStatusChange 回调）
  * 3. 返回缓存目录中的文件路径
  *
  * 在其他平台上：
  * 直接使用 @tauri-apps/plugin-dialog 返回的路径
  *
  * @param options 文件选择选项
+ * @param options.onStatusChange Android 文件准备状态回调（仅 Android 平台触发）
  * @returns 可供 Rust 后端读取的文件路径数组
  */
 export async function selectFilesForTransfer(options?: {
   multiple?: boolean;
   title?: string;
+  onStatusChange?: (status: FilePreparationStatus) => void;
 }): Promise<string[]> {
   const androidFs = await loadAndroidFs();
   const os = await platform();
@@ -115,6 +132,13 @@ export async function selectFilesForTransfer(options?: {
 
       console.warn(`[AndroidFileHandler] 选择了 ${uris.length} 个文件`);
 
+      // 通知进入准备阶段
+      options?.onStatusChange?.({
+        phase: 'preparing',
+        totalFiles: uris.length,
+        processedFiles: 0,
+      });
+
       // 获取缓存目录
       console.warn('[AndroidFileHandler] 获取缓存目录...');
       const cacheDir = await getTempCacheDir();
@@ -122,11 +146,20 @@ export async function selectFilesForTransfer(options?: {
       const filePaths: string[] = [];
 
       // 处理每个选择的文件（顺序处理以避免并发问题）
-      for (const uri of uris) {
+      for (let i = 0; i < uris.length; i++) {
+        const uri = uris[i];
         try {
           // 获取文件元数据
           // eslint-disable-next-line no-await-in-loop
           const metadata = await androidFs.getMetadata(uri);
+
+          // 通知当前处理的文件
+          options?.onStatusChange?.({
+            phase: 'preparing',
+            totalFiles: uris.length,
+            processedFiles: i,
+            currentFileName: metadata.name,
+          });
 
           // 生成临时文件名并复制到缓存目录
           const tempFileName = generateTempFileName(metadata.name);
@@ -144,6 +177,13 @@ export async function selectFilesForTransfer(options?: {
           // 继续处理下一个文件
         }
       }
+
+      // 通知准备完成
+      options?.onStatusChange?.({
+        phase: 'done',
+        totalFiles: uris.length,
+        processedFiles: filePaths.length,
+      });
 
       console.warn(`[AndroidFileHandler] 成功处理 ${filePaths.length} 个文件`);
       return filePaths;
