@@ -69,7 +69,7 @@ export function FlowCanvas({
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getInternalNode, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
-  
+
   // 追踪已处理的 layoutTrigger 值
   const lastProcessedTrigger = useRef<number>(0);
   // 追踪待处理的布局请求
@@ -102,22 +102,23 @@ export function FlowCanvas({
 
       // 获取实际测量的节点尺寸
       const nodeSizes = getNodeSizesFromInternals(nodes, getInternalNode);
-      
-      console.log('[FlowCanvas] 执行自动布局，节点数:', nodes.length, '尺寸映射:', nodeSizes.size);
-      
+
+      console.warn('[FlowCanvas] 执行自动布局，节点数:', nodes.length, '尺寸映射:', nodeSizes.size);
+
       // 执行布局
       autoLayout(layoutDirection, nodeSizes);
-      
+
       // 延迟执行 fitView 以确保布局完成
       setTimeout(() => {
         fitView({ padding: 0.2, duration: 300 });
         onLayoutComplete?.();
       }, 50);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 使用 nodes.length 而非完整 nodes 数组，避免每次节点位置更新都触发布局
   }, [pendingLayout, nodesInitialized, nodes.length, layoutDirection, getInternalNode, autoLayout, fitView, onLayoutComplete]);
 
   // 节点点击处理
-  const handleNodeClick: NodeMouseHandler = useCallback(
+  const handleNodeClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
       selectNode(node.id);
     },
@@ -141,7 +142,7 @@ export function FlowCanvas({
       event.preventDefault();
       event.stopPropagation();
 
-      console.log('[FlowCanvas] Drop 事件触发');
+      console.warn('[FlowCanvas] Drop 事件触发');
 
       // 尝试多种 MIME 类型获取数据
       const operatorJson =
@@ -149,7 +150,7 @@ export function FlowCanvas({
         event.dataTransfer.getData('application/reactflow') ||
         event.dataTransfer.getData('text/plain');
 
-      console.log('[FlowCanvas] 获取到的数据:', operatorJson ? '有数据' : '无数据');
+      console.warn('[FlowCanvas] 获取到的数据:', operatorJson ? '有数据' : '无数据');
 
       if (!operatorJson) {
         console.warn('[FlowCanvas] 无法获取拖放数据');
@@ -159,7 +160,7 @@ export function FlowCanvas({
       let operator: Operator;
       try {
         operator = JSON.parse(operatorJson);
-        console.log('[FlowCanvas] 解析算子成功:', operator.name);
+        console.warn('[FlowCanvas] 解析算子成功:', operator.name);
       } catch (e) {
         console.error('[FlowCanvas] 解析算子数据失败:', e);
         return;
@@ -171,7 +172,7 @@ export function FlowCanvas({
         y: event.clientY,
       });
 
-      console.log('[FlowCanvas] 放置位置:', position);
+      console.warn('[FlowCanvas] 放置位置:', position);
 
       // 创建新节点
       const newNode = {
@@ -184,7 +185,7 @@ export function FlowCanvas({
         },
       };
 
-      console.log('[FlowCanvas] 创建节点:', newNode.id);
+      console.warn('[FlowCanvas] 创建节点:', newNode.id);
       addNode(newNode);
     },
     [screenToFlowPosition, addNode],

@@ -6,6 +6,8 @@
  * @module lowcode/utils/workflowSerializer
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+
 import type { Node, Edge } from '@xyflow/react';
 import type {
   WorkflowDefinition,
@@ -154,12 +156,12 @@ function serializeInputBindings(bindings: InputBinding[]): WorkflowInput[] {
     };
 
     // 保留可选字段
-    if (binding.type) result.type = binding.type;
-    if (binding.required !== undefined) result.required = binding.required;
-    if (binding.description) result.description = binding.description;
-    if (binding.default) result.default = binding.default;
-    if (binding.latex_name) result.latex_name = binding.latex_name;
-    if (binding.paper_ref) result.paper_ref = binding.paper_ref;
+    if (binding.type) { result.type = binding.type; }
+    if (binding.required !== undefined) { result.required = binding.required; }
+    if (binding.description) { result.description = binding.description; }
+    if (binding.default) { result.default = binding.default; }
+    if (binding.latex_name) { result.latex_name = binding.latex_name; }
+    if (binding.paper_ref) { result.paper_ref = binding.paper_ref; }
 
     return result;
   });
@@ -190,10 +192,10 @@ function serializeOutputBindings(bindings: OutputBinding[]): WorkflowOutput[] {
     };
 
     // 保留可选字段
-    if (binding.type) result.type = binding.type;
-    if (binding.description) result.description = binding.description;
-    if (binding.source_type) result.source_type = binding.source_type;
-    if (binding.latex_name) result.latex_name = binding.latex_name;
+    if (binding.type) { result.type = binding.type; }
+    if (binding.description) { result.description = binding.description; }
+    if (binding.source_type) { result.source_type = binding.source_type; }
+    if (binding.latex_name) { result.latex_name = binding.latex_name; }
 
     return result;
   });
@@ -311,12 +313,12 @@ function deserializeInputBindings(inputs: WorkflowInput[]): InputBinding[] {
     };
 
     // 保留可选字段
-    if (input.type) result.type = input.type;
-    if (input.required !== undefined) result.required = input.required;
-    if (input.description) result.description = input.description;
-    if (input.default) result.default = input.default;
-    if (input.latex_name) result.latex_name = input.latex_name;
-    if (input.paper_ref) result.paper_ref = input.paper_ref;
+    if (input.type) { result.type = input.type; }
+    if (input.required !== undefined) { result.required = input.required; }
+    if (input.description) { result.description = input.description; }
+    if (input.default) { result.default = input.default; }
+    if (input.latex_name) { result.latex_name = input.latex_name; }
+    if (input.paper_ref) { result.paper_ref = input.paper_ref; }
 
     return result;
   });
@@ -345,12 +347,12 @@ function deserializeOutputBindings(outputs: WorkflowOutput[]): OutputBinding[] {
     }
 
     // 覆盖 source_type（如果 API 明确指定）
-    if (output.source_type) result.source_type = output.source_type;
+    if (output.source_type) { result.source_type = output.source_type; }
 
     // 保留其他可选字段
-    if (output.type) result.type = output.type;
-    if (output.description) result.description = output.description;
-    if (output.latex_name) result.latex_name = output.latex_name;
+    if (output.type) { result.type = output.type; }
+    if (output.description) { result.description = output.description; }
+    if (output.latex_name) { result.latex_name = output.latex_name; }
 
     return result;
   });

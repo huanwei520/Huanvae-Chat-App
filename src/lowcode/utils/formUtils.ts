@@ -45,10 +45,10 @@ export interface InputDefinition {
 export function getDefaultValue(dataType?: DataType | string): unknown {
   const typeLower = (dataType || 'string').toLowerCase();
 
-  if (typeLower === 'number') return 0;
-  if (typeLower === 'boolean') return false;
-  if (typeLower === 'array' || typeLower.startsWith('array<')) return [];
-  if (typeLower === 'object') return {};
+  if (typeLower === 'number') { return 0; }
+  if (typeLower === 'boolean') { return false; }
+  if (typeLower === 'array' || typeLower.startsWith('array<')) { return []; }
+  if (typeLower === 'object') { return {}; }
   return '';
 }
 
@@ -87,7 +87,7 @@ export function parseValue(value: string, dataType?: DataType | string): unknown
   if (typeLower === 'array' || typeLower.startsWith('array<')) {
     try {
       const parsed = JSON.parse(value);
-      if (!Array.isArray(parsed)) return [];
+      if (!Array.isArray(parsed)) { return []; }
 
       // 如果是 Array<Number>，确保所有元素都是数字
       if (typeLower.includes('number')) {

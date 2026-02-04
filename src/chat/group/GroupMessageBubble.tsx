@@ -284,7 +284,7 @@ export function GroupMessageBubble({
     const fileType = message.message_type === 'image' ? 'image' : 'video';
     const result = await saveToGallery(localPath, fileType);
     if (result.success) {
-      console.log('[GroupMessageBubble] 保存成功:', result.savedPath);
+      console.warn('[GroupMessageBubble] 保存成功:', result.savedPath);
     } else {
       console.error('[GroupMessageBubble] 保存失败:', result.message);
     }

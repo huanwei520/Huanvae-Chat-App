@@ -67,7 +67,7 @@ function ImportConfigDialogComponent({
   // 处理文件选择
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) { return; }
 
     setError(null);
     setValidation(null);
@@ -96,7 +96,7 @@ function ImportConfigDialogComponent({
 
   // 处理验证
   const handleValidate = useCallback(async () => {
-    if (!config) return;
+    if (!config) { return; }
 
     setIsValidating(true);
     setError(null);
@@ -113,7 +113,7 @@ function ImportConfigDialogComponent({
 
   // 处理导入
   const handleImport = useCallback(async () => {
-    if (!config) return;
+    if (!config) { return; }
 
     setIsImporting(true);
     setError(null);
@@ -128,7 +128,7 @@ function ImportConfigDialogComponent({
     }
   }, [config, overwrite, onImport, handleClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen) { return null; }
 
   return (
     <div className="dialog-overlay" onClick={handleClose}>

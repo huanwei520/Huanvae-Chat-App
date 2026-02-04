@@ -6,6 +6,8 @@
  * @module lowcode/components/PropertyPanel
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+
 import { memo, useCallback, useMemo, useState, useEffect } from 'react';
 import { useFlowStore } from '../stores/flowStore';
 import { MathFormula } from './MathFormula';

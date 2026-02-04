@@ -24,8 +24,6 @@ import {
   ANDROID_LATEST_JSON_PATH,
   PROXY_TIMEOUT_SECONDS,
 } from './config';
-import { extractProxyHost } from '../utils/url';
-
 // ============================================
 // 类型定义
 // ============================================

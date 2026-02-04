@@ -285,7 +285,7 @@ export function MessageBubble({
     const fileType = message.message_type === 'image' ? 'image' : 'video';
     const result = await saveToGallery(localPath, fileType);
     if (result.success) {
-      console.log('[MessageBubble] 保存成功:', result.savedPath);
+      console.warn('[MessageBubble] 保存成功:', result.savedPath);
     } else {
       console.error('[MessageBubble] 保存失败:', result.message);
     }

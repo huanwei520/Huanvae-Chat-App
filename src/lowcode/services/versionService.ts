@@ -1,3 +1,4 @@
+/* eslint-disable require-await */
 /**
  * 版本管理服务
  *

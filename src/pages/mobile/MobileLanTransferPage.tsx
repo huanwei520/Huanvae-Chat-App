@@ -770,10 +770,16 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
                   ? (file.transferredBytes / file.fileSize) * 100
                   : 0;
                 const canCancel = file.status === 'pending' || file.status === 'transferring';
-                const statusLabel = file.status === 'completed' ? '✓' 
-                  : file.status === 'failed' ? '✗'
-                  : file.status === 'cancelled' ? '已跳过'
-                  : '';
+                // 根据状态获取标签
+                const getStatusLabel = (): string => {
+                  switch (file.status) {
+                    case 'completed': return '✓';
+                    case 'failed': return '✗';
+                    case 'cancelled': return '已跳过';
+                    default: return '';
+                  }
+                };
+                const statusLabel = getStatusLabel();
 
                 return (
                   <div key={file.fileId} className={`mobile-lan-file-item ${file.status}`}>

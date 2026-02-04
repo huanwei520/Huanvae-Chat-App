@@ -29,7 +29,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TauriEvent } from '@tauri-apps/api/event';
 import {
   useLanTransfer,
@@ -37,8 +36,6 @@ import {
   ConnectionRequest,
   BatchTransferProgress,
   HashingProgress,
-  FileMetadata,
-  FileProgressInfo,
   TransferStatus,
   PeerConnection,
   PeerConnectionRequest,
@@ -412,7 +409,7 @@ const globalDragDropState = {
 };
 
 function InlineTransferPanel({
-  connection,
+  connection: _connection,
   batchProgress,
   hashingProgress,
   onSendFiles,
@@ -861,8 +858,10 @@ export default function LanTransferPage() {
     // 我们需要根据当前连接状态来判断哪个进度属于该设备
     // 暂时返回 Map 中的第一个匹配的进度（假设一个连接对应一个会话）
     const connection = getConnectionForDevice(deviceId);
-    if (!connection) return null;
-    
+    if (!connection) {
+      return null;
+    }
+
     // 遍历所有进度，查找可能属于该连接的进度
     for (const [_sessionId, progress] of batchProgressMap.entries()) {
       // 如果只有一个设备连接，直接返回
@@ -876,7 +875,9 @@ export default function LanTransferPage() {
   // 从设备卡片发送文件路径（拖放）
   const handleSendFilePathsFromCard = async (device: DiscoveredDevice, paths: string[]) => {
     const connection = getConnectionForDevice(device.deviceId);
-    if (!connection || !paths.length) return;
+    if (!connection || !paths.length) {
+      return;
+    }
 
     try {
       addDebugLog(`发送 ${paths.length} 个文件到 ${device.deviceName}`);

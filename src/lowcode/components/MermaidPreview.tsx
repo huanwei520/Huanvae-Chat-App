@@ -115,11 +115,11 @@ interface MermaidPreviewProps {
 function generateMermaidFromWorkflow(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[],
-  workflowName?: string
+  workflowName?: string,
 ): string {
   const lines: string[] = [];
   lines.push('flowchart TD');
-  
+
   if (workflowName) {
     lines.push(`    subgraph ${sanitizeId(workflowName)}["${workflowName}"]`);
   }
@@ -219,10 +219,10 @@ function MermaidPreviewComponent({
       setError(null);
       // 清空容器
       containerRef.current.innerHTML = '';
-      
+
       // 生成唯一 ID
       const id = `mermaid-${Date.now()}`;
-      
+
       // 渲染
       const { svg } = await mermaid.render(id, currentCode);
       if (containerRef.current) {
