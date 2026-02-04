@@ -1,20 +1,18 @@
 /*!
  * HTTP 服务器模块
  *
- * 处理文件接收、传输请求等 HTTP 请求
+ * 处理文件接收和点对点连接请求
  *
  * API 端点：
  * - GET /api/info: 获取设备信息
  *
- * 点对点连接（新版）：
+ * 点对点连接：
  * - POST /api/peer-connection-request: 请求建立点对点连接
  * - POST /api/peer-connection-response: 响应连接请求
  * - POST /api/peer-disconnect: 断开连接
  *
- * 旧版兼容：
- * - POST /api/connect: 连接请求（旧版兼容）
- * - POST /api/transfer-request: 传输请求（需确认）
- * - POST /api/transfer-response: 传输请求响应
+ * 旧版连接（保留兼容）：
+ * - POST /api/connect: 连接请求
  *
  * 文件传输：
  * - POST /api/prepare-upload: 准备上传（支持断点续传）
@@ -32,6 +30,10 @@
  * - 所有响应添加 `Connection: close` 头，防止客户端复用已关闭的连接
  *
  * 更新日志：
+ * - 2026-02-04: 新增 cancel_receiver_file 公共函数，支持接收方取消正在接收的文件
+ * - 2026-02-04: UploadSession 添加 cancelled_files 字段持久化取消状态，修复多文件取消显示问题
+ * - 2026-02-04: handle_cancel 收到取消请求后发送 BatchProgress 事件更新接收方 UI
+ * - 2026-02-04: 移除旧版传输请求机制 (transfer-request/transfer-response)
  * - 2026-01-21: 添加 Connection: close 头修复跨平台传输连接重用问题
  * - 2026-01-21: 添加接收方进度显示（初始进度、实时速度、完成事件）
  */
@@ -80,10 +82,6 @@ static SERVER_SHUTDOWN: OnceCell<Arc<Mutex<Option<oneshot::Sender<()>>>>> = Once
 /// 活跃的上传会话
 static UPLOAD_SESSIONS: OnceCell<Arc<Mutex<HashMap<String, UploadSession>>>> = OnceCell::new();
 
-/// 待处理的传输请求
-static PENDING_TRANSFER_REQUESTS: OnceCell<Arc<Mutex<HashMap<String, TransferRequest>>>> =
-    OnceCell::new();
-
 /// 活跃的点对点连接
 static ACTIVE_PEER_CONNECTIONS: OnceCell<Arc<Mutex<HashMap<String, PeerConnection>>>> =
     OnceCell::new();
@@ -95,13 +93,6 @@ static PENDING_PEER_CONNECTION_REQUESTS: OnceCell<
 
 fn get_upload_sessions() -> Arc<Mutex<HashMap<String, UploadSession>>> {
     UPLOAD_SESSIONS
-        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
-        .clone()
-}
-
-/// 获取待处理的传输请求
-pub fn get_pending_transfer_requests_map() -> Arc<Mutex<HashMap<String, TransferRequest>>> {
-    PENDING_TRANSFER_REQUESTS
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()
 }
@@ -134,6 +125,8 @@ struct UploadSession {
     hashers: HashMap<String, Crc32Hasher>,
     /// 已接收的字节数
     received_bytes: HashMap<String, u64>,
+    /// 已取消的文件 ID 集合（用于持久化取消状态）
+    cancelled_files: std::collections::HashSet<String>,
     /// 上次进度更新时间（用于限制更新频率）
     last_progress_time: std::time::Instant,
     /// 传输开始时间（用于计算速度）
@@ -143,6 +136,57 @@ struct UploadSession {
     /// 目标文件路径（Android 直接写入公共目录时使用）
     /// 如果有值，表示直接写入目标路径，完成时不需要移动文件
     target_paths: HashMap<String, String>,
+}
+
+// ============================================================================
+// 接收方文件取消
+// ============================================================================
+
+/// 取消接收方正在接收的文件
+/// 
+/// 返回: Option<(session_id, files_progress)> 用于发送 BatchProgress 事件
+pub fn cancel_receiver_file(file_id: &str) -> Option<(String, Vec<FileProgressInfo>)> {
+    let sessions = get_upload_sessions();
+    let mut sessions = sessions.lock();
+    
+    for (session_id, session) in sessions.iter_mut() {
+        if session.files.contains_key(file_id) {
+            // 将文件添加到取消列表
+            session.cancelled_files.insert(file_id.to_string());
+            // 移除写入器和哈希器
+            session.writers.remove(file_id);
+            session.hashers.remove(file_id);
+            
+            println!("[LanTransfer] 📛 接收方取消文件传输: {}", file_id);
+            
+            // 构建文件进度信息
+            let files_info: Vec<FileProgressInfo> = session.files.iter()
+                .map(|(fid, file_meta)| {
+                    let transferred = session.received_bytes.get(fid).copied().unwrap_or(0);
+                    let status = if session.cancelled_files.contains(fid) {
+                        TransferStatus::Cancelled
+                    } else if transferred >= file_meta.file_size {
+                        TransferStatus::Completed
+                    } else if transferred > 0 || session.writers.contains_key(fid) {
+                        TransferStatus::Transferring
+                    } else {
+                        TransferStatus::Pending
+                    };
+                    FileProgressInfo {
+                        file_id: file_meta.file_id.clone(),
+                        file_name: file_meta.file_name.clone(),
+                        file_size: file_meta.file_size,
+                        transferred_bytes: transferred,
+                        status,
+                    }
+                })
+                .collect();
+            
+            return Some((session_id.clone(), files_info));
+        }
+    }
+    
+    None
 }
 
 // ============================================================================
@@ -301,13 +345,10 @@ async fn handle_connection(
         ("POST", "/api/connect") => {
             handle_connect(&mut writer, &body, peer_addr).await
         }
-        ("POST", "/api/transfer-request") => {
-            handle_transfer_request(&mut writer, &body, peer_addr).await
-        }
-        ("POST", "/api/transfer-response") => {
-            handle_transfer_response(&mut writer, &body).await
-        }
         // ========== 文件传输 API ==========
+        ("POST", "/api/batch-prepare") => {
+            handle_batch_prepare(&mut writer, &body).await
+        }
         ("POST", "/api/prepare-upload") => {
             handle_prepare_upload(&mut writer, &body).await
         }
@@ -702,7 +743,8 @@ async fn handle_peer_disconnect(
 // 旧版兼容 API
 // ============================================================================
 
-/// 处理连接请求（旧版兼容）
+/// 处理连接请求（旧版兼容，已废弃）
+#[allow(deprecated)]
 async fn handle_connect(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -746,184 +788,99 @@ async fn handle_connect(
     send_json_response(writer, &ConnectResponse { request_id }).await
 }
 
-/// 传输请求的请求体
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TransferRequestBody {
-    from_device: DiscoveredDevice,
-    files: Vec<FileMetadata>,
-    total_size: u64,
-    /// 关联的连接 ID（已建立连接时自动接受）
-    #[serde(default)]
-    connection_id: Option<String>,
-    /// 是否自动接受（发送方指定）
-    #[serde(default)]
-    auto_accept: bool,
-}
+// ============================================================================
+// 批量传输准备
+// ============================================================================
 
-/// 处理传输请求（新版，需确认后才能传输）
-async fn handle_transfer_request(
+/// 处理批量传输准备请求
+///
+/// 在传输多个文件前，发送方先调用此 API 通知接收方即将传输的所有文件列表
+/// 接收方预创建会话，后续的 prepare-upload 请求会添加到此会话
+async fn handle_batch_prepare(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
-    peer_addr: SocketAddr,
 ) -> Result<(), ServerError> {
-    // 解析请求体
-    let req_body: TransferRequestBody = serde_json::from_slice(body)
-        .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+    use super::protocol::{BatchPrepareRequest, BatchPrepareResponse, FileProgressInfo, TransferStatus};
 
-    let request_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
+    // 解析请求
+    let request: BatchPrepareRequest = serde_json::from_slice(body)
+        .map_err(|e| ServerError::RequestFailed(format!("解析 batch-prepare 请求失败: {}", e)))?;
 
-    let request = TransferRequest {
-        request_id: request_id.clone(),
-        from_device: DiscoveredDevice {
-            ip_address: peer_addr.ip().to_string(),
-            ..req_body.from_device
-        },
-        files: req_body.files,
-        total_size: req_body.total_size,
-        requested_at: now,
-        status: TransferRequestStatus::Pending,
+    println!(
+        "[LanTransfer] 📦 收到批量传输准备请求: session={}, 文件数={}, 总大小={}",
+        request.session_id,
+        request.files.len(),
+        super::transfer::format_bytes(request.total_size)
+    );
+
+    // 确保配置目录存在
+    config::ensure_directories()
+        .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
+
+    // 预创建会话（只包含文件元信息，不创建文件写入器）
+    // 后续的 prepare-upload 请求会添加实际的文件写入器
+    let session = UploadSession {
+        session_id: request.session_id.clone(),
+        files: request.files.iter().map(|f| (f.file_id.clone(), f.clone())).collect(),
+        writers: HashMap::new(),  // prepare-upload 时填充
+        hashers: HashMap::new(),  // prepare-upload 时填充
+        received_bytes: HashMap::new(),  // prepare-upload 时填充
+        cancelled_files: std::collections::HashSet::new(),
+        last_progress_time: std::time::Instant::now(),
+        start_time: std::time::Instant::now(),
+        resume_offset: 0,
+        target_paths: HashMap::new(),  // prepare-upload 时填充
     };
 
-    // 检查是否应该自动接受
-    // 1. 请求中包含 auto_accept 标志（发送方指定）
-    // 2. 有有效的 connection_id（已建立连接）
-    // 3. 是信任设备
-    let should_auto_accept = req_body.auto_accept
-        || req_body.connection_id.as_ref().is_some_and(|cid| {
-            let connections = get_active_peer_connections_map();
-            let connections = connections.lock();
-            connections.contains_key(cid)
-        })
-        || config::is_device_trusted(&request.from_device.device_id);
+    let file_count = request.files.len() as u32;
 
-    if should_auto_accept {
-        // 自动接受
-        let save_dir = config::get_save_directory();
-        let response = TransferRequestResponse {
-            request_id: request_id.clone(),
-            accepted: true,
-            reject_reason: None,
-            save_directory: Some(save_dir.to_string_lossy().to_string()),
-        };
-
-        // 通知前端（自动接受）
-        let event = LanTransferEvent::TransferRequestResponse {
-            request_id: request_id.clone(),
-            accepted: true,
-            reject_reason: None,
-        };
-        let _ = get_event_sender().send(event.clone());
-        emit_lan_event(&event);
-
-        send_json_response(writer, &response).await
-    } else {
-        // 保存到待处理请求
-        {
-            let requests = get_pending_transfer_requests_map();
-            let mut requests = requests.lock();
-            requests.insert(request_id.clone(), request.clone());
-        }
-
-        // 发送事件通知前端
-        let event = LanTransferEvent::TransferRequestReceived {
-            request: request.clone(),
-        };
-        let _ = get_event_sender().send(event.clone());
-        emit_lan_event(&event);
-
-        // 返回请求 ID（等待用户确认）
-        #[derive(serde::Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct PendingResponse {
-            request_id: String,
-            status: String,
-        }
-
-        send_json_response(
-            writer,
-            &PendingResponse {
-                request_id,
-                status: "pending".to_string(),
-            },
-        )
-        .await
+    // 保存会话
+    {
+        let sessions = get_upload_sessions();
+        let mut sessions = sessions.lock();
+        println!(
+            "[LanTransfer] 创建批量会话: {} (文件数: {}, 当前会话数: {})",
+            request.session_id,
+            file_count,
+            sessions.len() + 1
+        );
+        sessions.insert(request.session_id.clone(), session);
     }
-}
 
-/// 传输响应请求体
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TransferResponseBody {
-    request_id: String,
-    accepted: bool,
-    reject_reason: Option<String>,
-}
+    // 发送初始进度事件（所有文件状态为 Pending）
+    let initial_progress = BatchTransferProgress {
+        session_id: request.session_id.clone(),
+        total_files: file_count,
+        completed_files: 0,
+        total_bytes: request.total_size,
+        transferred_bytes: 0,
+        speed: 0,
+        current_file: None,
+        eta_seconds: None,
+        files: request.files.iter().map(|f| FileProgressInfo {
+            file_id: f.file_id.clone(),
+            file_name: f.file_name.clone(),
+            file_size: f.file_size,
+            transferred_bytes: 0,
+            status: TransferStatus::Pending,
+        }).collect(),
+    };
 
-/// 处理传输请求响应（发送方收到接收方的确认）
-async fn handle_transfer_response(
-    writer: &mut tokio::net::tcp::WriteHalf<'_>,
-    body: &[u8],
-) -> Result<(), ServerError> {
-    use super::transfer;
-
-    let req_body: TransferResponseBody = serde_json::from_slice(body)
-        .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
-
-    let request_id = req_body.request_id.clone();
-    let accepted = req_body.accepted;
-
-    // 发送事件通知前端
-    let event = LanTransferEvent::TransferRequestResponse {
-        request_id: request_id.clone(),
-        accepted,
-        reject_reason: req_body.reject_reason.clone(),
+    let event = LanTransferEvent::BatchProgress {
+        progress: initial_progress,
     };
     let _ = get_event_sender().send(event.clone());
     emit_lan_event(&event);
 
-    // 如果被接受，启动传输
-    if accepted {
-        // 从发送方的会话存储中获取会话信息和文件路径
-        if let Some(session) = transfer::get_transfer_session(&request_id) {
-            let file_paths = session.file_paths.clone();
+    // 返回响应
+    let response = BatchPrepareResponse {
+        session_id: request.session_id,
+        accepted: true,
+        file_count,
+        reject_reason: None,
+    };
 
-            if !file_paths.is_empty() {
-                println!(
-                    "[LanTransfer] 传输请求已被接受，开始传输: {} ({} 个文件)",
-                    request_id,
-                    file_paths.len()
-                );
-
-                // 在后台启动批量传输
-                let request_id_clone = request_id.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = transfer::start_batch_transfer(&request_id_clone, file_paths).await {
-                        eprintln!("[LanTransfer] 批量传输失败: {}", e);
-                    }
-                });
-            } else {
-                println!("[LanTransfer] 传输请求已被接受，但没有文件路径: {}", request_id);
-            }
-        } else {
-            println!("[LanTransfer] 传输请求已被接受，但找不到会话: {}", request_id);
-        }
-    } else {
-        println!(
-            "[LanTransfer] 传输请求被拒绝: {} ({})",
-            request_id,
-            req_body.reject_reason.as_deref().unwrap_or("无原因")
-        );
-    }
-
-    // 返回确认响应
-    #[derive(serde::Serialize)]
-    struct AckResponse {
-        success: bool,
-    }
-
-    send_json_response(writer, &AckResponse { success: true }).await
+    send_json_response(writer, &response).await
 }
 
 /// 处理准备上传请求（支持断点续传）
@@ -1045,64 +1002,108 @@ async fn handle_prepare_upload(
         }
     };
 
-    // 创建上传会话
-    let mut files = HashMap::new();
-    let mut writers = HashMap::new();
-    let mut hashers = HashMap::new();
-    let mut received_bytes = HashMap::new();
-    let mut target_paths = HashMap::new();
-
-    files.insert(file_id.clone(), file.clone());
-    writers.insert(file_id.clone(), writer_file);
-    hashers.insert(file_id.clone(), hasher);
-    received_bytes.insert(file_id.clone(), resume_offset);
-
-    // 保存目标路径（Android 直接写入模式）
-    if let Some(ref target_path) = direct_target_path {
-        target_paths.insert(file_id.clone(), target_path.clone());
-    }
-
-    let session = UploadSession {
-        session_id: request.session_id.clone(),
-        files,
-        writers,
-        hashers,
-        received_bytes,
-        last_progress_time: std::time::Instant::now(),
-        start_time: std::time::Instant::now(),
-        resume_offset,
-        target_paths,
-    };
-
-    // 保存会话
-    let sessions = get_upload_sessions();
-    {
+    // 添加文件到会话（支持批量传输）
+    // 检查是否已存在会话（由 batch-prepare 创建）
+    // is_new_session: 是否为新建会话（用于决定是否发送初始进度事件）
+    let (total_files, total_bytes, is_new_session) = {
+        let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
-        println!(
-            "[LanTransfer] 创建会话: {} (文件: {}, 当前会话数: {})",
-            request.session_id,
-            file.file_name,
-            sessions.len() + 1
-        );
-        sessions.insert(request.session_id.clone(), session);
-    }
 
-    // 发送初始进度事件（让用户知道传输已开始）
-    let initial_progress = BatchTransferProgress {
-        session_id: request.session_id.clone(),
-        total_files: 1,
-        completed_files: 0,
-        total_bytes: file.file_size,
-        transferred_bytes: resume_offset,
-        speed: 0,
-        current_file: Some(file.clone()),
-        eta_seconds: None,
+        if let Some(existing_session) = sessions.get_mut(&request.session_id) {
+            // 会话已存在（由 batch-prepare 创建），添加文件资源到现有会话
+            println!(
+                "[LanTransfer] 添加文件到现有会话: {} (文件: {}, 当前文件数: {})",
+                request.session_id,
+                file.file_name,
+                existing_session.files.len()
+            );
+
+            // 添加文件资源（文件元信息可能已在 batch-prepare 时添加）
+            existing_session.files.insert(file_id.clone(), file.clone());
+            existing_session.writers.insert(file_id.clone(), writer_file);
+            existing_session.hashers.insert(file_id.clone(), hasher);
+            existing_session.received_bytes.insert(file_id.clone(), resume_offset);
+
+            if let Some(ref target_path) = direct_target_path {
+                existing_session.target_paths.insert(file_id.clone(), target_path.clone());
+            }
+
+            // 返回会话的文件总数和总大小
+            let total_files = existing_session.files.len() as u32;
+            let total_bytes: u64 = existing_session.files.values().map(|f| f.file_size).sum();
+            // 已存在会话，不发送初始进度（batch-prepare 已发送）
+            (total_files, total_bytes, false)
+        } else {
+            // 新会话（单文件传输或向后兼容）
+            let mut files = HashMap::new();
+            let mut writers = HashMap::new();
+            let mut hashers_map = HashMap::new();
+            let mut received_bytes_map = HashMap::new();
+            let mut target_paths = HashMap::new();
+
+            files.insert(file_id.clone(), file.clone());
+            writers.insert(file_id.clone(), writer_file);
+            hashers_map.insert(file_id.clone(), hasher);
+            received_bytes_map.insert(file_id.clone(), resume_offset);
+
+            if let Some(ref target_path) = direct_target_path {
+                target_paths.insert(file_id.clone(), target_path.clone());
+            }
+
+            let session = UploadSession {
+                session_id: request.session_id.clone(),
+                files,
+                writers,
+                hashers: hashers_map,
+                received_bytes: received_bytes_map,
+                cancelled_files: std::collections::HashSet::new(),
+                last_progress_time: std::time::Instant::now(),
+                start_time: std::time::Instant::now(),
+                resume_offset,
+                target_paths,
+            };
+
+            println!(
+                "[LanTransfer] 创建新会话: {} (文件: {}, 当前会话数: {})",
+                request.session_id,
+                file.file_name,
+                sessions.len() + 1
+            );
+            sessions.insert(request.session_id.clone(), session);
+
+            // 新建会话，需要发送初始进度
+            (1, file.file_size, true)
+        }
     };
-    let initial_event = LanTransferEvent::BatchProgress {
-        progress: initial_progress,
-    };
-    let _ = get_event_sender().send(initial_event.clone());
-    emit_lan_event(&initial_event);
+
+    // 只有新建会话时才发送初始进度事件
+    // 如果会话已存在（由 batch-prepare 创建），则不重复发送，避免 UI 重复显示
+    if is_new_session {
+        let files_progress = vec![FileProgressInfo {
+            file_id: file.file_id.clone(),
+            file_name: file.file_name.clone(),
+            file_size: file.file_size,
+            transferred_bytes: resume_offset,
+            status: TransferStatus::Transferring,
+        }];
+
+        let initial_progress = BatchTransferProgress {
+            session_id: request.session_id.clone(),
+            total_files,
+            completed_files: 0,
+            total_bytes,
+            transferred_bytes: resume_offset,
+            speed: 0,
+            current_file: Some(file.clone()),
+            eta_seconds: None,
+            files: files_progress,
+        };
+        let initial_event = LanTransferEvent::BatchProgress {
+            progress: initial_progress,
+        };
+        let _ = get_event_sender().send(initial_event.clone());
+        emit_lan_event(&initial_event);
+    }
 
     // 返回响应
     let response = PrepareUploadResponse {
@@ -1134,7 +1135,7 @@ async fn handle_upload(
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
     // 在锁的作用域内完成所有同步操作
-    let (response, file_sha256, received, should_emit_progress, file_meta, speed, eta_seconds) = {
+    let (response, file_sha256, received, should_emit_progress, file_meta, speed, _eta_seconds) = {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -1225,17 +1226,72 @@ async fn handle_upload(
     if should_emit_progress
         && let Some(file) = file_meta
     {
-        let total_bytes = file.file_size;
+        // 从会话中获取所有文件的进度信息
+        let (total_files, session_total_bytes, session_transferred_bytes, files_progress) = {
+            let sessions = get_upload_sessions();
+            let sessions = sessions.lock();
+            if let Some(session) = sessions.get(&session_id) {
+                let total_files = session.files.len() as u32;
+                let session_total_bytes: u64 = session.files.values().map(|f| f.file_size).sum();
+                let session_transferred_bytes: u64 = session.received_bytes.values().sum();
+
+                let files_progress: Vec<FileProgressInfo> = session.files.values().map(|f| {
+                    let transferred = session.received_bytes.get(&f.file_id).copied().unwrap_or(0);
+                    // 优先检查是否在取消列表中
+                    let status = if session.cancelled_files.contains(&f.file_id) {
+                        TransferStatus::Cancelled
+                    } else if transferred >= f.file_size {
+                        TransferStatus::Completed
+                    } else if transferred > 0 || session.writers.contains_key(&f.file_id) {
+                        TransferStatus::Transferring
+                    } else {
+                        TransferStatus::Pending
+                    };
+                    FileProgressInfo {
+                        file_id: f.file_id.clone(),
+                        file_name: f.file_name.clone(),
+                        file_size: f.file_size,
+                        transferred_bytes: transferred,
+                        status,
+                    }
+                }).collect();
+
+                (total_files, session_total_bytes, session_transferred_bytes, files_progress)
+            } else {
+                // 会话不存在，使用当前文件信息
+                (1, file.file_size, received, vec![FileProgressInfo {
+                    file_id: file.file_id.clone(),
+                    file_name: file.file_name.clone(),
+                    file_size: file.file_size,
+                    transferred_bytes: received,
+                    status: TransferStatus::Transferring,
+                }])
+            }
+        };
+
+        // 计算已完成文件数
+        let completed_files = files_progress.iter()
+            .filter(|f| f.status == TransferStatus::Completed)
+            .count() as u32;
+
+        // 重新计算整体 ETA
+        let remaining_bytes = session_total_bytes.saturating_sub(session_transferred_bytes);
+        let overall_eta = if speed > 0 {
+            Some(remaining_bytes / speed)
+        } else {
+            None
+        };
 
         let progress = BatchTransferProgress {
             session_id: session_id.clone(),
-            total_files: 1,
-            completed_files: 0,
-            total_bytes,
-            transferred_bytes: received,
+            total_files,
+            completed_files,
+            total_bytes: session_total_bytes,
+            transferred_bytes: session_transferred_bytes,
             speed,
-            current_file: Some(file),
-            eta_seconds,
+            current_file: Some(file.clone()),
+            eta_seconds: overall_eta,
+            files: files_progress,
         };
 
         let event = LanTransferEvent::BatchProgress { progress };
@@ -1412,19 +1468,95 @@ async fn handle_finish(
         let _ = get_event_sender().send(event.clone());
         emit_lan_event(&event);
 
-        // 发送批量传输完成事件（清除前端进度显示）
-        let batch_event = LanTransferEvent::BatchTransferCompleted {
-            session_id: session_id.clone(),
-            total_files: 1,
-            save_directory: saved_path_str,
-        };
-        let _ = get_event_sender().send(batch_event.clone());
-        emit_lan_event(&batch_event);
-
         println!(
             "[LanTransfer] ✅ 接收完成: {} (会话: {})",
             file_meta.file_name, session_id
         );
+
+        // 检查是否所有文件都已完成
+        let (all_completed, total_files, files_progress, session_total_bytes) = {
+            let sessions = get_upload_sessions();
+            let sessions = sessions.lock();
+            if let Some(session) = sessions.get(&session_id) {
+                // 检查是否所有文件的 writer 都已被移除（即已完成）
+                let all_completed = session.writers.is_empty();
+                let total_files = session.files.len() as u32;
+                let session_total_bytes: u64 = session.files.values().map(|f| f.file_size).sum();
+
+                let files_progress: Vec<FileProgressInfo> = session.files.values().map(|f| {
+                    let transferred = session.received_bytes.get(&f.file_id).copied().unwrap_or(0);
+                    // 优先检查是否在取消列表中
+                    let status = if session.cancelled_files.contains(&f.file_id) {
+                        TransferStatus::Cancelled
+                    } else if !session.writers.contains_key(&f.file_id) {
+                        // 如果没有 writer，说明已完成
+                        TransferStatus::Completed
+                    } else if transferred > 0 {
+                        TransferStatus::Transferring
+                    } else {
+                        TransferStatus::Pending
+                    };
+                    FileProgressInfo {
+                        file_id: f.file_id.clone(),
+                        file_name: f.file_name.clone(),
+                        file_size: f.file_size,
+                        transferred_bytes: if status == TransferStatus::Completed { f.file_size } else { transferred },
+                        status,
+                    }
+                }).collect();
+
+                (all_completed, total_files, files_progress, session_total_bytes)
+            } else {
+                // 会话不存在，假设只有一个文件且已完成
+                (true, 1, vec![FileProgressInfo {
+                    file_id: file_id.clone(),
+                    file_name: file_meta.file_name.clone(),
+                    file_size: file_meta.file_size,
+                    transferred_bytes: file_meta.file_size,
+                    status: TransferStatus::Completed,
+                }], file_meta.file_size)
+            }
+        };
+
+        let completed_files = files_progress.iter()
+            .filter(|f| f.status == TransferStatus::Completed)
+            .count() as u32;
+
+        // 发送进度更新事件（包含完成的文件）
+        let progress_event = LanTransferEvent::BatchProgress {
+            progress: BatchTransferProgress {
+                session_id: session_id.clone(),
+                total_files,
+                completed_files,
+                total_bytes: session_total_bytes,
+                transferred_bytes: session_total_bytes, // 如果所有都完成则等于总大小
+                speed: 0,
+                current_file: None,
+                eta_seconds: None,
+                files: files_progress,
+            },
+        };
+        let _ = get_event_sender().send(progress_event.clone());
+        emit_lan_event(&progress_event);
+
+        // 只有当所有文件都完成时才发送 BatchTransferCompleted
+        if all_completed {
+            let batch_event = LanTransferEvent::BatchTransferCompleted {
+                session_id: session_id.clone(),
+                total_files,
+                save_directory: saved_path_str,
+            };
+            let _ = get_event_sender().send(batch_event.clone());
+            emit_lan_event(&batch_event);
+
+            // 清理会话
+            {
+                let sessions = get_upload_sessions();
+                let mut sessions = sessions.lock();
+                sessions.remove(&session_id);
+                println!("[LanTransfer] 📦 批量传输完成，清理会话: {}", session_id);
+            }
+        }
     } else {
         let event = LanTransferEvent::TransferFailed {
             task_id: file_id.clone(),
@@ -1447,6 +1579,11 @@ struct CancelRequest {
 }
 
 /// 处理取消传输
+/// 
+/// 接收到发送方的取消请求后：
+/// 1. 清理文件写入器和哈希器
+/// 2. 发送 BatchProgress 事件更新前端 UI（标记文件为 Cancelled）
+/// 3. 发送 TransferFailed 事件（兼容）
 async fn handle_cancel(
     writer: &mut tokio::net::tcp::WriteHalf<'_>,
     body: &[u8],
@@ -1454,6 +1591,9 @@ async fn handle_cancel(
     let request: CancelRequest = serde_json::from_slice(body)
         .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
 
+    // 收集需要发送事件的信息
+    let event_info: Option<(String, Vec<FileProgressInfo>, Option<String>)>;
+    
     // 在单独的作用域内处理锁，确保在 await 之前释放
     {
         let sessions = get_upload_sessions();
@@ -1466,15 +1606,63 @@ async fn handle_cancel(
                 // 取消特定文件
                 session.writers.remove(file_id);
                 session.hashers.remove(file_id);
+                // 将文件 ID 添加到取消列表（持久化取消状态）
+                session.cancelled_files.insert(file_id.clone());
 
                 if !request.keep_partial {
                     let _ = resume_manager.clear_resume_info(file_id);
                 }
 
+                // 构建文件进度信息，优先检查 cancelled_files
+                let files_progress: Vec<FileProgressInfo> = session.files.iter()
+                    .map(|(fid, file_meta)| {
+                        let transferred = session.received_bytes.get(fid).copied().unwrap_or(0);
+                        // 优先检查是否在取消列表中
+                        let status = if session.cancelled_files.contains(fid) {
+                            TransferStatus::Cancelled
+                        } else if transferred >= file_meta.file_size {
+                            TransferStatus::Completed
+                        } else if transferred > 0 || session.writers.contains_key(fid) {
+                            TransferStatus::Transferring
+                        } else {
+                            TransferStatus::Pending
+                        };
+                        FileProgressInfo {
+                            file_id: file_meta.file_id.clone(),
+                            file_name: file_meta.file_name.clone(),
+                            file_size: file_meta.file_size,
+                            transferred_bytes: transferred,
+                            status,
+                        }
+                    })
+                    .collect();
+
+                event_info = Some((
+                    request.session_id.clone(),
+                    files_progress,
+                    Some(file_id.clone()),
+                ));
+
                 println!("[LanTransfer] 取消文件传输: {}", file_id);
             } else {
                 // 取消整个会话
                 let file_ids: Vec<String> = session.files.keys().cloned().collect();
+                
+                // 构建所有文件的取消状态
+                let files_progress: Vec<FileProgressInfo> = session.files.values()
+                    .map(|file_meta| {
+                        FileProgressInfo {
+                            file_id: file_meta.file_id.clone(),
+                            file_name: file_meta.file_name.clone(),
+                            file_size: file_meta.file_size,
+                            transferred_bytes: 0,
+                            status: TransferStatus::Cancelled,
+                        }
+                    })
+                    .collect();
+
+                event_info = Some((request.session_id.clone(), files_progress, None));
+
                 for file_id in &file_ids {
                     if !request.keep_partial {
                         let _ = resume_manager.clear_resume_info(file_id);
@@ -1484,8 +1672,49 @@ async fn handle_cancel(
 
                 println!("[LanTransfer] 取消传输会话: {}", request.session_id);
             }
+        } else {
+            event_info = None;
         }
     } // 锁在这里释放
+
+    // 发送事件更新前端 UI
+    if let Some((session_id, files_progress, cancelled_file_id)) = event_info {
+        let total_files = files_progress.len() as u32;
+        let completed_files = files_progress.iter()
+            .filter(|f| f.status == TransferStatus::Completed || f.status == TransferStatus::Cancelled)
+            .count() as u32;
+        let total_bytes: u64 = files_progress.iter().map(|f| f.file_size).sum();
+        let transferred_bytes: u64 = files_progress.iter().map(|f| f.transferred_bytes).sum();
+
+        // 发送 BatchProgress 事件
+        let batch_progress = BatchTransferProgress {
+            session_id: session_id.clone(),
+            total_files,
+            completed_files,
+            total_bytes,
+            transferred_bytes,
+            speed: 0,
+            current_file: None,
+            eta_seconds: None,
+            files: files_progress,
+        };
+        
+        let progress_event = LanTransferEvent::BatchProgress {
+            progress: batch_progress,
+        };
+        let _ = get_event_sender().send(progress_event.clone());
+        emit_lan_event(&progress_event);
+
+        // 发送 TransferFailed 事件（兼容）
+        if let Some(file_id) = cancelled_file_id {
+            let failed_event = LanTransferEvent::TransferFailed {
+                task_id: file_id,
+                error: "发送方取消".to_string(),
+            };
+            let _ = get_event_sender().send(failed_event.clone());
+            emit_lan_event(&failed_event);
+        }
+    }
 
     #[derive(serde::Serialize)]
     struct CancelResponse {

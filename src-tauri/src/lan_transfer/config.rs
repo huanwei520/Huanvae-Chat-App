@@ -276,6 +276,7 @@ impl ConfigManager {
     }
 
     /// 检查设备是否受信任
+    #[allow(dead_code)]
     pub fn is_device_trusted(&self, device_id: &str) -> bool {
         self.config
             .trusted_devices
@@ -402,6 +403,7 @@ pub fn ensure_directories() -> Result<(), ConfigError> {
 }
 
 /// 检查设备是否受信任
+#[allow(dead_code)]
 pub fn is_device_trusted(device_id: &str) -> bool {
     let manager = get_config_manager();
     let config = manager.read();

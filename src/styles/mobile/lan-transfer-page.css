@@ -795,6 +795,122 @@
   color: white;
 }
 
+/* ============================================ */
+/* 多文件传输文件列表                           */
+/* ============================================ */
+
+.mobile-lan-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.mobile-lan-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.mobile-lan-file-item.completed {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e;
+}
+
+.mobile-lan-file-item.failed,
+.mobile-lan-file-item.cancelled {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+.mobile-lan-file-item.transferring {
+  border-color: var(--primary);
+}
+
+.mobile-lan-file-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-lan-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-lan-file-progress-bar {
+  height: 3px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mobile-lan-file-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.mobile-lan-file-progress-fill.completed {
+  background: #22c55e;
+}
+
+.mobile-lan-file-progress-fill.failed,
+.mobile-lan-file-progress-fill.cancelled {
+  background: #ef4444;
+}
+
+.mobile-lan-file-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.mobile-lan-file-status.completed {
+  color: #22c55e;
+}
+
+.mobile-lan-file-status.failed,
+.mobile-lan-file-status.cancelled {
+  color: #ef4444;
+}
+
+.mobile-lan-file-cancel-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-lan-file-cancel-btn:hover,
+.mobile-lan-file-cancel-btn:active {
+  background: #ef4444;
+  color: white;
+}
+
 /* 单文件取消按钮 */
 .task-cancel-btn {
   margin-left: auto;
@@ -832,4 +948,79 @@
   font-size: 10px;
   color: var(--text-tertiary);
   margin-top: 4px;
+}
+
+/* ============================================ */
+/* 文件准备遮罩层（Android 专用）              */
+/* ============================================ */
+
+.file-preparation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.file-preparation-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 40px;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--glass-border-subtle);
+  max-width: 80vw;
+  min-width: 260px;
+}
+
+.file-preparation-spinner {
+  transform: scale(1.5);
+}
+
+.file-preparation-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.file-preparation-info {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.file-preparation-info .file-name {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preparation-progress {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 6px 12px;
+  background: var(--white-alpha-80);
+  border-radius: 12px;
 }

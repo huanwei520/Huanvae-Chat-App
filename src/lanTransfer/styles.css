@@ -6,14 +6,15 @@
  * @description 局域网文件传输功能的样式定义
  * @layer       第三层 - 组件层
  * @author      Huanvae Chat Team
- * @updated     2026-01-21
+ * @updated     2026-02-03
  * 
  * ## 样式结构
  * - 页面容器 (.lan-page)
  * - 顶部工具栏 (.lan-header)
  * - 设备列表 (.lan-devices)
- * - 传输进度 (.lan-transfers)
- * - 点对点传输窗口 (.lan-peer-transfer-window) - 毛玻璃效果
+ * - 设备卡片展开区 (.lan-device-card-wrapper.expanded)
+ * - 内联传输面板 (.lan-inline-transfer-panel)
+ * - 文件列表 (.lan-file-list, .lan-file-item)
  * 
  * ## 主题集成
  * 所有颜色使用 CSS 变量，由 ThemeProvider 动态注入:
@@ -26,6 +27,9 @@
  * - --primary: 进度条颜色（蓝色）
  * 
  * ## 更新日志
+ * - 2026-02-03: 添加内联传输面板样式（.lan-inline-transfer-panel）
+ * - 2026-02-03: 添加文件列表样式（.lan-file-list, .lan-file-item）
+ * - 2026-02-03: 添加设备卡片展开状态样式
  * - 2026-01-21: 点对点传输窗口改为毛玻璃效果，统一接入颜色系统
  * - 2026-01-21: 统一进度条为蓝色纯色（使用 --primary 变量）
  */
@@ -1082,18 +1086,19 @@
    ============================================ */
 
 .lan-device-card.connected {
-  border-color: var(--success);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: #34c759;
+  /* 与移动端一致：只有绿色边框，无背景填充 */
 }
 
 .lan-connected-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  background: var(--success);
-  color: white;
+  padding: 2px 6px;
+  /* 与移动端一致：透明绿色背景 + 绿色文字 */
+  background: rgba(52, 199, 89, 0.15);
+  color: #34c759;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   border-radius: 10px;
   margin-left: 8px;
 }
@@ -1454,4 +1459,334 @@
 
 .lan-btn-danger:hover {
   background: var(--error-dark, #dc2626);
+}
+
+/* ============================================
+   内联传输面板（设备卡片展开后显示）
+   ============================================ */
+
+.lan-device-card-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.lan-device-card-wrapper.expanded {
+  margin-bottom: 8px;
+}
+
+.lan-device-card.expanded {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+
+.lan-device-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--white-alpha-60);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-device-expand-btn:hover {
+  background: var(--white-alpha-80);
+  color: var(--primary);
+}
+
+.lan-inline-transfer-panel {
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-95) 0%,
+    var(--white-alpha-90) 100%
+  );
+  /* 绿色边框与已连接设备卡片一致 */
+  border: 1px solid #34c759;
+  border-top: 1px solid #34c759;
+  border-radius: 0 0 14px 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.lan-inline-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  border: 2px dashed var(--glass-border);
+  border-radius: 12px;
+  background: var(--white-alpha-50);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+}
+
+.lan-inline-dropzone:hover {
+  background: var(--white-alpha-70);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.lan-inline-dropzone.dragging {
+  background: var(--primary-light, rgba(59, 130, 246, 0.1));
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.lan-inline-dropzone svg {
+  opacity: 0.7;
+}
+
+.lan-inline-hashing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--white-alpha-60);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.lan-inline-hashing-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.lan-inline-hashing-file {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-inline-progress-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.lan-inline-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+.lan-inline-progress-fill.hashing {
+  background: var(--warning, #f59e0b);
+}
+
+/* ============================================
+   文件列表
+   ============================================ */
+
+.lan-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lan-file-list-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.lan-file-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.lan-file-list-items::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lan-file-list-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lan-file-list-items::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 3px;
+}
+
+.lan-file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--white-alpha-70);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-subtle);
+  transition: all 0.2s ease;
+}
+
+.lan-file-item.completed {
+  background: var(--success-light, rgba(34, 197, 94, 0.1));
+  border-color: var(--success, #22c55e);
+}
+
+.lan-file-item.failed,
+.lan-file-item.cancelled {
+  background: var(--error-light, rgba(239, 68, 68, 0.1));
+  border-color: var(--error, #ef4444);
+}
+
+.lan-file-item.transferring {
+  border-color: var(--primary);
+}
+
+.lan-file-item-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.lan-file-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lan-file-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lan-file-item-progress-bar {
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.lan-file-item-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.lan-file-item-progress-fill.completed {
+  background: var(--success, #22c55e);
+}
+
+.lan-file-item-progress-fill.failed,
+.lan-file-item-progress-fill.cancelled {
+  background: var(--error, #ef4444);
+}
+
+.lan-file-item-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.lan-file-item-status {
+  font-weight: 500;
+}
+
+.lan-file-item-status.completed {
+  color: var(--success, #22c55e);
+}
+
+.lan-file-item-status.failed,
+.lan-file-item-status.cancelled {
+  color: var(--error, #ef4444);
+}
+
+.lan-file-item-status.transferring {
+  color: var(--primary);
+}
+
+.lan-file-item-status.pending {
+  color: var(--text-muted);
+}
+
+.lan-file-item-cancel {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: var(--error-light, rgba(239, 68, 68, 0.1));
+  border-radius: 6px;
+  color: var(--error, #ef4444);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-file-item-cancel:hover {
+  background: var(--error);
+  color: white;
+}
+
+/* ============================================
+   总体进度
+   ============================================ */
+
+.lan-inline-overall {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--white-alpha-60);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.lan-inline-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.lan-inline-cancel-all {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: none;
+  background: var(--error-light, rgba(239, 68, 68, 0.1));
+  border-radius: 6px;
+  color: var(--error, #ef4444);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lan-inline-cancel-all:hover {
+  background: var(--error);
+  color: white;
 }

@@ -32,7 +32,16 @@
  * - 批量传输开始时设置 HAS_ACTIVE_TRANSFERS 标志，暂停设备验证任务
  * - 传输完成后清除标志，恢复正常的设备验证
  *
+ * 网络接口选择策略（Android VPN 兼容）：
+ * - 优先选择 WiFi 接口（wlan0, en0, Wi-Fi）进行 mDNS 广播
+ * - 排除 VPN/隧道接口（tun0, utun0, tap, ppp）
+ * - 排除移动数据接口（rmnet, r_rmnet）
+ * - 排除虚拟接口（ifb, dummy）
+ * - 排除链路本地地址（169.254.x.x）
+ * - 这确保在 Android 开启 VPN 时仍能正确广播 WiFi 网络的 IP
+ *
  * 更新日志：
+ * - 2026-02-03: 修复 Android VPN 导致 mDNS 广播错误 IP 的问题，优化网络接口选择逻辑
  * - 2026-01-25: 添加 refresh_device() 函数，支持按需刷新单个设备信息
  * - 2026-01-25: 修复设备 IP 地址不更新问题，设备重新上线时也发送事件通知前端
  * - 2026-01-25: refresh_device() 改为清除缓存等待自动发现（不重启 browse）
@@ -191,21 +200,96 @@ pub async fn start_service(
     }
 
     // 获取本地 IP 地址
+    // 优先选择 WiFi 接口（wlan0, en0, Wi-Fi 等），避免选择 VPN 接口（tun0, tun1 等）
     println!("[LanTransfer] 正在获取本地 IP 地址...");
-    let local_ip = local_ip_address::local_ip()
-        .map_err(|e| {
-            println!("[LanTransfer] ❌ 获取本地 IP 失败: {}", e);
-            DiscoveryError::LocalIpError(e.to_string())
-        })?;
-    println!("[LanTransfer] ✓ 本地 IP: {}", local_ip);
-
-    // 列出所有网络接口
-    if let Ok(interfaces) = local_ip_address::list_afinet_netifas() {
-        println!("[LanTransfer] 所有网络接口:");
-        for (name, ip) in interfaces {
-            println!("[LanTransfer]   - {}: {}", name, ip);
+    
+    let local_ip = match local_ip_address::list_afinet_netifas() {
+        Ok(interfaces) => {
+            println!("[LanTransfer] 所有网络接口:");
+            for (name, ip) in &interfaces {
+                println!("[LanTransfer]   - {}: {}", name, ip);
+            }
+            
+            // 过滤出有效的 IPv4 地址（非回环、非链路本地）
+            let valid_interfaces: Vec<_> = interfaces
+                .iter()
+                .filter(|(name, ip)| {
+                    // 只处理 IPv4
+                    if !ip.is_ipv4() {
+                        return false;
+                    }
+                    // 排除回环地址
+                    if ip.is_loopback() {
+                        return false;
+                    }
+                    // 排除 VPN/隧道接口（tun0, tun1, utun0, etc.）
+                    let name_lower = name.to_lowercase();
+                    if name_lower.starts_with("tun") 
+                        || name_lower.starts_with("utun") 
+                        || name_lower.starts_with("tap")
+                        || name_lower.starts_with("ppp")
+                        || name_lower.starts_with("rmnet")  // Android 移动数据
+                        || name_lower.starts_with("r_rmnet")
+                        || name_lower.starts_with("ifb")    // Intermediate Functional Block
+                        || name_lower.starts_with("dummy")  // Dummy 接口
+                    {
+                        return false;
+                    }
+                    // 排除链路本地地址 (169.254.x.x)
+                    if let std::net::IpAddr::V4(ipv4) = ip
+                        && ipv4.octets()[0] == 169 && ipv4.octets()[1] == 254
+                    {
+                        return false;
+                    }
+                    true
+                })
+                .collect();
+            
+            // 优先级：wlan > en > eth > 其他
+            let preferred_ip = valid_interfaces.iter()
+                // 优先 WiFi 接口（Android: wlan0, macOS: en0, Windows: Wi-Fi）
+                .find(|(name, _)| {
+                    let n = name.to_lowercase();
+                    n.starts_with("wlan") || n.starts_with("wifi") || n.contains("wi-fi")
+                })
+                // 其次 macOS 的 en0 接口（通常是 WiFi）
+                .or_else(|| valid_interfaces.iter().find(|(name, _)| name == "en0"))
+                // 然后以太网接口
+                .or_else(|| valid_interfaces.iter().find(|(name, _)| {
+                    let n = name.to_lowercase();
+                    n.starts_with("eth") || n.starts_with("en")
+                }))
+                // 最后使用任何有效接口
+                .or_else(|| valid_interfaces.first())
+                .map(|(name, ip)| {
+                    println!("[LanTransfer] ✓ 选择网络接口: {} ({})", name, ip);
+                    *ip
+                });
+            
+            match preferred_ip {
+                Some(ip) => ip,
+                None => {
+                    // 如果没有找到有效接口，回退到默认方法
+                    println!("[LanTransfer] ⚠ 未找到优选接口，使用默认方法");
+                    local_ip_address::local_ip()
+                        .map_err(|e| {
+                            println!("[LanTransfer] ❌ 获取本地 IP 失败: {}", e);
+                            DiscoveryError::LocalIpError(e.to_string())
+                        })?
+                }
+            }
         }
-    }
+        Err(_) => {
+            // 如果无法列出接口，回退到默认方法
+            local_ip_address::local_ip()
+                .map_err(|e| {
+                    println!("[LanTransfer] ❌ 获取本地 IP 失败: {}", e);
+                    DiscoveryError::LocalIpError(e.to_string())
+                })?
+        }
+    };
+    
+    println!("[LanTransfer] ✓ 本地 IP: {}", local_ip);
 
     // 获取设备 ID（UUID）
     println!("[LanTransfer] 正在获取设备 ID...");

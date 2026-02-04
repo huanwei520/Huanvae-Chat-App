@@ -7,13 +7,16 @@
  * - 启动/停止局域网传输服务
  * - 获取发现的设备列表（自动更新设备信息，包括 IP 地址变化）
  * - 点对点连接管理（带去重检查，防止重复连接）
- * - 发送传输请求（需确认）
  * - 多文件并行批量传输（默认并行度 3）
  * - 单文件取消支持（cancelFileTransfer）
  * - 会话级批量取消支持（cancelSession）
  * - 断点续传支持
  * - 实时进度跟踪（单文件 + 批量进度）
  * - 配置管理
+ *
+ * 传输模式：
+ * - 仅支持点对点连接模式：需先建立连接后才能传输文件
+ * - 旧版传输请求模式已移除
  *
  * 并行传输：
  * - 后端使用 Semaphore 限制并发数
@@ -36,6 +39,7 @@
  * - 如果已存在连接，返回现有 connectionId 而不是创建新连接
  *
  * 更新日志：
+ * - 2026-02-04: 移除旧版传输请求模式 (sendTransferRequest/respondToTransferRequest)
  * - 2026-01-25: 修复设备 IP 不更新、批量进度不更新、取消按钮不工作问题
  * - 2026-01-25: 支持多个并行传输会话（batchProgressMap）
  */
@@ -96,16 +100,6 @@ export interface FileMetadata {
   sha256: string;
 }
 
-/** 传输请求（新版，需确认） */
-export interface TransferRequest {
-  requestId: string;
-  fromDevice: DiscoveredDevice;
-  files: FileMetadata[];
-  totalSize: number;
-  requestedAt: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'expired';
-}
-
 /** 传输任务 */
 export interface TransferTask {
   taskId: string;
@@ -150,6 +144,23 @@ export interface TransferSession {
   direction: 'send' | 'receive';
 }
 
+/** 传输状态 */
+export type TransferStatus = 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+/** 单文件进度信息（用于前端显示文件列表） */
+export interface FileProgressInfo {
+  /** 文件 ID */
+  fileId: string;
+  /** 文件名 */
+  fileName: string;
+  /** 文件大小（字节） */
+  fileSize: number;
+  /** 已传输字节数 */
+  transferredBytes: number;
+  /** 传输状态 */
+  status: TransferStatus;
+}
+
 /** 批量传输进度 */
 export interface BatchTransferProgress {
   sessionId: string;
@@ -160,6 +171,8 @@ export interface BatchTransferProgress {
   speed: number;
   currentFile?: FileMetadata;
   etaSeconds?: number;
+  /** 每个文件的进度信息 */
+  files?: FileProgressInfo[];
 }
 
 /** 信任设备 */
@@ -227,8 +240,6 @@ export interface UseLanTransferReturn {
   devices: DiscoveredDevice[];
   /** 待处理的连接请求（旧版） */
   pendingRequests: ConnectionRequest[];
-  /** 待处理的传输请求（新版） */
-  pendingTransferRequests: TransferRequest[];
   /** 活跃的传输任务 */
   activeTransfers: TransferTask[];
   /** 批量传输进度（支持多个并行会话） */
@@ -273,18 +284,12 @@ export interface UseLanTransferReturn {
   sendConnectionRequest: (deviceId: string) => Promise<string>;
   /** 响应连接请求（旧版） */
   respondToRequest: (requestId: string, accept: boolean) => Promise<void>;
-  /** 发送文件（旧版单文件） */
-  sendFile: (deviceId: string, filePath: string) => Promise<string>;
-  /** 发送传输请求（旧版多文件，需确认） */
-  sendTransferRequest: (deviceId: string, filePaths: string[]) => Promise<string>;
-  /** 响应传输请求 */
-  respondToTransferRequest: (requestId: string, accept: boolean) => Promise<void>;
   /** 取消传输 */
   cancelTransfer: (transferId: string) => Promise<void>;
   /** 取消单个文件传输（并行传输中） */
   cancelFileTransfer: (fileId: string) => Promise<void>;
   /** 取消传输会话 */
-  cancelSession: (requestId: string) => Promise<void>;
+  cancelSession: (sessionId: string) => Promise<void>;
 
   // ========== 配置管理 ==========
   /** 设置保存目录 */
@@ -310,7 +315,6 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [loading, setLoading] = useState(false);
   const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
   const [pendingRequests, setPendingRequests] = useState<ConnectionRequest[]>([]);
-  const [pendingTransferRequests, setPendingTransferRequests] = useState<TransferRequest[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<TransferTask[]>([]);
   const [batchProgressMap, setBatchProgressMap] = useState<Map<string, BatchTransferProgress>>(new Map());
   const [hashingProgress, setHashingProgress] = useState<HashingProgress | null>(null);
@@ -348,7 +352,6 @@ export function useLanTransfer(): UseLanTransferReturn {
       setIsRunning(false);
       setDevices([]);
       setPendingRequests([]);
-      setPendingTransferRequests([]);
       setBatchProgressMap(new Map());
       setActiveConnections([]);
       setPendingPeerConnectionRequests([]);
@@ -423,24 +426,6 @@ export function useLanTransfer(): UseLanTransferReturn {
   const respondToRequest = useCallback(async (requestId: string, accept: boolean) => {
     await invoke('respond_to_connection_request', { requestId, accept });
     setPendingRequests((prev) => prev.filter((r) => r.requestId !== requestId));
-  }, []);
-
-  // 发送文件（旧版单文件）
-  const sendFile = useCallback(async (deviceId: string, filePath: string) => {
-    const taskId = await invoke<string>('send_file_to_device', { deviceId, filePath });
-    return taskId;
-  }, []);
-
-  // 发送传输请求（新版多文件）
-  const sendTransferRequest = useCallback(async (deviceId: string, filePaths: string[]) => {
-    const requestId = await invoke<string>('send_transfer_request', { deviceId, filePaths });
-    return requestId;
-  }, []);
-
-  // 响应传输请求
-  const respondToTransferRequest = useCallback(async (requestId: string, accept: boolean) => {
-    await invoke('respond_to_transfer_request', { requestId, accept });
-    setPendingTransferRequests((prev) => prev.filter((r) => r.requestId !== requestId));
   }, []);
 
   // 取消传输
@@ -577,24 +562,6 @@ export function useLanTransfer(): UseLanTransferReturn {
             // 处理连接响应
             break;
 
-          case 'transfer_request_received':
-            setPendingTransferRequests((prev) => {
-              const exists = prev.some((r) => r.requestId === payload.request.requestId);
-              if (exists) {
-                return prev;
-              }
-              return [...prev, payload.request];
-            });
-            break;
-
-          case 'transfer_request_response':
-            // 处理传输请求响应
-            if (!payload.accepted) {
-              // 如果被拒绝，可以显示通知
-              console.warn('[LanTransfer] 传输请求被拒绝:', payload.reject_reason);
-            }
-            break;
-
           case 'transfer_progress':
             setActiveTransfers((prev) => {
               const exists = prev.some((t) => t.taskId === payload.task.taskId);
@@ -693,14 +660,12 @@ export function useLanTransfer(): UseLanTransferReturn {
 
     const fetchRequests = async () => {
       try {
-        const [connectionRequests, transferRequests, peerConnectionRequests, peerConnections] = await Promise.all([
+        const [connectionRequests, peerConnectionRequests, peerConnections] = await Promise.all([
           invoke<ConnectionRequest[]>('get_pending_connection_requests'),
-          invoke<TransferRequest[]>('get_pending_transfer_requests'),
           invoke<PeerConnectionRequest[]>('get_pending_peer_connection_requests'),
           invoke<PeerConnection[]>('get_active_peer_connections'),
         ]);
         setPendingRequests(connectionRequests);
-        setPendingTransferRequests(transferRequests);
         setPendingPeerConnectionRequests(peerConnectionRequests);
         setActiveConnections(peerConnections);
       } catch (error) {
@@ -743,7 +708,6 @@ export function useLanTransfer(): UseLanTransferReturn {
     loading,
     devices,
     pendingRequests,
-    pendingTransferRequests,
     activeTransfers,
     batchProgressMap,
     hashingProgress,
@@ -769,9 +733,6 @@ export function useLanTransfer(): UseLanTransferReturn {
     // 旧版兼容
     sendConnectionRequest,
     respondToRequest,
-    sendFile,
-    sendTransferRequest,
-    respondToTransferRequest,
     cancelTransfer,
     cancelFileTransfer,
     cancelSession,

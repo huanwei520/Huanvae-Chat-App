@@ -724,7 +724,6 @@ pub fn run() {
             lan_transfer::get_discovered_devices,
             lan_transfer::send_connection_request,
             lan_transfer::respond_to_connection_request,
-            lan_transfer::send_file_to_device,
             lan_transfer::get_pending_connection_requests,
             lan_transfer::get_active_transfers,
             lan_transfer::cancel_transfer,
@@ -736,10 +735,7 @@ pub fn run() {
             lan_transfer::get_active_peer_connections,
             lan_transfer::get_pending_peer_connection_requests,
             lan_transfer::send_files_to_peer,
-            // 局域网传输（旧版兼容：多文件、确认、断点续传）
-            lan_transfer::send_transfer_request,
-            lan_transfer::respond_to_transfer_request,
-            lan_transfer::get_pending_transfer_requests,
+            // 局域网传输（会话管理）
             lan_transfer::get_transfer_session,
             lan_transfer::get_all_transfer_sessions,
             lan_transfer::cancel_transfer_session,

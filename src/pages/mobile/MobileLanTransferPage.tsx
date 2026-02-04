@@ -18,11 +18,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { useSession } from '../../contexts/SessionContext';
-import { selectFilesForTransfer, cleanupTempFiles } from '../../utils/androidFileHandler';
+import { selectFilesForTransfer, cleanupTempFiles, type FilePreparationStatus } from '../../utils/androidFileHandler';
 import {
   useLanTransfer,
   type DiscoveredDevice,
-  type TransferRequest,
   type PeerConnectionRequest,
 } from '../../hooks/useLanTransfer';
 import { platform } from '@tauri-apps/plugin-os';
@@ -226,6 +225,9 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const serviceStartedRef = useRef(false);
+
+  // 文件准备状态（Android 专用）
+  const [filePreparation, setFilePreparation] = useState<FilePreparationStatus | null>(null);
 
   // 添加调试日志
   const addDebugLog = useCallback((message: string) => {
@@ -483,71 +485,57 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         (c) => c.peerDevice.deviceId === device.deviceId,
       );
 
-      if (connection) {
-        // 已连接，直接发送文件
-        addDebugLog(`选择文件发送到 ${device.deviceName}`);
-
-        // 使用 Android 文件处理函数（自动处理 content:// URI）
-        addDebugLog('正在打开文件选择器...');
-        const filePaths = await selectFilesForTransfer({
-          multiple: true,
-          title: '选择要发送的文件',
-        });
-
-        addDebugLog(`文件选择结果: ${filePaths.length} 个文件`);
-
-        if (filePaths.length > 0) {
-          addDebugLog(`发送 ${filePaths.length} 个文件: ${filePaths.map((p) => p.split('/').pop()).join(', ')}`);
-          await transfer.sendFilesToPeer(connection.connectionId, filePaths);
-          addDebugLog('✓ 文件发送已开始');
-
-          // 传输完成后清理临时文件（延迟执行，等待传输开始）
-          setTimeout(() => {
-            cleanupTempFiles(filePaths).catch((e) => {
-              console.warn('[LanTransfer] 清理临时文件失败:', e);
-            });
-          }, 60000); // 1分钟后清理
-        } else {
-          addDebugLog('⚠ 未选择任何文件');
+      // 文件准备状态回调（Android 专用，用于显示准备动画）
+      const handleStatusChange = (status: FilePreparationStatus) => {
+        setFilePreparation(status);
+        if (status.phase === 'preparing' && status.currentFileName) {
+          addDebugLog(`正在准备: ${status.currentFileName} (${status.processedFiles + 1}/${status.totalFiles})`);
+        } else if (status.phase === 'done') {
+          // 准备完成后清除状态
+          setTimeout(() => setFilePreparation(null), 300);
         }
+      };
+
+      if (!connection) {
+        // 未连接，需要先建立连接
+        addDebugLog(`⚠ 请先与 ${device.deviceName} 建立连接`);
+        setFilePreparation(null);
+        return;
+      }
+
+      // 已连接，直接发送文件
+      addDebugLog(`选择文件发送到 ${device.deviceName}`);
+
+      // 使用 Android 文件处理函数（自动处理 content:// URI）
+      addDebugLog('正在打开文件选择器...');
+      const filePaths = await selectFilesForTransfer({
+        multiple: true,
+        title: '选择要发送的文件',
+        onStatusChange: handleStatusChange,
+      });
+
+      addDebugLog(`文件选择结果: ${filePaths.length} 个文件`);
+
+      if (filePaths.length > 0) {
+        addDebugLog(`发送 ${filePaths.length} 个文件: ${filePaths.map((p) => p.split('/').pop()).join(', ')}`);
+        await transfer.sendFilesToPeer(connection.connectionId, filePaths);
+        addDebugLog('✓ 文件发送已开始');
+
+        // 传输完成后清理临时文件（延迟执行，等待传输开始）
+        setTimeout(() => {
+          cleanupTempFiles(filePaths).catch((e) => {
+            console.warn('[LanTransfer] 清理临时文件失败:', e);
+          });
+        }, 60000); // 1分钟后清理
       } else {
-        // 未连接，使用传输请求（需确认）
-        addDebugLog(`选择文件发送到 ${device.deviceName}（需确认）`);
-
-        // 使用 Android 文件处理函数（自动处理 content:// URI）
-        const filePaths = await selectFilesForTransfer({
-          multiple: true,
-          title: '选择要发送的文件',
-        });
-
-        if (filePaths.length > 0) {
-          addDebugLog(`发送 ${filePaths.length} 个文件...`);
-          await transfer.sendTransferRequest(device.deviceId, filePaths);
-          addDebugLog('✓ 传输请求已发送');
-
-          // 传输完成后清理临时文件
-          setTimeout(() => {
-            cleanupTempFiles(filePaths).catch((e) => {
-              console.warn('[LanTransfer] 清理临时文件失败:', e);
-            });
-          }, 60000);
-        }
+        addDebugLog('⚠ 未选择任何文件');
+        setFilePreparation(null); // 清除状态
       }
     } catch (err) {
       addDebugLog(`❌ 发送失败: ${err}`);
       console.error('[LanTransfer] 选择文件失败:', err);
     }
   }, [transfer, addDebugLog]);
-
-  // 接受传输请求
-  const handleAcceptRequest = useCallback((request: TransferRequest) => {
-    transfer.respondToTransferRequest(request.requestId, true);
-  }, [transfer]);
-
-  // 拒绝传输请求
-  const handleRejectRequest = useCallback((request: TransferRequest) => {
-    transfer.respondToTransferRequest(request.requestId, false);
-  }, [transfer]);
 
   // 页面动画
   const pageVariants = {
@@ -661,10 +649,6 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
                   <span className="value">{transfer.devices.length}</span>
                 </div>
                 <div className="mobile-lan-debug-item">
-                  <span className="label">待处理请求:</span>
-                  <span className="value">{transfer.pendingTransferRequests.length}</span>
-                </div>
-                <div className="mobile-lan-debug-item">
                   <span className="label">活跃传输:</span>
                   <span className="value">{transfer.activeTransfers.length}</span>
                 </div>
@@ -732,44 +716,6 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         )}
       </AnimatePresence>
 
-      {/* 传输请求 */}
-      <AnimatePresence>
-        {transfer.pendingTransferRequests.length > 0 && (
-          <motion.div
-            className="mobile-lan-transfer-requests"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-          >
-            <h3>传输请求</h3>
-            {transfer.pendingTransferRequests.map((request) => (
-              <div key={request.requestId} className="transfer-request-card">
-                <div className="request-info">
-                  <span className="request-from">{request.fromDevice.deviceName}</span>
-                  <span className="request-files">
-                    {request.files.length} 个文件，共 {formatSize(request.totalSize)}
-                  </span>
-                </div>
-                <div className="request-actions">
-                  <button
-                    className="accept-btn"
-                    onClick={() => handleAcceptRequest(request)}
-                  >
-                    接受
-                  </button>
-                  <button
-                    className="reject-btn"
-                    onClick={() => handleRejectRequest(request)}
-                  >
-                    拒绝
-                  </button>
-                </div>
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* 哈希计算进度（大文件预处理） */}
       {transfer.hashingProgress && transfer.batchProgressMap.size === 0 && (
         <div className="mobile-lan-batch-progress hashing">
@@ -812,14 +758,56 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
               className="batch-cancel-btn"
               onClick={() => transfer.cancelSession(sessionId)}
             >
-              取消
+              全部取消
             </button>
           </div>
-          {bp.currentFile && (
-            <div className="batch-current-file">
-              当前: {bp.currentFile.fileName}
+
+          {/* 文件列表 */}
+          {bp.files && bp.files.length > 0 && (
+            <div className="mobile-lan-file-list">
+              {bp.files.map((file) => {
+                const filePercentage = file.fileSize > 0
+                  ? (file.transferredBytes / file.fileSize) * 100
+                  : 0;
+                const canCancel = file.status === 'pending' || file.status === 'transferring';
+                const statusLabel = file.status === 'completed' ? '✓' 
+                  : file.status === 'failed' ? '✗'
+                  : file.status === 'cancelled' ? '已跳过'
+                  : '';
+
+                return (
+                  <div key={file.fileId} className={`mobile-lan-file-item ${file.status}`}>
+                    <div className="mobile-lan-file-info">
+                      <div className="mobile-lan-file-name" title={file.fileName}>
+                        {file.fileName}
+                      </div>
+                      <div className="mobile-lan-file-progress-bar">
+                        <div
+                          className={`mobile-lan-file-progress-fill ${file.status}`}
+                          style={{ width: `${filePercentage}%` }}
+                        />
+                      </div>
+                      <div className="mobile-lan-file-stats">
+                        <span>{formatSize(file.transferredBytes)} / {formatSize(file.fileSize)}</span>
+                        {statusLabel && <span className={`mobile-lan-file-status ${file.status}`}>{statusLabel}</span>}
+                      </div>
+                    </div>
+                    {canCancel && (
+                      <button
+                        className="mobile-lan-file-cancel-btn"
+                        onClick={() => transfer.cancelFileTransfer(file.fileId)}
+                        title="跳过此文件"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
+
+          {/* 总进度条 */}
           <div className="batch-progress-bar">
             <div
               className="batch-progress-fill"
@@ -921,6 +909,36 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
           </div>
         )}
       </div>
+
+      {/* 文件准备遮罩层（Android 专用） */}
+      <AnimatePresence>
+        {filePreparation && filePreparation.phase === 'preparing' && (
+          <motion.div
+            className="file-preparation-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="file-preparation-content">
+              <div className="file-preparation-spinner">
+                <LoadingSpinner />
+              </div>
+              <div className="file-preparation-title">正在准备文件...</div>
+              <div className="file-preparation-info">
+                {filePreparation.currentFileName ? (
+                  <span className="file-name">{filePreparation.currentFileName}</span>
+                ) : (
+                  <span>读取文件信息中</span>
+                )}
+              </div>
+              <div className="file-preparation-progress">
+                {filePreparation.processedFiles} / {filePreparation.totalFiles} 个文件
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
