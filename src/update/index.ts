@@ -73,11 +73,6 @@ export {
 export { formatSize as formatSizeAndroid } from '../utils/format';
 
 // ============================================
-// 跨平台 Hook（已废弃，推荐使用 useUpdateStore）
-// ============================================
-export { usePlatformUpdate } from './usePlatformUpdate';
-
-// ============================================
 // 配置
 // ============================================
 export {

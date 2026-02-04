@@ -24,6 +24,7 @@ import {
   ANDROID_LATEST_JSON_PATH,
   PROXY_TIMEOUT_SECONDS,
 } from './config';
+import { extractProxyHost } from '../utils/url';
 
 // ============================================
 // 类型定义
@@ -275,20 +276,8 @@ export async function installApk(apkPath: string): Promise<void> {
 }
 
 // ============================================
-// 工具函数
+// 工具函数 - 从 utils/url.ts 导入
 // ============================================
 
-/**
- * 从代理 URL 提取主机名（用于显示）
- */
-export function extractProxyHost(proxyUrl: string): string {
-  if (!proxyUrl) {
-    return '直连';
-  }
-  try {
-    const urlObj = new URL(proxyUrl);
-    return urlObj.hostname;
-  } catch {
-    return proxyUrl;
-  }
-}
+// extractProxyHost 已迁移至 src/utils/url.ts
+export { extractProxyHost } from '../utils/url';

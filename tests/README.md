@@ -285,6 +285,15 @@ unset CI && pnpm tauri android dev
 | 视频进度拖动 | 本地视频支持进度条拖动 | 待测试 |
 | 在线视频播放 | 未缓存视频使用 presigned URL 在线播放 | 待测试 |
 | 视频后台缓存 | 在线播放时后台下载到本地 | 待测试 |
+| 视频下载进度条 | 全屏预览时底部显示蓝色进度条和百分比 | 待测试 |
+| 进度条转保存按钮 | 下载完成（100%）后进度条变为"保存"按钮 | 待测试 |
+| 视频保存到相册 | 点击保存按钮将视频保存到系统相册 | 待测试 |
+| 文件点击预览 | 点击文档文件弹出全屏预览模态框 | 待测试 |
+| 文件下载按钮 | 未下载时显示"下载文件"按钮 | 待测试 |
+| 文件下载进度 | 下载中显示进度百分比 | 待测试 |
+| 文件打开按钮 | 下载完成后显示"打开文件"按钮 | 待测试 |
+| 文件用其他应用打开 | 点击"打开文件"复制到 Download 目录并弹出应用选择器 | 待测试 |
+| 文件预览返回手势 | 返回手势关闭预览模态框，不退出聊天页面 | 待测试 |
 
 #### 输入交互
 
@@ -352,6 +361,78 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-04: 移动端文件预览"打开文件"功能
+  - **功能**: 移动端文件下载完成后显示"打开文件"按钮
+    - **交互逻辑**:
+      - 未下载：显示"下载文件"按钮，触发后台下载
+      - 下载中：显示进度百分比
+      - 已下载：显示"打开文件"按钮，使用系统默认应用打开
+      - 返回手势：关闭预览模态框，不退出聊天页面
+    - **实现方案**:
+      - Android 安全限制：私有目录文件无法直接通过 Intent 分享给其他应用
+      - 解决方案：点击"打开文件"时，先复制到 Download 公共目录，再用 `showViewFileDialog` 打开
+      - 新增工具函数 `openWithExternalApp` 封装整个流程
+      - 监听 `fileCacheStore` 下载任务状态
+      - 使用 `useMobileBackHandler` 拦截返回手势
+    - **修改文件**: 
+      - `src/utils/openWithExternalApp.ts` - 新增：复制到公共目录并用外部应用打开
+      - `src/chat/shared/FilePreviewModal.tsx` - 使用 `openWithExternalApp` 打开文件
+      - `src/hooks/useFileCache.ts` - 修复 `openInFolder` 函数使用 `openWithExternalApp`
+      - `src-tauri/capabilities/mobile.json` - 清理无用的 `opener:allow-open-path` scope 配置
+      - `src-tauri/capabilities/mobile.json` - 添加 `opener:allow-open-path` 权限
+
+- 2026-02-04: 更新模块代码清理与规范化重构
+  - **清理**: 移除废弃的 `usePlatformUpdate` Hook
+    - 原因：已被 `useUpdateStore` 全局状态管理替代，无实际使用
+    - **删除文件**: `src/update/usePlatformUpdate.ts`
+    - **修改文件**: `src/update/index.ts` - 移除相关导出
+  - **重构**: 统一 `extractProxyHost` 工具函数
+    - 原因：该函数在 `UpdateToast.tsx` 和 `service.android.ts` 中重复定义
+    - **新增文件**: `src/utils/url.ts` - 统一的 URL 工具函数
+    - **修改文件**: 
+      - `src/update/components/UpdateToast.tsx` - 移除本地定义，改为导入
+      - `src/update/service.android.ts` - 移除本地定义，改为导入并重导出
+
+- 2026-02-04: 移动端视频预览下载进度条
+  - **功能**: 视频全屏预览页面添加下载进度条，与视频缓存进度同步
+    - **交互逻辑**:
+      - 视频下载中：显示进度条（蓝色渐变填充）+ 进度百分比文字
+      - 视频下载完成（100%）：进度条变为"保存"按钮
+    - **实现方案**:
+      - `MobileMediaPreview` 组件新增 `downloadProgress` 和 `isDownloading` props
+      - `FileMessageContent` 的 `VideoMessage` 传递 `downloadTask?.percent` 和 `isDownloading` 状态
+      - 底部操作栏根据下载状态动态切换显示进度条或保存按钮
+    - **修改文件**: 
+      - `src/chat/shared/MobileMediaPreview.tsx` - 添加进度条 UI 和状态切换逻辑
+      - `src/chat/shared/FileMessageContent.tsx` - 传递下载进度状态
+      - `src/styles/mobile/chat-view.css` - 添加进度条样式
+
+- 2026-02-04: 移动端聊天记录媒体保存功能 & 全屏预览长按穿透修复
+  - **功能**: 移动端图片/视频消息添加"保存到相册"功能
+    - **实现方案**: 使用 `tauri-plugin-android-fs` 的 `createNewPublicImageFile`/`createNewPublicVideoFile` API
+    - **流程**:
+      1. 调用 `createNewPublicImageFile` 或 `createNewPublicVideoFile` 创建公共文件
+      2. 使用 `getFsPath` 获取文件系统路径
+      3. 使用 `@tauri-apps/plugin-fs` 的 `copyFile` 复制内容
+      4. 调用 `scanPublicFile` 注册到系统媒体库
+    - **修改文件**: 
+      - `src/utils/saveToGallery.ts` - 新增保存工具函数
+      - `src/chat/shared/MessageContextMenu.tsx` - 添加 `fileType` 和 `onSaveToGallery` props
+      - `src/chat/friend/MessageBubble.tsx` - 传递保存回调
+      - `src/chat/group/GroupMessageBubble.tsx` - 传递保存回调
+  - **功能**: 全屏媒体预览页面添加保存按钮
+    - **修改文件**: 
+      - `src/chat/shared/MobileMediaPreview.tsx` - 添加 `localPath` prop 和底部保存按钮
+      - `src/styles/mobile/chat-view.css` - 添加保存按钮样式
+  - **问题**: 全屏预览时长按触发聊天气泡的右键菜单
+    - **原因 1**: `MobileMediaPreview` 的 z-index (9999) 低于 `MessageContextMenu` (99999)
+    - **原因 2**: 预览组件未阻止触摸事件冒泡
+    - **解决方案**:
+      - 将 `MobileMediaPreview` z-index 提升至 100000
+      - 添加 `onTouchStart` 阻止事件冒泡
+      - 添加 `onContextMenu` 阻止右键菜单
+    - **修改文件**: `src/chat/shared/MobileMediaPreview.tsx`, `src/styles/mobile/chat-view.css`
 
 - 2026-02-04: 修复接收方点击取消无反应问题
   - **问题 1**: 接收方点击取消按钮没有反应
