@@ -9,6 +9,8 @@
  * - 使用 lastSyncTime 时间戳防止重复显示
  */
 
+/* eslint-disable require-await */
+
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { act } from 'react';

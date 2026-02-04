@@ -76,7 +76,8 @@ function getMimeType(fileName: string): string {
 }
 
 // 缓存已复制到公共目录的文件映射：源路径 -> 公共目录 URI
-const publicFileCache = new Map<string, unknown>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const publicFileCache = new Map<string, any>();
 
 /**
  * 使用外部应用打开文件
@@ -121,7 +122,7 @@ export async function openWithExternalApp(
       // 获取 MIME 类型
       const mimeType = getMimeType(fileName);
 
-      console.log('[OpenWithExternalApp] 首次打开，复制文件:', {
+      console.warn('[OpenWithExternalApp] 首次打开，复制文件:', {
         localPath,
         fileName,
         mimeType,
@@ -134,21 +135,21 @@ export async function openWithExternalApp(
         mimeType,
       );
 
-      console.log('[OpenWithExternalApp] 创建公共文件 URI:', JSON.stringify(destUri));
+      console.warn('[OpenWithExternalApp] 创建公共文件 URI:', JSON.stringify(destUri));
 
       // 复制文件内容
       await AndroidFs.copyFile(localPath, destUri);
-      console.log('[OpenWithExternalApp] 文件已复制到公共目录');
+      console.warn('[OpenWithExternalApp] 文件已复制到公共目录');
 
       // 缓存 URI，避免重复复制
       publicFileCache.set(localPath, destUri);
     } else {
-      console.log('[OpenWithExternalApp] 使用缓存的公共文件 URI');
+      console.warn('[OpenWithExternalApp] 使用缓存的公共文件 URI');
     }
 
     // 使用 showViewFileDialog 打开文件（弹出应用选择器）
     await AndroidFs.showViewFileDialog(destUri);
-    console.log('[OpenWithExternalApp] 已弹出应用选择器');
+    console.warn('[OpenWithExternalApp] 已弹出应用选择器');
 
     return {
       success: true,

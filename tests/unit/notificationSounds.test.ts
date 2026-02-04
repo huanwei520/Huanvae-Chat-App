@@ -256,8 +256,8 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
         if (cmd === 'save_notification_sound') {
           throw new Error('保存失败');
         }
-        if (cmd === 'ensure_sounds_directory') return undefined;
-        if (cmd === 'list_notification_sounds') return mockSounds;
+        if (cmd === 'ensure_sounds_directory') { return undefined; }
+        if (cmd === 'list_notification_sounds') { return mockSounds; }
       });
 
       const { result } = renderHook(() => useNotificationSounds());
@@ -269,7 +269,7 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
       await expect(
         act(async () => {
           await result.current.uploadSound();
-        })
+        }),
       ).rejects.toThrow('保存失败');
     });
   });
@@ -294,8 +294,8 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
         if (cmd === 'delete_notification_sound') {
           throw new Error('删除失败');
         }
-        if (cmd === 'ensure_sounds_directory') return undefined;
-        if (cmd === 'list_notification_sounds') return mockSounds;
+        if (cmd === 'ensure_sounds_directory') { return undefined; }
+        if (cmd === 'list_notification_sounds') { return mockSounds; }
       });
 
       const { result } = renderHook(() => useNotificationSounds());
@@ -307,7 +307,7 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
       await expect(
         act(async () => {
           await result.current.deleteSound('bell');
-        })
+        }),
       ).rejects.toThrow('删除失败');
     });
   });
@@ -355,4 +355,3 @@ describe('提示音管理 Hook (useNotificationSounds)', () => {
     });
   });
 });
-

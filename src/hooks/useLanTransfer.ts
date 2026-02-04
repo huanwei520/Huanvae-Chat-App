@@ -215,12 +215,9 @@ export type LanTransferEvent =
   | { type: 'peer_connection_request'; request: PeerConnectionRequest }
   | { type: 'peer_connection_established'; connection: PeerConnection }
   | { type: 'peer_connection_closed'; connection_id: string }
-  // 旧版连接事件
+  // 旧版连接事件（保留兼容性）
   | { type: 'connection_request'; request: ConnectionRequest }
   | { type: 'connection_response'; request_id: string; accepted: boolean }
-  // 传输事件
-  | { type: 'transfer_request_received'; request: TransferRequest }
-  | { type: 'transfer_request_response'; request_id: string; accepted: boolean; reject_reason?: string }
   | { type: 'transfer_progress'; task: TransferTask }
   | { type: 'batch_progress'; progress: BatchTransferProgress }
   | { type: 'transfer_completed'; task_id: string; saved_path: string }

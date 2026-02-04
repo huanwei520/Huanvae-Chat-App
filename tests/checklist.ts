@@ -1453,7 +1453,7 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
  */
 export function getCriticalFeatures(): ChecklistItem[] {
   return FEATURE_CHECKLIST.flatMap((category) =>
-    category.items.filter((item) => item.critical)
+    category.items.filter((item) => item.critical),
   );
 }
 
@@ -1463,7 +1463,7 @@ export function getCriticalFeatures(): ChecklistItem[] {
 export function getFeatureCount(): {
   total: number;
   critical: number;
-} {
+  } {
   const allItems = FEATURE_CHECKLIST.flatMap((c) => c.items);
   return {
     total: allItems.length,
@@ -1504,4 +1504,3 @@ export function generateChecklistText(): string {
 
   return lines.join('\n');
 }
-

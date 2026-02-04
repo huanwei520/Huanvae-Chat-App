@@ -207,7 +207,7 @@ function DeleteConfirmDialog({
       >
         <div className="delete-confirm-title">确认删除</div>
         <div className="delete-confirm-message">
-          确定要删除流程 "<strong>{workflowName}</strong>" 吗？
+          确定要删除流程 &ldquo;<strong>{workflowName}</strong>&rdquo; 吗？
           <br />
           此操作不可撤销。
         </div>

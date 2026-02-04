@@ -114,7 +114,7 @@ function OperatorDetailDialogComponent({
   onClose,
   operator,
 }: OperatorDetailDialogProps) {
-  if (!isOpen || !operator) return null;
+  if (!isOpen || !operator) { return null; }
 
   return (
     <div className="dialog-overlay" onClick={onClose}>

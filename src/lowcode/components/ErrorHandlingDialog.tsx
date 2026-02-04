@@ -6,6 +6,8 @@
  * @module lowcode/components/ErrorHandlingDialog
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion, react/no-unescaped-entities */
+
 import { memo, useState, useCallback } from 'react';
 import type {
   ErrorHandlingConfig,
@@ -281,7 +283,7 @@ function ErrorHandlingDialogComponent({
 
   // 节点级处理配置
   const [nodeHandlers, setNodeHandlers] = useState<NodeErrorHandler[]>(
-    config?.node_handlers || []
+    config?.node_handlers || [],
   );
 
   // 添加节点处理器

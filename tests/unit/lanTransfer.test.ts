@@ -1114,9 +1114,9 @@ describe('mDNS 设备下线检测', () => {
       expect(progress.totalFiles).toBe(3);
       expect(progress.completedFiles).toBe(1);
       expect(progress.files).toHaveLength(3);
-      expect(progress.files[0].status).toBe('completed');
-      expect(progress.files[1].status).toBe('transferring');
-      expect(progress.files[2].status).toBe('pending');
+      expect(progress.files![0].status).toBe('completed');
+      expect(progress.files![1].status).toBe('transferring');
+      expect(progress.files![2].status).toBe('pending');
     });
 
     it('多文件传输时 totalFiles 应正确反映文件数量', () => {

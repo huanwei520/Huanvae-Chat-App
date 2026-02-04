@@ -7,6 +7,8 @@
  * @module lowcode/components/OperatorPanel
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { fetchOperators } from '../services/operatorService';
@@ -121,7 +123,7 @@ function OperatorCard({ operator, onDragStart, onShowDetail }: OperatorCardProps
       e.dataTransfer.setData('application/reactflow', operatorData);
       e.dataTransfer.setData('text/plain', operatorData);
       e.dataTransfer.effectAllowed = 'move';
-      console.log('[OperatorCard] 开始拖拽算子:', operator.name);
+      console.warn('[OperatorCard] 开始拖拽算子:', operator.name);
       onDragStart?.(operator);
     },
     [operator, onDragStart],

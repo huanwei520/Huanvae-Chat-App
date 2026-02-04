@@ -199,22 +199,22 @@ function ControlFlowDialogComponent({
 }: ControlFlowDialogProps) {
   // 执行模式
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(
-    config?.execution_mode || 'single'
+    config?.execution_mode || 'single',
   );
 
   // 迭代配置
   const [timeSeriesInputs, setTimeSeriesInputs] = useState<string[]>(
-    config?.iteration?.time_series_inputs || []
+    config?.iteration?.time_series_inputs || [],
   );
   const [accumulators, setAccumulators] = useState<AccumulatorConfig[]>(
-    config?.iteration?.accumulators || []
+    config?.iteration?.accumulators || [],
   );
   const [stateVars, setStateVars] = useState<StateVarConfig[]>(
-    config?.iteration?.state_vars || []
+    config?.iteration?.state_vars || [],
   );
   // 使用 TerminationConditionExpr（条件表达式本体）
   const [termination, setTermination] = useState<TerminationConditionExpr>(
-    config?.iteration?.termination?.condition || { type: 'fixed_iterations', iterations: 10 }
+    config?.iteration?.termination?.condition || { type: 'fixed_iterations', iterations: 10 },
   );
 
   // 新增时间序列输入
@@ -410,7 +410,7 @@ function ControlFlowDialogComponent({
                       <span>端口</span>
                       <span>操作</span>
                       <span>初始值</span>
-                      <span></span>
+                      <span />
                     </div>
                     {accumulators.map((acc, i) => (
                       <AccumulatorRow
@@ -443,7 +443,7 @@ function ControlFlowDialogComponent({
                       <span>端口</span>
                       <span>初始值</span>
                       <span>滞后</span>
-                      <span></span>
+                      <span />
                     </div>
                     {stateVars.map((sv, i) => (
                       <StateVarRow

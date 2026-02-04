@@ -120,14 +120,18 @@ function DocumentPreview({
 
   // 下载文件
   const handleDownload = useCallback(() => {
-    if (!src || !fileHash) return;
+    if (!src || !fileHash) {
+      return;
+    }
     triggerBackgroundDownload(src, fileHash, filename, 'document', fileSize);
   }, [src, fileHash, filename, fileSize]);
 
   // 打开文件（使用系统默认应用）
   // Android 上私有目录文件无法直接分享给其他应用，需要先复制到公共目录
   const handleOpen = useCallback(async () => {
-    if (!actualLocalPath) return;
+    if (!actualLocalPath) {
+      return;
+    }
     setOpenError(null);
     try {
       const { openWithExternalApp } = await import('../../utils/openWithExternalApp');
@@ -154,6 +158,7 @@ function DocumentPreview({
         )}
 
         {/* 按钮：根据下载状态显示不同内容 */}
+        {/* eslint-disable-next-line no-nested-ternary */}
         {isDownloaded && actualLocalPath ? (
           // 已下载：显示"打开文件"按钮
           <button className="download-btn open" onClick={handleOpen}>

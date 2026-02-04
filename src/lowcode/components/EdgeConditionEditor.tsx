@@ -397,7 +397,7 @@ function EdgeConditionEditorComponent({
   workflowInputs = [],
 }: EdgeConditionEditorProps) {
   const [currentCondition, setCurrentCondition] = useState<ConditionExpr>(
-    condition || { type: 'compare', left: { type: 'literal' }, op: 'eq', right: { type: 'literal' } }
+    condition || { type: 'compare', left: { type: 'literal' }, op: 'eq', right: { type: 'literal' } },
   );
 
   const handleSave = useCallback(() => {

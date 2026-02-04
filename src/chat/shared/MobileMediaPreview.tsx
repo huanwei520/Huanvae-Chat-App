@@ -360,6 +360,7 @@ export function MobileMediaPreview({
 
           {/* 底部操作栏 - 下载进度条或保存按钮 */}
           <div className="mobile-media-preview-actions">
+            {/* eslint-disable-next-line no-nested-ternary */}
             {isDownloading ? (
               /* 下载中：显示进度条 */
               <div className="mobile-media-preview-progress">

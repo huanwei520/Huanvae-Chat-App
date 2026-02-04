@@ -204,5 +204,3 @@ describe('useUpdateToast', () => {
     expect(result.current.status).toBe('idle');
   });
 });
-
-

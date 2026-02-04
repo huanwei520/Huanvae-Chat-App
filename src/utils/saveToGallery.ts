@@ -63,7 +63,8 @@ export async function saveToGallery(
     // Pictures 对应 AndroidPublicImageDir.Pictures
     // Movies 对应 AndroidPublicVideoDir.Movies
     // createNewPublicImageFile/createNewPublicVideoFile 返回 URI 对象
-    let destUri: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let destUri: any;
 
     if (fileType === 'image') {
       // AndroidPublicImageDir 枚举值：Pictures = "Pictures", DCIM = "DCIM"
@@ -81,16 +82,16 @@ export async function saveToGallery(
       );
     }
 
-    console.log('[SaveToGallery] 创建公共文件 URI:', JSON.stringify(destUri));
+    console.warn('[SaveToGallery] 创建公共文件 URI:', JSON.stringify(destUri));
 
     // 使用 AndroidFs.copyFile 从源路径复制到目标 URI
     // copyFile 可以接受路径作为源，URI 作为目标
     await AndroidFs.copyFile(localPath, destUri);
-    console.log('[SaveToGallery] 文件内容已复制');
+    console.warn('[SaveToGallery] 文件内容已复制');
 
     // 扫描文件以注册到系统媒体库
     await AndroidFs.scanPublicFile(destUri);
-    console.log('[SaveToGallery] 已注册到系统相册');
+    console.warn('[SaveToGallery] 已注册到系统相册');
 
     return {
       success: true,

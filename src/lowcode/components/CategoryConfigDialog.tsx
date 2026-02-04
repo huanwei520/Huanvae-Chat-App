@@ -6,6 +6,8 @@
  * @module lowcode/components/CategoryConfigDialog
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+
 import { memo, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CategoryNode, CategoryConfig, CategoryValidationResult, Operator } from '../types/lowcode';
@@ -404,9 +406,9 @@ function CategoryConfigDialogComponent({
     setError(null);
 
     try {
-      console.log('[CategoryConfig] 正在加载配置...');
+      console.warn('[CategoryConfig] 正在加载配置...');
       const data = await categoryService.getConfig();
-      console.log('[CategoryConfig] 配置加载成功:', data);
+      console.warn('[CategoryConfig] 配置加载成功:', data);
       // 如果后端返回 null 或空数据，初始化空配置
       if (data && data.categories) {
         setConfig(data);
@@ -433,7 +435,7 @@ function CategoryConfigDialogComponent({
 
   // 打开时加载
   useEffect(() => {
-    console.log('[CategoryConfig] useEffect 触发, isOpen:', isOpen, 'categoryService:', !!categoryService);
+    console.warn('[CategoryConfig] useEffect 触发, isOpen:', isOpen, 'categoryService:', !!categoryService);
     if (isOpen && categoryService) {
       loadConfig();
     } else if (isOpen && !categoryService) {
@@ -616,7 +618,7 @@ function CategoryConfigDialogComponent({
 
   // 添加根分类
   const addRootCategory = useCallback(() => {
-    console.log('[CategoryConfig] addRootCategory 被调用, config:', config);
+    console.warn('[CategoryConfig] addRootCategory 被调用, config:', config);
     if (!config) {
       console.warn('[CategoryConfig] config 为空，无法添加分类');
       return;
@@ -630,7 +632,7 @@ function CategoryConfigDialogComponent({
       operators: [],
     };
 
-    console.log('[CategoryConfig] 添加新分类:', newNode);
+    console.warn('[CategoryConfig] 添加新分类:', newNode);
     setConfig({
       ...config,
       categories: [...config.categories, newNode],

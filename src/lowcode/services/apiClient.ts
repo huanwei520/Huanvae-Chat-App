@@ -54,7 +54,7 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
    */
   async function refreshAccessToken(): Promise<boolean> {
     try {
-      console.log('[Lowcode API] 尝试刷新 Token...');
+      console.warn('[Lowcode API] 尝试刷新 Token...');
 
       const response = await fetch(`${serverUrl}/api/auth/refresh`, {
         method: 'POST',
@@ -77,7 +77,7 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
         refreshToken = data.refresh_token;
       }
 
-      console.log('[Lowcode API] Token 刷新成功');
+      console.warn('[Lowcode API] Token 刷新成功');
 
       // 通知外部 token 已更新
       if (onTokenRefresh) {

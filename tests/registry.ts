@@ -1,7 +1,7 @@
 /**
  * 组件注册表
  * 定义所有必需的 UI 组件，用于测试组件是否存在且能正常导入
- * 
+ *
  * 分类：
  * - pages: 页面级组件
  * - components: 通用组件
@@ -49,30 +49,30 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'SearchBox', path: 'components/common/SearchBox', category: 'components', description: '搜索框' },
   { name: 'ListStates', path: 'components/common/ListStates', category: 'components', description: '列表状态组件' },
   { name: 'SyncStatusBanner', path: 'components/common/SyncStatusBanner', category: 'components', description: '消息同步状态横幅' },
-  
+
   // 侧边栏
   { name: 'Sidebar', path: 'components/sidebar/Sidebar', category: 'components', description: '侧边栏' },
-  
+
   // 统一列表
   { name: 'UnifiedList', path: 'components/unified/UnifiedList', category: 'components', description: '统一列表组件' },
-  
+
   // 账号相关
   { name: 'CardStack', path: 'components/account/CardStack', category: 'components', description: '卡片堆叠组件' },
   { name: 'CardSlot', path: 'components/account/CardSlot', category: 'components', description: '卡片槽组件' },
-  
+
   // 个人资料相关
   { name: 'ProfileModal', path: 'components/ProfileModal', category: 'components', description: '个人资料模态框' },
   { name: 'AvatarUploader', path: 'components/profile/AvatarUploader', category: 'components', description: '头像上传组件' },
   { name: 'PasswordForm', path: 'components/profile/PasswordForm', category: 'components', description: '密码表单' },
   { name: 'ProfileInfoForm', path: 'components/profile/ProfileInfoForm', category: 'components', description: '个人信息表单' },
-  
+
   // 文件相关
   { name: 'FilesModal', path: 'components/files/FilesModal', category: 'components', description: '文件管理模态框' },
-  
+
   // 群组模态框
   { name: 'GroupsModal', path: 'components/GroupsModal', category: 'components', description: '群组管理模态框' },
   { name: 'AddModal', path: 'components/AddModal', category: 'components', description: '添加好友/群组模态框' },
-  
+
   // 设置相关
   { name: 'SettingsPanel', path: 'components/settings/SettingsPanel', category: 'components', description: '设置面板' },
   { name: 'SettingsSection', path: 'components/settings/SettingsSection', category: 'components', description: '设置分组组件' },
@@ -131,7 +131,7 @@ export const MODAL_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupInvitesTab', path: 'components/modals/add/GroupInvitesTab', category: 'modals', description: '群组邀请标签页' },
   { name: 'JoinGroupTab', path: 'components/modals/add/JoinGroupTab', category: 'modals', description: '加入群组标签页' },
   { name: 'TabNavigation', path: 'components/modals/add/TabNavigation', category: 'modals', description: '标签导航' },
-  
+
   // 群组相关模态框
   { name: 'CreateGroupForm', path: 'components/modals/groups/CreateGroupForm', category: 'modals', description: '创建群组表单' },
   { name: 'GroupListContent', path: 'components/modals/groups/GroupListContent', category: 'modals', description: '群组列表内容' },
@@ -154,15 +154,15 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },
   { name: 'UserProfilePopup', path: 'chat/shared/UserProfilePopup', category: 'chat', description: '用户资料弹窗' },
-  
+
   // 好友聊天组件
   { name: 'ChatMessages', path: 'chat/friend/ChatMessages', category: 'chat', description: '好友聊天消息列表' },
   { name: 'MessageBubble', path: 'chat/friend/MessageBubble', category: 'chat', description: '好友消息气泡' },
-  
+
   // 群聊组件
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
-  
+
   // 聊天菜单子组件
   { name: 'ConfirmDialog', path: 'chat/shared/menu/ConfirmDialog', category: 'chat', description: '确认对话框' },
   { name: 'EditNameForm', path: 'chat/shared/menu/EditNameForm', category: 'chat', description: '编辑名称表单' },
@@ -263,4 +263,3 @@ export const REGISTRY_STATS = {
   services: SERVICES.length,
   total: ALL_COMPONENTS.length + HOOKS.length + SERVICES.length,
 };
-

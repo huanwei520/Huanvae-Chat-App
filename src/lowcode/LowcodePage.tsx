@@ -283,6 +283,7 @@ function LowcodePage() {
     workflowInputs,
     workflowOutputs,
     markSaved,
+    controlFlowConfig,
   ]);
 
   /** 验证流程 */
@@ -320,7 +321,7 @@ function LowcodePage() {
       // eslint-disable-next-line no-alert
       alert(`验证失败: ${err instanceof Error ? err.message : '未知错误'}`);
     }
-  }, [workflowService, workflowId, nodes, edges, workflowInputs, workflowOutputs]);
+  }, [workflowService, workflowId, nodes, edges, workflowInputs, workflowOutputs, controlFlowConfig]);
 
   /** 运行流程 */
   const handleRun = useCallback(() => {
@@ -645,6 +646,7 @@ function LowcodePage() {
 
   /** 验证配置文件 */
   const handleValidateConfig = useCallback(
+    // eslint-disable-next-line require-await
     async (config: WorkflowConfig): Promise<ConfigValidationResult> => {
       if (!workflowService) {
         throw new Error('服务未初始化');
@@ -694,6 +696,7 @@ function LowcodePage() {
 
   /** 批量执行流程 */
   const handleBatchExecute = useCallback(
+    // eslint-disable-next-line require-await
     async (batchInputs: Record<string, unknown>[]): Promise<BatchExecutionResult> => {
       if (!workflowService || !workflowId) {
         throw new Error('请先保存流程');
@@ -766,6 +769,14 @@ function LowcodePage() {
     return baseInputs;
   }, [workflowInputs, nodes, controlFlowConfig]);
 
+  // MathJax 配置 - 必须在条件返回之前调用
+  const mathJaxConfig = useMemo(() => ({
+    tex: {
+      inlineMath: [['$', '$']],
+      displayMath: [['$$', '$$']],
+    },
+  }), []);
+
   // ---- 错误状态 ----
   if (error || !windowData) {
     return (
@@ -778,124 +789,116 @@ function LowcodePage() {
     );
   }
 
-  // MathJax 配置
-  const mathJaxConfig = useMemo(() => ({
-    tex: {
-      inlineMath: [['$', '$']],
-      displayMath: [['$$', '$$']],
-    },
-  }), []);
-
   return (
     <MathJaxContext config={mathJaxConfig}>
       <div className="lowcode-page">
         {/* 顶部工具栏 */}
         <Toolbar
-        workflowName={workflowName}
-        onNameChange={setWorkflowName}
-        isDirty={isDirty}
-        isSaving={isSaving}
-        isExecuting={isExecuting}
-        workflowId={workflowId}
-        nodeCount={nodes.length}
-        onNew={handleNew}
-        onSave={handleSave}
-        onValidate={handleValidate}
-        onRun={handleRun}
-        onExport={handleExport}
-        onOpenList={handleOpenList}
-        onClear={handleClear}
-        onOpenTemplates={handleOpenTemplates}
-        onOpenVersions={handleOpenVersions}
-        onOpenCategories={handleOpenCategories}
-        onBatchRun={handleBatchRun}
-        onAutoLayout={handleAutoLayout}
-        onImport={handleOpenImport}
-        onRunConfig={handleOpenRunConfig}
-        onOpenControlFlow={handleOpenControlFlow}
-        onOpenMermaidPreview={handleOpenMermaidPreview}
-      />
-
-      {/* 主内容区 */}
-      <div className="lowcode-content">
-        {/* 左侧算子面板 */}
-        <OperatorPanel
-          serverUrl={windowData.serverUrl}
-          categoryService={categoryService}
+          workflowName={workflowName}
+          onNameChange={setWorkflowName}
+          isDirty={isDirty}
+          isSaving={isSaving}
+          isExecuting={isExecuting}
+          workflowId={workflowId}
+          nodeCount={nodes.length}
+          onNew={handleNew}
+          onSave={handleSave}
+          onValidate={handleValidate}
+          onRun={handleRun}
+          onExport={handleExport}
+          onOpenList={handleOpenList}
+          onClear={handleClear}
+          onOpenTemplates={handleOpenTemplates}
+          onOpenVersions={handleOpenVersions}
+          onOpenCategories={handleOpenCategories}
+          onBatchRun={handleBatchRun}
+          onAutoLayout={handleAutoLayout}
+          onImport={handleOpenImport}
+          onRunConfig={handleOpenRunConfig}
+          onOpenControlFlow={handleOpenControlFlow}
+          onOpenMermaidPreview={handleOpenMermaidPreview}
         />
 
-        {/* 中间画布区域 */}
-        <div className="lowcode-canvas-wrapper">
-          <ReactFlowProvider>
-            <FlowCanvas
-              layoutTrigger={layoutTrigger}
-              layoutDirection="TB"
-            />
-          </ReactFlowProvider>
+        {/* 主内容区 */}
+        <div className="lowcode-content">
+          {/* 左侧算子面板 */}
+          <OperatorPanel
+            serverUrl={windowData.serverUrl}
+            categoryService={categoryService}
+          />
+
+          {/* 中间画布区域 */}
+          <div className="lowcode-canvas-wrapper">
+            <ReactFlowProvider>
+              <FlowCanvas
+                layoutTrigger={layoutTrigger}
+                layoutDirection="TB"
+              />
+            </ReactFlowProvider>
+          </div>
+
+          {/* 右侧属性面板 */}
+          <PropertyPanel
+            workflowInputs={workflowInputs}
+            workflowOutputs={workflowOutputs}
+            onAddInput={addWorkflowInput}
+            onRemoveInput={removeWorkflowInput}
+            onRenameInput={renameWorkflowInput}
+            onAddOutput={addWorkflowOutput}
+            onRemoveOutput={removeWorkflowOutput}
+            onRenameOutput={renameWorkflowOutput}
+          />
         </div>
 
-        {/* 右侧属性面板 */}
-        <PropertyPanel
-          workflowInputs={workflowInputs}
-          workflowOutputs={workflowOutputs}
-          onAddInput={addWorkflowInput}
-          onRemoveInput={removeWorkflowInput}
-          onRenameInput={renameWorkflowInput}
-          onAddOutput={addWorkflowOutput}
-          onRemoveOutput={removeWorkflowOutput}
-          onRenameOutput={renameWorkflowOutput}
+        {/* 执行对话框 */}
+        <ExecuteDialog
+          isOpen={showExecuteDialog}
+          onClose={() => setShowExecuteDialog(false)}
+          workflowName={workflowName}
+          inputs={executeInputs}
+          onExecute={handleExecute}
+          inputHistory={inputHistory}
+          onLoadHistory={workflowId ? handleLoadInputHistory : undefined}
+          executionMode={controlFlowConfig?.execution_mode}
+          timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
         />
-      </div>
 
-      {/* 执行对话框 */}
-      <ExecuteDialog
-        isOpen={showExecuteDialog}
-        onClose={() => setShowExecuteDialog(false)}
-        workflowName={workflowName}
-        inputs={executeInputs}
-        onExecute={handleExecute}
-        inputHistory={inputHistory}
-        onLoadHistory={workflowId ? handleLoadInputHistory : undefined}
-        executionMode={controlFlowConfig?.execution_mode}
-        timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
-      />
+        {/* 流程列表对话框 */}
+        <WorkflowListDialog
+          isOpen={showWorkflowListDialog}
+          onClose={() => setShowWorkflowListDialog(false)}
+          onLoadList={handleLoadList}
+          onLoad={handleLoadWorkflow}
+          onDelete={handleDeleteWorkflow}
+        />
 
-      {/* 流程列表对话框 */}
-      <WorkflowListDialog
-        isOpen={showWorkflowListDialog}
-        onClose={() => setShowWorkflowListDialog(false)}
-        onLoadList={handleLoadList}
-        onLoad={handleLoadWorkflow}
-        onDelete={handleDeleteWorkflow}
-      />
+        {/* 分类配置对话框 */}
+        <CategoryConfigDialog
+          isOpen={showCategoryDialog}
+          onClose={() => setShowCategoryDialog(false)}
+          categoryService={categoryService}
+          operators={operators}
+        />
 
-      {/* 分类配置对话框 */}
-      <CategoryConfigDialog
-        isOpen={showCategoryDialog}
-        onClose={() => setShowCategoryDialog(false)}
-        categoryService={categoryService}
-        operators={operators}
-      />
+        {/* 模板选择对话框 */}
+        <TemplateDialog
+          isOpen={showTemplateDialog}
+          onClose={() => setShowTemplateDialog(false)}
+          templateService={templateService}
+          onCreateFromTemplate={handleCreateFromTemplate}
+        />
 
-      {/* 模板选择对话框 */}
-      <TemplateDialog
-        isOpen={showTemplateDialog}
-        onClose={() => setShowTemplateDialog(false)}
-        templateService={templateService}
-        onCreateFromTemplate={handleCreateFromTemplate}
-      />
+        {/* 版本历史面板 */}
+        <VersionHistoryPanel
+          isOpen={showVersionPanel}
+          onClose={() => setShowVersionPanel(false)}
+          workflowId={workflowId}
+          workflowName={workflowName}
+          versionService={versionService}
+          onRollback={handleRollback}
+        />
 
-      {/* 版本历史面板 */}
-      <VersionHistoryPanel
-        isOpen={showVersionPanel}
-        onClose={() => setShowVersionPanel(false)}
-        workflowId={workflowId}
-        workflowName={workflowName}
-        versionService={versionService}
-        onRollback={handleRollback}
-      />
-
-      {/* 批量执行对话框 */}
+        {/* 批量执行对话框 */}
         <BatchExecuteDialog
           isOpen={showBatchDialog}
           onClose={() => setShowBatchDialog(false)}
@@ -904,7 +907,7 @@ function LowcodePage() {
           onExecute={handleBatchExecute}
         />
 
-      {/* 导入配置对话框 */}
+        {/* 导入配置对话框 */}
         <ImportConfigDialog
           isOpen={showImportDialog}
           onClose={() => setShowImportDialog(false)}
@@ -912,40 +915,40 @@ function LowcodePage() {
           onImport={handleImportConfig}
         />
 
-      {/* 临时执行对话框（复用 ExecuteDialog） */}
-      {showRunConfigDialog && (
-        <ExecuteDialog
-          isOpen={showRunConfigDialog}
-          onClose={() => setShowRunConfigDialog(false)}
-          workflowName={workflowName || '临时执行'}
-          inputs={executeInputs}
-          onExecute={handleExecuteConfig}
-          executionMode={controlFlowConfig?.execution_mode}
-          timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
+        {/* 临时执行对话框（复用 ExecuteDialog） */}
+        {showRunConfigDialog && (
+          <ExecuteDialog
+            isOpen={showRunConfigDialog}
+            onClose={() => setShowRunConfigDialog(false)}
+            workflowName={workflowName || '临时执行'}
+            inputs={executeInputs}
+            onExecute={handleExecuteConfig}
+            executionMode={controlFlowConfig?.execution_mode}
+            timeSeriesInputs={controlFlowConfig?.iteration?.time_series_inputs}
+          />
+        )}
+
+        {/* 控制流配置对话框 */}
+        <ControlFlowDialog
+          isOpen={showControlFlowDialog}
+          onClose={() => setShowControlFlowDialog(false)}
+          config={controlFlowConfig}
+          onSave={handleSaveControlFlow}
+          nodes={getWorkflowNodes()}
         />
-      )}
 
-      {/* 控制流配置对话框 */}
-      <ControlFlowDialog
-        isOpen={showControlFlowDialog}
-        onClose={() => setShowControlFlowDialog(false)}
-        config={controlFlowConfig}
-        onSave={handleSaveControlFlow}
-        nodes={getWorkflowNodes()}
-      />
-
-      {/* Mermaid 预览 */}
-      <MermaidPreview
-        isOpen={showMermaidPreview}
-        onClose={() => setShowMermaidPreview(false)}
-        nodes={getWorkflowNodes()}
-        edges={useFlowStore.getState().edges.map((e) => ({
-          id: e.id,
-          source: { node: e.source, port: e.sourceHandle || '' },
-          target: { node: e.target, port: e.targetHandle || '' },
-        }))}
-        workflowName={workflowName}
-      />
+        {/* Mermaid 预览 */}
+        <MermaidPreview
+          isOpen={showMermaidPreview}
+          onClose={() => setShowMermaidPreview(false)}
+          nodes={getWorkflowNodes()}
+          edges={useFlowStore.getState().edges.map((e) => ({
+            id: e.id,
+            source: { node: e.source, port: e.sourceHandle || '' },
+            target: { node: e.target, port: e.targetHandle || '' },
+          }))}
+          workflowName={workflowName}
+        />
       </div>
     </MathJaxContext>
   );
