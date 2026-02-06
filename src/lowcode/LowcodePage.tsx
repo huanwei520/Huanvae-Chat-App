@@ -935,6 +935,7 @@ function LowcodePage() {
           config={controlFlowConfig}
           onSave={handleSaveControlFlow}
           nodes={getWorkflowNodes()}
+          workflowInputNames={workflowInputs.map((i) => i.name)}
         />
 
         {/* Mermaid 预览 */}

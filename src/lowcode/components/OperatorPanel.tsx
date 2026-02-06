@@ -13,6 +13,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { fetchOperators } from '../services/operatorService';
 import { OperatorDetailDialog } from './OperatorDetailDialog';
+import { MathFormula } from './MathFormula';
 import type { Operator, CategoryConfig, CategoryNode } from '../types/lowcode';
 import type { CategoryService } from '../services/categoryService';
 
@@ -114,6 +115,13 @@ interface OperatorCardProps {
   onShowDetail?: (operator: Operator) => void;
 }
 
+/** 算子类型标签映射 */
+const OPERATOR_TYPE_LABELS: Record<string, { label: string; className: string }> = {
+  operator: { label: '算子', className: 'type-badge-operator' },
+  formula: { label: '公式', className: 'type-badge-formula' },
+  equation_network: { label: '方程网络', className: 'type-badge-equation' },
+};
+
 function OperatorCard({ operator, onDragStart, onShowDetail }: OperatorCardProps) {
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -133,6 +141,10 @@ function OperatorCard({ operator, onDragStart, onShowDetail }: OperatorCardProps
     onShowDetail?.(operator);
   }, [operator, onShowDetail]);
 
+  const typeBadge = operator.operator_type
+    ? OPERATOR_TYPE_LABELS[operator.operator_type]
+    : null;
+
   return (
     <motion.div
       className="operator-card"
@@ -150,7 +162,20 @@ function OperatorCard({ operator, onDragStart, onShowDetail }: OperatorCardProps
           <OperatorIcon />
         </div>
         <div className="operator-card-content">
-          <div className="operator-card-name">{operator.name}</div>
+          <div className="operator-card-name-row">
+            <span className="operator-card-name">{operator.name}</span>
+            {typeBadge && (
+              <span className={`operator-type-badge ${typeBadge.className}`}>
+                {typeBadge.label}
+              </span>
+            )}
+          </div>
+          {/* LaTeX 公式预览（CSS 溢出截断，避免破坏 LaTeX 结构） */}
+          {operator.latex_formula && (
+            <div className="operator-card-formula">
+              <MathFormula latex={operator.latex_formula} inline />
+            </div>
+          )}
           <div className="operator-card-meta">
             <span className="operator-card-io">
               {operator.inputs?.length || 0} 输入 / {operator.outputs?.length || 0} 输出

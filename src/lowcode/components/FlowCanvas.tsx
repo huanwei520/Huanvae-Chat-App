@@ -15,9 +15,13 @@ import {
   MiniMap,
   Background,
   BackgroundVariant,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
   useReactFlow,
   useNodesInitialized,
   type NodeMouseHandler,
+  type EdgeProps,
 } from '@xyflow/react';
 import { useFlowStore } from '../stores/flowStore';
 import { nodeTypes } from './OperatorNode';
@@ -38,6 +42,61 @@ function generateNodeId(): string {
   nodeIdCounter += 1;
   return `node-${Date.now()}-${nodeIdCounter}`;
 }
+
+// ============================================================================
+// 自定义边组件 - 4 种边类型的视觉区分
+// ============================================================================
+
+/** data 边：默认蓝色实线，带动画 */
+function DataEdge(props: EdgeProps) {
+  const [edgePath] = getBezierPath(props);
+  return <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 2 }} />;
+}
+
+/** state 边：橙色虚线，显示 lag 标签 */
+function StateEdge(props: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath(props);
+  const lag = (props.data as { lag?: number } | undefined)?.lag;
+  return (
+    <>
+      <BaseEdge path={edgePath} style={{ stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '8 4' }} />
+      {lag !== undefined && lag > 0 && (
+        <EdgeLabelRenderer>
+          <div
+            className="edge-label-state"
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: 'all',
+            }}
+          >
+            lag={lag}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+/** accumulator_read 边：绿色点划线 */
+function AccumulatorReadEdge(props: EdgeProps) {
+  const [edgePath] = getBezierPath(props);
+  return <BaseEdge path={edgePath} style={{ stroke: '#10b981', strokeWidth: 2, strokeDasharray: '4 2 1 2' }} />;
+}
+
+/** broadcast 边：紫色粗线 */
+function BroadcastEdge(props: EdgeProps) {
+  const [edgePath] = getBezierPath(props);
+  return <BaseEdge path={edgePath} style={{ stroke: '#a855f7', strokeWidth: 3 }} />;
+}
+
+/** 自定义边类型映射 */
+const customEdgeTypes = {
+  data: DataEdge,
+  state: StateEdge,
+  accumulator_read: AccumulatorReadEdge,
+  broadcast: BroadcastEdge,
+};
 
 /** FlowCanvas 组件属性 */
 interface FlowCanvasProps {
@@ -197,6 +256,7 @@ export function FlowCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={customEdgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -209,6 +269,7 @@ export function FlowCanvas({
         minZoom={0.2}
         maxZoom={2}
         defaultEdgeOptions={{
+          type: 'data',
           animated: true,
           style: { strokeWidth: 2 },
         }}

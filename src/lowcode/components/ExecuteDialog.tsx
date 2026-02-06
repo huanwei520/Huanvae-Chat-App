@@ -26,6 +26,8 @@ import type {
   IterationInfo,
   PortReference,
   ExecutionMode,
+  MonteCarloInfo,
+  MonteCarloOutputStats,
 } from '../types/lowcode';
 
 // ============================================================================
@@ -235,6 +237,183 @@ function IterationInfoView({ info }: IterationInfoViewProps) {
   );
 }
 
+// ============================================================================
+// Monte Carlo 信息视图
+// ============================================================================
+
+interface MonteCarloInfoViewProps {
+  info: MonteCarloInfo;
+}
+
+/**
+ * Monte Carlo 执行信息展示
+ */
+function MonteCarloInfoView({ info }: MonteCarloInfoViewProps) {
+  return (
+    <div className="mc-info">
+      <h4 className="mc-info-title">Monte Carlo 模拟信息</h4>
+      <div className="mc-info-grid">
+        <div className="mc-info-item">
+          <span className="mc-info-label">总采样次数:</span>
+          <span className="mc-info-value">{info.total_samples}</span>
+        </div>
+        {info.seed !== undefined && (
+          <div className="mc-info-item">
+            <span className="mc-info-label">随机种子:</span>
+            <span className="mc-info-value">{info.seed}</span>
+          </div>
+        )}
+        <div className="mc-info-item">
+          <span className="mc-info-label">并行执行:</span>
+          <span className="mc-info-value">{info.parallel ? '是' : '否'}</span>
+        </div>
+      </div>
+      {info.parameter_distributions.length > 0 && (
+        <div className="mc-info-distributions">
+          <h5 className="mc-dist-title">参数分布</h5>
+          <div className="mc-dist-list">
+            {info.parameter_distributions.map((dist, i) => (
+              <div key={i} className="mc-dist-item">
+                <span className="mc-dist-name">{dist.name}</span>
+                <span className="mc-dist-type">{dist.distribution}</span>
+                <span className="mc-dist-params">
+                  {Object.entries(dist.params).map(([k, v]) => `${k}=${v}`).join(', ')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Monte Carlo 结果视图
+// ============================================================================
+
+interface MonteCarloResultViewProps {
+  outputs: Record<string, unknown>;
+}
+
+/**
+ * 检测值是否为 MonteCarloOutputStats 结构
+ */
+function isMCStats(value: unknown): value is MonteCarloOutputStats {
+  if (typeof value !== 'object' || value === null) { return false; }
+  const v = value as Record<string, unknown>;
+  return typeof v.mean === 'number' && typeof v.std === 'number' && typeof v.percentiles === 'object';
+}
+
+/**
+ * 直方图子组件（避免 non-null assertion）
+ */
+function HistogramChart({ histogram, maxCount }: { histogram: { bins: number[]; counts: number[] }; maxCount: number }) {
+  return (
+    <div className="mc-histogram">
+      <div className="mc-histogram-title">分布直方图</div>
+      <div className="mc-histogram-chart">
+        {histogram.counts.map((count, i) => (
+          <div key={i} className="mc-histogram-bar-wrapper">
+            <div
+              className="mc-histogram-bar"
+              style={{ height: `${maxCount > 0 ? (count / maxCount) * 100 : 0}%` }}
+              title={`[${histogram.bins[i].toFixed(2)}, ${histogram.bins[i + 1]?.toFixed(2) ?? '...'}) = ${count}`}
+            />
+            <span className="mc-histogram-label">
+              {histogram.bins[i].toFixed(1)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 单个统计卡片
+ */
+function MCStatsCard({ name, stats }: { name: string; stats: MonteCarloOutputStats }) {
+  const maxCount = stats.histogram
+    ? Math.max(...stats.histogram.counts)
+    : 0;
+
+  return (
+    <div className="mc-stats-card">
+      <h5 className="mc-stats-name">{name}</h5>
+      <div className="mc-stats-summary">
+        <div className="mc-stat">
+          <span className="mc-stat-label">均值</span>
+          <span className="mc-stat-value">{stats.mean.toFixed(4)}</span>
+        </div>
+        <div className="mc-stat">
+          <span className="mc-stat-label">标准差</span>
+          <span className="mc-stat-value">{stats.std.toFixed(4)}</span>
+        </div>
+      </div>
+
+      {/* 百分位表 */}
+      {Object.keys(stats.percentiles).length > 0 && (
+        <div className="mc-percentiles">
+          <div className="mc-percentiles-title">百分位数</div>
+          <div className="mc-percentiles-table">
+            {Object.entries(stats.percentiles)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([pct, val]) => (
+                <div key={pct} className="mc-percentile-row">
+                  <span className="mc-percentile-key">P{pct}</span>
+                  <span className="mc-percentile-val">{(val as number).toFixed(4)}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* 直方图 */}
+      {stats.histogram && stats.histogram.bins.length > 1 && (
+        <HistogramChart histogram={stats.histogram} maxCount={maxCount} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Monte Carlo 输出结果展示
+ */
+function MonteCarloResultView({ outputs }: MonteCarloResultViewProps) {
+  const mcOutputs: [string, MonteCarloOutputStats][] = [];
+  const normalOutputs: [string, unknown][] = [];
+
+  for (const [key, value] of Object.entries(outputs)) {
+    if (isMCStats(value)) {
+      mcOutputs.push([key, value]);
+    } else {
+      normalOutputs.push([key, value]);
+    }
+  }
+
+  return (
+    <div className="mc-results">
+      {mcOutputs.length > 0 && (
+        <div className="mc-stats-section">
+          <div className="mc-stats-section-title">统计结果</div>
+          <div className="mc-stats-grid">
+            {mcOutputs.map(([name, stats]) => (
+              <MCStatsCard key={name} name={name} stats={stats} />
+            ))}
+          </div>
+        </div>
+      )}
+      {normalOutputs.length > 0 && (
+        <div className="execution-outputs">
+          <div className="outputs-title">其他输出:</div>
+          <pre>{JSON.stringify(Object.fromEntries(normalOutputs), null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ExecutionResultViewProps {
   result: ExecutionResult;
 }
@@ -303,11 +482,21 @@ function ExecutionResultView({ result }: ExecutionResultViewProps) {
         </div>
       )}
 
+      {/* 输出结果：MC 模式使用统计视图，普通模式使用 JSON 展示 */}
       {result.outputs && Object.keys(result.outputs).length > 0 && (
-        <div className="execution-outputs">
-          <div className="outputs-title">输出结果:</div>
-          <pre>{JSON.stringify(result.outputs, null, 2)}</pre>
-        </div>
+        result.monte_carlo_info
+          ? <MonteCarloResultView outputs={result.outputs} />
+          : (
+            <div className="execution-outputs">
+              <div className="outputs-title">输出结果:</div>
+              <pre>{JSON.stringify(result.outputs, null, 2)}</pre>
+            </div>
+          )
+      )}
+
+      {/* Monte Carlo 执行信息 */}
+      {result.monte_carlo_info && (
+        <MonteCarloInfoView info={result.monte_carlo_info} />
       )}
 
       {/* 迭代执行信息 */}
@@ -524,7 +713,7 @@ function ExecuteDialogComponent({
           <div className="execute-mode-indicator">
             <span className="mode-label">执行模式:</span>
             <span className={`mode-value mode-${executionMode}`}>
-              {executionMode === 'iterative' ? '迭代执行' : '单次执行'}
+              {{ single: '单次执行', iterative: '迭代执行', monte_carlo: 'Monte Carlo 模拟' }[executionMode]}
             </span>
             {executionMode === 'iterative' && timeSeriesInputs.length > 0 && (
               <span className="mode-hint">

@@ -7,10 +7,12 @@
  * 节点类型：
  * - operator: 运算符（圆角矩形）
  * - formula: 公式（矩形，默认）
- * - equation_network: 方程网络（菱形）
+ * - equation_network: 方程网络（菱形边框）
+ * - virtual: 虚拟节点（_input 工作流输入广播 / _virtual 累加器与状态变量来源）
  *
  * @module lowcode/components/OperatorNode
  * @updated 2026-01-26 添加多节点类型支持
+ * @updated 2026-02-06 添加虚拟节点组件（VirtualNode），支持 _input / _virtual 来源渲染
  */
 
 import { memo } from 'react';
@@ -171,6 +173,83 @@ function OperatorNodeComponent({ data, selected }: NodeProps) {
 
 export const OperatorNode = memo(OperatorNodeComponent);
 
+// ============================================================================
+// 虚拟节点组件
+// ============================================================================
+
+/** 虚拟节点类型 */
+export type VirtualNodeKind = '_input' | '_virtual';
+
+/** 虚拟节点数据 */
+export interface VirtualNodeData {
+  /** 虚拟节点类型 */
+  kind: VirtualNodeKind;
+  /** 显示标签 */
+  label: string;
+  /** 输出端口列表（从边的 sourceHandle 收集） */
+  ports: string[];
+}
+
+/** 虚拟节点图标 - 输入节点 */
+function InputNodeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={14} height={14}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+    </svg>
+  );
+}
+
+/** 虚拟节点图标 - 虚拟/系统节点 */
+function VirtualNodeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={14} height={14}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+    </svg>
+  );
+}
+
+/**
+ * 虚拟节点组件
+ *
+ * 用于渲染 _input（工作流输入广播）和 _virtual（累加器/状态变量来源）节点
+ * 比普通节点更紧凑，使用虚线边框区分
+ */
+function VirtualNodeComponent({ data, selected }: NodeProps) {
+  const nodeData = data as unknown as VirtualNodeData;
+  const { kind, label, ports } = nodeData;
+
+  const isInput = kind === '_input';
+
+  return (
+    <div className={`virtual-node virtual-node--${kind} ${selected ? 'selected' : ''}`}>
+      <div className="virtual-node-header">
+        <div className="virtual-node-icon">
+          {isInput ? <InputNodeIcon /> : <VirtualNodeIcon />}
+        </div>
+        <div className="virtual-node-label">{label}</div>
+      </div>
+
+      {/* 输出端口 */}
+      <div className="virtual-node-ports">
+        {ports.map((port, index) => (
+          <div key={port} className="node-port output-port">
+            <span className="port-label port-label-sm">{port}</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={port}
+              style={{ top: 28 + index * 20 }}
+              title={port}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export const VirtualNode = memo(VirtualNodeComponent);
+
 /**
  * 节点类型映射
  *
@@ -178,9 +257,11 @@ export const OperatorNode = memo(OperatorNodeComponent);
  * - operator: 运算符（圆角矩形）
  * - formula: 公式（矩形，默认）
  * - equation_network: 方程网络（菱形边框）
+ * - virtual: 虚拟节点（_input, _virtual）
  */
 export const nodeTypes = {
   operator: OperatorNode,
   formula: OperatorNode,
   equation_network: OperatorNode,
+  virtual: VirtualNode,
 };

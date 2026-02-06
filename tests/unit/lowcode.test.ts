@@ -21,6 +21,7 @@ import {
 import { useFlowStore } from '../../src/lowcode/stores/flowStore';
 import {
   serializeToWorkflow,
+  deserializeFromWorkflow,
   validateDefinition,
   getExecutionOrder,
 } from '../../src/lowcode/utils/workflowSerializer';
@@ -49,6 +50,14 @@ import type {
   NodeOutputParam,
   AccumulatorReference,
   OutputBindFrom,
+  EdgeType,
+  DynamicInitConfig,
+  MonteCarloConfig,
+  MonteCarloOutputFormat,
+  ParameterDistribution,
+  DistributionType,
+  MonteCarloInfo,
+  MonteCarloOutputStats,
 } from '../../src/lowcode/types/lowcode';
 
 describe('lowcode/api', () => {
@@ -212,6 +221,305 @@ describe('lowcode/utils/workflowSerializer', () => {
       outputs: [],
     });
     expect(order).toEqual(['n1', 'n2', 'n3']);
+  });
+
+  it('should serialize edge with edge_type and lag from data', () => {
+    const mockOperator: Operator = {
+      id: 'test.op',
+      name: 'Test',
+      category: 'test',
+      inputs: [{ name: 'in' }],
+      outputs: [{ name: 'out' }],
+    };
+
+    const nodes = [
+      {
+        id: 'n1',
+        type: 'operator',
+        position: { x: 0, y: 0 },
+        data: { operator: mockOperator } as unknown as Record<string, unknown>,
+      },
+      {
+        id: 'n2',
+        type: 'operator',
+        position: { x: 200, y: 0 },
+        data: { operator: mockOperator } as unknown as Record<string, unknown>,
+      },
+    ];
+
+    const edges = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        sourceHandle: 'out',
+        targetHandle: 'in',
+        data: { edgeType: 'state' as const, lag: 3 },
+      },
+    ];
+
+    const result = serializeToWorkflow(nodes, edges, [], []);
+    expect(result.edges[0].edge_type).toBe('state');
+    expect(result.edges[0].lag).toBe(3);
+  });
+
+  it('should not include edge_type when data has no edgeType', () => {
+    const mockOperator: Operator = {
+      id: 'test.op',
+      name: 'Test',
+      category: 'test',
+      inputs: [],
+      outputs: [],
+    };
+
+    const nodes = [
+      {
+        id: 'n1',
+        type: 'operator',
+        position: { x: 0, y: 0 },
+        data: { operator: mockOperator } as unknown as Record<string, unknown>,
+      },
+      {
+        id: 'n2',
+        type: 'operator',
+        position: { x: 200, y: 0 },
+        data: { operator: mockOperator } as unknown as Record<string, unknown>,
+      },
+    ];
+
+    const edges = [
+      {
+        id: 'e1',
+        source: 'n1',
+        target: 'n2',
+        sourceHandle: 'out',
+        targetHandle: 'in',
+      },
+    ];
+
+    const result = serializeToWorkflow(nodes, edges, [], []);
+    expect(result.edges[0].edge_type).toBeUndefined();
+    expect(result.edges[0].lag).toBeUndefined();
+  });
+
+  it('should create virtual nodes for _input source in deserializeFromWorkflow', () => {
+    const mockOperator: Operator = {
+      id: 'op1',
+      name: 'Op1',
+      category: 'test',
+      inputs: [{ name: 'T' }],
+      outputs: [{ name: 'TK' }],
+    };
+
+    const definition = {
+      nodes: [{ id: 'n1', operator_id: 'op1' }],
+      edges: [
+        {
+          id: 'e-broadcast',
+          source: { node: '_input', port: 'T' },
+          target: { node: 'n1', port: 'T' },
+          edge_type: 'broadcast' as EdgeType,
+        },
+      ],
+      inputs: [],
+      outputs: [],
+    };
+
+    const { result } = deserializeFromWorkflow(definition, [mockOperator]);
+
+    // 应该有 2 个节点：1 个真实 + 1 个虚拟
+    expect(result.nodes).toHaveLength(2);
+    const virtualNode = result.nodes.find((n) => n.id === '_input');
+    expect(virtualNode).toBeDefined();
+    expect(virtualNode?.type).toBe('virtual');
+
+    const vData = virtualNode?.data as unknown as { kind: string; label: string; ports: string[] };
+    expect(vData.kind).toBe('_input');
+    expect(vData.label).toBe('工作流输入');
+    expect(vData.ports).toContain('T');
+  });
+
+  it('should create virtual nodes for _virtual source in deserializeFromWorkflow', () => {
+    const mockOperator: Operator = {
+      id: 'op1',
+      name: 'Op1',
+      category: 'test',
+      inputs: [{ name: 'y' }, { name: 'z' }],
+      outputs: [{ name: 'out' }],
+    };
+
+    const definition = {
+      nodes: [{ id: 'n1', operator_id: 'op1' }],
+      edges: [
+        {
+          id: 'e-acc-y',
+          source: { node: '_virtual', port: '@acc.y' },
+          target: { node: 'n1', port: 'y' },
+          edge_type: 'accumulator_read' as EdgeType,
+        },
+        {
+          id: 'e-state-s',
+          source: { node: '_virtual', port: '@state.S' },
+          target: { node: 'n1', port: 'z' },
+          edge_type: 'state' as EdgeType,
+          lag: 1,
+        },
+      ],
+      inputs: [],
+      outputs: [],
+    };
+
+    const { result } = deserializeFromWorkflow(definition, [mockOperator]);
+
+    // 应该有 2 个节点：1 个真实 + 1 个 _virtual
+    expect(result.nodes).toHaveLength(2);
+    const virtualNode = result.nodes.find((n) => n.id === '_virtual');
+    expect(virtualNode).toBeDefined();
+    expect(virtualNode?.type).toBe('virtual');
+
+    const vData = virtualNode?.data as unknown as { kind: string; label: string; ports: string[] };
+    expect(vData.kind).toBe('_virtual');
+    expect(vData.label).toBe('虚拟节点');
+    expect(vData.ports).toContain('@acc.y');
+    expect(vData.ports).toContain('@state.S');
+  });
+
+  it('should create separate virtual nodes for _input and _virtual sources', () => {
+    const mockOperator: Operator = {
+      id: 'op1',
+      name: 'Op1',
+      category: 'test',
+      inputs: [{ name: 'T' }, { name: 'y' }],
+      outputs: [{ name: 'out' }],
+    };
+
+    const definition = {
+      nodes: [{ id: 'n1', operator_id: 'op1' }],
+      edges: [
+        {
+          id: 'e-broadcast',
+          source: { node: '_input', port: 'T' },
+          target: { node: 'n1', port: 'T' },
+          edge_type: 'broadcast' as EdgeType,
+        },
+        {
+          id: 'e-acc',
+          source: { node: '_virtual', port: '@acc.y' },
+          target: { node: 'n1', port: 'y' },
+          edge_type: 'accumulator_read' as EdgeType,
+        },
+      ],
+      inputs: [],
+      outputs: [],
+    };
+
+    const { result } = deserializeFromWorkflow(definition, [mockOperator]);
+
+    // 应该有 3 个节点：1 个真实 + 2 个虚拟
+    expect(result.nodes).toHaveLength(3);
+    expect(result.nodes.filter((n) => n.type === 'virtual')).toHaveLength(2);
+    expect(result.nodes.find((n) => n.id === '_input')).toBeDefined();
+    expect(result.nodes.find((n) => n.id === '_virtual')).toBeDefined();
+  });
+
+  it('should not create virtual nodes when all source nodes are real', () => {
+    const mockOperator: Operator = {
+      id: 'op1',
+      name: 'Op1',
+      category: 'test',
+      inputs: [{ name: 'in' }],
+      outputs: [{ name: 'out' }],
+    };
+
+    const definition = {
+      nodes: [
+        { id: 'n1', operator_id: 'op1' },
+        { id: 'n2', operator_id: 'op1' },
+      ],
+      edges: [
+        {
+          id: 'e-data',
+          source: { node: 'n1', port: 'out' },
+          target: { node: 'n2', port: 'in' },
+        },
+      ],
+      inputs: [],
+      outputs: [],
+    };
+
+    const { result } = deserializeFromWorkflow(definition, [mockOperator]);
+
+    // 应只有 2 个真实节点，无虚拟节点
+    expect(result.nodes).toHaveLength(2);
+    expect(result.nodes.filter((n) => n.type === 'virtual')).toHaveLength(0);
+  });
+
+  it('should filter out virtual nodes when serializing back', () => {
+    const mockOperator: Operator = {
+      id: 'op1',
+      name: 'Op1',
+      category: 'test',
+      inputs: [{ name: 'T' }],
+      outputs: [{ name: 'out' }],
+    };
+
+    const nodes = [
+      {
+        id: 'n1',
+        type: 'operator',
+        position: { x: 0, y: 0 },
+        data: { operator: mockOperator } as unknown as Record<string, unknown>,
+      },
+      {
+        id: '_input',
+        type: 'virtual',
+        position: { x: -200, y: 0 },
+        data: { kind: '_input', label: '工作流输入', ports: ['T'] } as unknown as Record<string, unknown>,
+      },
+    ];
+
+    const edges = [
+      {
+        id: 'e1',
+        source: '_input',
+        target: 'n1',
+        sourceHandle: 'T',
+        targetHandle: 'T',
+        data: { edgeType: 'broadcast' },
+      },
+    ];
+
+    const result = serializeToWorkflow(nodes, edges, [], []);
+    // 序列化时应该过滤掉虚拟节点
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0].id).toBe('n1');
+    // 边仍保留（后端需要）
+    expect(result.edges).toHaveLength(1);
+  });
+
+  it('should allow _virtual/_input in validateDefinition without errors', () => {
+    const errors = validateDefinition({
+      nodes: [{ id: 'n1', operator_id: 'op1' }],
+      edges: [
+        {
+          id: 'e1',
+          source: { node: '_input', port: 'T' },
+          target: { node: 'n1', port: 'T' },
+          edge_type: 'broadcast' as EdgeType,
+        },
+        {
+          id: 'e2',
+          source: { node: '_virtual', port: '@acc.y' },
+          target: { node: 'n1', port: 'y' },
+          edge_type: 'accumulator_read' as EdgeType,
+        },
+      ],
+      inputs: [],
+      outputs: [],
+    });
+
+    // 不应有关于 _input 或 _virtual 不存在的错误
+    expect(errors.filter((e) => e.includes('_input') || e.includes('_virtual'))).toHaveLength(0);
   });
 });
 
@@ -690,5 +998,221 @@ describe('lowcode/types', () => {
     expect(node.output_params).toHaveLength(1);
     expect(node.output_params![0].name).toBe('TK');
     expect(node.output_params![0].latex_name).toBe('T_K');
+  });
+
+  // =====================================================
+  // 新增：EdgeType 类型测试
+  // =====================================================
+
+  it('should have correct EdgeType variants', () => {
+    const data: EdgeType = 'data';
+    const state: EdgeType = 'state';
+    const accRead: EdgeType = 'accumulator_read';
+    const broadcast: EdgeType = 'broadcast';
+
+    expect(data).toBe('data');
+    expect(state).toBe('state');
+    expect(accRead).toBe('accumulator_read');
+    expect(broadcast).toBe('broadcast');
+  });
+
+  it('should have correct WorkflowEdge with edge_type and lag', () => {
+    const edge: WorkflowEdge = {
+      id: 'edge-state-1',
+      source: { node: 'node-1', port: 'output' },
+      target: { node: 'node-2', port: 'input' },
+      edge_type: 'state',
+      lag: 2,
+    };
+
+    expect(edge.edge_type).toBe('state');
+    expect(edge.lag).toBe(2);
+  });
+
+  it('should allow WorkflowEdge without edge_type and lag (defaults)', () => {
+    const edge: WorkflowEdge = {
+      id: 'edge-data-1',
+      source: { node: 'n1', port: 'out' },
+      target: { node: 'n2', port: 'in' },
+    };
+
+    expect(edge.edge_type).toBeUndefined();
+    expect(edge.lag).toBeUndefined();
+  });
+
+  // =====================================================
+  // 新增：DynamicInitConfig 类型测试
+  // =====================================================
+
+  it('should have correct DynamicInitConfig structure', () => {
+    const dynInit: DynamicInitConfig = {
+      source_node: 'init_node',
+      source_port: 'initial_value',
+    };
+
+    expect(dynInit.source_node).toBe('init_node');
+    expect(dynInit.source_port).toBe('initial_value');
+  });
+
+  it('should have correct StateVarConfig with dynamic_init', () => {
+    const sv: StateVarConfig = {
+      name: 'prev_price',
+      source_node: 'calc_node',
+      source_port: 'price',
+      initial_value: 0,
+      lag: 1,
+      dynamic_init: {
+        source_node: 'init_node',
+        source_port: 'first_price',
+      },
+    };
+
+    expect(sv.dynamic_init).toBeDefined();
+    expect(sv.dynamic_init?.source_node).toBe('init_node');
+    expect(sv.dynamic_init?.source_port).toBe('first_price');
+  });
+
+  // =====================================================
+  // 新增：Monte Carlo 类型测试
+  // =====================================================
+
+  it('should have correct DistributionType variants', () => {
+    const types: DistributionType[] = [
+      'normal', 'log_normal', 'uniform', 'truncated_normal',
+      'triangular', 'beta', 'gamma', 'fixed',
+    ];
+
+    expect(types).toHaveLength(8);
+    expect(types).toContain('normal');
+    expect(types).toContain('fixed');
+  });
+
+  it('should have correct ParameterDistribution structure', () => {
+    const dist: ParameterDistribution = {
+      name: 'temperature',
+      distribution: 'normal',
+      params: { mean: 25, std: 5 },
+    };
+
+    expect(dist.name).toBe('temperature');
+    expect(dist.distribution).toBe('normal');
+    expect(dist.params.mean).toBe(25);
+    expect(dist.params.std).toBe(5);
+  });
+
+  it('should have correct MonteCarloOutputFormat structure', () => {
+    const format: MonteCarloOutputFormat = {
+      percentiles: [5, 25, 50, 75, 95],
+      raw_samples: false,
+      histogram_bins: 50,
+    };
+
+    expect(format.percentiles).toEqual([5, 25, 50, 75, 95]);
+    expect(format.raw_samples).toBe(false);
+    expect(format.histogram_bins).toBe(50);
+  });
+
+  it('should have correct MonteCarloConfig structure', () => {
+    const config: MonteCarloConfig = {
+      samples: 10000,
+      seed: 42,
+      parallel: true,
+      output_format: {
+        percentiles: [5, 50, 95],
+        raw_samples: false,
+        histogram_bins: 100,
+      },
+      distributions: [
+        { name: 'temp', distribution: 'normal', params: { mean: 25, std: 5 } },
+        { name: 'humidity', distribution: 'uniform', params: { min: 30, max: 90 } },
+      ],
+    };
+
+    expect(config.samples).toBe(10000);
+    expect(config.seed).toBe(42);
+    expect(config.parallel).toBe(true);
+    expect(config.distributions).toHaveLength(2);
+    expect(config.distributions[0].distribution).toBe('normal');
+    expect(config.distributions[1].distribution).toBe('uniform');
+  });
+
+  it('should have correct MonteCarloInfo structure', () => {
+    const info: MonteCarloInfo = {
+      total_samples: 10000,
+      seed: 42,
+      parallel: true,
+      parameter_distributions: [
+        { name: 'temp', distribution: 'normal', params: { mean: 25, std: 5 } },
+      ],
+    };
+
+    expect(info.total_samples).toBe(10000);
+    expect(info.seed).toBe(42);
+    expect(info.parallel).toBe(true);
+    expect(info.parameter_distributions).toHaveLength(1);
+  });
+
+  it('should have correct MonteCarloOutputStats structure', () => {
+    const stats: MonteCarloOutputStats = {
+      mean: 24.87,
+      std: 5.02,
+      percentiles: { '5': 16.5, '50': 24.9, '95': 33.1 },
+      histogram: {
+        bins: [10, 15, 20, 25, 30, 35, 40],
+        counts: [50, 200, 500, 480, 190, 45],
+      },
+    };
+
+    expect(stats.mean).toBeCloseTo(24.87);
+    expect(stats.std).toBeCloseTo(5.02);
+    expect(stats.percentiles['50']).toBeCloseTo(24.9);
+    expect(stats.histogram?.bins).toHaveLength(7);
+    expect(stats.histogram?.counts).toHaveLength(6);
+  });
+
+  it('should have correct ControlFlowConfig with monte_carlo mode', () => {
+    const config: ControlFlowConfig = {
+      execution_mode: 'monte_carlo',
+      monte_carlo: {
+        samples: 5000,
+        parallel: true,
+        distributions: [
+          { name: 'x', distribution: 'normal', params: { mean: 0, std: 1 } },
+        ],
+      },
+    };
+
+    expect(config.execution_mode).toBe('monte_carlo');
+    expect(config.monte_carlo).toBeDefined();
+    expect(config.monte_carlo?.samples).toBe(5000);
+    expect(config.monte_carlo?.distributions).toHaveLength(1);
+  });
+
+  it('should have correct ExecutionResult with monte_carlo_info', () => {
+    const result: ExecutionResult = {
+      execution_id: 'mc-exec-001',
+      status: 'completed',
+      outputs: {
+        y: {
+          mean: 100,
+          std: 10,
+          percentiles: { '5': 83.5, '50': 100.1, '95': 116.4 },
+        },
+      },
+      error: null,
+      total_duration_ms: 5000,
+      monte_carlo_info: {
+        total_samples: 10000,
+        seed: 42,
+        parallel: true,
+        parameter_distributions: [
+          { name: 'x', distribution: 'normal', params: { mean: 50, std: 10 } },
+        ],
+      },
+    };
+
+    expect(result.execution_id).toBe('mc-exec-001');
+    expect(result.monte_carlo_info).toBeDefined();
+    expect(result.monte_carlo_info?.total_samples).toBe(10000);
   });
 });

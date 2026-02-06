@@ -3796,3 +3796,575 @@
 .mermaid-code-details[open] .mermaid-code {
   margin-top: 8px;
 }
+
+/* ============================================================================
+   自定义边标签样式
+   ============================================================================ */
+
+.edge-label-state {
+  background: var(--color-warning-light, #fff3e0);
+  color: var(--color-warning, #f59e0b);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-warning, #f59e0b);
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   状态变量动态初始化
+   ============================================================================ */
+
+.state-var-row-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.dynamic-init-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 4px 24px;
+  font-size: 12px;
+}
+
+.dynamic-init-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary, #666666);
+  white-space: nowrap;
+}
+
+.dynamic-init-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.dynamic-init-fields {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.config-select-sm {
+  font-size: 12px;
+  padding: 2px 6px;
+  min-width: 100px;
+}
+
+/* ============================================================================
+   Monte Carlo 配置面板
+   ============================================================================ */
+
+.mc-basic-config,
+.mc-output-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.mc-param {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.mc-param > span {
+  white-space: nowrap;
+  color: var(--color-text-secondary, #666666);
+}
+
+.mc-param .config-input {
+  width: 120px;
+}
+
+.mc-param-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.mc-param-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+/* MC 分布配置 */
+
+.mc-distributions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mc-distribution-row {
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--color-surface-alt, #fafafa);
+}
+
+.mc-dist-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mc-dist-main .config-select {
+  flex: 1;
+}
+
+.mc-dist-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mc-dist-param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.mc-dist-param > span {
+  color: var(--color-text-secondary, #666666);
+  white-space: nowrap;
+}
+
+.mc-dist-param .config-input {
+  width: 80px;
+}
+
+.config-empty-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary, #999999);
+  padding: 8px 0;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ============================================================================
+   条件边列表
+   ============================================================================ */
+
+.conditional-edges-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conditional-edge-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--color-surface, #ffffff);
+}
+
+.conditional-edge-id {
+  font-weight: 500;
+  color: var(--color-primary, #1976d2);
+}
+
+.conditional-edge-type {
+  color: var(--color-text-secondary, #666666);
+  flex: 1;
+}
+
+.toolbar-btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* ============================================================================
+   Monte Carlo 结果展示
+   ============================================================================ */
+
+.mc-results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mc-stats-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text, #333333);
+  margin-bottom: 8px;
+}
+
+.mc-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.mc-stats-card {
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--color-surface-alt, #fafafa);
+}
+
+.mc-stats-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary, #1976d2);
+  margin: 0 0 8px 0;
+}
+
+.mc-stats-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.mc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mc-stat-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666666);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mc-stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text, #333333);
+  font-family: monospace;
+}
+
+/* 百分位表 */
+
+.mc-percentiles {
+  margin: 8px 0;
+}
+
+.mc-percentiles-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666666);
+  margin-bottom: 4px;
+}
+
+.mc-percentiles-table {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 4px;
+}
+
+.mc-percentile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 6px;
+  background: var(--color-surface, #ffffff);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.mc-percentile-key {
+  color: var(--color-text-secondary, #666666);
+  font-weight: 500;
+}
+
+.mc-percentile-val {
+  font-family: monospace;
+  color: var(--color-text, #333333);
+}
+
+/* 直方图 */
+
+.mc-histogram {
+  margin-top: 8px;
+}
+
+.mc-histogram-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666666);
+  margin-bottom: 4px;
+}
+
+.mc-histogram-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100px;
+  padding: 4px;
+  background: var(--color-surface, #ffffff);
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+.mc-histogram-bar-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.mc-histogram-bar {
+  width: 100%;
+  min-width: 4px;
+  background: var(--color-primary, #6366f1);
+  border-radius: 2px 2px 0 0;
+  transition: height 0.3s ease;
+  opacity: 0.8;
+}
+
+.mc-histogram-bar:hover {
+  opacity: 1;
+}
+
+.mc-histogram-label {
+  font-size: 8px;
+  color: var(--color-text-secondary, #999999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* MC 信息面板 */
+
+.mc-info {
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--color-surface-alt, #f5f7fa);
+  margin-top: 8px;
+}
+
+.mc-info-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--color-text, #333333);
+}
+
+.mc-info-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.mc-info-item {
+  display: flex;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.mc-info-label {
+  color: var(--color-text-secondary, #666666);
+}
+
+.mc-info-value {
+  font-weight: 500;
+  color: var(--color-text, #333333);
+}
+
+.mc-info-distributions {
+  margin-top: 8px;
+}
+
+.mc-dist-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666666);
+  margin: 0 0 4px 0;
+}
+
+.mc-dist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mc-dist-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--color-surface, #ffffff);
+  border-radius: 3px;
+}
+
+.mc-dist-name {
+  font-weight: 500;
+  color: var(--color-primary, #1976d2);
+}
+
+.mc-dist-type {
+  color: var(--color-success, #10b981);
+  font-style: italic;
+}
+
+.mc-dist-params {
+  color: var(--color-text-secondary, #666666);
+  font-family: monospace;
+}
+
+/* MC 模式指示 */
+
+.mode-monte_carlo {
+  color: var(--color-warning, #f59e0b);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   算子卡片增强：类型标签 & 公式预览
+   ============================================================================ */
+
+.operator-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.operator-type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.type-badge-operator {
+  background: var(--color-primary-light, #e3f2fd);
+  color: var(--color-primary, #1976d2);
+}
+
+.type-badge-formula {
+  background: var(--color-success-light, #e8f5e9);
+  color: var(--color-success, #4caf50);
+}
+
+.type-badge-equation {
+  background: var(--color-warning-light, #fff3e0);
+  color: var(--color-warning, #f59e0b);
+}
+
+.operator-card-formula {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666666);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+/* ============================================================================
+   虚拟节点样式（_input / _virtual）
+   ============================================================================ */
+
+.virtual-node {
+  min-width: 100px;
+  background: var(--color-background, #ffffff);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  position: relative;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.virtual-node.selected {
+  box-shadow: 0 0 0 2px var(--color-primary, #1976d2);
+}
+
+/* _input 节点：紫色虚线边框 */
+.virtual-node--_input {
+  border: 2px dashed #9c27b0;
+  background: linear-gradient(135deg, #f3e5f5 0%, #ffffff 100%);
+}
+
+/* _virtual 节点：橙色虚线边框 */
+.virtual-node--_virtual {
+  border: 2px dashed #ff9800;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffffff 100%);
+}
+
+.virtual-node-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.virtual-node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.virtual-node--_input .virtual-node-icon {
+  background: #9c27b0;
+  color: #ffffff;
+}
+
+.virtual-node--_virtual .virtual-node-icon {
+  background: #ff9800;
+  color: #ffffff;
+}
+
+.virtual-node-label {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--color-text-primary, #333333);
+  white-space: nowrap;
+}
+
+.virtual-node-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.virtual-node .port-label-sm {
+  font-size: 10px;
+  color: var(--color-text-secondary, #666666);
+}
+
+/* 虚拟节点属性面板 - 类型标签 */
+.virtual-kind-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.virtual-kind-badge--_input {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.virtual-kind-badge--_virtual {
+  background: #fff3e0;
+  color: #e65100;
+}

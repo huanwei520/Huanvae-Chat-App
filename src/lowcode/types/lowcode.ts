@@ -146,6 +146,9 @@ export interface WorkflowNode {
   output_params?: NodeOutputParam[];
 }
 
+/** 边类型：data=即时数据流, state=时间滞后, accumulator_read=累加器读取, broadcast=广播 */
+export type EdgeType = 'data' | 'state' | 'accumulator_read' | 'broadcast';
+
 /** 流程连接定义 */
 export interface WorkflowEdge {
   /** 连接唯一标识 */
@@ -154,6 +157,10 @@ export interface WorkflowEdge {
   source: PortReference;
   /** 目标端口 */
   target: PortReference;
+  /** 边类型，默认 data */
+  edge_type?: EdgeType;
+  /** 滞后步数（仅 state 类型有效），默认 0 */
+  lag?: number;
 }
 
 /** 流程输入映射 */
@@ -259,7 +266,7 @@ export interface ExecutionResult {
   execution_id: string;
   /** 执行状态 */
   status: ExecutionStatus;
-  /** 输出数据 */
+  /** 输出数据（MC 模式下为 MonteCarloOutputStats 对象） */
   outputs: Record<string, unknown>;
   /** 执行追踪 */
   trace?: NodeTrace[];
@@ -269,6 +276,8 @@ export interface ExecutionResult {
   total_duration_ms: number;
   /** 迭代执行信息（迭代模式时有值） */
   iteration_info?: IterationInfo;
+  /** Monte Carlo 信息（monte_carlo 模式时有值） */
+  monte_carlo_info?: MonteCarloInfo;
 }
 
 // ============================================================================
@@ -526,7 +535,7 @@ export interface ConfigValidationResult {
 // ============================================================================
 
 /** 执行模式 */
-export type ExecutionMode = 'single' | 'iterative';
+export type ExecutionMode = 'single' | 'iterative' | 'monte_carlo';
 
 /** 累积操作类型 */
 export type AccumulatorOperation = 'sum' | 'max' | 'min' | 'count' | 'last' | 'average';
@@ -545,6 +554,14 @@ export interface AccumulatorConfig {
   initial_value: number;
 }
 
+/** 动态初始化配置（首次迭代时从指定节点获取初始值） */
+export interface DynamicInitConfig {
+  /** 来源节点 ID */
+  source_node: string;
+  /** 来源端口名称 */
+  source_port: string;
+}
+
 /** 状态变量配置 */
 export interface StateVarConfig {
   /** 变量名称 */
@@ -557,6 +574,8 @@ export interface StateVarConfig {
   initial_value: number;
   /** 滞后步数（1 = 上一步） */
   lag?: number;
+  /** 动态初始化（可选）：首次迭代时从指定节点获取初始值 */
+  dynamic_init?: DynamicInitConfig;
 }
 
 /** 终止条件类型 */
@@ -693,10 +712,12 @@ export interface ErrorHandlingConfig {
 
 /** 控制流配置 */
 export interface ControlFlowConfig {
-  /** 执行模式：single=单次执行, iterative=迭代执行 */
+  /** 执行模式：single=单次执行, iterative=迭代执行, monte_carlo=蒙特卡洛模拟 */
   execution_mode: ExecutionMode;
-  /** 迭代配置（iterative 模式时使用） */
+  /** 迭代配置（iterative/monte_carlo 模式时使用） */
   iteration?: IterationConfig;
+  /** Monte Carlo 配置（monte_carlo 模式时使用） */
+  monte_carlo?: MonteCarloConfig;
   /** 条件边配置 */
   conditional_edges?: ConditionalEdge[];
   /** 错误处理配置 */
@@ -723,6 +744,84 @@ export interface IterationInfo {
   termination_reason?: string;
   /** 终止时的迭代索引 */
   terminated_at_index?: number;
+}
+
+// ============================================================================
+// Monte Carlo 相关类型
+// ============================================================================
+
+/** 分布类型 */
+export type DistributionType =
+  | 'normal'
+  | 'log_normal'
+  | 'uniform'
+  | 'truncated_normal'
+  | 'triangular'
+  | 'beta'
+  | 'gamma'
+  | 'fixed';
+
+/** 参数分布配置 */
+export interface ParameterDistribution {
+  /** 参数名（必须是 workflow 的某个 input 名称） */
+  name: string;
+  /** 分布类型 */
+  distribution: DistributionType;
+  /** 分布参数（键值对，如 { mean: 100, std: 10 }） */
+  params: Record<string, number>;
+}
+
+/** Monte Carlo 输出格式配置 */
+export interface MonteCarloOutputFormat {
+  /** 输出的百分位数列表 */
+  percentiles?: number[];
+  /** 是否返回全部原始采样结果 */
+  raw_samples?: boolean;
+  /** 直方图分箱数（设置后返回直方图数据） */
+  histogram_bins?: number;
+}
+
+/** Monte Carlo 配置 */
+export interface MonteCarloConfig {
+  /** 采样次数 */
+  samples: number;
+  /** 随机种子（可选，确保可复现） */
+  seed?: number;
+  /** 是否使用多线程并行 */
+  parallel?: boolean;
+  /** 输出格式配置 */
+  output_format?: MonteCarloOutputFormat;
+  /** 参数分布列表 */
+  distributions: ParameterDistribution[];
+}
+
+/** Monte Carlo 执行信息 */
+export interface MonteCarloInfo {
+  /** 总采样次数 */
+  total_samples: number;
+  /** 使用的随机种子 */
+  seed?: number;
+  /** 是否并行执行 */
+  parallel: boolean;
+  /** 参数分布配置 */
+  parameter_distributions: ParameterDistribution[];
+}
+
+/** Monte Carlo 输出变量的统计信息 */
+export interface MonteCarloOutputStats {
+  /** 均值 */
+  mean: number;
+  /** 标准差 */
+  std: number;
+  /** 百分位数（键为百分位，值为对应值） */
+  percentiles: Record<string, number>;
+  /** 直方图数据 */
+  histogram?: {
+    /** 分箱边界 */
+    bins: number[];
+    /** 各箱计数 */
+    counts: number[];
+  };
 }
 
 // ============================================================================
