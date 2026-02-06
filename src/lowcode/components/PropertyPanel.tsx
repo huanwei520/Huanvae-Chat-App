@@ -2,8 +2,10 @@
  * 属性面板组件
  *
  * 显示选中节点的属性信息，支持编辑节点名称和配置流程输入/输出
+ * 支持虚拟节点（_input / _virtual）的专用属性展示
  *
  * @module lowcode/components/PropertyPanel
+ * @updated 2026-02-06 添加虚拟节点属性面板，修复选中虚拟节点白屏崩溃
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -468,6 +470,88 @@ function PropertyPanelComponent({
             <p>请选择一个节点</p>
             <p className="property-empty-hint">点击画布中的节点查看其属性</p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 虚拟节点（_input / _virtual）使用专用面板
+  if (selectedNode.type === 'virtual') {
+    const vData = selectedNode.data as unknown as {
+      kind: string;
+      label: string;
+      ports: string[];
+    };
+    const isInput = vData.kind === '_input';
+    const kindLabel = isInput ? '工作流输入广播' : '虚拟来源（累加器/状态变量）';
+
+    return (
+      <div className="lowcode-properties">
+        <div className="lowcode-properties-header">
+          虚拟节点属性
+          <button
+            className="property-delete-btn"
+            onClick={handleDelete}
+            title="删除节点"
+          >
+            <DeleteIcon />
+          </button>
+        </div>
+        <div className="lowcode-properties-content">
+          <div className="property-section">
+            <div className="property-section-title">基本信息</div>
+            <div className="property-field">
+              <label>节点类型</label>
+              <div className="property-value">
+                <span className={`virtual-kind-badge virtual-kind-badge--${vData.kind}`}>
+                  {kindLabel}
+                </span>
+              </div>
+            </div>
+            <div className="property-field">
+              <label>节点 ID</label>
+              <div className="property-value property-id">{selectedNode.id}</div>
+            </div>
+            <div className="property-field">
+              <label>说明</label>
+              <div className="property-value property-description">
+                {isInput
+                  ? '此节点代表工作流外部输入，通过 broadcast 类型边将输入参数广播到目标节点。'
+                  : '此节点代表迭代控制流中的虚拟来源，提供累加器读取（@acc）和状态变量（@state）的值。'}
+              </div>
+            </div>
+          </div>
+
+          {/* 输出端口列表 */}
+          {vData.ports.length > 0 && (
+            <div className="property-section">
+              <div className="property-section-title">
+                输出端口
+                <span className="section-count">{vData.ports.length}</span>
+              </div>
+              <div className="property-ports">
+                {vData.ports.map((port) => {
+                  let portDesc = '数据端口';
+                  if (port.startsWith('@acc.')) {
+                    portDesc = `累加器读取: ${port.slice(5)}`;
+                  } else if (port.startsWith('@state.')) {
+                    portDesc = `状态变量: ${port.slice(7)}`;
+                  } else if (isInput) {
+                    portDesc = `工作流输入: ${port}`;
+                  }
+                  return (
+                    <div key={port} className="property-port-item">
+                      <div className="port-info">
+                        <OutputIcon />
+                        <span className="port-name">{port}</span>
+                        <span className="port-type">{portDesc}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

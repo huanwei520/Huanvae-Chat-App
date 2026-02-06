@@ -961,6 +961,121 @@ unset CI && pnpm tauri android dev
   - **UI 效果**：毛玻璃遮罩 + 旋转加载图标 + 文件名 + 进度计数
   - **隔离性**：仅在 Android 平台且处于 preparing 阶段时显示
 
+- 2026-02-06: 低代码平台显示重构 - 全量功能实现
+  - **Phase 1: 类型定义更新** (`src/lowcode/types/lowcode.ts`)
+    - 新增 `EdgeType` 类型：`'data' | 'state' | 'accumulator_read' | 'broadcast'`
+    - `WorkflowEdge` 新增 `edge_type?: EdgeType` 和 `lag?: number` 字段
+    - `ExecutionMode` 新增 `'monte_carlo'` 模式
+    - 新增 `DynamicInitConfig` 接口（状态变量动态初始化）
+    - `StateVarConfig` 新增 `dynamic_init?: DynamicInitConfig` 字段
+    - `ControlFlowConfig` 新增 `monte_carlo?: MonteCarloConfig` 字段
+    - `ExecutionResult` 新增 `monte_carlo_info?: MonteCarloInfo` 字段
+    - 新增 Monte Carlo 完整类型体系：
+      - `DistributionType` (8 种分布: normal, log_normal, uniform, truncated_normal, triangular, beta, gamma, fixed)
+      - `ParameterDistribution` (参数分布配置)
+      - `MonteCarloOutputFormat` (输出格式：百分位、原始样本、直方图)
+      - `MonteCarloConfig` (MC 完整配置：采样数、种子、并行、分布列表)
+      - `MonteCarloInfo` (执行信息)
+      - `MonteCarloOutputStats` (输出统计：均值、标准差、百分位、直方图)
+  - **Phase 2: 序列化更新** (`src/lowcode/utils/workflowSerializer.ts`)
+    - `serializeEdge` 从 React Flow edge.data 中提取 `edgeType` 和 `lag` 写入 API 格式
+    - `deserializeEdge` 从 API 格式读取 `edge_type` 和 `lag`，存入 edge.data 并设置 React Flow edge type
+    - 新增 `EdgeType` 导入
+  - **Phase 3: 画布边可视化** (`src/lowcode/components/FlowCanvas.tsx`)
+    - 新增 4 种自定义边组件：`DataEdge`（蓝色实线）、`StateEdge`（橙色虚线+lag标签）、`AccumulatorReadEdge`（绿色点划线）、`BroadcastEdge`（紫色粗线）
+    - 注册 `customEdgeTypes` 映射到 ReactFlow
+    - 使用 `getBezierPath`、`BaseEdge`、`EdgeLabelRenderer` 实现自定义渲染
+  - **Phase 4.1: Monte Carlo 配置 UI** (`src/lowcode/components/ControlFlowDialog.tsx`)
+    - 新增第三种执行模式 "Monte Carlo 模拟" 单选按钮
+    - MC 基础配置面板：采样次数、随机种子、并行开关
+    - MC 输出格式配置：百分位数列表、原始样本开关、直方图分箱数
+    - 参数分布编辑器：参数选择（从工作流输入）、8 种分布类型、动态参数字段
+    - 新增 `DistributionRow` 子组件
+    - 新增 8 种分布类型常量 `DISTRIBUTION_TYPES`（含参数名定义）
+  - **Phase 4.2: 状态变量动态初始化** (`src/lowcode/components/ControlFlowDialog.tsx`)
+    - `StateVarRow` 新增"动态初始化"复选框
+    - 启用后显示来源节点下拉和来源端口输入
+    - 通过 `dynamic_init` 字段保存配置
+  - **Phase 4.3: 条件边和错误处理集成** (`src/lowcode/components/ControlFlowDialog.tsx`)
+    - 集成 `EdgeConditionEditor` 组件用于条件边编辑
+    - 集成 `ErrorHandlingDialog` 组件用于错误处理配置
+    - 条件边列表展示：边ID、条件类型、编辑/删除操作
+    - 错误处理状态摘要展示
+  - **Phase 5: MC 结果展示** (`src/lowcode/components/ExecuteDialog.tsx`)
+    - 新增 `MonteCarloInfoView` 组件：展示总采样数、种子、并行状态、参数分布列表
+    - 新增 `MonteCarloResultView` 组件：检测 MC 输出并渲染统计卡片
+    - 新增 `MCStatsCard` 组件：展示均值、标准差、百分位表、CSS 直方图
+    - 新增 `HistogramChart` 子组件：CSS 柱状图可视化
+    - 执行模式指示器支持 Monte Carlo 模式标签
+    - 结果路由：`monte_carlo_info` 存在时渲染 MC 视图，否则渲染常规 JSON
+  - **Phase 6: 算子面板增强** (`src/lowcode/components/OperatorPanel.tsx`)
+    - `OperatorCard` 新增 `operator_type` 类型标签（算子/公式/方程网络，三色区分）
+    - `OperatorCard` 新增 LaTeX 公式预览（截断 50 字符，使用 `MathFormula` 渲染）
+    - 新增 `OPERATOR_TYPE_LABELS` 常量映射
+  - **Phase 7-8: 页面联调和 CSS 样式** (`src/lowcode/LowcodePage.tsx`, `src/lowcode/LowcodePage.css`)
+    - `ControlFlowDialog` 传入 `workflowInputNames` 属性
+    - 新增 CSS 样式集：
+      - 自定义边标签样式（`.edge-label-state`）
+      - 动态初始化样式（`.dynamic-init-*`）
+      - MC 配置面板样式（`.mc-basic-config`, `.mc-output-config`, `.mc-distribution-row`, `.mc-dist-*`）
+      - MC 结果展示样式（`.mc-stats-*`, `.mc-percentiles-*`, `.mc-histogram-*`, `.mc-info-*`）
+      - 条件边列表样式（`.conditional-edge-*`）
+      - 算子类型标签样式（`.operator-type-badge`, `.type-badge-*`）
+      - 算子公式预览样式（`.operator-card-formula`）
+  - **Phase 9: 质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint src --ext .ts,.tsx --max-warnings 0`: 0 错误 0 警告
+    - 修复 9 个 ESLint 问题：non-null assertion、unescaped entities、curly、nested ternary、prefer-template
+    - `vitest run`: 16 文件 402 个测试全部通过
+  - **新增测试用例** (`tests/unit/lowcode.test.ts`, `tests/components/LowcodePage.test.tsx`)
+    - 类型测试：`EdgeType` 变体、`WorkflowEdge` 含 `edge_type`/`lag`、`DynamicInitConfig`、`StateVarConfig` 含 `dynamic_init`
+    - MC 类型测试：`DistributionType`、`ParameterDistribution`、`MonteCarloOutputFormat`、`MonteCarloConfig`、`MonteCarloInfo`、`MonteCarloOutputStats`
+    - MC 集成测试：`ControlFlowConfig` 含 `monte_carlo` 模式、`ExecutionResult` 含 `monte_carlo_info`
+    - 序列化测试：`serializeToWorkflow` 边的 `edge_type`/`lag` 序列化/默认值
+    - 组件存在性测试：`ControlFlowDialog`、`ExecuteDialog`、`OperatorPanel`、`EdgeConditionEditor`、`ErrorHandlingDialog`
+- **2026-02-06: 虚拟节点渲染修复 — 前端连线与 DAG 图一致性**
+  - **问题**：后端返回 16 条边（含 `_input`/`_virtual` 虚拟来源），前端仅渲染 12 条真实节点间的 data 边；state、accumulator_read、broadcast 类型的边因找不到画布起点节点而不渲染
+  - **根因**：`deserializeFromWorkflow` 直接转换所有边，但 `_input`/`_virtual` 不在 `definition.nodes` 中，React Flow 找不到源节点故静默丢弃
+  - **修复方案**：
+    - `OperatorNode.tsx`: 新增 `VirtualNode` 组件（`memo` 包裹），支持 `_input`（紫色虚线，工作流输入广播）和 `_virtual`（橙色虚线，累加器/状态变量来源）两种虚拟节点类型
+    - `OperatorNode.tsx`: 导出 `VirtualNodeKind`、`VirtualNodeData` 类型，`nodeTypes` 新增 `virtual` 映射
+    - `workflowSerializer.ts`: `deserializeFromWorkflow` 新增虚拟节点自动创建逻辑 — 扫描所有边，对 `source.node` 不在真实节点集合中的边，按 `_input`/`_virtual` 分组创建虚拟画布节点，收集端口
+    - `workflowSerializer.ts`: `serializeToWorkflow` 新增虚拟节点过滤 — 序列化时排除 `type === 'virtual'` 的节点，避免回传后端
+    - `workflowSerializer.ts`: `validateDefinition` 新增虚拟来源节点白名单（`_input`、`_virtual`），不再对这些来源报告"不存在的源节点"错误
+    - `LowcodePage.css`: 新增虚拟节点样式（`.virtual-node`、`.virtual-node--_input`、`.virtual-node--_virtual`、`.virtual-node-header`、`.virtual-node-icon`、`.virtual-node-label`、`.virtual-node-ports`、`.port-label-sm`）
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint` 0 错误 0 警告
+    - `vitest run`: 16 文件 411 个测试全部通过（新增 9 个测试）
+  - **新增测试用例**
+    - `tests/unit/lowcode.test.ts`:
+      - `deserializeFromWorkflow` 为 `_input` 来源自动创建虚拟节点
+      - `deserializeFromWorkflow` 为 `_virtual` 来源自动创建虚拟节点（含多端口合并）
+      - 同时存在 `_input` 和 `_virtual` 时创建独立虚拟节点
+      - 全部真实节点时不创建虚拟节点
+      - `serializeToWorkflow` 序列化时过滤虚拟节点
+      - `validateDefinition` 对 `_input`/`_virtual` 来源不报错
+    - `tests/components/LowcodePage.test.tsx`:
+      - `VirtualNode` 组件存在性（memo 包裹）
+      - `nodeTypes` 包含 `virtual` 类型
+      - `nodeTypes` 包含所有必需类型（operator、formula、equation_network、virtual）
+- **2026-02-06: 虚拟节点点击白屏修复**
+  - **问题**：点击画布上的虚拟节点（`_input`/`_virtual`）后，`PropertyPanel` 组件尝试解构 `nodeData.operator`（为 `undefined`），访问 `operator.name` 导致 `Uncaught TypeError: Cannot read properties of undefined` 白屏崩溃
+  - **根因**：`PropertyPanel` 将所有选中节点的 `data` 统一转型为 `OperatorNodeData`（含 `operator` 属性），但虚拟节点的 `data` 是 `VirtualNodeData`（含 `kind`/`label`/`ports`），无 `operator` 字段
+  - **修复**：
+    - `PropertyPanel.tsx`: 在渲染算子属性前增加 `selectedNode.type === 'virtual'` 守卫，对虚拟节点渲染专用属性面板，展示节点类型标签、说明文字、输出端口列表（含 `@acc.`/`@state.` 前缀解析）
+    - `LowcodePage.css`: 新增 `.virtual-kind-badge` 及 `--_input`/`--_virtual` 变体样式
+  - **质量保证**：`cargo clippy` 0 警告、`eslint` 0 错误、`vitest` 411 测试全部通过
+- **2026-02-06: 算子面板 LaTeX 公式显示修复**
+  - **问题**：算子卡片中部分公式（如 Sigmoid转换函数、GDH响应函数）显示为原始文本而非渲染后的数学公式
+  - **根因**：
+    1. 部分后端返回的 `latex_formula` 自带 `$...$` 分隔符，`MathFormula` 组件再包裹一层 `$...$` 导致 `$$...$` 双层嵌套，MathJax 解析失败
+    2. OperatorPanel 卡片对超过 50 字符的公式做字符截断（`substring(0, 50) + \\cdots`），截断可能发生在 `\frac{`、`\begin{cases}` 等结构中间，破坏 LaTeX 语法导致 MathJax 回退显示原文
+  - **修复**：
+    - `MathFormula.tsx`: 新增 `stripDelimiters()` 函数，在渲染前自动剥离输入中已有的 `$`/`$$` 分隔符
+    - `OperatorPanel.tsx`: 移除字符级截断逻辑，改为直接传递完整公式，依赖 CSS `overflow: hidden` 控制卡片中的显示溢出
+  - **质量保证**：`cargo clippy` 0 警告、`eslint` 0 错误、`vitest` 411 测试全部通过
+
 ```typescript
 import { FEATURE_CHECKLIST, getCriticalFeatures } from './checklist';
 

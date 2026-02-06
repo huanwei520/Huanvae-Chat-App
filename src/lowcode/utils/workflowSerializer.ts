@@ -3,7 +3,14 @@
  *
  * 负责 React Flow 画布状态与后端 API 格式的双向转换
  *
+ * 功能：
+ * - 序列化：React Flow nodes/edges → WorkflowDefinition（过滤虚拟节点）
+ * - 反序列化：WorkflowDefinition → React Flow nodes/edges（自动创建虚拟节点）
+ * - 虚拟节点处理：后端边的 source.node 为 _input / _virtual 时，
+ *   反序列化自动生成对应的画布虚拟节点，使边可以正确渲染
+ *
  * @module lowcode/utils/workflowSerializer
+ * @updated 2026-02-06 添加虚拟节点自动创建逻辑，支持 _input/_virtual 来源边渲染
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -18,7 +25,9 @@ import type {
   Operator,
   ControlFlowConfig,
   VisualizationConfig,
+  EdgeType,
 } from '../types/lowcode';
+import type { VirtualNodeKind } from '../components/OperatorNode';
 
 // ============================================================================
 // 类型定义
@@ -127,7 +136,9 @@ function serializeEdge(edge: Edge): WorkflowEdge {
   const sourcePort = edge.sourceHandle || 'output';
   const targetPort = edge.targetHandle || 'input';
 
-  return {
+  const edgeData = edge.data as { edgeType?: EdgeType; lag?: number } | undefined;
+
+  const result: WorkflowEdge = {
     id: edge.id,
     source: {
       node: edge.source,
@@ -138,6 +149,16 @@ function serializeEdge(edge: Edge): WorkflowEdge {
       port: targetPort,
     },
   };
+
+  // 保留边类型和滞后步数
+  if (edgeData?.edgeType) {
+    result.edge_type = edgeData.edgeType;
+  }
+  if (edgeData?.lag !== undefined && edgeData.lag > 0) {
+    result.lag = edgeData.lag;
+  }
+
+  return result;
 }
 
 /**
@@ -228,8 +249,11 @@ export function serializeToWorkflow(
   outputBindings: OutputBinding[],
   options?: SerializeOptions,
 ): WorkflowDefinition {
+  // 过滤掉虚拟节点（virtual 类型），它们是前端自动生成的，不应回传后端
+  const realNodes = nodes.filter((n) => n.type !== 'virtual');
+
   const definition: WorkflowDefinition = {
-    nodes: nodes.map(serializeNode),
+    nodes: realNodes.map(serializeNode),
     edges: edges.map(serializeEdge),
     inputs: serializeInputBindings(inputBindings),
     outputs: serializeOutputBindings(outputBindings),
@@ -289,13 +313,21 @@ function deserializeNode(
  * 这与 OperatorNode 中的 Handle id={port.name} 保持一致
  */
 function deserializeEdge(workflowEdge: WorkflowEdge): Edge {
+  const edgeType = workflowEdge.edge_type || 'data';
+
   return {
     id: workflowEdge.id,
     source: workflowEdge.source.node,
     target: workflowEdge.target.node,
     sourceHandle: workflowEdge.source.port,
     targetHandle: workflowEdge.target.port,
-    animated: true,
+    // 使用边类型作为 React Flow 的 type，用于自定义渲染
+    type: edgeType,
+    animated: edgeType === 'data',
+    data: {
+      edgeType,
+      lag: workflowEdge.lag,
+    },
   };
 }
 
@@ -407,6 +439,44 @@ export function deserializeFromWorkflow(
   const definitionEdges = definition.edges || [];
   const edges = definitionEdges.map(deserializeEdge);
 
+  // 为虚拟来源节点（_input, _virtual 等）自动创建画布节点
+  // 后端可能用 _input（工作流输入广播）和 _virtual（累加器/状态变量来源）
+  // 作为边的 source.node，这些不是真实算子节点
+  const realNodeIds = new Set(nodes.map((n) => n.id));
+  const virtualNodeMap = new Map<string, { kind: VirtualNodeKind; ports: Set<string> }>();
+
+  for (const edge of definitionEdges) {
+    const srcId = edge.source.node;
+    if (!realNodeIds.has(srcId) && srcId) {
+      if (!virtualNodeMap.has(srcId)) {
+        const kind: VirtualNodeKind = srcId === '_input' ? '_input' : '_virtual';
+        virtualNodeMap.set(srcId, { kind, ports: new Set() });
+      }
+      virtualNodeMap.get(srcId)?.ports.add(edge.source.port);
+    }
+  }
+
+  // 在画布左侧放置虚拟节点
+  let virtualY = 0;
+  for (const [nodeId, info] of virtualNodeMap) {
+    const label = nodeId === '_input' ? '工作流输入' : '虚拟节点';
+    const portsArray = Array.from(info.ports);
+
+    const virtualNode: Node = {
+      id: nodeId,
+      type: 'virtual',
+      position: { x: -200, y: virtualY },
+      data: {
+        kind: info.kind,
+        label,
+        ports: portsArray,
+      } as unknown as Record<string, unknown>,
+    };
+
+    nodes.push(virtualNode);
+    virtualY += 80 + portsArray.length * 20;
+  }
+
   // 转换绑定（安全访问）
   const inputBindings = deserializeInputBindings(definition.inputs || []);
   const outputBindings = deserializeOutputBindings(definition.outputs || []);
@@ -440,9 +510,12 @@ export function validateDefinition(
     errors.push('流程必须至少包含一个节点');
   }
 
-  // 验证边引用的节点存在
+  // 已知虚拟来源节点 ID（后端使用，非真实画布节点）
+  const VIRTUAL_NODE_IDS = new Set(['_input', '_virtual']);
+
+  // 验证边引用的节点存在（虚拟来源节点跳过）
   for (const edge of definition.edges) {
-    if (!nodeIds.has(edge.source.node)) {
+    if (!nodeIds.has(edge.source.node) && !VIRTUAL_NODE_IDS.has(edge.source.node)) {
       errors.push(`边 ${edge.id} 引用了不存在的源节点: ${edge.source.node}`);
     }
     if (!nodeIds.has(edge.target.node)) {
