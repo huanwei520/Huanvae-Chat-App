@@ -19,6 +19,7 @@ import {
   clearLowcodeData,
 } from '../../src/lowcode/api';
 import { useFlowStore } from '../../src/lowcode/stores/flowStore';
+import type { ConfirmDialogProps, ConfirmOptions } from '../../src/lowcode/components/ConfirmDialog';
 import {
   serializeToWorkflow,
   deserializeFromWorkflow,
@@ -58,6 +59,18 @@ import type {
   DistributionType,
   MonteCarloInfo,
   MonteCarloOutputStats,
+  DynamicOperatorSource,
+  UploadOperatorsResponse,
+  UploadedOperatorSummary,
+  UpdateOperatorResponse,
+  DeleteOperatorResponse,
+  DynamicOperatorSourcesResponse,
+  ConnectorDefinition,
+  ConservationWarning,
+  WorkflowDefinition,
+  BatchExecuteParams,
+  ForresterBoundary,
+  UploadWorkflowResponse,
 } from '../../src/lowcode/types/lowcode';
 
 describe('lowcode/api', () => {
@@ -123,6 +136,52 @@ describe('lowcode/stores/flowStore', () => {
     expect(typeof state.markDirty).toBe('function');
     expect(typeof state.resetWorkflow).toBe('function');
     expect(typeof state.loadWorkflow).toBe('function');
+  });
+
+  it('should have selectedEdgeId state and selectEdge/deleteEdge actions', () => {
+    const state = useFlowStore.getState();
+    expect(state.selectedEdgeId).toBeNull();
+    expect(typeof state.selectEdge).toBe('function');
+    expect(typeof state.deleteEdge).toBe('function');
+  });
+
+  it('should select and deselect edge, clearing node selection', () => {
+    const { selectNode, selectEdge } = useFlowStore.getState();
+
+    // First select a node
+    selectNode('node-1');
+    expect(useFlowStore.getState().selectedNodeId).toBe('node-1');
+
+    // Select an edge - should clear node selection
+    selectEdge('edge-1');
+    expect(useFlowStore.getState().selectedEdgeId).toBe('edge-1');
+    expect(useFlowStore.getState().selectedNodeId).toBeNull();
+
+    // Select a node - should clear edge selection
+    selectNode('node-2');
+    expect(useFlowStore.getState().selectedNodeId).toBe('node-2');
+    expect(useFlowStore.getState().selectedEdgeId).toBeNull();
+
+    // Deselect edge
+    selectEdge(null);
+    expect(useFlowStore.getState().selectedEdgeId).toBeNull();
+  });
+
+  it('should delete edge and clear selection if deleted edge was selected', () => {
+    const { setEdges, selectEdge, deleteEdge } = useFlowStore.getState();
+
+    setEdges([
+      { id: 'e1', source: 'a', target: 'b' },
+      { id: 'e2', source: 'b', target: 'c' },
+    ]);
+    selectEdge('e1');
+    expect(useFlowStore.getState().selectedEdgeId).toBe('e1');
+
+    deleteEdge('e1');
+    expect(useFlowStore.getState().edges).toHaveLength(1);
+    expect(useFlowStore.getState().edges[0].id).toBe('e2');
+    expect(useFlowStore.getState().selectedEdgeId).toBeNull();
+    expect(useFlowStore.getState().isDirty).toBe(true);
   });
 
   it('should track dirty state correctly', () => {
@@ -1214,5 +1273,417 @@ describe('lowcode/types', () => {
     expect(result.execution_id).toBe('mc-exec-001');
     expect(result.monte_carlo_info).toBeDefined();
     expect(result.monte_carlo_info?.total_samples).toBe(10000);
+  });
+});
+
+// ============================================================================
+// 动态算子管理类型测试
+// ============================================================================
+
+describe('Dynamic Operator Management types', () => {
+  it('should have correct DynamicOperatorSource structure', () => {
+    const source: DynamicOperatorSource = {
+      operator_id: 'custom.math.quadratic',
+      module_id: 'custom.math',
+      name: '二次函数',
+      category: '数学函数',
+      version: 2,
+      updated_at: '2026-02-07T15:00:00Z',
+    };
+
+    expect(source.operator_id).toBe('custom.math.quadratic');
+    expect(source.module_id).toBe('custom.math');
+    expect(source.version).toBe(2);
+    expect(source.updated_at).toBe('2026-02-07T15:00:00Z');
+  });
+
+  it('should have correct UploadedOperatorSummary structure', () => {
+    const summary: UploadedOperatorSummary = {
+      id: 'custom.math.distance',
+      name: '欧氏距离',
+      category: '数学函数',
+    };
+
+    expect(summary.id).toBe('custom.math.distance');
+    expect(summary.name).toBe('欧氏距离');
+  });
+
+  it('should have correct UploadOperatorsResponse structure', () => {
+    const resp: UploadOperatorsResponse = {
+      message: '成功注册 2 个算子',
+      operators: [
+        { id: 'custom.math.quadratic', name: '二次函数', category: '数学函数' },
+        { id: 'custom.math.distance', name: '欧氏距离', category: '数学函数' },
+      ],
+      count: 2,
+    };
+
+    expect(resp.count).toBe(2);
+    expect(resp.operators).toHaveLength(2);
+    expect(resp.operators[0].id).toBe('custom.math.quadratic');
+  });
+
+  it('should have correct UploadOperatorsResponse with conservation warnings', () => {
+    const resp: UploadOperatorsResponse = {
+      message: '成功注册 1 个算子',
+      operators: [{ id: 'eco.carbon', name: '碳循环', category: '生态' }],
+      count: 1,
+      conservation_warnings: [
+        {
+          level: 'warning',
+          node: 'atmosphere_co2',
+          message: "Source boundary 'atmosphere_co2' 没有 material 出边",
+        },
+      ],
+    };
+
+    expect(resp.conservation_warnings).toHaveLength(1);
+    expect(resp.conservation_warnings?.[0].level).toBe('warning');
+    expect(resp.conservation_warnings?.[0].node).toBe('atmosphere_co2');
+  });
+
+  it('should have correct UpdateOperatorResponse structure', () => {
+    const resp: UpdateOperatorResponse = {
+      message: '算子 custom.math.quadratic 已更新到 v2',
+      version: 2,
+    };
+
+    expect(resp.message).toContain('已更新');
+    expect(resp.version).toBe(2);
+  });
+
+  it('should have correct DeleteOperatorResponse structure', () => {
+    const resp: DeleteOperatorResponse = {
+      message: '算子 custom.math.quadratic 已删除',
+    };
+
+    expect(resp.message).toContain('已删除');
+  });
+
+  it('should have correct DynamicOperatorSourcesResponse structure', () => {
+    const resp: DynamicOperatorSourcesResponse = {
+      sources: [
+        {
+          operator_id: 'custom.math.quadratic',
+          module_id: 'custom.math',
+          name: '二次函数',
+          category: '数学函数',
+          version: 1,
+          updated_at: '2026-02-07T15:00:00Z',
+        },
+      ],
+      total: 1,
+    };
+
+    expect(resp.total).toBe(1);
+    expect(resp.sources).toHaveLength(1);
+    expect(resp.sources[0].operator_id).toBe('custom.math.quadratic');
+  });
+});
+
+// ============================================================================
+// Connector 耦合接口类型测试
+// ============================================================================
+
+describe('Connector and Conservation types', () => {
+  it('should have correct ConnectorDefinition for output', () => {
+    const connector: ConnectorDefinition = {
+      name: 'bloom_date',
+      data_type: 'Number',
+      description: '盛花期日期(JDay)',
+      direction: 'out',
+      remote_source: null,
+    };
+
+    expect(connector.direction).toBe('out');
+    expect(connector.remote_source).toBeNull();
+  });
+
+  it('should have correct ConnectorDefinition for input with remote source', () => {
+    const connector: ConnectorDefinition = {
+      name: 'bloom_date',
+      data_type: 'Number',
+      description: '',
+      direction: 'in',
+      remote_source: 'phenoflex.bloom_date',
+    };
+
+    expect(connector.direction).toBe('in');
+    expect(connector.remote_source).toBe('phenoflex.bloom_date');
+  });
+
+  it('should have correct ConservationWarning for warning level', () => {
+    const warning: ConservationWarning = {
+      level: 'warning',
+      node: 'atmosphere_co2',
+      message: "Source boundary 没有 material 出边",
+    };
+
+    expect(warning.level).toBe('warning');
+    expect(warning.node).toBe('atmosphere_co2');
+  });
+
+  it('should have correct ConservationWarning for error level', () => {
+    const err: ConservationWarning = {
+      level: 'error',
+      node: 'soil_carbon',
+      message: '状态变量没有 material 入流',
+    };
+
+    expect(err.level).toBe('error');
+  });
+
+  it('should include connectors in WorkflowDefinition', () => {
+    const def: WorkflowDefinition = {
+      nodes: [],
+      edges: [],
+      inputs: [],
+      outputs: [],
+      connectors: [
+        {
+          name: 'bloom_date',
+          data_type: 'Number',
+          description: '盛花期日期',
+          direction: 'out',
+        },
+        {
+          name: 'n_fruits',
+          data_type: 'Number',
+          description: '',
+          direction: 'in',
+          remote_source: 'vmapplet.n_fruits',
+        },
+      ],
+    };
+
+    expect(def.connectors).toHaveLength(2);
+    expect(def.connectors?.[0].direction).toBe('out');
+    expect(def.connectors?.[1].remote_source).toBe('vmapplet.n_fruits');
+  });
+
+  it('should support BatchExecuteParams with parallel flag', () => {
+    const params: BatchExecuteParams = {
+      workflow_id: 'wf-001',
+      batch_inputs: [{ x: 1 }, { x: 2 }],
+      parallel: true,
+    };
+
+    expect(params.parallel).toBe(true);
+    expect(params.batch_inputs).toHaveLength(2);
+  });
+});
+
+// ============================================================================
+// 动态算子服务存在性测试
+// ============================================================================
+
+describe('dynamicOperatorService', () => {
+  it('should export createDynamicOperatorService function', async () => {
+    const module = await import('../../src/lowcode/services/dynamicOperatorService');
+    expect(typeof module.createDynamicOperatorService).toBe('function');
+  });
+
+  it('should return an object with upload, getSources, update, remove methods', async () => {
+    const module = await import('../../src/lowcode/services/dynamicOperatorService');
+
+    // 创建 mock client
+    const mockClient = {
+      get: () => Promise.resolve({}),
+      post: () => Promise.resolve({}),
+      put: () => Promise.resolve({}),
+      delete: () => Promise.resolve({}),
+      getServerUrl: () => 'http://localhost',
+      getAccessToken: () => 'mock-token',
+    };
+
+    const service = module.createDynamicOperatorService(mockClient as never);
+
+    expect(typeof service.upload).toBe('function');
+    expect(typeof service.getSources).toBe('function');
+    expect(typeof service.update).toBe('function');
+    expect(typeof service.remove).toBe('function');
+  });
+
+  it('should include uploadWorkflow method in service', async () => {
+    const module = await import('../../src/lowcode/services/dynamicOperatorService');
+
+    const mockClient = {
+      get: () => Promise.resolve({}),
+      post: () => Promise.resolve({}),
+      put: () => Promise.resolve({}),
+      delete: () => Promise.resolve({}),
+      getServerUrl: () => 'http://localhost',
+      getAccessToken: () => 'mock-token',
+    };
+
+    const service = module.createDynamicOperatorService(mockClient as never);
+
+    expect(typeof service.uploadWorkflow).toBe('function');
+  });
+});
+
+// ============================================================================
+// Forrester 系统动力学相关类型测试
+// ============================================================================
+
+describe('Forrester types', () => {
+  it('should instantiate ForresterBoundary with source kind', () => {
+    const boundary: ForresterBoundary = {
+      name: 'atmosphere_co2',
+      kind: 'source',
+      description: '大气CO2外部来源',
+    };
+
+    expect(boundary.kind).toBe('source');
+    expect(boundary.name).toBe('atmosphere_co2');
+    expect(boundary.description).toBe('大气CO2外部来源');
+  });
+
+  it('should instantiate ForresterBoundary with sink kind', () => {
+    const boundary: ForresterBoundary = {
+      name: 'river_outflow',
+      kind: 'sink',
+      description: '河流出水汇',
+    };
+
+    expect(boundary.kind).toBe('sink');
+  });
+
+  it('should include var_classes and boundaries in WorkflowDefinition', () => {
+    const def: WorkflowDefinition = {
+      nodes: [],
+      edges: [],
+      inputs: [],
+      outputs: [],
+      var_classes: {
+        state: ['soil_carbon', 'litter_carbon'],
+        rate: ['decomposition_rate'],
+        driving: ['temperature'],
+        auxiliary: ['q10_factor'],
+      },
+      boundaries: [
+        { name: 'atm_input', kind: 'source', description: '大气输入' },
+        { name: 'river_output', kind: 'sink', description: '河流输出' },
+      ],
+    };
+
+    expect(def.var_classes).toBeDefined();
+    expect(def.var_classes?.state).toHaveLength(2);
+    expect(def.var_classes?.rate).toContain('decomposition_rate');
+    expect(def.boundaries).toHaveLength(2);
+    expect(def.boundaries?.[0].kind).toBe('source');
+    expect(def.boundaries?.[1].kind).toBe('sink');
+  });
+});
+
+// ============================================================================
+// UploadWorkflowResponse 类型测试
+// ============================================================================
+
+describe('UploadWorkflowResponse type', () => {
+  it('should instantiate with all required fields', () => {
+    const resp: UploadWorkflowResponse = {
+      message: '成功上传并生成工作流',
+      operators: [
+        { id: 'op-1', name: '分解速率', category: '碳循环', version: 1 },
+        { id: 'op-2', name: 'Q10温度系数', category: '碳循环', version: 1 },
+      ],
+      operator_count: 2,
+      workflow: {
+        id: 'wf-gen-001',
+        name: '碳循环模型',
+        description: '自动生成的碳循环工作流',
+        version: 1,
+        created_at: '2026-02-07T12:00:00Z',
+      },
+    };
+
+    expect(resp.operator_count).toBe(2);
+    expect(resp.operators).toHaveLength(2);
+    expect(resp.workflow.id).toBe('wf-gen-001');
+    expect(resp.workflow.name).toBe('碳循环模型');
+    expect(resp.workflow.version).toBe(1);
+    expect(resp.workflow.created_at).toBe('2026-02-07T12:00:00Z');
+  });
+
+  it('should have workflow sub-object with all fields', () => {
+    const resp: UploadWorkflowResponse = {
+      message: 'ok',
+      operators: [],
+      operator_count: 0,
+      workflow: {
+        id: 'wf-empty',
+        name: 'Empty',
+        description: '',
+        version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    expect(resp.workflow).toHaveProperty('id');
+    expect(resp.workflow).toHaveProperty('name');
+    expect(resp.workflow).toHaveProperty('description');
+    expect(resp.workflow).toHaveProperty('version');
+    expect(resp.workflow).toHaveProperty('created_at');
+  });
+});
+
+// ============================================================================
+// ConfirmDialog 类型测试
+// ============================================================================
+
+describe('ConfirmDialog types', () => {
+  it('ConfirmDialogProps should accept required fields', () => {
+    const props: ConfirmDialogProps = {
+      message: '确定要执行此操作吗？',
+      onConfirm: () => {},
+      onCancel: () => {},
+    };
+    expect(props.message).toBe('确定要执行此操作吗？');
+    expect(typeof props.onConfirm).toBe('function');
+    expect(typeof props.onCancel).toBe('function');
+  });
+
+  it('ConfirmDialogProps should accept all optional fields', () => {
+    const props: ConfirmDialogProps = {
+      title: '确认删除',
+      message: '此操作不可撤销',
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      processingLabel: '删除中...',
+      isDanger: true,
+      isProcessing: false,
+      onConfirm: () => {},
+      onCancel: () => {},
+    };
+    expect(props.title).toBe('确认删除');
+    expect(props.confirmLabel).toBe('删除');
+    expect(props.cancelLabel).toBe('取消');
+    expect(props.processingLabel).toBe('删除中...');
+    expect(props.isDanger).toBe(true);
+    expect(props.isProcessing).toBe(false);
+  });
+
+  it('ConfirmOptions should accept message and optional fields', () => {
+    const options: ConfirmOptions = {
+      title: '警告',
+      message: '未保存的更改将丢失',
+      confirmLabel: '继续',
+      isDanger: false,
+    };
+    expect(options.title).toBe('警告');
+    expect(options.message).toBe('未保存的更改将丢失');
+    expect(options.confirmLabel).toBe('继续');
+    expect(options.isDanger).toBe(false);
+  });
+
+  it('ConfirmOptions should work with minimal fields', () => {
+    const options: ConfirmOptions = {
+      message: '确认？',
+    };
+    expect(options.message).toBe('确认？');
+    expect(options.title).toBeUndefined();
+    expect(options.confirmLabel).toBeUndefined();
+    expect(options.isDanger).toBeUndefined();
   });
 });

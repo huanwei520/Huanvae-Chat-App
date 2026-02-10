@@ -22,7 +22,7 @@ interface BatchExecuteDialogProps {
   onClose: () => void;
   workflowName: string;
   inputs: InputDefinition[];
-  onExecute: (batchInputs: Record<string, unknown>[]) => Promise<BatchExecutionResult>;
+  onExecute: (batchInputs: Record<string, unknown>[], options?: { parallel?: boolean }) => Promise<BatchExecutionResult>;
 }
 
 // ============================================================================
@@ -49,6 +49,7 @@ function BatchExecuteDialogComponent({
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<BatchExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [enableParallel, setEnableParallel] = useState(false);
 
   // 添加行
   const handleAddRow = useCallback(() => {
@@ -85,14 +86,14 @@ function BatchExecuteDialogComponent({
     setResult(null);
 
     try {
-      const batchResult = await onExecute(rows);
+      const batchResult = await onExecute(rows, { parallel: enableParallel });
       setResult(batchResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : '执行失败');
     } finally {
       setExecuting(false);
     }
-  }, [rows, onExecute]);
+  }, [rows, onExecute, enableParallel]);
 
   // 重置
   const handleReset = useCallback(() => {
@@ -188,10 +189,21 @@ function BatchExecuteDialogComponent({
                   </table>
                 </div>
 
-                <button className="batch-add-btn" onClick={handleAddRow}>
-                  <AddIcon />
-                  <span>添加一行</span>
-                </button>
+                <div className="batch-options-row">
+                  <button className="batch-add-btn" onClick={handleAddRow}>
+                    <AddIcon />
+                    <span>添加一行</span>
+                  </button>
+
+                  <label className="execute-option">
+                    <input
+                      type="checkbox"
+                      checked={enableParallel}
+                      onChange={(e) => setEnableParallel(e.target.checked)}
+                    />
+                    <span>启用并行执行</span>
+                  </label>
+                </div>
 
                 {/* 错误信息 */}
                 {error && (

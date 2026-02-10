@@ -6,6 +6,7 @@
  *
  * @module lowcode/components/FlowCanvas
  * @updated 2026-02-02 添加自动布局功能（动态节点尺寸）
+ * @updated 2026-02-07 边交互改进：统一 StyledEdge 组件、类型标签、选中高亮、点击选中/删除
  */
 
 import { useCallback, useRef, useEffect, useState } from 'react';
@@ -21,6 +22,7 @@ import {
   useReactFlow,
   useNodesInitialized,
   type NodeMouseHandler,
+  type EdgeMouseHandler,
   type EdgeProps,
 } from '@xyflow/react';
 import { useFlowStore } from '../stores/flowStore';
@@ -44,58 +46,88 @@ function generateNodeId(): string {
 }
 
 // ============================================================================
-// 自定义边组件 - 4 种边类型的视觉区分
+// 边类型配置 - 颜色、标签、线型
 // ============================================================================
 
-/** data 边：默认蓝色实线，带动画 */
-function DataEdge(props: EdgeProps) {
-  const [edgePath] = getBezierPath(props);
-  return <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 2 }} />;
+interface EdgeStyleConfig {
+  color: string;
+  label: string;
+  strokeWidth: number;
+  dashArray?: string;
 }
 
-/** state 边：橙色虚线，显示 lag 标签 */
-function StateEdge(props: EdgeProps) {
+const EDGE_STYLE_MAP: Record<string, EdgeStyleConfig> = {
+  data: { color: '#6366f1', label: '数据', strokeWidth: 2 },
+  state: { color: '#f59e0b', label: '状态', strokeWidth: 2, dashArray: '8 4' },
+  accumulator_read: { color: '#10b981', label: '累加器', strokeWidth: 2, dashArray: '4 2 1 2' },
+  broadcast: { color: '#a855f7', label: '广播', strokeWidth: 3 },
+};
+
+const DEFAULT_EDGE_STYLE: EdgeStyleConfig = { color: '#6366f1', label: '数据', strokeWidth: 2 };
+
+// ============================================================================
+// 自定义边组件 - 4 种边类型的视觉区分（含类型标签和选中高亮）
+// ============================================================================
+
+/** 通用边组件：支持类型标签、选中高亮、透明交互热区 */
+function StyledEdge(props: EdgeProps) {
+  const edgeData = props.data as { edgeType?: string; lag?: number } | undefined;
+  const edgeType = edgeData?.edgeType || props.type || 'data';
+  const lag = edgeData?.lag;
+  const config = EDGE_STYLE_MAP[edgeType] || DEFAULT_EDGE_STYLE;
+
   const [edgePath, labelX, labelY] = getBezierPath(props);
-  const lag = (props.data as { lag?: number } | undefined)?.lag;
+
+  // 从 store 获取选中状态
+  const isSelected = useFlowStore((s) => s.selectedEdgeId === props.id);
+
+  // 构建描述文本
+  let labelText = config.label;
+  if (edgeType === 'state' && lag !== undefined && lag > 0) {
+    labelText = `状态(lag=${lag})`;
+  }
+
   return (
     <>
-      <BaseEdge path={edgePath} style={{ stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '8 4' }} />
-      {lag !== undefined && lag > 0 && (
-        <EdgeLabelRenderer>
-          <div
-            className="edge-label-state"
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              pointerEvents: 'all',
-            }}
-          >
-            lag={lag}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      {/* 透明宽热区，方便点击选中 */}
+      <BaseEdge
+        path={edgePath}
+        style={{ stroke: 'transparent', strokeWidth: 20, fill: 'none' }}
+        interactionWidth={20}
+      />
+      {/* 实际可见的边 */}
+      <BaseEdge
+        path={edgePath}
+        style={{
+          stroke: isSelected ? '#ef4444' : config.color,
+          strokeWidth: isSelected ? config.strokeWidth + 1 : config.strokeWidth,
+          strokeDasharray: config.dashArray,
+          filter: isSelected ? 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.5))' : undefined,
+        }}
+      />
+      {/* 类型标签 */}
+      <EdgeLabelRenderer>
+        <div
+          className={`edge-type-badge edge-type-badge--${edgeType}${isSelected ? ' edge-type-badge--selected' : ''}`}
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+        >
+          {labelText}
+        </div>
+      </EdgeLabelRenderer>
     </>
   );
 }
 
-/** accumulator_read 边：绿色点划线 */
-function AccumulatorReadEdge(props: EdgeProps) {
-  const [edgePath] = getBezierPath(props);
-  return <BaseEdge path={edgePath} style={{ stroke: '#10b981', strokeWidth: 2, strokeDasharray: '4 2 1 2' }} />;
-}
-
-/** broadcast 边：紫色粗线 */
-function BroadcastEdge(props: EdgeProps) {
-  const [edgePath] = getBezierPath(props);
-  return <BaseEdge path={edgePath} style={{ stroke: '#a855f7', strokeWidth: 3 }} />;
-}
-
-/** 自定义边类型映射 */
+/** 自定义边类型映射（全部使用统一的 StyledEdge 组件） */
 const customEdgeTypes = {
-  data: DataEdge,
-  state: StateEdge,
-  accumulator_read: AccumulatorReadEdge,
-  broadcast: BroadcastEdge,
+  data: StyledEdge,
+  state: StyledEdge,
+  accumulator_read: StyledEdge,
+  broadcast: StyledEdge,
 };
 
 /** FlowCanvas 组件属性 */
@@ -142,6 +174,9 @@ export function FlowCanvas({
     onConnect,
     addNode,
     selectNode,
+    selectEdge,
+    deleteEdge,
+    selectedEdgeId,
     autoLayout,
   } = useFlowStore();
 
@@ -184,10 +219,30 @@ export function FlowCanvas({
     [selectNode],
   );
 
-  // 画布点击处理（取消选中）
+  // 边点击处理
+  const handleEdgeClick = useCallback<EdgeMouseHandler>(
+    (_event, edge) => {
+      selectEdge(edge.id);
+    },
+    [selectEdge],
+  );
+
+  // 画布点击处理（取消选中节点和边）
   const handlePaneClick = useCallback(() => {
     selectNode(null);
-  }, [selectNode]);
+    selectEdge(null);
+  }, [selectNode, selectEdge]);
+
+  // 键盘删除边
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedEdgeId) {
+        event.preventDefault();
+        deleteEdge(selectedEdgeId);
+      }
+    },
+    [selectedEdgeId, deleteEdge],
+  );
 
   // 拖放处理 - 允许放置
   const handleDragOver = useCallback((event: React.DragEvent) => {
@@ -251,7 +306,7 @@ export function FlowCanvas({
   );
 
   return (
-    <div className="lowcode-canvas" ref={reactFlowWrapper}>
+    <div className="lowcode-canvas" ref={reactFlowWrapper} onKeyDown={handleKeyDown} tabIndex={-1} role="application">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -261,6 +316,7 @@ export function FlowCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
         onDrop={handleDrop}
         onDragOver={handleDragOver}

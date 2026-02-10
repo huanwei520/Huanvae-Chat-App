@@ -39,12 +39,15 @@ import { BatchExecuteDialog } from './components/BatchExecuteDialog';
 import { ImportConfigDialog } from './components/ImportConfigDialog';
 import { ControlFlowDialog } from './components/ControlFlowDialog';
 import { MermaidPreview } from './components/MermaidPreview';
+import { DynamicOperatorDialog } from './components/DynamicOperatorDialog';
+import { useConfirmDialog } from './components/ConfirmDialog';
 import { useFlowStore } from './stores/flowStore';
 import { createLowcodeApiClient } from './services/apiClient';
 import { createWorkflowService } from './services/workflowService';
 import { createCategoryService } from './services/categoryService';
 import { createTemplateService } from './services/templateService';
 import { createVersionService } from './services/versionService';
+import { createDynamicOperatorService } from './services/dynamicOperatorService';
 import { fetchOperators } from './services/operatorService';
 import {
   serializeToWorkflow,
@@ -106,6 +109,9 @@ function parseWindowDataFromUrl(): LowcodeWindowData | null {
  * 作为独立窗口运行，通过 URL 查询参数接收主窗口传递的数据
  */
 function LowcodePage() {
+  // ---- 确认对话框 ----
+  const { confirm: showConfirm, dialogElement: confirmDialogElement } = useConfirmDialog();
+
   // ---- 基础状态 ----
   const [error, setError] = useState<string | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -125,6 +131,7 @@ function LowcodePage() {
   const [showRunConfigDialog, setShowRunConfigDialog] = useState(false);
   const [showControlFlowDialog, setShowControlFlowDialog] = useState(false);
   const [showMermaidPreview, setShowMermaidPreview] = useState(false);
+  const [showDynamicOperatorDialog, setShowDynamicOperatorDialog] = useState(false);
 
   // ---- 历史记录状态 ----
   const [inputHistory, setInputHistory] = useState<InputHistoryEntry[]>([]);
@@ -206,6 +213,14 @@ function LowcodePage() {
       return null;
     }
     return createVersionService(apiClient);
+  }, [apiClient]);
+
+  // 创建动态算子服务
+  const dynamicOperatorService = useMemo(() => {
+    if (!apiClient) {
+      return null;
+    }
+    return createDynamicOperatorService(apiClient);
   }, [apiClient]);
 
   // ---- 初始化 ----
@@ -406,8 +421,12 @@ function LowcodePage() {
       }
 
       if (isDirty) {
-        // eslint-disable-next-line no-alert
-        if (!confirm('当前有未保存的更改，确定要加载其他流程吗？')) {
+        const confirmed = await showConfirm({
+          title: '未保存的更改',
+          message: '当前有未保存的更改，确定要加载其他流程吗？',
+          confirmLabel: '继续加载',
+        });
+        if (!confirmed) {
           return;
         }
       }
@@ -444,7 +463,7 @@ function LowcodePage() {
         setLayoutTrigger((prev) => prev + 1);
       }, 100);
     },
-    [workflowService, isDirty, operators, loadWorkflow],
+    [workflowService, isDirty, operators, loadWorkflow, showConfirm],
   );
 
   /** 删除流程 */
@@ -466,6 +485,80 @@ function LowcodePage() {
   const handleClear = useCallback(() => {
     clearCanvas();
   }, [clearCanvas]);
+
+  /** 一键清理全部动态算子和保存的工作流 */
+  const handleClearAll = useCallback(async () => {
+    if (!workflowService || !dynamicOperatorService || !windowData) {
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: '一键清理',
+      message: (
+        <>
+          此操作将<strong>永久删除</strong>以下所有数据：
+          <br />
+          <br />
+          &bull; 全部已注册的<strong>动态算子</strong>
+          <br />
+          &bull; 全部已保存的<strong>工作流</strong>
+          <br />
+          <br />
+          此操作不可撤销，确定继续吗？
+        </>
+      ),
+      confirmLabel: '全部清理',
+      isDanger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      // 1. 获取并删除全部动态算子
+      const sourcesResp = await dynamicOperatorService.getSources();
+      const deleteOperatorPromises = sourcesResp.sources.map((s) =>
+        dynamicOperatorService.remove(s.operator_id).catch((err) => {
+          console.warn(`[Lowcode] 删除动态算子 ${s.operator_id} 失败:`, err);
+        }),
+      );
+      await Promise.all(deleteOperatorPromises);
+
+      // 2. 获取全部工作流 ID（遍历所有分页），然后批量删除
+      const allWorkflowIds: string[] = [];
+      const firstPage = await workflowService.getWorkflows(1, 100);
+      firstPage.workflows.forEach((w) => allWorkflowIds.push(w.id));
+      const totalPages = Math.ceil(firstPage.total / 100);
+      if (totalPages > 1) {
+        const pagePromises = Array.from({ length: totalPages - 1 }, (_, i) =>
+          workflowService.getWorkflows(i + 2, 100),
+        );
+        const pages = await Promise.all(pagePromises);
+        pages.forEach((p) => p.workflows.forEach((w) => allWorkflowIds.push(w.id)));
+      }
+      await Promise.all(
+        allWorkflowIds.map((id) =>
+          workflowService.deleteWorkflow(id).catch((err) => {
+            console.warn(`[Lowcode] 删除工作流 ${id} 失败:`, err);
+          }),
+        ),
+      );
+
+      // 3. 重置当前编辑器状态
+      resetWorkflow();
+
+      // 4. 刷新算子列表
+      const { operators: freshOperators } = await fetchOperators(windowData.serverUrl);
+      setOperators(freshOperators);
+
+      // eslint-disable-next-line no-alert
+      alert('清理完成：全部动态算子和工作流已删除。');
+    } catch (err) {
+      console.error('[Lowcode] 一键清理失败:', err);
+      // eslint-disable-next-line no-alert
+      alert(`清理过程中出错: ${err instanceof Error ? err.message : '未知错误'}`);
+    }
+  }, [workflowService, dynamicOperatorService, windowData, showConfirm, resetWorkflow]);
 
   /** 自动布局 - 通过增加 trigger 触发 FlowCanvas 中的布局逻辑 */
   const handleAutoLayout = useCallback(() => {
@@ -584,6 +677,78 @@ function LowcodePage() {
     setShowMermaidPreview(true);
   }, []);
 
+  /** 打开动态算子管理对话框 */
+  const handleOpenDynamicOperators = useCallback(() => {
+    setShowDynamicOperatorDialog(true);
+  }, []);
+
+  /** 动态算子变更后刷新算子列表 */
+  const handleDynamicOperatorsChanged = useCallback(() => {
+    if (!windowData) {
+      return;
+    }
+    fetchOperators(windowData.serverUrl)
+      .then(({ operators: ops }) => {
+        setOperators(ops);
+      })
+      .catch((err) => {
+        console.error('[Lowcode] 刷新算子列表失败:', err);
+      });
+  }, [windowData]);
+
+  /**
+   * 上传并生成工作流成功后，先刷新算子列表再加载工作流。
+   *
+   * 必须先等算子列表刷新完成，否则 deserializeFromWorkflow 找不到
+   * 刚注册的动态算子，导致所有节点变为 missingOperators。
+   */
+  const handleWorkflowCreatedFromUpload = useCallback(
+    async (newWorkflowId: string) => {
+      if (!workflowService || !windowData) {
+        console.error('[Lowcode] handleWorkflowCreatedFromUpload: workflowService 或 windowData 未初始化');
+        return;
+      }
+      try {
+        // 1. 先刷新算子列表，等待完成
+        const { operators: freshOperators } = await fetchOperators(windowData.serverUrl);
+        setOperators(freshOperators);
+
+        // 2. 获取工作流定义
+        const workflow = await workflowService.getWorkflow(newWorkflowId);
+        if (!workflow.definition) {
+          throw new Error('流程定义为空，无法加载');
+        }
+
+        // 3. 用最新的算子列表反序列化（而非 stale 的 operators state）
+        const { result, inputBindings, outputBindings, missingOperators } =
+          deserializeFromWorkflow(workflow.definition, freshOperators);
+
+        if (missingOperators.length > 0) {
+          console.warn('[Lowcode] 加载生成工作流时仍有缺失算子:', missingOperators);
+        }
+
+        loadWorkflow(
+          workflow.id,
+          workflow.name,
+          workflow.description || '',
+          result.nodes,
+          result.edges,
+          inputBindings,
+          outputBindings,
+          workflow.definition.control_flow,
+        );
+
+        // 4. 延迟触发自动布局
+        setTimeout(() => {
+          setLayoutTrigger((prev) => prev + 1);
+        }, 100);
+      } catch (err) {
+        console.error('[Lowcode] 加载上传生成的工作流失败:', err);
+      }
+    },
+    [workflowService, windowData, loadWorkflow],
+  );
+
   /** 获取当前流程的节点列表 */
   const getWorkflowNodes = useCallback((): WorkflowNode[] => {
     const { nodes } = useFlowStore.getState();
@@ -696,8 +861,10 @@ function LowcodePage() {
 
   /** 批量执行流程 */
   const handleBatchExecute = useCallback(
-    // eslint-disable-next-line require-await
-    async (batchInputs: Record<string, unknown>[]): Promise<BatchExecutionResult> => {
+    (
+      batchInputs: Record<string, unknown>[],
+      options?: { parallel?: boolean },
+    ): Promise<BatchExecutionResult> => {
       if (!workflowService || !workflowId) {
         throw new Error('请先保存流程');
       }
@@ -706,6 +873,7 @@ function LowcodePage() {
         workflow_id: workflowId,
         batch_inputs: batchInputs,
         options: { trace: false },
+        parallel: options?.parallel,
       });
     },
     [workflowService, workflowId],
@@ -817,6 +985,8 @@ function LowcodePage() {
           onRunConfig={handleOpenRunConfig}
           onOpenControlFlow={handleOpenControlFlow}
           onOpenMermaidPreview={handleOpenMermaidPreview}
+          onOpenDynamicOperators={handleOpenDynamicOperators}
+          onClearAll={handleClearAll}
         />
 
         {/* 主内容区 */}
@@ -950,6 +1120,18 @@ function LowcodePage() {
           }))}
           workflowName={workflowName}
         />
+
+        {/* 动态算子管理对话框 */}
+        <DynamicOperatorDialog
+          isOpen={showDynamicOperatorDialog}
+          onClose={() => setShowDynamicOperatorDialog(false)}
+          service={dynamicOperatorService}
+          onOperatorsChanged={handleDynamicOperatorsChanged}
+          onWorkflowCreated={handleWorkflowCreatedFromUpload}
+        />
+
+        {/* 通用确认对话框（useConfirmDialog hook 渲染） */}
+        {confirmDialogElement}
       </div>
     </MathJaxContext>
   );

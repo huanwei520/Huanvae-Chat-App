@@ -24,14 +24,14 @@ tests/
 │   ├── lanTransfer.test.ts      # 局域网传输测试（62 个用例，含多文件批量传输）
 │   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
 │   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
-│   └── lowcode.test.ts          # 低代码编辑器测试（40 个用例，含类型定义测试）
+│   └── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
     ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
-    ├── LowcodePage.test.tsx     # 低代码编辑器页面测试（6 个测试用例）
+    ├── LowcodePage.test.tsx     # 低代码编辑器页面测试（19 个测试用例，含动态算子对话框、工具栏组件、ConfirmDialog 组件、一键清理）
     └── registry.test.tsx        # 组件注册表测试（149 个测试用例，含移动端组件）
 ```
 
@@ -1066,6 +1066,181 @@ unset CI && pnpm tauri android dev
     - `PropertyPanel.tsx`: 在渲染算子属性前增加 `selectedNode.type === 'virtual'` 守卫，对虚拟节点渲染专用属性面板，展示节点类型标签、说明文字、输出端口列表（含 `@acc.`/`@state.` 前缀解析）
     - `LowcodePage.css`: 新增 `.virtual-kind-badge` 及 `--_input`/`--_virtual` 变体样式
   - **质量保证**：`cargo clippy` 0 警告、`eslint` 0 错误、`vitest` 411 测试全部通过
+- **2026-02-07: 动态算子管理接口实现（Section 21 完整补全）**
+  - **背景**：后端文档 `backend-docs/lowcode/低代码平台.md` 新增第二十一章「动态算子管理接口」，涉及 4 个新 API 端点和 S-expression 语法扩展（SVRD 注解、Connector 耦合接口、守恒律验证）
+  - **新增文件**：
+    - `src/lowcode/services/dynamicOperatorService.ts`: 动态算子管理服务（upload/getSources/update/remove），采用 `createXxxService(client)` 工厂模式
+    - `src/lowcode/components/DynamicOperatorDialog.tsx`: 动态算子管理对话框，双标签页设计（「上传」S-expression 编辑器 + 「管理」源列表 CRUD），含语法参考面板、守恒律警告展示
+  - **类型扩展** (`src/lowcode/types/lowcode.ts`):
+    - 新增 `DynamicOperatorSource`, `UploadedOperatorSummary`, `UploadOperatorsResponse`, `UpdateOperatorResponse`, `DeleteOperatorResponse`, `DynamicOperatorSourcesResponse`
+    - 新增 `ConnectorDefinition`（耦合接口定义，对应 FMI 标准端口概念）
+    - 新增 `ConservationWarning`（守恒律验证警告）
+    - `WorkflowDefinition` 新增 `connectors?: ConnectorDefinition[]` 字段
+  - **Toolbar 集成** (`Toolbar.tsx`):
+    - 新增「动态算子」按钮 + `DynamicOperatorIcon` SVG 图标
+    - 新增 `onOpenDynamicOperators` 回调 prop
+  - **LowcodePage 集成** (`LowcodePage.tsx`):
+    - 新增 `dynamicOperatorService` 服务实例化
+    - 新增 `showDynamicOperatorDialog` 对话框状态
+    - 新增 `handleDynamicOperatorsChanged` 回调：上传/更新/删除算子后自动刷新算子列表
+  - **BatchExecuteDialog 并行选项修复** (`BatchExecuteDialog.tsx`):
+    - 新增 `enableParallel` 状态 + 并行执行勾选框
+    - `onExecute` 回调签名扩展为 `(batchInputs, options?: { parallel?: boolean })`
+    - `LowcodePage.tsx` 中 `handleBatchExecute` 传递 `parallel` 字段到 `executeBatch`
+  - **CSS 样式** (`LowcodePage.css`):
+    - 新增 `.dynamic-operator-dialog`, `.dynamic-operator-tabs`, `.dynamic-operator-tab`（标签页切换）
+    - 新增 `.sexpr-editor`（深色背景等宽字体代码编辑器）, `.sexpr-editor-header`, `.sexpr-help`（语法参考面板）
+    - 新增 `.source-list`, `.source-list-table`, `.source-list-toolbar`, `.source-edit-panel`（源列表管理界面）
+    - 新增 `.conservation-warning`, `.conservation-warning--warning`, `.conservation-warning--error`（守恒律警告样式）
+    - 新增 `.upload-result`, `.upload-operator-list`（上传结果展示）
+    - 新增通用按钮样式 `.btn-primary`, `.btn-secondary`, `.btn-icon`, `.btn-icon--danger`
+    - 新增 `.batch-options-row`（批量执行选项行布局）
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint` / `ReadLints`: 0 错误 0 警告
+    - `vitest run`: 16 文件 428 个测试全部通过（新增 17 个测试）
+  - **新增测试用例**
+    - `tests/unit/lowcode.test.ts` (新增 17 个):
+      - `DynamicOperatorSource` 结构验证
+      - `UploadedOperatorSummary` 结构验证
+      - `UploadOperatorsResponse` 结构验证（含/不含 conservation_warnings）
+      - `UpdateOperatorResponse` 结构验证
+      - `DeleteOperatorResponse` 结构验证
+      - `DynamicOperatorSourcesResponse` 结构验证
+      - `ConnectorDefinition` output 方向验证
+      - `ConnectorDefinition` input 方向（含 remote_source）验证
+      - `ConservationWarning` warning 级别验证
+      - `ConservationWarning` error 级别验证
+      - `WorkflowDefinition` 含 `connectors` 字段验证
+      - `BatchExecuteParams` 含 `parallel` 字段验证
+      - `createDynamicOperatorService` 函数导出存在性
+      - `createDynamicOperatorService` 返回 upload/getSources/update/remove 方法
+    - `tests/components/LowcodePage.test.tsx` (新增 2 个):
+      - `DynamicOperatorDialog` 组件存在性（memo 包裹）
+      - `Toolbar` 组件存在性（memo 包裹）
+  - **覆盖的后端文档 API 端点**
+    - `POST /api/lowcode/operators/upload` — 上传 S-expression 注册算子
+    - `GET /api/lowcode/operators/sources` — 查询动态算子源列表
+    - `PUT /api/lowcode/operators/dynamic/{operator_id}` — 更新动态算子
+    - `DELETE /api/lowcode/operators/dynamic/{operator_id}` — 删除动态算子
+- **2026-02-07: upload_workflow 补全（Section 21 续 — 自动生成工作流）**
+  - **背景**：后端文档新增 `POST /api/lowcode/operators/upload_workflow` 端点，支持上传 S-expression 同时自动生成完整可执行工作流；`WorkflowDefinition` 新增 `var_classes`（Forrester 变量分类）和 `boundaries`（系统边界）字段
+  - **类型扩展** (`src/lowcode/types/lowcode.ts`):
+    - `WorkflowDefinition` 新增 `var_classes?: Record<string, string[]>` 和 `boundaries?: ForresterBoundary[]`
+    - 新增 `ForresterBoundary` 类型（name/kind/description）
+    - 新增 `UploadWorkflowResponse` 类型（含 operators、operator_count、workflow 子对象）
+  - **服务层** (`src/lowcode/services/dynamicOperatorService.ts`):
+    - 新增 `uploadWorkflow(params)` 方法，调用 `/api/lowcode/operators/upload_workflow`
+  - **UI 扩展** (`src/lowcode/components/DynamicOperatorDialog.tsx`):
+    - 新增 `onWorkflowCreated?: (workflowId: string) => void` 回调 prop
+    - 上传标签页新增模式切换（radio）：「仅注册算子」 / 「注册算子并生成工作流」
+    - `upload_workflow` 模式下显示工作流名称（必填）和描述（选填）输入框
+    - 上传成功后自动调用 `onWorkflowCreated` 加载新工作流到画布
+    - 新增 `getUploadButtonLabel()` 辅助函数消除嵌套三元表达式
+  - **页面集成** (`src/lowcode/LowcodePage.tsx`):
+    - 新增 `handleWorkflowCreatedFromUpload` 回调，调用已有 `handleLoadWorkflow` 加载上传生成的工作流
+    - `DynamicOperatorDialog` 传入 `onWorkflowCreated` prop
+    - 修复 `handleBatchExecute` 多余 `async` 关键字消除 ESLint 警告
+  - **CSS 样式** (`src/lowcode/LowcodePage.css`):
+    - 新增 `.upload-mode-switcher`, `.upload-mode-option`（上传模式 radio 按钮组）
+    - 新增 `.workflow-fields`, `.workflow-field`, `.workflow-field-label`, `.workflow-field-input`（工作流名称/描述输入区域）
+    - 新增 `.workflow-created-info`（上传成功后工作流 ID 信息展示）
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint` (`pnpm lint:strict`): 0 错误 0 警告
+    - `vitest run`: 16 文件 434 个测试全部通过（新增 6 个测试）
+  - **新增测试用例** (`tests/unit/lowcode.test.ts`, 新增 6 个):
+    - `ForresterBoundary` source 类型验证
+    - `ForresterBoundary` sink 类型验证
+    - `WorkflowDefinition` 含 `var_classes` 和 `boundaries` 字段验证
+    - `UploadWorkflowResponse` 完整结构验证（含 workflow 子对象）
+    - `UploadWorkflowResponse` workflow 子对象字段存在性验证
+    - `createDynamicOperatorService` 返回包含 `uploadWorkflow` 方法
+  - **覆盖的后端文档 API 端点**
+    - `POST /api/lowcode/operators/upload_workflow` — 上传 S-expression 并自动生成工作流
+- **2026-02-07: 修复 upload_workflow 生成工作流后节点不显示（算子未找到）**
+  - **问题**：使用「注册算子并生成工作流」功能后，画布仅显示虚拟节点，真实算子节点全部丢失。控制台大量 `[WorkflowSerializer] 未找到算子` 警告
+  - **根因**：`DynamicOperatorDialog` 中 `onOperatorsChanged()`（异步刷新算子列表）和 `onWorkflowCreated()`（加载工作流）被连续同步调用，导致 `handleLoadWorkflow` 使用 stale 的 `operators` state 来反序列化——新注册的动态算子尚未进入 operatorMap
+  - **修复**：
+    - `LowcodePage.tsx`: 重写 `handleWorkflowCreatedFromUpload`，改为先 `await fetchOperators()` 获取最新算子列表，再用 freshOperators 调用 `deserializeFromWorkflow`，避免依赖 stale state
+    - `DynamicOperatorDialog.tsx`: `upload_workflow` 模式下不再提前调用 `onOperatorsChanged()`（由 `handleWorkflowCreatedFromUpload` 统一处理刷新），消除重复请求和竞态条件
+  - **质量保证**：`eslint` 0 错误 0 警告、`vitest` 434 测试全部通过
+- **2026-02-07: 修复 upload_workflow 对话框在工作流加载完成前关闭导致无反馈**
+  - **问题**：点击「上传并生成工作流」后对话框立即关闭，画布无任何显示，控制台无错误
+  - **根因**：`onWorkflowCreated` 是 async 函数但被同步调用（无 `await`），`onClose()` 在工作流加载完成前执行，对话框卸载后 `workflowResult` 状态丢失
+  - **修复**：
+    - `DynamicOperatorDialog.tsx`: `await onWorkflowCreated(...)` 等待工作流完全加载后再调用 `onClose()`；按钮文案改为「上传并加载工作流中...」
+    - `LowcodePage.tsx`: `handleWorkflowCreatedFromUpload` 添加 `workflowService`/`windowData` 未初始化时的 console.error 日志
+  - **质量保证**：`eslint` 0 错误 0 警告、`vitest` 437 测试全部通过
+- **2026-02-07: 连接线交互改进（边选中、删除、类型标签、属性面板）**
+  - **背景**：连接线无法删除/取消链接，不同颜色的连接线区分不直观，缺少点击查看类型信息的功能
+  - **flowStore 扩展** (`src/lowcode/stores/flowStore.ts`):
+    - 新增 `selectedEdgeId` 状态
+    - 新增 `selectEdge(edgeId)` action：选中边时自动取消节点选中
+    - 新增 `deleteEdge(edgeId)` action：删除边并更新 isDirty
+    - `selectNode` 自动取消边选中，`clearCanvas`/`resetWorkflow`/`loadWorkflow` 重置 `selectedEdgeId`
+  - **边组件重写** (`src/lowcode/components/FlowCanvas.tsx`):
+    - 4 种独立边组件（DataEdge/StateEdge/AccumulatorReadEdge/BroadcastEdge）合并为统一的 `StyledEdge` 组件
+    - 新增 `EDGE_STYLE_MAP` 配置表，集中管理颜色、标签、线宽、虚线样式
+    - 每条边在中点渲染类型标签（pill badge）：「数据」「状态(lag=N)」「累加器」「广播」
+    - 透明 20px 宽热区 + 实际可见线叠加，大幅降低选中难度
+    - 选中状态：红色高亮 + drop-shadow 光晕 + 标签变红
+    - 新增 `onEdgeClick` 处理、`onKeyDown` 监听 Delete/Backspace 键删除选中边
+  - **属性面板** (`src/lowcode/components/PropertyPanel.tsx`):
+    - 选中边时显示专用「连接线属性」面板，包含：类型指示（圆点颜色 + 中文名）、lag 值（状态边）、来源/目标节点和端口、删除按钮
+    - 未选中节点和边时提示「请选择一个节点或连接线」
+  - **CSS 样式** (`src/lowcode/LowcodePage.css`):
+    - 新增 `.edge-type-badge` 及 `--data/--state/--accumulator_read/--broadcast/--selected` 变体
+    - 新增 `.edge-type-indicator`（属性面板类型颜色圆点）
+    - 新增 `.edge-actions`、`.edge-action-btn`（边操作按钮组）
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint` (`pnpm lint:strict`): 0 错误 0 警告
+    - `vitest run`: 16 文件 437 个测试全部通过（新增 3 个测试）
+  - **新增测试用例** (`tests/unit/lowcode.test.ts`, 新增 3 个):
+    - `selectedEdgeId` 状态和 `selectEdge`/`deleteEdge` action 存在性验证
+    - 边选中/取消选中与节点选中互斥逻辑验证
+    - `deleteEdge` 删除边并清除选中状态验证
+- **2026-02-07: 一键清理全部动态算子和工作流**
+  - **功能**：在工具栏添加「一键清理」按钮，一次性删除服务端全部已注册的动态算子和全部已保存的工作流
+  - **实现**
+    - `Toolbar.tsx`: 新增 `onClearAll` 可选 prop 和 `CleanAllIcon` 图标组件，按钮位于「清空」按钮之后
+    - `LowcodePage.tsx`: 新增 `handleClearAll` 处理函数
+      - 使用 `useConfirmDialog` 弹出二次确认（danger 样式，明确列出清理内容）
+      - 调用 `dynamicOperatorService.getSources()` 获取全部动态算子，并行调用 `remove()` 逐一删除
+      - 调用 `workflowService.getWorkflows()` 分页获取全部工作流 ID（每页 100 条），并行调用 `deleteWorkflow()` 逐一删除
+      - 删除完成后重置编辑器状态（`resetWorkflow`）并刷新算子列表（`fetchOperators`）
+      - 单个删除失败不阻塞整体流程（`catch` 后 `console.warn` 继续）
+  - **无批量删除 API**：后端不提供批量删除端点，前端通过 `Promise.all` 并发逐一删除实现
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint`: 0 错误 0 警告
+    - `vitest run`: 16 文件 444 个测试全部通过（新增 1 个测试）
+  - **新增测试**: `tests/components/LowcodePage.test.tsx` (新增 1 个): Toolbar `onClearAll` prop 存在性验证
+- **2026-02-07: 确认对话框统一替换（消除 window.confirm，自定义弹窗）**
+  - **背景**：低代码平台中所有删除/危险操作使用 `window.confirm()` 弹窗，在 Tauri WebView 中存在兼容性问题（可能直接返回 true 跳过确认），且 UI 风格与应用不一致
+  - **新增组件** (`src/lowcode/components/ConfirmDialog.tsx`):
+    - `ConfirmDialog` 通用确认对话框组件（memo 化），复用 `delete-confirm-*` CSS 样式
+    - 支持 `title`、`message`（ReactNode）、`confirmLabel`、`cancelLabel`、`processingLabel`、`isDanger`、`isProcessing` 配置
+    - `useConfirmDialog()` Hook：返回 `{ confirm, dialogElement }`，通过 `await confirm({...})` 异步获取用户选择（true/false）
+    - Promise 模式：`confirm()` 返回 `Promise<boolean>`，内部用 `useRef` 保存 resolve 回调，确保 React 并发安全
+  - **替换的 window.confirm 调用**（共 6 处）:
+    - `PropertyPanel.tsx`: 删除节点确认、删除连接线确认
+    - `Toolbar.tsx`: 新建流程（未保存更改警告）、清空画布确认
+    - `DynamicOperatorDialog.tsx`: 删除动态算子确认
+    - `LowcodePage.tsx`: 加载其他流程（未保存更改警告）
+  - **新增缺失确认**（共 1 处）:
+    - `EdgeConditionEditor.tsx`: 删除边条件操作原本无确认，现已添加
+  - **WorkflowListDialog 重构**:
+    - 移除内联 `DeleteConfirmDialog` 组件及其 interface
+    - 改为直接使用通用 `ConfirmDialog`，传入 `isDanger`、`isProcessing`、`processingLabel="删除中..."` 等参数
+  - **质量保证**
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `eslint`: 0 错误 0 警告（`confirm` 重命名为 `showConfirm` 避免 `no-alert` 规则触发）
+    - `vitest run`: 16 文件 443 个测试全部通过（新增 6 个测试）
+  - **新增测试用例**:
+    - `tests/unit/lowcode.test.ts` (新增 4 个): `ConfirmDialogProps` 必填字段、全可选字段、`ConfirmOptions` 完整配置、`ConfirmOptions` 最小配置
+    - `tests/components/LowcodePage.test.tsx` (新增 2 个): `ConfirmDialog` 组件存在性验证、`useConfirmDialog` Hook 函数存在性验证
 - **2026-02-06: 算子面板 LaTeX 公式显示修复**
   - **问题**：算子卡片中部分公式（如 Sigmoid转换函数、GDH响应函数）显示为原始文本而非渲染后的数学公式
   - **根因**：

@@ -4368,3 +4368,629 @@
   background: #fff3e0;
   color: #e65100;
 }
+
+/* ============================================================================
+   动态算子管理对话框
+   ============================================================================ */
+
+.dynamic-operator-dialog {
+  width: 800px;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 标签页切换 */
+.dynamic-operator-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  padding: 0 16px;
+}
+
+.dynamic-operator-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary, #666);
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.dynamic-operator-tab:hover {
+  color: var(--color-text-primary, #333);
+  background: var(--color-hover, rgba(0, 0, 0, 0.04));
+}
+
+.dynamic-operator-tab.active {
+  color: var(--color-primary, #1976d2);
+  border-bottom-color: var(--color-primary, #1976d2);
+  font-weight: 600;
+}
+
+/* 上传面板 */
+.dynamic-upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 编辑器标题行 */
+.sexpr-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sexpr-editor-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #333);
+}
+
+.sexpr-help-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-secondary, #666);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sexpr-help-toggle:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.04));
+  color: var(--color-text-primary, #333);
+}
+
+/* S-expression 编辑器 */
+.sexpr-editor {
+  width: 100%;
+  min-height: 260px;
+  padding: 12px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  font-family: 'Consolas', 'Monaco', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
+.sexpr-editor:focus {
+  outline: none;
+  border-color: var(--color-primary, #1976d2);
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+.sexpr-editor--compact {
+  min-height: 180px;
+}
+
+/* 编辑器操作按钮 */
+.sexpr-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-primary, #1976d2);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-dark, #1565c0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-primary, #333);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-hover, rgba(0, 0, 0, 0.04));
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-secondary, #666);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--color-hover, rgba(0, 0, 0, 0.06));
+  color: var(--color-text-primary, #333);
+}
+
+.btn-icon--danger:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.08);
+  color: #d32f2f;
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 上传结果 */
+.upload-result {
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.upload-result--success {
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  color: #2e7d32;
+}
+
+.upload-result--error {
+  background: #ffebee;
+  border: 1px solid #ef9a9a;
+  color: #c62828;
+}
+
+.upload-result strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.upload-operator-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-operator-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.upload-operator-list code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.upload-operator-category {
+  font-size: 11px;
+  color: var(--color-text-secondary, #666);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* 语法参考面板 */
+.sexpr-help {
+  background: var(--color-surface, #f5f5f5);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+}
+
+.sexpr-help h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--color-text-primary, #333);
+}
+
+.sexpr-help-section {
+  margin-bottom: 10px;
+}
+
+.sexpr-help-section:last-child {
+  margin-bottom: 0;
+}
+
+.sexpr-help-section strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-text-primary, #333);
+  font-size: 12px;
+}
+
+.sexpr-help-section code {
+  display: block;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  margin-bottom: 2px;
+  color: var(--color-text-primary, #555);
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+/* 管理面板 */
+.dynamic-manage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 源列表工具栏 */
+.source-list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.source-list-count {
+  font-size: 13px;
+  color: var(--color-text-secondary, #666);
+}
+
+.source-list-loading,
+.source-list-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-secondary, #999);
+  font-size: 13px;
+}
+
+/* 源列表表格 */
+.source-list {
+  overflow-x: auto;
+}
+
+.source-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.source-list-table th {
+  background: var(--color-surface, #f5f5f5);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-secondary, #666);
+  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  white-space: nowrap;
+}
+
+.source-list-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+  color: var(--color-text-primary, #333);
+}
+
+.source-list-table tr:hover td {
+  background: var(--color-hover, rgba(0, 0, 0, 0.02));
+}
+
+.source-list-table code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.source-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* 编辑面板 */
+.source-edit-panel {
+  background: var(--color-surface, #f5f5f5);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.source-edit-panel h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.source-edit-panel code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.source-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* 守恒律警告 */
+.conservation-warnings {
+  margin-top: 12px;
+  padding: 10px;
+  background: #fff8e1;
+  border: 1px solid #ffcc02;
+  border-radius: 6px;
+}
+
+.conservation-warnings-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f57f17;
+}
+
+.conservation-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.conservation-warning-level {
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.conservation-warning--warning .conservation-warning-level {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.conservation-warning--error .conservation-warning-level {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.conservation-warning-node {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.conservation-warning-msg {
+  color: var(--color-text-secondary, #666);
+}
+
+/* 批量执行选项行 */
+.batch-options-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ============================================================================
+   Upload Workflow 扩展样式
+   ============================================================================ */
+
+/* 上传模式切换 radio 组 */
+.upload-mode-switcher {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  margin-bottom: 12px;
+}
+
+.upload-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary, #333);
+}
+
+.upload-mode-option input[type="radio"] {
+  accent-color: var(--color-primary, #4a90d9);
+}
+
+/* 工作流名称/描述输入区域 */
+.workflow-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--color-bg-secondary, #f8f9fa);
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+.workflow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666);
+}
+
+.workflow-field-label .required {
+  color: #e74c3c;
+}
+
+.workflow-field-input {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border, #d0d0d0);
+  border-radius: 4px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.workflow-field-input:focus {
+  border-color: var(--color-primary, #4a90d9);
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.15);
+}
+
+/* 上传成功后工作流信息 */
+.workflow-created-info {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: var(--color-bg-tertiary, #eef6ff);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #555);
+}
+
+.workflow-created-info code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+}
+
+/* ============================================================================
+   边类型标签（Edge Type Badge）
+   ============================================================================ */
+
+.edge-type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+}
+
+/* 数据流 - 蓝紫色 */
+.edge-type-badge--data {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+/* 状态流 - 橙色 */
+.edge-type-badge--state {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* 累加器读取 - 绿色 */
+.edge-type-badge--accumulator_read {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* 广播 - 紫色 */
+.edge-type-badge--broadcast {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+/* 选中状态 */
+.edge-type-badge--selected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+}
+
+/* ============================================================================
+   属性面板 - 边详情
+   ============================================================================ */
+
+/* 边类型颜色指示器 */
+.edge-type-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* 边操作按钮组 */
+.edge-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edge-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.edge-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
