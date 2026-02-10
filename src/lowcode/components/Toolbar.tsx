@@ -4,9 +4,11 @@
  * 提供流程的创建、保存、验证、运行等操作
  *
  * @module lowcode/components/Toolbar
+ * @updated 2026-02-07 新增一键清理按钮（onClearAll），替换 window.confirm 为 useConfirmDialog
  */
 
 import { memo, useCallback } from 'react';
+import { useConfirmDialog } from './ConfirmDialog';
 
 // ============================================================================
 // 图标组件
@@ -96,6 +98,20 @@ function ClearIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="3,6 5,6 21,6" />
       <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2" />
+    </svg>
+  );
+}
+
+/** 一键清理图标（扫帚） */
+function CleanAllIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 2l-4 4" />
+      <path d="M14 6l-10 10" />
+      <path d="M4 16l0 4 4 0" />
+      <path d="M12 14l-4 4" />
+      <line x1="20" y1="8" x2="16" y2="12" />
+      <path d="M15 3l6 6" />
     </svg>
   );
 }
@@ -193,6 +209,17 @@ function MermaidIcon() {
   );
 }
 
+/** 动态算子图标 */
+function DynamicOperatorIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M16 18l2-2-2-2" />
+      <path d="M8 18l-2-2 2-2" />
+      <path d="M10.5 22l3-20" />
+    </svg>
+  );
+}
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -245,6 +272,10 @@ interface ToolbarProps {
   onOpenControlFlow?: () => void;
   /** 打开 Mermaid 预览 */
   onOpenMermaidPreview?: () => void;
+  /** 打开动态算子管理 */
+  onOpenDynamicOperators?: () => void;
+  /** 一键清理全部动态算子和工作流 */
+  onClearAll?: () => void;
 }
 
 // ============================================================================
@@ -280,7 +311,11 @@ function ToolbarComponent({
   onRunConfig,
   onOpenControlFlow,
   onOpenMermaidPreview,
+  onOpenDynamicOperators,
+  onClearAll,
 }: ToolbarProps) {
+  const { confirm: showConfirm, dialogElement: confirmDialogElement } = useConfirmDialog();
+
   /** 处理名称变更 */
   const handleNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,24 +325,33 @@ function ToolbarComponent({
   );
 
   /** 处理新建确认 */
-  const handleNew = useCallback(() => {
+  const handleNew = useCallback(async () => {
     if (isDirty) {
-      // eslint-disable-next-line no-alert
-      if (!confirm('当前有未保存的更改，确定要新建流程吗？')) {
+      const confirmed = await showConfirm({
+        title: '未保存的更改',
+        message: '当前有未保存的更改，确定要新建流程吗？',
+        confirmLabel: '继续新建',
+      });
+      if (!confirmed) {
         return;
       }
     }
     onNew();
-  }, [isDirty, onNew]);
+  }, [isDirty, onNew, showConfirm]);
 
   /** 处理清空确认 */
-  const handleClear = useCallback(() => {
+  const handleClear = useCallback(async () => {
     if (nodeCount === 0) { return; }
-    // eslint-disable-next-line no-alert
-    if (confirm('确定要清空画布吗？此操作不可撤销。')) {
+    const confirmed = await showConfirm({
+      title: '确认清空',
+      message: '确定要清空画布吗？此操作不可撤销。',
+      confirmLabel: '清空画布',
+      isDanger: true,
+    });
+    if (confirmed) {
       onClear();
     }
-  }, [nodeCount, onClear]);
+  }, [nodeCount, onClear, showConfirm]);
 
   return (
     <div className="lowcode-toolbar">
@@ -492,6 +536,17 @@ function ToolbarComponent({
           </button>
         )}
 
+        {onOpenDynamicOperators && (
+          <button
+            className="toolbar-btn"
+            onClick={onOpenDynamicOperators}
+            title="动态算子管理（上传/编辑 S-expression）"
+          >
+            <DynamicOperatorIcon />
+            <span>动态算子</span>
+          </button>
+        )}
+
         {onAutoLayout && (
           <button
             className="toolbar-btn"
@@ -513,7 +568,19 @@ function ToolbarComponent({
           <ClearIcon />
           <span>清空</span>
         </button>
+
+        {onClearAll && (
+          <button
+            className="toolbar-btn danger"
+            onClick={onClearAll}
+            title="一键清理全部动态算子和保存的工作流"
+          >
+            <CleanAllIcon />
+            <span>一键清理</span>
+          </button>
+        )}
       </div>
+      {confirmDialogElement}
     </div>
   );
 }

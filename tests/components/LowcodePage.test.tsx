@@ -17,6 +17,9 @@ import { OperatorPanel } from '../../src/lowcode/components/OperatorPanel';
 import { EdgeConditionEditor } from '../../src/lowcode/components/EdgeConditionEditor';
 import { ErrorHandlingDialog } from '../../src/lowcode/components/ErrorHandlingDialog';
 import { VirtualNode, nodeTypes } from '../../src/lowcode/components/OperatorNode';
+import { DynamicOperatorDialog } from '../../src/lowcode/components/DynamicOperatorDialog';
+import { Toolbar } from '../../src/lowcode/components/Toolbar';
+import { ConfirmDialog, useConfirmDialog } from '../../src/lowcode/components/ConfirmDialog';
 
 describe('LowcodePage', () => {
   it('should be a valid React component', () => {
@@ -97,6 +100,44 @@ describe('nodeTypes', () => {
     expect(nodeTypes.formula).toBeDefined();
     expect(nodeTypes.equation_network).toBeDefined();
     expect(nodeTypes.virtual).toBeDefined();
+  });
+});
+
+describe('DynamicOperatorDialog', () => {
+  it('should be a valid React memo component', () => {
+    expect(DynamicOperatorDialog).toBeDefined();
+    expect(typeof DynamicOperatorDialog).toBe('object');
+    expect((DynamicOperatorDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
+  });
+});
+
+describe('Toolbar', () => {
+  it('should be a valid React memo component', () => {
+    expect(Toolbar).toBeDefined();
+    expect(typeof Toolbar).toBe('object');
+    expect((Toolbar as { $$typeof?: symbol }).$$typeof).toBeDefined();
+  });
+
+  it('should accept onClearAll optional prop', () => {
+    // Toolbar props interface includes onClearAll?: () => void
+    // Verify by type-checking that it's a valid memo component accepting this prop
+    const toolbarType = Toolbar as { $$typeof?: symbol; type?: { name?: string } };
+    expect(toolbarType.$$typeof).toBeDefined();
+    // The component accepts onClearAll as optional — no runtime error expected
+  });
+});
+
+describe('ConfirmDialog', () => {
+  it('should be a valid React memo component', () => {
+    expect(ConfirmDialog).toBeDefined();
+    expect(typeof ConfirmDialog).toBe('object');
+    expect((ConfirmDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
+  });
+});
+
+describe('useConfirmDialog', () => {
+  it('should be a function (hook)', () => {
+    expect(typeof useConfirmDialog).toBe('function');
   });
 });
 

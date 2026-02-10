@@ -34,6 +34,8 @@ interface FlowState {
   edges: Edge[];
   /** 当前选中的节点 ID */
   selectedNodeId: string | null;
+  /** 当前选中的边 ID */
+  selectedEdgeId: string | null;
 
   // ---- 流程状态 ----
   /** 当前流程 ID（null 表示新建） */
@@ -68,6 +70,10 @@ interface FlowState {
   deleteNode: (nodeId: string) => void;
   /** 选中节点 */
   selectNode: (nodeId: string | null) => void;
+  /** 选中边 */
+  selectEdge: (edgeId: string | null) => void;
+  /** 删除边 */
+  deleteEdge: (edgeId: string) => void;
   /** 清空画布 */
   clearCanvas: () => void;
   /** 自动布局 */
@@ -131,6 +137,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  selectedEdgeId: null,
 
   // 流程初始状态
   workflowId: null,
@@ -194,7 +201,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   selectNode: (nodeId) => {
-    set({ selectedNodeId: nodeId });
+    set({ selectedNodeId: nodeId, selectedEdgeId: null });
+  },
+
+  selectEdge: (edgeId) => {
+    set({ selectedEdgeId: edgeId, selectedNodeId: null });
+  },
+
+  deleteEdge: (edgeId) => {
+    set({
+      edges: get().edges.filter((e) => e.id !== edgeId),
+      selectedEdgeId: get().selectedEdgeId === edgeId ? null : get().selectedEdgeId,
+      isDirty: true,
+    });
   },
 
   clearCanvas: () => {
@@ -202,6 +221,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       nodes: [],
       edges: [],
       selectedNodeId: null,
+      selectedEdgeId: null,
       workflowInputs: [],
       workflowOutputs: [],
       controlFlowConfig: undefined,
@@ -311,6 +331,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       nodes: [],
       edges: [],
       selectedNodeId: null,
+      selectedEdgeId: null,
       workflowId: null,
       workflowName: '未命名流程',
       workflowDescription: '',
@@ -332,6 +353,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       workflowOutputs: outputs,
       controlFlowConfig: controlFlow,
       selectedNodeId: null,
+      selectedEdgeId: null,
       isDirty: false,
     });
   },

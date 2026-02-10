@@ -8,6 +8,7 @@
 
 import { memo, useState, useCallback, useEffect } from 'react';
 import type { Workflow } from '../types/lowcode';
+import { ConfirmDialog } from './ConfirmDialog';
 
 // ============================================================================
 // 图标组件
@@ -183,54 +184,8 @@ function WorkflowItem({
 }
 
 // ============================================================================
-// 删除确认对话框
+// 删除确认对话框 — 复用通用 ConfirmDialog 组件
 // ============================================================================
-
-interface DeleteConfirmDialogProps {
-  workflowName: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  isDeleting: boolean;
-}
-
-function DeleteConfirmDialog({
-  workflowName,
-  onConfirm,
-  onCancel,
-  isDeleting,
-}: DeleteConfirmDialogProps) {
-  return (
-    <div className="delete-confirm-overlay" onClick={onCancel}>
-      <div
-        className="delete-confirm-dialog"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="delete-confirm-title">确认删除</div>
-        <div className="delete-confirm-message">
-          确定要删除流程 &ldquo;<strong>{workflowName}</strong>&rdquo; 吗？
-          <br />
-          此操作不可撤销。
-        </div>
-        <div className="delete-confirm-actions">
-          <button
-            className="toolbar-btn"
-            onClick={onCancel}
-            disabled={isDeleting}
-          >
-            取消
-          </button>
-          <button
-            className="toolbar-btn danger"
-            onClick={onConfirm}
-            disabled={isDeleting}
-          >
-            {isDeleting ? '删除中...' : '确认删除'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // 主组件
@@ -414,11 +369,21 @@ function WorkflowListDialogComponent({
 
       {/* 删除确认对话框 */}
       {pendingDelete && (
-        <DeleteConfirmDialog
-          workflowName={pendingDelete.name}
+        <ConfirmDialog
+          title="确认删除"
+          message={
+            <>
+              确定要删除流程 &ldquo;<strong>{pendingDelete.name}</strong>&rdquo; 吗？
+              <br />
+              此操作不可撤销。
+            </>
+          }
+          confirmLabel="确认删除"
+          processingLabel="删除中..."
+          isDanger
+          isProcessing={deletingId === pendingDelete.id}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
-          isDeleting={deletingId === pendingDelete.id}
         />
       )}
     </div>

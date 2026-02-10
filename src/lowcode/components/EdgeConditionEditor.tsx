@@ -4,9 +4,11 @@
  * 提供可视化的条件表达式构建器
  *
  * @module lowcode/components/EdgeConditionEditor
+ * @updated 2026-02-07 为删除条件操作添加 useConfirmDialog 确认弹窗
  */
 
 import { memo, useState, useCallback } from 'react';
+import { useConfirmDialog } from './ConfirmDialog';
 import type {
   ConditionalEdge,
   ConditionExpr,
@@ -399,6 +401,7 @@ function EdgeConditionEditorComponent({
   const [currentCondition, setCurrentCondition] = useState<ConditionExpr>(
     condition || { type: 'compare', left: { type: 'literal' }, op: 'eq', right: { type: 'literal' } },
   );
+  const { confirm: showConfirm, dialogElement: confirmDialogElement } = useConfirmDialog();
 
   const handleSave = useCallback(() => {
     onSave({
@@ -408,10 +411,18 @@ function EdgeConditionEditorComponent({
     onClose();
   }, [edgeId, currentCondition, onSave, onClose]);
 
-  const handleDelete = useCallback(() => {
-    onDelete?.();
-    onClose();
-  }, [onDelete, onClose]);
+  const handleDelete = useCallback(async () => {
+    const confirmed = await showConfirm({
+      title: '确认删除',
+      message: '确定要删除此边条件吗？删除后数据将始终流经此边。',
+      confirmLabel: '删除条件',
+      isDanger: true,
+    });
+    if (confirmed) {
+      onDelete?.();
+      onClose();
+    }
+  }, [onDelete, onClose, showConfirm]);
 
   const handleContentClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -462,6 +473,7 @@ function EdgeConditionEditorComponent({
           </button>
         </div>
       </div>
+      {confirmDialogElement}
     </div>
   );
 }

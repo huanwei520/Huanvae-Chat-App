@@ -215,6 +215,12 @@ export interface WorkflowDefinition {
   control_flow?: ControlFlowConfig;
   /** 可视化配置 */
   visualization?: VisualizationConfig;
+  /** 耦合接口定义（Connector，用于模块间数据交换） */
+  connectors?: ConnectorDefinition[];
+  /** Forrester 变量分类映射（键为分类名，值为该分类下的变量名数组） */
+  var_classes?: Record<string, string[]>;
+  /** Forrester 系统边界定义 */
+  boundaries?: ForresterBoundary[];
 }
 
 /** 完整流程数据 */
@@ -822,6 +828,135 @@ export interface MonteCarloOutputStats {
     /** 各箱计数 */
     counts: number[];
   };
+}
+
+// ============================================================================
+// 动态算子管理相关类型
+// ============================================================================
+
+/** 动态算子源信息 */
+export interface DynamicOperatorSource {
+  /** 算子 ID */
+  operator_id: string;
+  /** 模块 ID */
+  module_id: string;
+  /** 算子名称 */
+  name: string;
+  /** 分类 */
+  category: string;
+  /** 版本号 */
+  version: number;
+  /** 最后更新时间 */
+  updated_at: string;
+}
+
+/** 上传算子响应中的单个算子摘要 */
+export interface UploadedOperatorSummary {
+  /** 算子 ID */
+  id: string;
+  /** 算子名称 */
+  name: string;
+  /** 分类 */
+  category: string;
+}
+
+/** 上传算子响应 */
+export interface UploadOperatorsResponse {
+  /** 提示消息 */
+  message: string;
+  /** 注册成功的算子列表 */
+  operators: UploadedOperatorSummary[];
+  /** 注册数量 */
+  count: number;
+  /** 守恒律验证警告（可选） */
+  conservation_warnings?: ConservationWarning[];
+}
+
+/** 更新动态算子响应 */
+export interface UpdateOperatorResponse {
+  /** 提示消息 */
+  message: string;
+  /** 更新后的版本号 */
+  version: number;
+}
+
+/** 删除动态算子响应 */
+export interface DeleteOperatorResponse {
+  /** 提示消息 */
+  message: string;
+}
+
+/** 动态算子源列表响应 */
+export interface DynamicOperatorSourcesResponse {
+  /** 源列表 */
+  sources: DynamicOperatorSource[];
+  /** 总数 */
+  total: number;
+}
+
+/** 上传 S-expression 并生成工作流的响应 */
+export interface UploadWorkflowResponse {
+  /** 提示消息 */
+  message: string;
+  /** 注册成功的算子列表 */
+  operators: UploadedOperatorSummary[];
+  /** 注册的算子数量 */
+  operator_count: number;
+  /** 自动生成的工作流信息 */
+  workflow: {
+    /** 工作流 ID */
+    id: string;
+    /** 工作流名称 */
+    name: string;
+    /** 工作流描述 */
+    description: string;
+    /** 版本号 */
+    version: number;
+    /** 创建时间 */
+    created_at: string;
+  };
+}
+
+// ============================================================================
+// Forrester 系统动力学相关类型
+// ============================================================================
+
+/** Forrester 系统边界定义 */
+export interface ForresterBoundary {
+  /** 边界名称 */
+  name: string;
+  /** 边界类型：source=来源, sink=汇 */
+  kind: 'source' | 'sink';
+  /** 边界描述 */
+  description: string;
+}
+
+// ============================================================================
+// Connector 耦合接口相关类型
+// ============================================================================
+
+/** 耦合接口定义（用于模块间数据交换） */
+export interface ConnectorDefinition {
+  /** 接口名称 */
+  name: string;
+  /** 数据类型（Number, Array<Number>, Boolean 等） */
+  data_type: string;
+  /** 接口描述 */
+  description: string;
+  /** 方向：in=输入, out=输出 */
+  direction: 'in' | 'out';
+  /** 远程来源（仅 in 方向有效，格式 module.port） */
+  remote_source?: string | null;
+}
+
+/** 守恒律验证警告 */
+export interface ConservationWarning {
+  /** 警告级别 */
+  level: 'warning' | 'error';
+  /** 触发警告的节点名称 */
+  node: string;
+  /** 警告描述 */
+  message: string;
 }
 
 // ============================================================================

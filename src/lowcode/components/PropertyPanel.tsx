@@ -6,6 +6,7 @@
  *
  * @module lowcode/components/PropertyPanel
  * @updated 2026-02-06 添加虚拟节点属性面板，修复选中虚拟节点白屏崩溃
+ * @updated 2026-02-07 将 window.confirm() 替换为 useConfirmDialog 自定义确认弹窗
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -13,6 +14,7 @@
 import { memo, useCallback, useMemo, useState, useEffect } from 'react';
 import { useFlowStore } from '../stores/flowStore';
 import { MathFormula } from './MathFormula';
+import { useConfirmDialog } from './ConfirmDialog';
 import type { Operator, OperatorInput, OperatorOutput } from '../types/lowcode';
 
 // ============================================================================
@@ -357,7 +359,8 @@ function PropertyPanelComponent({
   onRenameInput,
   onRenameOutput,
 }: PropertyPanelProps) {
-  const { nodes, selectedNodeId, deleteNode, setNodes } = useFlowStore();
+  const { nodes, edges, selectedNodeId, selectedEdgeId, deleteNode, deleteEdge, selectEdge, setNodes } = useFlowStore();
+  const { confirm: showConfirm, dialogElement: confirmDialogElement } = useConfirmDialog();
 
   // 获取所有已绑定的名称（用于重名校验）
   const allInputNames = useMemo(
@@ -405,13 +408,18 @@ function PropertyPanelComponent({
   );
 
   // 处理删除节点
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!selectedNodeId) { return; }
-    // eslint-disable-next-line no-alert
-    if (confirm('确定要删除此节点吗？')) {
+    const confirmed = await showConfirm({
+      title: '确认删除',
+      message: '确定要删除此节点吗？此操作不可撤销。',
+      confirmLabel: '删除',
+      isDanger: true,
+    });
+    if (confirmed) {
       deleteNode(selectedNodeId);
     }
-  }, [selectedNodeId, deleteNode]);
+  }, [selectedNodeId, deleteNode, showConfirm]);
 
   // 检查端口是否已绑定
   const isInputBound = useCallback(
@@ -457,7 +465,131 @@ function PropertyPanelComponent({
     [selectedNodeId, workflowOutputs],
   );
 
-  // 未选中节点时显示提示
+  // 选中边时显示边详情面板
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) { return null; }
+    return edges.find((e) => e.id === selectedEdgeId) || null;
+  }, [selectedEdgeId, edges]);
+
+  const handleDeleteEdge = useCallback(async () => {
+    if (!selectedEdgeId) { return; }
+    const confirmed = await showConfirm({
+      title: '确认删除',
+      message: '确定要删除此连接线吗？此操作不可撤销。',
+      confirmLabel: '删除',
+      isDanger: true,
+    });
+    if (confirmed) {
+      deleteEdge(selectedEdgeId);
+    }
+  }, [selectedEdgeId, deleteEdge, showConfirm]);
+
+  const handleDeselectEdge = useCallback(() => {
+    selectEdge(null);
+  }, [selectEdge]);
+
+  if (selectedEdge && !selectedNode) {
+    const edgeData = selectedEdge.data as { edgeType?: string; lag?: number } | undefined;
+    const edgeType = edgeData?.edgeType || selectedEdge.type || 'data';
+    const lag = edgeData?.lag;
+
+    const typeLabels: Record<string, string> = {
+      data: '数据流',
+      state: '状态流',
+      accumulator_read: '累加器读取',
+      broadcast: '广播',
+    };
+    const typeColors: Record<string, string> = {
+      data: '#6366f1',
+      state: '#f59e0b',
+      accumulator_read: '#10b981',
+      broadcast: '#a855f7',
+    };
+
+    return (
+      <div className="lowcode-properties">
+        <div className="lowcode-properties-header">
+          连接线属性
+          <button
+            className="property-delete-btn"
+            onClick={handleDeleteEdge}
+            title="删除连接线"
+          >
+            <DeleteIcon />
+          </button>
+        </div>
+        <div className="lowcode-properties-content">
+          <div className="property-section">
+            <div className="property-section-title">连接类型</div>
+            <div className="property-field">
+              <label>类型</label>
+              <div className="property-value">
+                <span
+                  className="edge-type-indicator"
+                  style={{ backgroundColor: typeColors[edgeType] || '#6366f1' }}
+                />
+                <span>{typeLabels[edgeType] || edgeType}</span>
+              </div>
+            </div>
+            {edgeType === 'state' && lag !== undefined && lag > 0 && (
+              <div className="property-field">
+                <label>延迟步数 (lag)</label>
+                <div className="property-value">{lag}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="property-section">
+            <div className="property-section-title">来源</div>
+            <div className="property-field">
+              <label>节点</label>
+              <div className="property-value property-id">{selectedEdge.source}</div>
+            </div>
+            <div className="property-field">
+              <label>端口</label>
+              <div className="property-value">{selectedEdge.sourceHandle || '默认'}</div>
+            </div>
+          </div>
+
+          <div className="property-section">
+            <div className="property-section-title">目标</div>
+            <div className="property-field">
+              <label>节点</label>
+              <div className="property-value property-id">{selectedEdge.target}</div>
+            </div>
+            <div className="property-field">
+              <label>端口</label>
+              <div className="property-value">{selectedEdge.targetHandle || '默认'}</div>
+            </div>
+          </div>
+
+          <div className="property-section">
+            <div className="property-section-title">操作</div>
+            <div className="edge-actions">
+              <button className="btn-secondary edge-action-btn" onClick={handleDeselectEdge}>
+                取消选中
+              </button>
+              <button className="btn-icon btn-icon--danger edge-action-btn" onClick={handleDeleteEdge}>
+                <DeleteIcon />
+                <span>删除连接</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="property-section">
+            <div className="property-section-title">调试信息</div>
+            <div className="property-field">
+              <label>边 ID</label>
+              <div className="property-value property-id">{selectedEdge.id}</div>
+            </div>
+          </div>
+        </div>
+        {confirmDialogElement}
+      </div>
+    );
+  }
+
+  // 未选中节点和边时显示提示
   if (!selectedNode || !nodeData) {
     return (
       <div className="lowcode-properties">
@@ -467,8 +599,8 @@ function PropertyPanelComponent({
             <div className="property-empty-icon">
               <NodeIcon />
             </div>
-            <p>请选择一个节点</p>
-            <p className="property-empty-hint">点击画布中的节点查看其属性</p>
+            <p>请选择一个节点或连接线</p>
+            <p className="property-empty-hint">点击画布中的节点或连接线查看其属性</p>
           </div>
         </div>
       </div>
@@ -702,6 +834,7 @@ function PropertyPanelComponent({
           </div>
         </div>
       </div>
+      {confirmDialogElement}
     </div>
   );
 }
