@@ -1585,8 +1585,8 @@ describe('UploadWorkflowResponse type', () => {
     const resp: UploadWorkflowResponse = {
       message: '成功上传并生成工作流',
       operators: [
-        { id: 'op-1', name: '分解速率', category: '碳循环', version: 1 },
-        { id: 'op-2', name: 'Q10温度系数', category: '碳循环', version: 1 },
+        { id: 'op-1', name: '分解速率', category: '碳循环' },
+        { id: 'op-2', name: 'Q10温度系数', category: '碳循环' },
       ],
       operator_count: 2,
       workflow: {

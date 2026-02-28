@@ -2,8 +2,10 @@
  * WebSocket 消息处理器
  *
  * 从 WebSocketContext.tsx 中提取的消息处理逻辑
- * 负责解析和处理各种 WebSocket 消息类型
- * 新增：将实时消息同步保存到本地数据库
+ * 负责解析和处理各种 WebSocket 消息类型：
+ * - 新消息保存到本地数据库并更新会话预览
+ * - 消息撤回后刷新会话卡片的最新消息预览（refreshPreviewInSummary）
+ * - 系统通知（好友请求、群邀请等）更新待处理计数
  */
 
 import type {
@@ -142,6 +144,46 @@ export function updateGroupUnread(
     newSummary.group_unreads.reduce((sum, u) => sum + u.unread_count, 0);
 
   return newSummary;
+}
+
+/**
+ * 刷新 unreadSummary 中指定会话的消息预览（仅更新已存在的条目）
+ *
+ * 用于消息删除/撤回后，将卡片上的预览同步为新的最新消息。
+ * 不会新增条目，避免为无未读数的会话创建空记录。
+ */
+export function refreshPreviewInSummary(
+  setUnreadSummary: React.Dispatch<React.SetStateAction<UnreadSummary | null>>,
+  targetType: 'friend' | 'group',
+  targetId: string,
+  preview: string,
+  timestamp: string,
+): void {
+  setUnreadSummary(prev => {
+    if (!prev) return prev;
+
+    if (targetType === 'friend') {
+      const idx = prev.friend_unreads.findIndex(u => u.friend_id === targetId);
+      if (idx < 0) return prev;
+      const updated = { ...prev, friend_unreads: [...prev.friend_unreads] };
+      updated.friend_unreads[idx] = {
+        ...updated.friend_unreads[idx],
+        last_message_preview: preview,
+        last_message_time: timestamp,
+      };
+      return updated;
+    }
+
+    const idx = prev.group_unreads.findIndex(u => u.group_id === targetId);
+    if (idx < 0) return prev;
+    const updated = { ...prev, group_unreads: [...prev.group_unreads] };
+    updated.group_unreads[idx] = {
+      ...updated.group_unreads[idx],
+      last_message_preview: preview,
+      last_message_time: timestamp,
+    };
+    return updated;
+  });
 }
 
 /**
@@ -328,9 +370,21 @@ export function handleWebSocketMessage(
       }
 
       case 'message_recalled':
-        // 在本地数据库中标记消息为已撤回
-        db.markMessageRecalled(msg.message_uuid).catch(err => {
-          console.error('[WS] 标记消息撤回失败:', err);
+        // 在本地数据库中标记消息为已撤回，然后刷新会话的最新消息预览
+        db.markMessageRecalled(msg.message_uuid).then(async () => {
+          const conversationId = msg.source_type === 'friend'
+            ? getFriendConversationId(ctx.currentUserId ?? '', msg.source_id)
+            : msg.source_id;
+          const result = await db.refreshConversationPreview(conversationId);
+          refreshPreviewInSummary(
+            ctx.setUnreadSummary,
+            msg.source_type as 'friend' | 'group',
+            msg.source_id,
+            result?.lastMessage ?? '',
+            result?.lastMessageTime ?? '',
+          );
+        }).catch(err => {
+          console.error('[WS] 标记消息撤回或刷新预览失败:', err);
         });
         ctx.recalledListeners.current.forEach(cb => cb(msg));
         break;

@@ -243,6 +243,32 @@ export async function markMessageRecalled(messageUuid: string): Promise<void> {
   await invoke('db_mark_message_recalled', { messageUuid });
 }
 
+/**
+ * 刷新会话的最新消息预览
+ *
+ * 在消息被删除或撤回后调用，重新从消息表查询最新的有效消息
+ * 并更新 conversations 表的 last_message / last_message_time 字段。
+ *
+ * @returns 新的预览信息；若该会话已无有效消息则返回 null
+ */
+export async function refreshConversationPreview(
+  conversationId: string,
+): Promise<{ lastMessage: string; lastMessageTime: string } | null> {
+  const latestMsg = await getLatestMessage(conversationId);
+  if (latestMsg) {
+    const contentTypeMap: Record<string, string> = {
+      text: latestMsg.content,
+      image: '[图片]',
+      video: '[视频]',
+    };
+    const preview = contentTypeMap[latestMsg.content_type] ?? '[文件]';
+    await updateConversationLastMessage(conversationId, preview, latestMsg.send_time);
+    return { lastMessage: preview, lastMessageTime: latestMsg.send_time };
+  }
+  await updateConversationLastMessage(conversationId, '', '');
+  return null;
+}
+
 // ============================================================================
 // 文件映射操作
 // ============================================================================

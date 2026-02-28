@@ -101,18 +101,3 @@
   }
 }
 
-/* ============================================
-   移动端适配
-   ============================================ */
-
-@media (max-width: 768px) {
-  .sync-status-banner {
-    padding: 0 8px;
-  }
-
-  .sync-banner-content {
-    padding: 6px 10px;
-    margin: 6px 0;
-    font-size: 12px;
-  }
-}

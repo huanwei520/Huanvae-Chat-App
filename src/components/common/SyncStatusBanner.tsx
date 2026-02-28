@@ -1,35 +1,29 @@
 /**
- * 同步状态横幅组件
+ * 同步状态横幅组件（纯展示）
  *
- * 在消息列表顶部显示消息同步进度，提供以下功能：
- * - 同步中：显示旋转图标 + 进度文字
- * - 完成：显示成功图标 + 新消息数量，1.5 秒后自动淡出
- * - 错误：显示警告图标 + 错误信息，点击可重试
+ * 在消息列表顶部显示消息同步进度：
+ * - syncing: 旋转图标 + 进度文字
+ * - success: 成功图标 + 新消息数量，自动淡出后调用 onDismiss
+ * - error: 警告图标 + 错误信息，点击可重试
  *
- * 设计原则：
- * - 紧凑设计（高度 32px），不占用过多空间
- * - 不阻断用户操作，自动消失
- * - 桌面端和移动端共用同一组件
- *
- * 触发控制：
- * - 只响应有明确 trigger 的同步事件（initial/reconnect）
- * - 组件挂载/卸载不会触发重复显示
- * - 使用 lastHandledSyncRef 防止同一次同步重复显示
+ * 本组件不持有任何去重/防重复状态。
+ * 通知的生命周期由 useInitialSync 完整管理：
+ * - notification 非 null 时显示横幅
+ * - 自动隐藏后调用 onDismiss（即 clearNotification）将通知清除
+ * - 组件挂载/卸载不影响通知状态
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../../styles/components/sync-banner.css';
 
-// 从 useInitialSync 导入类型
-import type { SyncStatus, SyncTrigger } from '../../hooks/useInitialSync';
-
-// 重新导出类型，保持向后兼容
-export type { SyncStatus, SyncTrigger };
+import type { SyncNotification } from '../../hooks/useInitialSync';
 
 interface SyncStatusBannerProps {
-  /** 同步状态 */
-  status: SyncStatus;
+  /** 待显示的同步通知（null 时不显示） */
+  notification: SyncNotification | null;
+  /** 通知消失后的回调（清除通知状态） */
+  onDismiss: () => void;
   /** 重试回调 */
   onRetry?: () => void;
 }
@@ -92,97 +86,77 @@ function AlertIcon() {
   );
 }
 
-export function SyncStatusBanner({ status, onRetry }: SyncStatusBannerProps) {
-  const [visible, setVisible] = useState(false);
-  const [completedMessage, setCompletedMessage] = useState<string | null>(null);
-  // 记录已处理过的同步时间戳，避免组件挂载时重复显示
-  const lastHandledSyncRef = useRef<number | null>(null);
+export function SyncStatusBanner({ notification, onDismiss, onRetry }: SyncStatusBannerProps) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 控制显示逻辑 - 只响应有明确 trigger 的同步事件
+  // success 类型通知自动隐藏后清除
   useEffect(() => {
-    // 正在同步且有触发原因：显示进度
-    if (status.syncing && status.trigger) {
-      setVisible(true);
-      setCompletedMessage(null);
-      return;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
 
-    // 有错误且有触发原因：显示错误
-    if (status.error && status.trigger) {
-      setVisible(true);
-      return;
+    if (notification?.type === 'success') {
+      const delay = notification.newMessagesCount > 0 ? 1500 : 1000;
+      timerRef.current = setTimeout(() => {
+        onDismiss();
+      }, delay);
     }
 
-    // 同步完成：只有当 trigger 不为 null 且是新的同步结果时才显示
-    if (
-      status.trigger &&
-      status.lastSyncTime &&
-      !status.syncing &&
-      lastHandledSyncRef.current !== status.lastSyncTime
-    ) {
-      // 标记此次同步已处理
-      lastHandledSyncRef.current = status.lastSyncTime;
-
-      if (status.newMessagesCount > 0) {
-        setCompletedMessage(`已同步 ${status.newMessagesCount} 条新消息`);
-      } else {
-        setCompletedMessage('消息已是最新');
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
       }
-      setVisible(true);
+    };
+  }, [notification, onDismiss]);
 
-      // 自动隐藏
-      const timer = setTimeout(() => {
-        setVisible(false);
-      }, status.newMessagesCount > 0 ? 1500 : 1000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [status.syncing, status.error, status.lastSyncTime, status.newMessagesCount, status.trigger]);
-
-  // 渲染内容
   const renderContent = () => {
-    if (status.error) {
-      return (
-        <div
-          className="sync-banner-content sync-banner-error"
-          onClick={onRetry}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && onRetry?.()}
-        >
-          <AlertIcon />
-          <span className="sync-banner-text">同步失败，点击重试</span>
-        </div>
-      );
-    }
+    if (!notification) return null;
 
-    if (status.syncing) {
-      const progressText = status.totalConversations > 0
-        ? ` (${status.syncedConversations}/${status.totalConversations})`
-        : '';
-      return (
-        <div className="sync-banner-content sync-banner-syncing">
-          <SyncIcon />
-          <span className="sync-banner-text">正在同步消息...{progressText}</span>
-        </div>
-      );
-    }
+    switch (notification.type) {
+      case 'error':
+        return (
+          <div
+            className="sync-banner-content sync-banner-error"
+            onClick={onRetry}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && onRetry?.()}
+          >
+            <AlertIcon />
+            <span className="sync-banner-text">同步失败，点击重试</span>
+          </div>
+        );
 
-    if (completedMessage) {
-      return (
-        <div className="sync-banner-content sync-banner-success">
-          <CheckIcon />
-          <span className="sync-banner-text">{completedMessage}</span>
-        </div>
-      );
-    }
+      case 'syncing': {
+        const progressText = notification.total > 0
+          ? ` (${notification.synced}/${notification.total})`
+          : '';
+        return (
+          <div className="sync-banner-content sync-banner-syncing">
+            <SyncIcon />
+            <span className="sync-banner-text">正在同步消息...{progressText}</span>
+          </div>
+        );
+      }
 
-    return null;
+      case 'success': {
+        const message = notification.newMessagesCount > 0
+          ? `已同步 ${notification.newMessagesCount} 条新消息`
+          : '消息已是最新';
+        return (
+          <div className="sync-banner-content sync-banner-success">
+            <CheckIcon />
+            <span className="sync-banner-text">{message}</span>
+          </div>
+        );
+      }
+    }
   };
 
   return (
     <AnimatePresence>
-      {visible && (
+      {notification && (
         <motion.div
           className="sync-status-banner"
           initial={{ opacity: 0, height: 0 }}

@@ -61,7 +61,7 @@ export function Main() {
   };
 
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
-  const { status: syncStatus, triggerSync } = useInitialSync({
+  const { notification: syncNotification, clearNotification, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
@@ -128,7 +128,8 @@ export function Main() {
               onSelectTarget={page.handleSelectTarget}
               unreadSummary={page.unreadSummary}
               panelWidth={page.panelWidth}
-              syncStatus={syncStatus}
+              syncNotification={syncNotification}
+              onSyncDismiss={clearNotification}
               onSyncRetry={triggerSync}
             />
           )}

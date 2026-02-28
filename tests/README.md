@@ -24,6 +24,8 @@ tests/
 │   ├── lanTransfer.test.ts      # 局域网传输测试（62 个用例，含多文件批量传输）
 │   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）
 │   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
+│   ├── platform.test.ts         # 平台检测工具测试（28 个用例，UA 关键词判定、缓存机制、窗口宽度不影响判定）
+│   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
 │   └── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
@@ -361,6 +363,44 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-28: 修复消息删除/撤回后会话卡片最新消息预览不更新的问题
+  - **问题**: 手动删除或撤回最新消息后，会话卡片仍显示已删除/已撤回的消息内容，直到收到新消息才更新
+  - **根因**: 删除/撤回操作仅标记本地 DB 的 `is_deleted`/`is_recalled` 字段，未更新 `conversations.last_message`（DB）和 `unreadSummary.last_message_preview`（内存状态）；`useLocalConversations` 的 fallback 逻辑也因 `conv.last_message` 非 null 而不触发
+  - **修复**:
+    - `src/db/index.ts`: 新增 `refreshConversationPreview()` 工具函数，从消息表查询最新有效消息并更新 `conversations` 表
+    - `src/contexts/wsHandlers.ts`: 新增 `refreshPreviewInSummary()` 函数，仅更新 `unreadSummary` 中已有条目的预览；`message_recalled` 处理后自动刷新会话预览
+    - `src/contexts/WebSocketContext.tsx`: 新增 `refreshLastMessagePreview()` 方法并暴露到 Context，封装 DB 刷新 + 内存状态同步
+    - `src/hooks/useChatActions.ts`: 用户主动删除/撤回消息后调用 `refreshLastMessagePreview` 同步卡片显示
+  - **质量保证**
+    - `pnpm build` (tsc + vite): 0 错误
+    - `cargo clippy -- -D warnings`: 0 错误 0 警告
+    - `vitest run`: 18 文件 483 个测试全部通过（新增 11 个测试）
+  - **新增测试用例** (`tests/unit/conversationPreview.test.ts`, 11 个):
+    - `refreshPreviewInSummary` 好友会话：更新已存在条目、条目不存在时不修改、删除最后消息设空
+    - `refreshPreviewInSummary` 群聊会话：更新已存在条目、条目不存在时不修改、删除最后消息设空
+    - 边界条件：summary 为 null 不崩溃、不影响其他类型条目、连续多次刷新反映最新、不改变 unread_count、图片消息预览
+
+- 2026-02-27: 修复桌面端窗口缩小时误判为移动端的问题
+  - **问题**: `isMobile()` 使用 `window.innerWidth < 768` 作为备用检测，桌面端窗口缩小到 600-767px 时误判为移动端，导致 UI 切换为移动布局、Keystore 初始化报错、拖拽上传被禁用等
+  - **根因**: 平台判定函数中 UA 检测与屏幕宽度检测为 OR 关系，而 Tauri 桌面端窗口最小宽度为 600px
+  - **修复**:
+    - 移除 `window.innerWidth < 768` 备用检测，仅使用 User-Agent 关键词判断
+    - 添加结果缓存机制（首次调用后缓存，平台不会在运行时变化）
+    - 新增 `_resetPlatformCache()` 内部方法供测试使用
+  - **修改文件**: `src/utils/platform.ts`
+  - **质量保证**
+    - `eslint` (`pnpm lint:strict`): 0 错误 0 警告
+    - `cargo clippy --all-targets --all-features -- -D warnings`: 0 错误 0 警告
+    - `vitest run`: 17 文件 472 个测试全部通过（新增 28 个测试）
+  - **新增测试用例** (`tests/unit/platform.test.ts`, 28 个):
+    - `isMobile`: 桌面端 UA (Windows/macOS/Linux) 返回 false
+    - `isMobile`: 移动端 UA (Android/iPhone/iPad/iPod/webOS/BlackBerry/Opera Mini/Windows Phone) 返回 true
+    - `isMobile`: 桌面端窗口宽度 600px/400px 时不误判为移动端
+    - 缓存机制: 首次调用后 UA 变化不影响结果
+    - 缓存机制: `_resetPlatformCache` 清除缓存后重新检测
+    - `isDesktop`: 与 `isMobile` 互为取反
+    - `getPlatformType`: 返回正确的平台类型字符串
 
 - 2026-02-04: 移动端文件预览"打开文件"功能
   - **功能**: 移动端文件下载完成后显示"打开文件"按钮

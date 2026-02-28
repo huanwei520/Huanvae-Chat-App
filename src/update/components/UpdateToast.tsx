@@ -238,7 +238,7 @@ export function UpdateToast({
     <AnimatePresence>
       {shouldShowTopToast && (
         <motion.div
-          className="update-toast-container"
+          className={`update-toast-container${isMobile() ? ' mobile' : ''}`}
           variants={toastVariants}
           initial="hidden"
           animate="visible"

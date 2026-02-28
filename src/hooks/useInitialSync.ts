@@ -13,47 +13,37 @@
  * - 订阅 WebSocket 重连成功事件（onReconnected）
  * - 断线重连后自动执行与登录一致的全列表消息增量更新
  *
- * 同步触发控制：
- * - 使用 trigger 字段标识同步原因（initial/reconnect）
- * - SyncStatusBanner 只响应有明确 trigger 的同步事件
- * - 组件挂载/卸载不会触发重复显示
+ * 通知生命周期管理：
+ * - notification 由本 hook 完整管理（生产 + 消费 + 清除）
+ * - SyncStatusBanner 只做纯展示，不持有去重状态
+ * - 通知在自动隐藏后由 clearNotification 清除，不受组件挂载/卸载影响
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useSession } from '../contexts/SessionContext';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import * as db from '../db';
 import type { LocalConversation, ConversationType } from '../db';
-import { getSyncService } from '../services/syncService';
+import { getSyncService, initSyncService } from '../services/syncService';
 import { getFriendConversationId } from '../utils/conversationId';
 
 /**
  * 同步触发原因
  * - 'initial': 登录后首次同步
  * - 'reconnect': WebSocket 断线重连后同步
- * - null: 无待显示的同步事件
  */
-export type SyncTrigger = 'initial' | 'reconnect' | null;
+export type SyncTrigger = 'initial' | 'reconnect';
 
-/** 同步状态 */
-export interface SyncStatus {
-  /** 是否正在同步 */
-  syncing: boolean;
-  /** 同步进度（0-100） */
-  progress: number;
-  /** 同步的会话总数 */
-  totalConversations: number;
-  /** 已同步的会话数 */
-  syncedConversations: number;
-  /** 新消息总数 */
-  newMessagesCount: number;
-  /** 错误信息 */
-  error: string | null;
-  /** 最后同步时间（时间戳，便于精确比较） */
-  lastSyncTime: number | null;
-  /** 同步触发原因（null 表示无待显示的同步事件） */
-  trigger: SyncTrigger;
-}
+/**
+ * 待显示的同步通知（一次性事件，显示后由 clearNotification 清除）
+ * - syncing: 正在同步中
+ * - success: 同步成功，携带新消息数
+ * - error: 同步失败，携带错误信息
+ */
+export type SyncNotification =
+  | { type: 'syncing'; progress: number; total: number; synced: number }
+  | { type: 'success'; newMessagesCount: number }
+  | { type: 'error'; message: string };
 
 interface UseInitialSyncProps {
   /** 好友列表是否加载完成 */
@@ -63,26 +53,24 @@ interface UseInitialSyncProps {
 }
 
 interface UseInitialSyncReturn {
-  /** 同步状态 */
-  status: SyncStatus;
+  /** 待显示的通知（null 表示无需显示） */
+  notification: SyncNotification | null;
+  /** 清除当前通知（由 SyncStatusBanner 在自动隐藏后调用） */
+  clearNotification: () => void;
   /** 手动触发同步 */
   triggerSync: () => Promise<void>;
 }
 
 export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncProps): UseInitialSyncReturn {
   const { session } = useSession();
+  const api = useApi();
   const { onReconnected } = useWebSocket();
   const syncRef = useRef(false);
-  const [status, setStatus] = useState<SyncStatus>({
-    syncing: false,
-    progress: 0,
-    totalConversations: 0,
-    syncedConversations: 0,
-    newMessagesCount: 0,
-    error: null,
-    lastSyncTime: null,
-    trigger: null, // 初始为 null，组件挂载时不会触发显示
-  });
+  const [notification, setNotification] = useState<SyncNotification | null>(null);
+
+  const clearNotification = useCallback(() => {
+    setNotification(null);
+  }, []);
 
   /**
    * 确保会话存在，如果不存在则创建
@@ -120,54 +108,38 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
 
   /**
    * 执行全量增量同步
-   * @param trigger 同步触发原因（用于控制 SyncStatusBanner 显示）
+   * 仅在登录首次同步和断线重连时调用，其余场景不触发通知
    */
-  const performSync = useCallback(async (trigger: SyncTrigger = null) => {
-    if (!session) {
+  const performSync = useCallback(async (trigger?: SyncTrigger) => {
+    if (!session || !api) {
       return;
     }
 
-    const syncService = getSyncService();
-    if (!syncService) {
-      console.warn('[InitialSync] SyncService 未初始化');
-      return;
-    }
+    const syncService = getSyncService() ?? initSyncService(api);
 
-    setStatus(prev => ({
-      ...prev,
-      syncing: true,
-      progress: 0,
-      error: null,
-      trigger, // 设置同步触发原因
-    }));
+    if (trigger) {
+      setNotification({ type: 'syncing', progress: 0, total: 0, synced: 0 });
+    }
 
     try {
-      // 1. 获取本地好友和群聊列表
       const [localFriends, localGroups] = await Promise.all([
         db.getFriends(),
         db.getGroups(),
       ]);
 
       const totalCount = localFriends.length + localGroups.length;
-      // 开始同步会话
 
       if (totalCount === 0) {
-        setStatus(prev => ({
-          ...prev,
-          syncing: false,
-          progress: 100,
-          lastSyncTime: Date.now(),
-          // trigger 保持不变
-        }));
+        if (trigger) {
+          setNotification({ type: 'success', newMessagesCount: 0 });
+        }
         return;
       }
 
-      setStatus(prev => ({
-        ...prev,
-        totalConversations: totalCount,
-      }));
+      if (trigger) {
+        setNotification({ type: 'syncing', progress: 0, total: totalCount, synced: 0 });
+      }
 
-      // 2. 为每个好友确保会话存在
       const friendConversations: LocalConversation[] = [];
       for (const friend of localFriends) {
         const conversationId = getFriendConversationId(session.userId, friend.friend_id);
@@ -181,7 +153,6 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
         friendConversations.push(conv);
       }
 
-      // 3. 为每个群聊确保会话存在
       const groupConversations: LocalConversation[] = [];
       for (const group of localGroups) {
         // eslint-disable-next-line no-await-in-loop
@@ -194,69 +165,49 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
         groupConversations.push(conv);
       }
 
-      // 4. 合并所有会话
       const allConversations = [...friendConversations, ...groupConversations];
-
-      setStatus(prev => ({
-        ...prev,
-        progress: 30,
-      }));
-
-      // 5. 调用 syncService 进行增量同步
 
       const result = await syncService.syncMessages(allConversations);
 
-      // 同步完成
-      setStatus({
-        syncing: false,
-        progress: 100,
-        totalConversations: totalCount,
-        syncedConversations: result.updatedConversations.length,
-        newMessagesCount: result.newMessagesCount,
-        error: null,
-        lastSyncTime: Date.now(),
-        trigger, // 保持同步触发原因
-      });
+      if (trigger) {
+        setNotification({ type: 'success', newMessagesCount: result.newMessagesCount });
+      }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '同步失败';
       console.error('[InitialSync] 同步失败:', error);
-      setStatus(prev => ({
-        ...prev,
-        syncing: false,
-        error: errorMessage,
-        // trigger 保持不变，让错误状态可以显示
-      }));
+      if (trigger) {
+        setNotification({ type: 'error', message: errorMessage });
+      }
     }
-  }, [session, ensureConversation]);
+  }, [session, api, ensureConversation]);
 
-  // 好友和群聊列表加载完成后自动执行一次同步
+  // 好友和群聊列表加载完成后自动执行一次同步（登录首次）
   useEffect(() => {
-    // 必须登录、未同步过、且两个列表都加载完成
     if (!session || syncRef.current || !friendsLoaded || !groupsLoaded) {
       return;
     }
-
     syncRef.current = true;
-    performSync('initial'); // 登录后首次同步
+    performSync('initial');
   }, [session, friendsLoaded, groupsLoaded, performSync]);
 
-  // 订阅 WebSocket 重连事件，断线重连后执行增量同步
+  // 订阅 WebSocket 重连事件（断线重连后同步 — 仅此两处触发通知）
   useEffect(() => {
     const unsubscribe = onReconnected(() => {
       console.warn('[InitialSync] 收到重连事件，执行消息增量同步');
-      performSync('reconnect'); // WebSocket 重连后同步
+      performSync('reconnect');
     });
     return unsubscribe;
   }, [onReconnected, performSync]);
 
-  // 包装手动触发同步函数，传入 'initial' 作为触发原因
+  // 手动重试（错误横幅上点击），传入 trigger 以显示通知
   const triggerSync = useCallback(async () => {
     await performSync('initial');
   }, [performSync]);
 
   return {
-    status,
+    notification,
+    clearNotification,
     triggerSync,
   };
 }

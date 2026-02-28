@@ -1,22 +1,31 @@
 /**
  * 平台检测工具
  *
- * 用于区分移动端和桌面端，实现条件渲染
+ * 用于区分移动端和桌面端，实现条件渲染。
+ *
+ * 检测策略（Tauri 原生应用）：
+ * - 仅通过 User-Agent 关键词判断平台类型
+ * - 结果在首次调用时缓存，后续直接返回（平台不会在运行时变化）
+ * - 不使用屏幕宽度判断，避免桌面端窗口缩小时误判为移动端
  *
  * @module utils/platform
  */
 
+let _isMobileCached: boolean | null = null;
+
 /**
  * 检测当前是否为移动端平台
  *
- * 检测逻辑：
- * 1. 检查 User-Agent 是否包含移动端标识
- * 2. 检查屏幕宽度是否小于 768px
+ * 通过 User-Agent 中的移动端关键词判断，结果会被缓存。
+ * 不依赖屏幕宽度，因为桌面端窗口可以被用户调整到任意大小。
  *
  * @returns 是否为移动端
  */
 export function isMobile(): boolean {
-  // 检查 User-Agent
+  if (_isMobileCached !== null) {
+    return _isMobileCached;
+  }
+
   const userAgent = navigator.userAgent.toLowerCase();
   const mobileKeywords = [
     'android',
@@ -30,14 +39,11 @@ export function isMobile(): boolean {
     'windows phone',
   ] as const;
 
-  const isMobileUA = mobileKeywords.some((keyword) =>
+  _isMobileCached = mobileKeywords.some((keyword) =>
     userAgent.includes(keyword),
   );
 
-  // 检查屏幕宽度（备用检测）
-  const isSmallScreen = window.innerWidth < 768;
-
-  return isMobileUA || isSmallScreen;
+  return _isMobileCached;
 }
 
 /**
@@ -56,4 +62,13 @@ export function isDesktop(): boolean {
  */
 export function getPlatformType(): 'mobile' | 'desktop' {
   return isMobile() ? 'mobile' : 'desktop';
+}
+
+/**
+ * 重置平台检测缓存（仅供测试使用）
+ *
+ * @internal
+ */
+export function _resetPlatformCache(): void {
+  _isMobileCached = null;
 }
