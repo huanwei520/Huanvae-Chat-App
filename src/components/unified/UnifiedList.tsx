@@ -18,7 +18,8 @@ import { useMemo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { SearchBox } from '../common/SearchBox';
-import { SyncStatusBanner, type SyncStatus } from '../common/SyncStatusBanner';
+import { SyncStatusBanner } from '../common/SyncStatusBanner';
+import type { SyncNotification } from '../../hooks/useInitialSync';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
@@ -82,8 +83,10 @@ interface UnifiedListProps {
   unreadSummary: UnreadSummary | null;
   /** 面板宽度 */
   panelWidth?: number;
-  /** 消息同步状态（可选） */
-  syncStatus?: SyncStatus;
+  /** 同步通知（可选） */
+  syncNotification?: SyncNotification | null;
+  /** 通知消失回调（可选） */
+  onSyncDismiss?: () => void;
   /** 同步重试回调（可选） */
   onSyncRetry?: () => void;
 }
@@ -173,7 +176,8 @@ export function UnifiedList({
   onSelectTarget,
   unreadSummary,
   panelWidth = 280,
-  syncStatus,
+  syncNotification,
+  onSyncDismiss,
   onSyncRetry,
 }: UnifiedListProps) {
 
@@ -476,8 +480,12 @@ export function UnifiedList({
       </div>
 
       {/* 同步状态横幅：位于搜索栏下方 */}
-      {syncStatus && (
-        <SyncStatusBanner status={syncStatus} onRetry={onSyncRetry} />
+      {onSyncDismiss && (
+        <SyncStatusBanner
+          notification={syncNotification ?? null}
+          onDismiss={onSyncDismiss}
+          onRetry={onSyncRetry}
+        />
       )}
 
       {/* 使用 LayoutGroup 确保选中指示器的 layoutId 动画正确同步 */}

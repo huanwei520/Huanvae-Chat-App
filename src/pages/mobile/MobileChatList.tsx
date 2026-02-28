@@ -188,16 +188,15 @@ export function MobileChatList({
       {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
       <MobileDownloadCard />
 
-      <AnimatePresence mode="popLayout">
+      <AnimatePresence initial={false}>
         {sortedCards.map((card) => (
           <motion.div
             key={card.uniqueKey}
             className="mobile-contact-card"
             onClick={() => handleCardClick(card)}
-            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
           >
             {/* 头像 */}
             <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>

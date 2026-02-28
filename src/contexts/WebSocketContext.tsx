@@ -9,6 +9,7 @@
  * - 标记已读
  * - 系统通知（好友请求、群邀请等）
  * - 重连事件（用于触发消息增量同步）
+ * - 消息预览刷新（refreshLastMessagePreview，删除/撤回后同步卡片显示）
  *
  * 重连同步机制：
  * - 首次连接不触发 onReconnected
@@ -39,7 +40,10 @@ import {
   updateFriendUnread,
   updateGroupUnread,
   createInitialUnreadSummary,
+  refreshPreviewInSummary,
 } from './wsHandlers';
+import * as db from '../db';
+import { getFriendConversationId } from '../utils/conversationId';
 import type {
   UnreadSummary,
   WsNewMessage,
@@ -95,6 +99,11 @@ interface WebSocketContextType {
   onSystemNotification: (callback: (msg: WsSystemNotification) => void) => () => void;
   /** 订阅重连成功事件（用于触发消息增量同步） */
   onReconnected: (callback: () => void) => () => void;
+  /** 刷新指定会话的最新消息预览（用于删除/撤回后同步卡片显示） */
+  refreshLastMessagePreview: (
+    targetType: 'friend' | 'group',
+    targetId: string,
+  ) => Promise<void>;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -441,6 +450,32 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, []);
 
   // ============================================
+  // 刷新消息预览（删除/撤回后同步卡片显示）
+  // ============================================
+
+  const refreshLastMessagePreview = useCallback(async (
+    targetType: 'friend' | 'group',
+    targetId: string,
+  ) => {
+    try {
+      const userId = userIdRef.current;
+      const conversationId = targetType === 'friend'
+        ? getFriendConversationId(userId ?? '', targetId)
+        : targetId;
+      const result = await db.refreshConversationPreview(conversationId);
+      refreshPreviewInSummary(
+        setUnreadSummary,
+        targetType,
+        targetId,
+        result?.lastMessage ?? '',
+        result?.lastMessageTime ?? '',
+      );
+    } catch (err) {
+      console.error('[WS] 刷新消息预览失败:', err);
+    }
+  }, []);
+
+  // ============================================
   // 活跃聊天管理
   // ============================================
 
@@ -536,6 +571,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     disconnect,
     setActiveChat,
     updateLastMessage,
+    refreshLastMessagePreview,
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,

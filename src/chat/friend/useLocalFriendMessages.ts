@@ -28,7 +28,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as db from '../../db';
 import type { LocalMessage, LocalConversation } from '../../db';
-import { initSyncService, getSyncService, SyncService } from '../../services/syncService';
+import { getSyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
@@ -113,7 +113,6 @@ export function useLocalFriendMessages(friendId: string | null) {
   const [syncing, setSyncing] = useState(false);
 
   // Refs
-  const syncServiceRef = useRef<SyncService | null>(null);
   const conversationRef = useRef<LocalConversation | null>(null);
   const currentFriendId = useRef<string | null>(null);
   const dbInitialized = useRef(false);
@@ -236,12 +235,6 @@ export function useLocalFriendMessages(friendId: string | null) {
     setSyncing(true);
 
     try {
-      // 初始化同步服务
-      if (!syncServiceRef.current) {
-        syncServiceRef.current = initSyncService(api);
-        logSync('同步服务初始化完成');
-      }
-
       const syncService = getSyncService();
       if (!syncService) {
         return;

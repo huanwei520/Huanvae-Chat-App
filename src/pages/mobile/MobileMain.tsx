@@ -82,7 +82,7 @@ export function MobileMain() {
   const webrtc = useWebRTC();
 
   // 登录后全量增量同步
-  const { status: syncStatus, triggerSync } = useInitialSync({
+  const { notification: syncNotification, clearNotification, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
@@ -300,9 +300,13 @@ export function MobileMain() {
               onAvatarClick={nav.openDrawer}
             />
 
-            {/* 同步状态横幅 - 独立渲染，不随页面切换重新挂载 */}
+            {/* 同步状态横幅 */}
             {nav.activeTab === 'chat' && (
-              <SyncStatusBanner status={syncStatus} onRetry={triggerSync} />
+              <SyncStatusBanner
+                notification={syncNotification}
+                onDismiss={clearNotification}
+                onRetry={triggerSync}
+              />
             )}
 
             {/* 内容区域 - 支持左右滑动切换 */}
