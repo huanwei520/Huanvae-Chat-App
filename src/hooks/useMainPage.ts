@@ -37,6 +37,7 @@ import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
 import { useLocalFriendMessages } from '../chat/friend/useLocalFriendMessages';
 import { useLocalGroupMessages } from '../chat/group/useLocalGroupMessages';
+import { useAIMessages } from '../chat/ai/useAIMessages';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -45,6 +46,7 @@ import { getPendingRequests } from '../api/friends';
 import { getGroupInvitations } from '../api/groups';
 import { invoke } from '@tauri-apps/api/core';
 import { saveFileUuidHash, saveMessage, clearCurrentUser } from '../db';
+import { notifyPreviewsChanged } from './useLocalConversations';
 
 import { getFriendConversationId } from '../utils/conversationId';
 import type { NavTab } from '../components/sidebar/Sidebar';
@@ -267,6 +269,9 @@ export function useMainPage() {
     handleMessageRecalled: handleGroupMessageRecalled,
     removeMessage: removeGroupMessage,
   } = useLocalGroupMessages(groupId);
+
+  // AI 消息
+  const ai = useAIMessages(api);
 
   // 消息操作 Hook
   const { handleRecallMessage, handleDeleteMessage } = useChatActions({
@@ -587,6 +592,11 @@ export function useMainPage() {
     const content = messageInput.trim();
     setMessageInput('');
 
+    if (chatTarget.type === 'ai') {
+      await ai.sendMessage(content);
+      return;
+    }
+
     const timestamp = new Date().toISOString();
 
     if (chatTarget.type === 'friend') {
@@ -596,13 +606,14 @@ export function useMainPage() {
       await sendGroupMessage(content);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage]);
+    notifyPreviewsChanged();
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai]);
 
   // ============================================
   // 文件上传
   // ============================================
   const handleFileSelect = useCallback(async (file: File, type: AttachmentType, localPath?: string) => {
-    if (!chatTarget) { return; }
+    if (!chatTarget || chatTarget.type === 'ai') { return; }
 
     setUploadingFile(file);
 
@@ -652,6 +663,7 @@ export function useMainPage() {
 
           loadFriendMessages();
           updateLastMessage('friend', chatTarget.data.friend_id, file.name, messageType, timestamp);
+          notifyPreviewsChanged();
         } else {
           console.error('[FileUpload] 文件上传失败:', result.error);
         }
@@ -683,6 +695,7 @@ export function useMainPage() {
 
           loadGroupMessages();
           updateLastMessage('group', chatTarget.data.group_id, file.name, messageType, timestamp);
+          notifyPreviewsChanged();
         } else {
           console.error('[FileUpload] 文件上传失败:', result.error);
         }
@@ -702,7 +715,9 @@ export function useMainPage() {
   // ============================================
   const handleSelectTarget = useCallback((target: ChatTarget) => {
     setChatTarget(target);
-    if (target.type === 'friend') {
+    if (target.type === 'ai') {
+      setActiveChat(null, null);
+    } else if (target.type === 'friend') {
       setActiveChat('friend', target.data.friend_id);
       markRead('friend', target.data.friend_id);
     } else {
@@ -760,13 +775,14 @@ export function useMainPage() {
     resetUpload();
   }, [resetUpload]);
 
-  // 历史记录加载完成后刷新消息列表
+  // 历史记录加载完成后刷新消息列表和卡片预览
   const handleHistoryLoaded = useCallback(() => {
     if (chatTarget?.type === 'friend') {
       loadFriendMessages();
     } else if (chatTarget?.type === 'group') {
       loadGroupMessages();
     }
+    notifyPreviewsChanged();
   }, [chatTarget, loadFriendMessages, loadGroupMessages]);
 
   // ============================================
@@ -881,5 +897,20 @@ export function useMainPage() {
     handleGroupLeft,
     handleHistoryLoaded,
     handleLogout,
+
+    // AI 消息
+    aiMessages: ai.messages,
+    aiStreamingContent: ai.streamingContent,
+    aiIsLoading: ai.isLoading,
+    aiIsSending: ai.isSending,
+    aiToolStatus: ai.toolStatus,
+    aiConversationTitle: ai.conversationTitle,
+    aiConversations: ai.conversations,
+    aiConversationsLoading: ai.conversationsLoading,
+    aiConversationId: ai.conversationId,
+    aiLoadConversations: ai.loadConversations,
+    aiSwitchConversation: ai.switchConversation,
+    aiDeleteConversation: ai.deleteConversation,
+    aiNewConversation: ai.newConversation,
   };
 }

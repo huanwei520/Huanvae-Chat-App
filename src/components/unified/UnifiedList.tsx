@@ -12,11 +12,16 @@
  * 同步状态横幅：
  * - 在搜索框下方显示消息同步进度
  * - 同步完成后自动淡出
+ *
+ * AI 卡片：
+ * - 置顶显示在消息 Tab 列表第一位
+ * - 通过 aiConversationTitle 动态显示当前会话标题，无会话时显示默认文案
  */
 
 import { useMemo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
+import { AIAvatar } from '../common/AIAvatar';
 import { SearchBox } from '../common/SearchBox';
 import { SyncStatusBanner } from '../common/SyncStatusBanner';
 import type { SyncNotification } from '../../hooks/useInitialSync';
@@ -83,6 +88,8 @@ interface UnifiedListProps {
   unreadSummary: UnreadSummary | null;
   /** 面板宽度 */
   panelWidth?: number;
+  /** AI 当前会话标题（可选） */
+  aiConversationTitle?: string | null;
   /** 同步通知（可选） */
   syncNotification?: SyncNotification | null;
   /** 通知消失回调（可选） */
@@ -176,6 +183,7 @@ export function UnifiedList({
   onSelectTarget,
   unreadSummary,
   panelWidth = 280,
+  aiConversationTitle,
   syncNotification,
   onSyncDismiss,
   onSyncRetry,
@@ -191,7 +199,6 @@ export function UnifiedList({
       const unread = unreadSummary?.friend_unreads.find(
         u => u.friend_id === friend.friend_id,
       );
-      // 优先使用 WebSocket 的消息预览，fallback 到本地会话
       const localPreview = getFriendPreview(friend.friend_id);
       return {
         uniqueKey: `friend-${friend.friend_id}`,
@@ -199,9 +206,9 @@ export function UnifiedList({
         type: 'friend',
         name: friend.friend_nickname,
         avatarUrl: friend.friend_avatar_url,
-        lastMessage: unread?.last_message_preview || localPreview?.lastMessage || null,
-        lastMessageTime: unread?.last_message_time || localPreview?.lastMessageTime || friend.add_time,
-        unreadCount: unread?.unread_count || 0,
+        lastMessage: localPreview?.lastMessage ?? null,
+        lastMessageTime: localPreview?.lastMessageTime ?? friend.add_time,
+        unreadCount: unread?.unread_count ?? 0,
         data: friend,
       };
     });
@@ -213,7 +220,6 @@ export function UnifiedList({
       const unread = unreadSummary?.group_unreads.find(
         u => u.group_id === group.group_id,
       );
-      // 优先使用 WebSocket 的消息预览，fallback 到本地会话或群组数据
       const localPreview = getGroupPreview(group.group_id);
       return {
         uniqueKey: `group-${group.group_id}`,
@@ -221,8 +227,8 @@ export function UnifiedList({
         type: 'group',
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage: unread?.last_message_preview ?? localPreview?.lastMessage ?? group.last_message_content,
-        lastMessageTime: unread?.last_message_time ?? localPreview?.lastMessageTime ?? group.last_message_time,
+        lastMessage: localPreview?.lastMessage ?? group.last_message_content ?? null,
+        lastMessageTime: localPreview?.lastMessageTime ?? group.last_message_time ?? null,
         unreadCount: unread !== undefined ? unread.unread_count : (group.unread_count ?? 0),
         data: group,
         role: group.role,
@@ -294,6 +300,7 @@ export function UnifiedList({
   // 获取选中卡片的 uniqueKey
   const selectedKey = useMemo((): string | null => {
     if (!selectedTarget) { return null; }
+    if (selectedTarget.type === 'ai') { return 'ai-assistant'; }
     return selectedTarget.type === 'friend'
       ? `friend-${selectedTarget.data.friend_id}`
       : `group-${selectedTarget.data.group_id}`;
@@ -499,6 +506,41 @@ export function UnifiedList({
           <AnimatePresence>
             {renderOverlay()}
           </AnimatePresence>
+
+          {/* AI 助手置顶卡片（仅消息 Tab） */}
+          {activeTab === 'chat' && !loading && !error && (
+            <motion.div
+              key="ai-assistant"
+              className="conversation-item"
+              onClick={() => onSelectTarget({ type: 'ai' })}
+              variants={cardVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              layout="position"
+              transition={cardTransition}
+            >
+              {selectedKey === 'ai-assistant' && (
+                <motion.div
+                  layoutId="selected-border"
+                  className="conversation-selected-border"
+                  style={{ borderRadius: 14 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                />
+              )}
+              <div className="conv-avatar">
+                <AIAvatar />
+              </div>
+              <div className="conv-info">
+                <div className="conv-header">
+                  <span className="conv-name">AI 助手</span>
+                </div>
+                <div className="conv-footer">
+                  <span className="conv-preview">{aiConversationTitle || '有什么可以帮你的？'}</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* 卡片列表：正常文档流 */}
           <AnimatePresence mode="popLayout">

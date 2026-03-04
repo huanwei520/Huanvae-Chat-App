@@ -128,6 +128,7 @@ export function Main() {
               onSelectTarget={page.handleSelectTarget}
               unreadSummary={page.unreadSummary}
               panelWidth={page.panelWidth}
+              aiConversationTitle={page.aiConversationTitle}
               syncNotification={syncNotification}
               onSyncDismiss={clearNotification}
               onSyncRetry={triggerSync}
@@ -186,6 +187,17 @@ export function Main() {
               onGroupUpdated={page.handleGroupUpdated}
               onGroupLeft={page.handleGroupLeft}
               onHistoryLoaded={page.handleHistoryLoaded}
+              aiMessages={page.aiMessages}
+              aiStreamingContent={page.aiStreamingContent}
+              aiIsLoading={page.aiIsLoading}
+              aiToolStatus={page.aiToolStatus}
+              aiConversations={page.aiConversations}
+              aiConversationsLoading={page.aiConversationsLoading}
+              aiConversationId={page.aiConversationId}
+              onAILoadConversations={page.aiLoadConversations}
+              onAISwitchConversation={page.aiSwitchConversation}
+              onAIDeleteConversation={page.aiDeleteConversation}
+              onAINewConversation={page.aiNewConversation}
             />
           ) : (
             <EmptyChat

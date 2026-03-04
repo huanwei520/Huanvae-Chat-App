@@ -6,8 +6,9 @@
  *
  * 主页面右侧的聊天窗口，好友聊天和群聊共用
  * 包含：
- * - 聊天头部（标题、副标题、菜单按钮）
- * - 消息列表（私聊/群聊，根据 chatTarget.type 自动切换）
+ * - 聊天头部（标题、副标题、菜单按钮；AI 模式下显示新建/历史按钮）
+ * - 消息列表（私聊/群聊/AI，根据 chatTarget.type 自动切换）
+ * - AI 历史记录抽屉面板（右侧滑入）
  * - 输入区域 / 多选操作栏
  */
 
@@ -18,11 +19,16 @@ import type { GroupMessage } from '../../api/groupMessages';
 import type { AttachmentType } from './FileAttachButton';
 import type { UploadProgress } from '../../hooks/useFileUpload';
 
+import { useState, useCallback } from 'react';
 import { ChatMessages } from '../friend/ChatMessages';
 import { GroupChatMessages } from '../group/GroupChatMessages';
+import { AIChatMessages } from '../ai/AIChatMessages';
+import { AIHistoryPanel } from '../ai/AIHistoryPanel';
 import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
+import type { AIMessage, AIConversation } from '../../types/chat';
+import type { AIToolStatus } from '../ai/useAIMessages';
 
 // ============================================
 // 类型定义
@@ -75,6 +81,21 @@ interface ChatPanelProps {
   onGroupUpdated: () => void;
   onGroupLeft: () => void;
   onHistoryLoaded?: () => void;
+
+  // AI 消息数据（仅 chatTarget.type === 'ai' 时使用）
+  aiMessages?: AIMessage[];
+  aiStreamingContent?: string;
+  aiIsLoading?: boolean;
+  aiToolStatus?: AIToolStatus | null;
+
+  // AI 历史记录
+  aiConversations?: AIConversation[];
+  aiConversationsLoading?: boolean;
+  aiConversationId?: string | null;
+  onAILoadConversations?: () => void;
+  onAISwitchConversation?: (convId: string) => void;
+  onAIDeleteConversation?: (convId: string) => void;
+  onAINewConversation?: () => void;
 }
 
 // ============================================
@@ -82,12 +103,14 @@ interface ChatPanelProps {
 // ============================================
 
 function getChatTitle(chatTarget: ChatTarget): string {
+  if (chatTarget.type === 'ai') { return 'AI 助手'; }
   return chatTarget.type === 'friend'
     ? chatTarget.data.friend_nickname
     : chatTarget.data.group_name;
 }
 
 function getChatSubtitle(chatTarget: ChatTarget): string {
+  if (chatTarget.type === 'ai') { return 'GLM-5 模型'; }
   if (chatTarget.type === 'friend') {
     return `@${chatTarget.data.friend_id}`;
   }
@@ -138,10 +161,30 @@ export function ChatPanel({
   onGroupUpdated,
   onGroupLeft,
   onHistoryLoaded,
+  aiMessages = [],
+  aiStreamingContent = '',
+  aiIsLoading = false,
+  aiToolStatus = null,
+  aiConversations = [],
+  aiConversationsLoading = false,
+  aiConversationId = null,
+  onAILoadConversations,
+  onAISwitchConversation,
+  onAIDeleteConversation,
+  onAINewConversation,
 }: ChatPanelProps) {
-  const chatKey = chatTarget.type === 'friend'
-    ? chatTarget.data.friend_id
-    : chatTarget.data.group_id;
+  const chatKey = chatTarget.type === 'ai'
+    ? 'ai-assistant'
+    : chatTarget.type === 'friend'
+      ? chatTarget.data.friend_id
+      : chatTarget.data.group_id;
+
+  const [showAIHistory, setShowAIHistory] = useState(false);
+
+  const handleAIHistorySelect = useCallback((convId: string) => {
+    onAISwitchConversation?.(convId);
+    setShowAIHistory(false);
+  }, [onAISwitchConversation]);
 
   return (
     <motion.div
@@ -157,20 +200,65 @@ export function ChatPanel({
           <h2>{getChatTitle(chatTarget)}</h2>
           <span className="chat-subtitle">{getChatSubtitle(chatTarget)}</span>
         </div>
-        <ChatMenuButton
-          target={chatTarget}
-          onFriendRemoved={onFriendRemoved}
-          onGroupUpdated={onGroupUpdated}
-          onGroupLeft={onGroupLeft}
-          isMultiSelectMode={isMultiSelectMode}
-          onToggleMultiSelect={onEnterMultiSelect}
-          onHistoryLoaded={onHistoryLoaded}
-        />
+        {chatTarget.type === 'ai' ? (
+          <div className="chat-header-actions">
+            <button
+              className="header-action-btn"
+              onClick={onAINewConversation}
+              title="新对话"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            <button
+              className={`header-action-btn ${showAIHistory ? 'active' : ''}`}
+              onClick={() => setShowAIHistory(!showAIHistory)}
+              title="历史记录"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <ChatMenuButton
+            target={chatTarget}
+            onFriendRemoved={onFriendRemoved}
+            onGroupUpdated={onGroupUpdated}
+            onGroupLeft={onGroupLeft}
+            isMultiSelectMode={isMultiSelectMode}
+            onToggleMultiSelect={onEnterMultiSelect}
+            onHistoryLoaded={onHistoryLoaded}
+          />
+        )}
       </div>
+
+      {/* AI 历史记录抽屉 */}
+      {chatTarget.type === 'ai' && (
+        <AIHistoryPanel
+          visible={showAIHistory}
+          conversations={aiConversations}
+          loading={aiConversationsLoading}
+          currentConversationId={aiConversationId}
+          onSelect={handleAIHistorySelect}
+          onDelete={(id) => onAIDeleteConversation?.(id)}
+          onClose={() => setShowAIHistory(false)}
+          onLoad={() => onAILoadConversations?.()}
+        />
+      )}
 
       {/* 消息列表 */}
       <div className="chat-messages">
-        {chatTarget.type === 'friend' ? (
+        {chatTarget.type === 'ai' ? (
+          <AIChatMessages
+            key="ai-messages"
+            messages={aiMessages}
+            streamingContent={aiStreamingContent}
+            isLoading={aiIsLoading}
+            toolStatus={aiToolStatus}
+          />
+        ) : chatTarget.type === 'friend' ? (
           <ChatMessages
             key={`friend-${chatKey}`}
             loading={isLoading}

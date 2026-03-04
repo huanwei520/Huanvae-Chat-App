@@ -4,7 +4,7 @@
  * 从 WebSocketContext.tsx 中提取的消息处理逻辑
  * 负责解析和处理各种 WebSocket 消息类型：
  * - 新消息保存到本地数据库并更新会话预览
- * - 消息撤回后刷新会话卡片的最新消息预览（refreshPreviewInSummary）
+ * - 消息撤回后刷新本地数据库预览并通知 UI 重载
  * - 系统通知（好友请求、群邀请等）更新待处理计数
  */
 
@@ -22,6 +22,7 @@ import {
   notifySystemEvent,
   type SystemNotificationType,
 } from '../services/notificationService';
+import { notifyPreviewsChanged } from '../hooks/useLocalConversations';
 
 // ============================================
 // 类型定义
@@ -341,8 +342,10 @@ export function handleWebSocketMessage(
           );
         });
 
-        // 异步保存消息到本地数据库
-        saveMessageToLocal(msg, ctx.currentUserId).catch(err => {
+        // 异步保存消息到本地数据库，完成后刷新卡片预览
+        saveMessageToLocal(msg, ctx.currentUserId).then(() => {
+          notifyPreviewsChanged();
+        }).catch(err => {
           console.error('[WS] 保存消息到本地失败:', err);
         });
 
@@ -370,19 +373,12 @@ export function handleWebSocketMessage(
       }
 
       case 'message_recalled':
-        // 在本地数据库中标记消息为已撤回，然后刷新会话的最新消息预览
         db.markMessageRecalled(msg.message_uuid).then(async () => {
           const conversationId = msg.source_type === 'friend'
             ? getFriendConversationId(ctx.currentUserId ?? '', msg.source_id)
             : msg.source_id;
-          const result = await db.refreshConversationPreview(conversationId);
-          refreshPreviewInSummary(
-            ctx.setUnreadSummary,
-            msg.source_type as 'friend' | 'group',
-            msg.source_id,
-            result?.lastMessage ?? '',
-            result?.lastMessageTime ?? '',
-          );
+          await db.refreshConversationPreview(conversationId);
+          notifyPreviewsChanged();
         }).catch(err => {
           console.error('[WS] 标记消息撤回或刷新预览失败:', err);
         });

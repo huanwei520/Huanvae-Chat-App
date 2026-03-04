@@ -1,13 +1,23 @@
 /**
  * 本地会话管理 Hook
  *
- * 提供本地会话数据，用于显示消息预览等信息
- * 当 WebSocket 的 unreadSummary 没有某个会话的数据时，使用本地数据作为 fallback
+ * 通过 db_get_conversation_previews（SQL JOIN）一次性查出每个会话的最新消息，
+ * 替代原先的 N+1 查询（getConversations + 逐条 getLatestMessage）。
+ *
+ * 数据更新策略：事件驱动，由外部在消息变更时调用 refresh()。
+ * 不再使用 5 秒定时轮询。
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import * as db from '../db';
+
+const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
+
+/** 通知所有 useLocalConversations 实例刷新数据（事件驱动） */
+export function notifyPreviewsChanged(): void {
+  window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
+}
 
 /** 会话预览信息 */
 export interface ConversationPreview {
@@ -30,12 +40,24 @@ interface UseLocalConversationsReturn {
   loading: boolean;
   /** 首次加载是否完成（用于等待本地数据就绪后再渲染卡片） */
   initialized: boolean;
-  /** 刷新数据 */
+  /** 刷新数据（事件驱动，由外部调用） */
   refresh: () => Promise<void>;
   /** 获取好友的消息预览 */
   getFriendPreview: (friendId: string) => ConversationPreview | undefined;
   /** 获取群组的消息预览 */
   getGroupPreview: (groupId: string) => ConversationPreview | undefined;
+}
+
+const CONTENT_TYPE_MAP: Record<string, string> = {
+  image: '[图片]',
+  video: '[视频]',
+  file: '[文件]',
+};
+
+/** 将 content_type + content 转为用户可读的预览文本 */
+function toPreviewText(contentType: string | null, content: string | null): string | null {
+  if (!contentType || content === null) return null;
+  return CONTENT_TYPE_MAP[contentType] ?? content;
 }
 
 export function useLocalConversations(): UseLocalConversationsReturn {
@@ -45,114 +67,69 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     groups: new Map(),
   });
   const [loading, setLoading] = useState(false);
-  // 首次加载是否完成（用于等待本地数据就绪后再渲染卡片，避免排序跳变）
   const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
-  // 加载本地会话数据
   const loadConversations = useCallback(async () => {
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
     setLoading(true);
-
     try {
-      const conversations = await db.getConversations();
+      const rows = await db.getConversationPreviews();
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
 
-      for (const conv of conversations) {
-        let lastMessage = conv.last_message;
-        let lastMessageTime = conv.last_message_time;
-
-        // 如果会话没有 last_message，从消息表获取最新消息
-        if (!lastMessage) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            const latestMsg = await db.getLatestMessage(conv.id);
-            if (latestMsg) {
-              const contentTypeMap: Record<string, string> = {
-                text: latestMsg.content,
-                image: '[图片]',
-                video: '[视频]',
-              };
-              lastMessage = contentTypeMap[latestMsg.content_type] ?? '[文件]';
-              lastMessageTime = latestMsg.send_time;
-            }
-          } catch {
-            // 忽略错误
-          }
-        }
-
+      for (const row of rows) {
         const preview: ConversationPreview = {
-          conversationId: conv.id,
-          lastMessage,
-          lastMessageTime,
-          lastSeq: conv.last_seq,
+          conversationId: row.id,
+          lastMessage: toPreviewText(row.msg_content_type, row.msg_content),
+          lastMessageTime: row.msg_send_time,
+          lastSeq: row.last_seq,
         };
 
-        if (conv.type === 'friend') {
-          // 从 conversation_id 提取 friend_id
-          // 格式: conv-{user1}-{user2}
-          const parts = conv.id.split('-');
+        if (row.type === 'friend') {
+          const parts = row.id.split('-');
           if (parts.length === 3) {
             const [, id1, id2] = parts;
-            // friend_id 是不等于当前用户的那个
             const friendId = id1 === session.userId ? id2 : id1;
             friendPreviews.set(friendId, preview);
           }
         } else {
-          // 群组的 conversation_id 就是 group_id
-          groupPreviews.set(conv.id, preview);
+          groupPreviews.set(row.id, preview);
         }
       }
 
-      setPreviews({
-        friends: friendPreviews,
-        groups: groupPreviews,
-      });
+      setPreviews({ friends: friendPreviews, groups: groupPreviews });
 
-      // 首次加载完成，标记为已初始化
-      if (!initialized) {
+      if (!initializedRef.current) {
+        initializedRef.current = true;
         setInitialized(true);
       }
     } catch (err) {
       console.warn('[LocalConv] 加载本地会话失败:', err);
-      // 即使失败也标记为已初始化，避免永远等待
-      if (!initialized) {
+      if (!initializedRef.current) {
+        initializedRef.current = true;
         setInitialized(true);
       }
     } finally {
       setLoading(false);
     }
-  }, [session, initialized]);
+  }, [session]);
 
-  // 初始化加载 + 定时刷新
   useEffect(() => {
-    if (!session) {
-      return;
-    }
-
-    // 初始加载
+    if (!session) return;
     loadConversations();
 
-    // 每 5 秒刷新一次（确保获取最新的消息预览）
-    const intervalId = setInterval(() => {
-      loadConversations();
-    }, 5000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
+    const handleChanged = () => { loadConversations(); };
+    window.addEventListener(PREVIEW_CHANGED_EVENT, handleChanged);
+    return () => { window.removeEventListener(PREVIEW_CHANGED_EVENT, handleChanged); };
   }, [session, loadConversations]);
 
-  // 获取好友预览
   const getFriendPreview = useCallback(
     (friendId: string) => previews.friends.get(friendId),
     [previews.friends],
   );
 
-  // 获取群组预览
   const getGroupPreview = useCallback(
     (groupId: string) => previews.groups.get(groupId),
     [previews.groups],

@@ -10,7 +10,7 @@ Huanvae Chat App 使用 Vitest 作为测试框架，配合 Testing Library 进�
 tests/
 ├── setup.ts                     # 全局测试设置（Mock Tauri API）
 ├── checklist.ts                 # 功能检查清单定义
-├── registry.ts                  # 组件注册表（142 个模块，含移动端组件、工具函数和共享组件）
+├── registry.ts                  # 组件注册表（147 个模块，含移动端组件、工具函数、共享组件和 AI 助手）
 ├── README.md                    # 本文档
 ├── utils/
 │   └── test-utils.tsx           # 测试工具函数
@@ -26,7 +26,8 @@ tests/
 │   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
 │   ├── platform.test.ts         # 平台检测工具测试（28 个用例，UA 关键词判定、缓存机制、窗口宽度不影响判定）
 │   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
-│   └── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
+│   ├── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
+│   └── aiCard.test.ts           # AI 助手类型和卡片排序测试（11 个用例）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
@@ -34,7 +35,8 @@ tests/
     ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
     ├── LowcodePage.test.tsx     # 低代码编辑器页面测试（19 个测试用例，含动态算子对话框、工具栏组件、ConfirmDialog 组件、一键清理）
-    └── registry.test.tsx        # 组件注册表测试（149 个测试用例，含移动端组件）
+    ├── AIAvatar.test.tsx        # AI 头像组件测试（3 个测试用例）
+    └── registry.test.tsx        # 组件注册表测试（154 个测试用例，含移动端组件和 AI 助手组件）
 ```
 
 ## 测试命令
@@ -134,6 +136,7 @@ describe('MyComponent', () => {
 - 认证模块：登录/登出/自动登录
 - 好友/群聊模块：消息发送、文件传输
 - 文件模块：本地缓存、在文件夹中显示、大文件直连、**阈值设置**、**媒体预览窗口后台下载**
+- AI 助手模块：AI 卡片置顶、AI 聊天、SSE 流式响应
 - 设置模块：提示音、数据管理、设备管理、更新检查、**主题配置（独立窗口、毛玻璃效果、高级透明度层级、跨窗口同步）**
 - 局域网传输模块：设备发现、文件发送/接收、大文件传输
 - 会议/媒体模块
@@ -363,6 +366,26 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-28: AI 助手功能 — 置顶卡片 + 聊天对话
+  - **功能**: 在消息列表顶部添加 AI 助手卡片，点击进入 AI 对话界面
+  - **实现**:
+    - 扩展 `ChatTarget` 类型新增 `ai` 分支，新增 `AIMessage`/`AIConversation` 等接口
+    - 新增 `src/api/ai.ts` — AI 对话 API 封装（同步/SSE 流式/会话管理）
+    - 新增 `AIAvatar` 组件 — 白底蓝色渐变 "AI" 文字
+    - 新增 `useAIMessages` Hook — AI 消息状态管理和 SSE 流式处理
+    - 新增 `AIChatMessages` + `AIMessageBubble` 组件，复用现有聊天 CSS
+    - 桌面端 `UnifiedList` / 移动端 `MobileChatList` 顶部置顶 AI 卡片
+    - `ChatPanel` / `MobileChatView` 增加 AI 聊天分支渲染
+    - `useMainPage` 集成 AI 消息发送和路由
+  - **修改文件**: `src/types/chat.ts`, `src/api/ai.ts`, `src/components/common/AIAvatar.tsx`, `src/chat/ai/useAIMessages.ts`, `src/chat/ai/AIChatMessages.tsx`, `src/chat/ai/AIMessageBubble.tsx`, `src/components/unified/UnifiedList.tsx`, `src/pages/mobile/MobileChatList.tsx`, `src/chat/shared/ChatPanel.tsx`, `src/pages/mobile/MobileChatView.tsx`, `src/hooks/useMainPage.ts`, `src/pages/Main.tsx`, `src/pages/mobile/MobileMain.tsx`, `src/styles/pages/main.css`
+  - **质量保证**
+    - `cargo clippy -- -D warnings`: 0 错误 0 警告
+    - `vitest run`: 20 文件 504 个测试全部通过（新增 17 个测试）
+  - **新增测试用例**
+    - `tests/unit/aiCard.test.ts` (11 个): `ChatTarget` AI 类型验证、`AIMessage`/`AIConversation`/`AIChatResponse`/`AIConversationsResponse`/`AIMessagesResponse` 接口结构验证、AI 卡片置顶排序验证
+    - `tests/components/AIAvatar.test.tsx` (3 个): 渲染 "AI" 文字、白色圆形背景、渐变文字样式
+    - `tests/components/registry.test.tsx`: 新增 `AIAvatar`、`AIChatMessages`、`AIMessageBubble`、`useAIMessages`、`aiApi` 共 5 个模块注册
 
 - 2026-02-28: 修复消息删除/撤回后会话卡片最新消息预览不更新的问题
   - **问题**: 手动删除或撤回最新消息后，会话卡片仍显示已删除/已撤回的消息内容，直到收到新消息才更新

@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
+import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
@@ -29,6 +30,8 @@ interface MobileChatListProps {
   onSelectTarget: (target: ChatTarget) => void;
   /** 未读消息摘要 */
   unreadSummary: UnreadSummary | null;
+  /** AI 当前会话标题（可选） */
+  aiConversationTitle?: string | null;
 }
 
 interface ConversationCard {
@@ -49,6 +52,7 @@ export function MobileChatList({
   searchQuery,
   onSelectTarget,
   unreadSummary,
+  aiConversationTitle,
 }: MobileChatListProps) {
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
@@ -60,7 +64,6 @@ export function MobileChatList({
       const unread = unreadSummary?.friend_unreads?.find(
         (u) => u.friend_id === friend.friend_id,
       );
-      // 优先使用 WebSocket 的消息预览，fallback 到本地会话
       const localPreview = getFriendPreview(friend.friend_id);
       return {
         uniqueKey: `friend-${friend.friend_id}`,
@@ -68,8 +71,8 @@ export function MobileChatList({
         type: 'friend' as const,
         name: friend.friend_nickname,
         avatarUrl: friend.friend_avatar_url,
-        lastMessage: unread?.last_message_preview ?? localPreview?.lastMessage ?? null,
-        lastMessageTime: unread?.last_message_time ?? localPreview?.lastMessageTime ?? null,
+        lastMessage: localPreview?.lastMessage ?? null,
+        lastMessageTime: localPreview?.lastMessageTime ?? null,
         unreadCount: unread?.unread_count ?? 0,
         data: friend,
       };
@@ -83,7 +86,6 @@ export function MobileChatList({
       const unread = unreadSummary?.group_unreads?.find(
         (u) => u.group_id === group.group_id,
       );
-      // 优先使用 WebSocket 的消息预览，fallback 到本地
       const localPreview = getGroupPreview(group.group_id);
       return {
         uniqueKey: `group-${group.group_id}`,
@@ -91,16 +93,8 @@ export function MobileChatList({
         type: 'group' as const,
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage:
-          unread?.last_message_preview ??
-          localPreview?.lastMessage ??
-          group.last_message_content ??
-          null,
-        lastMessageTime:
-          unread?.last_message_time ??
-          localPreview?.lastMessageTime ??
-          group.last_message_time ??
-          null,
+        lastMessage: localPreview?.lastMessage ?? group.last_message_content ?? null,
+        lastMessageTime: localPreview?.lastMessageTime ?? group.last_message_time ?? null,
         unreadCount: unread?.unread_count ?? group.unread_count ?? 0,
         data: group,
       };
@@ -187,6 +181,25 @@ export function MobileChatList({
     <div className="mobile-contacts">
       {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
       <MobileDownloadCard />
+
+      {/* AI 助手置顶卡片 */}
+      <div
+        className="mobile-contact-card"
+        onClick={() => onSelectTarget({ type: 'ai' })}
+      >
+        <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+          <AIAvatar />
+        </div>
+        <div className="mobile-contact-info" style={{ flex: 1 }}>
+          <div className="mobile-contact-name">AI 助手</div>
+          <div
+            className="mobile-contact-role"
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {aiConversationTitle || '有什么可以帮你的？'}
+          </div>
+        </div>
+      </div>
 
       <AnimatePresence initial={false}>
         {sortedCards.map((card) => (

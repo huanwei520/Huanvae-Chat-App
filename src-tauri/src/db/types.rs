@@ -78,6 +78,27 @@ pub struct LocalFileMapping {
     pub created_at: Option<String>,
 }
 
+/// 会话预览（JOIN messages 表的最新消息）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPreview {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub conv_type: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub last_seq: i64,
+    pub unread_count: i64,
+    pub is_muted: bool,
+    pub is_pinned: bool,
+    pub updated_at: String,
+    /// 最新消息内容（来自 messages 表 JOIN）
+    pub msg_content: Option<String>,
+    /// 最新消息类型（text/image/video/file）
+    pub msg_content_type: Option<String>,
+    /// 最新消息时间
+    pub msg_send_time: Option<String>,
+}
+
 /// 本地好友记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalFriend {
