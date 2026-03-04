@@ -120,4 +120,43 @@ export interface GroupMessage {
 /** 聊天目标类型 */
 export type ChatTarget =
   | { type: 'friend'; data: Friend }
-  | { type: 'group'; data: Group };
+  | { type: 'group'; data: Group }
+  | { type: 'ai'; conversationId?: string };
+
+// ============================================
+// AI 助手相关类型
+// ============================================
+
+/** AI 消息角色 */
+export type AIMessageRole = 'user' | 'assistant' | 'tool';
+
+/** AI 消息 */
+export interface AIMessage {
+  id: string;
+  role: AIMessageRole;
+  content: string | null;
+  tool_calls?: unknown[] | null;
+  tool_name?: string | null;
+  model?: string | null;
+  created_at: string;
+}
+
+/** AI 会话信息 */
+export interface AIConversation {
+  id: string;
+  title: string;
+  message_count: number;
+  total_tokens: number;
+  last_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** AI 会话列表响应 */
+export interface AIConversationsResponse {
+  conversations: AIConversation[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+

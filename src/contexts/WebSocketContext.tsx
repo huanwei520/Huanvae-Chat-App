@@ -40,10 +40,10 @@ import {
   updateFriendUnread,
   updateGroupUnread,
   createInitialUnreadSummary,
-  refreshPreviewInSummary,
 } from './wsHandlers';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
+import { notifyPreviewsChanged } from '../hooks/useLocalConversations';
 import type {
   UnreadSummary,
   WsNewMessage,
@@ -462,14 +462,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       const conversationId = targetType === 'friend'
         ? getFriendConversationId(userId ?? '', targetId)
         : targetId;
-      const result = await db.refreshConversationPreview(conversationId);
-      refreshPreviewInSummary(
-        setUnreadSummary,
-        targetType,
-        targetId,
-        result?.lastMessage ?? '',
-        result?.lastMessageTime ?? '',
-      );
+      await db.refreshConversationPreview(conversationId);
+      notifyPreviewsChanged();
     } catch (err) {
       console.error('[WS] 刷新消息预览失败:', err);
     }

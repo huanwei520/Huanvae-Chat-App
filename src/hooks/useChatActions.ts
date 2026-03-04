@@ -35,7 +35,7 @@ export function useChatActions({
   const { refreshLastMessagePreview } = useWebSocket();
 
   const handleRecallMessage = useCallback(async (messageUuid: string) => {
-    if (!chatTarget) { return; }
+    if (!chatTarget || chatTarget.type === 'ai') { return; }
 
     try {
       if (chatTarget.type === 'friend') {
@@ -57,7 +57,7 @@ export function useChatActions({
   }, [api, chatTarget, removeFriendMessage, removeGroupMessage, refreshLastMessagePreview]);
 
   const handleDeleteMessage = useCallback(async (messageUuid: string) => {
-    if (!chatTarget) { return; }
+    if (!chatTarget || chatTarget.type === 'ai') { return; }
 
     try {
       if (chatTarget.type === 'friend') {

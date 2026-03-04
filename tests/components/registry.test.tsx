@@ -36,6 +36,8 @@ import * as MobileThemePage from '../../src/pages/mobile/MobileThemePage';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
+import * as AIAvatar from '../../src/components/common/AIAvatar';
+import * as MarkdownRenderer from '../../src/components/common/MarkdownRenderer';
 import * as CircularProgress from '../../src/components/common/CircularProgress';
 import * as ErrorToast from '../../src/components/common/ErrorToast';
 import * as LoadingSpinner from '../../src/components/common/LoadingSpinner';
@@ -93,6 +95,9 @@ import * as ChatMessages from '../../src/chat/friend/ChatMessages';
 import * as MessageBubble from '../../src/chat/friend/MessageBubble';
 import * as GroupChatMessages from '../../src/chat/group/GroupChatMessages';
 import * as GroupMessageBubble from '../../src/chat/group/GroupMessageBubble';
+import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
+import * as AIMessageBubble from '../../src/chat/ai/AIMessageBubble';
+import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
 import * as ConfirmDialog from '../../src/chat/shared/menu/ConfirmDialog';
 import * as EditNameForm from '../../src/chat/shared/menu/EditNameForm';
 import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
@@ -132,6 +137,7 @@ import * as useSearchPopup from '../../src/hooks/useSearchPopup';
 import * as useRegisterForm from '../../src/hooks/useRegisterForm';
 import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMessages';
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
+import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useSilentUpdate from '../../src/update/useSilentUpdate';
 import * as useUpdateToast from '../../src/update/components/UpdateToast';
@@ -182,6 +188,7 @@ import * as formatUtils from '../../src/utils/format';
 // 聊天共享模块
 import * as chatAnimations from '../../src/chat/shared/animations';
 import * as SendStatusIndicator from '../../src/chat/shared/SendStatusIndicator';
+import * as aiApi from '../../src/api/ai';
 
 // 主题系统
 import * as themeIndex from '../../src/theme/index';
@@ -208,6 +215,8 @@ const COMPONENT_MAP = {
   MobileThemePage,
   // 通用组件
   Avatar,
+  AIAvatar,
+  MarkdownRenderer,
   CircularProgress,
   ErrorToast,
   LoadingSpinner,
@@ -295,6 +304,9 @@ const COMPONENT_MAP = {
   MessageBubble,
   GroupChatMessages,
   GroupMessageBubble,
+  AIChatMessages,
+  AIMessageBubble,
+  AIHistoryPanel,
   ConfirmDialog,
   EditNameForm,
   EditNicknameForm,
@@ -331,6 +343,7 @@ const COMPONENT_MAP = {
   useRegisterForm,
   useLocalFriendMessages,
   useLocalGroupMessages,
+  useAIMessages,
   useWebRTC,
   useSilentUpdate,
   useUpdateToast,
@@ -353,6 +366,7 @@ const COMPONENT_MAP = {
   // 聊天共享模块
   chatAnimations,
   SendStatusIndicator,
+  aiApi,
 };
 
 // ============== 页面组件测试 ==============

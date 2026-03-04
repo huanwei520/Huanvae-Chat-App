@@ -7,18 +7,23 @@
  * - 底部：输入区域（复用 ChatInputArea）
  */
 
+import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import type { Session } from '../../types/session';
-import type { ChatTarget, Message } from '../../types/chat';
+import type { ChatTarget, Message, AIConversation } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
 import type { AttachmentType } from '../../chat/shared/FileAttachButton';
 import type { UploadProgress } from '../../hooks/useFileUpload';
 
 import { ChatMessages } from '../../chat/friend/ChatMessages';
 import { GroupChatMessages } from '../../chat/group/GroupChatMessages';
+import { AIChatMessages } from '../../chat/ai/AIChatMessages';
+import { AIHistoryPanel } from '../../chat/ai/AIHistoryPanel';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
+import type { AIMessage } from '../../types/chat';
+import type { AIToolStatus } from '../../chat/ai/useAIMessages';
 
 // 返回图标
 const BackIcon = () => (
@@ -86,9 +91,25 @@ interface MobileChatViewProps {
 
   // 返回回调
   onBack: () => void;
+
+  // AI 消息数据（仅 chatTarget.type === 'ai' 时使用）
+  aiMessages?: AIMessage[];
+  aiStreamingContent?: string;
+  aiIsLoading?: boolean;
+  aiToolStatus?: AIToolStatus | null;
+
+  // AI 历史记录
+  aiConversations?: AIConversation[];
+  aiConversationsLoading?: boolean;
+  aiConversationId?: string | null;
+  onAILoadConversations?: () => void;
+  onAISwitchConversation?: (convId: string) => void;
+  onAIDeleteConversation?: (convId: string) => void;
+  onAINewConversation?: () => void;
 }
 
 function getChatTitle(chatTarget: ChatTarget): string {
+  if (chatTarget.type === 'ai') { return 'AI 助手'; }
   if (chatTarget.type === 'friend') {
     return chatTarget.data.friend_nickname || '好友';
   }
@@ -130,15 +151,34 @@ export function MobileChatView({
   onGroupLeft,
   onHistoryLoaded,
   onBack,
+  aiMessages = [],
+  aiStreamingContent = '',
+  aiIsLoading = false,
+  aiToolStatus = null,
+  aiConversations = [],
+  aiConversationsLoading = false,
+  aiConversationId = null,
+  onAILoadConversations,
+  onAISwitchConversation,
+  onAIDeleteConversation,
+  onAINewConversation,
 }: MobileChatViewProps) {
-  const chatKey =
-    chatTarget.type === 'friend'
+  const chatKey = chatTarget.type === 'ai'
+    ? 'ai-assistant'
+    : chatTarget.type === 'friend'
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
 
   // 获取实际的 friend/group 对象
   const friend = chatTarget.type === 'friend' ? chatTarget.data : undefined;
   const group = chatTarget.type === 'group' ? chatTarget.data : undefined;
+
+  const [showAIHistory, setShowAIHistory] = useState(false);
+
+  const handleAIHistorySelect = useCallback((convId: string) => {
+    onAISwitchConversation?.(convId);
+    setShowAIHistory(false);
+  }, [onAISwitchConversation]);
 
   return (
     <motion.div
@@ -154,21 +194,59 @@ export function MobileChatView({
           <BackIcon />
         </div>
         <div className="mobile-chat-title">{getChatTitle(chatTarget)}</div>
-        <div className="mobile-chat-menu">
-          <ChatMenuButton
-            target={chatTarget}
-            onFriendRemoved={onFriendRemoved}
-            onGroupUpdated={onGroupUpdated}
-            onGroupLeft={onGroupLeft}
-            isMultiSelectMode={isMultiSelectMode}
-            onToggleMultiSelect={onEnterMultiSelect}
-            onHistoryLoaded={onHistoryLoaded}
-          />
-        </div>
+        {chatTarget.type === 'ai' ? (
+          <div className="mobile-chat-menu ai-actions">
+            <button className="header-action-btn" onClick={onAINewConversation} title="新对话">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            <button className={`header-action-btn ${showAIHistory ? 'active' : ''}`} onClick={() => setShowAIHistory(!showAIHistory)} title="历史记录">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <div className="mobile-chat-menu">
+            <ChatMenuButton
+              target={chatTarget}
+              onFriendRemoved={onFriendRemoved}
+              onGroupUpdated={onGroupUpdated}
+              onGroupLeft={onGroupLeft}
+              isMultiSelectMode={isMultiSelectMode}
+              onToggleMultiSelect={onEnterMultiSelect}
+              onHistoryLoaded={onHistoryLoaded}
+            />
+          </div>
+        )}
       </header>
+
+      {/* AI 历史记录抽屉 */}
+      {chatTarget.type === 'ai' && (
+        <AIHistoryPanel
+          visible={showAIHistory}
+          conversations={aiConversations}
+          loading={aiConversationsLoading}
+          currentConversationId={aiConversationId}
+          onSelect={handleAIHistorySelect}
+          onDelete={(id) => onAIDeleteConversation?.(id)}
+          onClose={() => setShowAIHistory(false)}
+          onLoad={() => onAILoadConversations?.()}
+        />
+      )}
 
       {/* 消息列表 */}
       <div className="mobile-chat-messages">
+        {chatTarget.type === 'ai' && (
+          <AIChatMessages
+            key="ai-messages"
+            messages={aiMessages}
+            streamingContent={aiStreamingContent}
+            isLoading={aiIsLoading}
+            toolStatus={aiToolStatus}
+          />
+        )}
         {chatTarget.type === 'friend' && friend && (
           <ChatMessages
             key={`friend-${chatKey}`}

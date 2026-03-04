@@ -11,6 +11,7 @@
  * - 多选模式选中效果
  * - 点击头像显示用户信息弹出框
  * - 移动端双击全屏预览（仅文本消息）
+ * - 文本消息使用 MarkdownRenderer 渲染（支持 GFM、代码高亮）
  *
  * 动画机制：
  * - 自己的消息：从右往左、从下往上滑入
@@ -25,6 +26,7 @@ import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/com
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
+import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { getCachedFilePath } from '../../services/fileCache';
@@ -374,7 +376,9 @@ export function MessageBubble({
           </div>
           <div className="bubble-content">
             {message.message_type === 'text' ? (
-              <div className="bubble-text">{message.message_content}</div>
+              <div className="bubble-text">
+                <MarkdownRenderer content={message.message_content} />
+              </div>
             ) : (
               <FileMessageContent
                 messageType={message.message_type}

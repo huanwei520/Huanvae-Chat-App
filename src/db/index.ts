@@ -56,6 +56,22 @@ export interface LocalMessage {
   created_at: string | null;
 }
 
+/** 会话预览（JOIN messages 表的最新消息，一次查询完成） */
+export interface ConversationWithPreview {
+  id: string;
+  type: ConversationType;
+  name: string;
+  avatar_url: string | null;
+  last_seq: number;
+  unread_count: number;
+  is_muted: boolean;
+  is_pinned: boolean;
+  updated_at: string;
+  msg_content: string | null;
+  msg_content_type: string | null;
+  msg_send_time: string | null;
+}
+
 /** 本地文件映射 */
 export interface LocalFileMapping {
   file_hash: string;
@@ -120,6 +136,11 @@ export async function initDatabase(): Promise<void> {
 /** 获取所有会话列表 */
 export function getConversations(): Promise<LocalConversation[]> {
   return invoke<LocalConversation[]>('db_get_conversations');
+}
+
+/** 获取所有会话及其最新消息预览（一次 SQL JOIN 查询） */
+export function getConversationPreviews(): Promise<ConversationWithPreview[]> {
+  return invoke<ConversationWithPreview[]>('db_get_conversation_previews');
 }
 
 /** 获取单个会话 */

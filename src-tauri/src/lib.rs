@@ -58,7 +58,10 @@ mod mobile_media_server;
 // ============================================
 mod android_update;
 
-use db::{LocalConversation, LocalFileMapping, LocalFriend, LocalGroup, LocalMessage};
+use db::{
+    ConversationPreview, LocalConversation, LocalFileMapping, LocalFriend, LocalGroup,
+    LocalMessage,
+};
 use storage::SavedAccount;
 
 /// 获取所有已保存的账号
@@ -262,6 +265,12 @@ fn db_init() -> Result<(), String> {
 #[tauri::command]
 fn db_get_conversations() -> Result<Vec<LocalConversation>, String> {
     db::get_conversations()
+}
+
+/// 获取所有会话及其最新消息预览（通过 JOIN messages 表，一次查询）
+#[tauri::command]
+fn db_get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
+    db::get_conversation_previews()
 }
 
 /// 获取单个会话
@@ -665,6 +674,7 @@ pub fn run() {
             // 数据库操作
             db_init,
             db_get_conversations,
+            db_get_conversation_previews,
             db_get_conversation,
             db_save_conversation,
             db_update_conversation_last_seq,

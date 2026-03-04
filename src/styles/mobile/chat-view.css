@@ -423,3 +423,29 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* ============================================ */
+/* 移动端 AI 头部按钮适配                        */
+/* ============================================ */
+.mobile-chat-menu.ai-actions {
+  width: auto;
+  height: auto;
+  display: flex;
+  gap: 4px;
+  border-radius: 0;
+  background: none;
+}
+
+.mobile-chat-menu.ai-actions .header-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* ============================================ */
+/* 移动端 AI 历史记录面板安全区域适配             */
+/* ============================================ */
+.mobile-chat-view .ai-history-header {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+}

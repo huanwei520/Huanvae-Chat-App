@@ -351,6 +351,7 @@ export function MobileMain() {
                       selectedTarget={page.chatTarget}
                       onSelectTarget={handleSelectTarget}
                       unreadSummary={page.unreadSummary}
+                      aiConversationTitle={page.aiConversationTitle}
                     />
                   </motion.div>
                 ) : (
@@ -419,6 +420,17 @@ export function MobileMain() {
               onGroupLeft={page.handleGroupLeft}
               onHistoryLoaded={page.handleHistoryLoaded}
               onBack={handleBack}
+              aiMessages={page.aiMessages}
+              aiStreamingContent={page.aiStreamingContent}
+              aiIsLoading={page.aiIsLoading}
+              aiToolStatus={page.aiToolStatus}
+              aiConversations={page.aiConversations}
+              aiConversationsLoading={page.aiConversationsLoading}
+              aiConversationId={page.aiConversationId}
+              onAILoadConversations={page.aiLoadConversations}
+              onAISwitchConversation={page.aiSwitchConversation}
+              onAIDeleteConversation={page.aiDeleteConversation}
+              onAINewConversation={page.aiNewConversation}
             />
           )
         )}

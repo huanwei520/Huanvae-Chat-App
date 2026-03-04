@@ -630,7 +630,7 @@
   gap: 8px;
 }
 
-.send-btn {
+.device-actions .send-btn {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
@@ -642,7 +642,7 @@
   transition: all 0.2s ease;
 }
 
-.send-btn:active {
+.device-actions .send-btn:active {
   background: var(--primary-hover);
   transform: scale(0.96);
 }

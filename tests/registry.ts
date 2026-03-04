@@ -42,6 +42,8 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
   { name: 'Avatar', path: 'components/common/Avatar', category: 'components', description: '头像组件' },
+  { name: 'AIAvatar', path: 'components/common/AIAvatar', category: 'components', description: 'AI 助手头像组件' },
+  { name: 'MarkdownRenderer', path: 'components/common/MarkdownRenderer', category: 'components', description: 'Markdown 渲染组件（聊天气泡内容）' },
   { name: 'CircularProgress', path: 'components/common/CircularProgress', category: 'components', description: '环形进度条' },
   { name: 'ErrorToast', path: 'components/common/ErrorToast', category: 'components', description: '错误提示' },
   { name: 'LoadingSpinner', path: 'components/common/LoadingSpinner', category: 'components', description: '加载动画' },
@@ -163,6 +165,11 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
 
+  // AI 聊天组件
+  { name: 'AIChatMessages', path: 'chat/ai/AIChatMessages', category: 'chat', description: 'AI 聊天消息列表' },
+  { name: 'AIMessageBubble', path: 'chat/ai/AIMessageBubble', category: 'chat', description: 'AI 消息气泡' },
+  { name: 'AIHistoryPanel', path: 'chat/ai/AIHistoryPanel', category: 'chat', description: 'AI 历史记录抽屉面板' },
+
   // 聊天菜单子组件
   { name: 'ConfirmDialog', path: 'chat/shared/menu/ConfirmDialog', category: 'chat', description: '确认对话框' },
   { name: 'EditNameForm', path: 'chat/shared/menu/EditNameForm', category: 'chat', description: '编辑名称表单' },
@@ -209,6 +216,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useRegisterForm', path: 'hooks/useRegisterForm', category: 'hooks', description: '注册表单 Hook' },
   { name: 'useLocalFriendMessages', path: 'chat/friend/useLocalFriendMessages', category: 'hooks', description: '本地好友消息 Hook' },
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
+  { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
   { name: 'useSilentUpdate', path: 'update/useSilentUpdate', category: 'hooks', description: '静默更新 Hook' },
   { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
@@ -233,6 +241,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   // 聊天共享模块
   { name: 'chatAnimations', path: 'chat/shared/animations', category: 'services', description: '消息动画配置' },
+  { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },
   { name: 'SendStatusIndicator', path: 'chat/shared/SendStatusIndicator', category: 'components', description: '发送状态指示器' },
 ];
 

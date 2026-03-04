@@ -10,7 +10,7 @@
 
 use rusqlite::params;
 
-use super::types::LocalConversation;
+use super::types::{ConversationPreview, LocalConversation};
 use super::with_db;
 
 /// 获取所有会话列表
@@ -150,6 +150,57 @@ pub fn clear_conversation_unread(id: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
         Ok(())
+    })
+}
+
+/// 获取所有会话及其最新消息预览（通过 JOIN messages 表）
+///
+/// 一次 SQL 查询完成，避免 N+1 查询问题
+pub fn get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
+    with_db!(db, {
+        let mut stmt = db
+            .prepare(
+                "SELECT c.id, c.type, c.name, c.avatar_url,
+                        c.last_seq, c.unread_count, c.is_muted, c.is_pinned, c.updated_at,
+                        m.content, m.content_type, m.send_time
+                 FROM conversations c
+                 LEFT JOIN messages m ON m.message_uuid = (
+                     SELECT message_uuid FROM messages
+                     WHERE conversation_id = c.id AND is_deleted = 0 AND is_recalled = 0
+                     ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
+                              CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
+                              seq DESC
+                     LIMIT 1
+                 )
+                 ORDER BY c.is_pinned DESC, c.updated_at DESC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ConversationPreview {
+                    id: row.get(0)?,
+                    conv_type: row.get(1)?,
+                    name: row.get(2)?,
+                    avatar_url: row.get(3)?,
+                    last_seq: row.get(4)?,
+                    unread_count: row.get(5)?,
+                    is_muted: row.get::<_, i64>(6)? != 0,
+                    is_pinned: row.get::<_, i64>(7)? != 0,
+                    updated_at: row.get(8)?,
+                    msg_content: row.get(9)?,
+                    msg_content_type: row.get(10)?,
+                    msg_send_time: row.get(11)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut previews = Vec::new();
+        for row in rows {
+            previews.push(row.map_err(|e| e.to_string())?);
+        }
+
+        Ok(previews)
     })
 }
 
