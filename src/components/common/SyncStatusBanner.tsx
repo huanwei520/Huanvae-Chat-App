@@ -86,7 +86,7 @@ function AlertIcon() {
 export function SyncStatusBanner({ notification, onRetry }: SyncStatusBannerProps) {
 
   const renderContent = () => {
-    if (!notification) return null;
+    if (!notification) { return null; }
 
     switch (notification.type) {
       case 'error':

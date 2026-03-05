@@ -79,7 +79,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
     return () => {
       cleanup();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   function cleanup() {

@@ -59,7 +59,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 
 /** 将 content_type + content 转为用户可读的预览文本 */
 function toPreviewText(contentType: string | null, content: string | null): string | null {
-  if (!contentType || content === null) return null;
+  if (!contentType || content === null) { return null; }
   return CONTENT_TYPE_MAP[contentType] ?? content;
 }
 
@@ -74,13 +74,13 @@ export function useLocalConversations(): UseLocalConversationsReturn {
   const initializedRef = useRef(false);
 
   const loadConversations = useCallback(async () => {
-    if (!session) return;
+    if (!session) { return; }
 
     setLoading(true);
     try {
       const rows = await db.getConversationPreviews();
       console.log('[LocalConv] raw preview rows:', rows.map(r =>
-        `${r.id}(${r.type}): msg="${(r.msg_content || '').slice(0, 20)}" type=${r.msg_content_type} time=${r.msg_send_time}`
+        `${r.id}(${r.type}): msg="${(r.msg_content || '').slice(0, 20)}" type=${r.msg_content_type} time=${r.msg_send_time}`,
       ));
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
@@ -110,7 +110,7 @@ export function useLocalConversations(): UseLocalConversationsReturn {
       // DEBUG: 输出前两个好友预览
       const friendEntries = [...friendPreviews.entries()].slice(0, 3);
       console.log('[LocalConv] loaded previews:', friendEntries.map(([id, p]) =>
-        `${id}: "${p.lastMessage?.slice(0, 20)}" @ ${p.lastMessageTime}`
+        `${id}: "${p.lastMessage?.slice(0, 20)}" @ ${p.lastMessageTime}`,
       ));
 
       if (!initializedRef.current) {

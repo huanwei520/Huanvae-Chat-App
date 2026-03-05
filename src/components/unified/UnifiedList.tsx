@@ -185,7 +185,7 @@ export function UnifiedList({
   panelWidth = 280,
   aiConversationTitle,
   syncNotification,
-  onSyncDismiss,
+  onSyncDismiss: _onSyncDismiss,
   onSyncRetry,
 }: UnifiedListProps) {
 

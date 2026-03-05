@@ -685,7 +685,7 @@ export function useChatMenu({
     setError(null);
 
     try {
-      if (target.type === 'ai') return;
+      if (target.type === 'ai') { return; }
       const targetId = target.type === 'friend'
         ? target.data.friend_id
         : target.data.group_id;

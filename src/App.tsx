@@ -179,7 +179,7 @@ function App() {
           }
 
           // 非主动取消的失败，短暂延迟后自动重新弹出生物认证
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise<void>(r => { setTimeout(r, 600); });
         }
       }
 

@@ -65,7 +65,7 @@ export function AIChatMessages({
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) { return; }
     el.scrollTo({
       top: el.scrollHeight,
       behavior: smooth ? 'smooth' : 'instant',
@@ -74,7 +74,7 @@ export function AIChatMessages({
 
   const checkAtBottom = useCallback(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) { return; }
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
