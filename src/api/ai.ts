@@ -25,9 +25,14 @@ export interface AIToolResultEvent {
   success: boolean;
 }
 
+/** AI 处理阶段状态 */
+export type AIStatus = 'thinking' | 'reasoning' | 'responding' | 'tool_calling';
+
 /** SSE 事件回调 */
 export interface AIStreamCallbacks {
   onConversationId?: (id: string) => void;
+  onStatus?: (status: AIStatus) => void;
+  onReasoning?: (text: string) => void;
   onContent?: (text: string) => void;
   onToolCall?: (info: AIToolCallEvent) => void;
   onToolResult?: (info: AIToolResultEvent) => void;
@@ -100,8 +105,13 @@ export async function streamAIMessage(
             case 'conversation_id':
               callbacks.onConversationId?.(data);
               break;
+            case 'status':
+              callbacks.onStatus?.(data as AIStatus);
+              break;
+            case 'reasoning':
+              callbacks.onReasoning?.(data || '\n');
+              break;
             case 'content':
-              // SSE 行分隔符会吞掉内容中的 \n，表现为空 data；此时还原为换行
               callbacks.onContent?.(data || '\n');
               break;
             case 'tool_call':
@@ -181,4 +191,114 @@ export function getAIMessages(
   return api.get<{ data: AIMessage[] }>(
     `/api/ai/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`,
   );
+}
+
+// ============================================================
+// 声音配置（声音克隆）API
+// ============================================================
+
+/** 声音配置信息 */
+export interface VoiceProfile {
+  profile_id: string;
+  voice_name: string;
+  speaker_id: string;
+  system_prompt: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+
+/**
+ * 上传声音（创建声音配置）
+ *
+ * 使用 FormData 上传参考音频，后端基于 IndexTTS-2 生成声音配置。
+ * 音频建议 5-30 秒清晰人声 WAV 文件。
+ */
+export async function createVoiceProfile(
+  api: ApiClient,
+  voiceName: string,
+  audioBlob: Blob,
+  audioFileName: string,
+  systemPrompt?: string,
+): Promise<VoiceProfile> {
+  const baseUrl = api.getBaseUrl();
+  const token = api.getAccessToken();
+
+  console.log('[VoiceProfile] 开始上传声音配置', {
+    voiceName,
+    audioFileName,
+    blobSize: audioBlob.size,
+    blobType: audioBlob.type,
+  });
+
+  const audioFile = new File([audioBlob], audioFileName, { type: 'audio/wav' });
+  console.log('[VoiceProfile] File 对象已创建', {
+    fileName: audioFile.name,
+    fileSize: audioFile.size,
+    fileType: audioFile.type,
+  });
+
+  const formData = new FormData();
+  formData.append('voice_name', voiceName);
+  formData.append('audio', audioFile);
+  if (systemPrompt) {
+    formData.append('system_prompt', systemPrompt);
+  }
+
+  const url = `${baseUrl}/api/ai/voice-profiles`;
+  console.log('[VoiceProfile] 发送 POST 请求 (使用原生 fetch)', { url });
+
+  // 必须使用原生 fetch，Tauri plugin-http 的 fetch 不能正确序列化 FormData
+  const response = await globalThis.fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: formData,
+  });
+
+  console.log('[VoiceProfile] 收到响应', {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    contentType: response.headers.get('content-type'),
+  });
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    console.error('[VoiceProfile] 上传失败，响应体:', rawText);
+    let errMsg = `上传失败 (${response.status})`;
+    try {
+      const errJson = JSON.parse(rawText);
+      errMsg = errJson.message || errJson.detail || errJson.error || errMsg;
+    } catch { /* not JSON */ }
+    throw new Error(errMsg);
+  }
+
+  const result = await response.json() as VoiceProfile;
+  console.log('[VoiceProfile] 上传成功', result);
+  return result;
+}
+
+/** 获取声音配置列表 */
+export async function getVoiceProfiles(api: ApiClient): Promise<VoiceProfile[]> {
+  return api.get<VoiceProfile[]>('/api/ai/voice-profiles');
+}
+
+/** 设为默认声音 */
+export async function setDefaultVoiceProfile(api: ApiClient, profileId: string): Promise<void> {
+  await api.put<void>(`/api/ai/voice-profiles/${profileId}/default`);
+}
+
+/** 删除声音配置 */
+export async function deleteVoiceProfile(api: ApiClient, profileId: string): Promise<void> {
+  await api.delete<void>(`/api/ai/voice-profiles/${profileId}`);
+}
+
+/** 更新声音配置的 system_prompt（自定义语音人设） */
+export async function updateVoiceProfilePrompt(
+  api: ApiClient,
+  profileId: string,
+  systemPrompt: string | null,
+): Promise<void> {
+  await api.put<void>(`/api/ai/voice-profiles/${profileId}/prompt`, {
+    system_prompt: systemPrompt,
+  });
 }

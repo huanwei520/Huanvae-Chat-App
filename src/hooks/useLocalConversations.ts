@@ -14,7 +14,10 @@ import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
 
-/** 通知所有 useLocalConversations 实例刷新数据（事件驱动） */
+/**
+ * 手动触发预览刷新（备用）。
+ * 常规场景已由 db/index.ts 的写入防抖自动触发，无需手动调用。
+ */
 export function notifyPreviewsChanged(): void {
   window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
 }
@@ -76,6 +79,9 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     setLoading(true);
     try {
       const rows = await db.getConversationPreviews();
+      console.log('[LocalConv] raw preview rows:', rows.map(r =>
+        `${r.id}(${r.type}): msg="${(r.msg_content || '').slice(0, 20)}" type=${r.msg_content_type} time=${r.msg_send_time}`
+      ));
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
 
@@ -101,6 +107,12 @@ export function useLocalConversations(): UseLocalConversationsReturn {
 
       setPreviews({ friends: friendPreviews, groups: groupPreviews });
 
+      // DEBUG: 输出前两个好友预览
+      const friendEntries = [...friendPreviews.entries()].slice(0, 3);
+      console.log('[LocalConv] loaded previews:', friendEntries.map(([id, p]) =>
+        `${id}: "${p.lastMessage?.slice(0, 20)}" @ ${p.lastMessageTime}`
+      ));
+
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
@@ -117,10 +129,13 @@ export function useLocalConversations(): UseLocalConversationsReturn {
   }, [session]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session) { return; }
     loadConversations();
 
-    const handleChanged = () => { loadConversations(); };
+    const handleChanged = () => {
+      console.log('[LocalConv] received PREVIEW_CHANGED_EVENT → loadConversations');
+      loadConversations();
+    };
     window.addEventListener(PREVIEW_CHANGED_EVENT, handleChanged);
     return () => { window.removeEventListener(PREVIEW_CHANGED_EVENT, handleChanged); };
   }, [session, loadConversations]);

@@ -24,7 +24,7 @@ import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import * as db from '../db';
 import type { LocalConversation, ConversationType } from '../db';
-import { getSyncService, initSyncService } from '../services/syncService';
+import { initSyncService } from '../services/syncService';
 import { getFriendConversationId } from '../utils/conversationId';
 
 /**
@@ -66,10 +66,31 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
   const api = useApi();
   const { onReconnected } = useWebSocket();
   const syncRef = useRef(false);
+  const syncingRef = useRef(false);
   const [notification, setNotification] = useState<SyncNotification | null>(null);
+  const autoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearNotification = useCallback(() => {
     setNotification(null);
+    if (autoClearTimerRef.current) {
+      clearTimeout(autoClearTimerRef.current);
+      autoClearTimerRef.current = null;
+    }
+  }, []);
+
+  const setNotificationWithAutoClear = useCallback((n: SyncNotification) => {
+    if (autoClearTimerRef.current) {
+      clearTimeout(autoClearTimerRef.current);
+      autoClearTimerRef.current = null;
+    }
+    setNotification(n);
+    if (n.type === 'success') {
+      const delay = n.newMessagesCount > 0 ? 2500 : 1500;
+      autoClearTimerRef.current = setTimeout(() => {
+        autoClearTimerRef.current = null;
+        setNotification(null);
+      }, delay);
+    }
   }, []);
 
   /**
@@ -108,17 +129,23 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
 
   /**
    * 执行全量增量同步
-   * 仅在登录首次同步和断线重连时调用，其余场景不触发通知
+   * 仅在登录首次同步和断线重连时调用，其余场景不触发通知。
+   * 内置并发锁：同一时间只允许一个同步任务运行，后续请求静默跳过。
    */
   const performSync = useCallback(async (trigger?: SyncTrigger) => {
     if (!session || !api) {
       return;
     }
 
-    const syncService = getSyncService() ?? initSyncService(api);
+    if (syncingRef.current) {
+      return;
+    }
+    syncingRef.current = true;
+
+    const syncService = initSyncService(api);
 
     if (trigger) {
-      setNotification({ type: 'syncing', progress: 0, total: 0, synced: 0 });
+      setNotificationWithAutoClear({ type: 'syncing', progress: 0, total: 0, synced: 0 });
     }
 
     try {
@@ -131,13 +158,13 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
 
       if (totalCount === 0) {
         if (trigger) {
-          setNotification({ type: 'success', newMessagesCount: 0 });
+          setNotificationWithAutoClear({ type: 'success', newMessagesCount: 0 });
         }
         return;
       }
 
       if (trigger) {
-        setNotification({ type: 'syncing', progress: 0, total: totalCount, synced: 0 });
+        setNotificationWithAutoClear({ type: 'syncing', progress: 0, total: totalCount, synced: 0 });
       }
 
       const friendConversations: LocalConversation[] = [];
@@ -170,17 +197,19 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       const result = await syncService.syncMessages(allConversations);
 
       if (trigger) {
-        setNotification({ type: 'success', newMessagesCount: result.newMessagesCount });
+        setNotificationWithAutoClear({ type: 'success', newMessagesCount: result.newMessagesCount });
       }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '同步失败';
       console.error('[InitialSync] 同步失败:', error);
       if (trigger) {
-        setNotification({ type: 'error', message: errorMessage });
+        setNotificationWithAutoClear({ type: 'error', message: errorMessage });
       }
+    } finally {
+      syncingRef.current = false;
     }
-  }, [session, api, ensureConversation]);
+  }, [session, api, ensureConversation, setNotificationWithAutoClear]);
 
   // 好友和群聊列表加载完成后自动执行一次同步（登录首次）
   useEffect(() => {

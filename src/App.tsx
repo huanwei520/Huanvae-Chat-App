@@ -29,7 +29,7 @@ import { getDeviceInfo } from './services/deviceInfo';
 import { isMobile } from './utils/platform';
 import { cardVariants, cardContentVariants, cardContentTransition } from './constants/authAnimations';
 import type { AppPage, SavedAccount } from './types/account';
-import type { Session } from './types/session';
+import type { Session, UserProfile } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
 import { UpdateToast } from './update';
@@ -83,49 +83,39 @@ function App() {
    * 创建会话并登录
    *
    * 登录成功后：
-   * 1. 获取用户资料
-   * 2. 设置用户数据目录
-   * 3. 初始化数据库
-   * 4. 创建会话锁（防止同账户重复登录）
-   * 5. 设置会话进入主界面
+   * 1. 设置用户数据目录
+   * 2. 初始化数据库
+   * 3. 创建会话锁（防止同账户重复登录）
+   * 4. 设置会话进入主界面
    */
   const createSessionAndLogin = useCallback(async (
     serverUrl: string,
     userId: string,
     accessToken: string,
     refreshToken: string,
+    profile: UserProfile,
     avatarPath: string | null,
   ) => {
-    // 获取用户资料
-    const profileResponse = await getProfile(serverUrl, accessToken);
-    const profile = profileResponse.data;
-
     // 设置当前用户数据目录（这会创建目录结构）
     await setCurrentUser(userId, serverUrl);
 
-    // 初始化用户数据库
-    await initDatabase();
+    // 初始化数据库 与 创建会话锁 互不依赖，并行执行
+    await Promise.all([
+      initDatabase(),
+      createSessionLock(serverUrl, userId).catch(e =>
+        console.warn('[SessionLock] 创建会话锁失败:', e),
+      ),
+    ]);
 
-    // 创建会话锁（防止同账户在同设备上多次登录）
-    try {
-      await createSessionLock(serverUrl, userId);
-    } catch (lockError) {
-      console.warn('[SessionLock] 创建会话锁失败:', lockError);
-      // 不阻止登录，仅记录警告
-    }
-
-    // 创建会话
-    const newSession: Session = {
+    // 创建会话（触发界面切换到主页面）
+    setSession({
       serverUrl,
       userId,
       accessToken,
       refreshToken,
       profile,
       avatarPath,
-    };
-
-    // 设置会话（这将触发界面切换到主页面）
-    setSession(newSession);
+    });
   }, [setSession]);
 
   // 选中的账号（用于密码丢失时重新输入）
@@ -148,18 +138,49 @@ function App() {
         return;
       }
 
-      // 1. 从密钥链获取密码
+      // 1. 从密钥链获取密码（移动端会触发生物认证）
+      //    生物认证失败时自动重试，直到成功、用户取消或达到最大重试次数
       let password: string;
-      try {
-        password = await getPassword(account.server_url, account.user_id);
-      } catch {
-        // 密钥链中没有密码，跳转到登录页面让用户重新输入
-        setSelectedAccount(account);
-        setAuthForm('login');
-        setCurrentPage('login');
-        setIsLoading(false);
-        setError('密码未保存，请重新输入密码登录');
-        return;
+      const MAX_BIO_RETRIES = 5;
+      let bioAttempt = 0;
+      let bioSuccess = false;
+
+      while (!bioSuccess) {
+        try {
+          password = await getPassword(account.server_url, account.user_id);
+          bioSuccess = true;
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+
+          if (errMsg.includes('未找到保存的密码')) {
+            setSelectedAccount(account);
+            setAuthForm('login');
+            setCurrentPage('login');
+            setIsLoading(false);
+            setError('密码未保存，请重新输入密码登录');
+            return;
+          }
+
+          bioAttempt++;
+          const errLower = errMsg.toLowerCase();
+          const userCancelled = errLower.includes('cancel') ||
+            errLower.includes('取消') ||
+            errLower.includes('user_canceled') ||
+            errLower.includes('negative');
+
+          if (userCancelled || bioAttempt >= MAX_BIO_RETRIES) {
+            setIsLoading(false);
+            setError(
+              bioAttempt >= MAX_BIO_RETRIES
+                ? '验证失败次数过多，请稍后重试'
+                : '验证已取消',
+            );
+            return;
+          }
+
+          // 非主动取消的失败，短暂延迟后自动重新弹出生物认证
+          await new Promise(r => setTimeout(r, 600));
+        }
       }
 
       // 2. 获取设备信息
@@ -174,36 +195,35 @@ function App() {
         macAddress,
       );
 
-      // 4. 获取最新用户资料并更新头像
+      // 4. 获取最新用户资料
       const profileResponse = await getProfile(account.server_url, loginResponse.access_token);
       const profile = profileResponse.data;
 
-      let avatarPath = account.avatar_path;
+      // 5. 保存账号 与 创建会话 并行执行（账号保存非进入主界面的前置条件）
+      await Promise.all([
+        saveAccount(
+          account.user_id,
+          profile.user_nickname,
+          account.server_url,
+          password,
+          account.avatar_path,
+        ),
+        createSessionAndLogin(
+          account.server_url,
+          account.user_id,
+          loginResponse.access_token,
+          loginResponse.refresh_token,
+          profile,
+          account.avatar_path,
+        ),
+      ]);
+
+      // 7. 后台异步更新头像（不阻塞登录）
       if (profile.user_avatar_url) {
-        try {
-          avatarPath = await updateAvatar(account.server_url, account.user_id, profile.user_avatar_url);
-        } catch {
-          // 头像更新失败不影响登录
-        }
+        updateAvatar(account.server_url, account.user_id, profile.user_avatar_url)
+          .then(path => saveAccount(account.user_id, profile.user_nickname, account.server_url, password, path))
+          .catch(() => {});
       }
-
-      // 5. 更新保存的账号信息
-      await saveAccount(
-        account.user_id,
-        profile.user_nickname,
-        account.server_url,
-        password,
-        avatarPath,
-      );
-
-      // 6. 创建会话并登录
-      await createSessionAndLogin(
-        account.server_url,
-        account.user_id,
-        loginResponse.access_token,
-        loginResponse.refresh_token,
-        avatarPath,
-      );
 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -240,34 +260,25 @@ function App() {
       const profileResponse = await getProfile(serverUrl, loginResponse.access_token);
       const profile = profileResponse.data;
 
-      // 4. 下载并保存头像
-      let avatarPath: string | null = null;
+      // 4. 保存账号 与 创建会话 并行执行（账号保存非进入主界面的前置条件）
+      await Promise.all([
+        saveAccount(userId, profile.user_nickname, serverUrl, password, null),
+        createSessionAndLogin(
+          serverUrl,
+          userId,
+          loginResponse.access_token,
+          loginResponse.refresh_token,
+          profile,
+          null,
+        ),
+      ]);
+
+      // 6. 后台异步下载头像并更新账号（不阻塞登录）
       if (profile.user_avatar_url) {
-        try {
-          avatarPath = await updateAvatar(serverUrl, userId, profile.user_avatar_url);
-        } catch {
-          // 头像下载失败不影响登录
-          console.warn('头像下载失败');
-        }
+        updateAvatar(serverUrl, userId, profile.user_avatar_url)
+          .then(path => saveAccount(userId, profile.user_nickname, serverUrl, password, path))
+          .catch(() => {});
       }
-
-      // 5. 保存账号信息
-      await saveAccount(
-        userId,
-        profile.user_nickname,
-        serverUrl,
-        password,
-        avatarPath,
-      );
-
-      // 6. 创建会话并登录
-      await createSessionAndLogin(
-        serverUrl,
-        userId,
-        loginResponse.access_token,
-        loginResponse.refresh_token,
-        avatarPath,
-      );
 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

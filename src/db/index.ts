@@ -1,11 +1,40 @@
 /**
  * 本地数据库服务 - 通过 Tauri Commands 调用 Rust 后端
  *
- * 所有数据库操作都在 Rust 后端执行，前端只负责调用和数据传递
- * 这符合 Tauri 的安全架构理念
+ * 所有数据库操作都在 Rust 后端执行，前端只负责调用和数据传递。
+ * 影响会话预览的写入操作完成后自动触发防抖通知，驱动卡片列表刷新。
  */
 
 import { invoke } from '@tauri-apps/api/core';
+
+// ============================================================================
+// 预览变更防抖通知（带写入屏障）
+// ============================================================================
+
+const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
+let _pendingWrites = 0;
+let _previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 防抖触发会话预览变更事件（150ms）。
+ * 同时检测是否还有进行中的 DB 写入：若有则跳过本次触发，
+ * 等待最后一个写入完成后重新调度，确保查询拿到完整数据。
+ */
+function schedulePreviewNotify(): void {
+  if (_previewDebounceTimer) {
+    clearTimeout(_previewDebounceTimer);
+  }
+  console.log(`[DB-Preview] schedule: pending=${_pendingWrites}`);
+  _previewDebounceTimer = setTimeout(() => {
+    _previewDebounceTimer = null;
+    if (_pendingWrites > 0) {
+      console.warn(`[DB-Preview] SKIPPED: still ${_pendingWrites} writes in flight`);
+      return;
+    }
+    console.log('[DB-Preview] DISPATCH event');
+    window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
+  }, 150);
+}
 
 // ============================================================================
 // 类型定义
@@ -154,12 +183,19 @@ export function getConversation(
 export async function saveConversation(
   conversation: Omit<LocalConversation, 'synced_at'>,
 ): Promise<void> {
-  // 转换类型以匹配 Rust 端
-  const conv: LocalConversation = {
-    ...conversation,
-    synced_at: null,
-  };
-  await invoke('db_save_conversation', { conversation: conv });
+  _pendingWrites++;
+  console.log(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
+  try {
+    const conv: LocalConversation = {
+      ...conversation,
+      synced_at: null,
+    };
+    await invoke('db_save_conversation', { conversation: conv });
+  } finally {
+    _pendingWrites--;
+    console.log(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
+    schedulePreviewNotify();
+  }
 }
 
 /** 更新会话的最后序列号 */
@@ -175,12 +211,24 @@ export async function updateConversationUnread(
   id: string,
   unreadCount: number,
 ): Promise<void> {
-  await invoke('db_update_conversation_unread', { id, unreadCount });
+  _pendingWrites++;
+  try {
+    await invoke('db_update_conversation_unread', { id, unreadCount });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
 }
 
 /** 清零会话未读数 */
 export async function clearConversationUnread(id: string): Promise<void> {
-  await invoke('db_clear_conversation_unread', { id });
+  _pendingWrites++;
+  try {
+    await invoke('db_clear_conversation_unread', { id });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
 }
 
 /** 更新会话的最后消息预览 */
@@ -189,7 +237,16 @@ export async function updateConversationLastMessage(
   lastMessage: string,
   lastMessageTime: string,
 ): Promise<void> {
-  await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
+  _pendingWrites++;
+  console.log(`[DB-Preview] updateLastMessage START: pending=${_pendingWrites}, msg="${lastMessage.slice(0, 20)}"`);
+  try {
+    await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
+    console.log(`[DB-Preview] updateLastMessage OK: msg="${lastMessage.slice(0, 20)}"`);
+  } finally {
+    _pendingWrites--;
+    console.log(`[DB-Preview] updateLastMessage END: pending=${_pendingWrites}`);
+    schedulePreviewNotify();
+  }
 }
 
 /** 增加会话未读数 */
@@ -236,32 +293,59 @@ export async function getLatestMessage(
 export async function saveMessage(
   message: Omit<LocalMessage, 'created_at'>,
 ): Promise<void> {
-  const msg: LocalMessage = {
-    ...message,
-    created_at: null,
-  };
-  await invoke('db_save_message', { message: msg });
+  _pendingWrites++;
+  console.log(`[DB-Preview] saveMessage START: pending=${_pendingWrites}, content="${(message.content || '').slice(0, 20)}"`);
+  try {
+    const msg: LocalMessage = {
+      ...message,
+      created_at: null,
+    };
+    await invoke('db_save_message', { message: msg });
+    console.log(`[DB-Preview] saveMessage OK: content="${(message.content || '').slice(0, 20)}"`);
+  } finally {
+    _pendingWrites--;
+    console.log(`[DB-Preview] saveMessage END: pending=${_pendingWrites}`);
+    schedulePreviewNotify();
+  }
 }
 
 /** 批量保存消息 */
 export async function saveMessages(
   messages: Omit<LocalMessage, 'created_at'>[],
 ): Promise<void> {
-  const msgs: LocalMessage[] = messages.map(m => ({
-    ...m,
-    created_at: null,
-  }));
-  await invoke('db_save_messages', { messages: msgs });
+  _pendingWrites++;
+  try {
+    const msgs: LocalMessage[] = messages.map(m => ({
+      ...m,
+      created_at: null,
+    }));
+    await invoke('db_save_messages', { messages: msgs });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
 }
 
 /** 标记消息为已删除 */
 export async function markMessageDeleted(messageUuid: string): Promise<void> {
-  await invoke('db_mark_message_deleted', { messageUuid });
+  _pendingWrites++;
+  try {
+    await invoke('db_mark_message_deleted', { messageUuid });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
 }
 
 /** 标记消息为已撤回 */
 export async function markMessageRecalled(messageUuid: string): Promise<void> {
-  await invoke('db_mark_message_recalled', { messageUuid });
+  _pendingWrites++;
+  try {
+    await invoke('db_mark_message_recalled', { messageUuid });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
 }
 
 /**

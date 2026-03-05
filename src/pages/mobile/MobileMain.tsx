@@ -45,6 +45,8 @@ import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
 import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
 import { MobileMeetingPage } from './MobileMeetingPage';
 import { MeetingFloatingWindow } from './MeetingFloatingWindow';
+import { VoiceCallFloating } from '../../chat/ai/voice/VoiceCallFloating';
+import '../../styles/voice-call.css';
 import { useWebRTC } from '../../meeting/useWebRTC';
 import { loadMeetingData, clearMeetingData, type IceServer } from '../../meeting/api';
 // 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
@@ -110,13 +112,15 @@ export function MobileMain() {
     nav.enterChat();
   };
 
-  // 返回列表页
+  // 返回列表页（通话中自动最小化而非退出）
   const handleBack = useCallback(() => {
-    // 清除活跃聊天状态，确保后续消息能正确显示未读红点
+    if (page.voiceCallState.isActive && page.chatTarget?.type === 'ai') {
+      page.voiceMinimize();
+    }
     setActiveChat(null, null);
     setChatTarget(null);
     nav.exitChat();
-  }, [setActiveChat, setChatTarget, nav]);
+  }, [setActiveChat, setChatTarget, nav, page]);
 
   // 进入会议（初始化 WebRTC 连接）
   const handleEnterMeeting = useCallback(async () => {
@@ -304,7 +308,6 @@ export function MobileMain() {
             {nav.activeTab === 'chat' && (
               <SyncStatusBanner
                 notification={syncNotification}
-                onDismiss={clearNotification}
                 onRetry={triggerSync}
               />
             )}
@@ -422,8 +425,25 @@ export function MobileMain() {
               onBack={handleBack}
               aiMessages={page.aiMessages}
               aiStreamingContent={page.aiStreamingContent}
+              aiStreamingReasoning={page.aiStreamingReasoning}
               aiIsLoading={page.aiIsLoading}
               aiToolStatus={page.aiToolStatus}
+              aiRetryLastMessage={page.aiRetryLastMessage}
+              voiceCallState={page.voiceCallState}
+              voiceCallTurns={page.voiceCallTurns}
+              onVoiceStartCall={page.voiceStartCall}
+              onVoiceDisconnect={page.voiceDisconnect}
+              onVoiceToggleMute={page.voiceToggleMute}
+              voiceProfiles={page.voiceProfiles}
+              voiceProfilesLoading={page.voiceProfilesLoading}
+              voiceProfilesUploading={page.voiceProfilesUploading}
+              voiceProfilesError={page.voiceProfilesError}
+              selectedVoiceProfileId={page.selectedVoiceProfileId}
+              onVoiceProfileUpload={page.voiceProfileUpload}
+              onVoiceProfileSetDefault={page.voiceProfileSetDefault}
+              onVoiceProfileDelete={page.voiceProfileDelete}
+              onVoiceProfileSelect={page.voiceProfileSelect}
+              onVoiceProfileUpdatePrompt={page.voiceProfileUpdatePrompt}
               aiConversations={page.aiConversations}
               aiConversationsLoading={page.aiConversationsLoading}
               aiConversationId={page.aiConversationId}
@@ -489,6 +509,21 @@ export function MobileMain() {
               setShowMeetingPage(true);
             }}
             onEnd={handleLeaveMeeting}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* AI 语音通话浮窗（移动端圆形浮窗） */}
+      <AnimatePresence>
+        {page.voiceCallState.isActive && page.voiceCallState.isMinimized && (
+          <VoiceCallFloating
+            duration={page.voiceCallState.duration}
+            onRestore={() => {
+              page.voiceRestore();
+              page.handleSelectTarget({ type: 'ai' });
+              nav.enterChat();
+            }}
+            onDisconnect={page.voiceDisconnect}
           />
         )}
       </AnimatePresence>

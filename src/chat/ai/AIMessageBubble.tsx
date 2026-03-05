@@ -19,6 +19,8 @@ interface AIMessageBubbleProps {
   message: AIMessage;
   isStreaming?: boolean;
   skipAnimation?: boolean;
+  streamingReasoning?: string;
+  onRetry?: () => void;
 }
 
 const variants = {
@@ -152,10 +154,93 @@ function AIContextMenu({
   );
 }
 
+/** 思考过程可折叠面板 */
+function ReasoningPanel({
+  reasoning,
+  isStreamingReasoning,
+}: {
+  reasoning: string;
+  isStreamingReasoning: boolean;
+}) {
+  const [expanded, setExpanded] = useState(isStreamingReasoning);
+  const prevStreamingRef = useRef(isStreamingReasoning);
+
+  useEffect(() => {
+    if (prevStreamingRef.current && !isStreamingReasoning) {
+      setExpanded(false);
+    }
+    prevStreamingRef.current = isStreamingReasoning;
+  }, [isStreamingReasoning]);
+
+  return (
+    <div className="ai-reasoning-panel">
+      <button
+        className="ai-reasoning-toggle"
+        onClick={() => setExpanded(prev => !prev)}
+      >
+        <span className={`ai-reasoning-chevron ${expanded ? 'expanded' : ''}`}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M4 2.5L7.5 6L4 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <span className="ai-reasoning-label">
+          {isStreamingReasoning ? '思考中...' : '思考过程'}
+        </span>
+        {isStreamingReasoning && (
+          <span className="ai-reasoning-dot" />
+        )}
+      </button>
+      {isStreamingReasoning ? (
+        // 流式阶段：不使用 motion 高度动画，避免 height:auto 不跟随内容增长
+        expanded && (
+          <div className="ai-reasoning-content">
+            <div className="ai-reasoning-text">
+              <MarkdownRenderer content={reasoning} />
+            </div>
+          </div>
+        )
+      ) : (
+        // 完成后：使用 motion 动画实现折叠/展开
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              className="ai-reasoning-content"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <div className="ai-reasoning-text">
+                <MarkdownRenderer content={reasoning} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+    </div>
+  );
+}
+
+/** 用户友好的错误文案映射 */
+function getErrorDisplay(error: string): string {
+  if (error.includes('流中断') || error.includes('响应流中断')) {
+    return '回复中断';
+  }
+  if (error.includes('GLM stream failed') || error.includes('retries')) {
+    return 'AI 服务暂时不可用';
+  }
+  if (error.includes('网络')) {
+    return '网络连接失败';
+  }
+  return error.length > 40 ? `${error.slice(0, 40)}...` : error;
+}
+
 export const AIMessageBubble = memo(function AIMessageBubble({
   message,
   isStreaming = false,
   skipAnimation = false,
+  streamingReasoning = '',
+  onRetry,
 }: AIMessageBubbleProps) {
   const isOwn = message.role === 'user';
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -219,13 +304,23 @@ export const AIMessageBubble = memo(function AIMessageBubble({
         )}
 
         <div className="bubble-content">
+          {!isOwn && (message.reasoning || streamingReasoning) && (
+            <ReasoningPanel
+              reasoning={message.reasoning || streamingReasoning}
+              isStreamingReasoning={!!streamingReasoning && isStreaming}
+            />
+          )}
           <div className="bubble-text">
             {isOwn ? (
               <span style={{ whiteSpace: 'pre-wrap' }}>{message.content ?? ''}</span>
             ) : (
               <>
-                <MarkdownRenderer content={message.content ?? ''} />
-                {isStreaming && (
+                {message.content ? (
+                  <MarkdownRenderer content={message.content} />
+                ) : isStreaming ? (
+                  <span className="ai-reasoning-waiting">思考完毕，正在组织回复...</span>
+                ) : null}
+                {isStreaming && message.content && (
                   <span className="ai-cursor" style={{
                     display: 'inline-block',
                     width: 2,
@@ -239,6 +334,23 @@ export const AIMessageBubble = memo(function AIMessageBubble({
               </>
             )}
           </div>
+
+          {!isOwn && message.error && (
+            <div className="ai-error-badge">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span className="ai-error-text">{getErrorDisplay(message.error)}</span>
+              {onRetry && (
+                <button className="ai-error-retry" onClick={onRetry}>
+                  重试
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="bubble-time">
             {formatMessageTime(message.created_at)}
           </div>
