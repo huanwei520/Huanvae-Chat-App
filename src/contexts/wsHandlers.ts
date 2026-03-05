@@ -160,11 +160,11 @@ export function refreshPreviewInSummary(
   timestamp: string,
 ): void {
   setUnreadSummary(prev => {
-    if (!prev) return prev;
+    if (!prev) { return prev; }
 
     if (targetType === 'friend') {
       const idx = prev.friend_unreads.findIndex(u => u.friend_id === targetId);
-      if (idx < 0) return prev;
+      if (idx < 0) { return prev; }
       const updated = { ...prev, friend_unreads: [...prev.friend_unreads] };
       updated.friend_unreads[idx] = {
         ...updated.friend_unreads[idx],
@@ -175,7 +175,7 @@ export function refreshPreviewInSummary(
     }
 
     const idx = prev.group_unreads.findIndex(u => u.group_id === targetId);
-    if (idx < 0) return prev;
+    if (idx < 0) { return prev; }
     const updated = { ...prev, group_unreads: [...prev.group_unreads] };
     updated.group_unreads[idx] = {
       ...updated.group_unreads[idx],

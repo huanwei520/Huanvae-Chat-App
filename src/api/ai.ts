@@ -76,7 +76,7 @@ export async function streamAIMessage(
   }
 
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('响应体不可读');
+  if (!reader) { throw new Error('响应体不可读'); }
 
   const decoder = new TextDecoder();
   let buffer = '';
@@ -90,7 +90,7 @@ export async function streamAIMessage(
       }
 
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) { break; }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -146,8 +146,8 @@ export function getAIConversations(
   options?: { page?: number; perPage?: number },
 ): Promise<{ data: AIConversationsResponse }> {
   const params = new URLSearchParams();
-  if (options?.page) params.set('page', String(options.page));
-  if (options?.perPage) params.set('per_page', String(options.perPage));
+  if (options?.page) { params.set('page', String(options.page)); }
+  if (options?.perPage) { params.set('per_page', String(options.perPage)); }
   const qs = params.toString();
   return api.get<{ data: AIConversationsResponse }>(`/api/ai/conversations${qs ? `?${qs}` : ''}`);
 }
@@ -185,8 +185,8 @@ export function getAIMessages(
   options?: { limit?: number; before?: string },
 ): Promise<{ data: AIMessage[] }> {
   const params = new URLSearchParams();
-  if (options?.limit) params.set('limit', String(options.limit));
-  if (options?.before) params.set('before', options.before);
+  if (options?.limit) { params.set('limit', String(options.limit)); }
+  if (options?.before) { params.set('before', options.before); }
   const qs = params.toString();
   return api.get<{ data: AIMessage[] }>(
     `/api/ai/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`,

@@ -84,7 +84,7 @@ export function MobileMain() {
   const webrtc = useWebRTC();
 
   // 登录后全量增量同步
-  const { notification: syncNotification, clearNotification, triggerSync } = useInitialSync({
+  const { notification: syncNotification, clearNotification: _clearNotification, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
     groupsLoaded: !page.groupsLoading && page.groups.length >= 0,
   });
