@@ -37,13 +37,13 @@ const minimalMessage = {
 } as Parameters<typeof db.saveMessage>[0];
 
 describe('DB 预览通知防抖逻辑', () => {
-  let eventSpy: ReturnType<typeof vi.fn>;
+  let eventSpy: EventListener;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockInvoke.mockResolvedValue(undefined);
-    eventSpy = vi.fn();
+    eventSpy = vi.fn() as unknown as EventListener;
     window.addEventListener('conversation-previews-changed', eventSpy);
   });
 

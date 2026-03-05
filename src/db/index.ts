@@ -24,14 +24,14 @@ function schedulePreviewNotify(): void {
   if (_previewDebounceTimer) {
     clearTimeout(_previewDebounceTimer);
   }
-  console.log(`[DB-Preview] schedule: pending=${_pendingWrites}`);
+  console.warn(`[DB-Preview] schedule: pending=${_pendingWrites}`);
   _previewDebounceTimer = setTimeout(() => {
     _previewDebounceTimer = null;
     if (_pendingWrites > 0) {
       console.warn(`[DB-Preview] SKIPPED: still ${_pendingWrites} writes in flight`);
       return;
     }
-    console.log('[DB-Preview] DISPATCH event');
+    console.warn('[DB-Preview] DISPATCH event');
     window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
   }, 150);
 }
@@ -184,7 +184,7 @@ export async function saveConversation(
   conversation: Omit<LocalConversation, 'synced_at'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.log(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
+  console.warn(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
   try {
     const conv: LocalConversation = {
       ...conversation,
@@ -193,7 +193,7 @@ export async function saveConversation(
     await invoke('db_save_conversation', { conversation: conv });
   } finally {
     _pendingWrites--;
-    console.log(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
+    console.warn(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
@@ -238,13 +238,13 @@ export async function updateConversationLastMessage(
   lastMessageTime: string,
 ): Promise<void> {
   _pendingWrites++;
-  console.log(`[DB-Preview] updateLastMessage START: pending=${_pendingWrites}, msg="${lastMessage.slice(0, 20)}"`);
+  console.warn(`[DB-Preview] updateLastMessage START: pending=${_pendingWrites}, msg="${lastMessage.slice(0, 20)}"`);
   try {
     await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
-    console.log(`[DB-Preview] updateLastMessage OK: msg="${lastMessage.slice(0, 20)}"`);
+    console.warn(`[DB-Preview] updateLastMessage OK: msg="${lastMessage.slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.log(`[DB-Preview] updateLastMessage END: pending=${_pendingWrites}`);
+    console.warn(`[DB-Preview] updateLastMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
@@ -294,17 +294,17 @@ export async function saveMessage(
   message: Omit<LocalMessage, 'created_at'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.log(`[DB-Preview] saveMessage START: pending=${_pendingWrites}, content="${(message.content || '').slice(0, 20)}"`);
+  console.warn(`[DB-Preview] saveMessage START: pending=${_pendingWrites}, content="${(message.content || '').slice(0, 20)}"`);
   try {
     const msg: LocalMessage = {
       ...message,
       created_at: null,
     };
     await invoke('db_save_message', { message: msg });
-    console.log(`[DB-Preview] saveMessage OK: content="${(message.content || '').slice(0, 20)}"`);
+    console.warn(`[DB-Preview] saveMessage OK: content="${(message.content || '').slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.log(`[DB-Preview] saveMessage END: pending=${_pendingWrites}`);
+    console.warn(`[DB-Preview] saveMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }

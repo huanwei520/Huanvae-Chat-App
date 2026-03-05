@@ -323,7 +323,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     } finally {
       setSyncing(false);
     }
-  }, [friendId, session, syncing, api]);
+  }, [friendId, session, syncing]);
 
   // ============================================
   // 加载更多历史消息

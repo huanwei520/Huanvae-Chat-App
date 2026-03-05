@@ -89,6 +89,7 @@ export async function streamAIMessage(
         break;
       }
 
+      // eslint-disable-next-line no-await-in-loop
       const { done, value } = await reader.read();
       if (done) { break; }
 
@@ -223,7 +224,7 @@ export async function createVoiceProfile(
   const baseUrl = api.getBaseUrl();
   const token = api.getAccessToken();
 
-  console.log('[VoiceProfile] 开始上传声音配置', {
+  console.warn('[VoiceProfile] 开始上传声音配置', {
     voiceName,
     audioFileName,
     blobSize: audioBlob.size,
@@ -231,7 +232,7 @@ export async function createVoiceProfile(
   });
 
   const audioFile = new File([audioBlob], audioFileName, { type: 'audio/wav' });
-  console.log('[VoiceProfile] File 对象已创建', {
+  console.warn('[VoiceProfile] File 对象已创建', {
     fileName: audioFile.name,
     fileSize: audioFile.size,
     fileType: audioFile.type,
@@ -245,7 +246,7 @@ export async function createVoiceProfile(
   }
 
   const url = `${baseUrl}/api/ai/voice-profiles`;
-  console.log('[VoiceProfile] 发送 POST 请求 (使用原生 fetch)', { url });
+  console.warn('[VoiceProfile] 发送 POST 请求 (使用原生 fetch)', { url });
 
   // 必须使用原生 fetch，Tauri plugin-http 的 fetch 不能正确序列化 FormData
   const response = await globalThis.fetch(url, {
@@ -254,7 +255,7 @@ export async function createVoiceProfile(
     body: formData,
   });
 
-  console.log('[VoiceProfile] 收到响应', {
+  console.warn('[VoiceProfile] 收到响应', {
     status: response.status,
     statusText: response.statusText,
     ok: response.ok,
@@ -273,11 +274,12 @@ export async function createVoiceProfile(
   }
 
   const result = await response.json() as VoiceProfile;
-  console.log('[VoiceProfile] 上传成功', result);
+  console.warn('[VoiceProfile] 上传成功', result);
   return result;
 }
 
 /** 获取声音配置列表 */
+// eslint-disable-next-line require-await
 export async function getVoiceProfiles(api: ApiClient): Promise<VoiceProfile[]> {
   return api.get<VoiceProfile[]>('/api/ai/voice-profiles');
 }

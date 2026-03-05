@@ -51,6 +51,7 @@ export function VoiceCallView({
     }
   }, [turns, state.transcript, state.aiReply]);
 
+  // eslint-disable-next-line no-nested-ternary
   const statusText = state.isConnecting
     ? '连接中...'
     : state.isProcessing

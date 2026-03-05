@@ -342,9 +342,9 @@ export function handleWebSocketMessage(
         });
 
         // 异步保存消息到本地数据库（DB 层自动触发预览刷新）
-        console.log(`[WS-Debug] new_message received: "${(msg.content || msg.preview || '').slice(0, 20)}" seq=${msg.seq}`);
+        console.warn(`[WS-Debug] new_message received: "${(msg.content || msg.preview || '').slice(0, 20)}" seq=${msg.seq}`);
         saveMessageToLocal(msg, ctx.currentUserId).then(() => {
-          console.log(`[WS-Debug] saveMessageToLocal DONE: "${(msg.content || msg.preview || '').slice(0, 20)}"`);
+          console.warn(`[WS-Debug] saveMessageToLocal DONE: "${(msg.content || msg.preview || '').slice(0, 20)}"`);
         }).catch(err => {
           console.error('[WS] 保存消息到本地失败:', err);
         });

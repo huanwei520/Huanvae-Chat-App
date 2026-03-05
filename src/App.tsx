@@ -140,13 +140,14 @@ function App() {
 
       // 1. 从密钥链获取密码（移动端会触发生物认证）
       //    生物认证失败时自动重试，直到成功、用户取消或达到最大重试次数
-      let password: string;
+      let password!: string;
       const MAX_BIO_RETRIES = 5;
       let bioAttempt = 0;
       let bioSuccess = false;
 
       while (!bioSuccess) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           password = await getPassword(account.server_url, account.user_id);
           bioSuccess = true;
         } catch (err) {
@@ -179,6 +180,7 @@ function App() {
           }
 
           // 非主动取消的失败，短暂延迟后自动重新弹出生物认证
+          // eslint-disable-next-line no-await-in-loop
           await new Promise<void>(r => { setTimeout(r, 600); });
         }
       }

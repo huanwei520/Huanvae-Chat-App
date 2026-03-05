@@ -90,10 +90,10 @@ describe('AI 类型定义', () => {
 
   it('AIConversationsResponse 接口结构正确', () => {
     const resp: AIConversationsResponse = {
-      items: [],
+      conversations: [],
       total: 0,
       page: 1,
-      page_size: 20,
+      per_page: 20,
     };
     expect(resp.total).toBe(0);
   });

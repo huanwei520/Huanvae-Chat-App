@@ -83,16 +83,16 @@ export function VoiceProfileManager({
 
     try {
       const os = await platform();
-      console.log('[VPM-File] 平台:', os);
+      console.warn('[VPM-File] 平台:', os);
 
       let filePath: string | null = null;
 
       if (os === 'android') {
-        console.log('[VPM-File] Android: 使用 Android FS 插件选择文件');
+        console.warn('[VPM-File] Android: 使用 Android FS 插件选择文件');
         const paths = await selectFilesForTransfer({ multiple: false });
         filePath = paths.length > 0 ? paths[0] : null;
       } else {
-        console.log('[VPM-File] 桌面端: 使用 Tauri dialog 选择文件');
+        console.warn('[VPM-File] 桌面端: 使用 Tauri dialog 选择文件');
         const selected = await openDialog({
           multiple: false,
           filters: [{ name: '音频文件', extensions: ['wav'] }],
@@ -101,12 +101,12 @@ export function VoiceProfileManager({
       }
 
       if (!filePath) {
-        console.log('[VPM-File] 用户取消了文件选择');
+        console.warn('[VPM-File] 用户取消了文件选择');
         return;
       }
 
       const fileName = filePath.split(/[/\\]/).pop() || 'audio.wav';
-      console.log('[VPM-File] 选择文件', { filePath, fileName });
+      console.warn('[VPM-File] 选择文件', { filePath, fileName });
 
       if (!fileName.toLowerCase().endsWith('.wav')) {
         console.warn('[VPM-File] 文件格式不是 WAV，已拒绝');
@@ -117,7 +117,7 @@ export function VoiceProfileManager({
       const fileStat = await stat(filePath);
       const fileContent = await readFile(filePath);
 
-      console.log('[VPM-File] 文件读取完成', {
+      console.warn('[VPM-File] 文件读取完成', {
         size: fileContent.byteLength,
         mtime: fileStat.mtime,
       });
@@ -191,7 +191,7 @@ export function VoiceProfileManager({
     audioCtxRef.current = null;
 
     const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-    console.log('[VPM-Record] 停止录制', {
+    console.warn('[VPM-Record] 停止录制', {
       chunkCount: chunks.length,
       totalSamples: totalLen,
       nativeSampleRate,
@@ -208,7 +208,7 @@ export function VoiceProfileManager({
     if (nativeSampleRate !== SAMPLE_RATE) {
       const ratio = nativeSampleRate / SAMPLE_RATE;
       const newLen = Math.round(merged.length / ratio);
-      console.log('[VPM-Record] 重采样', { from: nativeSampleRate, to: SAMPLE_RATE, ratio: ratio.toFixed(4), newLen });
+      console.warn('[VPM-Record] 重采样', { from: nativeSampleRate, to: SAMPLE_RATE, ratio: ratio.toFixed(4), newLen });
       resampled = new Float32Array(newLen);
       for (let i = 0; i < newLen; i++) {
         const srcIdx = i * ratio;
@@ -218,7 +218,7 @@ export function VoiceProfileManager({
         resampled[i] = merged[lo] * (1 - frac) + merged[hi] * frac;
       }
     } else {
-      console.log('[VPM-Record] 采样率一致，无需重采样');
+      console.warn('[VPM-Record] 采样率一致，无需重采样');
     }
 
     // Float32 → Int16
@@ -230,7 +230,7 @@ export function VoiceProfileManager({
 
     const wav = encodeWAV(pcm16, SAMPLE_RATE);
     const blob = new Blob([wav], { type: 'audio/wav' });
-    console.log('[VPM-Record] WAV 编码完成', {
+    console.warn('[VPM-Record] WAV 编码完成', {
       pcmSamples: pcm16.length,
       wavBytes: wav.byteLength,
       blobSize: blob.size,
@@ -247,7 +247,7 @@ export function VoiceProfileManager({
       setLocalError('请输入声音名称并提供音频');
       return;
     }
-    console.log('[VPM-Submit] 开始提交', {
+    console.warn('[VPM-Submit] 开始提交', {
       voiceName: voiceName.trim(),
       audioFileName,
       blobSize: audioBlob.size,
@@ -256,7 +256,7 @@ export function VoiceProfileManager({
     });
     try {
       await onUpload(voiceName.trim(), audioBlob, audioFileName, systemPrompt.trim() || undefined);
-      console.log('[VPM-Submit] 上传成功');
+      console.warn('[VPM-Submit] 上传成功');
       resetUploadState();
     } catch (err) {
       console.error('[VPM-Submit] 上传失败', err);

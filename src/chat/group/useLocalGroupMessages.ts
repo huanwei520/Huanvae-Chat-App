@@ -288,7 +288,7 @@ export function useLocalGroupMessages(groupId: string | null) {
     } finally {
       setSyncing(false);
     }
-  }, [groupId, session, syncing, api]);
+  }, [groupId, session, syncing]);
 
   // ============================================
   // 加载更多历史消息

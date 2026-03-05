@@ -205,6 +205,7 @@ export function MobileChatView({
   onAIDeleteConversation,
   onAINewConversation,
 }: MobileChatViewProps) {
+  // eslint-disable-next-line no-nested-ternary
   const chatKey = chatTarget.type === 'ai'
     ? 'ai-assistant'
     : chatTarget.type === 'friend'
@@ -307,6 +308,7 @@ export function MobileChatView({
 
       {/* 消息列表 */}
       <div className="mobile-chat-messages">
+        {/* eslint-disable-next-line no-nested-ternary */}
         {chatTarget.type === 'ai' && voiceCallState?.isActive && !voiceCallState.isMinimized ? (
           <VoiceCallView
             key="voice-call"

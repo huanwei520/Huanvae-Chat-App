@@ -178,7 +178,11 @@ export class TtsAudioQueue {
     }
 
     this.setPlaying(true);
-    const buf = this.queue.shift()!;
+    const buf = this.queue.shift();
+    if (!buf) {
+      this.setPlaying(false);
+      return;
+    }
 
     try {
       if (this.audioContext.state === 'suspended') {
