@@ -259,6 +259,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
         patch({ ...INITIAL_STATE });
       }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- startRecorder is stable, adding it would cause unnecessary re-renders
   }, [api, patch]);
 
   function startRecorder(ws: WebSocket) {

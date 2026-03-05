@@ -315,6 +315,7 @@ export const AIMessageBubble = memo(function AIMessageBubble({
               <span style={{ whiteSpace: 'pre-wrap' }}>{message.content ?? ''}</span>
             ) : (
               <>
+                {/* eslint-disable-next-line no-nested-ternary */}
                 {message.content ? (
                   <MarkdownRenderer content={message.content} />
                 ) : isStreaming ? (

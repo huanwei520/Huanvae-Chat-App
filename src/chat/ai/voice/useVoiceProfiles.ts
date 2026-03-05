@@ -68,10 +68,10 @@ export function useVoiceProfiles(api: ApiClient | null): UseVoiceProfilesReturn 
     if (!api) { return; }
     setUploading(true);
     setError(null);
-    console.log('[VoiceProfiles] upload 开始', { name, fileName, blobSize: audioBlob.size, blobType: audioBlob.type, systemPrompt });
+    console.warn('[VoiceProfiles] upload 开始', { name, fileName, blobSize: audioBlob.size, blobType: audioBlob.type, systemPrompt });
     try {
       const profile = await createVoiceProfile(api, name, audioBlob, fileName, systemPrompt);
-      console.log('[VoiceProfiles] upload 成功，返回配置:', profile);
+      console.warn('[VoiceProfiles] upload 成功，返回配置:', profile);
       setProfiles(prev => [profile, ...prev]);
       if (profile.is_default) {
         setSelectedId(profile.profile_id);

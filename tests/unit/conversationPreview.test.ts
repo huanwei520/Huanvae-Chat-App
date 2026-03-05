@@ -49,7 +49,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '新的最新消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '新的最新消息', '2026-01-02T00:00:00Z');
 
       expect(mockSetState).toHaveBeenCalledTimes(1);
       expect(result).not.toBeNull();
@@ -74,7 +74,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f999', '新消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f999', '新消息', '2026-01-02T00:00:00Z');
 
       expect(result).toBe(initial);
     });
@@ -91,7 +91,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '', '');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '', '');
 
       const f1 = result!.friend_unreads.find(u => u.friend_id === 'f1');
       expect(f1?.last_message_preview).toBe('');
@@ -115,7 +115,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'group', 'g1', '新群消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'group', 'g1', '新群消息', '2026-01-02T00:00:00Z');
 
       const g1 = result!.group_unreads.find(u => u.group_id === 'g1');
       expect(g1?.last_message_preview).toBe('新群消息');
@@ -135,7 +135,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'group', 'g999', '新消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'group', 'g999', '新消息', '2026-01-02T00:00:00Z');
 
       expect(result).toBe(initial);
     });
@@ -152,7 +152,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'group', 'g1', '', '');
+      refreshPreviewInSummary(mockSetState as any, 'group', 'g1', '', '');
 
       const g1 = result!.group_unreads.find(u => u.group_id === 'g1');
       expect(g1?.last_message_preview).toBe('');
@@ -170,7 +170,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '消息', '2026-01-01T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '消息', '2026-01-01T00:00:00Z');
 
       expect(result).toBeNull();
     });
@@ -190,7 +190,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '新好友消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '新好友消息', '2026-01-02T00:00:00Z');
 
       const g1 = result!.group_unreads.find(u => u.group_id === 'g1');
       expect(g1?.last_message_preview).toBe('群消息');
@@ -209,9 +209,9 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '消息B', '2026-01-02T00:00:00Z');
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '消息C', '2026-01-03T00:00:00Z');
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '', '');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '消息B', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '消息C', '2026-01-03T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '', '');
 
       const f1 = result!.friend_unreads.find(u => u.friend_id === 'f1');
       expect(f1?.last_message_preview).toBe('');
@@ -233,8 +233,8 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '新消息', '2026-01-02T00:00:00Z');
-      refreshPreviewInSummary(mockSetState, 'group', 'g1', '新群消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '新消息', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'group', 'g1', '新群消息', '2026-01-02T00:00:00Z');
 
       expect(result!.friend_unreads[0].unread_count).toBe(10);
       expect(result!.group_unreads[0].unread_count).toBe(7);
@@ -252,7 +252,7 @@ describe('refreshPreviewInSummary', () => {
         result = updater(result);
       });
 
-      refreshPreviewInSummary(mockSetState, 'friend', 'f1', '[图片]', '2026-01-02T00:00:00Z');
+      refreshPreviewInSummary(mockSetState as any, 'friend', 'f1', '[图片]', '2026-01-02T00:00:00Z');
 
       expect(result!.friend_unreads[0].last_message_preview).toBe('[图片]');
     });

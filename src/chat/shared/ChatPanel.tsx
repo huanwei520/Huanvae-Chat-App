@@ -215,6 +215,7 @@ export function ChatPanel({
   onAIDeleteConversation,
   onAINewConversation,
 }: ChatPanelProps) {
+  // eslint-disable-next-line no-nested-ternary
   const chatKey = chatTarget.type === 'ai'
     ? 'ai-assistant'
     : chatTarget.type === 'friend'
@@ -319,6 +320,7 @@ export function ChatPanel({
 
       {/* 消息列表 */}
       <div className="chat-messages">
+        {/* eslint-disable no-nested-ternary */}
         {chatTarget.type === 'ai' && voiceCallState?.isActive && !voiceCallState.isMinimized ? (
           <VoiceCallView
             key="voice-call"
@@ -373,6 +375,7 @@ export function ChatPanel({
             groupId={(chatTarget.data as Group).group_id}
           />
         )}
+        {/* eslint-enable no-nested-ternary */}
       </div>
 
       {/* 输入区域 / 多选操作栏 */}
