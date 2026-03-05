@@ -487,10 +487,9 @@ export function UnifiedList({
       </div>
 
       {/* 同步状态横幅：位于搜索栏下方 */}
-      {onSyncDismiss && (
+      {syncNotification !== undefined && (
         <SyncStatusBanner
           notification={syncNotification ?? null}
-          onDismiss={onSyncDismiss}
           onRetry={onSyncRetry}
         />
       )}

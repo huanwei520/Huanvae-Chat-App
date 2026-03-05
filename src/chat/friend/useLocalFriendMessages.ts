@@ -660,9 +660,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       });
     }
 
-    // 生成正确的 conversation_id
-    const conversationId = getFriendConversationId(session.userId, friendId);
-
     // 智能处理消息：
     // 1. 如果 message_uuid 已存在 → 更新 seq
     // 2. 如果是自己发送的且有 sendStatus='sending' → 替换为服务器确认的消息
@@ -722,31 +719,8 @@ export function useLocalFriendMessages(friendId: string | null) {
       return [newMessage, ...prev];
     });
 
-    // 保存/更新到本地数据库（使用正确的 conversation_id 和完整文件信息）
-    const localMessage: Omit<LocalMessage, 'created_at'> = {
-      message_uuid: wsMsg.message_uuid,
-      conversation_id: conversationId,
-      conversation_type: 'friend',
-      sender_id: wsMsg.sender_id,
-      sender_name: wsMsg.sender_nickname || null,
-      sender_avatar: wsMsg.sender_avatar_url || null,
-      content: wsMsg.content || wsMsg.preview || '',
-      content_type: wsMsg.message_type,
-      file_uuid: wsMsg.file_uuid || null,
-      file_url: wsMsg.file_url || null,
-      file_size: wsMsg.file_size || null,
-      file_hash: wsMsg.file_hash || null,
-      image_width: wsMsg.image_width ?? null,
-      image_height: wsMsg.image_height ?? null,
-      seq: wsMsg.seq || 0,
-      reply_to: null,
-      is_recalled: false,
-      is_deleted: false,
-      send_time: wsMsg.timestamp,
-    };
-    db.saveMessage(localMessage).catch((err) => {
-      logError('保存 WebSocket 消息到本地失败', err);
-    });
+    // DB 保存已由 wsHandlers.saveMessageToLocal 统一处理（含 updateLastSeq + updateLastMessage），
+    // 此处不再重复保存，避免 _pendingWrites 计数膨胀导致预览刷新延迟。
   }, [friendId, session]);
 
   // ============================================

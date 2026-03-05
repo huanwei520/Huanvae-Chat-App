@@ -13,6 +13,7 @@ import type { Session, SessionContextType } from '../types/session';
 import { createApiClient, type ApiClient } from '../api/client';
 import { removeSessionLock } from '../services/sessionLock';
 import { persistSession, clearPersistedSession } from '../services/sessionPersist';
+import { destroySyncService } from '../services/syncService';
 
 /** 扩展的会话上下文类型（包含 API 客户端） */
 interface ExtendedSessionContextType extends SessionContextType {
@@ -53,6 +54,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // 清除会话（同时移除会话锁和持久化数据）
   const clearSession = useCallback(async () => {
+    // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
+    destroySyncService();
+
     // 移除会话锁
     if (sessionRef.current) {
       try {

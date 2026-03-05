@@ -45,15 +45,19 @@ function getToolDisplayName(name: string): string {
 interface AIChatMessagesProps {
   messages: AIMessage[];
   streamingContent: string;
+  streamingReasoning?: string;
   isLoading: boolean;
   toolStatus: AIToolStatus | null;
+  onRetry?: () => void;
 }
 
 export function AIChatMessages({
   messages,
   streamingContent,
+  streamingReasoning = '',
   isLoading,
   toolStatus,
+  onRetry,
 }: AIChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -79,10 +83,10 @@ export function AIChatMessages({
   }, [messages.length, scrollToBottom]);
 
   useEffect(() => {
-    if ((streamingContent || toolStatus) && isAtBottomRef.current) {
+    if ((streamingContent || streamingReasoning || toolStatus) && isAtBottomRef.current) {
       scrollToBottom();
     }
-  }, [streamingContent, toolStatus, scrollToBottom]);
+  }, [streamingContent, streamingReasoning, toolStatus, scrollToBottom]);
 
   if (isLoading) {
     return (
@@ -96,7 +100,7 @@ export function AIChatMessages({
     );
   }
 
-  const hasMessages = messages.length > 0 || streamingContent || toolStatus;
+  const hasMessages = messages.length > 0 || streamingContent || streamingReasoning || toolStatus;
 
   return (
     <div
@@ -120,24 +124,31 @@ export function AIChatMessages({
       )}
 
       <AnimatePresence mode="popLayout">
-        {messages.map((msg) => (
+        {messages.map((msg, idx) => (
           <AIMessageBubble
             key={msg.id}
             message={msg}
             skipAnimation={msg.id === skipAnimationId}
+            onRetry={
+              msg.error && idx === messages.length - 1
+                ? onRetry
+                : undefined
+            }
           />
         ))}
       </AnimatePresence>
 
-      {streamingContent && (
+      {(streamingContent || streamingReasoning) && (
         <AIMessageBubble
           message={{
             id: 'streaming',
             role: 'assistant',
-            content: streamingContent,
+            content: streamingContent || null,
+            reasoning: streamingReasoning || null,
             created_at: new Date().toISOString(),
           }}
           isStreaming
+          streamingReasoning={streamingReasoning}
         />
       )}
 
@@ -178,7 +189,7 @@ export function AIChatMessages({
                     <span style={{ color: '#22c55e', flexShrink: 0 }}>✓</span>
                     {getToolDisplayName(toolStatus.name)}查询完成
                   </>
-                  )}
+                )}
               </div>
             </div>
           </div>

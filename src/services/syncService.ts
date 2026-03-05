@@ -412,3 +412,7 @@ export function initSyncService(api: ApiClient): SyncService {
 export function getSyncService(): SyncService | null {
   return syncServiceInstance;
 }
+
+export function destroySyncService(): void {
+  syncServiceInstance = null;
+}

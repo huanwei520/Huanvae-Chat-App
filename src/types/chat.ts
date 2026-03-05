@@ -135,9 +135,12 @@ export interface AIMessage {
   id: string;
   role: AIMessageRole;
   content: string | null;
+  reasoning?: string | null;
   tool_calls?: unknown[] | null;
   tool_name?: string | null;
   model?: string | null;
+  /** 流中断/服务错误信息（仅前端本地使用） */
+  error?: string | null;
   created_at: string;
 }
 
@@ -159,4 +162,3 @@ export interface AIConversationsResponse {
   page: number;
   per_page: number;
 }
-

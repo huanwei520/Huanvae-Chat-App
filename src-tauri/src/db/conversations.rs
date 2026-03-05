@@ -167,9 +167,7 @@ pub fn get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
                  LEFT JOIN messages m ON m.message_uuid = (
                      SELECT message_uuid FROM messages
                      WHERE conversation_id = c.id AND is_deleted = 0 AND is_recalled = 0
-                     ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
-                              CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
-                              seq DESC
+                     ORDER BY send_time DESC, seq DESC
                      LIMIT 1
                  )
                  ORDER BY c.is_pinned DESC, c.updated_at DESC",

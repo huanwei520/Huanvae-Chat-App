@@ -1,13 +1,13 @@
 /**
  * SyncStatusBanner 组件测试
  *
- * 测试消息同步状态横幅的渲染和交互
- *
- * 纯展示组件测试：
+ * 纯展示组件：
  * - notification 为 null 时不显示
  * - syncing 类型显示进度
- * - success 类型显示完成信息，自动调用 onDismiss
+ * - success 类型显示完成信息
  * - error 类型显示错误信息，支持点击和键盘重试
+ *
+ * 自动清除逻辑已移至 useInitialSync，本组件不再管理定时器。
  */
 
 /* eslint-disable require-await */
@@ -26,10 +26,9 @@ describe('SyncStatusBanner', () => {
       total: 10,
       synced: 3,
     };
-    const onDismiss = vi.fn();
 
     await act(async () => {
-      render(<SyncStatusBanner notification={notification} onDismiss={onDismiss} />);
+      render(<SyncStatusBanner notification={notification} />);
     });
 
     expect(screen.getByText(/正在同步消息/)).toBeInTheDocument();
@@ -40,10 +39,9 @@ describe('SyncStatusBanner', () => {
       type: 'success',
       newMessagesCount: 28,
     };
-    const onDismiss = vi.fn();
 
     await act(async () => {
-      render(<SyncStatusBanner notification={notification} onDismiss={onDismiss} />);
+      render(<SyncStatusBanner notification={notification} />);
     });
 
     expect(screen.getByText('已同步 28 条新消息')).toBeInTheDocument();
@@ -54,10 +52,9 @@ describe('SyncStatusBanner', () => {
       type: 'success',
       newMessagesCount: 0,
     };
-    const onDismiss = vi.fn();
 
     await act(async () => {
-      render(<SyncStatusBanner notification={notification} onDismiss={onDismiss} />);
+      render(<SyncStatusBanner notification={notification} />);
     });
 
     expect(screen.getByText('消息已是最新')).toBeInTheDocument();
@@ -68,13 +65,10 @@ describe('SyncStatusBanner', () => {
       type: 'error',
       message: '网络错误',
     };
-    const onDismiss = vi.fn();
     const onRetry = vi.fn();
 
     await act(async () => {
-      render(
-        <SyncStatusBanner notification={notification} onDismiss={onDismiss} onRetry={onRetry} />,
-      );
+      render(<SyncStatusBanner notification={notification} onRetry={onRetry} />);
     });
 
     const errorElement = screen.getByText('同步失败，点击重试');
@@ -88,11 +82,9 @@ describe('SyncStatusBanner', () => {
   });
 
   it('notification 为 null 时不显示横幅', async () => {
-    const onDismiss = vi.fn();
-
     let container: HTMLElement;
     await act(async () => {
-      const result = render(<SyncStatusBanner notification={null} onDismiss={onDismiss} />);
+      const result = render(<SyncStatusBanner notification={null} />);
       container = result.container;
     });
 
@@ -104,13 +96,10 @@ describe('SyncStatusBanner', () => {
       type: 'error',
       message: '网络错误',
     };
-    const onDismiss = vi.fn();
     const onRetry = vi.fn();
 
     await act(async () => {
-      render(
-        <SyncStatusBanner notification={notification} onDismiss={onDismiss} onRetry={onRetry} />,
-      );
+      render(<SyncStatusBanner notification={notification} onRetry={onRetry} />);
     });
 
     const errorElement = screen.getByText('同步失败，点击重试');
@@ -120,55 +109,5 @@ describe('SyncStatusBanner', () => {
     });
 
     expect(onRetry).toHaveBeenCalledTimes(1);
-  });
-
-  it('success 通知自动隐藏后调用 onDismiss', async () => {
-    vi.useFakeTimers();
-
-    const notification: SyncNotification = {
-      type: 'success',
-      newMessagesCount: 5,
-    };
-    const onDismiss = vi.fn();
-
-    await act(async () => {
-      render(<SyncStatusBanner notification={notification} onDismiss={onDismiss} />);
-    });
-
-    expect(onDismiss).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(1500);
-    });
-
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-
-    vi.useRealTimers();
-  });
-
-  it('无新消息的 success 通知 1 秒后调用 onDismiss', async () => {
-    vi.useFakeTimers();
-
-    const notification: SyncNotification = {
-      type: 'success',
-      newMessagesCount: 0,
-    };
-    const onDismiss = vi.fn();
-
-    await act(async () => {
-      render(<SyncStatusBanner notification={notification} onDismiss={onDismiss} />);
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(999);
-    });
-    expect(onDismiss).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(1);
-    });
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-
-    vi.useRealTimers();
   });
 });

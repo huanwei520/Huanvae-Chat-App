@@ -3,17 +3,14 @@
  *
  * 在消息列表顶部显示消息同步进度：
  * - syncing: 旋转图标 + 进度文字
- * - success: 成功图标 + 新消息数量，自动淡出后调用 onDismiss
+ * - success: 成功图标 + 新消息数量
  * - error: 警告图标 + 错误信息，点击可重试
  *
- * 本组件不持有任何去重/防重复状态。
- * 通知的生命周期由 useInitialSync 完整管理：
- * - notification 非 null 时显示横幅
- * - 自动隐藏后调用 onDismiss（即 clearNotification）将通知清除
- * - 组件挂载/卸载不影响通知状态
+ * 纯展示组件，不持有任何定时器或状态。
+ * 通知的完整生命周期（产生 → 自动清除）由 useInitialSync 管理，
+ * 组件的挂载/卸载不影响通知的清除时机。
  */
 
-import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../../styles/components/sync-banner.css';
 
@@ -22,8 +19,8 @@ import type { SyncNotification } from '../../hooks/useInitialSync';
 interface SyncStatusBannerProps {
   /** 待显示的同步通知（null 时不显示） */
   notification: SyncNotification | null;
-  /** 通知消失后的回调（清除通知状态） */
-  onDismiss: () => void;
+  /** 已废弃：通知的自动清除现由 useInitialSync 内部管理 */
+  onDismiss?: () => void;
   /** 重试回调 */
   onRetry?: () => void;
 }
@@ -86,29 +83,7 @@ function AlertIcon() {
   );
 }
 
-export function SyncStatusBanner({ notification, onDismiss, onRetry }: SyncStatusBannerProps) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // success 类型通知自动隐藏后清除
-  useEffect(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-
-    if (notification?.type === 'success') {
-      const delay = notification.newMessagesCount > 0 ? 1500 : 1000;
-      timerRef.current = setTimeout(() => {
-        onDismiss();
-      }, delay);
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, [notification, onDismiss]);
+export function SyncStatusBanner({ notification, onRetry }: SyncStatusBannerProps) {
 
   const renderContent = () => {
     if (!notification) return null;

@@ -38,6 +38,8 @@ import { useGroups } from './useGroups';
 import { useLocalFriendMessages } from '../chat/friend/useLocalFriendMessages';
 import { useLocalGroupMessages } from '../chat/group/useLocalGroupMessages';
 import { useAIMessages } from '../chat/ai/useAIMessages';
+import { useVoiceCall } from '../chat/ai/voice/useVoiceCall';
+import { useVoiceProfiles } from '../chat/ai/voice/useVoiceProfiles';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -46,8 +48,6 @@ import { getPendingRequests } from '../api/friends';
 import { getGroupInvitations } from '../api/groups';
 import { invoke } from '@tauri-apps/api/core';
 import { saveFileUuidHash, saveMessage, clearCurrentUser } from '../db';
-import { notifyPreviewsChanged } from './useLocalConversations';
-
 import { getFriendConversationId } from '../utils/conversationId';
 import type { NavTab } from '../components/sidebar/Sidebar';
 import type { AttachmentType } from '../chat';
@@ -272,6 +272,10 @@ export function useMainPage() {
 
   // AI 消息
   const ai = useAIMessages(api);
+
+  // AI 语音通话
+  const voiceCall = useVoiceCall(api);
+  const voiceProfiles = useVoiceProfiles(api);
 
   // 消息操作 Hook
   const { handleRecallMessage, handleDeleteMessage } = useChatActions({
@@ -606,7 +610,6 @@ export function useMainPage() {
       await sendGroupMessage(content);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-    notifyPreviewsChanged();
   }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai]);
 
   // ============================================
@@ -663,7 +666,6 @@ export function useMainPage() {
 
           loadFriendMessages();
           updateLastMessage('friend', chatTarget.data.friend_id, file.name, messageType, timestamp);
-          notifyPreviewsChanged();
         } else {
           console.error('[FileUpload] 文件上传失败:', result.error);
         }
@@ -695,7 +697,6 @@ export function useMainPage() {
 
           loadGroupMessages();
           updateLastMessage('group', chatTarget.data.group_id, file.name, messageType, timestamp);
-          notifyPreviewsChanged();
         } else {
           console.error('[FileUpload] 文件上传失败:', result.error);
         }
@@ -714,6 +715,14 @@ export function useMainPage() {
   // 选择处理
   // ============================================
   const handleSelectTarget = useCallback((target: ChatTarget) => {
+    // 通话中切换到非 AI 目标时自动最小化
+    if (voiceCall.state.isActive && target.type !== 'ai') {
+      voiceCall.minimize();
+    }
+    if (voiceCall.state.isActive && target.type === 'ai') {
+      voiceCall.restore();
+    }
+
     setChatTarget(target);
     if (target.type === 'ai') {
       setActiveChat(null, null);
@@ -724,7 +733,7 @@ export function useMainPage() {
       setActiveChat('group', target.data.group_id);
       markRead('group', target.data.group_id);
     }
-  }, [markRead, setActiveChat, setChatTarget]);
+  }, [markRead, setActiveChat, setChatTarget, voiceCall]);
 
   const handleTabChange = useCallback((tab: NavTab) => {
     setActiveTab(tab);
@@ -775,14 +784,13 @@ export function useMainPage() {
     resetUpload();
   }, [resetUpload]);
 
-  // 历史记录加载完成后刷新消息列表和卡片预览
+  // 历史记录加载完成后刷新消息列表（卡片预览由 DB 层自动通知）
   const handleHistoryLoaded = useCallback(() => {
     if (chatTarget?.type === 'friend') {
       loadFriendMessages();
     } else if (chatTarget?.type === 'group') {
       loadGroupMessages();
     }
-    notifyPreviewsChanged();
   }, [chatTarget, loadFriendMessages, loadGroupMessages]);
 
   // ============================================
@@ -901,9 +909,11 @@ export function useMainPage() {
     // AI 消息
     aiMessages: ai.messages,
     aiStreamingContent: ai.streamingContent,
+    aiStreamingReasoning: ai.streamingReasoning,
     aiIsLoading: ai.isLoading,
     aiIsSending: ai.isSending,
     aiToolStatus: ai.toolStatus,
+    aiRetryLastMessage: ai.retryLastMessage,
     aiConversationTitle: ai.conversationTitle,
     aiConversations: ai.conversations,
     aiConversationsLoading: ai.conversationsLoading,
@@ -912,5 +922,27 @@ export function useMainPage() {
     aiSwitchConversation: ai.switchConversation,
     aiDeleteConversation: ai.deleteConversation,
     aiNewConversation: ai.newConversation,
+
+    // AI 语音通话
+    voiceCallState: voiceCall.state,
+    voiceCallTurns: voiceCall.turns,
+    voiceStartCall: voiceCall.startCall,
+    voiceDisconnect: voiceCall.disconnect,
+    voiceToggleMute: voiceCall.toggleMute,
+    voiceMinimize: voiceCall.minimize,
+    voiceRestore: voiceCall.restore,
+
+    // 声音配置
+    voiceProfiles: voiceProfiles.profiles,
+    voiceProfilesLoading: voiceProfiles.loading,
+    voiceProfilesUploading: voiceProfiles.uploading,
+    voiceProfilesError: voiceProfiles.error,
+    selectedVoiceProfileId: voiceProfiles.selectedId,
+    voiceProfileRefresh: voiceProfiles.refresh,
+    voiceProfileUpload: voiceProfiles.upload,
+    voiceProfileSetDefault: voiceProfiles.setDefault,
+    voiceProfileDelete: voiceProfiles.remove,
+    voiceProfileSelect: voiceProfiles.select,
+    voiceProfileUpdatePrompt: voiceProfiles.updatePrompt,
   };
 }

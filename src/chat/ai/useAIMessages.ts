@@ -41,12 +41,14 @@ export interface UseAIMessagesReturn {
   isLoading: boolean;
   isSending: boolean;
   streamingContent: string;
+  streamingReasoning: string;
   toolStatus: AIToolStatus | null;
   conversationId: string | null;
   conversationTitle: string | null;
   hasMore: boolean;
   loadMessages: (convId: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
+  retryLastMessage: () => void;
   clearMessages: () => void;
   conversations: AIConversation[];
   conversationsLoading: boolean;
@@ -61,6 +63,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingReasoning, setStreamingReasoning] = useState('');
   const [toolStatus, setToolStatus] = useState<AIToolStatus | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
@@ -69,6 +72,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   const [conversationsLoading, setConversationsLoading] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const lastUserContentRef = useRef<string | null>(null);
 
   // conversationId 变化时自动拉取会话标题
   useEffect(() => {
@@ -107,15 +111,19 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   const sendMessage = useCallback(async (content: string) => {
     if (!api || !content.trim()) { return; }
 
+    const trimmed = content.trim();
+    lastUserContentRef.current = trimmed;
+
     const userMsg: AIMessage = {
       id: `temp-${Date.now()}`,
       role: 'user',
-      content: content.trim(),
+      content: trimmed,
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
     setIsSending(true);
     setStreamingContent('');
+    setStreamingReasoning('');
     setToolStatus(null);
 
     abortRef.current?.abort();
@@ -123,15 +131,21 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     abortRef.current = abortController;
 
     let accumulated = '';
+    let accumulatedReasoning = '';
+    let streamError = '';
 
     try {
       await streamAIMessage(
         api,
-        content.trim(),
+        trimmed,
         conversationId ?? undefined,
         {
           onConversationId: (id) => {
             setConversationId(id);
+          },
+          onReasoning: (text) => {
+            accumulatedReasoning += text;
+            setStreamingReasoning(accumulatedReasoning);
           },
           onContent: (text) => {
             accumulated += text;
@@ -145,18 +159,23 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
           },
           onError: (error) => {
             console.error('[AI] 流式错误:', error);
+            streamError = error;
           },
           onDone: () => {
-            if (accumulated) {
-              const assistantMsg: AIMessage = {
-                id: `ai-${Date.now()}`,
-                role: 'assistant',
-                content: accumulated,
-                created_at: new Date().toISOString(),
-              };
+            const assistantMsg: AIMessage = {
+              id: `ai-${Date.now()}`,
+              role: 'assistant',
+              content: accumulated || null,
+              reasoning: accumulatedReasoning || null,
+              error: streamError || null,
+              created_at: new Date().toISOString(),
+            };
+
+            if (accumulated || streamError) {
               setMessages(prev => [...prev, assistantMsg]);
             }
             setStreamingContent('');
+            setStreamingReasoning('');
             setToolStatus(null);
           },
         },
@@ -165,16 +184,17 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     } catch (err) {
       if (!abortController.signal.aborted) {
         console.error('[AI] 发送失败:', err);
-        if (accumulated) {
-          const partialMsg: AIMessage = {
-            id: `ai-${Date.now()}`,
-            role: 'assistant',
-            content: accumulated,
-            created_at: new Date().toISOString(),
-          };
-          setMessages(prev => [...prev, partialMsg]);
-          setStreamingContent('');
-        }
+        const errorMsg = err instanceof Error ? err.message : '网络请求失败';
+        const partialMsg: AIMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'assistant',
+          content: accumulated || null,
+          error: errorMsg,
+          created_at: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, partialMsg]);
+        setStreamingContent('');
+        setStreamingReasoning('');
       }
     } finally {
       setIsSending(false);
@@ -182,12 +202,34 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     }
   }, [api, conversationId]);
 
+  const retryLastMessage = useCallback(() => {
+    const lastContent = lastUserContentRef.current;
+    if (!lastContent) { return; }
+
+    // 移除最后一条出错的 assistant 消息和对应的 user 消息
+    setMessages(prev => {
+      const copy = [...prev];
+      // 移除末尾的 assistant 错误消息
+      if (copy.length > 0 && copy[copy.length - 1].role === 'assistant') {
+        copy.pop();
+      }
+      // 移除末尾的 user 消息
+      if (copy.length > 0 && copy[copy.length - 1].role === 'user') {
+        copy.pop();
+      }
+      return copy;
+    });
+
+    sendMessage(lastContent);
+  }, [sendMessage]);
+
   const clearMessages = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
     setConversationId(null);
     setConversationTitle(null);
     setStreamingContent('');
+    setStreamingReasoning('');
     setToolStatus(null);
     setHasMore(false);
   }, []);
@@ -211,6 +253,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     if (convId === conversationId) { return; }
     abortRef.current?.abort();
     setStreamingContent('');
+    setStreamingReasoning('');
     setToolStatus(null);
     await loadMessages(convId);
   }, [conversationId, loadMessages]);
@@ -237,12 +280,14 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     isLoading,
     isSending,
     streamingContent,
+    streamingReasoning,
     toolStatus,
     conversationId,
     conversationTitle,
     hasMore,
     loadMessages,
     sendMessage,
+    retryLastMessage,
     clearMessages,
     conversations,
     conversationsLoading,

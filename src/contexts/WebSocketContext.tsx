@@ -43,7 +43,7 @@ import {
 } from './wsHandlers';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
-import { notifyPreviewsChanged } from '../hooks/useLocalConversations';
+
 import type {
   UnreadSummary,
   WsNewMessage,
@@ -463,7 +463,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         ? getFriendConversationId(userId ?? '', targetId)
         : targetId;
       await db.refreshConversationPreview(conversationId);
-      notifyPreviewsChanged();
     } catch (err) {
       console.error('[WS] 刷新消息预览失败:', err);
     }

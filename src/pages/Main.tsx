@@ -31,6 +31,8 @@ import { MeetingEntryModal } from '../meeting';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
+import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
+import '../styles/voice-call.css';
 
 export function Main() {
   const page = useMainPage();
@@ -189,8 +191,25 @@ export function Main() {
               onHistoryLoaded={page.handleHistoryLoaded}
               aiMessages={page.aiMessages}
               aiStreamingContent={page.aiStreamingContent}
+              aiStreamingReasoning={page.aiStreamingReasoning}
               aiIsLoading={page.aiIsLoading}
               aiToolStatus={page.aiToolStatus}
+              aiRetryLastMessage={page.aiRetryLastMessage}
+              voiceCallState={page.voiceCallState}
+              voiceCallTurns={page.voiceCallTurns}
+              onVoiceStartCall={page.voiceStartCall}
+              onVoiceDisconnect={page.voiceDisconnect}
+              onVoiceToggleMute={page.voiceToggleMute}
+              voiceProfiles={page.voiceProfiles}
+              voiceProfilesLoading={page.voiceProfilesLoading}
+              voiceProfilesUploading={page.voiceProfilesUploading}
+              voiceProfilesError={page.voiceProfilesError}
+              selectedVoiceProfileId={page.selectedVoiceProfileId}
+              onVoiceProfileUpload={page.voiceProfileUpload}
+              onVoiceProfileSetDefault={page.voiceProfileSetDefault}
+              onVoiceProfileDelete={page.voiceProfileDelete}
+              onVoiceProfileSelect={page.voiceProfileSelect}
+              onVoiceProfileUpdatePrompt={page.voiceProfileUpdatePrompt}
               aiConversations={page.aiConversations}
               aiConversationsLoading={page.aiConversationsLoading}
               aiConversationId={page.aiConversationId}
@@ -207,6 +226,20 @@ export function Main() {
           )}
         </AnimatePresence>
       </motion.section>
+
+      {/* AI 语音通话浮窗（桌面端通话条） */}
+      <AnimatePresence>
+        {page.voiceCallState.isActive && page.voiceCallState.isMinimized && (
+          <VoiceCallFloating
+            duration={page.voiceCallState.duration}
+            onRestore={() => {
+              page.voiceRestore();
+              page.handleSelectTarget({ type: 'ai' });
+            }}
+            onDisconnect={page.voiceDisconnect}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 弹窗组件 */}
       <ProfileModal
