@@ -13,6 +13,7 @@ import * as db from '../db';
 import { getMessages } from '../api/messages';
 import { getGroupMessages, type GroupMessage } from '../api/groupMessages';
 import { getFriendConversationId } from '../utils/conversationId';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import type { Message } from '../types/chat';
 
 // 每批次加载的消息数量
@@ -155,7 +156,7 @@ export async function loadAllHistoryMessages(
           conversation_type: 'group' as const,
           sender_id: msg.sender_id,
           sender_name: msg.sender_nickname || null,
-          sender_avatar: msg.sender_avatar_url || null,
+          sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
           content: msg.message_content,
           content_type: msg.message_type,
           file_uuid: msg.file_uuid,

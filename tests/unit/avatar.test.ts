@@ -1,11 +1,12 @@
 /**
  * 头像工具函数单元测试
  *
- * 测试 src/utils/avatar.ts 中的 getLocalFileUrl、getAvatarUrl、isLocalFileUrl、isServerUrl
+ * 测试 src/utils/avatar.ts 中的所有导出函数
  *
  * 包含测试：
+ * - setCurrentServerBaseUrl / resolveServerAvatarUrl: 相对路径解析
  * - getLocalFileUrl: 调用 convertFileSrc，非绝对路径时警告
- * - getAvatarUrl: 优先本地，回退服务器，两者都无时返回 null
+ * - getAvatarUrl: 优先本地，回退服务器（含相对路径解析），两者都无时返回 null
  * - isLocalFileUrl: asset:// 为 true，http:// 为 false
  * - isServerUrl: http/https 为 true，asset:// 和 ftp:// 为 false
  */
@@ -13,6 +14,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
+  setCurrentServerBaseUrl,
+  resolveServerAvatarUrl,
   getLocalFileUrl,
   getAvatarUrl,
   isLocalFileUrl,
@@ -29,10 +32,53 @@ describe('头像工具函数 (utils/avatar)', () => {
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setCurrentServerBaseUrl('https://api.huanvae.cn');
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
+    setCurrentServerBaseUrl('');
+  });
+
+  describe('resolveServerAvatarUrl', () => {
+    it('null/undefined 应返回 null', () => {
+      expect(resolveServerAvatarUrl(null)).toBeNull();
+      expect(resolveServerAvatarUrl(undefined)).toBeNull();
+      expect(resolveServerAvatarUrl('')).toBeNull();
+    });
+
+    it('已经是完整 URL 应原样返回（兼容旧数据）', () => {
+      expect(resolveServerAvatarUrl('https://api.huanvae.cn/avatars/user.jpg'))
+        .toBe('https://api.huanvae.cn/avatars/user.jpg');
+      expect(resolveServerAvatarUrl('http://example.com/avatar.png'))
+        .toBe('http://example.com/avatar.png');
+    });
+
+    it('相对路径应拼接服务器基础 URL', () => {
+      expect(resolveServerAvatarUrl('avatars/user123.jpg?t=1706000000'))
+        .toBe('https://api.huanvae.cn/avatars/user123.jpg?t=1706000000');
+    });
+
+    it('带前导斜杠的相对路径应正确处理', () => {
+      expect(resolveServerAvatarUrl('/avatars/user123.jpg'))
+        .toBe('https://api.huanvae.cn/avatars/user123.jpg');
+    });
+
+    it('服务器 URL 有尾部斜杠时不应产生双斜杠', () => {
+      setCurrentServerBaseUrl('https://api.huanvae.cn/');
+      expect(resolveServerAvatarUrl('avatars/user.jpg'))
+        .toBe('https://api.huanvae.cn/avatars/user.jpg');
+    });
+
+    it('未设置服务器 URL 时应原样返回路径', () => {
+      setCurrentServerBaseUrl('');
+      expect(resolveServerAvatarUrl('avatars/user.jpg')).toBe('avatars/user.jpg');
+    });
+
+    it('群聊头像相对路径应正确解析', () => {
+      expect(resolveServerAvatarUrl('avatars/group-123.jpg?t=1706000000'))
+        .toBe('https://api.huanvae.cn/avatars/group-123.jpg?t=1706000000');
+    });
   });
 
   describe('getLocalFileUrl', () => {
@@ -59,9 +105,14 @@ describe('头像工具函数 (utils/avatar)', () => {
       expect(result).toBe('asset://localhost//local/avatar.png');
     });
 
-    it('无本地路径有服务器 URL 时应返回服务器 URL', () => {
+    it('无本地路径有服务器完整 URL 时应返回服务器 URL', () => {
       const result = getAvatarUrl(null, 'https://server.com/avatar.png');
       expect(result).toBe('https://server.com/avatar.png');
+    });
+
+    it('无本地路径有服务器相对路径时应解析为完整 URL', () => {
+      const result = getAvatarUrl(null, 'avatars/user.jpg?t=123');
+      expect(result).toBe('https://api.huanvae.cn/avatars/user.jpg?t=123');
     });
 
     it('两者都无时应返回 null', () => {

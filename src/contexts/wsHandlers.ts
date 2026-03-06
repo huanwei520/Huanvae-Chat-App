@@ -17,6 +17,7 @@ import type {
 import type { PendingNotifications } from './WebSocketContext';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import {
   notifyNewMessage,
   notifySystemEvent,
@@ -213,14 +214,13 @@ async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | nul
       conversation_type: msg.source_type,
       sender_id: msg.sender_id,
       sender_name: msg.sender_nickname || null,
-      sender_avatar: msg.sender_avatar_url || null,
-      content: msg.content || msg.preview || '', // 优先使用 content，兼容旧版 preview
+      sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
+      content: msg.content || msg.preview || '',
       content_type: msg.message_type,
       file_uuid: msg.file_uuid || null,
       file_url: msg.file_url || null,
       file_size: msg.file_size || null,
       file_hash: msg.file_hash || null,
-      // 图片尺寸（后端文档：image_width/image_height 仅图片类型有值）
       image_width: msg.image_width ?? null,
       image_height: msg.image_height ?? null,
       seq: msg.seq || 0,

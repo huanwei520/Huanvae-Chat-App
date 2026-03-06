@@ -18,6 +18,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
 import { getMyGroups } from '../api/groups';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import * as db from '../db';
 import type { Group } from '../types/chat';
 
@@ -43,7 +44,7 @@ function localGroupToGroup(local: db.LocalGroup): Group {
   return {
     group_id: local.group_id,
     group_name: local.name,
-    group_avatar_url: local.avatar_url || '',
+    group_avatar_url: resolveServerAvatarUrl(local.avatar_url) || '',
     role: (local.my_role as Group['role']) || 'member',
     unread_count: null,
     last_message_content: null,
@@ -93,13 +94,15 @@ export function useGroups(): UseGroupsReturn {
   // 从服务器加载群聊并保存到本地
   const loadServerGroups = useCallback(async (): Promise<Group[]> => {
     const response = await getMyGroups(api);
-    const serverGroups = response.data || [];
+    const serverGroups = (response.data || []).map(g => ({
+      ...g,
+      group_avatar_url: resolveServerAvatarUrl(g.group_avatar_url) || '',
+    }));
 
     // 保存到本地数据库
     try {
       const localGroups = serverGroups.map(groupToLocalGroup);
       await db.saveGroups(localGroups);
-      // 保存成功
     } catch (err) {
       console.warn('[Groups] 保存群聊到本地失败:', err);
     }

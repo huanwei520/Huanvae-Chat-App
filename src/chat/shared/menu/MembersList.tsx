@@ -4,6 +4,7 @@
 
 import { MenuHeader } from './MenuHeader';
 import { isMuted, formatMutedUntil } from './utils';
+import { resolveServerAvatarUrl } from '../../../utils/avatar';
 import type { GroupMember } from '../../../api/groups';
 
 interface MembersListProps {
@@ -47,7 +48,7 @@ export function MembersList({
               >
                 <div className="member-avatar">
                   {member.user_avatar_url ? (
-                    <img src={member.user_avatar_url} alt={member.user_nickname} />
+                    <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={member.user_nickname} />
                   ) : (
                     <div className="avatar-placeholder">
                       {member.user_nickname.charAt(0).toUpperCase()}

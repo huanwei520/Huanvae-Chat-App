@@ -28,6 +28,7 @@ import {
   type GroupInvitation,
 } from '../api/groups';
 import { CloseIcon } from './common/Icons';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import {
   type TabType,
   type AddModalProps,
@@ -254,7 +255,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
       addGroup?.({
         group_id: invite.group_id,
         group_name: invite.group_name,
-        group_avatar_url: invite.group_avatar_url,
+        group_avatar_url: resolveServerAvatarUrl(invite.group_avatar_url) || '',
         role: 'member',
         unread_count: 0,
         last_message_content: null,

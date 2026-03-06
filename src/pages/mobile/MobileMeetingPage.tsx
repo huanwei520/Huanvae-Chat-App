@@ -32,6 +32,7 @@ import {
   PhoneEndIcon,
   ParticipantsIcon,
 } from '../../components/common/Icons';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 
 // 最小化图标（内联定义）
 const MinimizeIcon = () => (
@@ -142,7 +143,7 @@ function ParticipantVideo({
   const displayName = isLocal ? '我' : (participant?.name || '未知');
   const showVideo = stream && hasActiveVideo;
   const speaking = isLocal ? isSpeaking : participant?.isSpeaking;
-  const displayAvatar = isLocal ? avatarUrl : participant?.user_info?.avatar_url;
+  const displayAvatar = isLocal ? avatarUrl : resolveServerAvatarUrl(participant?.user_info?.avatar_url);
 
   return (
     <div className={`mobile-participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}>
@@ -250,7 +251,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
             isLocal
             stream={webrtc.localStream}
             isSpeaking={webrtc.isSpeaking}
-            avatarUrl={meetingData?.userInfo?.avatar_url}
+            avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
           />
 
           {/* 远程参与者 */}
@@ -280,7 +281,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
                   {meetingData.userInfo?.avatar_url ? (
                     <img
                       className="mobile-participant-avatar"
-                      src={meetingData.userInfo.avatar_url}
+                      src={resolveServerAvatarUrl(meetingData.userInfo.avatar_url) || ''}
                       alt={meetingData.displayName}
                     />
                   ) : (
@@ -296,7 +297,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
                     {p.user_info?.avatar_url ? (
                       <img
                         className="mobile-participant-avatar"
-                        src={p.user_info.avatar_url}
+                        src={resolveServerAvatarUrl(p.user_info.avatar_url) || ''}
                         alt={p.name}
                       />
                     ) : (

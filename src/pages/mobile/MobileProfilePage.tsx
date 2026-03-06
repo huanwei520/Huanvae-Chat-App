@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useAccounts } from '../../hooks/useAccounts';
 import { uploadAvatar, getProfile, updateProfile } from '../../api/profile';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { AvatarUploader, ProfileInfoForm, PasswordForm } from '../../components/profile';
 
 // 返回图标
@@ -103,7 +104,7 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
 
       // 从服务器重新获取最新资料
       const profileResult = await getProfile(api);
-      const newAvatarUrl = profileResult.data.user_avatar_url;
+      const newAvatarUrl = resolveServerAvatarUrl(profileResult.data.user_avatar_url);
 
       // 更新 session 中的头像 URL
       setSession({
