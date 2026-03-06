@@ -32,6 +32,7 @@ import type { AppPage, SavedAccount } from './types/account';
 import type { Session, UserProfile } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
+import { setCurrentServerBaseUrl, resolveServerAvatarUrl } from './utils/avatar';
 import { UpdateToast } from './update';
 import { useUpdateToastProps } from './update/store';
 import './styles/index.css';
@@ -96,6 +97,9 @@ function App() {
     profile: UserProfile,
     avatarPath: string | null,
   ) => {
+    // 设置服务器基础 URL（用于后续头像相对路径解析）
+    setCurrentServerBaseUrl(serverUrl);
+
     // 设置当前用户数据目录（这会创建目录结构）
     await setCurrentUser(userId, serverUrl);
 
@@ -107,13 +111,19 @@ function App() {
       ),
     ]);
 
+    // 解析头像相对路径为完整 URL
+    const resolvedProfile = {
+      ...profile,
+      user_avatar_url: resolveServerAvatarUrl(profile.user_avatar_url),
+    };
+
     // 创建会话（触发界面切换到主页面）
     setSession({
       serverUrl,
       userId,
       accessToken,
       refreshToken,
-      profile,
+      profile: resolvedProfile,
       avatarPath,
     });
   }, [setSession]);
@@ -220,9 +230,10 @@ function App() {
         ),
       ]);
 
-      // 7. 后台异步更新头像（不阻塞登录）
-      if (profile.user_avatar_url) {
-        updateAvatar(account.server_url, account.user_id, profile.user_avatar_url)
+      // 7. 后台异步更新头像（不阻塞登录，需要完整 URL 供 Tauri 下载）
+      const resolvedAvatarUrl = resolveServerAvatarUrl(profile.user_avatar_url);
+      if (resolvedAvatarUrl) {
+        updateAvatar(account.server_url, account.user_id, resolvedAvatarUrl)
           .then(path => saveAccount(account.user_id, profile.user_nickname, account.server_url, password, path))
           .catch(() => {});
       }
@@ -275,9 +286,10 @@ function App() {
         ),
       ]);
 
-      // 6. 后台异步下载头像并更新账号（不阻塞登录）
-      if (profile.user_avatar_url) {
-        updateAvatar(serverUrl, userId, profile.user_avatar_url)
+      // 6. 后台异步下载头像并更新账号（不阻塞登录，需要完整 URL 供 Tauri 下载）
+      const resolvedAvatarUrl = resolveServerAvatarUrl(profile.user_avatar_url);
+      if (resolvedAvatarUrl) {
+        updateAvatar(serverUrl, userId, resolvedAvatarUrl)
           .then(path => saveAccount(userId, profile.user_nickname, serverUrl, password, path))
           .catch(() => {});
       }
@@ -373,18 +385,30 @@ function App() {
             .catch(() => ({ success: false, profile: null })),
         ]);
 
+        // 设置服务器基础 URL（用于头像相对路径解析）
+        setCurrentServerBaseUrl(savedSession.serverUrl);
+
         if (profileResult.success && profileResult.profile) {
-          // Token 有效，使用最新的 profile
+          // Token 有效，使用最新的 profile（解析头像相对路径）
           const restoredSession: Session = {
             ...savedSession,
-            profile: profileResult.profile,
+            profile: {
+              ...profileResult.profile,
+              user_avatar_url: resolveServerAvatarUrl(profileResult.profile.user_avatar_url),
+            },
           };
           restoreSessionToContext(restoredSession);
           console.warn('[App] 会话已恢复（Token 有效）, userId:', savedSession.userId);
         } else {
-          // Token 过期，但仍使用缓存的 profile 进入主界面
-          // 后续 API 调用会自动刷新 Token 或提示重新登录
-          restoreSessionToContext(savedSession);
+          // Token 过期，但仍使用缓存的 profile 进入主界面（解析头像相对路径）
+          const restoredSession: Session = {
+            ...savedSession,
+            profile: {
+              ...savedSession.profile,
+              user_avatar_url: resolveServerAvatarUrl(savedSession.profile.user_avatar_url),
+            },
+          };
+          restoreSessionToContext(restoredSession);
           console.warn('[App] 会话已恢复（Token 待刷新）, userId:', savedSession.userId);
         }
       } catch (err) {

@@ -4,6 +4,7 @@
 
 import { motion } from 'framer-motion';
 import { GroupIconLarge, CheckIcon, XIcon } from '../../common/Icons';
+import { resolveServerAvatarUrl } from '../../../utils/avatar';
 import type { GroupInvitation } from '../../../api/groups';
 
 interface GroupInvitesTabProps {
@@ -43,7 +44,7 @@ export function GroupInvitesTab({
         >
           <div className="pending-avatar">
             {invite.group_avatar_url ? (
-              <img src={invite.group_avatar_url} alt={invite.group_name} />
+              <img src={resolveServerAvatarUrl(invite.group_avatar_url) || ''} alt={invite.group_name} />
             ) : (
               <GroupIconLarge />
             )}

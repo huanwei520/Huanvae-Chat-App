@@ -18,6 +18,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
 import { getFriends as getFriendsFromApi } from '../api/friends';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import * as db from '../db';
 import type { Friend } from '../types/chat';
 
@@ -41,7 +42,7 @@ function localFriendToFriend(local: db.LocalFriend): Friend {
   return {
     friend_id: local.friend_id,
     friend_nickname: local.nickname || local.username,
-    friend_avatar_url: local.avatar_url || null,
+    friend_avatar_url: resolveServerAvatarUrl(local.avatar_url) || null,
     add_time: local.created_at,
     approve_reason: null,
   };
@@ -87,13 +88,15 @@ export function useFriends(): UseFriendsReturn {
   // 从服务器加载好友并保存到本地
   const loadServerFriends = useCallback(async (): Promise<Friend[]> => {
     const response = await getFriendsFromApi(api);
-    const serverFriends = response.items || [];
+    const serverFriends = (response.items || []).map(f => ({
+      ...f,
+      friend_avatar_url: resolveServerAvatarUrl(f.friend_avatar_url) || null,
+    }));
 
     // 保存到本地数据库
     try {
       const localFriends = serverFriends.map(friendToLocalFriend);
       await db.saveFriends(localFriends);
-      // 保存成功
     } catch (err) {
       console.warn('[Friends] 保存好友到本地失败:', err);
     }

@@ -38,6 +38,7 @@ import {
   CopyIcon,
 } from '../components/common/Icons';
 import { MediaPermissionGuide } from './components/MediaPermissionGuide';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 import './styles.css';
 
 /**
@@ -196,7 +197,7 @@ function ParticipantVideo({
           {participant?.user_info?.avatar_url ? (
             <img
               className="avatar-image"
-              src={participant.user_info.avatar_url}
+              src={resolveServerAvatarUrl(participant.user_info.avatar_url) || ''}
               alt={displayName}
             />
           ) : (
@@ -481,7 +482,7 @@ export default function MeetingPage() {
           <LocalVideo
             stream={webrtc.localStream}
             isSpeaking={webrtc.isSpeaking}
-            avatarUrl={meetingData?.userInfo?.avatar_url}
+            avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
           />
 
           {/* 远程参与者视频 */}
@@ -513,7 +514,7 @@ export default function MeetingPage() {
                   {meetingData.userInfo?.avatar_url ? (
                     <img
                       className="participant-avatar-img"
-                      src={meetingData.userInfo.avatar_url}
+                      src={resolveServerAvatarUrl(meetingData.userInfo.avatar_url) || ''}
                       alt={meetingData.displayName}
                     />
                   ) : (
@@ -537,7 +538,7 @@ export default function MeetingPage() {
                       {p.user_info?.avatar_url ? (
                         <img
                           className="participant-avatar-img"
-                          src={p.user_info.avatar_url}
+                          src={resolveServerAvatarUrl(p.user_info.avatar_url) || ''}
                           alt={displayName}
                         />
                       ) : (

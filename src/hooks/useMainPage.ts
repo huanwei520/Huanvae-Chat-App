@@ -64,6 +64,7 @@ import type {
   MemberMutedData,
   MemberUnmutedData,
 } from '../types/websocket';
+import { resolveServerAvatarUrl } from '../utils/avatar';
 
 // 侧边栏宽度常量
 const MIN_PANEL_WIDTH = 88;
@@ -419,11 +420,10 @@ export function useMainPage() {
             const newFriend: Friend = {
               friend_id: friendData.friend_id,
               friend_nickname: friendData.friend_nickname,
-              friend_avatar_url: friendData.friend_avatar_url || null,
+              friend_avatar_url: resolveServerAvatarUrl(friendData.friend_avatar_url) || null,
               add_time: friendData.add_time,
               approve_reason: null,
             };
-            // 直接调用 store 方法
             store.addFriend(newFriend);
           }
           break;
@@ -457,7 +457,7 @@ export function useMainPage() {
             const newGroup: Group = {
               group_id: groupData.group_id,
               group_name: groupData.group_name,
-              group_avatar_url: groupData.group_avatar_url ?? null,
+              group_avatar_url: resolveServerAvatarUrl(groupData.group_avatar_url) ?? null,
               role: groupData.role || 'member',
               unread_count: 0,
               last_message_content: null,
@@ -561,11 +561,12 @@ export function useMainPage() {
         case 'group_avatar_updated': {
           const avatarData = msg.data as unknown as GroupAvatarUpdatedData;
           if (avatarData.group_id) {
-            store.updateGroup(avatarData.group_id, { group_avatar_url: avatarData.new_avatar_url });
+            const resolvedUrl = resolveServerAvatarUrl(avatarData.new_avatar_url) || '';
+            store.updateGroup(avatarData.group_id, { group_avatar_url: resolvedUrl });
             if (currentTarget?.type === 'group' && currentTarget.data.group_id === avatarData.group_id) {
               store.setChatTarget({
                 type: 'group',
-                data: { ...currentTarget.data, group_avatar_url: avatarData.new_avatar_url },
+                data: { ...currentTarget.data, group_avatar_url: resolvedUrl },
               });
             }
           }

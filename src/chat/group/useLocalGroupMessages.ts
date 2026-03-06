@@ -18,6 +18,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 import * as db from '../../db';
 import type { LocalMessage, LocalConversation } from '../../db';
 import { getSyncService } from '../../services/syncService';
@@ -71,7 +72,7 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
     group_id: local.conversation_id,
     sender_id: local.sender_id,
     sender_nickname: local.sender_name || '',
-    sender_avatar_url: local.sender_avatar || '',
+    sender_avatar_url: resolveServerAvatarUrl(local.sender_avatar) || '',
     message_content: local.content,
     message_type: local.content_type as GroupMessage['message_type'],
     file_uuid: local.file_uuid,
@@ -654,7 +655,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         group_id: wsMsg.source_id,
         sender_id: wsMsg.sender_id,
         sender_nickname: wsMsg.sender_nickname || '',
-        sender_avatar_url: wsMsg.sender_avatar_url || '',
+        sender_avatar_url: resolveServerAvatarUrl(wsMsg.sender_avatar_url) || '',
         message_content: wsMsg.content || wsMsg.preview || '',
         message_type: wsMsg.message_type as GroupMessage['message_type'],
         file_uuid: wsMsg.file_uuid ?? null,

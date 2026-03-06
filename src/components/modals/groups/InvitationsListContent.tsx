@@ -4,6 +4,7 @@
 
 import { motion } from 'framer-motion';
 import { GroupIconLarge, CheckIcon, XIcon } from '../../common/Icons';
+import { resolveServerAvatarUrl } from '../../../utils/avatar';
 import type { GroupInvitation } from '../../../api/groups';
 
 interface InvitationsListContentProps {
@@ -38,7 +39,7 @@ export function InvitationsListContent({
         >
           <div className="pending-avatar">
             {invitation.group_avatar_url ? (
-              <img src={invitation.group_avatar_url} alt={invitation.group_name} />
+              <img src={resolveServerAvatarUrl(invitation.group_avatar_url) || ''} alt={invitation.group_name} />
             ) : (
               <GroupIconLarge />
             )}
