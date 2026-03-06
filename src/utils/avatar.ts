@@ -35,9 +35,9 @@ export function setCurrentServerBaseUrl(url: string): void {
  * - 相对路径 → 拼接 serverBaseUrl 返回完整 URL
  */
 export function resolveServerAvatarUrl(path: string | null | undefined): string | null {
-  if (!path) return null;
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  if (!_currentServerBaseUrl) return path;
+  if (!path) { return null; }
+  if (path.startsWith('http://') || path.startsWith('https://')) { return path; }
+  if (!_currentServerBaseUrl) { return path; }
   const rel = path.startsWith('/') ? path.slice(1) : path;
   return `${_currentServerBaseUrl}/${rel}`;
 }

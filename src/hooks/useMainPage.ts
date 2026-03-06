@@ -457,7 +457,7 @@ export function useMainPage() {
             const newGroup: Group = {
               group_id: groupData.group_id,
               group_name: groupData.group_name,
-              group_avatar_url: resolveServerAvatarUrl(groupData.group_avatar_url) ?? null,
+              group_avatar_url: resolveServerAvatarUrl(groupData.group_avatar_url) ?? '',
               role: groupData.role || 'member',
               unread_count: 0,
               last_message_content: null,
