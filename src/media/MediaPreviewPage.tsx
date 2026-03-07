@@ -41,6 +41,7 @@ import {
   reportFriendPermissionError,
   createPresignedUrlErrorContext,
 } from '../services/diagnosticService';
+import { optimizePresignedUrl } from '../utils/network';
 import './styles.css';
 
 // ============================================================================
@@ -181,9 +182,12 @@ async function getPresignedUrl(
       throw new Error('服务器未返回预签名 URL');
     }
 
+    // 解析相对路径为完整 URL
+    const resolvedUrl = optimizePresignedUrl(data.presigned_url, serverUrl);
+
     // eslint-disable-next-line no-console
     console.log('[MediaPreview] 预签名 URL 获取成功');
-    return data.presigned_url;
+    return resolvedUrl;
   } catch (err) {
     // 确保所有错误都是 Error 实例
     if (err instanceof Error) {

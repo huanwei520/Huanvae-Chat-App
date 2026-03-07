@@ -41,6 +41,7 @@ import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
 import { MobileThemePage } from './MobileThemePage';
+import { MobileAddPage } from './MobileAddPage';
 import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
 import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
 import { MobileMeetingPage } from './MobileMeetingPage';
@@ -74,6 +75,7 @@ export function MobileMain() {
   const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showThemePage, setShowThemePage] = useState(false);
+  const [showAddPage, setShowAddPage] = useState(false);
 
   // 会议状态（提升到此层级以支持最小化时保持连接）
   const [meetingMinimized, setMeetingMinimized] = useState(false);
@@ -210,7 +212,13 @@ export function MobileMain() {
       return true;
     }
 
-    // 优先级 7：会议入口页面打开 → 关闭页面
+    // 优先级 7：添加好友/群聊页面打开 → 关闭页面
+    if (showAddPage) {
+      setShowAddPage(false);
+      return true;
+    }
+
+    // 优先级 8：会议入口页面打开 → 关闭页面
     if (showMeetingEntryPage) {
       setShowMeetingEntryPage(false);
       return true;
@@ -231,7 +239,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
+  }, [showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showAddPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -302,6 +310,8 @@ export function MobileMain() {
               searchQuery={page.searchQuery}
               onSearchChange={page.setSearchQuery}
               onAvatarClick={nav.openDrawer}
+              onAddClick={() => setShowAddPage(true)}
+              pendingCount={page.pendingNotificationCount}
             />
 
             {/* 同步状态横幅 */}
@@ -472,6 +482,17 @@ export function MobileMain() {
       <AnimatePresence>
         {showLanTransferPage && (
           <MobileLanTransferPage onClose={() => setShowLanTransferPage(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAddPage && (
+          <MobileAddPage
+            onClose={() => setShowAddPage(false)}
+            onFriendAdded={page.refreshFriends}
+            addGroup={page.addGroup}
+            refreshGroups={page.refreshGroups}
+          />
         )}
       </AnimatePresence>
 

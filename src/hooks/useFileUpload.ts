@@ -15,6 +15,7 @@
 import { useState, useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { formatFileSize } from '../utils/format';
+import { optimizePresignedUrl } from '../utils/network';
 
 // ============================================
 // 类型定义
@@ -483,10 +484,13 @@ export function useFileUpload() {
           const end = Math.min(start + chunkSize, file.size);
           const chunk = file.slice(start, end);
 
+          // 解析分片 URL（后端可能返回相对路径）
+          const resolvedPartUrl = optimizePresignedUrl(partUrlData.part_url, api.getBaseUrl());
+
           // 上传分片（带实时进度回调）
           // eslint-disable-next-line no-await-in-loop
           await uploadChunkWithRetry(
-            partUrlData.part_url,
+            resolvedPartUrl,
             chunk,
             (chunkLoaded, _chunkTotal) => {
               // 计算总进度：已完成分片 + 当前分片已上传
@@ -647,13 +651,16 @@ export async function getPresignedUrl(
 
   const data = await api.post<PresignedUrlResponse>(endpoint, { operation: 'preview' });
 
+  // 解析相对路径为完整 URL
+  const resolvedUrl = optimizePresignedUrl(data.presigned_url, api.getBaseUrl());
+
   // 缓存 URL
   presignedUrlCache.set(fileUuid, {
-    url: data.presigned_url,
+    url: resolvedUrl,
     expiresAt: new Date(data.expires_at),
   });
 
-  return data.presigned_url;
+  return resolvedUrl;
 }
 
 /**
