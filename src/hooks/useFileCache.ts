@@ -87,6 +87,8 @@ export interface UseFileCacheResult {
   cacheFile: () => Promise<void>;
   /** 重新加载 */
   reload: () => void;
+  /** 清除 URL 缓存并重新获取预签名 URL（用于图片加载失败时重试） */
+  retryWithNewUrl: () => void;
   /** 打开文件/文件夹（桌面端显示在文件夹中，移动端直接打开文件，文件不存在时自动重新下载） */
   openInFolder: (localPath: string | null) => Promise<void>;
 }
@@ -285,6 +287,13 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     loadSource();
   }, [loadSource]);
 
+  // 清除 URL 缓存并重新获取（用于浏览器图片加载失败时的重试）
+  const retryWithNewUrl = useCallback(() => {
+    useFileCacheStore.getState().removeUrlCache(fileUuid);
+    downloadTriggeredRef.current = false;
+    loadSource();
+  }, [fileUuid, loadSource]);
+
   // 打开文件/文件夹（统一逻辑，文件不存在时自动重新下载）
   // Android 上私有目录文件无法直接分享给其他应用，需要先复制到公共目录
   const openInFolder = useCallback(async (localPath: string | null) => {
@@ -335,6 +344,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     localPath: result?.localPath ?? null,
     cacheFile,
     reload,
+    retryWithNewUrl,
     openInFolder,
   };
 }

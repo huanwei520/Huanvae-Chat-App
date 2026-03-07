@@ -6,14 +6,16 @@
  * - 用户信息和令牌
  * - 绑定了 serverUrl 的 API 客户端
  * - 移动端会话持久化（后台被杀后可恢复）
+ * - Token 主动刷新：解码 JWT 提取过期时间，在过期前 5 分钟自动刷新
  */
 
-import { createContext, useContext, useState, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import type { Session, SessionContextType } from '../types/session';
 import { createApiClient, type ApiClient } from '../api/client';
 import { removeSessionLock } from '../services/sessionLock';
 import { persistSession, clearPersistedSession } from '../services/sessionPersist';
 import { destroySyncService } from '../services/syncService';
+import { getTokenExpiresAt } from '../utils/jwt';
 
 /** 扩展的会话上下文类型（包含 API 客户端） */
 interface ExtendedSessionContextType extends SessionContextType {
@@ -119,6 +121,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
     });
   }, [session, updateTokens, clearSession]);
+
+  // Token 主动刷新：在过期前 5 分钟自动刷新，避免请求因 Token 失效而失败
+  useEffect(() => {
+    if (!session?.accessToken || !api) { return; }
+
+    const BUFFER_MS = 5 * 60 * 1000;
+    const expiresAt = getTokenExpiresAt(session.accessToken);
+    if (expiresAt === null) { return; }
+
+    const delay = expiresAt - BUFFER_MS - Date.now();
+
+    if (delay <= 0) {
+      console.warn('[Session] Token 即将过期，立即刷新');
+      api.refreshAccessToken();
+      return;
+    }
+
+    // eslint-disable-next-line no-console
+    console.log('[Session] Token 主动刷新已调度，将在', Math.round(delay / 1000), '秒后执行');
+
+    const timer = setTimeout(() => {
+      console.warn('[Session] Token 主动刷新触发');
+      api.refreshAccessToken();
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [session?.accessToken, api]);
 
   // 上下文值
   const value = useMemo<ExtendedSessionContextType>(() => ({

@@ -15,9 +15,10 @@
  * - 首次连接不触发 onReconnected
  * - 断线重连成功后触发 onReconnected，通知 useInitialSync 执行增量同步
  *
- * Token 刷新机制：
+ * Token 刷新机制（双通道）：
+ * - 主动刷新：SessionContext 解码 JWT exp，在过期前 5 分钟自动调用 refreshAccessToken
+ * - 被动刷新：WebSocket 关闭码 1008 或重连失败 ≥3 次时触发
  * - 使用 ref 存储最新 token，避免闭包陈旧问题
- * - 重连失败达到阈值时，尝试刷新 token
  * - Token 刷新后自动使用新 token 重连
  * - 刷新失败则退出登录，避免无限循环
  *

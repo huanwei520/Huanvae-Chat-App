@@ -4,6 +4,10 @@
  * 提供绑定了 serverUrl 和 token 的 API 请求方法
  * 使用 Tauri HTTP 插件绕过 CORS 限制
  * 使用时无需手动传入这些参数
+ *
+ * Token 刷新机制：
+ * - 被动刷新：请求返回 401 时自动调用 refreshAccessToken 并重试
+ * - 主动刷新：SessionContext 通过定时器在 Token 过期前 5 分钟调用 refreshAccessToken
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
@@ -179,6 +183,13 @@ export function createApiClient(config: ApiClientConfig) {
     getAccessToken(): string {
       return accessToken;
     },
+
+    /**
+     * 主动刷新 Token（供 SessionContext 定时器调用）
+     *
+     * @returns 刷新是否成功
+     */
+    refreshAccessToken,
   };
 }
 
