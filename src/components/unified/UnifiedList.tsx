@@ -458,7 +458,9 @@ export function UnifiedList({
         </motion.div>
       );
     }
-    if (filteredCards.length === 0) {
+    // 消息 Tab 有 AI 卡片置顶，即使没有好友/群聊也不应显示空状态覆盖层
+    // 否则绝对定位的覆盖层（z-index: 5）会遮挡 AI 卡片的点击事件
+    if (filteredCards.length === 0 && activeTab !== 'chat') {
       return (
         <motion.div
           key="empty-overlay"

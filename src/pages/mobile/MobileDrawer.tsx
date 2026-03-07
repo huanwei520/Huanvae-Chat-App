@@ -157,16 +157,23 @@ export function MobileDrawer({
                 style={{
                   width: '100%',
                   height: '100%',
-                  background: 'linear-gradient(135deg, var(--primary), var(--accent))',
+                  background: '#ffffff',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: 'white',
                   fontSize: '28px',
-                  fontWeight: 600,
+                  fontWeight: 700,
                 }}
               >
-                {nickname.charAt(0).toUpperCase()}
+                <span
+                  style={{
+                    background: 'linear-gradient(135deg, #60a5fa, #e0e7ff)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  {nickname.charAt(0).toUpperCase()}
+                </span>
               </div>
             )}
           </div>

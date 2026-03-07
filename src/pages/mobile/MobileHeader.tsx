@@ -30,6 +30,18 @@ const SearchIcon = () => (
   </svg>
 );
 
+const PlusIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={2}
+    stroke="currentColor"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+  </svg>
+);
+
 interface MobileHeaderProps {
   /** 用户会话信息 */
   session: Session;
@@ -39,6 +51,10 @@ interface MobileHeaderProps {
   onSearchChange: (query: string) => void;
   /** 头像点击回调（打开抽屉） */
   onAvatarClick: () => void;
+  /** 添加好友/群聊点击回调 */
+  onAddClick?: () => void;
+  /** 待处理申请/邀请总数 */
+  pendingCount?: number;
 }
 
 export function MobileHeader({
@@ -46,6 +62,8 @@ export function MobileHeader({
   searchQuery,
   onSearchChange,
   onAvatarClick,
+  onAddClick,
+  pendingCount = 0,
 }: MobileHeaderProps) {
   // 获取 WebSocket 连接状态
   const { connected, connecting } = useWebSocket();
@@ -76,16 +94,23 @@ export function MobileHeader({
             style={{
               width: '100%',
               height: '100%',
-              background: 'linear-gradient(135deg, var(--primary), var(--accent))',
+              background: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'white',
               fontSize: '18px',
-              fontWeight: 600,
+              fontWeight: 700,
             }}
           >
-            {(session.profile?.user_nickname || session.userId).charAt(0).toUpperCase()}
+            <span
+              style={{
+                background: 'linear-gradient(135deg, #60a5fa, #e0e7ff)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              {(session.profile?.user_nickname || session.userId).charAt(0).toUpperCase()}
+            </span>
           </div>
         )}
         {/* 连接状态指示器 */}
@@ -102,6 +127,18 @@ export function MobileHeader({
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
+
+      {/* 添加好友/群聊按钮 */}
+      {onAddClick && (
+        <button className="mobile-contacts-add-btn" onClick={onAddClick}>
+          <PlusIcon />
+          {pendingCount > 0 && (
+            <span className="mobile-contacts-add-badge">
+              {pendingCount > 99 ? '99+' : pendingCount}
+            </span>
+          )}
+        </button>
+      )}
     </header>
   );
 }
