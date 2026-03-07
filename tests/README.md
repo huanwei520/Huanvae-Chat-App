@@ -28,6 +28,7 @@ tests/
 │   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
 │   ├── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
 │   ├── aiCard.test.ts           # AI 助手类型和卡片排序测试（11 个用例）
+│   ├── aiToolConfirm.test.ts    # AI Agent 工具确认机制测试（13 个用例，PendingToolCall/确认拒绝 API/状态类型）
 │   └── jwt.test.ts              # JWT 工具函数测试（12 个用例，getTokenExpiresAt/getTokenRemainingMs）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
@@ -367,6 +368,41 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-28: AI Agent 写操作工具确认机制
+  - **功能**: AI Agent 调用写操作工具（发送消息、删除好友等）时，需用户在前端确认后才能执行，防止 AI 未经授权执行敏感操作
+  - **SSE 事件**:
+    - 新增 `tool_call_pending` 事件解析：接收待确认工具调用（`pending_id`、`tool_name`、`arguments`、`expires_at`）
+    - 新增 `status` 事件接入：展示 AI 阶段状态（thinking / reasoning / responding / tool_calling）
+  - **API 封装**:
+    - `confirmToolCall(api, pendingId)` — 确认执行写操作工具
+    - `rejectToolCall(api, pendingId)` — 拒绝执行写操作工具
+    - `getPendingToolCalls(api)` — 查询当前用户所有待确认的工具调用
+  - **前端状态管理**:
+    - `useAIMessages` Hook 新增 `pendingToolCall`、`aiStatus`、`confirmPendingTool`、`rejectPendingTool`
+    - `AIToolStatus` 新增 `pending_confirm` 状态值
+  - **UI 组件**:
+    - `ToolConfirmCard` 工具确认卡片：显示工具名称、参数详情、倒计时、确认/拒绝按钮
+    - AI 阶段状态指示器：`thinking` 状态时显示"AI 正在思考..."动画
+    - 工具状态显示区分只读（蓝色脉冲）和写操作（黄色警告卡片）
+  - **实现**:
+    - 新增 `PendingToolCall` 类型（`src/types/chat.ts`）
+    - 新增 `AIToolCallPendingEvent` 类型和 confirm/reject API（`src/api/ai.ts`）
+    - `useAIMessages.ts` 接入 `onToolCallPending` + `onStatus` 回调
+    - `AIChatMessages.tsx` 新增 `ToolConfirmCard` 组件 + 思考状态指示器
+    - Props 链路完整穿透：`useMainPage` → `Main/MobileMain` → `ChatPanel/MobileChatView` → `AIChatMessages`
+  - **修改文件**: `src/types/chat.ts`, `src/api/ai.ts`, `src/chat/ai/useAIMessages.ts`, `src/chat/ai/AIChatMessages.tsx`, `src/chat/shared/ChatPanel.tsx`, `src/pages/mobile/MobileChatView.tsx`, `src/pages/Main.tsx`, `src/pages/mobile/MobileMain.tsx`, `src/hooks/useMainPage.ts`, `src/styles/pages/main.css`
+  - **质量保证**
+    - `eslint --max-warnings=0`: 0 错误 0 警告
+    - `vitest run`: 33 文件 689 个测试全部通过（新增 13 个测试）
+  - **新增测试用例** (`tests/unit/aiToolConfirm.test.ts`, 13 个):
+    - `PendingToolCall` 类型结构验证（必填字段、status 枚举值）
+    - `AIToolCallPendingEvent` SSE 事件结构验证
+    - `AIStatus` 四种阶段状态值验证
+    - `AIStreamCallbacks` 新增 `onToolCallPending`/`onStatus` 回调验证
+    - `confirmToolCall`/`rejectToolCall`/`getPendingToolCalls` 函数导出存在性
+    - `AIPendingToolCall` 前端状态类型验证（解析后参数）
+    - `AIToolStatus` 新增 `pending_confirm` 状态验证
 
 - 2026-02-28: Token 主动刷新机制 — 过期前 5 分钟自动刷新
   - **功能**: 解码 JWT 提取 `exp` 过期时间，在 Token 过期前 5 分钟自动调用 `refreshAccessToken`，避免请求因 Token 失效而失败

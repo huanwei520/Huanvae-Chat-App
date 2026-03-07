@@ -102,7 +102,11 @@ interface MobileChatViewProps {
   aiStreamingReasoning?: string;
   aiIsLoading?: boolean;
   aiToolStatus?: AIToolStatus | null;
+  aiStatus?: import('./../../chat/ai/useAIMessages').AIStatus | null;
+  aiPendingToolCall?: import('./../../chat/ai/useAIMessages').AIPendingToolCall | null;
   aiRetryLastMessage?: () => void;
+  aiConfirmPendingTool?: () => Promise<void>;
+  aiRejectPendingTool?: () => Promise<void>;
 
   // AI 语音通话
   voiceCallState?: VoiceCallState;
@@ -181,7 +185,11 @@ export function MobileChatView({
   aiStreamingReasoning = '',
   aiIsLoading = false,
   aiToolStatus = null,
+  aiStatus,
+  aiPendingToolCall,
   aiRetryLastMessage,
+  aiConfirmPendingTool,
+  aiRejectPendingTool,
   voiceCallState,
   voiceCallTurns = [],
   onVoiceStartCall,
@@ -325,7 +333,11 @@ export function MobileChatView({
             streamingReasoning={aiStreamingReasoning}
             isLoading={aiIsLoading}
             toolStatus={aiToolStatus}
+            aiStatus={aiStatus}
+            pendingToolCall={aiPendingToolCall}
             onRetry={aiRetryLastMessage}
+            onConfirmTool={aiConfirmPendingTool}
+            onRejectTool={aiRejectPendingTool}
           />
         ) : null}
         {chatTarget.type === 'friend' && friend && (

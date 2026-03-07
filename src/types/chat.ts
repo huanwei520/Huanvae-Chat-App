@@ -162,3 +162,26 @@ export interface AIConversationsResponse {
   page: number;
   per_page: number;
 }
+
+/** AI 待确认的写操作工具调用（Agent 确认机制） */
+export interface PendingToolCall {
+  id: string;
+  conversation_id: string;
+  tool_name: string;
+  arguments: string;
+  status: 'pending' | 'confirmed' | 'rejected' | 'expired';
+  created_at: string;
+  expires_at: string;
+}
+
+/** AI 消息历史中的消息信息 */
+export interface AIMessageInfo {
+  id: string;
+  role: string;
+  content: string | null;
+  reasoning: string | null;
+  tool_calls: unknown | null;
+  tool_name: string | null;
+  model: string | null;
+  created_at: string;
+}

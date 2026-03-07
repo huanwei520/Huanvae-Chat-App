@@ -1,7 +1,12 @@
 /**
  * AI 助手 API 封装
  *
- * 支持 SSE 流式对话（含 Agent Loop 工具调用）和会话管理
+ * 支持 SSE 流式对话（含 Agent Loop 工具调用）和会话管理。
+ *
+ * Agent 工具确认机制：
+ * - 只读工具（get_friend_list 等）自动执行，通过 tool_call/tool_result 事件反馈
+ * - 写操作工具（send_message 等）需用户确认，通过 tool_call_pending 事件暂停 SSE 流
+ * - 前端调用 confirmToolCall/rejectToolCall 完成授权后 SSE 流继续
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
@@ -10,6 +15,7 @@ import type {
   AIConversation,
   AIMessage,
   AIConversationsResponse,
+  PendingToolCall,
 } from '../types/chat';
 
 /** 工具调用信息 */
@@ -25,6 +31,14 @@ export interface AIToolResultEvent {
   success: boolean;
 }
 
+/** 写操作工具待确认事件（SSE tool_call_pending） */
+export interface AIToolCallPendingEvent {
+  pending_id: string;
+  tool_name: string;
+  arguments: string;
+  expires_at: string;
+}
+
 /** AI 处理阶段状态 */
 export type AIStatus = 'thinking' | 'reasoning' | 'responding' | 'tool_calling';
 
@@ -35,6 +49,7 @@ export interface AIStreamCallbacks {
   onReasoning?: (text: string) => void;
   onContent?: (text: string) => void;
   onToolCall?: (info: AIToolCallEvent) => void;
+  onToolCallPending?: (info: AIToolCallPendingEvent) => void;
   onToolResult?: (info: AIToolResultEvent) => void;
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
   onError?: (error: string) => void;
@@ -118,6 +133,9 @@ export async function streamAIMessage(
             case 'tool_call':
               try { callbacks.onToolCall?.(JSON.parse(data)); } catch { /* ignore */ }
               break;
+            case 'tool_call_pending':
+              try { callbacks.onToolCallPending?.(JSON.parse(data)); } catch { /* ignore */ }
+              break;
             case 'tool_result':
               try { callbacks.onToolResult?.(JSON.parse(data)); } catch { /* ignore */ }
               break;
@@ -192,6 +210,35 @@ export function getAIMessages(
   return api.get<{ data: AIMessage[] }>(
     `/api/ai/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`,
   );
+}
+
+// ============================================================
+// 工具确认 API（Agent 写操作授权）
+// ============================================================
+
+/**
+ * 确认执行待确认的写操作工具
+ *
+ * 确认后后端立即执行该工具并将结果通过 SSE 流返回。
+ */
+export function confirmToolCall(api: ApiClient, pendingId: string): Promise<void> {
+  return api.post<void>(`/api/ai/tool_calls/${pendingId}/confirm`);
+}
+
+/**
+ * 拒绝执行待确认的写操作工具
+ *
+ * 拒绝后 AI 会收到"用户拒绝执行该工具"的反馈，继续生成不依赖该工具的回复。
+ */
+export function rejectToolCall(api: ApiClient, pendingId: string): Promise<void> {
+  return api.post<void>(`/api/ai/tool_calls/${pendingId}/reject`);
+}
+
+/**
+ * 查询当前用户所有待确认的工具调用
+ */
+export function getPendingToolCalls(api: ApiClient): Promise<PendingToolCall[]> {
+  return api.get<PendingToolCall[]>('/api/ai/tool_calls/pending');
 }
 
 // ============================================================
