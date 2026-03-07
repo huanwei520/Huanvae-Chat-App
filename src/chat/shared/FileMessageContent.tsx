@@ -158,6 +158,9 @@ const IMAGE_MAX_HEIGHT = 300;
 const IMAGE_DEFAULT_WIDTH = 200;
 const IMAGE_DEFAULT_HEIGHT = 150;
 
+/** 图片加载失败自动重试的最大次数 */
+const IMAGE_MAX_RETRIES = 2;
+
 function ImageMessage({
   fileUuid,
   fileHash,
@@ -181,7 +184,7 @@ function ImageMessage({
   imageHeight?: number | null;
 }) {
   const { session } = useSession();
-  const { src, isLocal, loading, error, onLoad, localPath } = useImageCache(
+  const { src, isLocal, loading, error, onLoad, localPath, retryWithNewUrl } = useImageCache(
     fileUuid,
     fileHash,
     filename,
@@ -191,6 +194,39 @@ function ImageMessage({
 
   // 移动端预览模态框状态
   const [showMobilePreview, setShowMobilePreview] = useState(false);
+
+  // 图片浏览器级别加载失败的重试状态
+  const [imgRetryCount, setImgRetryCount] = useState(0);
+  const [imgLoadFailed, setImgLoadFailed] = useState(false);
+
+  // src 变化时重置失败状态（新 URL 到来，重新尝试加载）
+  useEffect(() => {
+    setImgLoadFailed(false);
+  }, [src]);
+
+  // 图片加载失败处理：清除 URL 缓存并重新获取预签名 URL
+  const handleImageError = useCallback(() => {
+    if (imgRetryCount < IMAGE_MAX_RETRIES) {
+      console.warn('[ImageMessage] 图片加载失败，重试中...', {
+        fileUuid: fileUuid.slice(0, 8),
+        retry: imgRetryCount + 1,
+      });
+      setImgRetryCount((c) => c + 1);
+      retryWithNewUrl();
+    } else {
+      console.error('[ImageMessage] 图片加载失败，已达最大重试次数', {
+        fileUuid: fileUuid.slice(0, 8),
+      });
+      setImgLoadFailed(true);
+    }
+  }, [imgRetryCount, retryWithNewUrl, fileUuid]);
+
+  // 手动点击重试
+  const handleManualRetry = useCallback(() => {
+    setImgRetryCount(0);
+    setImgLoadFailed(false);
+    retryWithNewUrl();
+  }, [retryWithNewUrl]);
 
   // 是否有后端提供的尺寸信息
   const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
@@ -205,7 +241,7 @@ function ImageMessage({
 
   // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
   const handleClick = useCallback(() => {
-    if (!src) { return; }
+    if (!src || imgLoadFailed) { return; }
 
     // 移动端：使用全屏模态框预览
     if (isMobile()) {
@@ -232,7 +268,7 @@ function ImageMessage({
         accessToken: session.accessToken,
       },
     );
-  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src]);
+  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src, imgLoadFailed]);
 
   // 容器样式：固定尺寸，不会因图片加载而改变
   const containerStyle: React.CSSProperties = {
@@ -240,12 +276,15 @@ function ImageMessage({
     height: displaySize.height,
   };
 
+  // 合并 API 级别和浏览器级别的错误
+  const showError = error || imgLoadFailed;
+
   return (
     <>
       <div
         className="file-message image-message"
         style={containerStyle}
-        onClick={handleClick}
+        onClick={showError ? handleManualRetry : handleClick}
       >
         {/* 加载中显示占位符 */}
         {loading && (
@@ -253,18 +292,25 @@ function ImageMessage({
             <span>加载中...</span>
           </div>
         )}
-        {/* 加载错误 */}
-        {error && <div className="file-message-error">加载失败</div>}
+        {/* 加载错误（API 错误或图片加载失败） */}
+        {showError && (
+          <div className="file-message-error" style={{ flexDirection: 'column', cursor: 'pointer' }}>
+            <span>加载失败</span>
+            <span style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>点击重试</span>
+          </div>
+        )}
         {/* 图片加载完成后显示 */}
-        {!loading && !error && src && (
+        {!loading && !showError && src && (
           <>
             {isLocal && <LocalBadge />}
             <img
+              key={imgRetryCount}
               src={src}
               alt={filename}
               className="message-image"
               draggable={false}
               onLoad={onLoad}
+              onError={handleImageError}
             />
           </>
         )}

@@ -3283,6 +3283,10 @@
   cursor: not-allowed;
 }
 
+.file-attach-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
 /* 文件附件菜单 */
 .file-attach-menu {
   z-index: 10000;

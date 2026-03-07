@@ -325,7 +325,7 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
         title="发送文件"
       >
         {isLoading ? (
-          <svg className="loading-spinner" width="20" height="20" viewBox="0 0 24 24">
+          <svg className="file-attach-spinner" width="20" height="20" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" opacity="0.25" />
             <path
               d="M12 2a10 10 0 0 1 10 10"

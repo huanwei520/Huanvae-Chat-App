@@ -12,6 +12,7 @@
  * - getBaseUrl/getAccessToken：返回配置值
  * - skipAuth：不添加 auth header
  * - 错误响应：抛出错误信息
+ * - refreshAccessToken 暴露：可供外部主动调用刷新
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -211,6 +212,43 @@ describe('API 客户端 (api/client)', () => {
       const client = createApiClient(baseConfig);
 
       await expect(client.get('/api/fail')).rejects.toThrow('服务器错误');
+    });
+  });
+
+  describe('refreshAccessToken 暴露', () => {
+    it('刷新成功时应返回 true 并调用 onTokenRefresh', async () => {
+      const onTokenRefresh = vi.fn();
+      mockFetch.mockResolvedValue(
+        createMockResponse({
+          data: { access_token: 'new-token', refresh_token: 'new-refresh' },
+        }) as never,
+      );
+
+      const client = createApiClient({ ...baseConfig, onTokenRefresh });
+      const result = await client.refreshAccessToken();
+
+      expect(result).toBe(true);
+      expect(onTokenRefresh).toHaveBeenCalledWith('new-token', 'new-refresh');
+    });
+
+    it('刷新失败时应返回 false', async () => {
+      mockFetch.mockResolvedValue(
+        createMockResponse({ ok: false, status: 401 }) as never,
+      );
+
+      const client = createApiClient(baseConfig);
+      const result = await client.refreshAccessToken();
+
+      expect(result).toBe(false);
+    });
+
+    it('网络错误时应返回 false', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      const client = createApiClient(baseConfig);
+      const result = await client.refreshAccessToken();
+
+      expect(result).toBe(false);
     });
   });
 });

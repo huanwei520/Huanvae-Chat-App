@@ -27,7 +27,8 @@ tests/
 │   ├── platform.test.ts         # 平台检测工具测试（28 个用例，UA 关键词判定、缓存机制、窗口宽度不影响判定）
 │   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
 │   ├── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
-│   └── aiCard.test.ts           # AI 助手类型和卡片排序测试（11 个用例）
+│   ├── aiCard.test.ts           # AI 助手类型和卡片排序测试（11 个用例）
+│   └── jwt.test.ts              # JWT 工具函数测试（12 个用例，getTokenExpiresAt/getTokenRemainingMs）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
     ├── LoadingSpinner.test.tsx  # 加载动画组件测试
@@ -366,6 +367,23 @@ unset CI && pnpm tauri android dev
 | 桌面端更新器 | tauri-plugin-updater 不支持 Android | ✅ 使用自定义服务 + tauri-plugin-android-package-install |
 
 ### 更新日志
+
+- 2026-02-28: Token 主动刷新机制 — 过期前 5 分钟自动刷新
+  - **功能**: 解码 JWT 提取 `exp` 过期时间，在 Token 过期前 5 分钟自动调用 `refreshAccessToken`，避免请求因 Token 失效而失败
+  - **实现**:
+    - 新增 `src/utils/jwt.ts` — JWT 解码工具（`getTokenExpiresAt`、`getTokenRemainingMs`）
+    - 修改 `src/api/client.ts` — 暴露 `refreshAccessToken` 供外部主动调用
+    - 修改 `src/contexts/SessionContext.tsx` — 添加 `useEffect` 定时器，监听 `accessToken` 变化自动调度刷新
+  - **Token 刷新双通道**:
+    - 主动刷新（新增）：SessionContext 解码 JWT exp，过期前 5 分钟自动刷新
+    - 被动刷新（已有）：请求返回 401 时自动刷新并重试
+  - **修改文件**: `src/utils/jwt.ts`, `src/api/client.ts`, `src/contexts/SessionContext.tsx`, `src/contexts/WebSocketContext.tsx`
+  - **质量保证**
+    - `eslint --max-warnings=0`: 0 错误 0 警告
+    - `vitest run`: 32 文件 676 个测试全部通过（新增 15 个测试）
+  - **新增测试用例**
+    - `tests/unit/jwt.test.ts` (12 个): 有效 JWT 提取 exp、exp 为 0、无 exp 字段、exp 为字符串、格式不足 3 段、非有效 base64、非有效 JSON、空字符串、未过期返回正数、已过期返回 0、无效 Token 返回 null、剩余时间精度
+    - `tests/unit/apiClient.test.ts` (新增 3 个): refreshAccessToken 刷新成功返回 true 并调用 onTokenRefresh、刷新失败返回 false、网络错误返回 false
 
 - 2026-02-28: AI 助手功能 — 置顶卡片 + 聊天对话
   - **功能**: 在消息列表顶部添加 AI 助手卡片，点击进入 AI 对话界面

@@ -64,6 +64,7 @@ interface FileCacheActions {
   // URL 缓存管理
   setUrlCache: (fileUuid: string, url: string, expiresAt: string) => void;
   getUrlCache: (fileUuid: string) => UrlCacheItem | null;
+  removeUrlCache: (fileUuid: string) => void;
   clearExpiredUrls: () => void;
 
   // 重置
@@ -210,6 +211,13 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     }
 
     return cached;
+  },
+
+  removeUrlCache: (fileUuid) => {
+    set((state) => {
+      const { [fileUuid]: _, ...rest } = state.urlCache;
+      return { urlCache: rest };
+    });
   },
 
   clearExpiredUrls: () => {
