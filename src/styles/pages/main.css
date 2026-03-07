@@ -4896,3 +4896,102 @@
 .ai-error-retry:active {
   transform: scale(0.96);
 }
+
+/* AI Agent 工具确认卡片 */
+.ai-tool-confirm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.ai-tool-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #f59e0b;
+}
+
+.ai-tool-confirm-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 4px 0;
+}
+
+.ai-tool-confirm-args {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--white-alpha-10, rgba(255, 255, 255, 0.06));
+  font-size: 12px;
+}
+
+.ai-tool-confirm-arg-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.ai-tool-confirm-arg-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  min-width: 36px;
+}
+
+.ai-tool-confirm-arg-value {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.ai-tool-confirm-timer {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ai-tool-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ai-tool-confirm-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.ai-tool-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-tool-confirm-btn.confirm {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.ai-tool-confirm-btn.confirm:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.ai-tool-confirm-btn.reject {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.ai-tool-confirm-btn.reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
