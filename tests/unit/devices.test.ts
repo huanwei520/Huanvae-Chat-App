@@ -22,6 +22,7 @@ const mockApiClient = {
   patch: vi.fn(),
   getBaseUrl: vi.fn(() => 'http://localhost'),
   getAccessToken: vi.fn(() => 'mock-token'),
+  refreshAccessToken: vi.fn(() => Promise.resolve(true)),
 };
 
 // 需要在 import 之前设置 mock
