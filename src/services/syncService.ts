@@ -52,12 +52,9 @@ interface SyncConversationResult {
 }
 
 /** 同步响应 */
+/** client.ts 已解包 ApiResponse.data */
 interface SyncResponse {
-  code: number;
-  message: string;
-  data: {
-    conversations: SyncConversationResult[];
-  };
+  conversations: SyncConversationResult[];
 }
 
 /** 同步状态 */
@@ -158,10 +155,7 @@ export class SyncService {
       const updatedConversations: string[] = [];
       let newMessagesCount = 0;
 
-      // 处理同步结果 - 兼容两种响应格式
-      // 格式1: { code: 0, data: { conversations: [...] } }
-      // 格式2: { conversations: [...] } (直接返回数据)
-      const syncedConversations = response.data?.conversations ?? (response as unknown as { conversations: SyncConversationResult[] }).conversations ?? [];
+      const syncedConversations = response.conversations ?? [];
 
       if (!syncedConversations || syncedConversations.length === 0) {
         this.updateState({ isSyncing: false, lastSyncTime: new Date() });
@@ -282,8 +276,7 @@ export class SyncService {
         ],
       });
 
-      // 兼容两种响应格式
-      const syncedConvs = response.data?.conversations ?? (response as unknown as { conversations: SyncConversationResult[] }).conversations ?? [];
+      const syncedConvs = response.conversations ?? [];
       const convResult = syncedConvs[0];
       if (!convResult || convResult.messages.length === 0) { break; }
 

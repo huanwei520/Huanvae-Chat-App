@@ -13,10 +13,8 @@ export interface Friend {
   approve_reason: string | null;
 }
 
-/** 好友列表响应 */
-export interface FriendsResponse {
-  items: Friend[];
-}
+/** 好友列表响应（client.ts 已解包 ApiResponse.data，这里直接是数组） */
+export type FriendsResponse = Friend[];
 
 /** 消息类型 */
 export type MessageType = 'text' | 'image' | 'video' | 'file';

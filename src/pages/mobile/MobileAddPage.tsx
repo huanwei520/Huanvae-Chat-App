@@ -123,7 +123,7 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
     setLoadingFriendRequests(true);
     try {
       const response = await getPendingRequests(api);
-      setFriendRequests(response.items || []);
+      setFriendRequests(Array.isArray(response) ? response : []);
     } catch {
       setFriendRequests([]);
     } finally {
@@ -135,7 +135,7 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
     setLoadingGroupInvites(true);
     try {
       const response = await getGroupInvitations(api);
-      setGroupInvites(response.data?.invitations || []);
+      setGroupInvites(response.invitations || []);
     } catch {
       setGroupInvites([]);
     } finally {
@@ -234,8 +234,8 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
       setGroupName('');
       setGroupDesc('');
       addGroup?.({
-        group_id: result.data.group_id,
-        group_name: result.data.group_name,
+        group_id: result.group_id,
+        group_name: result.group_name,
         group_avatar_url: '',
         role: 'owner',
         unread_count: 0,

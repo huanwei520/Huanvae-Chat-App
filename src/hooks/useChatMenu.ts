@@ -267,7 +267,7 @@ export function useChatMenu({
     setLoadingMembers(true);
     try {
       const response = await getGroupMembers(api, target.data.group_id);
-      setMembers(response.data?.members || []);
+      setMembers(response.members || []);
     } catch {
       setMembers([]);
     } finally {
@@ -283,7 +283,7 @@ export function useChatMenu({
     setView('notices');
     try {
       const response = await getGroupNotices(api, target.data.group_id);
-      setNotices(response.data?.notices || []);
+      setNotices(response.notices || []);
     } catch {
       setNotices([]);
     } finally {
@@ -299,7 +299,7 @@ export function useChatMenu({
     setView('invite-codes');
     try {
       const response = await getInviteCodes(api, target.data.group_id);
-      setInviteCodes(response.data?.codes || []);
+      setInviteCodes(response.codes || []);
     } catch {
       setInviteCodes([]);
     } finally {
@@ -594,7 +594,7 @@ export function useChatMenu({
         max_uses: maxUses,
         expires_in_hours: expiresInHours,
       });
-      setSuccess(`邀请码已生成: ${result.data.code}`);
+      setSuccess(`邀请码已生成: ${result.code}`);
       handleLoadInviteCodes();
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败');

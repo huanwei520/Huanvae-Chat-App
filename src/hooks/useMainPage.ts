@@ -319,8 +319,8 @@ export function useMainPage() {
           getGroupInvitations(api),
         ]);
 
-        const friendRequestsCount = friendRequestsRes.items?.length || 0;
-        const groupInvitesCount = groupInvitesRes.data?.invitations?.length || 0;
+        const friendRequestsCount = Array.isArray(friendRequestsRes) ? friendRequestsRes.length : 0;
+        const groupInvitesCount = groupInvitesRes.invitations?.length || 0;
 
         initPendingNotifications({
           friendRequests: friendRequestsCount,

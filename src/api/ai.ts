@@ -162,26 +162,30 @@ export async function streamAIMessage(
 
 /**
  * 获取 AI 会话列表
+ *
+ * client.ts 已解包 ApiResponse.data，直接返回 AIConversationsResponse
  */
 export function getAIConversations(
   api: ApiClient,
   options?: { page?: number; perPage?: number },
-): Promise<{ data: AIConversationsResponse }> {
+): Promise<AIConversationsResponse> {
   const params = new URLSearchParams();
   if (options?.page) { params.set('page', String(options.page)); }
   if (options?.perPage) { params.set('per_page', String(options.perPage)); }
   const qs = params.toString();
-  return api.get<{ data: AIConversationsResponse }>(`/api/ai/conversations${qs ? `?${qs}` : ''}`);
+  return api.get<AIConversationsResponse>(`/api/ai/conversations${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * 获取 AI 会话详情（含消息）
+ *
+ * client.ts 已解包 ApiResponse.data，直接返回 { conversation, messages }
  */
 export function getAIConversation(
   api: ApiClient,
   conversationId: string,
-): Promise<{ data: { conversation: AIConversation; messages: AIMessage[] } }> {
-  return api.get<{ data: { conversation: AIConversation; messages: AIMessage[] } }>(
+): Promise<{ conversation: AIConversation; messages: AIMessage[] }> {
+  return api.get<{ conversation: AIConversation; messages: AIMessage[] }>(
     `/api/ai/conversations/${conversationId}`,
   );
 }
@@ -199,18 +203,18 @@ export function deleteAIConversation(
 /**
  * 获取 AI 会话消息列表
  *
- * 后端返回格式: { success, code, data: AIMessage[] }
+ * client.ts 已解包 ApiResponse.data，直接返回 AIMessage[]
  */
 export function getAIMessages(
   api: ApiClient,
   conversationId: string,
   options?: { limit?: number; before?: string },
-): Promise<{ data: AIMessage[] }> {
+): Promise<AIMessage[]> {
   const params = new URLSearchParams();
   if (options?.limit) { params.set('limit', String(options.limit)); }
   if (options?.before) { params.set('before', options.before); }
   const qs = params.toString();
-  return api.get<{ data: AIMessage[] }>(
+  return api.get<AIMessage[]>(
     `/api/ai/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`,
   );
 }
@@ -220,9 +224,8 @@ export function getAIMessages(
 // ============================================================
 
 /** 确认执行待确认的写操作工具，返回工具执行结果 */
-export async function confirmToolCall(api: ApiClient, pendingId: string): Promise<ToolCallConfirmResult> {
-  const resp = await api.post<{ data: ToolCallConfirmResult }>(`/api/ai/tool_calls/${pendingId}/confirm`);
-  return resp.data;
+export function confirmToolCall(api: ApiClient, pendingId: string): Promise<ToolCallConfirmResult> {
+  return api.post<ToolCallConfirmResult>(`/api/ai/tool_calls/${pendingId}/confirm`);
 }
 
 /** 拒绝执行待确认的写操作工具 */

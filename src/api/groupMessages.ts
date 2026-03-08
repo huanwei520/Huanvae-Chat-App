@@ -42,14 +42,10 @@ export interface GroupMessage {
   clientId?: string;
 }
 
-/** 群消息列表响应 */
+/** 群消息列表响应（client.ts 已解包 ApiResponse.data） */
 export interface GroupMessagesResponse {
-  success: boolean;
-  code: number;
-  data: {
-    messages: GroupMessage[];
-    has_more: boolean;
-  };
+  messages: GroupMessage[];
+  has_more: boolean;
 }
 
 /** 发送群消息请求 */
@@ -63,14 +59,10 @@ export interface SendGroupMessageRequest {
   reply_to?: string;
 }
 
-/** 发送群消息响应 */
+/** 发送群消息响应（client.ts 已解包 ApiResponse.data） */
 export interface SendGroupMessageResponse {
-  success: boolean;
-  code: number;
-  data: {
-    message_uuid: string;
-    send_time: string;
-  };
+  message_uuid: string;
+  send_time: string;
 }
 
 // ============================================

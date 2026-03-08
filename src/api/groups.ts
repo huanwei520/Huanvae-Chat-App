@@ -40,32 +40,20 @@ export interface CreateGroupRequest {
   join_mode?: 'open' | 'approval_required' | 'invite_only' | 'admin_invite_only' | 'closed';
 }
 
-/** 创建群聊响应 */
+/** 创建群聊响应（client.ts 已解包 ApiResponse.data） */
 export interface CreateGroupResponse {
-  success: boolean;
-  code: number;
-  data: {
-    group_id: string;
-    group_name: string;
-    created_at: string;
-  };
+  group_id: string;
+  group_name: string;
+  created_at: string;
 }
 
-/** 我的群聊列表响应 */
-export interface MyGroupsResponse {
-  success: boolean;
-  code: number;
-  data: Group[];
-}
+/** 我的群聊列表响应（client.ts 已解包 ApiResponse.data，这里直接是数组） */
+export type MyGroupsResponse = Group[];
 
-/** 群成员列表响应 */
+/** 群成员列表响应（client.ts 已解包 ApiResponse.data） */
 export interface GroupMembersResponse {
-  success: boolean;
-  code: number;
-  data: {
-    members: GroupMember[];
-    total: number;
-  };
+  members: GroupMember[];
+  total: number;
 }
 
 /** 收到的群邀请 */
@@ -81,13 +69,9 @@ export interface GroupInvitation {
   expires_at: string;
 }
 
-/** 收到的群邀请响应 */
+/** 收到的群邀请响应（client.ts 已解包 ApiResponse.data） */
 export interface GroupInvitationsResponse {
-  success: boolean;
-  code: number;
-  data: {
-    invitations: GroupInvitation[];
-  };
+  invitations: GroupInvitation[];
 }
 
 // ============================================
@@ -344,13 +328,9 @@ export interface GroupNotice {
   updated_at: string;
 }
 
-/** 群公告列表响应 */
+/** 群公告列表响应（client.ts 已解包 ApiResponse.data） */
 export interface GroupNoticesResponse {
-  success: boolean;
-  code: number;
-  data: {
-    notices: GroupNotice[];
-  };
+  notices: GroupNotice[];
 }
 
 /**
@@ -403,25 +383,17 @@ export interface InviteCode {
   created_at: string;
 }
 
-/** 邀请码列表响应 */
+/** 邀请码列表响应（client.ts 已解包 ApiResponse.data） */
 export interface InviteCodesResponse {
-  success: boolean;
-  code: number;
-  data: {
-    codes: InviteCode[];
-  };
+  codes: InviteCode[];
 }
 
-/** 生成邀请码响应 */
+/** 生成邀请码响应（client.ts 已解包 ApiResponse.data） */
 export interface GenerateInviteCodeResponse {
-  success: boolean;
-  code: number;
-  data: {
-    id: string;
-    code: string;
-    code_type: 'direct' | 'normal';
-    expires_at: string;
-  };
+  id: string;
+  code: string;
+  code_type: 'direct' | 'normal';
+  expires_at: string;
 }
 
 /**

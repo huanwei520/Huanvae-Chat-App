@@ -88,7 +88,8 @@ export function useFriends(): UseFriendsReturn {
   // 从服务器加载好友并保存到本地
   const loadServerFriends = useCallback(async (): Promise<Friend[]> => {
     const response = await getFriendsFromApi(api);
-    const serverFriends = (response.items || []).map(f => ({
+    const list = Array.isArray(response) ? response : [];
+    const serverFriends = list.map(f => ({
       ...f,
       friend_avatar_url: resolveServerAvatarUrl(f.friend_avatar_url) || null,
     }));
