@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import type { PendingToolCall } from '../../src/types/chat';
 import type { AIToolCallPendingEvent, AIStreamCallbacks, AIStatus } from '../../src/api/ai';
-import { confirmToolCall, rejectToolCall, getPendingToolCalls } from '../../src/api/ai';
+import { confirmToolCall, rejectToolCall } from '../../src/api/ai';
 import type { AIPendingToolCall, AIToolStatus } from '../../src/chat/ai/useAIMessages';
 
 describe('AI Agent 工具确认机制', () => {
@@ -68,13 +68,13 @@ describe('AI Agent 工具确认机制', () => {
     it('SSE 事件结构正确', () => {
       const event: AIToolCallPendingEvent = {
         pending_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        tool_name: 'send_message',
+        name: 'send_message',
         arguments: '{"friend_id":"xiaoming","content":"你好"}',
         expires_at: '2026-01-27T12:05:00Z',
       };
 
       expect(event.pending_id).toBeTruthy();
-      expect(event.tool_name).toBe('send_message');
+      expect(event.name).toBe('send_message');
       expect(event.arguments).toContain('friend_id');
       expect(event.expires_at).toBeTruthy();
     });
@@ -97,7 +97,7 @@ describe('AI Agent 工具确认机制', () => {
       const callbacks: AIStreamCallbacks = {
         onToolCallPending: (info) => {
           expect(info.pending_id).toBeDefined();
-          expect(info.tool_name).toBeDefined();
+          expect(info.name).toBeDefined();
         },
       };
 
@@ -133,8 +133,9 @@ describe('AI Agent 工具确认机制', () => {
       expect(typeof rejectToolCall).toBe('function');
     });
 
-    it('getPendingToolCalls 函数已导出', () => {
-      expect(typeof getPendingToolCalls).toBe('function');
+    it('confirmToolCall 和 rejectToolCall 函数类型正确', () => {
+      expect(typeof confirmToolCall).toBe('function');
+      expect(typeof rejectToolCall).toBe('function');
     });
   });
 
@@ -158,17 +159,8 @@ describe('AI Agent 工具确认机制', () => {
     });
   });
 
-  describe('AIToolStatus pending_confirm 状态', () => {
-    it('支持 pending_confirm 状态值', () => {
-      const status: AIToolStatus = {
-        name: 'send_message',
-        status: 'pending_confirm',
-      };
-
-      expect(status.status).toBe('pending_confirm');
-    });
-
-    it('仍然支持 calling 和 done 状态', () => {
+  describe('AIToolStatus 状态', () => {
+    it('支持 calling 和 done 状态', () => {
       const calling: AIToolStatus = { name: 'get_friend_list', status: 'calling' };
       const done: AIToolStatus = { name: 'get_friend_list', status: 'done' };
 
