@@ -27,7 +27,7 @@ import { ChatMenuButton } from '../../chat/shared/ChatMenu';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import type { AIMessage } from '../../types/chat';
-import type { AIToolStatus } from '../../chat/ai/useAIMessages';
+import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
 
 // 返回图标
 const BackIcon = () => (
@@ -102,11 +102,10 @@ interface MobileChatViewProps {
   aiStreamingReasoning?: string;
   aiIsLoading?: boolean;
   aiToolStatus?: AIToolStatus | null;
-  aiStatus?: import('./../../chat/ai/useAIMessages').AIStatus | null;
-  aiPendingToolCall?: import('./../../chat/ai/useAIMessages').AIPendingToolCall | null;
+  aiPendingToolCall?: AIPendingToolCall | null;
   aiRetryLastMessage?: () => void;
-  aiConfirmPendingTool?: () => Promise<void>;
-  aiRejectPendingTool?: () => Promise<void>;
+  onAIConfirmToolCall?: (pendingId: string) => Promise<void>;
+  onAIRejectToolCall?: (pendingId: string) => Promise<void>;
 
   // AI 语音通话
   voiceCallState?: VoiceCallState;
@@ -185,11 +184,10 @@ export function MobileChatView({
   aiStreamingReasoning = '',
   aiIsLoading = false,
   aiToolStatus = null,
-  aiStatus,
-  aiPendingToolCall,
+  aiPendingToolCall = null,
   aiRetryLastMessage,
-  aiConfirmPendingTool,
-  aiRejectPendingTool,
+  onAIConfirmToolCall,
+  onAIRejectToolCall,
   voiceCallState,
   voiceCallTurns = [],
   onVoiceStartCall,
@@ -333,11 +331,10 @@ export function MobileChatView({
             streamingReasoning={aiStreamingReasoning}
             isLoading={aiIsLoading}
             toolStatus={aiToolStatus}
-            aiStatus={aiStatus}
             pendingToolCall={aiPendingToolCall}
             onRetry={aiRetryLastMessage}
-            onConfirmTool={aiConfirmPendingTool}
-            onRejectTool={aiRejectPendingTool}
+            onConfirmToolCall={onAIConfirmToolCall}
+            onRejectToolCall={onAIRejectToolCall}
           />
         ) : null}
         {chatTarget.type === 'friend' && friend && (

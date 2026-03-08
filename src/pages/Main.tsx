@@ -194,11 +194,10 @@ export function Main() {
               aiStreamingReasoning={page.aiStreamingReasoning}
               aiIsLoading={page.aiIsLoading}
               aiToolStatus={page.aiToolStatus}
-              aiStatus={page.aiStatus}
               aiPendingToolCall={page.aiPendingToolCall}
               aiRetryLastMessage={page.aiRetryLastMessage}
-              aiConfirmPendingTool={page.aiConfirmPendingTool}
-              aiRejectPendingTool={page.aiRejectPendingTool}
+              onAIConfirmToolCall={page.aiConfirmToolCall}
+              onAIRejectToolCall={page.aiRejectToolCall}
               voiceCallState={page.voiceCallState}
               voiceCallTurns={page.voiceCallTurns}
               onVoiceStartCall={page.voiceStartCall}

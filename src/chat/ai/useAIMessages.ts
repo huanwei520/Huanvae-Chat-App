@@ -5,42 +5,27 @@
  * 支持 Agent Loop 工具调用状态实时反馈。
  * conversationId 变化时自动拉取并暴露 conversationTitle 用于卡片预览。
  * 提供会话列表管理：加载、切换、删除、新建会话。
- *
- * Agent 工具确认机制：
- * - 写操作工具通过 tool_call_pending 事件暂停 SSE 流
- * - 前端展示确认弹窗，用户选择确认/拒绝
- * - 调用 confirmToolCall/rejectToolCall API 后 SSE 流继续
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  streamAIMessage,
-  getAIMessages,
-  getAIConversation,
-  getAIConversations,
-  deleteAIConversation,
-  confirmToolCall as apiConfirmToolCall,
-  rejectToolCall as apiRejectToolCall,
-} from '../../api/ai';
-import type { AIToolCallPendingEvent, AIStatus } from '../../api/ai';
+import { streamAIMessage, getAIMessages, getAIConversation, getAIConversations, deleteAIConversation, confirmToolCall, rejectToolCall } from '../../api/ai';
 import type { ApiClient } from '../../api/client';
 import type { AIMessage, AIConversation } from '../../types/chat';
+import type { AIToolCallPendingEvent, ToolCallConfirmResult } from '../../api/ai';
 
 /** 工具调用实时状态 */
 export interface AIToolStatus {
   name: string;
-  status: 'calling' | 'done' | 'pending_confirm';
+  status: 'calling' | 'done';
 }
 
-/** 待确认的写操作工具调用（前端状态） */
+/** 待确认的写操作工具调用 */
 export interface AIPendingToolCall {
   pendingId: string;
   toolName: string;
   arguments: Record<string, unknown>;
   expiresAt: string;
 }
-
-export { type AIStatus } from '../../api/ai';
 
 /** 过滤掉 tool 角色和仅含 tool_calls 的中间 assistant 消息，只保留用户可见内容 */
 function filterVisibleMessages(msgs: AIMessage[]): AIMessage[] {
@@ -67,7 +52,6 @@ export interface UseAIMessagesReturn {
   streamingContent: string;
   streamingReasoning: string;
   toolStatus: AIToolStatus | null;
-  aiStatus: AIStatus | null;
   pendingToolCall: AIPendingToolCall | null;
   conversationId: string | null;
   conversationTitle: string | null;
@@ -76,8 +60,8 @@ export interface UseAIMessagesReturn {
   sendMessage: (content: string) => Promise<void>;
   retryLastMessage: () => void;
   clearMessages: () => void;
-  confirmPendingTool: () => Promise<void>;
-  rejectPendingTool: () => Promise<void>;
+  handleConfirmToolCall: (pendingId: string) => Promise<void>;
+  handleRejectToolCall: (pendingId: string) => Promise<void>;
   conversations: AIConversation[];
   conversationsLoading: boolean;
   loadConversations: () => Promise<void>;
@@ -93,7 +77,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingReasoning, setStreamingReasoning] = useState('');
   const [toolStatus, setToolStatus] = useState<AIToolStatus | null>(null);
-  const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<AIPendingToolCall | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
@@ -155,8 +138,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     setStreamingContent('');
     setStreamingReasoning('');
     setToolStatus(null);
-    setAiStatus(null);
-    setPendingToolCall(null);
 
     abortRef.current?.abort();
     const abortController = new AbortController();
@@ -175,9 +156,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
           onConversationId: (id) => {
             setConversationId(id);
           },
-          onStatus: (status) => {
-            setAiStatus(status);
-          },
           onReasoning: (text) => {
             accumulatedReasoning += text;
             setStreamingReasoning(accumulatedReasoning);
@@ -190,19 +168,21 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
             setToolStatus({ name: info.name, status: 'calling' });
           },
           onToolCallPending: (info: AIToolCallPendingEvent) => {
-            setToolStatus({ name: info.tool_name, status: 'pending_confirm' });
             let parsedArgs: Record<string, unknown> = {};
             try { parsedArgs = JSON.parse(info.arguments); } catch { /* ignore */ }
             setPendingToolCall({
               pendingId: info.pending_id,
-              toolName: info.tool_name,
+              toolName: info.name,
               arguments: parsedArgs,
               expiresAt: info.expires_at,
             });
+            // tool_call_pending 后不再需要显示 toolStatus，用 pendingToolCall 卡片代替
+            setToolStatus(null);
           },
           onToolResult: (info) => {
+            // 只有非 pending 的工具（只读工具自动执行）才会在这里收到 result
+            // pending 工具的结果在 confirm/reject 回调中处理
             setToolStatus({ name: info.name, status: 'done' });
-            setPendingToolCall(null);
           },
           onError: (error) => {
             console.error('[AI] 流式错误:', error);
@@ -224,8 +204,8 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
             setStreamingContent('');
             setStreamingReasoning('');
             setToolStatus(null);
-            setAiStatus(null);
-            setPendingToolCall(null);
+            // 注意：不要在这里清除 pendingToolCall！
+            // tool_call_pending 后 done 会立即触发，但用户还需要在卡片上确认/拒绝
           },
         },
         abortController.signal,
@@ -248,7 +228,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     } finally {
       setIsSending(false);
       setToolStatus(null);
-      setAiStatus(null);
     }
   }, [api, conversationId]);
 
@@ -273,6 +252,126 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     sendMessage(lastContent);
   }, [sendMessage]);
 
+  /**
+   * 确认工具调用后，自动发起新的 SSE 流请求让 AI 基于工具结果继续回复。
+   * 发送一条特殊的"continuation"消息，让 AI 知道工具已执行成功。
+   */
+  const continuateAfterToolCall = useCallback(async (
+    result: ToolCallConfirmResult,
+    action: 'confirmed' | 'rejected',
+  ) => {
+    if (!api || !conversationId) { return; }
+    // 构造通知消息让 AI 继续回复
+    const notifyMsg = action === 'confirmed'
+      ? `[系统通知] 用户已确认执行工具「${result.tool_name}」，执行${result.success ? '成功' : '失败'}。请基于执行结果继续回复。`
+      : `[系统通知] 用户拒绝了工具「${result.tool_name}」的执行。请告知用户操作已取消。`;
+
+    setIsSending(true);
+    setStreamingContent('');
+    setStreamingReasoning('');
+    setToolStatus(null);
+
+    abortRef.current?.abort();
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+
+    let accumulated = '';
+    let accumulatedReasoning = '';
+
+    try {
+      await streamAIMessage(
+        api,
+        notifyMsg,
+        conversationId,
+        {
+          onConversationId: () => { /* 已有 conversationId */ },
+          onReasoning: (text) => {
+            accumulatedReasoning += text;
+            setStreamingReasoning(accumulatedReasoning);
+          },
+          onContent: (text) => {
+            accumulated += text;
+            setStreamingContent(accumulated);
+          },
+          onToolCall: (info) => {
+            setToolStatus({ name: info.name, status: 'calling' });
+          },
+          onToolCallPending: (info: AIToolCallPendingEvent) => {
+            let parsedArgs: Record<string, unknown> = {};
+            try { parsedArgs = JSON.parse(info.arguments); } catch { /* ignore */ }
+            setPendingToolCall({
+              pendingId: info.pending_id,
+              toolName: info.name,
+              arguments: parsedArgs,
+              expiresAt: info.expires_at,
+            });
+            setToolStatus(null);
+          },
+          onToolResult: (info) => {
+            setToolStatus({ name: info.name, status: 'done' });
+          },
+          onDone: () => {
+            if (accumulated) {
+              const assistantMsg: AIMessage = {
+                id: `ai-${Date.now()}`,
+                role: 'assistant',
+                content: accumulated,
+                reasoning: accumulatedReasoning || null,
+                created_at: new Date().toISOString(),
+              };
+              setMessages(prev => [...prev, assistantMsg]);
+            }
+            setStreamingContent('');
+            setStreamingReasoning('');
+            setToolStatus(null);
+          },
+          onError: (error) => {
+            console.error('[AI] 工具确认后续流错误:', error);
+          },
+        },
+        abortController.signal,
+      );
+    } catch (err) {
+      console.error('[AI] 工具确认后续请求失败:', err);
+    } finally {
+      setIsSending(false);
+    }
+  }, [api, conversationId]);
+
+  const handleConfirmTC = useCallback(async (pendingId: string) => {
+    if (!api) { return; }
+    try {
+      const result = await confirmToolCall(api, pendingId);
+      setPendingToolCall(null);
+      // 自动触发 AI 继续回复
+      await continuateAfterToolCall(result, 'confirmed');
+    } catch (err) {
+      console.error('[AI] 确认工具调用失败:', err);
+    }
+  }, [api, continuateAfterToolCall]);
+
+  const handleRejectTC = useCallback(async (pendingId: string) => {
+    if (!api) { return; }
+    // 保存当前 pending 信息用于后续通知
+    const currentPending = pendingToolCall;
+    try {
+      await rejectToolCall(api, pendingId);
+      setPendingToolCall(null);
+      // 自动触发 AI 告知用户操作已取消
+      await continuateAfterToolCall(
+        {
+          pending_id: pendingId,
+          tool_name: currentPending?.toolName ?? '未知操作',
+          success: false,
+          result: {},
+        },
+        'rejected',
+      );
+    } catch (err) {
+      console.error('[AI] 拒绝工具调用失败:', err);
+    }
+  }, [api, continuateAfterToolCall, pendingToolCall]);
+
   const clearMessages = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
@@ -281,7 +380,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     setStreamingContent('');
     setStreamingReasoning('');
     setToolStatus(null);
-    setAiStatus(null);
     setPendingToolCall(null);
     setHasMore(false);
   }, []);
@@ -307,8 +405,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     setStreamingContent('');
     setStreamingReasoning('');
     setToolStatus(null);
-    setAiStatus(null);
-    setPendingToolCall(null);
     await loadMessages(convId);
   }, [conversationId, loadMessages]);
 
@@ -325,27 +421,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     }
   }, [api, conversationId, clearMessages]);
 
-  const confirmPendingTool = useCallback(async () => {
-    if (!api || !pendingToolCall) { return; }
-    try {
-      await apiConfirmToolCall(api, pendingToolCall.pendingId);
-      setPendingToolCall(null);
-    } catch (err) {
-      console.error('[AI] 确认工具调用失败:', err);
-    }
-  }, [api, pendingToolCall]);
-
-  const rejectPendingTool = useCallback(async () => {
-    if (!api || !pendingToolCall) { return; }
-    try {
-      await apiRejectToolCall(api, pendingToolCall.pendingId);
-      setPendingToolCall(null);
-      setToolStatus(null);
-    } catch (err) {
-      console.error('[AI] 拒绝工具调用失败:', err);
-    }
-  }, [api, pendingToolCall]);
-
   const newConversation = useCallback(() => {
     clearMessages();
   }, [clearMessages]);
@@ -357,7 +432,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     streamingContent,
     streamingReasoning,
     toolStatus,
-    aiStatus,
     pendingToolCall,
     conversationId,
     conversationTitle,
@@ -366,8 +440,8 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     sendMessage,
     retryLastMessage,
     clearMessages,
-    confirmPendingTool,
-    rejectPendingTool,
+    handleConfirmToolCall: handleConfirmTC,
+    handleRejectToolCall: handleRejectTC,
     conversations,
     conversationsLoading,
     loadConversations,
