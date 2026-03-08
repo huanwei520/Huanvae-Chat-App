@@ -32,7 +32,7 @@ import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import type { AIMessage, AIConversation } from '../../types/chat';
-import type { AIToolStatus } from '../ai/useAIMessages';
+import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
 
 // ============================================
 // 类型定义
@@ -92,11 +92,10 @@ interface ChatPanelProps {
   aiStreamingReasoning?: string;
   aiIsLoading?: boolean;
   aiToolStatus?: AIToolStatus | null;
-  aiStatus?: import('./../../chat/ai/useAIMessages').AIStatus | null;
-  aiPendingToolCall?: import('./../../chat/ai/useAIMessages').AIPendingToolCall | null;
+  aiPendingToolCall?: AIPendingToolCall | null;
   aiRetryLastMessage?: () => void;
-  aiConfirmPendingTool?: () => Promise<void>;
-  aiRejectPendingTool?: () => Promise<void>;
+  onAIConfirmToolCall?: (pendingId: string) => Promise<void>;
+  onAIRejectToolCall?: (pendingId: string) => Promise<void>;
 
   // AI 语音通话
   voiceCallState?: VoiceCallState;
@@ -195,11 +194,10 @@ export function ChatPanel({
   aiStreamingReasoning = '',
   aiIsLoading = false,
   aiToolStatus = null,
-  aiStatus,
-  aiPendingToolCall,
+  aiPendingToolCall = null,
   aiRetryLastMessage,
-  aiConfirmPendingTool,
-  aiRejectPendingTool,
+  onAIConfirmToolCall,
+  onAIRejectToolCall,
   voiceCallState,
   voiceCallTurns = [],
   onVoiceStartCall,
@@ -345,11 +343,10 @@ export function ChatPanel({
             streamingReasoning={aiStreamingReasoning}
             isLoading={aiIsLoading}
             toolStatus={aiToolStatus}
-            aiStatus={aiStatus}
             pendingToolCall={aiPendingToolCall}
             onRetry={aiRetryLastMessage}
-            onConfirmTool={aiConfirmPendingTool}
-            onRejectTool={aiRejectPendingTool}
+            onConfirmToolCall={onAIConfirmToolCall}
+            onRejectToolCall={onAIRejectToolCall}
           />
         ) : chatTarget.type === 'friend' ? (
           <ChatMessages

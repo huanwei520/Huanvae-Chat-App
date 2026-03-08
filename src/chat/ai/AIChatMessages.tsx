@@ -2,7 +2,7 @@
  * AI 聊天消息列表
  *
  * 复用现有的 chat-messages 容器样式。
- * 支持流式消息的实时显示、工具调用状态指示和写操作工具确认弹窗。
+ * 支持流式消息的实时显示和工具调用状态指示。
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AIMessageBubble } from './AIMessageBubble';
 import { AIAvatar } from '../../components/common/AIAvatar';
 import type { AIMessage } from '../../types/chat';
-import type { AIToolStatus, AIPendingToolCall, AIStatus } from './useAIMessages';
+import type { AIToolStatus, AIPendingToolCall } from './useAIMessages';
 
 /** 跟踪流式完成后需要跳过入场动画的消息 ID */
 function useStreamedMessageId(streamingContent: string, messages: AIMessage[]): string | null {
@@ -30,125 +30,31 @@ function useStreamedMessageId(streamingContent: string, messages: AIMessage[]): 
 }
 
 const TOOL_NAME_MAP: Record<string, string> = {
-  get_friend_list: '查询好友列表',
+  get_friend_list: '好友列表',
   send_message: '发送消息',
-  get_user_profile: '查询用户资料',
-  get_group_list: '查询群组列表',
-  get_recent_messages: '查询聊天记录',
-  send_friend_request: '发送好友请求',
-  delete_friend: '删除好友',
-  create_group: '创建群组',
-  leave_group: '退出群组',
-  send_group_message: '发送群消息',
-};
-
-/** 写操作工具参数的中文显示名 */
-const TOOL_ARG_LABEL: Record<string, string> = {
-  friend_id: '好友',
-  content: '内容',
-  group_id: '群组',
-  group_name: '群名',
-  user_id: '用户',
+  get_user_profile: '用户资料',
+  get_group_list: '群组列表',
+  get_recent_messages: '聊天记录',
+  send_friend_request: '好友请求',
 };
 
 function getToolDisplayName(name: string): string {
   return TOOL_NAME_MAP[name] || name;
 }
 
-/** 写操作工具确认卡片 */
-function ToolConfirmCard({
-  pending,
-  loading,
-  onConfirm,
-  onReject,
-}: {
-  pending: AIPendingToolCall;
-  loading: boolean;
-  onConfirm: () => void;
-  onReject: () => void;
-}) {
-  const [remainingMs, setRemainingMs] = useState(() => {
-    const expires = new Date(pending.expiresAt).getTime();
-    return Math.max(0, expires - Date.now());
-  });
+/** 工具参数友好显示名 */
+const TOOL_ARG_LABEL: Record<string, string> = {
+  friend_id: '好友',
+  content: '内容',
+  group_id: '群组',
+  message: '消息',
+  user_id: '用户',
+};
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const expires = new Date(pending.expiresAt).getTime();
-      setRemainingMs(Math.max(0, expires - Date.now()));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [pending.expiresAt]);
-
-  const remainingSec = Math.ceil(remainingMs / 1000);
-  const expired = remainingMs <= 0;
-
-  return (
-    <motion.div
-      className="message-row"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-    >
-      <div className="message-bubble other">
-        <div className="bubble-avatar" style={{ width: 36, height: 36, flexShrink: 0 }}>
-          <AIAvatar />
-        </div>
-        <div className="bubble-content">
-          <div className="ai-tool-confirm-card">
-            <div className="ai-tool-confirm-header">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <span>AI 想要执行操作</span>
-            </div>
-
-            <div className="ai-tool-confirm-name">
-              {getToolDisplayName(pending.toolName)}
-            </div>
-
-            {Object.keys(pending.arguments).length > 0 && (
-              <div className="ai-tool-confirm-args">
-                {Object.entries(pending.arguments).map(([key, value]) => (
-                  <div key={key} className="ai-tool-confirm-arg-row">
-                    <span className="ai-tool-confirm-arg-label">
-                      {TOOL_ARG_LABEL[key] || key}
-                    </span>
-                    <span className="ai-tool-confirm-arg-value">
-                      {typeof value === 'string' ? value : JSON.stringify(value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="ai-tool-confirm-timer">
-              {expired ? '已超时' : `${remainingSec}秒后自动拒绝`}
-            </div>
-
-            <div className="ai-tool-confirm-actions">
-              <button
-                className="ai-tool-confirm-btn reject"
-                onClick={onReject}
-                disabled={loading || expired}
-              >
-                拒绝
-              </button>
-              <button
-                className="ai-tool-confirm-btn confirm"
-                onClick={onConfirm}
-                disabled={loading || expired}
-              >
-                {loading ? '处理中...' : '确认执行'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
+function formatToolArgs(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([k, v]) => `${TOOL_ARG_LABEL[k] || k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+    .join('，');
 }
 
 interface AIChatMessagesProps {
@@ -157,11 +63,10 @@ interface AIChatMessagesProps {
   streamingReasoning?: string;
   isLoading: boolean;
   toolStatus: AIToolStatus | null;
-  aiStatus?: AIStatus | null;
   pendingToolCall?: AIPendingToolCall | null;
   onRetry?: () => void;
-  onConfirmTool?: () => Promise<void>;
-  onRejectTool?: () => Promise<void>;
+  onConfirmToolCall?: (pendingId: string) => Promise<void>;
+  onRejectToolCall?: (pendingId: string) => Promise<void>;
 }
 
 export function AIChatMessages({
@@ -170,16 +75,14 @@ export function AIChatMessages({
   streamingReasoning = '',
   isLoading,
   toolStatus,
-  aiStatus,
-  pendingToolCall,
+  pendingToolCall = null,
   onRetry,
-  onConfirmTool,
-  onRejectTool,
+  onConfirmToolCall,
+  onRejectToolCall,
 }: AIChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const skipAnimationId = useStreamedMessageId(streamingContent, messages);
-  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = containerRef.current;
@@ -218,7 +121,7 @@ export function AIChatMessages({
     );
   }
 
-  const hasMessages = messages.length > 0 || streamingContent || streamingReasoning || toolStatus;
+  const hasMessages = messages.length > 0 || streamingContent || streamingReasoning || toolStatus || pendingToolCall;
 
   return (
     <div
@@ -270,7 +173,7 @@ export function AIChatMessages({
         />
       )}
 
-      {toolStatus && !streamingContent && toolStatus.status !== 'pending_confirm' && (
+      {toolStatus && !streamingContent && !pendingToolCall && (
         <motion.div
           className="message-row"
           initial={{ opacity: 0, y: 10 }}
@@ -300,12 +203,12 @@ export function AIChatMessages({
                       animation: 'ai-blink 1.2s ease-in-out infinite',
                       flexShrink: 0,
                     }} />
-                    正在执行{getToolDisplayName(toolStatus.name)}...
+                    正在查询{getToolDisplayName(toolStatus.name)}...
                   </>
                 ) : (
                   <>
                     <span style={{ color: '#22c55e', flexShrink: 0 }}>✓</span>
-                    {getToolDisplayName(toolStatus.name)}完成
+                    {getToolDisplayName(toolStatus.name)}查询完成
                   </>
                 )}
               </div>
@@ -315,54 +218,158 @@ export function AIChatMessages({
       )}
 
       {pendingToolCall && (
-        <ToolConfirmCard
+        <PendingToolCallCard
           pending={pendingToolCall}
-          loading={confirmLoading}
-          onConfirm={async () => {
-            setConfirmLoading(true);
-            try { await onConfirmTool?.(); } finally { setConfirmLoading(false); }
-          }}
-          onReject={async () => {
-            setConfirmLoading(true);
-            try { await onRejectTool?.(); } finally { setConfirmLoading(false); }
-          }}
+          onConfirm={onConfirmToolCall}
+          onReject={onRejectToolCall}
         />
       )}
+    </div>
+  );
+}
 
-      {aiStatus === 'thinking' && !streamingContent && !streamingReasoning && !toolStatus && !pendingToolCall && (
-        <motion.div
-          className="message-row"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <div className="message-bubble other">
-            <div className="bubble-avatar" style={{ width: 36, height: 36, flexShrink: 0 }}>
-              <AIAvatar />
-            </div>
-            <div className="bubble-content">
-              <div className="bubble-text" style={{
+// ============================================
+// 写操作工具确认卡片
+// ============================================
+
+function PendingToolCallCard({
+  pending,
+  onConfirm,
+  onReject,
+}: {
+  pending: AIPendingToolCall;
+  onConfirm?: (pendingId: string) => Promise<void>;
+  onReject?: (pendingId: string) => Promise<void>;
+}) {
+  const [loading, setLoading] = useState<'confirm' | 'reject' | null>(null);
+
+  const handleConfirm = useCallback(async () => {
+    if (loading) { return; }
+    setLoading('confirm');
+    try {
+      await onConfirm?.(pending.pendingId);
+    } finally {
+      setLoading(null);
+    }
+  }, [loading, onConfirm, pending.pendingId]);
+
+  const handleReject = useCallback(async () => {
+    if (loading) { return; }
+    setLoading('reject');
+    try {
+      await onReject?.(pending.pendingId);
+    } finally {
+      setLoading(null);
+    }
+  }, [loading, onReject, pending.pendingId]);
+
+  const toolDisplayName = getToolDisplayName(pending.toolName);
+  const argsDisplay = formatToolArgs(pending.arguments);
+
+  return (
+    <motion.div
+      className="message-row"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      <div className="message-bubble other">
+        <div className="bubble-avatar" style={{ width: 36, height: 36, flexShrink: 0 }}>
+          <AIAvatar />
+        </div>
+        <div className="bubble-content">
+          <div className="bubble-text" style={{ padding: 0 }}>
+            <div style={{
+              background: 'var(--bg-tertiary, #f5f5f5)',
+              borderRadius: 10,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              minWidth: 220,
+            }}>
+              {/* 标题 */}
+              <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                color: 'var(--text-tertiary)',
+                gap: 6,
                 fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
               }}>
-                <span style={{
-                  display: 'inline-block',
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: 'var(--text-tertiary)',
-                  animation: 'ai-blink 1.2s ease-in-out infinite',
-                  flexShrink: 0,
-                }} />
-                AI 正在思考...
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                AI 请求执行操作
+              </div>
+
+              {/* 操作信息 */}
+              <div style={{
+                fontSize: 13,
+                color: 'var(--text-secondary)',
+                lineHeight: 1.5,
+              }}>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>操作：</strong>{toolDisplayName}
+                </div>
+                {argsDisplay && (
+                  <div style={{
+                    background: 'var(--bg-secondary, #eee)',
+                    borderRadius: 6,
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    wordBreak: 'break-all',
+                  }}>
+                    {argsDisplay}
+                  </div>
+                )}
+              </div>
+
+              {/* 操作按钮 */}
+              <div style={{
+                display: 'flex',
+                gap: 8,
+                justifyContent: 'flex-end',
+              }}>
+                <button
+                  onClick={handleReject}
+                  disabled={loading !== null}
+                  style={{
+                    padding: '5px 14px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border-color, #ddd)',
+                    background: 'var(--bg-primary, #fff)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 12,
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading === 'confirm' ? 0.5 : 1,
+                  }}
+                >
+                  {loading === 'reject' ? '拒绝中...' : '拒绝'}
+                </button>
+                <button
+                  onClick={handleConfirm}
+                  disabled={loading !== null}
+                  style={{
+                    padding: '5px 14px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: '#3b82f6',
+                    color: '#fff',
+                    fontSize: 12,
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading === 'reject' ? 0.5 : 1,
+                  }}
+                >
+                  {loading === 'confirm' ? '确认中...' : '确认执行'}
+                </button>
               </div>
             </div>
           </div>
-        </motion.div>
-      )}
-    </div>
+        </div>
+      </div>
+    </motion.div>
   );
 }
