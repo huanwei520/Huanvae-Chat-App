@@ -281,7 +281,7 @@ export async function createVoiceProfile(
     formData.append('system_prompt', systemPrompt);
   }
 
-  const url = `${baseUrl}/api/ai/voice-profiles`;
+  const url = `${baseUrl}/api/ai/voice_profiles`;
   console.warn('[VoiceProfile] 发送 POST 请求 (使用原生 fetch)', { url });
 
   // 必须使用原生 fetch，Tauri plugin-http 的 fetch 不能正确序列化 FormData
@@ -317,17 +317,17 @@ export async function createVoiceProfile(
 /** 获取声音配置列表 */
 // eslint-disable-next-line require-await
 export async function getVoiceProfiles(api: ApiClient): Promise<VoiceProfile[]> {
-  return api.get<VoiceProfile[]>('/api/ai/voice-profiles');
+  return api.get<VoiceProfile[]>('/api/ai/voice_profiles');
 }
 
 /** 设为默认声音 */
 export async function setDefaultVoiceProfile(api: ApiClient, profileId: string): Promise<void> {
-  await api.put<void>(`/api/ai/voice-profiles/${profileId}/default`);
+  await api.put<void>(`/api/ai/voice_profiles/${profileId}/default`);
 }
 
 /** 删除声音配置 */
 export async function deleteVoiceProfile(api: ApiClient, profileId: string): Promise<void> {
-  await api.delete<void>(`/api/ai/voice-profiles/${profileId}`);
+  await api.delete<void>(`/api/ai/voice_profiles/${profileId}`);
 }
 
 /** 更新声音配置的 system_prompt（自定义语音人设） */
@@ -336,7 +336,7 @@ export async function updateVoiceProfilePrompt(
   profileId: string,
   systemPrompt: string | null,
 ): Promise<void> {
-  await api.put<void>(`/api/ai/voice-profiles/${profileId}/prompt`, {
+  await api.put<void>(`/api/ai/voice_profiles/${profileId}/prompt`, {
     system_prompt: systemPrompt,
   });
 }
