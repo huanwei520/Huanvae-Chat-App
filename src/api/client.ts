@@ -131,7 +131,8 @@ export function createApiClient(config: ApiClientConfig) {
       throw new Error(data.error || data.message || `HTTP ${response.status}`);
     }
 
-    return data as T;
+    // 解包 ApiResponse 格式：{ success, code, data: T }
+    return data.data as T;
   }
 
   return {
