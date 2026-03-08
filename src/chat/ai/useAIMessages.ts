@@ -97,7 +97,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     getAIConversation(api, conversationId)
       .then(resp => {
         if (!cancelled) {
-          setConversationTitle(resp.data.conversation.title);
+          setConversationTitle(resp.conversation.title);
         }
       })
       .catch(() => { /* 静默失败，标题非关键 */ });
@@ -109,7 +109,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     setIsLoading(true);
     try {
       const resp = await getAIMessages(api, convId, { limit: 50 });
-      const allMsgs = extractMessages(resp.data);
+      const allMsgs = extractMessages(resp);
       const visible = filterVisibleMessages(allMsgs);
       setMessages(visible);
       setConversationId(convId);
@@ -389,8 +389,7 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
     setConversationsLoading(true);
     try {
       const resp = await getAIConversations(api, { perPage: 50 });
-      const data = resp.data;
-      const list = Array.isArray(data) ? data : (data?.conversations ?? []);
+      const list = Array.isArray(resp) ? resp : (resp?.conversations ?? []);
       setConversations(list);
     } catch (err) {
       console.error('[AI] 加载会话列表失败:', err);

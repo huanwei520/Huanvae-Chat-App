@@ -46,9 +46,8 @@ export interface PendingRequest {
   request_time: string;
 }
 
-export interface PendingRequestsResponse {
-  items: PendingRequest[];
-}
+/** client.ts 已解包 ApiResponse.data，直接是数组 */
+export type PendingRequestsResponse = PendingRequest[];
 
 export function getPendingRequests(api: ApiClient): Promise<PendingRequestsResponse> {
   return api.get<PendingRequestsResponse>('/api/friends/requests/pending');

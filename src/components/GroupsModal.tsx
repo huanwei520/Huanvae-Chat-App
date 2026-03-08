@@ -60,7 +60,7 @@ export function GroupsModal({ isOpen, onClose, onGroupSelect }: GroupsModalProps
     setLoadingGroups(true);
     try {
       const response = await getMyGroups(api);
-      setGroups(response.data || []);
+      setGroups(Array.isArray(response) ? response : []);
     } catch {
       setGroups([]);
     } finally {
@@ -73,7 +73,7 @@ export function GroupsModal({ isOpen, onClose, onGroupSelect }: GroupsModalProps
     setLoadingInvitations(true);
     try {
       const response = await getGroupInvitations(api);
-      setInvitations(response.data?.invitations || []);
+      setInvitations(response.invitations || []);
     } catch {
       setInvitations([]);
     } finally {

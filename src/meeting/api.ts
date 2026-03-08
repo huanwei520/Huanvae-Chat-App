@@ -223,12 +223,7 @@ export type ClientMessage =
 // API 响应包装类型
 // ============================================
 
-/** 标准 API 响应格式 */
-interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  message?: string;
-}
+// client.ts 已解包 ApiResponse.data，无需再定义外层包装类型
 
 // ============================================
 // API 函数
@@ -239,14 +234,13 @@ interface ApiResponse<T> {
  * @param api - API 客户端
  * @param region - 可选，客户端区域用于就近分配
  */
-export async function getIceServers(
+export function getIceServers(
   api: ApiClient,
   region?: string,
 ): Promise<IceConfigResponse> {
-  const response = await api.get<ApiResponse<IceConfigResponse>>(
+  return api.get<IceConfigResponse>(
     region ? `/api/webrtc/ice_servers?region=${encodeURIComponent(region)}` : '/api/webrtc/ice_servers',
   );
-  return response.data;
 }
 
 /**
@@ -254,12 +248,11 @@ export async function getIceServers(
  * @param api - API 客户端
  * @param options - 创建选项
  */
-export async function createRoom(
+export function createRoom(
   api: ApiClient,
   options: CreateRoomRequest = {},
 ): Promise<CreateRoomResponse> {
-  const response = await api.post<ApiResponse<CreateRoomResponse>>('/api/webrtc/rooms', options as unknown as Record<string, unknown>);
-  return response.data;
+  return api.post<CreateRoomResponse>('/api/webrtc/rooms', options as unknown as Record<string, unknown>);
 }
 
 /**
@@ -269,7 +262,7 @@ export async function createRoom(
  * @param password - 密码
  * @param displayName - 显示名称
  */
-export async function joinRoom(
+export function joinRoom(
   api: ApiClient,
   roomId: string,
   password: string,
@@ -283,11 +276,10 @@ export async function joinRoom(
   if (avatarUrl) {
     body.avatar_url = avatarUrl;
   }
-  const response = await api.post<ApiResponse<JoinRoomResponse>>(
+  return api.post<JoinRoomResponse>(
     `/api/webrtc/rooms/${roomId}/join`,
     body as unknown as Record<string, unknown>,
   );
-  return response.data;
 }
 
 /**

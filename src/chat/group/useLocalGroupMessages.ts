@@ -381,8 +381,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         msg.clientId === clientId
           ? {
             ...msg,
-            message_uuid: response.data.message_uuid,
-            send_time: response.data.send_time,
+            message_uuid: response.message_uuid,
+            send_time: response.send_time,
             sendStatus: 'sent',
           }
           : msg,
@@ -390,7 +390,7 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       // 保存到本地数据库
       const localMessage: Omit<LocalMessage, 'created_at'> = {
-        message_uuid: response.data.message_uuid,
+        message_uuid: response.message_uuid,
         conversation_id: groupId,
         conversation_type: 'group',
         sender_id: session.userId,
@@ -408,11 +408,11 @@ export function useLocalGroupMessages(groupId: string | null) {
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
-        send_time: response.data.send_time,
+        send_time: response.send_time,
       };
       await db.saveMessage(localMessage);
 
-      logLocal('消息发送成功并保存到本地', { uuid: response.data.message_uuid });
+      logLocal('消息发送成功并保存到本地', { uuid: response.message_uuid });
       // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
     } catch (err) {
       logError('发送消息失败', err);
@@ -510,8 +510,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         msg.clientId === clientId
           ? {
             ...msg,
-            message_uuid: response.data.message_uuid,
-            send_time: response.data.send_time,
+            message_uuid: response.message_uuid,
+            send_time: response.send_time,
             sendStatus: 'sent',
           }
           : msg,
@@ -519,7 +519,7 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       // 保存到本地数据库
       const localMessage: Omit<LocalMessage, 'created_at'> = {
-        message_uuid: response.data.message_uuid,
+        message_uuid: response.message_uuid,
         conversation_id: groupId,
         conversation_type: 'group',
         sender_id: session.userId,
@@ -537,12 +537,12 @@ export function useLocalGroupMessages(groupId: string | null) {
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
-        send_time: response.data.send_time,
+        send_time: response.send_time,
       };
       await db.saveMessage(localMessage);
 
-      logLocal('媒体消息发送成功', { uuid: response.data.message_uuid, hasFileLink: !!fileHash });
-      logFileLink('媒体消息已链接到本地', { uuid: response.data.message_uuid, fileHash, localPath });
+      logLocal('媒体消息发送成功', { uuid: response.message_uuid, hasFileLink: !!fileHash });
+      logFileLink('媒体消息已链接到本地', { uuid: response.message_uuid, fileHash, localPath });
       // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
 
       return response;

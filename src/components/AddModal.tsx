@@ -74,7 +74,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
     setLoadingFriendRequests(true);
     try {
       const response = await getPendingRequests(api);
-      setFriendRequests(response.items || []);
+      setFriendRequests(Array.isArray(response) ? response : []);
     } catch {
       setFriendRequests([]);
     } finally {
@@ -87,7 +87,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
     setLoadingGroupInvites(true);
     try {
       const response = await getGroupInvitations(api);
-      setGroupInvites(response.data?.invitations || []);
+      setGroupInvites(response.invitations || []);
     } catch {
       setGroupInvites([]);
     } finally {
@@ -208,8 +208,8 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
       setGroupDesc('');
       // 构建 Group 对象进行增量添加（无需全量刷新）
       addGroup?.({
-        group_id: result.data.group_id,
-        group_name: result.data.group_name,
+        group_id: result.group_id,
+        group_name: result.group_name,
         group_avatar_url: '',
         role: 'owner',
         unread_count: 0,

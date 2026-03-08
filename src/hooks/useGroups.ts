@@ -94,7 +94,8 @@ export function useGroups(): UseGroupsReturn {
   // 从服务器加载群聊并保存到本地
   const loadServerGroups = useCallback(async (): Promise<Group[]> => {
     const response = await getMyGroups(api);
-    const serverGroups = (response.data || []).map(g => ({
+    const list = Array.isArray(response) ? response : [];
+    const serverGroups = list.map(g => ({
       ...g,
       group_avatar_url: resolveServerAvatarUrl(g.group_avatar_url) || '',
     }));

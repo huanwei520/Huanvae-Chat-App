@@ -130,7 +130,7 @@ describe('API 客户端 (api/client)', () => {
           ok: true,
           data: { access_token: 'new-token', refresh_token: 'new-refresh' },
         }) as never)
-        .mockResolvedValueOnce(createMockResponse({ data: { id: 1 } }) as never);
+        .mockResolvedValueOnce(createMockResponse({ data: { data: { id: 1 } } }) as never);
 
       const onTokenRefresh = vi.fn();
       const client = createApiClient({

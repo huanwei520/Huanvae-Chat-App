@@ -142,7 +142,7 @@ export async function loadAllHistoryMessages(
           limit: BATCH_SIZE,
         });
 
-        const messages = response.data?.messages || [];
+        const messages = response.messages || [];
 
         if (messages.length === 0) {
           hasMore = false;
