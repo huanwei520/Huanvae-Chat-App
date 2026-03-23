@@ -19,6 +19,12 @@
  *   2. 自己发送的消息且 WebSocket 比 API 快 → 替换 sending 消息
  *   3. 其他情况 → 添加新消息
  *
+ * 防重复机制：
+ * - WS 事件仅在本 hook 内订阅（useMainPage 不再重复订阅），收到新消息时同步调用 markRead
+ * - loadMessages / syncMessagesInBackground 在 await 后校验 friendId 是否过期，
+ *   快速切换时丢弃旧会话的异步结果，防止消息污染
+ * - Sync 合并时按 clientId 去重，避免临时 uuid 与真实 uuid 不匹配导致的重复
+ *
  * 调试日志前缀：
  * - [LocalMessages] 本地消息加载
  * - [Sync] 服务器同步
@@ -154,7 +160,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       return;
     }
 
-    // 生成正确的 conversation_id（格式: conv-user1-user2）
+    const targetFriendId = friendId;
     const conversationId = getFriendConversationId(session.userId, friendId);
 
     setLoading(true);
@@ -163,8 +169,13 @@ export function useLocalFriendMessages(friendId: string | null) {
     try {
       logLocal('开始加载本地消息', { friendId, conversationId, limit });
 
-      // 1. 从本地数据库加载（使用正确的 conversation_id）
       const localMessages = await db.getMessages(conversationId, limit);
+
+      // 过期校验：快速切换后丢弃旧结果
+      if (currentFriendId.current !== targetFriendId) {
+        logLocal('加载完成但好友已切换，丢弃结果', { target: targetFriendId, current: currentFriendId.current });
+        return;
+      }
 
       logLocal('本地消息加载完成', {
         count: localMessages.length,
@@ -188,15 +199,12 @@ export function useLocalFriendMessages(friendId: string | null) {
         });
       }
 
-      // 2. 转换为 UI Message 类型
       const uiMessages = localMessages.map((m) => localMessageToMessage(m, friendId));
       setMessages(uiMessages);
       setHasMore(localMessages.length >= limit);
 
-      // 3. 获取会话信息
       conversationRef.current = await db.getConversation(conversationId);
 
-      // 4. 记录文件链接状态
       const filesWithHash = localMessages.filter((m) => m.file_hash);
       if (filesWithHash.length > 0) {
         logFileLink('检测到带哈希的文件消息', {
@@ -215,7 +223,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       setLoading(false);
     }
 
-    // 5. 触发后台同步
     syncMessagesInBackground();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [friendId]);
@@ -229,7 +236,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       return;
     }
 
-    // 生成正确的 conversation_id
+    const targetFriendId = friendId;
     const conversationId = getFriendConversationId(session.userId, friendId);
 
     setSyncing(true);
@@ -240,11 +247,10 @@ export function useLocalFriendMessages(friendId: string | null) {
         return;
       }
 
-      // 获取或创建会话记录
       let conversation = conversationRef.current;
       if (!conversation) {
         conversation = {
-          id: conversationId, // 使用正确的 conversation_id 格式
+          id: conversationId,
           type: 'friend',
           name: '',
           avatar_url: null,
@@ -268,40 +274,46 @@ export function useLocalFriendMessages(friendId: string | null) {
         lastSeq: conversation.last_seq,
       });
 
-      // 执行增量同步
       const result = await syncService.syncMessages([conversation]);
+
+      // 过期校验：快速切换后丢弃旧结果
+      if (currentFriendId.current !== targetFriendId) {
+        logSync('同步完成但好友已切换，丢弃结果', { target: targetFriendId, current: currentFriendId.current });
+        return;
+      }
 
       if (result.updatedConversations.includes(conversationId)) {
         logSync('同步完成，发现新消息', {
           newCount: result.newMessagesCount,
         });
 
-        // 重新加载本地消息
         const updatedMessages = await db.getMessages(conversationId, 50);
+
+        // 二次过期校验
+        if (currentFriendId.current !== targetFriendId) {
+          logSync('加载同步消息后好友已切换，丢弃结果');
+          return;
+        }
+
         const uiMessages = updatedMessages.map((m) => localMessageToMessage(m, friendId));
 
-        // 智能合并：保留现有消息的 clientId 和 sendStatus，避免触发不必要的动画
-        // 同时保留正在发送中的消息（sendStatus 为 'sending'）
         setMessages((prev) => {
           const existingMap = new Map(prev.map((m) => [m.message_uuid, m]));
-          // 保留正在发送中的消息（这些消息还没保存到数据库）
           const sendingMessages = prev.filter((m) => m.sendStatus === 'sending');
 
           const mergedMessages = uiMessages.map((newMsg) => {
             const existing = existingMap.get(newMsg.message_uuid);
             if (existing) {
-              // 保留 clientId 和 sendStatus
               return { ...newMsg, clientId: existing.clientId, sendStatus: existing.sendStatus };
             }
             return newMsg;
           });
 
-          // 如果有正在发送的消息，确保它们不被覆盖
           if (sendingMessages.length > 0) {
             const mergedUuids = new Set(mergedMessages.map((m) => m.message_uuid));
-            // 添加那些不在合并结果中的发送中消息
+            const mergedClientIds = new Set(mergedMessages.map((m) => m.clientId).filter(Boolean));
             const missingMessages = sendingMessages.filter(
-              (m) => !mergedUuids.has(m.message_uuid),
+              (m) => !mergedUuids.has(m.message_uuid) && !mergedClientIds.has(m.clientId),
             );
             if (missingMessages.length > 0) {
               logSync('保留发送中的消息', { count: missingMessages.length });
@@ -319,7 +331,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       }
     } catch (err) {
       logError('后台同步失败', err);
-      // 同步失败不影响本地消息显示
     } finally {
       setSyncing(false);
     }
@@ -751,6 +762,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     const unsubscribeNew = ws.onNewMessage((msg) => {
       if (msg.source_type === 'friend' && msg.source_id === friendId) {
         handleNewMessage(msg);
+        ws.markRead('friend', msg.source_id);
       }
     });
 

@@ -8,12 +8,12 @@
  * - 消息发送
  * - 文件上传
  * - 系统通知处理（好友/群聊相关实时通知）
- * - WebSocket 订阅
  *
  * 重构要点：
  * - chatTarget 状态迁移到 Zustand store
  * - WebSocket 回调中使用 store.getState() 获取最新状态，避免依赖数组问题
  * - 群角色更新使用 store 的 updateGroup 和 updateChatTargetRole 方法
+ * - WS 新消息/撤回订阅已统一由各消息 hook 内部管理（避免双重订阅导致消息重复）
  *
  * 支持的系统通知类型：
  * - friend_request_approved: 好友请求通过，添加好友到列表
@@ -182,8 +182,6 @@ export function useMainPage() {
     initPendingNotifications,
     setActiveChat,
     updateLastMessage,
-    onNewMessage,
-    onMessageRecalled,
     onSystemNotification,
   } = useWebSocket();
 
@@ -248,8 +246,6 @@ export function useMainPage() {
     // sendMediaMessage: sendFriendMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadFriendMessages,
     loadMoreMessages: loadMoreFriendMessages,
-    handleNewMessage: handleNewFriendMessage,
-    handleMessageRecalled: handleFriendMessageRecalled,
     removeMessage: removeFriendMessage,
   } = useLocalFriendMessages(friendId);
 
@@ -266,8 +262,6 @@ export function useMainPage() {
     // sendMediaMessage: sendGroupMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadGroupMessages,
     loadMoreMessages: loadMoreGroupMessages,
-    handleNewMessage: handleNewGroupMessage,
-    handleMessageRecalled: handleGroupMessageRecalled,
     removeMessage: removeGroupMessage,
   } = useLocalGroupMessages(groupId);
 
@@ -347,58 +341,9 @@ export function useMainPage() {
     }
   }, [chatTarget, loadFriendMessages, loadGroupMessages, markRead]);
 
-  // ============================================
-  // 订阅新消息事件
-  // ============================================
-  useEffect(() => {
-    const unsubscribe = onNewMessage((msg) => {
-      // 使用 store.getState() 获取最新的 chatTarget，避免闭包问题
-      const currentTarget = useChatStore.getState().chatTarget;
-      if (currentTarget) {
-        if (
-          currentTarget.type === 'friend' &&
-          msg.source_type === 'friend' &&
-          msg.source_id === currentTarget.data.friend_id
-        ) {
-          handleNewFriendMessage(msg);
-          markRead('friend', msg.source_id);
-        } else if (
-          currentTarget.type === 'group' &&
-          msg.source_type === 'group' &&
-          msg.source_id === currentTarget.data.group_id
-        ) {
-          handleNewGroupMessage(msg);
-          markRead('group', msg.source_id);
-        }
-      }
-    });
-    return unsubscribe;
-  }, [handleNewFriendMessage, handleNewGroupMessage, markRead, onNewMessage]);
-
-  // ============================================
-  // 订阅消息撤回事件
-  // ============================================
-  useEffect(() => {
-    const unsubscribe = onMessageRecalled((msg) => {
-      const currentTarget = useChatStore.getState().chatTarget;
-      if (currentTarget) {
-        if (
-          currentTarget.type === 'friend' &&
-          msg.source_type === 'friend' &&
-          msg.source_id === currentTarget.data.friend_id
-        ) {
-          handleFriendMessageRecalled(msg);
-        } else if (
-          currentTarget.type === 'group' &&
-          msg.source_type === 'group' &&
-          msg.source_id === currentTarget.data.group_id
-        ) {
-          handleGroupMessageRecalled(msg);
-        }
-      }
-    });
-    return unsubscribe;
-  }, [handleFriendMessageRecalled, handleGroupMessageRecalled, onMessageRecalled]);
+  // WS 新消息 / 撤回事件的订阅已统一由各消息 hook 内部处理
+  // （useLocalFriendMessages / useLocalGroupMessages 内含 ws.onNewMessage + ws.onMessageRecalled）
+  // markRead 也在 hook 内的 WS 监听回调中调用，避免双重订阅导致消息重复
 
   // ============================================
   // 订阅系统通知（关键重构：移除 groups 依赖）
