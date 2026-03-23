@@ -100,13 +100,17 @@ export function GroupChatMessages({
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: GroupMessage) => msg.clientId || msg.message_uuid;
 
-  // 消息排序：按时间正序（旧→新），发送中的消息排在最后
+  // 消息去重 + 排序：按 message_uuid 去重后按时间正序（旧→新），发送中的消息排在最后
   const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => {
-      // 发送中的消息排在最后（显示在底部）
+    const seen = new Set<string>();
+    const deduped = messages.filter((msg) => {
+      if (seen.has(msg.message_uuid)) { return false; }
+      seen.add(msg.message_uuid);
+      return true;
+    });
+    return deduped.sort((a, b) => {
       if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return 1; }
       if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return -1; }
-      // 其他按时间正序（旧→新）
       return new Date(a.send_time).getTime() - new Date(b.send_time).getTime();
     });
   }, [messages]);
