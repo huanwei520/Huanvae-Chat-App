@@ -6,18 +6,16 @@
 
 import type { ApiClient } from './client';
 
-/** 个人资料响应 */
+/** 个人资料响应（createApiClient 已自动解包 ApiResponse.data，此处为解包后的扁平结构） */
 export interface ProfileResponse {
-  data: {
-    user_id: string;
-    user_nickname: string;
-    user_email: string | null;
-    user_signature: string | null;
-    user_avatar_url: string | null;
-    admin: string;
-    created_at: string;
-    updated_at: string;
-  };
+  user_id: string;
+  user_nickname: string;
+  user_email: string | null;
+  user_signature: string | null;
+  user_avatar_url: string | null;
+  admin: string;
+  created_at: string;
+  updated_at: string;
 }
 
 /** 更新资料请求 */

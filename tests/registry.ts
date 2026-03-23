@@ -205,7 +205,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useFileUpload', path: 'hooks/useFileUpload', category: 'hooks', description: '文件上传 Hook' },
   { name: 'useFileCache', path: 'hooks/useFileCache', category: 'hooks', description: '文件缓存 Hook' },
   { name: 'useChatActions', path: 'hooks/useChatActions', category: 'hooks', description: '聊天操作 Hook' },
-  { name: 'useChatMenu', path: 'hooks/useChatMenu', category: 'hooks', description: '聊天菜单 Hook' },
+  { name: 'useChatMenu', path: 'chat/group/useChatMenu', category: 'hooks', description: '聊天菜单 Hook' },
   { name: 'useMultiSelect', path: 'hooks/useMultiSelect', category: 'hooks', description: '多选 Hook' },
   { name: 'useMainPage', path: 'hooks/useMainPage', category: 'hooks', description: '主页面 Hook' },
   { name: 'useAccounts', path: 'hooks/useAccounts', category: 'hooks', description: '账号管理 Hook' },
