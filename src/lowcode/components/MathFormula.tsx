@@ -88,7 +88,7 @@ export function MathFormula({ latex, inline = false, className }: MathFormulaPro
 
   return (
     <span className={className}>
-      <MathJax>{formula}</MathJax>
+      <MathJax dynamic>{formula}</MathJax>
     </span>
   );
 }

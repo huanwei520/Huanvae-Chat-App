@@ -295,12 +295,20 @@ function deserializeNode(
     return null;
   }
 
+  const mergedOperator = { ...operator } as Operator & { latex_formula?: string; operator_type?: string };
+  if (workflowNode.latex_formula) {
+    mergedOperator.latex_formula = workflowNode.latex_formula;
+  }
+  if (workflowNode.type) {
+    mergedOperator.operator_type = workflowNode.type;
+  }
+
   return {
     id: workflowNode.id,
     type: 'operator',
     position: workflowNode.position || { x: 0, y: 0 },
     data: {
-      operator,
+      operator: mergedOperator,
       label: workflowNode.name,
     } as unknown as Record<string, unknown>,
   };
@@ -337,7 +345,7 @@ function deserializeEdge(workflowEdge: WorkflowEdge): Edge {
  * 保留增强字段：type, required, description, default, latex_name, paper_ref
  */
 function deserializeInputBindings(inputs: WorkflowInput[]): InputBinding[] {
-  return inputs.map((input) => {
+  return inputs.filter((input) => input.bind_to).map((input) => {
     const result: InputBinding = {
       name: input.name,
       nodeId: input.bind_to.node,
@@ -363,7 +371,7 @@ function deserializeInputBindings(inputs: WorkflowInput[]): InputBinding[] {
  * 支持两种来源格式：节点端口 和 累加器
  */
 function deserializeOutputBindings(outputs: WorkflowOutput[]): OutputBinding[] {
-  return outputs.map((output) => {
+  return outputs.filter((output) => output.bind_from).map((output) => {
     const result: OutputBinding = {
       name: output.name,
     };

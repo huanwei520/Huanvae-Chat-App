@@ -9,6 +9,8 @@
  * 使用 UnifiedList 组件实现单卡片级别的动画效果
  * 切换 tab 时旧卡片飞出、新卡片飞入
  *
+ * 弹窗组件：个人资料、添加好友/群聊、文件管理、会议入口、小程序管理
+ *
  * 同步状态：
  * - 登录后自动同步所有会话的增量消息
  * - 在消息列表顶部显示同步进度横幅
@@ -28,16 +30,19 @@ import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
+import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
+import '../styles/miniapps.css';
 import '../styles/voice-call.css';
 
 export function Main() {
   const page = useMainPage();
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [showMiniAppsModal, setShowMiniAppsModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   // 打开局域网传输独立窗口
@@ -87,17 +92,16 @@ export function Main() {
       <Sidebar
         session={page.session}
         activeTab={page.activeTab}
-        pendingNotificationCount={page.pendingNotificationCount}
         isSettingsOpen={showSettingsPanel}
         onTabChange={(tab) => {
           setShowSettingsPanel(false);
           page.handleTabChange(tab);
         }}
         onAvatarClick={() => page.setShowProfileModal(true)}
-        onAddClick={() => page.setShowAddModal(true)}
         onFilesClick={() => setShowFilesModal(true)}
         onLanTransferClick={handleLanTransferClick}
         onMeetingClick={() => setShowMeetingModal(true)}
+        onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onLowcodeClick={handleLowcodeClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
@@ -134,6 +138,8 @@ export function Main() {
               syncNotification={syncNotification}
               onSyncDismiss={clearNotification}
               onSyncRetry={triggerSync}
+              onAddClick={() => page.setShowAddModal(true)}
+              pendingNotificationCount={page.pendingNotificationCount}
             />
           )}
         </AnimatePresence>
@@ -263,6 +269,10 @@ export function Main() {
       <MeetingEntryModal
         isOpen={showMeetingModal}
         onClose={() => setShowMeetingModal(false)}
+      />
+      <MiniAppsModal
+        isOpen={showMiniAppsModal}
+        onClose={() => setShowMiniAppsModal(false)}
       />
     </div>
   );

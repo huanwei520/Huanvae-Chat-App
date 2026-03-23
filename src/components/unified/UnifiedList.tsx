@@ -15,7 +15,13 @@
  *
  * AI 卡片：
  * - 置顶显示在消息 Tab 列表第一位
+ * - 与普通卡片统一由同一个 AnimatePresence mode="popLayout" 管理退场动画
  * - 通过 aiConversationTitle 动态显示当前会话标题，无会话时显示默认文案
+ *
+ * 添加按钮：
+ * - 位于搜索框右侧，用于添加好友/群聊
+ * - 支持通知红点显示待处理请求数
+ * - 面板极窄（< 120px）时自动隐藏
  */
 
 import { useMemo } from 'react';
@@ -32,6 +38,13 @@ import { useLocalConversations } from '../../hooks/useLocalConversations';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
+
+// 添加按钮图标（+号）
+const PlusIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+  </svg>
+);
 
 // ============================================
 // 类型定义
@@ -96,6 +109,10 @@ interface UnifiedListProps {
   onSyncDismiss?: () => void;
   /** 同步重试回调（可选） */
   onSyncRetry?: () => void;
+  /** 添加好友/群聊回调 */
+  onAddClick?: () => void;
+  /** 待处理通知数 */
+  pendingNotificationCount?: number;
 }
 
 // ============================================
@@ -187,6 +204,8 @@ export function UnifiedList({
   syncNotification,
   onSyncDismiss: _onSyncDismiss,
   onSyncRetry,
+  onAddClick,
+  pendingNotificationCount = 0,
 }: UnifiedListProps) {
 
   // 获取本地会话预览（用于 fallback）
@@ -486,6 +505,20 @@ export function UnifiedList({
           panelWidth={panelWidth}
           placeholder={getPlaceholder()}
         />
+        {onAddClick && (
+          <button
+            className="header-add-btn"
+            onClick={onAddClick}
+            title="添加好友/群聊"
+          >
+            <PlusIcon />
+            {pendingNotificationCount > 0 && (
+              <span className="notification-badge">
+                {pendingNotificationCount > 99 ? '99+' : pendingNotificationCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* 同步状态横幅：位于搜索栏下方 */}
@@ -508,43 +541,42 @@ export function UnifiedList({
             {renderOverlay()}
           </AnimatePresence>
 
-          {/* AI 助手置顶卡片（仅消息 Tab） */}
-          {activeTab === 'chat' && !loading && !error && (
-            <motion.div
-              key="ai-assistant"
-              className="conversation-item"
-              onClick={() => onSelectTarget({ type: 'ai' })}
-              variants={cardVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              layout="position"
-              transition={cardTransition}
-            >
-              {selectedKey === 'ai-assistant' && (
-                <motion.div
-                  layoutId="selected-border"
-                  className="conversation-selected-border"
-                  style={{ borderRadius: 14 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                />
-              )}
-              <div className="conv-avatar">
-                <AIAvatar />
-              </div>
-              <div className="conv-info">
-                <div className="conv-header">
-                  <span className="conv-name">AI 助手</span>
-                </div>
-                <div className="conv-footer">
-                  <span className="conv-preview">{aiConversationTitle || '有什么可以帮你的？'}</span>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* 卡片列表：正常文档流 */}
+          {/* 卡片列表：AI 卡片 + 普通卡片统一由同一个 AnimatePresence 管理退场动画 */}
           <AnimatePresence mode="popLayout">
+            {/* AI 助手置顶卡片（仅消息 Tab） */}
+            {activeTab === 'chat' && !loading && !error && (
+              <motion.div
+                key="ai-assistant"
+                className="conversation-item"
+                onClick={() => onSelectTarget({ type: 'ai' })}
+                variants={cardVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                layout="position"
+                transition={cardTransition}
+              >
+                {selectedKey === 'ai-assistant' && (
+                  <motion.div
+                    layoutId="selected-border"
+                    className="conversation-selected-border"
+                    style={{ borderRadius: 14 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <div className="conv-avatar">
+                  <AIAvatar />
+                </div>
+                <div className="conv-info">
+                  <div className="conv-header">
+                    <span className="conv-name">AI 助手</span>
+                  </div>
+                  <div className="conv-footer">
+                    <span className="conv-preview">{aiConversationTitle || '有什么可以帮你的？'}</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
             {renderCards()}
           </AnimatePresence>
         </motion.div>

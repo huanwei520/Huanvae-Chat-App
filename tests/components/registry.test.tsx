@@ -126,7 +126,7 @@ import * as useFiles from '../../src/hooks/useFiles';
 import * as useFileUpload from '../../src/hooks/useFileUpload';
 import * as useFileCache from '../../src/hooks/useFileCache';
 import * as useChatActions from '../../src/hooks/useChatActions';
-import * as useChatMenu from '../../src/hooks/useChatMenu';
+import * as useChatMenu from '../../src/chat/group/useChatMenu';
 import * as useMultiSelect from '../../src/hooks/useMultiSelect';
 import * as useMainPage from '../../src/hooks/useMainPage';
 import * as useAccounts from '../../src/hooks/useAccounts';
