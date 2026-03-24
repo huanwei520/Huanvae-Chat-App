@@ -10,6 +10,9 @@
  * - 麦克风/摄像头控制
  * - 屏幕共享
  * - 参与者列表
+ * - 全屏聚焦模式：点击任意 tile 弹出全窗口覆盖层（Spotlight Overlay），
+ *   主画面铺满窗口，底部浮动缩略图条 + 操作按钮（鼠标静止 3s 自动隐藏），
+ *   ⛶ 按钮可进入显示器全屏（Fullscreen API），Esc 分层退出
  *
  * @see backend-docs/webrtc/WebRTC房间.md
  */
@@ -48,24 +51,28 @@ import './styles.css';
  * 1. screenStream（屏幕共享）- 优先显示
  * 2. cameraStream（摄像头）
  * 3. stream（未区分的混合流，兼容旧逻辑）
+ *
+ * 轨道状态检测使用事件监听（mute/unmute/ended）+ 500ms 轮询兜底，
+ * srcObject 在 stream 或 hasActiveVideo 变化时直接更新，不使用缓存
+ *
+ * 支持聚焦模式：点击 tile 可将该参与者放大为主画面
  */
 function ParticipantVideo({
   participant,
   isLocal,
   roomName,
   isSpeaking,
+  onClick,
 }: {
   participant?: RemoteParticipant;
   isLocal?: boolean;
   stream?: MediaStream | null;
   roomName?: string;
-  /** 是否正在说话（本地用户使用此属性） */
   isSpeaking?: boolean;
+  onClick?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  // 记录上次设置的 stream id，避免不必要的更新
-  const lastStreamIdRef = useRef<string | null>(null);
 
   // 视频流优先级：屏幕共享 > 摄像头 > 混合流
   const stream = participant?.screenStream || participant?.cameraStream || participant?.stream;
@@ -73,40 +80,53 @@ function ParticipantVideo({
   // 是否正在共享屏幕（用于 UI 提示）
   const isScreenSharing = !!participant?.screenStream;
 
-  // 简化的视频轨道状态检查（低频轮询代替高频事件监听）
+  // 检查视频轨道状态（事件监听 + 轮询兜底，与 LocalVideo 一致）
   useEffect(() => {
     if (!stream) {
       setHasActiveVideo(false);
       return;
     }
 
-    // 初始检查
     const checkVideoTrack = () => {
       const videoTracks = stream.getVideoTracks();
-      return videoTracks.some((track) => track.readyState === 'live' && !track.muted);
+      const hasLiveVideo = videoTracks.some(
+        (track) => track.readyState === 'live' && !track.muted,
+      );
+      setHasActiveVideo(hasLiveVideo);
     };
 
-    setHasActiveVideo(checkVideoTrack());
+    checkVideoTrack();
 
-    // 使用低频轮询（500ms）代替高频事件监听，减少状态更新
-    const interval = setInterval(() => {
-      setHasActiveVideo(checkVideoTrack());
-    }, 500);
+    const videoTracks = stream.getVideoTracks();
+    const handleTrackChange = () => checkVideoTrack();
 
-    return () => clearInterval(interval);
+    videoTracks.forEach((track) => {
+      track.addEventListener('ended', handleTrackChange);
+      track.addEventListener('mute', handleTrackChange);
+      track.addEventListener('unmute', handleTrackChange);
+    });
+
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+
+    // 轮询兜底 enabled 属性变化（无原生事件）
+    const interval = setInterval(checkVideoTrack, 500);
+
+    return () => {
+      videoTracks.forEach((track) => {
+        track.removeEventListener('ended', handleTrackChange);
+        track.removeEventListener('mute', handleTrackChange);
+        track.removeEventListener('unmute', handleTrackChange);
+      });
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+      clearInterval(interval);
+    };
   }, [stream]);
 
-  // 设置视频源（使用 ref 缓存避免不必要更新）
+  // 设置视频源（hasActiveVideo 变化时直接更新，不使用缓存）
   useEffect(() => {
-    if (!videoRef.current) { return; }
-
-    // 获取当前 stream 的唯一标识
-    const currentStreamId = stream?.id ?? null;
-
-    // 只有 stream 真正变化时才更新 srcObject
-    if (currentStreamId !== lastStreamIdRef.current || !hasActiveVideo) {
-      lastStreamIdRef.current = currentStreamId;
-
+    if (videoRef.current) {
       if (stream && hasActiveVideo) {
         videoRef.current.srcObject = stream;
       } else {
@@ -174,8 +194,9 @@ function ParticipantVideo({
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
+      onClick={onClick}
+      style={{ cursor: onClick ? 'pointer' : undefined }}
     >
-      {/* 隐藏的音频元素：用于播放远程音频（使用原始 stream，不是区分后的视频流） */}
       {!isLocal && participant?.stream && (
         <audio
           ref={audioRef}
@@ -193,7 +214,6 @@ function ParticipantVideo({
         />
       ) : (
         <div className="participant-placeholder">
-          {/* 如果有头像URL（登录用户），显示头像图片；否则显示首字母 */}
           {participant?.user_info?.avatar_url ? (
             <img
               className="avatar-image"
@@ -221,11 +241,12 @@ function LocalVideo({
   stream,
   isSpeaking,
   avatarUrl,
+  onClick,
 }: {
   stream: MediaStream | null;
   isSpeaking: boolean;
-  /** 本地用户头像URL */
   avatarUrl?: string | null;
+  onClick?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
@@ -291,12 +312,13 @@ function LocalVideo({
       className={`participant-video local ${isSpeaking ? 'speaking' : ''}`}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
+      onClick={onClick}
+      style={{ cursor: onClick ? 'pointer' : undefined }}
     >
       {showVideo ? (
         <video ref={videoRef} autoPlay playsInline muted />
       ) : (
         <div className="participant-placeholder">
-          {/* 如果有头像URL，显示头像图片；否则显示"我" */}
           {avatarUrl ? (
             <img className="avatar-image" src={avatarUrl} alt="我" />
           ) : (
@@ -322,6 +344,13 @@ export default function MeetingPage() {
 
   // 权限修复引导弹窗
   const [showPermissionGuide, setShowPermissionGuide] = useState(false);
+
+  // 全屏聚焦模式：'local' = 本地全屏, participant.id = 远程全屏, null = 网格模式
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // 全屏覆盖层中控制区可见性（鼠标移动时显示，静止 3 秒后自动隐藏）
+  const [overlayVisible, setOverlayVisible] = useState(true);
+  const hideTimerRef = useRef<number>(0);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   // 获取可用的分辨率选项（根据显示器分辨率过滤）
   const availableResolutions = getAvailableResolutions();
@@ -395,6 +424,65 @@ export default function MeetingPage() {
       setShowPermissionGuide(true);
     }
   }, [webrtc.mediaError]);
+
+  // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
+  useEffect(() => {
+    if (!focusedId) {
+      return undefined;
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.fullscreenElement) {
+        setFocusedId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusedId]);
+
+  // 聚焦的参与者离开时自动退出聚焦模式
+  useEffect(() => {
+    if (focusedId && focusedId !== 'local') {
+      const stillPresent = webrtc.participants.some((p) => p.id === focusedId);
+      if (!stillPresent) {
+        setFocusedId(null);
+      }
+    }
+  }, [focusedId, webrtc.participants]);
+
+  // 退出聚焦时同步退出显示器全屏 + 清理定时器
+  useEffect(() => {
+    if (!focusedId) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+      clearTimeout(hideTimerRef.current);
+      setOverlayVisible(true);
+    }
+  }, [focusedId]);
+
+  // 点击 tile 进入全屏聚焦
+  const handleTileClick = useCallback((id: string) => {
+    setFocusedId(id);
+    setOverlayVisible(true);
+  }, []);
+
+  // 全屏覆盖层鼠标移动：显示控制区，3 秒后自动隐藏
+  const handleOverlayMouseMove = useCallback(() => {
+    setOverlayVisible(true);
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = window.setTimeout(() => {
+      setOverlayVisible(false);
+    }, 3000);
+  }, []);
+
+  // 切换显示器全屏（Fullscreen API）
+  const toggleDisplayFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      overlayRef.current?.requestFullscreen().catch(() => {});
+    }
+  }, []);
 
   // 离开会议
   const handleLeave = useCallback(() => {
@@ -478,14 +566,13 @@ export default function MeetingPage() {
       {/* 视频区域 */}
       <main className="meeting-main">
         <div className={`video-grid ${showParticipants ? 'with-sidebar' : ''}`}>
-          {/* 本地视频 */}
+          {/* 网格模式：所有 tile 作为 grid 直接子元素 */}
           <LocalVideo
             stream={webrtc.localStream}
             isSpeaking={webrtc.isSpeaking}
             avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+            onClick={() => handleTileClick('local')}
           />
-
-          {/* 远程参与者视频 */}
           <AnimatePresence>
             {webrtc.participants.map((participant) => (
               <ParticipantVideo
@@ -493,6 +580,7 @@ export default function MeetingPage() {
                 participant={participant}
                 roomName={meetingData.roomName}
                 isSpeaking={participant.isSpeaking}
+                onClick={() => handleTileClick(participant.id)}
               />
             ))}
           </AnimatePresence>
@@ -641,6 +729,89 @@ export default function MeetingPage() {
           </motion.button>
         </div>
       </footer>
+
+      {/* 全屏聚焦覆盖层：点击 tile 后弹出，覆盖整个窗口 */}
+      <AnimatePresence>
+        {focusedId && (
+          <motion.div
+            ref={overlayRef}
+            className="spotlight-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            onMouseMove={handleOverlayMouseMove}
+          >
+            {/* 主画面 */}
+            <div className="spotlight-main">
+              <AnimatePresence mode="wait">
+                {focusedId === 'local' ? (
+                  <LocalVideo
+                    key="spotlight-local"
+                    stream={webrtc.localStream}
+                    isSpeaking={webrtc.isSpeaking}
+                    avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                  />
+                ) : (
+                  (() => {
+                    const focused = webrtc.participants.find((p) => p.id === focusedId);
+                    if (!focused) { return null; }
+                    return (
+                      <ParticipantVideo
+                        key={`spotlight-${focused.id}`}
+                        participant={focused}
+                        roomName={meetingData.roomName}
+                        isSpeaking={focused.isSpeaking}
+                      />
+                    );
+                  })()
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* 底部控制区：缩略图 + 操作按钮（鼠标静止 3s 自动隐藏） */}
+            <div className={`spotlight-controls ${overlayVisible ? '' : 'hidden'}`}>
+              <div className="spotlight-thumbnails">
+                {focusedId !== 'local' && (
+                  <LocalVideo
+                    stream={webrtc.localStream}
+                    isSpeaking={webrtc.isSpeaking}
+                    avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                    onClick={() => setFocusedId('local')}
+                  />
+                )}
+                {webrtc.participants
+                  .filter((p) => p.id !== focusedId)
+                  .map((p) => (
+                    <ParticipantVideo
+                      key={p.id}
+                      participant={p}
+                      roomName={meetingData.roomName}
+                      isSpeaking={p.isSpeaking}
+                      onClick={() => setFocusedId(p.id)}
+                    />
+                  ))}
+              </div>
+              <div className="spotlight-actions">
+                <button
+                  className="spotlight-btn"
+                  onClick={toggleDisplayFullscreen}
+                  title="显示器全屏"
+                >
+                  ⛶
+                </button>
+                <button
+                  className="spotlight-btn"
+                  onClick={() => setFocusedId(null)}
+                  title="退出聚焦"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 权限修复引导弹窗 */}
       <AnimatePresence>

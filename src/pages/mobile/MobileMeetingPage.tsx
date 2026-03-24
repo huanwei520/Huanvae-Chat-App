@@ -7,6 +7,9 @@
  * - 全屏视频显示
  * - 适配触摸操作
  * - 支持最小化为悬浮图标（可同时使用其他功能）
+ * - 全屏聚焦模式：双击 tile 弹出全屏覆盖层（CSS transform 强制横屏），
+ *   右侧垂直缩略图条切换聚焦对象，单击 toggle 简化控制栏，
+ *   双击或 Android 返回键退出聚焦
  *
  * 架构说明：
  * - WebRTC 实例在 MobileMain.tsx 中创建，通过 props 传入
@@ -33,6 +36,7 @@ import {
   ParticipantsIcon,
 } from '../../components/common/Icons';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 
 // 最小化图标（内联定义）
 const MinimizeIcon = () => (
@@ -64,6 +68,7 @@ interface ParticipantVideoProps {
   stream?: MediaStream | null;
   isSpeaking?: boolean;
   avatarUrl?: string | null;
+  onClick?: () => void;
 }
 
 function ParticipantVideo({
@@ -72,16 +77,16 @@ function ParticipantVideo({
   stream: propStream,
   isSpeaking,
   avatarUrl,
+  onClick,
 }: ParticipantVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const lastStreamIdRef = useRef<string | null>(null);
 
   // 视频流：本地使用 propStream，远程使用 participant.cameraStream 或 stream
   const stream = propStream || participant?.cameraStream || participant?.stream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
 
-  // 检查视频轨道状态
+  // 检查视频轨道状态（事件监听 + 轮询兜底，与桌面端一致）
   useEffect(() => {
     if (!stream) {
       setHasActiveVideo(false);
@@ -90,27 +95,44 @@ function ParticipantVideo({
 
     const checkVideoTrack = () => {
       const videoTracks = stream.getVideoTracks();
-      return videoTracks.some((track) => track.readyState === 'live' && !track.muted);
+      const hasLiveVideo = videoTracks.some(
+        (track) => track.readyState === 'live' && !track.muted,
+      );
+      setHasActiveVideo(hasLiveVideo);
     };
 
-    setHasActiveVideo(checkVideoTrack());
+    checkVideoTrack();
 
-    const interval = setInterval(() => {
-      setHasActiveVideo(checkVideoTrack());
-    }, 500);
+    const videoTracks = stream.getVideoTracks();
+    const handleTrackChange = () => checkVideoTrack();
 
-    return () => clearInterval(interval);
+    videoTracks.forEach((track) => {
+      track.addEventListener('ended', handleTrackChange);
+      track.addEventListener('mute', handleTrackChange);
+      track.addEventListener('unmute', handleTrackChange);
+    });
+
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+
+    // 轮询兜底 enabled 属性变化（无原生事件）
+    const interval = setInterval(checkVideoTrack, 500);
+
+    return () => {
+      videoTracks.forEach((track) => {
+        track.removeEventListener('ended', handleTrackChange);
+        track.removeEventListener('mute', handleTrackChange);
+        track.removeEventListener('unmute', handleTrackChange);
+      });
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+      clearInterval(interval);
+    };
   }, [stream]);
 
-  // 设置视频源
+  // 设置视频源（hasActiveVideo 变化时直接更新，不使用缓存）
   useEffect(() => {
-    if (!videoRef.current) { return; }
-
-    const currentStreamId = stream?.id ?? null;
-
-    if (currentStreamId !== lastStreamIdRef.current || !hasActiveVideo) {
-      lastStreamIdRef.current = currentStreamId;
-
+    if (videoRef.current) {
       if (stream && hasActiveVideo) {
         videoRef.current.srcObject = stream;
       } else {
@@ -146,7 +168,10 @@ function ParticipantVideo({
   const displayAvatar = isLocal ? avatarUrl : resolveServerAvatarUrl(participant?.user_info?.avatar_url);
 
   return (
-    <div className={`mobile-participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}>
+    <div
+      className={`mobile-participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}
+      onClick={onClick}
+    >
       {/* 远程音频 */}
       {!isLocal && participant?.stream && (
         <audio ref={audioRef} autoPlay style={{ display: 'none' }} />
@@ -172,6 +197,13 @@ function ParticipantVideo({
 }
 
 // ============================================
+// 常量
+// ============================================
+
+/** 双击判定间隔（ms） */
+const DOUBLE_TAP_DELAY = 300;
+
+// ============================================
 // 主组件
 // ============================================
 
@@ -193,6 +225,17 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
   const [meetingData, setMeetingData] = useState<MeetingWindowData | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
 
+  // 全屏聚焦模式状态
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(false);
+
+  // 双击检测 refs
+  const lastGridTapRef = useRef(0);
+  const lastGridTapIdRef = useRef<string | null>(null);
+  const lastOverlayTapRef = useRef(0);
+  const overlaySingleTapTimerRef = useRef<number>(0);
+  const throttleRef = useRef(false);
+
   // 读取会议数据（仅用于显示）
   useEffect(() => {
     const data = loadMeetingData();
@@ -210,6 +253,78 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       onMinimize();
     }
   }, [onMinimize]);
+
+  // --- 全屏聚焦模式逻辑 ---
+
+  const enterFocus = useCallback((id: string) => {
+    if (throttleRef.current) { return; }
+    throttleRef.current = true;
+    setFocusedId(id);
+    setControlsVisible(false);
+    setTimeout(() => { throttleRef.current = false; }, DOUBLE_TAP_DELAY);
+  }, []);
+
+  const exitFocus = useCallback(() => {
+    if (throttleRef.current) { return; }
+    throttleRef.current = true;
+    setFocusedId(null);
+    setControlsVisible(false);
+    setTimeout(() => { throttleRef.current = false; }, DOUBLE_TAP_DELAY);
+  }, []);
+
+  // 网格双击检测：同一 tile 上 300ms 内两次点击 → 进入聚焦
+  const handleGridTap = useCallback((id: string) => {
+    const now = Date.now();
+    if (now - lastGridTapRef.current < DOUBLE_TAP_DELAY && lastGridTapIdRef.current === id) {
+      enterFocus(id);
+      lastGridTapRef.current = 0;
+    } else {
+      lastGridTapRef.current = now;
+      lastGridTapIdRef.current = id;
+    }
+  }, [enterFocus]);
+
+  // 覆盖层点击检测：单击 toggle 控制栏（300ms 延迟确认），双击退出聚焦
+  const handleOverlayTap = useCallback(() => {
+    const now = Date.now();
+    const elapsed = now - lastOverlayTapRef.current;
+    lastOverlayTapRef.current = now;
+
+    if (elapsed < DOUBLE_TAP_DELAY) {
+      clearTimeout(overlaySingleTapTimerRef.current);
+      exitFocus();
+    } else {
+      overlaySingleTapTimerRef.current = window.setTimeout(() => {
+        setControlsVisible((prev) => !prev);
+      }, DOUBLE_TAP_DELAY);
+    }
+  }, [exitFocus]);
+
+  // 聚焦的参与者离开时自动退出
+  useEffect(() => {
+    if (focusedId && focusedId !== 'local') {
+      const stillPresent = webrtc.participants.some((p) => p.id === focusedId);
+      if (!stillPresent) {
+        exitFocus();
+      }
+    }
+  }, [focusedId, webrtc.participants, exitFocus]);
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      clearTimeout(overlaySingleTapTimerRef.current);
+    };
+  }, []);
+
+  // Android 返回键：聚焦中优先退出聚焦
+  useMobileBackHandler(() => {
+    if (focusedId) {
+      exitFocus();
+      return true;
+    }
+    return false;
+  });
 
   // 加载中
   if (!meetingData) {
@@ -246,21 +361,23 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       {/* 视频区域 */}
       <main className="mobile-meeting-main">
         <div className="mobile-video-grid">
-          {/* 本地视频 */}
+          {/* 本地视频（双击进入聚焦） */}
           <ParticipantVideo
             isLocal
             stream={webrtc.localStream}
             isSpeaking={webrtc.isSpeaking}
             avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+            onClick={() => handleGridTap('local')}
           />
 
-          {/* 远程参与者 */}
+          {/* 远程参与者（双击进入聚焦） */}
           <AnimatePresence>
             {webrtc.participants.map((participant) => (
               <ParticipantVideo
                 key={participant.id}
                 participant={participant}
                 isSpeaking={participant.isSpeaking}
+                onClick={() => handleGridTap(participant.id)}
               />
             ))}
           </AnimatePresence>
@@ -380,6 +497,98 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
           <span>离开</span>
         </button>
       </footer>
+
+      {/* 全屏聚焦覆盖层（双击 tile 后弹出，横屏全窗口） */}
+      <AnimatePresence>
+        {focusedId && (
+          <motion.div
+            className="mobile-spotlight-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            {/* 主画面区域（单击 toggle 控制栏，双击退出） */}
+            <div className="mobile-spotlight-main" onClick={handleOverlayTap}>
+              {focusedId === 'local' ? (
+                <ParticipantVideo
+                  isLocal
+                  stream={webrtc.localStream}
+                  isSpeaking={webrtc.isSpeaking}
+                  avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                />
+              ) : (
+                (() => {
+                  const focused = webrtc.participants.find((p) => p.id === focusedId);
+                  if (!focused) { return null; }
+                  return (
+                    <ParticipantVideo
+                      participant={focused}
+                      isSpeaking={focused.isSpeaking}
+                    />
+                  );
+                })()
+              )}
+
+              {/* 简化控制栏（仅图标，胶囊样式） */}
+              <AnimatePresence>
+                {controlsVisible && (
+                  <motion.div
+                    className="mobile-spotlight-controls"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    transition={{ duration: 0.2 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      className={`mobile-spotlight-btn ${!webrtc.mediaState.micEnabled ? 'off' : ''}`}
+                      onClick={() => webrtc.toggleMic()}
+                    >
+                      {webrtc.mediaState.micEnabled ? <MicOnIcon /> : <MicOffIcon />}
+                    </button>
+                    <button
+                      className={`mobile-spotlight-btn ${!webrtc.mediaState.cameraEnabled ? 'off' : ''}`}
+                      onClick={() => webrtc.toggleCamera()}
+                    >
+                      {webrtc.mediaState.cameraEnabled ? <VideoOnIcon /> : <VideoOffIcon />}
+                    </button>
+                    <button
+                      className="mobile-spotlight-btn end-call"
+                      onClick={onClose}
+                    >
+                      <PhoneEndIcon />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* 右侧垂直缩略图条（点击切换聚焦对象） */}
+            <div className="mobile-spotlight-sidebar">
+              {focusedId !== 'local' && (
+                <ParticipantVideo
+                  isLocal
+                  stream={webrtc.localStream}
+                  isSpeaking={webrtc.isSpeaking}
+                  avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                  onClick={() => setFocusedId('local')}
+                />
+              )}
+              {webrtc.participants
+                .filter((p) => p.id !== focusedId)
+                .map((p) => (
+                  <ParticipantVideo
+                    key={p.id}
+                    participant={p}
+                    isSpeaking={p.isSpeaking}
+                    onClick={() => setFocusedId(p.id)}
+                  />
+                ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
