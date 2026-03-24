@@ -346,23 +346,6 @@ export function useWebRTC(): UseWebRTCReturn {
   }, [broadcastMediaType]);
 
   /**
-   * 广播媒体类型到所有已连接的 peer
-   * 用于新 transceiver 创建后通知所有接收端
-   * 备用函数，当前未使用（使用 broadcastMediaType 逐个发送）
-   */
-  const _broadcastMediaTypeToAll = useCallback((mid: string, mediaType: 'camera' | 'screen') => {
-    const message: MediaTypeMessage = { type: 'media-type', mid, mediaType };
-    const messageStr = JSON.stringify(message);
-    dataChannelsRef.current.forEach((channel) => {
-      if (channel.readyState === 'open') {
-        channel.send(messageStr);
-      }
-    });
-  }, []);
-
-  void _broadcastMediaTypeToAll; // 标记为备用
-
-  /**
    * 处理接收到的 DataChannel 消息
    * 支持的消息类型：
    * - speaking: 发言状态变化

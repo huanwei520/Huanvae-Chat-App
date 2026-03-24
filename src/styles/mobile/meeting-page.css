@@ -6,6 +6,12 @@
  * - 大号控制按钮，适合触摸操作
  * - 简化的 UI，移除屏幕共享
  * - 使用 CSS 变量，支持主题切换
+ *
+ * 包含：
+ * 1. 页面容器 + 顶部栏 + 视频网格 + 控制栏
+ * 2. 参与者列表面板
+ * 3. 会议入口页面
+ * 4. 全屏聚焦覆盖层（双击 tile → CSS transform 强制横屏，右侧缩略图，简化控制栏）
  */
 
 /* ============================================
@@ -656,4 +662,148 @@
 .mobile-meeting-copy svg {
   width: 18px;
   height: 18px;
+}
+
+/* ============================================
+   全屏聚焦覆盖层（Spotlight Overlay）
+   双击 tile 弹出全屏覆盖层，通过 CSS transform 强制横屏显示。
+   竖屏时旋转 90°，宽高互换；已横屏时保持原样。
+   右侧垂直缩略图条，单击 toggle 简化控制栏，双击退出。
+   ============================================ */
+
+.mobile-spotlight-overlay {
+  position: fixed;
+  z-index: 10000;
+  background: #000;
+  display: flex;
+  flex-direction: row;
+  touch-action: manipulation;
+}
+
+/* 竖屏时：旋转 90° 强制横屏显示，宽高互换 */
+@media (orientation: portrait) {
+  .mobile-spotlight-overlay {
+    top: 0;
+    left: 0;
+    width: 100vh;
+    height: 100vw;
+    transform: rotate(90deg);
+    transform-origin: top left;
+    translate: 100vw 0;
+  }
+}
+
+/* 已横屏时：正常铺满 */
+@media (orientation: landscape) {
+  .mobile-spotlight-overlay {
+    inset: 0;
+  }
+}
+
+/* 主画面区域：占满除缩略图外的空间 */
+.mobile-spotlight-main {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-spotlight-main > .mobile-participant-video {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  aspect-ratio: auto;
+}
+
+.mobile-spotlight-main > .mobile-participant-video video {
+  object-fit: contain;
+}
+
+.mobile-spotlight-main > .mobile-participant-video .mobile-participant-name {
+  display: none;
+}
+
+/* 右侧垂直缩略图条 */
+.mobile-spotlight-sidebar {
+  width: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.6);
+  flex-shrink: 0;
+}
+
+.mobile-spotlight-sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-spotlight-sidebar .mobile-participant-video {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.mobile-spotlight-sidebar .mobile-participant-video:active {
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.mobile-spotlight-sidebar .mobile-participant-name {
+  display: none;
+}
+
+/* 简化控制栏（胶囊样式，居中于主画面区域底部） */
+.mobile-spotlight-controls {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  padding: 10px 24px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 999px;
+}
+
+.mobile-spotlight-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-spotlight-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.mobile-spotlight-btn:active {
+  transform: scale(0.92);
+}
+
+.mobile-spotlight-btn.off {
+  background: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.mobile-spotlight-btn.end-call {
+  background: #ef4444;
+}
+
+.mobile-spotlight-btn.end-call:active {
+  background: #dc2626;
 }

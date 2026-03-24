@@ -1,9 +1,13 @@
 /**
  * 视频会议样式
  *
- * 包含两部分：
+ * 包含三部分：
  * 1. 入口弹窗样式 (.meeting-modal-*)
  * 2. 会议页面样式 (.meeting-page, .video-grid, etc.)
+ * 3. 全屏聚焦覆盖层样式 (.spotlight-overlay, .spotlight-main, .spotlight-controls)
+ *    - 点击 tile 弹出 fixed 覆盖层，主画面铺满窗口
+ *    - 底部浮动缩略图条 + 操作按钮，鼠标静止 3s 自动隐藏
+ *    - ⛶ 按钮进入显示器全屏（Fullscreen API），Esc 分层退出
  *
  * 风格与主页面保持一致：浅色毛玻璃效果、蓝色渐变主题
  */
@@ -617,6 +621,118 @@
 .participant-video.screen-sharing {
   border-color: var(--status-success-subtle);
   box-shadow: 0 0 0 1px var(--status-success-subtle);
+}
+
+/* ============================================
+   全屏聚焦覆盖层（Spotlight Overlay）
+   点击 tile 后弹出全窗口覆盖层，主画面居中显示，
+   底部浮动缩略图条和操作按钮，鼠标静止 3s 后自动隐藏
+   ============================================ */
+
+/* 覆盖层：固定定位覆盖整个窗口 */
+.spotlight-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+}
+
+/* 主画面容器：占满剩余空间 */
+.spotlight-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.spotlight-main .participant-video {
+  max-width: 100%;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  border: none;
+}
+
+.spotlight-main .participant-video video {
+  object-fit: contain;
+}
+
+/* 底部控制区：渐变背景 + 过渡隐藏 */
+.spotlight-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.spotlight-controls.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
+/* 缩略图条 */
+.spotlight-thumbnails {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: calc(100% - 120px);
+}
+
+.spotlight-thumbnails .participant-video {
+  width: 140px;
+  height: 90px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.spotlight-thumbnails .participant-video:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+/* 操作按钮组 */
+.spotlight-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.spotlight-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  transition: background-color 0.2s ease;
+}
+
+.spotlight-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* 参与者侧边栏 */
