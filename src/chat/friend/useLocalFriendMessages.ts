@@ -781,15 +781,29 @@ export function useLocalFriendMessages(friendId: string | null) {
   // ============================================
   // WebSocket 重连时触发同步
   // ============================================
-  // 只在连接建立后（特别是重连时）执行一次同步，以获取断线期间的消息
+  // connected false→true 时触发同步，但 Token 热切换（connected 始终为 true）不会触发。
+  // 断连时间 < 2s 的极短断连（如 resumed 会话恢复）也跳过，由服务端重放事件覆盖。
 
   const wasConnectedRef = useRef(false);
+  const disconnectedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!ws.connected && wasConnectedRef.current) {
+      disconnectedAtRef.current = Date.now();
+    }
+
     if (ws.connected && !wasConnectedRef.current) {
-      // 连接刚建立，触发同步
-      logSync('WebSocket 连接建立，触发增量同步');
-      syncMessagesInBackground();
+      const gap = disconnectedAtRef.current
+        ? Date.now() - disconnectedAtRef.current
+        : Infinity;
+      disconnectedAtRef.current = null;
+
+      if (gap > 2000) {
+        logSync('WebSocket 重连，触发增量同步');
+        syncMessagesInBackground();
+      } else {
+        logSync(`WebSocket 短断连 (${gap}ms)，跳过同步`);
+      }
     }
     wasConnectedRef.current = ws.connected;
   }, [ws.connected, syncMessagesInBackground]);

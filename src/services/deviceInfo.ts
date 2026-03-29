@@ -46,13 +46,13 @@ async function getMacAddress(): Promise<string | null> {
  * 获取或生成 Android 设备 UUID
  *
  * Android 10+ 限制了 MAC 地址访问，使用持久化 UUID 替代
- * UUID 存储在 Keystore 中，重装应用后会重新生成
+ * UUID 存储在应用私有目录中，重装应用后会重新生成
  *
  * @returns 设备 UUID，格式 "uuid:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
  */
 async function getAndroidDeviceId(): Promise<string> {
   try {
-    // 尝试从 Keystore 读取已存储的 UUID
+    // 尝试从本地存储读取已存储的 UUID
     const { retrieveDeviceUuid, storeDeviceUuid } = await import('./mobileKeystore');
 
     const stored = await retrieveDeviceUuid();
@@ -67,12 +67,12 @@ async function getAndroidDeviceId(): Promise<string> {
 
     // 持久化存储
     await storeDeviceUuid(newUuid);
-    console.warn('[DeviceInfo] 设备 UUID 已保存到 Keystore');
+    console.warn('[DeviceInfo] 设备 UUID 已保存');
 
     return `uuid:${newUuid}`;
   } catch (error) {
-    // Keystore 不可用时，生成临时 UUID
-    console.warn('[DeviceInfo] Keystore 不可用，使用临时 UUID:', error);
+    // 存储不可用时，生成临时 UUID
+    console.warn('[DeviceInfo] 存储不可用，使用临时 UUID:', error);
     return `uuid:${crypto.randomUUID()}`;
   }
 }

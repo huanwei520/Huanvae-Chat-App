@@ -2485,26 +2485,47 @@
 /* ============================================
    滚动条样式
    ============================================ */
-.conversation-list::-webkit-scrollbar,
+
+/* 会话列表滚动条：鼠标在 chat-list-panel 内时显示，离开时隐藏 */
+.conversation-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.conversation-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.conversation-list::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0);
+  border-radius: 3px;
+  transition: background 0.25s ease;
+}
+
+.chat-list-panel:hover .conversation-list::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0.3);
+}
+
+.chat-list-panel:hover .conversation-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(147, 197, 253, 0.5);
+}
+
+/* 消息区域 + 输入框滚动条：始终可见 */
 .chat-messages-container::-webkit-scrollbar,
 .input-wrapper textarea::-webkit-scrollbar {
   width: 6px;
 }
 
-.conversation-list::-webkit-scrollbar-track,
 .chat-messages-container::-webkit-scrollbar-track,
 .input-wrapper textarea::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.conversation-list::-webkit-scrollbar-thumb,
 .chat-messages-container::-webkit-scrollbar-thumb,
 .input-wrapper textarea::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0.3);
   border-radius: 3px;
 }
 
-.conversation-list::-webkit-scrollbar-thumb:hover,
 .chat-messages-container::-webkit-scrollbar-thumb:hover,
 .input-wrapper textarea::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);

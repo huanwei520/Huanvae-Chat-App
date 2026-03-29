@@ -1,0 +1,241 @@
+/**
+ * ========================================
+ * Huanvae Chat - 移动端认证页样式
+ * ========================================
+ *
+ * @description 移动端登录/注册页面的独立样式，与桌面端完全隔离
+ * @layer       移动端覆盖层
+ * @author      Huanvae Chat Team
+ *
+ * ## 设计方向
+ * 全屏沉浸型：取消卡片边框，表单直接浮在流动渐变背景上，
+ * 保留毛玻璃输入框和按钮，光球缩小保留。
+ *
+ * ## 作用域
+ * 所有选择器通过 `.login-container.mobile` 限定，
+ * 仅在 isMobile() 为 true 时由 App.tsx 挂载该类名。
+ */
+
+/* ============================================
+   容器：动态视口 + 安全区域
+   ============================================ */
+.login-container.mobile {
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top, 20px) env(safe-area-inset-right, 16px)
+           env(safe-area-inset-bottom, 20px) env(safe-area-inset-left, 16px);
+  align-items: flex-start;
+  padding-top: max(env(safe-area-inset-top, 0px), 15vh);
+}
+
+/* ============================================
+   卡片：透明化，消除边框/阴影/模糊
+   ============================================
+   保留 flex 布局结构，但视觉上完全融入背景
+*/
+.login-container.mobile .glass-card {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0 20px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.login-container.mobile .glass-card::before,
+.login-container.mobile .glass-card::after {
+  display: none;
+}
+
+.login-container.mobile .auth-card {
+  min-height: auto;
+}
+
+/* ============================================
+   图标：稍微缩小
+   ============================================ */
+.login-container.mobile .icon-wrapper {
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-4);
+}
+
+.login-container.mobile .icon-wrapper svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* ============================================
+   标题与副标题
+   ============================================ */
+.login-container.mobile .login-title {
+  font-size: var(--text-2xl);
+}
+
+.login-container.mobile .login-subtitle {
+  margin-bottom: 24px;
+  font-size: var(--text-md);
+}
+
+/* ============================================
+   表单间距收紧
+   ============================================ */
+.login-container.mobile .form-group {
+  margin-bottom: var(--space-4);
+}
+
+.login-container.mobile .form-label {
+  font-size: var(--text-base);
+  margin-bottom: var(--space-1);
+}
+
+/* ============================================
+   输入框：保持毛玻璃，优化触控
+   ============================================ */
+.login-container.mobile .glass-input {
+  padding: 16px 16px;
+  font-size: 16px;
+  border-radius: var(--radius-md);
+}
+
+.login-container.mobile .protocol-toggle {
+  min-width: 76px;
+  padding: 0 14px;
+  font-size: var(--text-base);
+}
+
+.login-container.mobile .glass-input.with-prefix {
+  padding-left: 96px;
+}
+
+/* ============================================
+   按钮：保持毛玻璃，优化触控反馈
+   ============================================ */
+.login-container.mobile .glass-button {
+  padding: 18px 24px;
+  font-size: var(--text-xl);
+  border-radius: var(--radius-xl);
+  margin-top: var(--space-2);
+}
+
+.login-container.mobile .glass-button:hover {
+  transform: none;
+}
+
+.login-container.mobile .glass-button:active {
+  transform: scale(0.97);
+}
+
+/* ============================================
+   返回按钮：增大触控区域
+   ============================================ */
+.login-container.mobile .back-button {
+  top: max(env(safe-area-inset-top, 12px), 12px);
+  left: 12px;
+  width: 44px;
+  height: 44px;
+}
+
+/* ============================================
+   底部链接 & 页脚
+   ============================================ */
+.login-container.mobile .auth-link {
+  margin-top: var(--space-4);
+}
+
+.login-container.mobile .footer-text {
+  margin-top: var(--space-4);
+}
+
+/* ============================================
+   错误消息
+   ============================================ */
+.login-container.mobile .error-message {
+  font-size: var(--text-md);
+  padding: var(--space-3);
+}
+
+/* ============================================
+   注册步骤指示器
+   ============================================ */
+.login-container.mobile .step-indicator {
+  margin-bottom: var(--space-4);
+}
+
+/* ============================================
+   浮动装饰球：缩小尺寸，保留动画但放慢
+   ============================================ */
+.login-container.mobile .floating-orb {
+  animation-duration: 6s;
+}
+
+.login-container.mobile .orb-1 {
+  width: 260px;
+  height: 260px;
+  top: -100px;
+  right: -80px;
+}
+
+.login-container.mobile .orb-2 {
+  width: 230px;
+  height: 230px;
+  bottom: -100px;
+  left: -80px;
+}
+
+.login-container.mobile .orb-3 {
+  width: 190px;
+  height: 190px;
+  top: 25%;
+  left: -5%;
+}
+
+.login-container.mobile .orb-4 {
+  width: 170px;
+  height: 170px;
+  bottom: 15%;
+  right: 0;
+}
+
+.login-container.mobile .orb-5 {
+  width: 150px;
+  height: 150px;
+  top: 8%;
+  left: 25%;
+}
+
+/* ============================================
+   流动背景：放慢动画
+   ============================================ */
+.login-container.mobile .flowing-bg {
+  animation-duration: 6s;
+}
+
+/* ============================================
+   超小屏幕补充（宽度 < 360px）
+   ============================================ */
+@media (max-width: 360px) {
+  .login-container.mobile {
+    padding-top: max(env(safe-area-inset-top, 0px), 10vh);
+  }
+
+  .login-container.mobile .glass-card {
+    padding: 0 16px;
+  }
+
+  .login-container.mobile .login-title {
+    font-size: 22px;
+  }
+
+  .login-container.mobile .icon-wrapper {
+    width: 48px;
+    height: 48px;
+  }
+
+  .login-container.mobile .icon-wrapper svg {
+    width: 22px;
+    height: 22px;
+  }
+}

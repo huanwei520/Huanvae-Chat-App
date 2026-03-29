@@ -9,9 +9,12 @@
  * 3. 调用 syncService 进行增量消息同步
  * 4. 更新本地会话的最后消息预览
  *
- * 重连同步：
- * - 订阅 WebSocket 重连成功事件（onReconnected）
- * - 断线重连后自动执行与登录一致的全列表消息增量更新
+ * 重连同步（与 WebSocketContext 的协作）：
+ * - 订阅 onReconnected 事件
+ * - WebSocketContext 仅在以下情况触发 onReconnected：
+ *   1. 会话恢复失败 (resumed=false) 且非首次连接
+ *   2. 事件 seq 跳号（检测到漏消息）
+ * - Token 热切换和 resumed=true 的重连不会触发（无需同步）
  *
  * 通知生命周期管理：
  * - notification 由本 hook 完整管理（生产 + 消费 + 清除）

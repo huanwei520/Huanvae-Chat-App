@@ -358,7 +358,7 @@ function App() {
       console.warn('[App] 移动端启动，尝试恢复会话...');
 
       try {
-        // 从本地存储恢复会话（无需生物验证，与 QQ/微信 体验一致）
+        // 从本地存储恢复会话（与 QQ/微信 体验一致）
         const savedSession = await restoreSession();
 
         if (!savedSession) {
@@ -472,10 +472,12 @@ function App() {
     );
   }
 
+  const mobileClass = isMobile() ? 'login-container mobile' : 'login-container';
+
   // 加载中显示
   if (currentPage === 'loading' || accountsLoading) {
     return (
-      <div className="login-container">
+      <div className={mobileClass}>
         <div className="floating-orb orb-1" />
         <div className="floating-orb orb-2" />
         <div className="floating-orb orb-3" />
@@ -500,7 +502,7 @@ function App() {
   // 账号选择页面（使用与登录相同的容器和卡片样式）
   if (currentPage === 'account-selector') {
     return (
-      <div className="login-container">
+      <div className={mobileClass}>
         {/* 装饰性浮动元素 */}
         <div className="floating-orb orb-1" />
         <div className="floating-orb orb-2" />
@@ -533,7 +535,7 @@ function App() {
 
   // 登录/注册页面（共用外层容器，只切换卡片内容）
   return (
-    <div className="login-container">
+    <div className={mobileClass}>
       {/* 动态流动背景装饰 */}
       <div className="flowing-bg" />
 

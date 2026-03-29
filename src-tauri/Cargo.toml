@@ -151,15 +151,7 @@ keyring = { version = "3.6.3", features = ["apple-native"] }
 # 移动平台专属依赖 (Android/iOS)
 # ============================================
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-# 安全密钥存储（使用 Android Keystore / iOS Keychain）
-# 要求 Android API 28+ (Android 9.0+)
-tauri-plugin-keystore = "2.1.0-alpha.1"
-
-# 生物识别认证（仅用于敏感操作，如查看保存的密码）
-# 官方插件：https://v2.tauri.app/plugin/biometric/
-tauri-plugin-biometric = "2.3.2"
-
-# 持久化存储（用于会话自动恢复，无需生物验证）
+# 持久化存储（密码 + 会话自动恢复，无需生物验证）
 # 后台被杀后重新打开自动恢复登录状态，与 QQ/微信 体验一致
 # 官方插件：https://v2.tauri.app/plugin/store/
 tauri-plugin-store = "2.4.2"

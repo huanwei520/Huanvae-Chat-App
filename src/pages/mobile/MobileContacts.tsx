@@ -44,8 +44,8 @@ export function MobileContacts({
   onSelectTarget,
 }: MobileContactsProps) {
   // 折叠状态
-  const [friendsExpanded, setFriendsExpanded] = useState(true);
-  const [groupsExpanded, setGroupsExpanded] = useState(true);
+  const [friendsExpanded, setFriendsExpanded] = useState(false);
+  const [groupsExpanded, setGroupsExpanded] = useState(false);
 
   // 搜索过滤
   const filteredFriends = useMemo(() => {

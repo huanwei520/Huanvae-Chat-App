@@ -3,9 +3,11 @@
  *
  * 从 WebSocketContext.tsx 中提取的消息处理逻辑
  * 负责解析和处理各种 WebSocket 消息类型：
- * - 新消息保存到本地数据库并更新会话预览
- * - 消息撤回后刷新本地数据库预览并通知 UI 重载
- * - 系统通知（好友请求、群邀请等）更新待处理计数
+ * - connected: 提取 session_id / resumed / reconnect_jitter_ms 返回给 Context
+ * - new_message: 保存到本地数据库并更新会话预览
+ * - message_recalled: 刷新本地数据库预览并通知 UI 重载
+ * - system_notification: 更新待处理计数
+ * - 所有事件的连接级 seq 返回给 Context 用于跳号检测
  */
 
 import type {
@@ -30,12 +32,24 @@ import {
 
 export interface MessageHandlerContext {
   activeChatRef: React.RefObject<{ type: 'friend' | 'group'; id: string } | null>;
-  currentUserId: string | null; // 当前用户 ID，用于生成 conversation_id
+  currentUserId: string | null;
   setUnreadSummary: React.Dispatch<React.SetStateAction<UnreadSummary | null>>;
   setPendingNotifications: React.Dispatch<React.SetStateAction<PendingNotifications>>;
   newMessageListeners: React.RefObject<Set<(msg: WsNewMessage) => void>>;
   recalledListeners: React.RefObject<Set<(msg: import('../types/websocket').WsMessageRecalled) => void>>;
   notificationListeners: React.RefObject<Set<(msg: import('../types/websocket').WsSystemNotification) => void>>;
+}
+
+/** handleWebSocketMessage 的返回值，供 Context 提取 session recovery 和 seq 信息 */
+export interface MessageHandlerResult {
+  /** connected 消息中的 session_id */
+  sessionId?: string;
+  /** connected 消息中的 resumed 标志 */
+  resumed?: boolean;
+  /** connected 消息中的 reconnect_jitter_ms */
+  reconnectJitterMs?: number;
+  /** 事件的连接级 seq（用于跳号检测） */
+  eventSeq?: number;
 }
 
 // ============================================
@@ -286,17 +300,34 @@ export function createInitialUnreadSummary(
 
 /**
  * 处理 WebSocket 消息
+ *
+ * @returns 返回 session recovery 和 seq 信息供 Context 使用，解析失败返回 null
  */
 export function handleWebSocketMessage(
   data: string,
   ctx: MessageHandlerContext,
-): void {
+): MessageHandlerResult | null {
   try {
     const msg = JSON.parse(data) as WsServerMessage;
+    const result: MessageHandlerResult = {};
+
+    // 提取连接级 event seq（所有消息类型都可能携带）
+    if (msg.seq !== undefined) {
+      result.eventSeq = msg.seq;
+    }
 
     switch (msg.type) {
       case 'connected':
         ctx.setUnreadSummary(msg.unread_summary);
+        if (msg.session_id) {
+          result.sessionId = msg.session_id;
+        }
+        if (msg.resumed !== undefined) {
+          result.resumed = msg.resumed;
+        }
+        if (msg.reconnect_jitter_ms !== undefined) {
+          result.reconnectJitterMs = msg.reconnect_jitter_ms;
+        }
         break;
 
       case 'new_message': {
@@ -423,11 +454,14 @@ export function handleWebSocketMessage(
         break;
 
       case 'error':
-        console.error('📡 WebSocket 错误:', msg.code, msg.message);
+        console.error('[WebSocket] 服务端错误:', msg.code, msg.message);
         break;
     }
+
+    return result;
   } catch (err) {
-    console.error('📡 解析消息失败:', err);
+    console.error('[WebSocket] 解析消息失败:', err);
+    return null;
   }
 }
 

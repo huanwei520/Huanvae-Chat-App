@@ -4,13 +4,19 @@
  * 基于后端 API 文档定义
  *
  * 支持的消息类型：
- * - connected: 连接成功，返回未读消息摘要
- * - new_message: 新消息通知
+ * - connected: 连接成功，返回未读消息摘要、session_id、resumed 标志
+ * - new_message: 新消息通知（含连接级 event seq）
  * - message_recalled: 消息撤回通知
  * - read_sync: 已读同步通知
  * - system_notification: 系统通知（好友/群聊相关）
  * - heartbeat: 心跳
  * - error: 错误消息
+ *
+ * 连接恢复机制（2026-03 新增）：
+ * - connected 消息包含 session_id，客户端需保存
+ * - 重连时 URL 带 session_id + last_seq，服务端自动重放缺失事件
+ * - resumed=true 时无需手动 sync，resumed=false 时需要增量同步
+ * - 所有 WS 推送事件包含递增 seq，客户端检测跳号时触发 sync
  *
  * 系统通知类型（notification_type）：
  * 第一批：friend_request, friend_request_approved/rejected,
@@ -27,10 +33,22 @@
 
 /**
  * 连接成功消息
+ *
+ * 服务端在 WS 握手完成后推送，包含：
+ * - unread_summary: 未读消息摘要
+ * - session_id: 连接会话标识，重连时需携带以恢复会话
+ * - resumed: 是否为会话恢复（true 时服务端自动重放缺失事件，客户端无需手动 sync）
+ * - reconnect_jitter_ms: 建议的重连抖动上限（毫秒），防止雷群效应
  */
 export interface WsConnectedMessage {
   type: 'connected';
   unread_summary: UnreadSummary;
+  /** 连接会话 ID，重连时传回以恢复会话 */
+  session_id?: string;
+  /** 是否为会话恢复（true = 服务端重放缺失事件，无需手动 sync） */
+  resumed?: boolean;
+  /** 建议的重连抖动上限（毫秒） */
+  reconnect_jitter_ms?: number;
 }
 
 /**
@@ -297,15 +315,22 @@ export interface WsError {
 
 /**
  * 所有服务器消息类型
+ *
+ * 所有事件可能包含连接级递增 seq 字段（用于跳号检测）。
+ * 客户端应追踪 seq，发现跳号时触发增量同步。
  */
-export type WsServerMessage =
+export type WsServerMessage = (
   | WsConnectedMessage
   | WsNewMessage
   | WsMessageRecalled
   | WsReadSync
   | WsSystemNotification
   | WsHeartbeat
-  | WsError;
+  | WsError
+) & {
+  /** 连接级事件序列号（递增），用于跳号检测 */
+  seq?: number;
+};
 
 // ============================================
 // 客户端 → 服务器消息

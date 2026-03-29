@@ -549,12 +549,10 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init());
 
     // 移动端：不包含 updater 和 window-state 插件
-    // - keystore: 存储密码
-    // - biometric: 生物识别 + 会话持久化存储
+    // - store: 密码 + 会话持久化存储
     // - android-fs: 处理 content:// URI 文件读取（局域网传输需要）
     // - android-package-install: 应用内 APK 安装（自动更新需要）
     // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
-    // 要求 Android API 28+ (minSdk 已提升)
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -564,8 +562,6 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_keystore::init())
-        .plugin(tauri_plugin_biometric::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_android_fs::init())
         .plugin(tauri_plugin_android_package_install::init());

@@ -2,7 +2,7 @@
  * 移动端会话持久化服务
  *
  * 使用 tauri-plugin-store 实现会话自动恢复
- * 后台进程被杀后，重新打开应用时自动恢复会话，无需重新登录或生物验证
+ * 后台进程被杀后，重新打开应用时自动恢复会话，无需重新登录
  *
  * ## 工作原理
  * 1. 登录成功后，将 Session 保存到本地文件（session.json）
@@ -11,7 +11,7 @@
  *
  * ## 与 QQ/微信 体验一致
  * - 登录后直接保存，无需额外操作
- * - 打开应用自动恢复，无需指纹/面容验证
+ * - 打开应用自动恢复，无需额外验证
  * - 只有主动登出才需要重新登录
  *
  * ## 安全性说明
@@ -54,8 +54,6 @@ async function getStore(): Promise<Store> {
  * 保存会话到本地存储
  *
  * 登录成功后调用，将 Session 保存到文件
- * 无需生物识别验证
- *
  * @param session 会话信息
  */
 export async function persistSession(session: Session): Promise<void> {
@@ -79,8 +77,6 @@ export async function persistSession(session: Session): Promise<void> {
  * 恢复会话
  *
  * 应用启动时调用，尝试从本地存储恢复 Session
- * 无需生物识别验证，自动完成
- *
  * @returns 恢复的会话，如果不存在返回 null
  */
 export async function restoreSession(): Promise<Session | null> {
