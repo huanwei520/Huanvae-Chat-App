@@ -34,6 +34,7 @@ import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
+import { openRemoteDevWindow } from '../remoteDev';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
 import '../styles/miniapps.css';
 import '../styles/voice-call.css';
@@ -59,6 +60,18 @@ export function Main() {
   const handleLowcodeClick = () => {
     if (page.session) {
       openLowcodeWindow(
+        page.session.userId,
+        page.session.serverUrl,
+        page.session.accessToken,
+        page.session.refreshToken,
+      );
+    }
+  };
+
+  // 打开远程开发独立窗口
+  const handleRemoteDevClick = () => {
+    if (page.session) {
+      void openRemoteDevWindow(
         page.session.userId,
         page.session.serverUrl,
         page.session.accessToken,
@@ -103,6 +116,7 @@ export function Main() {
         onMeetingClick={() => setShowMeetingModal(true)}
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onLowcodeClick={handleLowcodeClick}
+        onRemoteDevClick={handleRemoteDevClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
       />

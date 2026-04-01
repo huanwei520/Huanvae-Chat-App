@@ -24,6 +24,7 @@ import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { LowcodePage } from './lowcode';
+import { RemoteDevPage } from './remoteDev';
 import { initWindowSize } from './services/windowSize';
 import { isMobile } from './utils/platform';
 import './index.css';
@@ -63,6 +64,15 @@ function RootApp() {
   // 低代码编辑器页面（独立窗口，仅桌面端）
   if (pathname === '/lowcode') {
     return <LowcodePage />;
+  }
+
+  // 远程开发页面（独立窗口，仅桌面端，包裹 ThemeProvider 以继承主题）
+  if (pathname === '/remote-dev') {
+    return (
+      <ThemeProvider>
+        <RemoteDevPage />
+      </ThemeProvider>
+    );
   }
 
   // 主应用

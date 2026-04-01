@@ -46,6 +46,13 @@ const LanTransferIcon = () => (
   </svg>
 );
 
+// 远程开发图标（终端 / 服务器风格）
+const RemoteDevIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 17.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 20.25Z" />
+  </svg>
+);
+
 // 低代码编辑器图标（流程图/节点连线风格）
 const LowcodeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -81,6 +88,7 @@ interface SidebarProps {
     onMeetingClick: () => void;
     onMiniAppsClick: () => void;
     onLowcodeClick: () => void;
+    onRemoteDevClick: () => void;
     onSettingsClick: () => void;
     onLogout: () => void;
 }
@@ -103,6 +111,7 @@ export function Sidebar({
   onMeetingClick,
   onMiniAppsClick,
   onLowcodeClick,
+  onRemoteDevClick,
   onSettingsClick,
   onLogout,
 }: SidebarProps) {
@@ -167,6 +176,7 @@ export function Sidebar({
     { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
     { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
     { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
+    { icon: <RemoteDevIcon />, label: '远程开发', onClick: onRemoteDevClick },
   ];
 
   return (
