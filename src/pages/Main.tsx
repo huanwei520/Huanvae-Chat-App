@@ -35,6 +35,7 @@ import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
 import { openRemoteDevWindow } from '../remoteDev';
+import { openHuanvaeGuardWindow } from '../huanvaeGuard';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
 import '../styles/miniapps.css';
 import '../styles/voice-call.css';
@@ -60,6 +61,18 @@ export function Main() {
   const handleLowcodeClick = () => {
     if (page.session) {
       openLowcodeWindow(
+        page.session.userId,
+        page.session.serverUrl,
+        page.session.accessToken,
+        page.session.refreshToken,
+      );
+    }
+  };
+
+  // 打开 HuanvaeGuard VPN 窗口
+  const handleHuanvaeGuardClick = () => {
+    if (page.session) {
+      void openHuanvaeGuardWindow(
         page.session.userId,
         page.session.serverUrl,
         page.session.accessToken,
@@ -117,6 +130,7 @@ export function Main() {
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onLowcodeClick={handleLowcodeClick}
         onRemoteDevClick={handleRemoteDevClick}
+        onHuanvaeGuardClick={handleHuanvaeGuardClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
       />

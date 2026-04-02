@@ -51,7 +51,8 @@
     ],
     "createUpdaterArtifacts": true,
     "resources": {
-      "../Notification-Sounds/*": "Notification-Sounds/"
+      "../Notification-Sounds/*": "Notification-Sounds/",
+      "resources/HuanvaeGuard/*": "HuanvaeGuard/"
     },
     "icon": [
       "icons/32x32.png",

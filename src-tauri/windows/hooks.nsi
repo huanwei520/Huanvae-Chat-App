@@ -42,6 +42,14 @@
 !macro NSIS_HOOK_POSTINSTALL
   ; 安装完成后的操作
   DetailPrint "安装完成"
+
+  ; 安装 HuanvaeGuard Windows Service
+  DetailPrint "正在安装 HuanvaeGuard 服务..."
+  nsExec::ExecToLog 'sc.exe create HuanvaeGuard binPath= "$INSTDIR\HuanvaeGuard\huanvaeguard-svc.exe" start= demand DisplayName= "HuanvaeGuard VPN Service"'
+  nsExec::ExecToLog 'sc.exe description HuanvaeGuard "HuanvaeGuard VPN tunnel service for Huanvae Chat"'
+  ; 启动服务（demand 模式，需要时启动）
+  nsExec::ExecToLog 'sc.exe start HuanvaeGuard'
+  DetailPrint "HuanvaeGuard 服务已安装"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -49,4 +57,11 @@
   ; 尝试关闭正在运行的应用
   nsExec::ExecToLog 'taskkill /F /IM huanvae-chat-app.exe'
   Sleep 1000
+
+  ; 停止并删除 HuanvaeGuard 服务
+  DetailPrint "正在卸载 HuanvaeGuard 服务..."
+  nsExec::ExecToLog 'sc.exe stop HuanvaeGuard'
+  Sleep 2000
+  nsExec::ExecToLog 'sc.exe delete HuanvaeGuard'
+  DetailPrint "HuanvaeGuard 服务已卸载"
 !macroend
