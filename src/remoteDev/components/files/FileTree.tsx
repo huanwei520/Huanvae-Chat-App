@@ -66,6 +66,9 @@ function FileTreeNode({ entry, api, machineId, depth, selectedPath, onSelect }: 
         role="button"
         tabIndex={0}
         onClick={() => void toggle()}
+        onDoubleClick={() => {
+          if (entry.is_dir) onSelect(entry);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();

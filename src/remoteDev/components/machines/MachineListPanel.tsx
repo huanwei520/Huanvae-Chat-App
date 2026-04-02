@@ -51,7 +51,6 @@ export function MachineListPanel({
   const setMachines = useRemoteDevStore((s) => s.setMachines);
   const selectedMachineId = useRemoteDevStore((s) => s.selectedMachineId);
   const setSelectedMachineId = useRemoteDevStore((s) => s.setSelectedMachineId);
-  const selectMachineAndNavigate = useRemoteDevStore((s) => s.selectMachineAndNavigate);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -215,7 +214,7 @@ export function MachineListPanel({
                     className="rd-btn rd-btn-ghost"
                     onClick={(e) => {
                       e.stopPropagation();
-                      selectMachineAndNavigate(m.machine_id, 'terminal');
+                      setSelectedMachineId(m.machine_id);
                     }}
                   >
                     终端
@@ -225,7 +224,7 @@ export function MachineListPanel({
                     className="rd-btn rd-btn-ghost"
                     onClick={(e) => {
                       e.stopPropagation();
-                      selectMachineAndNavigate(m.machine_id, 'files');
+                      setSelectedMachineId(m.machine_id);
                     }}
                   >
                     文件

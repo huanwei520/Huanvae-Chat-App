@@ -7,7 +7,7 @@
  * - Phase 3: Web 终端（WebSocket + xterm.js）
  * - Phase 4: SFTP 文件浏览器（语法高亮代码查看）
  * - Phase 5: 一键安装 Claude Code
- * - Phase 6: Claude Code 对话（WebSocket 流式）
+ * - Phase 6/8: Claude Code 对话（多轮对话 WebSocket 流式）
  *
  * 架构：
  * - 独立 Tauri 窗口运行，不依赖 SessionContext
@@ -24,9 +24,9 @@ export { createRelayTokenService } from './services/relayTokenService';
 export { createMachineService } from './services/machineService';
 export { createFileService } from './services/fileService';
 export { createSetupService } from './services/setupService';
-export { createSessionService } from './services/sessionService';
+export { createConversationService } from './services/conversationService';
 export { useRemoteDevStore } from './stores/remoteDevStore';
 
-export type { RemoteDevWindowData, RemoteDevTab, ConfigModal } from './types/remoteDev';
+export type { RemoteDevWindowData, ConfigModal } from './types/remoteDev';
 export type { RemoteDevApiClient } from './services/apiClient';
 export type { FileService } from './services/fileService';

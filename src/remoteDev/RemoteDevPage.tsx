@@ -1,7 +1,10 @@
 /**
  * 远程开发主页面 — IDE 布局
  *
- * 布局：左侧 Claude 对话 | 中间代码查看 | 右侧文件树 | 底部终端
+ * 布局：
+ *   上半部分：左 Claude 对话 | 中 文件内容查看 | 右 文件树
+ *   下半部分：终端横栏（可拖拽调节高度）
+ *
  * 机器管理和 Token 管理通过 Header 按钮以弹窗形式打开
  */
 
@@ -29,6 +32,39 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** 路径面包屑 */
+function PathBreadcrumb({ path, onNavigate }: { path: string; onNavigate: (p: string) => void }) {
+  const segments = path.split('/').filter(Boolean);
+  return (
+    <div className="rd-breadcrumb">
+      <span
+        className="rd-breadcrumb-seg rd-breadcrumb-root"
+        role="button"
+        tabIndex={0}
+        onClick={() => onNavigate('/')}
+      >
+        /
+      </span>
+      {segments.map((seg, i) => {
+        const fullPath = '/' + segments.slice(0, i + 1).join('/');
+        return (
+          <span key={fullPath} className="rd-breadcrumb-item">
+            <span className="rd-breadcrumb-sep">/</span>
+            <span
+              className="rd-breadcrumb-seg"
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigate(fullPath)}
+            >
+              {seg}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function RemoteDevPage() {
   const windowData = useMemo(() => parseWindowDataFromUrl(), []);
 
@@ -53,51 +89,13 @@ export default function RemoteDevPage() {
   const setSelectedMachineId = useRemoteDevStore((s) => s.setSelectedMachineId);
   const addTerminal = useRemoteDevStore((s) => s.addTerminal);
 
-  // --- Panel visibility ---
   const [leftVisible, setLeftVisible] = useState(true);
-  const [bottomVisible, setBottomVisible] = useState(true);
   const [rightVisible, setRightVisible] = useState(true);
-
-  // --- Terminal panel resize ---
-  const [terminalHeight, setTerminalHeight] = useState(260);
-  const isDraggingRef = useRef(false);
+  const [terminalHeight, setTerminalHeight] = useState(220);
+  const draggingRef = useRef(false);
   const dragStartYRef = useRef(0);
-  const dragStartHeightRef = useRef(0);
+  const dragStartHRef = useRef(0);
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      e.preventDefault();
-      const delta = dragStartYRef.current - e.clientY;
-      const newHeight = Math.max(120, Math.min(600, dragStartHeightRef.current + delta));
-      setTerminalHeight(newHeight);
-    };
-
-    const handleMouseUp = () => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
-
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isDraggingRef.current = true;
-    dragStartYRef.current = e.clientY;
-    dragStartHeightRef.current = terminalHeight;
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  }, [terminalHeight]);
-
-  // --- Config modal ---
   const [configModal, setConfigModal] = useState<ConfigModal>(null);
   const [showMachineForm, setShowMachineForm] = useState(false);
   const [editingMachineId, setEditingMachineId] = useState<string | null>(null);
@@ -105,14 +103,12 @@ export default function RemoteDevPage() {
 
   // --- File browser state ---
   const [rootPath, setRootPath] = useState('/');
-  const [pathInput, setPathInput] = useState('/');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [treeKey, setTreeKey] = useState(0);
 
-  // Load machines on mount
   useEffect(() => {
     if (!api) return;
     createMachineService(api).listMachines()
@@ -120,34 +116,39 @@ export default function RemoteDevPage() {
       .catch(console.error);
   }, [api, setMachines]);
 
-  // Auto-connect terminal when machine selected
   useEffect(() => {
     if (selectedMachineId) {
       addTerminal(selectedMachineId);
     }
   }, [selectedMachineId, addTerminal]);
 
-  // Reset file browser when machine changes
   useEffect(() => {
     setSelectedFile(null);
     setFileContent(null);
     setFileError(null);
     setRootPath('/');
-    setPathInput('/');
     setTreeKey((k) => k + 1);
   }, [selectedMachineId]);
 
-  const handlePathNavigate = useCallback(() => {
-    const p = pathInput.trim() || '/';
+  const handleBreadcrumbNavigate = useCallback((p: string) => {
     setRootPath(p);
     setSelectedFile(null);
     setFileContent(null);
     setFileError(null);
     setTreeKey((k) => k + 1);
-  }, [pathInput]);
+  }, []);
 
   const handleSelectFile = useCallback(async (entry: FileEntry) => {
-    if (entry.is_dir || !selectedMachineId || !api) return;
+    if (!selectedMachineId || !api) return;
+
+    if (entry.is_dir) {
+      setRootPath(entry.path);
+      setSelectedFile(null);
+      setFileContent(null);
+      setFileError(null);
+      setTreeKey((k) => k + 1);
+      return;
+    }
 
     setSelectedFile(entry);
     setFileContent(null);
@@ -164,9 +165,41 @@ export default function RemoteDevPage() {
     }
   }, [api, selectedMachineId]);
 
+  const handleBackToTree = useCallback(() => {
+    setSelectedFile(null);
+    setFileContent(null);
+    setFileError(null);
+  }, []);
+
   const handleMachineChange = useCallback((id: string) => {
     setSelectedMachineId(id || null);
   }, [setSelectedMachineId]);
+
+  // ─── 终端高度拖拽 ───
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    dragStartYRef.current = e.clientY;
+    dragStartHRef.current = terminalHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const delta = dragStartYRef.current - ev.clientY;
+      const next = Math.max(80, Math.min(window.innerHeight * 0.6, dragStartHRef.current + delta));
+      setTerminalHeight(next);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [terminalHeight]);
 
   if (!windowData || !api) {
     return (
@@ -215,13 +248,6 @@ export default function RemoteDevPage() {
           >
             📂 文件
           </button>
-          <button
-            type="button"
-            className={`rd-ide-header-btn${bottomVisible ? ' active' : ''}`}
-            onClick={() => setBottomVisible(!bottomVisible)}
-          >
-            ⌨ 终端
-          </button>
 
           <div className="rd-ide-separator" />
 
@@ -242,106 +268,95 @@ export default function RemoteDevPage() {
         </div>
       </div>
 
-      {/* ========== IDE Body ========== */}
+      {/* ========== IDE Body: 三列，终端被两侧夹住 ========== */}
       <div className="rd-ide-body">
-        <div className="rd-ide-main">
-          {/* --- Left: Claude Dialog --- */}
-          {leftVisible && (
-            <div className="rd-ide-left">
-              <div className="rd-ide-panel-header">
-                <span className="rd-ide-panel-title">Claude 对话</span>
-              </div>
-              <div className="rd-ide-left-body">
-                <DialogPanel api={api} embedded />
-              </div>
-            </div>
-          )}
+        {/* --- Left: Claude Dialog (全高) --- */}
+        {leftVisible && (
+          <div className="rd-ide-left">
+            <DialogPanel api={api} embedded />
+          </div>
+        )}
 
-          {/* --- Center: Code Viewer --- */}
-          <div className="rd-ide-center">
-            {selectedFile && (
-              <div className="rd-ide-center-header">
-                <span className="rd-ide-center-filename">{selectedFile.path}</span>
-                <span className="rd-ide-center-meta">
-                  {selectedFile.permissions} · {formatSize(selectedFile.size)}
-                </span>
+        {/* --- Center: 编辑器 + 终端（垂直分割） --- */}
+        <div className="rd-ide-center">
+          {/* 编辑器区域 */}
+          <div className="rd-ide-editor">
+            {!selectedFile && (
+              <div className="rd-editor-empty">
+                <span>从右侧文件树选择文件查看</span>
               </div>
             )}
-            <div className="rd-ide-center-body">
+
+            {selectedFile && (
+              <div className="rd-editor-content">
+                <div className="rd-editor-tab-bar">
+                  <span className="rd-editor-tab active">{selectedFile.name}</span>
+                  <button
+                    type="button"
+                    className="rd-editor-tab-close"
+                    onClick={handleBackToTree}
+                    title="关闭文件"
+                  >
+                    ✕
+                  </button>
+                  <span className="rd-editor-tab-meta">
+                    {selectedFile.permissions} · {formatSize(selectedFile.size)}
+                  </span>
+                </div>
+                <div className="rd-editor-body">
+                  {fileLoading && <div className="rd-loading" style={{ padding: 16 }}>加载中…</div>}
+                  {fileError && (
+                    <div style={{ padding: 12, color: 'var(--status-error)', fontSize: 13 }}>{fileError}</div>
+                  )}
+                  {fileContent !== null && (
+                    <FileViewer
+                      filename={selectedFile.name}
+                      content={fileContent}
+                      truncated={selectedFile.size > 1024 * 1024}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 拖拽条 */}
+          <div
+            className="rd-ide-resize-handle"
+            onMouseDown={handleResizeMouseDown}
+            role="separator"
+            aria-orientation="horizontal"
+          />
+
+          {/* 终端区域 */}
+          <div className="rd-ide-bottom" style={{ height: terminalHeight, minHeight: 80 }}>
+            <TerminalPanel api={api} embedded />
+          </div>
+        </div>
+
+        {/* --- Right: File Tree Sidebar (全高) --- */}
+        {rightVisible && (
+          <div className="rd-ide-right">
+            <div className="rd-ide-panel-header">
+              <span className="rd-ide-panel-title">文件浏览</span>
+            </div>
+            <PathBreadcrumb path={rootPath} onNavigate={handleBreadcrumbNavigate} />
+            <div className="rd-ide-right-body">
               {!selectedMachineId && (
-                <div className="rd-empty" style={{ height: '100%' }}>
-                  请在顶部选择一台机器
-                </div>
+                <div className="rd-empty">请先选择机器</div>
               )}
-              {selectedMachineId && !selectedFile && (
-                <div className="rd-empty" style={{ height: '100%' }}>
-                  在右侧文件树中选择文件查看内容
-                </div>
-              )}
-              {selectedFile && fileLoading && (
-                <div className="rd-loading" style={{ height: '100%' }}>加载中…</div>
-              )}
-              {selectedFile && fileError && (
-                <div style={{ padding: 20 }}>
-                  <p style={{ color: 'var(--status-error)', fontSize: 13 }}>{fileError}</p>
-                </div>
-              )}
-              {selectedFile && fileContent !== null && (
-                <FileViewer
-                  filename={selectedFile.name}
-                  content={fileContent}
-                  truncated={selectedFile.size > 1024 * 1024}
+              {selectedMachineId && (
+                <FileTree
+                  key={`${selectedMachineId}-${treeKey}`}
+                  api={api}
+                  machineId={selectedMachineId}
+                  rootPath={rootPath}
+                  selectedPath={selectedFile?.path ?? null}
+                  onSelect={(entry) => void handleSelectFile(entry)}
                 />
               )}
             </div>
           </div>
-
-          {/* --- Right: File Tree --- */}
-          {rightVisible && (
-            <div className="rd-ide-right">
-              <div className="rd-ide-panel-header">
-                <span className="rd-ide-panel-title">文件浏览</span>
-              </div>
-              <div className="rd-ide-right-path">
-                <input
-                  value={pathInput}
-                  onChange={(e) => setPathInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handlePathNavigate(); }}
-                  placeholder="/"
-                />
-                <button type="button" onClick={handlePathNavigate}>跳转</button>
-              </div>
-              <div className="rd-ide-right-body">
-                {selectedMachineId ? (
-                  <FileTree
-                    key={`${selectedMachineId}-${treeKey}`}
-                    api={api}
-                    machineId={selectedMachineId}
-                    rootPath={rootPath}
-                    selectedPath={selectedFile?.path ?? null}
-                    onSelect={(entry) => void handleSelectFile(entry)}
-                  />
-                ) : (
-                  <div className="rd-empty">请先选择机器</div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* --- Bottom: Terminal (resizable) --- */}
-        {bottomVisible && (
-          <>
-            <div
-              className="rd-ide-resize-handle"
-              onMouseDown={handleDragStart}
-              role="separator"
-              aria-orientation="horizontal"
-            />
-            <div className="rd-ide-bottom" style={{ height: terminalHeight }}>
-              <TerminalPanel api={api} embedded />
-            </div>
-          </>
         )}
       </div>
 

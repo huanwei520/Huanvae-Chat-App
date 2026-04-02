@@ -5,12 +5,10 @@
  *   ┌──────────────────────────────────────────────┐
  *   │ IDE Header（机器选择 + 配置按钮）              │
  *   ├──────────┬──────────────────┬────────────────┤
- *   │ Claude   │  Code Viewer     │  File Tree     │
+ *   │ Claude   │  Terminal        │  File Browser  │
  *   │ 对话     │  (center)        │  (right)       │
  *   │ (left)   │                  │                │
- *   ├──────────┴──────────────────┴────────────────┤
- *   │ Terminal (bottom, multi-tab)                  │
- *   └──────────────────────────────────────────────┘
+ *   └──────────┴──────────────────┴────────────────┘
  *
  * 配色与设置面板统一，变量来源：variables.css + ThemeProvider
  */
@@ -116,14 +114,7 @@
 .rd-ide-body {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.rd-ide-main {
-  flex: 1;
-  display: flex;
+  flex-direction: row;
   overflow: hidden;
   min-height: 0;
 }
@@ -158,14 +149,8 @@
   letter-spacing: 0.5px;
 }
 
-.rd-ide-left-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3);
-}
-
 /* ============================================
-   中间面板 — 代码查看
+   中间面板 — 文件编辑器
    ============================================ */
 .rd-ide-center {
   flex: 1;
@@ -175,44 +160,120 @@
   min-width: 0;
 }
 
-.rd-ide-center-header {
+.rd-ide-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  background: var(--white-alpha-40);
+}
+
+.rd-editor-empty {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--white-alpha-40);
-  flex-shrink: 0;
-  min-height: 32px;
+  justify-content: center;
+  color: var(--text-light);
+  font-size: 13px;
+  opacity: 0.6;
 }
 
-.rd-ide-center-filename {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
+.rd-editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  text-overflow: ellipsis;
+  min-height: 0;
+}
+
+.rd-editor-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 34px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--white-alpha-20);
+}
+
+.rd-editor-tab {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.rd-ide-center-meta {
+.rd-editor-tab.active {
+  background: var(--white-alpha-40);
+  color: var(--text-primary);
+  font-weight: 500;
+  border-bottom: 2px solid var(--primary);
+}
+
+.rd-editor-tab-close {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-fast);
+}
+
+.rd-editor-tab-close:hover {
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.rd-editor-tab-meta {
+  margin-left: auto;
   font-size: 11px;
   color: var(--text-light);
-  margin-left: auto;
   white-space: nowrap;
 }
 
-.rd-ide-center-body {
+.rd-editor-body {
   flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ============================================
+   拖拽调整条 — 终端高度
+   ============================================ */
+.rd-ide-resize-handle {
+  height: 4px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--border-subtle);
+  transition: background 0.15s;
+}
+
+.rd-ide-resize-handle:hover {
+  background: var(--primary);
+}
+
+/* ============================================
+   底部终端横栏
+   ============================================ */
+.rd-ide-bottom {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  position: relative;
+  background: #0d1117;
+  min-height: 80px;
 }
 
 /* ============================================
    右侧面板 — 文件浏览器
    ============================================ */
 .rd-ide-right {
-  width: 240px;
+  width: 260px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -221,115 +282,78 @@
   overflow: hidden;
 }
 
-.rd-ide-right-path {
-  display: flex;
-  gap: 4px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.rd-ide-right-path input {
-  flex: 1;
-  padding: 3px 8px;
-  font-size: 12px;
-  background: var(--white-alpha-80);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  color: var(--text-primary);
-  outline: none;
-  min-width: 0;
-}
-
-.rd-ide-right-path input:focus {
-  border-color: var(--primary);
-}
-
-.rd-ide-right-path button {
-  padding: 3px 8px;
-  font-size: 11px;
-  background: var(--primary);
-  color: var(--text-inverse);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
 .rd-ide-right-body {
   flex: 1;
   overflow-y: auto;
   padding: 2px 0;
 }
 
-/* ============================================
-   拖拽分割手柄
-   ============================================ */
-.rd-ide-resize-handle {
-  height: 4px;
+/* 面包屑路径导航 */
+.rd-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  cursor: row-resize;
+  font-size: 12px;
+  min-height: 30px;
+}
+
+.rd-breadcrumb-seg {
+  color: var(--primary);
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.rd-breadcrumb-seg:hover {
+  background: var(--primary-subtle);
+  text-decoration: underline;
+}
+
+.rd-breadcrumb-root {
+  font-weight: 600;
+}
+
+.rd-breadcrumb-sep {
+  color: var(--text-light);
+  margin: 0 1px;
+  user-select: none;
+}
+
+/* 文件返回按钮 */
+.rd-file-back-btn {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--primary);
   background: transparent;
-  position: relative;
-  z-index: 10;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-align: left;
 }
 
-.rd-ide-resize-handle::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 36px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--border-subtle);
-  transition: background 0.2s ease;
-}
-
-.rd-ide-resize-handle:hover::after,
-.rd-ide-resize-handle:active::after {
-  background: var(--primary);
-}
-
-.rd-ide-resize-handle:hover {
+.rd-file-back-btn:hover {
   background: var(--primary-subtle);
 }
 
-/* ============================================
-   底部面板 — 终端
-   ============================================ */
-.rd-ide-bottom {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-top: 1px solid var(--border-subtle);
-  background: #0d1117;
-  overflow: hidden;
-}
-
-.rd-ide-bottom-header {
+.rd-file-info-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3);
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  min-height: 32px;
 }
 
-.rd-ide-bottom-header .rd-ide-panel-title {
-  padding: 6px 0;
-  margin-right: auto;
-}
-
-.rd-ide-bottom-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+/* 底部面板和拖拽手柄已移除 — 终端现在位于中间列 */
 
 /* ============================================
    通用面板卡片 — 用于弹窗内的面板
@@ -829,13 +853,6 @@
 /* ============================================
    Claude 对话消息
    ============================================ */
-.rd-dialog-messages {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-}
-
 .rd-msg {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
@@ -870,6 +887,45 @@
   border: 1px solid rgba(239, 68, 68, 0.2);
   color: var(--status-error);
 }
+
+/* 用户发送的消息（右对齐聊天气泡） */
+.rd-msg-my-prompt {
+  background: var(--primary);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-left: 28px;
+  align-self: flex-end;
+  max-width: 85%;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.rd-msg-my-prompt-label {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-bottom: 2px;
+  text-align: right;
+}
+
+.rd-msg-my-prompt-text {
+  white-space: pre-wrap;
+}
+
+/* 历史查看模式横幅 */
+.rd-dialog-history-banner {
+  padding: 6px 12px;
+  background: var(--status-warning-subtle);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 4px 0 8px;
+  flex-shrink: 0;
+}
+
 
 /* ============================================
    Tool call 折叠块
@@ -970,60 +1026,313 @@
 /* ============================================
    滚动条 — 统一悬停显示风格
    ============================================ */
-.rd-ide-left-body::-webkit-scrollbar,
 .rd-ide-right-body::-webkit-scrollbar,
-.rd-ide-center-body::-webkit-scrollbar,
+.rd-editor-body::-webkit-scrollbar,
 .rd-file-viewer-code::-webkit-scrollbar,
 .rd-file-viewer-code pre::-webkit-scrollbar,
-.rd-dialog-messages::-webkit-scrollbar,
+.rd-dialog-panel-body::-webkit-scrollbar,
+.rd-dialog-messages-list::-webkit-scrollbar,
 .rd-setup-log::-webkit-scrollbar,
-.rd-dialog::-webkit-scrollbar {
+.rd-dialog::-webkit-scrollbar,
+.rd-folder-picker-dropdown::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.rd-ide-left-body::-webkit-scrollbar-track,
 .rd-ide-right-body::-webkit-scrollbar-track,
-.rd-ide-center-body::-webkit-scrollbar-track,
+.rd-editor-body::-webkit-scrollbar-track,
 .rd-file-viewer-code::-webkit-scrollbar-track,
 .rd-file-viewer-code pre::-webkit-scrollbar-track,
-.rd-dialog-messages::-webkit-scrollbar-track,
+.rd-dialog-panel-body::-webkit-scrollbar-track,
+.rd-dialog-messages-list::-webkit-scrollbar-track,
 .rd-setup-log::-webkit-scrollbar-track,
-.rd-dialog::-webkit-scrollbar-track {
+.rd-dialog::-webkit-scrollbar-track,
+.rd-folder-picker-dropdown::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.rd-ide-left-body::-webkit-scrollbar-thumb,
 .rd-ide-right-body::-webkit-scrollbar-thumb,
-.rd-ide-center-body::-webkit-scrollbar-thumb,
+.rd-editor-body::-webkit-scrollbar-thumb,
 .rd-file-viewer-code::-webkit-scrollbar-thumb,
 .rd-file-viewer-code pre::-webkit-scrollbar-thumb,
-.rd-dialog-messages::-webkit-scrollbar-thumb,
+.rd-dialog-panel-body::-webkit-scrollbar-thumb,
+.rd-dialog-messages-list::-webkit-scrollbar-thumb,
 .rd-setup-log::-webkit-scrollbar-thumb,
-.rd-dialog::-webkit-scrollbar-thumb {
+.rd-dialog::-webkit-scrollbar-thumb,
+.rd-folder-picker-dropdown::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0);
   border-radius: 3px;
   transition: background 0.25s ease;
 }
 
-.rd-ide-left-body:hover::-webkit-scrollbar-thumb,
 .rd-ide-right-body:hover::-webkit-scrollbar-thumb,
-.rd-ide-center-body:hover::-webkit-scrollbar-thumb,
+.rd-editor-body:hover::-webkit-scrollbar-thumb,
 .rd-file-viewer-code:hover::-webkit-scrollbar-thumb,
 .rd-file-viewer-code:hover pre::-webkit-scrollbar-thumb,
-.rd-dialog-messages:hover::-webkit-scrollbar-thumb,
+.rd-dialog-panel-body:hover::-webkit-scrollbar-thumb,
+.rd-dialog-messages-list:hover::-webkit-scrollbar-thumb,
 .rd-setup-log:hover::-webkit-scrollbar-thumb,
-.rd-dialog:hover::-webkit-scrollbar-thumb {
+.rd-dialog:hover::-webkit-scrollbar-thumb,
+.rd-folder-picker-dropdown:hover::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0.3);
 }
 
-.rd-ide-left-body:hover::-webkit-scrollbar-thumb:hover,
 .rd-ide-right-body:hover::-webkit-scrollbar-thumb:hover,
-.rd-ide-center-body:hover::-webkit-scrollbar-thumb:hover,
+.rd-editor-body:hover::-webkit-scrollbar-thumb:hover,
 .rd-file-viewer-code:hover::-webkit-scrollbar-thumb:hover,
 .rd-file-viewer-code:hover pre::-webkit-scrollbar-thumb:hover,
-.rd-dialog-messages:hover::-webkit-scrollbar-thumb:hover,
+.rd-dialog-panel-body:hover::-webkit-scrollbar-thumb:hover,
+.rd-dialog-messages-list:hover::-webkit-scrollbar-thumb:hover,
 .rd-setup-log:hover::-webkit-scrollbar-thumb:hover,
-.rd-dialog:hover::-webkit-scrollbar-thumb:hover {
+.rd-dialog:hover::-webkit-scrollbar-thumb:hover,
+.rd-folder-picker-dropdown:hover::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);
+}
+
+/* ============================================
+   Claude 对话面板（chat-like 布局）
+   ============================================ */
+.rd-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rd-dialog-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.rd-dialog-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  min-height: 0;
+}
+
+/* 通知条 */
+.rd-dialog-notice {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--primary-subtle, rgba(59, 130, 246, 0.06));
+  border: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* 分区标题 */
+.rd-dialog-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+/* 历史会话 */
+.rd-dialog-history {
+  margin-bottom: 16px;
+}
+
+.rd-dialog-conversation-card {
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.rd-dialog-conversation-card:hover {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+}
+
+.rd-dialog-conversation-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.rd-dialog-conversation-title {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rd-dialog-conversation-meta {
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+/* 新建会话表单 */
+.rd-dialog-new-form {
+  margin-bottom: 12px;
+}
+
+/* 消息列表 */
+.rd-dialog-messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+/* 底部输入栏 */
+.rd-dialog-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--white-alpha-40);
+  flex-shrink: 0;
+}
+
+.rd-dialog-input-textarea {
+  flex: 1;
+  min-height: 32px;
+  max-height: 120px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--white-alpha-80);
+  color: var(--text-primary);
+  outline: none;
+  resize: none;
+  line-height: 1.4;
+}
+
+.rd-dialog-input-textarea:focus {
+  border-color: var(--primary);
+}
+
+.rd-dialog-input-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rd-dialog-send-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--text-inverse);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
+}
+
+.rd-dialog-send-btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.rd-dialog-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   文件夹选择器
+   ============================================ */
+.rd-folder-picker {
+  position: relative;
+}
+
+.rd-folder-picker-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  min-height: 32px;
+}
+
+.rd-folder-picker-display:hover {
+  border-color: var(--primary);
+}
+
+.rd-folder-picker-display.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rd-folder-picker-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.rd-folder-picker-arrow {
+  font-size: 10px;
+  color: var(--text-light);
+  margin-left: 6px;
+}
+
+.rd-folder-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 4px;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+}
+
+.rd-folder-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s;
+}
+
+.rd-folder-node:hover {
+  background: var(--primary-subtle);
+}
+
+.rd-folder-node.selected {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-weight: 600;
 }

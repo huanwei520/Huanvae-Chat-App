@@ -7,20 +7,13 @@
  */
 
 import { create } from 'zustand';
-import type { Machine, RelayToken, RemoteDevTab } from '../types/remoteDev';
+import type { Machine, RelayToken } from '../types/remoteDev';
 
 interface RemoteDevState {
-  /** @deprecated 保留向后兼容，IDE 布局中已不使用 */
-  activeTab: RemoteDevTab;
-  setActiveTab: (tab: RemoteDevTab) => void;
-
   machines: Machine[];
   setMachines: (machines: Machine[]) => void;
   selectedMachineId: string | null;
   setSelectedMachineId: (id: string | null) => void;
-
-  /** @deprecated IDE 布局中等同于 setSelectedMachineId */
-  selectMachineAndNavigate: (id: string, tab: RemoteDevTab) => void;
 
   tokens: RelayToken[];
   setTokens: (tokens: RelayToken[]) => void;
@@ -31,16 +24,10 @@ interface RemoteDevState {
 }
 
 export const useRemoteDevStore = create<RemoteDevState>((set) => ({
-  activeTab: 'machines',
-  setActiveTab: (tab) => set({ activeTab: tab }),
-
   machines: [],
   setMachines: (machines) => set({ machines }),
   selectedMachineId: null,
   setSelectedMachineId: (id) => set({ selectedMachineId: id }),
-
-  selectMachineAndNavigate: (id, _tab) =>
-    set({ selectedMachineId: id }),
 
   tokens: [],
   setTokens: (tokens) => set({ tokens }),

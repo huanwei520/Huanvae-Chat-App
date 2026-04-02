@@ -1,7 +1,7 @@
 /**
  * 远程开发模块类型定义
  *
- * 对应后端 Remote Dev API Phase 1-7
+ * 对应后端 Remote Dev API Phase 1-8
  *
  * @module remoteDev/types
  */
@@ -179,20 +179,43 @@ export interface SetupStatusResponse {
 }
 
 // ============================================================================
-// Phase 6: Claude 对话
+// Phase 6/8: Claude 多轮对话
 // ============================================================================
 
-export interface ClaudeSession {
-  session_id: string;
+export type ConversationStatus = 'active' | 'disconnected' | 'closed';
+
+export interface Conversation {
+  conversation_id: string;
   machine_id: string;
-  status: string;
-  started_at: string;
+  working_dir: string;
+  title: string | null;
+  status: ConversationStatus;
+  cli_session_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface ClaudeSessionStartParams {
+export interface ConversationCreateParams {
+  machine_id: string;
   working_dir: string;
-  prompt: string;
 }
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string | ContentBlock[];
+  [key: string]: unknown;
+}
+
+export interface WsUserMessage {
+  type: 'user_message';
+  content: string;
+}
+
+export interface WsCloseMessage {
+  type: 'close';
+}
+
+export type WsClientMessage = WsUserMessage | WsCloseMessage;
 
 export type ClaudeEventType = 'status' | 'system' | 'assistant' | 'user' | 'result' | 'error';
 
@@ -272,9 +295,6 @@ export type ClaudeDialogEvent =
 // ============================================================================
 // Store 类型
 // ============================================================================
-
-/** @deprecated 仅用于向后兼容，IDE 布局中不再使用 tab 导航 */
-export type RemoteDevTab = 'tokens' | 'machines' | 'terminal' | 'files' | 'dialog';
 
 /** 配置弹窗类型 */
 export type ConfigModal = 'machines' | 'tokens' | null;
