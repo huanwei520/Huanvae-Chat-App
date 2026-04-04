@@ -49,18 +49,6 @@ vi.mock('../../src/stores/settingsStore', () => ({
   }),
 }));
 
-// 模拟 framer-motion 以简化测试
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, className, ...props }: React.PropsWithChildren<{ className?: string }>) => (
-      <div className={className} {...props}>
-        {children}
-      </div>
-    ),
-  },
-  AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
-}));
-
 // 模拟 update 模块
 vi.mock('../../src/update', () => ({
   checkForUpdates: vi.fn(() => Promise.resolve({ available: false })),

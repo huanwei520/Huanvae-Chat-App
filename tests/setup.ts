@@ -9,6 +9,11 @@
 
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
+import { MotionGlobalConfig } from 'framer-motion';
+
+// Skip animation rendering but preserve component state logic
+// (variants, exit callbacks, AnimatePresence mount/unmount timing)
+MotionGlobalConfig.skipAnimations = true;
 
 // ============================================
 // Mock Tauri API
