@@ -43,13 +43,13 @@
   ; 安装完成后的操作
   DetailPrint "安装完成"
 
-  ; 安装 HuanvaeGuard Windows Service
+  ; 安装 HuanvaeGuard Windows Service（auto 模式，开机自动启动）
   DetailPrint "正在安装 HuanvaeGuard 服务..."
-  nsExec::ExecToLog 'sc.exe create HuanvaeGuard binPath= "$INSTDIR\HuanvaeGuard\huanvaeguard-svc.exe" start= demand DisplayName= "HuanvaeGuard VPN Service"'
+  nsExec::ExecToLog 'sc.exe create HuanvaeGuard binPath= "$INSTDIR\HuanvaeGuard\huanvaeguard-svc.exe" start= auto DisplayName= "HuanvaeGuard VPN Service"'
   nsExec::ExecToLog 'sc.exe description HuanvaeGuard "HuanvaeGuard VPN tunnel service for Huanvae Chat"'
-  ; 启动服务（demand 模式，需要时启动）
+  ; 立即启动服务
   nsExec::ExecToLog 'sc.exe start HuanvaeGuard'
-  DetailPrint "HuanvaeGuard 服务已安装"
+  DetailPrint "HuanvaeGuard 服务已安装并启动"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

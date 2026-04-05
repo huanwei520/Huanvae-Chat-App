@@ -140,6 +140,8 @@ png = "0.17"
 keyring = { version = "3.6.3", features = ["windows-native"] }
 # Windows 注册表访问（用于检测安装类型：MSI vs NSIS）
 winreg = "0.55.0"
+# ShellExecuteW 用于 UAC 提权启动 HuanvaeGuard 服务
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6.3", features = ["linux-native"] }

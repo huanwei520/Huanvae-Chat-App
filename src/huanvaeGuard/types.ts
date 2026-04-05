@@ -71,9 +71,66 @@ export interface TopologyPeer {
 
 export interface HgDevice {
   device_id: string;
+  user_id: string;
   device_name: string;
   public_key: string;
   virtual_ip: string;
-  status: string;
+  node_id: string | null;
+  psk_hash: string | null;
   os: string | null;
+  device_fingerprint: string | null;
+  status: string;
+  locked_endpoint: string | null;
+  last_heartbeat: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 设备链接 */
+export interface HgDeviceLink {
+  link_id: string;
+  device_a: string;
+  device_b: string;
+  link_source: 'self' | 'manual' | 'group';
+  source_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 群组 */
+export interface HgGroup {
+  group_id: string;
+  name: string;
+  owner_id: string;
+  description: string | null;
+  is_active: boolean;
+  max_devices: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 群组详情（含成员设备） */
+export interface HgGroupDetail {
+  group: HgGroup;
+  devices: Array<TopologyPeer & { status?: string; last_heartbeat?: string }>;
+}
+
+/** 邀请创建响应 */
+export interface HgInviteResponse {
+  invite_id: string;
+  invite_token: string;
+  expires_at: string;
+}
+
+/** 加入群组响应 */
+export interface HgJoinGroupResponse {
+  group_id: string;
+  status: string;
+  pending_peers: number;
+}
+
+/** 锁定设备响应 */
+export interface HgLockDeviceResult {
+  psk: string;
+  psk_hash: string;
 }

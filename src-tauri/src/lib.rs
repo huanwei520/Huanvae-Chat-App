@@ -224,6 +224,239 @@ fn get_windows_installer_type() -> String {
 }
 
 // ============================================================================
+// HuanvaeGuard 服务管理 Commands
+// ============================================================================
+
+/// 查找 HuanvaeGuard 服务程序路径（兼容开发/生产环境）
+///
+/// 返回不带 `\\?\` 前缀的干净路径，确保 PowerShell 能正确处理
+#[cfg(target_os = "windows")]
+fn find_hg_exe(app: &tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let mut candidates = Vec::new();
+
+    if let Ok(res_dir) = app.path().resource_dir() {
+        candidates.push(res_dir.join("HuanvaeGuard").join("huanvaeguard-svc.exe"));
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("HuanvaeGuard").join("huanvaeguard-svc.exe"));
+            // 开发模式: target/{debug|release}/../../resources/HuanvaeGuard/
+            if let Some(target_type) = dir.parent() {
+                if let Some(target_root) = target_type.parent() {
+                    candidates.push(
+                        target_root
+                            .join("resources")
+                            .join("HuanvaeGuard")
+                            .join("huanvaeguard-svc.exe"),
+                    );
+                }
+            }
+        }
+    }
+
+    for p in &candidates {
+        if p.exists() {
+            let s = p.display().to_string();
+            return Ok(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string());
+        }
+    }
+
+    let tried: Vec<_> = candidates.iter().map(|p| p.display().to_string()).collect();
+    Err(format!("未找到 huanvaeguard-svc.exe，已尝试: {}", tried.join(", ")))
+}
+
+/// 启动 HuanvaeGuard 服务（桌面端）
+///
+/// 策略优先级：
+/// 1. 检测 Windows Service 是否已在运行 → 直接返回
+/// 2. 已注册的 Windows Service（生产环境）→ sc.exe start
+/// 3. 未注册（开发环境）→ ShellExecuteW "runas" 提权启动 exe
+///    （创建 WinTUN 适配器需要管理员权限，CreateProcess 无法触发 UAC）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+async fn start_hg_service(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // 查询 Windows Service 注册状态
+        if let Ok(output) = std::process::Command::new("sc.exe")
+            .args(["query", "HuanvaeGuard"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            if stdout.contains("RUNNING") {
+                return Ok("服务已在运行中".to_string());
+            }
+
+            if stdout.contains("STOPPED") || stdout.contains("STOP_PENDING") {
+                if let Ok(out) = std::process::Command::new("sc.exe")
+                    .args(["start", "HuanvaeGuard"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                {
+                    if out.status.success() {
+                        return Ok("Windows 服务已启动".to_string());
+                    }
+                }
+            }
+        }
+
+        // 服务未注册（开发环境）→ ShellExecuteW runas 提权启动
+        let exe_path = find_hg_exe(&app)?;
+        shell_execute_runas(&exe_path)?;
+        Ok(format!("服务进程已启动（管理员模式）: {exe_path}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("HuanvaeGuard 仅支持 Windows".to_string())
+    }
+}
+
+/// 通过 Win32 ShellExecuteW "runas" 以管理员权限启动进程
+///
+/// 这是唯一能触发 UAC 对话框的 Win32 API，
+/// std::process::Command 使用 CreateProcessW，无法提权。
+#[cfg(target_os = "windows")]
+fn shell_execute_runas(exe_path: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let verb = to_wide("runas");
+    let file = to_wide(exe_path);
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_HIDE as i32,
+        )
+    };
+
+    if result as usize > 32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "ShellExecuteW 失败 (code={}), 用户可能取消了 UAC",
+            result as usize
+        ))
+    }
+}
+
+/// 重启 HuanvaeGuard 服务（桌面端）
+///
+/// 用于清理残留 Named Pipe（ERROR_PIPE_BUSY 231）：
+/// 杀掉旧进程释放管道句柄，等待后重新启动
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+async fn restart_hg_service(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // 先尝试通过 sc.exe stop（生产环境）
+        let _ = std::process::Command::new("sc.exe")
+            .args(["stop", "HuanvaeGuard"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        // 杀所有 huanvaeguard-svc 进程（需要管理员权限杀提权进程）
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", "huanvaeguard-svc.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        // 如果普通权限杀不掉，用 ShellExecuteW 提权杀
+        if let Ok(output) = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq huanvaeguard-svc.exe", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("huanvaeguard-svc") {
+                shell_execute_runas_cmd("taskkill /F /IM huanvaeguard-svc.exe")?;
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
+        }
+
+        // 等待管道释放
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // 重新启动
+        start_hg_service(app).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("HuanvaeGuard 仅支持 Windows".to_string())
+    }
+}
+
+/// 通过 ShellExecuteW runas 执行 cmd 命令（管理员权限）
+#[cfg(target_os = "windows")]
+fn shell_execute_runas_cmd(cmd_args: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let verb = to_wide("runas");
+    let file = to_wide("cmd.exe");
+    let params = to_wide(&format!("/c {cmd_args}"));
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            params.as_ptr(),
+            std::ptr::null(),
+            SW_HIDE as i32,
+        )
+    };
+
+    if result as usize > 32 { Ok(()) } else {
+        Err(format!("ShellExecuteW 失败 (code={})", result as usize))
+    }
+}
+
+/// 启动 HuanvaeGuard 服务（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+async fn start_hg_service() -> Result<String, String> {
+    Err("HuanvaeGuard 仅支持 Windows".to_string())
+}
+
+/// 重启 HuanvaeGuard 服务（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+async fn restart_hg_service() -> Result<String, String> {
+    Err("HuanvaeGuard 仅支持 Windows".to_string())
+}
+
+// ============================================================================
 // 移动端本地视频 URL Commands
 // ============================================================================
 
@@ -722,6 +955,9 @@ pub fn run() {
             activate_existing_instance,
             // Windows 安装类型检测（桌面端专属，用于更新器）
             get_windows_installer_type,
+            // HuanvaeGuard 服务管理
+            start_hg_service,
+            restart_hg_service,
             // 设备信息
             device_info::get_mac_address_cmd,
             // 局域网传输（基础）

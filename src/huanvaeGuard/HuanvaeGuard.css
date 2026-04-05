@@ -1,0 +1,687 @@
+/**
+ * HuanvaeGuard VPN 页面样式
+ *
+ * 配色与设置面板统一，变量来源：variables.css + ThemeProvider
+ */
+
+/* ============================================
+   页面根容器
+   ============================================ */
+.hg-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: var(--space-5);
+  gap: var(--space-4);
+  background: var(--gradient-bg-page);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-y: auto;
+}
+
+.hg-page h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  color: var(--primary);
+}
+
+/* ============================================
+   服务状态指示器
+   ============================================ */
+.hg-service-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.hg-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hg-status-dot.running {
+  background: var(--status-success);
+  box-shadow: 0 0 6px var(--status-success);
+}
+
+.hg-status-dot.stopped {
+  background: var(--status-error);
+}
+
+.hg-status-dot.starting {
+  background: var(--status-warning);
+  animation: hg-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.hg-platform-warn {
+  color: var(--status-warning);
+  margin-left: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+/* ============================================
+   错误提示
+   ============================================ */
+.hg-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--status-error-subtle);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--status-error);
+  font-size: var(--text-sm);
+}
+
+.hg-error-dismiss {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--status-error);
+  color: var(--status-error);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  transition: var(--transition-fast);
+}
+
+.hg-error-dismiss:hover {
+  background: var(--status-error);
+  color: var(--text-inverse);
+}
+
+/* ============================================
+   设备列表
+   ============================================ */
+.hg-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.hg-section-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.hg-btn {
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--white-alpha-40);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  transition: var(--transition-fast);
+}
+
+.hg-btn:hover {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.hg-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hg-btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+  margin-left: var(--space-2);
+}
+
+.hg-empty {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  padding: var(--space-2) 0;
+}
+
+.hg-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hg-device-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  background: transparent;
+}
+
+.hg-device-item:hover {
+  background: var(--white-alpha-40);
+}
+
+.hg-device-item.selected {
+  background: var(--primary-subtle);
+  border: 1px solid var(--primary);
+}
+
+.hg-device-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  cursor: pointer;
+}
+
+.hg-device-name {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.hg-device-ip {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.hg-device-status {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.hg-device-status.active {
+  color: var(--status-success);
+  background: var(--status-success-subtle);
+}
+
+.hg-device-status.inactive {
+  color: var(--text-muted);
+}
+
+.hg-device-delete {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: var(--transition-fast);
+}
+
+.hg-device-delete:hover {
+  border-color: var(--status-error);
+  color: var(--status-error);
+}
+
+/* ============================================
+   连接/断开 按钮
+   ============================================ */
+.hg-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.hg-btn-connect {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition: var(--transition-fast);
+  background: var(--status-success);
+  color: #fff;
+}
+
+.hg-btn-connect:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.hg-btn-connect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hg-btn-disconnect {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition: var(--transition-fast);
+  background: var(--status-error);
+  color: #fff;
+}
+
+.hg-btn-disconnect:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.hg-btn-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   隧道状态面板
+   ============================================ */
+.hg-tunnel-status {
+  background: var(--white-alpha-40);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+}
+
+.hg-tunnel-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.hg-tunnel-info strong {
+  color: var(--text-primary);
+}
+
+.hg-peer-table {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.hg-peer-table th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.hg-peer-table th.right {
+  text-align: right;
+}
+
+.hg-peer-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.hg-peer-table td.right {
+  text-align: right;
+}
+
+.hg-peer-table td.key {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================
+   邀请 Token 展示卡片
+   ============================================ */
+.hg-invite-card {
+  background: var(--primary-subtle);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.hg-invite-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
+}
+
+.hg-invite-header strong {
+  color: var(--primary);
+}
+
+.hg-invite-expires {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.hg-invite-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 48px;
+}
+
+.hg-invite-token-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 4px;
+}
+
+.hg-invite-token {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  background: var(--white-alpha-40);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
+}
+
+/* ============================================
+   当前设备提示
+   ============================================ */
+.hg-selected-device {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-left: var(--space-2);
+}
+
+/* ============================================
+   设备操作按钮组
+   ============================================ */
+.hg-device-ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.hg-device-locked {
+  font-size: 12px;
+  cursor: default;
+}
+
+/* ============================================
+   Tab 导航
+   ============================================ */
+.hg-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.hg-tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: var(--transition-fast);
+}
+
+.hg-tab:hover {
+  color: var(--text-primary);
+}
+
+.hg-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.hg-tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hg-tab-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hg-tab-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hg-tab-panel::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0);
+  border-radius: 3px;
+}
+
+.hg-tab-panel:hover::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0.3);
+}
+
+/* ============================================
+   提示信息
+   ============================================ */
+.hg-hint {
+  font-size: var(--text-xs);
+  color: var(--status-warning);
+  padding: var(--space-1) 0;
+}
+
+/* ============================================
+   链接列表
+   ============================================ */
+.hg-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hg-link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  transition: var(--transition-fast);
+}
+
+.hg-link-item:hover {
+  background: var(--white-alpha-40);
+}
+
+.hg-link-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.hg-link-devices {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.hg-link-source {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.hg-link-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ============================================
+   群组列表
+   ============================================ */
+.hg-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hg-group-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: var(--transition-fast);
+}
+
+.hg-group-card:hover {
+  border-color: var(--border-default);
+}
+
+.hg-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.hg-group-header:hover {
+  background: var(--white-alpha-40);
+}
+
+.hg-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.hg-group-active-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hg-group-active-dot.on {
+  background: var(--status-success);
+}
+
+.hg-group-active-dot.off {
+  background: var(--text-muted);
+}
+
+.hg-group-id {
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  background: var(--white-alpha-40);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.hg-group-id-full {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.hg-group-desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-left: var(--space-1);
+}
+
+.hg-group-chevron {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.hg-group-body {
+  padding: 0 var(--space-3) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.hg-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: var(--space-2) 0;
+}
+
+.hg-group-members {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.hg-group-members strong {
+  color: var(--text-primary);
+}
+
+.hg-btn-danger {
+  border-color: var(--status-error) !important;
+  color: var(--status-error) !important;
+}
+
+.hg-btn-danger:hover {
+  background: var(--status-error) !important;
+  color: #fff !important;
+}
+
+/* ============================================
+   活动日志
+   ============================================ */
+.hg-log {
+  background: var(--white-alpha-20);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ============================================
+   滚动条 — 统一悬停显示风格
+   ============================================ */
+.hg-page::-webkit-scrollbar,
+.hg-log::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hg-page::-webkit-scrollbar-track,
+.hg-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hg-page::-webkit-scrollbar-thumb,
+.hg-log::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0);
+  border-radius: 3px;
+  transition: background 0.25s ease;
+}
+
+.hg-page:hover::-webkit-scrollbar-thumb,
+.hg-log:hover::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0.3);
+}
+
+.hg-page:hover::-webkit-scrollbar-thumb:hover,
+.hg-log:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(147, 197, 253, 0.5);
+}

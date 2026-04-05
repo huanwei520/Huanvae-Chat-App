@@ -6,6 +6,8 @@
  */
 
 export { default as HuanvaeGuardPage } from './HuanvaeGuardPage';
+export { createHgApiClient } from './serverApi';
+export { getOrCreateKeyPair, clearKeyPair } from './crypto';
 
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { platform } from '@tauri-apps/plugin-os';
@@ -19,7 +21,7 @@ export async function openHuanvaeGuardWindow(
   accessToken: string,
   refreshToken: string,
 ): Promise<void> {
-  const p = await platform();
+  const p = platform();
   if (p !== 'windows') {
     console.warn('[HuanvaeGuard] Only available on Windows');
     return;

@@ -12,9 +12,10 @@
  * - 红色：断开连接
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { platform } from '@tauri-apps/plugin-os';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { UserAvatar, type SessionInfo } from '../common/Avatar';
 import {
@@ -178,16 +179,29 @@ export function Sidebar({
     setShowMorePanel(false);
   }, []);
 
+  const [isWindowsPlatform] = useState(() => {
+    try {
+      return platform() === 'windows';
+    } catch {
+      return false;
+    }
+  });
+
   // "更多"浮层中收纳的功能列表
-  const moreItems: MoreMenuItem[] = [
-    { icon: <FolderIcon />, label: '我的文件', onClick: onFilesClick },
-    { icon: <LanTransferIcon />, label: '局域网互传', onClick: onLanTransferClick },
-    { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
-    { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
-    { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
-    { icon: <RemoteDevIcon />, label: '远程开发', onClick: onRemoteDevClick },
-    { icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick },
-  ];
+  const moreItems: MoreMenuItem[] = useMemo(() => {
+    const items: MoreMenuItem[] = [
+      { icon: <FolderIcon />, label: '我的文件', onClick: onFilesClick },
+      { icon: <LanTransferIcon />, label: '局域网互传', onClick: onLanTransferClick },
+      { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
+      { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
+      { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
+      { icon: <RemoteDevIcon />, label: '远程开发', onClick: onRemoteDevClick },
+    ];
+    if (isWindowsPlatform) {
+      items.push({ icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick });
+    }
+    return items;
+  }, [isWindowsPlatform, onFilesClick, onLanTransferClick, onMeetingClick, onMiniAppsClick, onLowcodeClick, onRemoteDevClick, onHuanvaeGuardClick]);
 
   return (
     <motion.aside

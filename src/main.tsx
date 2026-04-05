@@ -67,9 +67,13 @@ function RootApp() {
     return <LowcodePage />;
   }
 
-  // HuanvaeGuard VPN 页面（独立窗口，仅 Windows）
+  // HuanvaeGuard VPN 页面（独立窗口，仅 Windows，包裹 ThemeProvider 以继承主题）
   if (pathname === '/huanvae-guard') {
-    return <HuanvaeGuardPage />;
+    return (
+      <ThemeProvider>
+        <HuanvaeGuardPage />
+      </ThemeProvider>
+    );
   }
 
   // 远程开发页面（独立窗口，仅桌面端，包裹 ThemeProvider 以继承主题）
