@@ -41,3 +41,5 @@ src-tauri/gen/android/app/keystore.properties
 e2e/test-results/
 playwright-report/
 blob-report/
+
+HuanvaeGuard/
