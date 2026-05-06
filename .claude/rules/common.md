@@ -63,6 +63,31 @@ Glob 模式 `**/pattern` 在某些工具实现下**不会匹配仓库根目录�
 - blind-reviewer 汇报 Step 2 的 `cargo test` 因 huanvaeguard-svc.exe 文件锁失败
 - 若直接判 Plan 未通过会错失闭环；实际主对话侧 `hg-service.ps1 -Action stop` 后 4/4 测试全绿
 
+## .gitignore 模式在 Windows 上是大小写不敏感的
+
+### 非完整路径的目录模式会跨大小写匹配
+
+Windows / macOS 默认 NTFS / APFS 是 case-insensitive，`git config core.ignorecase=true`。`.gitignore` 里写一个无路径前缀的目录名（如 `HuanvaeGuard/`）会同时匹配 `src-tauri/.../HuanvaeGuard/` **和** `src/huanvaeGuard/` 下**所有未追踪**的新文件（已 tracked 的不受影响）。
+
+**规则**：项目特定路径模式必须**带完整路径前缀**：
+
+```gitignore
+# ❌ 危险：会跨大小写匹配 src/huanvaeGuard/ 下的新文件
+HuanvaeGuard/
+
+# ✅ 安全：限定到具体子树
+src-tauri/resources/HuanvaeGuard/
+src-tauri/target/*/HuanvaeGuard/
+```
+
+**排查命令**：`git check-ignore -v <suspect-path>` 直接显示哪条规则匹配。
+
+**反例（2026-05-06）**：
+- `.gitignore` 第 29 行 `HuanvaeGuard/` 用于忽略 svc 二进制目录
+- 新增 `src/huanvaeGuard/format.ts` 在 `git status` 中默默不出现
+- `git check-ignore` 显示该文件被 `HuanvaeGuard/` 规则匹配
+- 修正为 `src-tauri/resources/HuanvaeGuard/` + `src-tauri/target/*/HuanvaeGuard/` 后正常追踪
+
 ## Cleanup 流程前置检查
 
 ### 非 git 仓库必须先 `git init` 建基线

@@ -160,4 +160,173 @@ export function useConfirmDialog() {
   return { confirm, dialogElement };
 }
 
+// ============================================================================
+// PromptDialog 组件（带文本输入的确认对话框，替代 window.prompt）
+// ============================================================================
+
+export interface PromptDialogProps {
+  /** 标题（默认 "请输入"） */
+  title?: string;
+  /** 提示消息（可选） */
+  message?: ReactNode;
+  /** 输入框 placeholder */
+  placeholder?: string;
+  /** 输入框默认值 */
+  defaultValue?: string;
+  /** 确认按钮文字（默认 "确认"） */
+  confirmLabel?: string;
+  /** 取消按钮文字（默认 "取消"） */
+  cancelLabel?: string;
+  /** 是否要求非空（默认 true） */
+  required?: boolean;
+  /** 确认回调 */
+  onConfirm: (value: string) => void;
+  /** 取消回调 */
+  onCancel: () => void;
+}
+
+function PromptDialogComponent({
+  title = '请输入',
+  message,
+  placeholder,
+  defaultValue = '',
+  confirmLabel = '确认',
+  cancelLabel = '取消',
+  required = true,
+  onConfirm,
+  onCancel,
+}: PromptDialogProps) {
+  const [value, setValue] = useState(defaultValue);
+  const submit = () => {
+    if (required && !value.trim()) { return; }
+    onConfirm(value);
+  };
+  const isEmpty = required && !value.trim();
+  return (
+    <div className="delete-confirm-overlay" onClick={onCancel}>
+      <div
+        className="delete-confirm-dialog"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="delete-confirm-title">{title}</div>
+        {message && <div className="delete-confirm-message">{message}</div>}
+        <input
+          type="text"
+          autoFocus
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            margin: '12px 0',
+            border: '1px solid var(--border-color, #444)',
+            borderRadius: 4,
+            background: 'var(--input-bg, #2a2a2a)',
+            color: 'var(--text-primary, #e0e0e0)',
+            fontSize: 14,
+            boxSizing: 'border-box',
+          }}
+        />
+        <div className="delete-confirm-actions">
+          <button className="toolbar-btn" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+          <button
+            className="toolbar-btn primary"
+            onClick={submit}
+            disabled={isEmpty}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const PromptDialog = memo(PromptDialogComponent);
+
+export interface PromptOptions {
+  title?: string;
+  message?: ReactNode;
+  placeholder?: string;
+  defaultValue?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  required?: boolean;
+}
+
+/**
+ * 通用输入对话框 Hook
+ *
+ * @returns { prompt, dialogElement }
+ * - prompt: 异步方法，弹出输入对话框；用户确认返回输入值，取消返回 null
+ * - dialogElement: 需要放到 JSX 中渲染的对话框元素（null 时不显示）
+ *
+ * @example
+ * ```tsx
+ * const { prompt, dialogElement } = usePromptDialog();
+ *
+ * const handleCreate = async () => {
+ *   const name = await prompt({ title: '创建群组', placeholder: '群组名称' });
+ *   if (name === null) return; // 用户取消
+ *   doCreate(name);
+ * };
+ *
+ * return <>{...}{dialogElement}</>;
+ * ```
+ */
+export function usePromptDialog() {
+  const [state, setState] = useState<PromptOptions | null>(null);
+  const resolveRef = useRef<((value: string | null) => void) | null>(null);
+
+  const prompt = useCallback(
+    (options: PromptOptions = {}): Promise<string | null> => {
+      return new Promise<string | null>((resolve) => {
+        resolveRef.current = resolve;
+        setState(options);
+      });
+    },
+    [],
+  );
+
+  const handleConfirm = useCallback((value: string) => {
+    resolveRef.current?.(value);
+    resolveRef.current = null;
+    setState(null);
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    resolveRef.current?.(null);
+    resolveRef.current = null;
+    setState(null);
+  }, []);
+
+  const dialogElement = state ? (
+    <PromptDialog
+      title={state.title}
+      message={state.message}
+      placeholder={state.placeholder}
+      defaultValue={state.defaultValue}
+      confirmLabel={state.confirmLabel}
+      cancelLabel={state.cancelLabel}
+      required={state.required}
+      onConfirm={handleConfirm}
+      onCancel={handleCancel}
+    />
+  ) : null;
+
+  return { prompt, dialogElement };
+}
+
 export default ConfirmDialog;

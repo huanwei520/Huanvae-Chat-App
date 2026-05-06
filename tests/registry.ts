@@ -90,6 +90,12 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'LanTransferPage', path: 'lanTransfer/LanTransferPage', category: 'components', description: '局域网传输页面' },
   { name: 'lanTransferApi', path: 'lanTransfer/api', category: 'services', description: '局域网传输 API' },
 
+  // HuanvaeGuard VPN
+  { name: 'HuanvaeGuardPage', path: 'huanvaeGuard/HuanvaeGuardPage', category: 'components', isDefault: true, description: 'HuanvaeGuard VPN 管理页面（独立 Tauri 窗口）' },
+  { name: 'huanvaeGuardServerApi', path: 'huanvaeGuard/serverApi', category: 'services', description: 'HuanvaeGuard 远端 API 客户端' },
+  { name: 'huanvaeGuardLocalApi', path: 'huanvaeGuard/localApi', category: 'services', description: 'HuanvaeGuard 本地 svc API 客户端' },
+  { name: 'PromptDialog', path: 'lowcode/components/ConfirmDialog', category: 'components', description: '通用输入对话框（替代 window.prompt）' },
+
   // 低代码编辑器
   { name: 'LowcodePage', path: 'lowcode/LowcodePage', category: 'components', isDefault: true, description: '低代码编辑器页面（仅桌面端）' },
   { name: 'lowcodeApi', path: 'lowcode/api', category: 'services', description: '低代码编辑器窗口 API' },

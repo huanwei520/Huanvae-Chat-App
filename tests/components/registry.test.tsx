@@ -159,6 +159,12 @@ import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
 
+// HuanvaeGuard VPN
+import * as HuanvaeGuardPage from '../../src/huanvaeGuard/HuanvaeGuardPage';
+import * as huanvaeGuardServerApi from '../../src/huanvaeGuard/serverApi';
+import * as huanvaeGuardLocalApi from '../../src/huanvaeGuard/localApi';
+import * as ConfirmDialogModule from '../../src/lowcode/components/ConfirmDialog';
+
 // 低代码编辑器
 import * as LowcodePage from '../../src/lowcode/LowcodePage';
 import * as lowcodeApi from '../../src/lowcode/api';
@@ -245,6 +251,11 @@ const COMPONENT_MAP = {
   LanTransferPage,
   lanTransferApi,
   lanTransferIndex,
+  // HuanvaeGuard
+  HuanvaeGuardPage,
+  huanvaeGuardServerApi,
+  huanvaeGuardLocalApi,
+  PromptDialog: ConfirmDialogModule,
   // 低代码编辑器
   LowcodePage,
   lowcodeApi,

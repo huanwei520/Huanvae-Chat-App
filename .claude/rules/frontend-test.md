@@ -127,3 +127,48 @@ const MotionMyComponent = motion(MyComponent);
 ```
 
 参考 [tests/components/SettingsPanel.test.tsx:12](c:/Users/25615/Desktop/Huanvae-Chat-App/tests/components/SettingsPanel.test.tsx#L12)。
+
+## vi.mock 工厂引用 outer 变量必须用 vi.hoisted()
+
+### vi.mock 调用会被 hoist 到所有 import 之前
+
+Vitest 把 `vi.mock(...)` 调用提升到 import 之前执行，所以工厂函数里**不能**引用文件顶部声明的普通 `const`/`let`/`var`：
+
+```ts
+// ❌ 错误：mockServerApi 在 vi.mock 工厂执行时还未声明
+const mockServerApi = { foo: vi.fn() };
+vi.mock('../../src/serverApi', () => mockServerApi);
+// 运行时报错：Cannot access 'mockServerApi' before initialization
+```
+
+**规则**：用 `vi.hoisted()` 包装外层引用变量，让其与 `vi.mock` 同样被提升：
+
+```ts
+// ✅ 正确
+const mockServerApi = vi.hoisted(() => ({
+  foo: vi.fn(),
+  bar: vi.fn(),
+}));
+vi.mock('../../src/serverApi', () => mockServerApi);
+
+// beforeEach 里仍可正常使用：
+beforeEach(() => {
+  Object.values(mockServerApi).forEach((m) => m.mockReset());
+});
+```
+
+**反例（2026-05-06）**：
+- HuanvaeGuardPage.test.tsx 顶部用 `const mockServerApi = { ... }; vi.mock(..., () => mockServerApi)`
+- 整个测试文件 13 个用例全部失败，错误：`Cannot access 'mockServerApi' before initialization`
+- 改用 `vi.hoisted()` 后立即 13/13 通过
+
+## 单组件文件需要全栈 Tauri mock 时考虑抽出纯函数
+
+`HuanvaeGuardPage.tsx` 直接 import 了 `@tauri-apps/plugin-os` (platform) 和 `@tauri-apps/api/event` (emit/listen)，两者**均未在 [tests/setup.ts](tests/setup.ts) 全局 mock**。如果纯函数测试只想验证某个工具函数（如 `formatHandshake`），从该 page 文件 import 会触发整条 Tauri 模块加载链。
+
+**规则**：page 文件里**纯展示/格式化用的辅助函数**应抽到独立 `format.ts`/`utils.ts` 等无 Tauri 依赖的模块，单测直接 import 该模块，无需 mock 整套 Tauri API。
+
+**反例（2026-05-06）**：
+- `formatHandshake` 原本在 `HuanvaeGuardPage.tsx` 文件内
+- 单测 `import { formatHandshake } from '../../src/huanvaeGuard/HuanvaeGuardPage'` 会触发未 mock 的 `@tauri-apps/plugin-os` 加载
+- 抽到 `src/huanvaeGuard/format.ts` 后，单测零 mock 成本通过
