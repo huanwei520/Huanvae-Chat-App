@@ -26,6 +26,7 @@ dist-ssr
 
 # Submodule docs (separate repo)
 backend-docs/
+HuanvaeGuard/
 
 data/
 
@@ -42,4 +43,9 @@ e2e/test-results/
 playwright-report/
 blob-report/
 
-HuanvaeGuard/
+# code-server sidecar（体积~230MB，不进 git，README 除外）
+# 参考 src-tauri/binaries/README.md 了解如何在开发机上配置
+src-tauri/binaries/*
+!src-tauri/binaries/README.md
+src-tauri/resources/code-server/
+

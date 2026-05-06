@@ -598,15 +598,14 @@ async fn handle_peer_connection_request(
         println!("[LanTransfer] ✓ 已保存到待处理请求列表 (共 {} 个)", requests.len());
     }
 
-    // 发送事件通知前端
-    let event = LanTransferEvent::PeerConnectionRequest { request };
-    let _ = get_event_sender().send(event.clone());
-    emit_lan_event(&event);
+    // ========== 检查是否可以自动接受（信任设备 + 开关已启用）==========
+    let should_auto_accept = {
+        let config_manager = config::get_config_manager();
+        let config = config_manager.read();
+        let cfg = config.get_config();
+        cfg.auto_accept_trusted && config.is_device_trusted(&from_device_id)
+    };
 
-    println!("[LanTransfer] ✓ 已发送 PeerConnectionRequest 事件到前端");
-    println!("[LanTransfer] ========== 等待用户响应 ==========");
-
-    // 返回连接 ID
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Response {
@@ -614,14 +613,144 @@ async fn handle_peer_connection_request(
         status: String,
     }
 
-    send_json_response(
-        writer,
-        &Response {
-            connection_id,
-            status: "pending".to_string(),
-        },
-    )
-    .await
+    if should_auto_accept {
+        println!("[LanTransfer] ✓ 设备 {} 已信任且自动接受已启用，自动建立连接", from_device_id);
+
+        // 从待处理队列移除
+        {
+            let requests = get_pending_peer_connection_requests_map();
+            let mut requests = requests.lock();
+            requests.remove(&connection_id);
+        }
+
+        // 获取本机设备信息（提前释放 RwLockReadGuard，避免跨 await）
+        let state = get_lan_transfer_state();
+        let local_device_opt = {
+            let local = state.local_device.read();
+            local.clone()
+        };
+        let local_device = match local_device_opt {
+            Some(d) => d,
+            None => {
+                println!("[LanTransfer] ❌ 本地服务未启动，降级为手动确认");
+                // 降级：重新加入 pending 队列，走手动流程
+                {
+                    let requests = get_pending_peer_connection_requests_map();
+                    let mut requests = requests.lock();
+                    requests.insert(connection_id.clone(), request.clone());
+                }
+                let event = LanTransferEvent::PeerConnectionRequest { request };
+                let _ = get_event_sender().send(event.clone());
+                emit_lan_event(&event);
+                return send_json_response(writer, &Response {
+                    connection_id,
+                    status: "pending".to_string(),
+                }).await;
+            }
+        };
+
+        // 向发起方发送接受响应
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AcceptResponseBody {
+            connection_id: String,
+            accepted: bool,
+            from_device: Option<DiscoveredDevice>,
+        }
+
+        let url = format!(
+            "http://{}:{}/api/peer-connection-response",
+            request.from_device.ip_address, request.from_device.port
+        );
+
+        let from_device_info = DiscoveredDevice {
+            device_id: local_device.device_id.clone(),
+            device_name: local_device.device_name.clone(),
+            user_id: local_device.user_id.clone(),
+            user_nickname: local_device.user_nickname.clone(),
+            ip_address: local_device.ip_address.clone(),
+            port: local_device.port,
+            discovered_at: Utc::now().to_rfc3339(),
+            last_seen: Utc::now().to_rfc3339(),
+        };
+
+        let client = reqwest::Client::new();
+        let send_result = client
+            .post(&url)
+            .json(&AcceptResponseBody {
+                connection_id: connection_id.clone(),
+                accepted: true,
+                from_device: Some(from_device_info),
+            })
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        if let Err(e) = send_result {
+            println!("[LanTransfer] ❌ 自动接受响应发送失败: {}，降级为手动确认", e);
+            // 降级：重新加入 pending 队列，走手动流程
+            {
+                let requests = get_pending_peer_connection_requests_map();
+                let mut requests = requests.lock();
+                requests.insert(connection_id.clone(), request.clone());
+            }
+            let event = LanTransferEvent::PeerConnectionRequest { request };
+            let _ = get_event_sender().send(event.clone());
+            emit_lan_event(&event);
+            return send_json_response(writer, &Response {
+                connection_id,
+                status: "pending".to_string(),
+            }).await;
+        }
+
+        // 创建连接对象
+        let connection = PeerConnection {
+            connection_id: connection_id.clone(),
+            peer_device: request.from_device,
+            established_at: Utc::now().to_rfc3339(),
+            status: PeerConnectionStatus::Connected,
+            is_initiator: false,
+        };
+
+        {
+            let connections = get_active_peer_connections_map();
+            let mut connections = connections.lock();
+            connections.insert(connection_id.clone(), connection.clone());
+            println!("[LanTransfer] ✓ 自动接受连接已保存 (共 {} 个活跃连接)", connections.len());
+        }
+
+        // 通知前端连接已建立
+        let event = LanTransferEvent::PeerConnectionEstablished { connection };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+        println!("[LanTransfer] ✓ 已发送 PeerConnectionEstablished 事件（自动接受）");
+
+        send_json_response(
+            writer,
+            &Response {
+                connection_id,
+                status: "connected".to_string(),
+            },
+        )
+        .await
+    } else {
+        // 正常流程：发送事件通知前端，等待用户手动确认
+        let event = LanTransferEvent::PeerConnectionRequest { request };
+        let _ = get_event_sender().send(event.clone());
+        emit_lan_event(&event);
+
+        println!("[LanTransfer] ✓ 已发送 PeerConnectionRequest 事件到前端");
+        println!("[LanTransfer] ========== 等待用户响应 ==========");
+
+        send_json_response(
+            writer,
+            &Response {
+                connection_id,
+                status: "pending".to_string(),
+            },
+        )
+        .await
+    }
 }
 
 /// 处理点对点连接响应（发起方收到接收方的响应）
@@ -1134,8 +1263,31 @@ async fn handle_upload(
     let session_id = params.get("sessionId").unwrap_or(&"").to_string();
     let file_id = params.get("fileId").unwrap_or(&"").to_string();
 
+    // 检查文件是否已被取消（在主处理块之前）
+    let cancelled_offset = {
+        let sessions = get_upload_sessions();
+        let sessions = sessions.lock();
+        sessions.get(&session_id).and_then(|session| {
+            if session.cancelled_files.contains(&file_id) {
+                Some(session.received_bytes.get(&file_id).copied().unwrap_or(0))
+            } else {
+                None
+            }
+        })
+    };
+    if let Some(next_offset) = cancelled_offset {
+        let response = ChunkResponse {
+            success: false,
+            next_offset,
+            error: Some("file_cancelled".to_string()),
+        };
+        return send_json_response(writer, &response).await;
+    }
+
     // 在锁的作用域内完成所有同步操作
-    let (response, file_sha256, received, should_emit_progress, file_meta, speed, _eta_seconds) = {
+    // 返回 None 表示文件已取消（需在块外发送取消响应）
+    type ChunkResult = (ChunkResponse, String, u64, bool, Option<FileMetadata>, u64, Option<u64>);
+    let block_result = (|| -> Result<Option<ChunkResult>, ServerError> {
         let sessions = get_upload_sessions();
         let mut sessions = sessions.lock();
 
@@ -1150,6 +1302,11 @@ async fn handle_upload(
                 return Err(ServerError::RequestFailed("会话不存在".to_string()));
             }
         };
+
+        // 二次检查取消状态（消除前置检查与此处的 TOCTOU 竞态窗口）
+        if session.cancelled_files.contains(&file_id) {
+            return Ok(None);
+        }
 
         // 写入数据
         let file_writer = session
@@ -1181,7 +1338,7 @@ async fn handle_upload(
             .unwrap_or_default();
 
         // 更新已接收字节数
-        let received_ref = session.received_bytes.get_mut(&file_id).unwrap();
+        let received_ref = session.received_bytes.entry(file_id.clone()).or_insert(0);
         *received_ref += body.len() as u64;
         let received = *received_ref;
 
@@ -1215,7 +1372,29 @@ async fn handle_upload(
             error: None,
         };
 
-        (response, file_sha256, received, should_emit, file_meta, speed, eta_seconds)
+        Ok(Some((response, file_sha256, received, should_emit, file_meta, speed, eta_seconds)))
+    })();
+
+    // 处理块结果：错误传播、取消响应、正常继续
+    let (response, file_sha256, received, should_emit_progress, file_meta, speed, _eta_seconds) = match block_result {
+        Err(e) => return Err(e),
+        Ok(None) => {
+            // 文件已取消 — 在锁外发送 JSON 取消响应
+            let next_offset = {
+                let sessions = get_upload_sessions();
+                let sessions = sessions.lock();
+                sessions.get(&session_id)
+                    .and_then(|s| s.received_bytes.get(&file_id).copied())
+                    .unwrap_or(0)
+            };
+            let cancel_response = ChunkResponse {
+                success: false,
+                next_offset,
+                error: Some("file_cancelled".to_string()),
+            };
+            return send_json_response(writer, &cancel_response).await;
+        }
+        Ok(Some(tuple)) => tuple,
     };
 
     // 更新断点续传信息（锁已释放）

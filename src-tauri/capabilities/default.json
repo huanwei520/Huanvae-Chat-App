@@ -3,7 +3,7 @@
   "identifier": "desktop-default",
   "description": "桌面端权限配置 (Windows/macOS/Linux)",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "lowcode-editor", "remote-dev", "huanvae-guard"],
+  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "lowcode-editor", "editor", "huanvae-guard"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -42,6 +42,27 @@
     "window-state:default",
     "window-state:allow-restore-state",
     "window-state:allow-save-window-state",
+    "shell:allow-kill",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
     "clipboard-manager:default",
     "clipboard-manager:allow-read-image",
     "clipboard-manager:allow-read-text",

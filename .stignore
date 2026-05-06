@@ -1,0 +1,54 @@
+// Syncthing ignore patterns for Huanvae-Chat-App
+
+// Rust build artifacts (15GB+)
+src-tauri/target
+
+// Node.js dependencies
+node_modules
+
+// Version control
+.git
+
+// Frontend build output
+dist
+.output
+.nuxt
+.vite
+
+// Tauri build output
+src-tauri/gen
+
+// Logs
+*.log
+*.log.*
+
+// OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN
+
+// Editor/IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+// Syncthing internal
+.stfolder
+.stversions
+
+// code-server sidecar (325MB+)
+src-tauri/resources/code-server
+src-tauri/binaries
+
+// Claude Code local config (sync skills & rules, exclude the rest)
+.claude/agent-memory
+.claude/worktrees
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+// Temp files
+*.tmp
+*.bak

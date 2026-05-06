@@ -276,7 +276,7 @@ impl ConfigManager {
     }
 
     /// 检查设备是否受信任
-    #[allow(dead_code)]
+    // TODO: Wire into handle_peer_connection_request for auto-accept when auto_accept_trusted is enabled
     pub fn is_device_trusted(&self, device_id: &str) -> bool {
         self.config
             .trusted_devices
@@ -402,13 +402,6 @@ pub fn ensure_directories() -> Result<(), ConfigError> {
     config.ensure_directories()
 }
 
-/// 检查设备是否受信任
-#[allow(dead_code)]
-pub fn is_device_trusted(device_id: &str) -> bool {
-    let manager = get_config_manager();
-    let config = manager.read();
-    config.is_device_trusted(device_id)
-}
 
 /// 添加信任设备
 pub fn add_trusted_device(device_id: String, device_name: String) -> Result<(), ConfigError> {

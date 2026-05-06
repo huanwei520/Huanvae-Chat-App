@@ -8,19 +8,44 @@
 
 ```
 scripts/
-├── release-config.txt      # 共用配置文件
-├── README.md               # 本文件
-├── release.ps1             # Windows 发布脚本
-├── pre-release.ps1         # Windows 预发布检查
-├── test-all.ps1            # Windows 完整测试
-├── setup-wsl-rust.ps1      # Windows WSL Rust 环境设置
-└── linux/                  # Linux 脚本目录
-    ├── README.md           # Linux 脚本说明
-    ├── release.sh          # Linux 发布脚本
-    ├── pre-release.sh      # Linux 预发布检查
-    ├── test-all.sh         # Linux 完整测试
-    └── setup-deps.sh       # Linux 开发依赖安装
+├── release-config.txt       # 共用配置文件
+├── README.md                # 本文件
+├── release.ps1              # Windows 发布脚本
+├── pre-release.ps1          # Windows 预发布检查
+├── test-all.ps1             # Windows 完整测试
+├── setup-wsl-rust.ps1       # Windows WSL Rust 环境设置
+├── dev/                     # 开发辅助脚本
+│   ├── hg-service.ps1       # HuanvaeGuard 服务注册/启停/查询（dev 环境等价于 NSIS 钩子）
+│   ├── hg-tunnel-diag.ps1   # HG 隧道丢包/握手时间线诊断
+│   ├── test-code-server.ps1 # code-server sidecar 独立运行测试
+│   └── test-editor-e2e.ps1  # 编辑器端到端测试
+└── linux/                   # Linux 脚本目录
+    ├── README.md            # Linux 脚本说明
+    ├── release.sh           # Linux 发布脚本
+    ├── pre-release.sh       # Linux 预发布检查
+    ├── test-all.sh          # Linux 完整测试
+    └── setup-deps.sh        # Linux 开发依赖安装
 ```
+
+## HuanvaeGuard 开发辅助
+
+本项目桌面端集成 HuanvaeGuard VPN 服务（Windows Service + WireGuard）。正式安装（NSIS）
+会自动注册服务；**dev 环境下 NSIS 钩子不执行**，需要手动注册。
+
+推荐通过 npm 脚本调用（无需记路径）：
+
+```powershell
+pnpm hg:install       # 首次注册服务 + 启动（会弹 UAC）
+pnpm hg:status        # 查询服务状态 + 19198 端口监听
+pnpm hg:start         # 启动服务（非管理员可用，依赖 install 时设置的 SDDL）
+pnpm hg:stop          # 停止服务
+pnpm hg:restart       # 重启服务
+pnpm hg:uninstall     # 卸载服务
+pnpm hg:diag          # 隧道丢包/握手时间线诊断（跑 3 分钟采集）
+```
+
+**Rust 运行时行为**：Tauri 进程 setup() 自动启动服务，RunEvent::Exit 自动停止。
+因此正常流程下，只需跑一次 `pnpm hg:install` 就能长期使用。
 
 ## 快速开始
 

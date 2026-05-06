@@ -16,6 +16,7 @@
 //! - 设备信息：获取设备标识用于登录
 //! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
 //! - 局域网传输：局域网内设备发现和文件互传
+//! - HuanvaeGuard VPN：绑定本机 Windows Service 生命周期到 Tauri 进程（桌面端）
 //! - Android 更新：应用内 APK 下载和安装（Android 专属）
 //!
 //! ## 平台支持
@@ -24,8 +25,11 @@
 //! - 移动端 (iOS): 暂未支持
 //!
 //! ## 更新日志
-//! - 2026-01-21: Android 数据目录初始化修复，使用 app.path().app_data_dir() 替代 TMPDIR
+//! - 2026-04-22: 集成 HuanvaeGuard 服务生命周期控制：setup 时异步启动、
+//!              RunEvent::Exit 时同步停止（释放 huanvaeguard-svc.exe 文件锁，
+//!              保证下次 dev rebuild 不会抢占失败）
 //! - 2026-01-22: 添加桌面/移动端条件编译，分离平台专属模块
+//! - 2026-01-21: Android 数据目录初始化修复，使用 app.path().app_data_dir() 替代 TMPDIR
 
 // ============================================
 // 共享模块（所有平台）
@@ -740,6 +744,52 @@ fn list_user_files() -> Result<Vec<String>, String> {
 // WebView 权限管理 Commands
 // ============================================================================
 
+// ============================================================================
+// HuanvaeGuard VPN 服务 Commands（桌面端专属 — 实际仅 Windows 有效）
+// ============================================================================
+
+/// 查询 HuanvaeGuard 本机服务状态（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_state() -> desktop::huanvaeguard::ServiceState {
+    desktop::huanvaeguard::query_state()
+}
+
+/// 启动 HuanvaeGuard 本机服务（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_start() -> Result<(), String> {
+    desktop::huanvaeguard::try_start()
+}
+
+/// 停止 HuanvaeGuard 本机服务（桌面端）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_stop() -> Result<(), String> {
+    desktop::huanvaeguard::try_stop()
+}
+
+/// 查询 HuanvaeGuard 服务状态（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_state() -> &'static str {
+    "not_installed"
+}
+
+/// 启动 HuanvaeGuard 服务（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_start() -> Result<(), String> {
+    Err("HuanvaeGuard 仅在 Windows 可用".to_string())
+}
+
+/// 停止 HuanvaeGuard 服务（移动端存根）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command(rename_all = "camelCase")]
+fn huanvaeguard_service_stop() -> Result<(), String> {
+    Ok(())
+}
+
 /// 重置 WebView 权限缓存
 /// 用于解决用户误点拒绝麦克风/摄像头权限后无法再次请求的问题
 /// 通过删除 WebView2 的 Preferences 文件来清除权限缓存
@@ -779,7 +829,8 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_shell::init());
 
     // 移动端：不包含 updater 和 window-state 插件
     // - store: 密码 + 会话持久化存储
@@ -812,6 +863,11 @@ pub fn run() {
             if let Err(e) = desktop::setup_tray(app) {
                 eprintln!("[Tray] 初始化托盘失败: {}", e);
             }
+
+            // 桌面端：异步启动 HuanvaeGuard 服务（非阻塞，失败只打日志）
+            // 绑定到 Tauri 进程生命周期：进程退出时由 RunEvent::Exit 停服务
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            desktop::huanvaeguard::spawn_start_on_boot();
 
             // Android/iOS：注册返回按钮监听插件（必须在 setup 中注册）
             #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1009,7 +1065,19 @@ pub fn run() {
             android_update::get_app_version,
             android_update::fetch_update_json,
             android_update::download_apk,
+            // HuanvaeGuard VPN 服务控制（桌面端真实，移动端存根）
+            huanvaeguard_service_state,
+            huanvaeguard_service_start,
+            huanvaeguard_service_stop,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // 进程真正退出时（非隐藏到托盘）同步停止 HuanvaeGuard 服务，
+            // 释放 huanvaeguard-svc.exe 文件锁，确保下次 rebuild 不被阻塞。
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let tauri::RunEvent::Exit = event {
+                desktop::huanvaeguard::stop_on_exit_blocking();
+            }
+        });
 }

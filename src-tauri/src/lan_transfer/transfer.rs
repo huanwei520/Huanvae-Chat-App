@@ -1420,6 +1420,21 @@ async fn do_file_transfer_with_resume_parallel(
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
+                    // 解析响应体检查是否被接收方取消
+                    if let Ok(body) = resp.text().await
+                        && let Ok(chunk_resp) = serde_json::from_str::<ChunkResponse>(&body)
+                        && !chunk_resp.success
+                    {
+                        if chunk_resp.error.as_deref() == Some("file_cancelled") {
+                            return Err(TransferError::TransferFailed(
+                                "接收方已取消文件传输".to_string()
+                            ));
+                        }
+                        last_error = Some(TransferError::TransferFailed(
+                            format!("上传块失败: {}", chunk_resp.error.unwrap_or_default())
+                        ));
+                        continue;
+                    }
                     last_error = None;
                     break;
                 }

@@ -41,6 +41,9 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-os = "2.3.2"
+# Shell 插件：用于 code-server 侧载进程（sidecar）
+# 仅用于启动和管理内嵌的 code-server 可执行文件
+tauri-plugin-shell = "2.3.1"
 
 # 序列化
 serde = { version = "1.0.228", features = ["derive"] }
@@ -112,6 +115,9 @@ mime_guess = "2.0.5"
 # 主机名获取
 hostname = "0.4.2"
 
+# HTTP 服务器（移动端媒体服务器）
+axum = "0.8.8"
+
 # ============================================
 # 桌面平台专属依赖 (Windows/macOS/Linux)
 # ============================================
@@ -157,14 +163,6 @@ keyring = { version = "3.6.3", features = ["apple-native"] }
 # 后台被杀后重新打开自动恢复登录状态，与 QQ/微信 体验一致
 # 官方插件：https://v2.tauri.app/plugin/store/
 tauri-plugin-store = "2.4.2"
-
-# ============================================
-# 移动端本地媒体服务器
-# ============================================
-# 解决 Android WebView 无法通过 asset:// 协议播放本地视频的问题
-# 提供本地 HTTP 服务器 + Range 请求支持，实现流式播放
-# 参考 Issue: https://github.com/tauri-apps/tauri/issues/12019
-axum = "0.8.8"
 
 # ============================================
 # 移动端返回按钮监听

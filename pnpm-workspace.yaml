@@ -1,2 +1,11 @@
+# pnpm v10 工作区 / 全局配置
+#
+# 显式锁定 workspace 仅包含仓库根目录，防止 pnpm 把 src-tauri/resources/code-server/
+# 内成百上千的 VS Code 扩展 package.json 当作子项目扫描，进而抛出引擎不匹配等
+# 噪声警告。
+
+packages:
+  - .
+
 onlyBuiltDependencies:
   - esbuild
