@@ -16,11 +16,21 @@ interface ProfileInfoFormProps {
   onError: (message: string) => void;
 }
 
+// 校验合法 email 格式（与后端 zod email() 行为对齐）
+// 用于过滤 DB 中可能存在的脏数据（如曾把"未填写邮箱"等中文当邮箱保存）
+// 这种值若直接放进 input 会被当作真实 value 提交，触发后端"Invalid email format"
+function isValidEmail(s: string | null | undefined): s is string {
+  if (!s) { return false; }
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
 export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
   const { session, setSession } = useSession();
   const api = useApi();
 
-  const [email, setEmail] = useState(session?.profile.user_email || '');
+  // 只有当 user_email 是合法邮箱时才作为 input 初值；否则 input 为空，由 placeholder "未填写邮箱" 提示
+  const storedEmail = session?.profile.user_email;
+  const [email, setEmail] = useState(isValidEmail(storedEmail) ? storedEmail : '');
   const [signature, setSignature] = useState(session?.profile.user_signature || '');
   const [loading, setLoading] = useState(false);
 

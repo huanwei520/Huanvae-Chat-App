@@ -156,3 +156,51 @@ describe('ProfileInfoForm submit payload', () => {
     expect(body.email).toBe('a@b.com');
   });
 });
+
+describe('ProfileInfoForm 加载初值过滤（DB 脏数据）', () => {
+  beforeEach(() => {
+    cleanup();
+    mockUpdateProfile.mockReset();
+    mockUpdateProfile.mockResolvedValue({ message: 'ok' });
+    sessionState.session.profile.user_signature = null;
+  });
+
+  it('DB 里 user_email 是非邮箱字符串（如"未填写邮箱"）时，input value 为空，placeholder 显示提示', () => {
+    sessionState.session.profile.user_email = '未填写邮箱';
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} />);
+
+    const input = screen.getByPlaceholderText(EMAIL_PLACEHOLDER) as HTMLInputElement;
+    // input value 必须为空，placeholder "未填写邮箱" 仅是灰色提示，不会被提交
+    expect(input.value).toBe('');
+    expect(input.placeholder).toBe(EMAIL_PLACEHOLDER);
+  });
+
+  it('DB 脏数据被过滤后，提交时不会把脏值带回后端', async () => {
+    sessionState.session.profile.user_email = '未填写邮箱';
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存修改/ }));
+    });
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+    const [, body] = mockUpdateProfile.mock.calls[0]!;
+    expect(body.email).toBeUndefined();
+  });
+
+  it('DB 里 user_email 是合法邮箱时，input 显示该邮箱', () => {
+    sessionState.session.profile.user_email = 'real@example.com';
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} />);
+
+    const input = screen.getByPlaceholderText(EMAIL_PLACEHOLDER) as HTMLInputElement;
+    expect(input.value).toBe('real@example.com');
+  });
+
+  it('DB 里 user_email 是 null 时，input 为空（保留原行为）', () => {
+    sessionState.session.profile.user_email = null;
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} />);
+
+    const input = screen.getByPlaceholderText(EMAIL_PLACEHOLDER) as HTMLInputElement;
+    expect(input.value).toBe('');
+  });
+});
