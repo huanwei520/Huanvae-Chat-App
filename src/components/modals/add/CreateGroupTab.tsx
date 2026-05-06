@@ -2,7 +2,7 @@
  * 创建群聊表单 Tab
  */
 
-import { motion } from 'framer-motion';
+import { MotionAppButton } from '../../common/AppButton';
 
 interface CreateGroupTabProps {
   groupName: string;
@@ -45,15 +45,17 @@ export function CreateGroupTab({
           rows={3}
         />
       </div>
-      <motion.button
-        className="glass-button"
+      <MotionAppButton
+        variant="primary"
+        size="lg"
+        block
         onClick={onSubmit}
         disabled={loading || !groupName.trim()}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
         {loading ? '创建中...' : '创建群聊'}
-      </motion.button>
+      </MotionAppButton>
     </>
   );
 }

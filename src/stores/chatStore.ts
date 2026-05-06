@@ -73,6 +73,10 @@ interface ChatState {
    * key: groupId, value: MuteInfo
    */
   muteStatus: Record<string, MuteInfo>;
+
+  // ==================== 会议状态 ====================
+  /** 是否有待加入的会议（移动端从会议邀请卡片触发） */
+  pendingMeetingJoin: boolean;
 }
 
 interface ChatActions {
@@ -133,6 +137,10 @@ interface ChatActions {
    * @returns 如果被禁言返回剩余时间（毫秒），否则返回 0
    */
   getMuteRemaining: (groupId: string) => number;
+
+  // ==================== 会议操作 ====================
+  /** 设置待加入会议状态 */
+  setPendingMeetingJoin: (pending: boolean) => void;
 }
 
 export type ChatStore = ChatState & ChatActions;
@@ -154,6 +162,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   chatTarget: null,
 
   muteStatus: {},
+
+  pendingMeetingJoin: false,
 
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
@@ -230,6 +240,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     delete newStatus[groupId];
     return { muteStatus: newStatus };
   }),
+
+  // ==================== 会议操作 ====================
+  setPendingMeetingJoin: (pending) => set({ pendingMeetingJoin: pending }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

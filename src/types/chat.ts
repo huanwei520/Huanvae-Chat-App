@@ -17,7 +17,7 @@ export interface Friend {
 export type FriendsResponse = Friend[];
 
 /** 消息类型 */
-export type MessageType = 'text' | 'image' | 'video' | 'file';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
 
 /** 消息发送状态 */
 export type MessageSendStatus = 'sending' | 'sent' | 'failed';
@@ -140,6 +140,15 @@ export interface AIMessage {
   /** 流中断/服务错误信息（仅前端本地使用） */
   error?: string | null;
   created_at: string;
+}
+
+/** 会议邀请消息内容结构（JSON.parse message_content 后的类型） */
+export interface MeetingInvitePayload {
+  room_id: string;
+  password: string;
+  room_name: string;
+  creator_name: string;
+  creator_avatar: string;
 }
 
 /** AI 会话信息 */

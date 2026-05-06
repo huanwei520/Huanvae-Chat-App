@@ -12,10 +12,9 @@
  * - 红色：断开连接
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { platform } from '@tauri-apps/plugin-os';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { UserAvatar, type SessionInfo } from '../common/Avatar';
 import {
@@ -54,13 +53,6 @@ const GuardIcon = () => (
   </svg>
 );
 
-// 远程开发图标（终端 / 服务器风格）
-const RemoteDevIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 17.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 20.25Z" />
-  </svg>
-);
-
 // 低代码编辑器图标（流程图/节点连线风格）
 const LowcodeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -96,7 +88,6 @@ interface SidebarProps {
     onMeetingClick: () => void;
     onMiniAppsClick: () => void;
     onLowcodeClick: () => void;
-    onRemoteDevClick: () => void;
     onHuanvaeGuardClick: () => void;
     onSettingsClick: () => void;
     onLogout: () => void;
@@ -120,7 +111,6 @@ export function Sidebar({
   onMeetingClick,
   onMiniAppsClick,
   onLowcodeClick,
-  onRemoteDevClick,
   onHuanvaeGuardClick,
   onSettingsClick,
   onLogout,
@@ -179,29 +169,15 @@ export function Sidebar({
     setShowMorePanel(false);
   }, []);
 
-  const [isWindowsPlatform] = useState(() => {
-    try {
-      return platform() === 'windows';
-    } catch {
-      return false;
-    }
-  });
-
   // "更多"浮层中收纳的功能列表
-  const moreItems: MoreMenuItem[] = useMemo(() => {
-    const items: MoreMenuItem[] = [
-      { icon: <FolderIcon />, label: '我的文件', onClick: onFilesClick },
-      { icon: <LanTransferIcon />, label: '局域网互传', onClick: onLanTransferClick },
-      { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
-      { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
-      { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
-      { icon: <RemoteDevIcon />, label: '远程开发', onClick: onRemoteDevClick },
-    ];
-    if (isWindowsPlatform) {
-      items.push({ icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick });
-    }
-    return items;
-  }, [isWindowsPlatform, onFilesClick, onLanTransferClick, onMeetingClick, onMiniAppsClick, onLowcodeClick, onRemoteDevClick, onHuanvaeGuardClick]);
+  const moreItems: MoreMenuItem[] = [
+    { icon: <FolderIcon />, label: '我的文件', onClick: onFilesClick },
+    { icon: <LanTransferIcon />, label: '局域网互传', onClick: onLanTransferClick },
+    { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
+    { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
+    { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
+    { icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick },
+  ];
 
   return (
     <motion.aside

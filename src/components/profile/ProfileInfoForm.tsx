@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { MotionAppButton } from '../common/AppButton';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { updateProfile } from '../../api/profile';
 
@@ -72,15 +72,17 @@ export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
         />
         <span className="char-count">{signature.length}/200</span>
       </div>
-      <motion.button
-        className="glass-button"
+      <MotionAppButton
+        variant="primary"
+        size="lg"
+        block
         onClick={handleSubmit}
         disabled={loading}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
         {loading ? '保存中...' : '保存修改'}
-      </motion.button>
+      </MotionAppButton>
     </>
   );
 }

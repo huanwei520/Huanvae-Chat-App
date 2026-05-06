@@ -39,6 +39,7 @@ import {
   PhoneEndIcon,
   ParticipantsIcon,
   CopyIcon,
+  ShareIcon,
 } from '../components/common/Icons';
 import { MediaPermissionGuide } from './components/MediaPermissionGuide';
 import { resolveServerAvatarUrl } from '../utils/avatar';
@@ -492,6 +493,23 @@ export default function MeetingPage() {
     window.close();
   }, [webrtc]);
 
+  // 分享会议到聊天（通过 Tauri 事件通知主窗口）
+  const handleShareToChat = useCallback(async () => {
+    if (!meetingData) return;
+    try {
+      const { emit } = await import('@tauri-apps/api/event');
+      await emit('share-meeting-to-chat', {
+        roomId: meetingData.roomId,
+        password: meetingData.password,
+        roomName: meetingData.roomName,
+        creatorName: meetingData.displayName,
+        creatorAvatar: meetingData.userInfo?.avatar_url || '',
+      });
+    } catch (err) {
+      console.error('Failed to emit share event:', err);
+    }
+  }, [meetingData]);
+
   // 复制房间信息
   const handleCopyInfo = useCallback(() => {
     if (!meetingData) {
@@ -544,6 +562,13 @@ export default function MeetingPage() {
           <span className="meeting-id">房间号: {meetingData.roomId}</span>
         </div>
         <div className="meeting-header-actions">
+          <button
+            className="meeting-header-btn"
+            onClick={handleShareToChat}
+            title="分享到聊天"
+          >
+            <ShareIcon />
+          </button>
           <button
             className="meeting-header-btn"
             onClick={handleCopyInfo}

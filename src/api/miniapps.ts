@@ -55,6 +55,9 @@ export interface CreateMiniAppResponse {
     ssh_user: string;
     ssh_password: string;
   };
+  // 后端 OAuth 客户端注册成功时返回；失败时省略（serde skip_serializing_if Option::is_none）
+  oauth_client_id?: string;
+  oauth_client_secret?: string;
 }
 
 /** 更新小程序请求 */

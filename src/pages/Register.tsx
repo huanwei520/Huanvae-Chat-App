@@ -9,6 +9,7 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
+import { MotionAppButton } from '../components/common/AppButton';
 import { useRegisterForm } from '../hooks/useRegisterForm';
 
 // ============================================
@@ -181,9 +182,9 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
                 </div>
               </motion.div>
               <motion.div variants={itemVariants}>
-                <motion.button type="submit" className="glass-button" variants={buttonVariants} whileHover="hover" whileTap="tap">
-                  <span className="button-content">下一步 <ArrowRightIcon /></span>
-                </motion.button>
+                <MotionAppButton type="submit" variant="primary" size="lg" block rightIcon={<ArrowRightIcon />} variants={buttonVariants} whileHover="hover" whileTap="tap">
+                  下一步
+                </MotionAppButton>
               </motion.div>
             </motion.form>
           )}
@@ -203,9 +204,9 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
                 <motion.input type="email" id="reg-email" className="glass-input" placeholder="请输入邮箱" value={form.email} onChange={(e) => form.setEmail(e.target.value)} whileFocus={{ scale: 1.01 }} />
               </motion.div>
               <motion.div variants={itemVariants}>
-                <motion.button type="submit" className="glass-button" variants={buttonVariants} whileHover="hover" whileTap="tap">
-                  <span className="button-content">下一步 <ArrowRightIcon /></span>
-                </motion.button>
+                <MotionAppButton type="submit" variant="primary" size="lg" block rightIcon={<ArrowRightIcon />} variants={buttonVariants} whileHover="hover" whileTap="tap">
+                  下一步
+                </MotionAppButton>
               </motion.div>
             </motion.form>
           )}
@@ -221,9 +222,9 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
                 <motion.input type="password" id="reg-confirm-password" className="glass-input" placeholder="请再次输入密码" value={form.confirmPassword} onChange={(e) => form.setConfirmPassword(e.target.value)} whileFocus={{ scale: 1.01 }} required />
               </motion.div>
               <motion.div variants={itemVariants}>
-                <motion.button type="submit" className="glass-button" disabled={isLoading} variants={buttonVariants} whileHover="hover" whileTap="tap">
+                <MotionAppButton type="submit" variant="primary" size="lg" block disabled={isLoading} variants={buttonVariants} whileHover="hover" whileTap="tap">
                   {isLoading ? '注册中...' : '注册'}
-                </motion.button>
+                </MotionAppButton>
               </motion.div>
             </motion.form>
           )}

@@ -112,19 +112,20 @@
 
 /* ============================================
    按钮：保持毛玻璃，优化触控反馈
+   作用对象：AppButton variant=primary（替代原 .glass-button）
    ============================================ */
-.login-container.mobile .glass-button {
+.login-container.mobile .app-btn--primary {
   padding: 18px 24px;
   font-size: var(--text-xl);
   border-radius: var(--radius-xl);
   margin-top: var(--space-2);
 }
 
-.login-container.mobile .glass-button:hover {
+.login-container.mobile .app-btn--primary:hover {
   transform: none;
 }
 
-.login-container.mobile .glass-button:active {
+.login-container.mobile .app-btn--primary:active {
   transform: scale(0.97);
 }
 

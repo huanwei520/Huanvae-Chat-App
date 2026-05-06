@@ -1,213 +1,256 @@
 /**
- * HuanvaeGuard 服务端 API
+ * 服务端 HuanvaeGuard API 调用
  *
- * 使用 @tauri-apps/plugin-http 发请求（避免 CSP 拦截）
- * 内置 401 自动 Token 刷新 + 重试
+ * - 走 @tauri-apps/plugin-http 的 fetch，绕开浏览器 CORS
+ *   （svc 和远端服务器都不会回 Access-Control-Allow-Origin）
+ * - Token 由调用方传入（目前从 HuanvaeGuardPage.windowData 取，经 Tauri 事件同步）
+ * - 返回包格式：{ success, code, data, error? } —— 统一由 serverFetch 解包到 data
+ * - 后端为独立仓库，本仓仅消费 JSON，字段语义以后端文档为准
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
 import type {
-  HgClientConfig, DeviceRegisterResponse, HgDevice,
-  TopologyPeer, HgDeviceLink, HgGroup,
-  HgGroupDetail, HgInviteResponse, HgJoinGroupResponse,
-  HgLockDeviceResult,
+  HgClientConfig,
+  DeviceRegisterResponse,
+  DeviceTopology,
+  HgDevice,
+  HgDeviceLink,
+  CreateLinkInviteResponse,
+  AcceptLinkInviteResponse,
+  HgGroup,
+  GroupDetail,
+  CreateGroupResponse,
+  JoinGroupResponse,
 } from './types';
 
-export interface HgApiConfig {
-  serverUrl: string;
-  accessToken: string;
-  refreshToken: string;
-  onTokenRefresh?: (newAccess: string, newRefresh: string) => void;
-  onSessionExpired?: () => void;
-}
-
-interface ApiEnvelope<T> {
+interface ServerApiResponse<T> {
   success: boolean;
   code: number;
   data: T;
   error?: string;
+  message?: string;
 }
 
-export function createHgApiClient(config: HgApiConfig) {
-  let { accessToken, refreshToken } = config;
-  const { serverUrl, onTokenRefresh, onSessionExpired } = config;
-
-  async function refreshAccessToken(): Promise<boolean> {
-    try {
-      const resp = await fetch(`${serverUrl}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      if (!resp.ok) return false;
-      const data = await resp.json();
-      accessToken = data.access_token;
-      if (data.refresh_token) refreshToken = data.refresh_token;
-      onTokenRefresh?.(accessToken, refreshToken);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers: Record<string, string> = {
+async function serverFetch<T>(
+  serverUrl: string,
+  path: string,
+  token: string,
+  init?: RequestInit,
+): Promise<T> {
+  const resp = await fetch(`${serverUrl}${path}`, {
+    ...init,
+    headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    };
-
-    const doFetch = () => fetch(`${serverUrl}${path}`, {
-      ...init,
-      headers: { ...headers, ...init?.headers as Record<string, string> },
-    });
-
-    let resp = await doFetch();
-
-    if (resp.status === 401) {
-      const ok = await refreshAccessToken();
-      if (ok) {
-        headers.Authorization = `Bearer ${accessToken}`;
-        resp = await doFetch();
-      } else {
-        onSessionExpired?.();
-        throw new Error('会话已过期');
-      }
-    }
-
-    const json: ApiEnvelope<T> = await resp.json();
-    if (!json.success) throw new Error(json.error ?? `API error ${json.code}`);
-    return json.data;
+      Authorization: `Bearer ${token}`,
+      ...init?.headers,
+    },
+  });
+  const json: ServerApiResponse<T> = await resp.json().catch(() => ({
+    success: false, code: resp.status, data: null as T,
+  }));
+  if (!resp.ok || !json.success) {
+    throw new Error(json.error ?? json.message ?? `HTTP ${resp.status}`);
   }
-
-  return {
-    getAccessToken: () => accessToken,
-    getServerUrl: () => serverUrl,
-
-    // ─── 设备管理 ───
-    registerDevice(
-      deviceName: string,
-      publicKey: string,
-      os?: string,
-      deviceFingerprint?: string,
-      preferredRegion?: string,
-    ) {
-      return request<DeviceRegisterResponse>('/api/hg/devices/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          device_name: deviceName,
-          public_key: publicKey,
-          os,
-          device_fingerprint: deviceFingerprint,
-          preferred_region: preferredRegion,
-        }),
-      });
-    },
-
-    getDevices() {
-      return request<HgDevice[]>('/api/hg/devices');
-    },
-
-    getDeviceConfig(deviceId: string) {
-      return request<HgClientConfig>(`/api/hg/devices/${deviceId}/config`);
-    },
-
-    getTopology(deviceId: string, since?: number) {
-      const qs = since ? `?since=${since}` : '';
-      return request<{
-        device_id: string;
-        virtual_ip: string;
-        peers: TopologyPeer[];
-        topology_version: number;
-      }>(`/api/hg/devices/${deviceId}/topology${qs}`);
-    },
-
-    deleteDevice(deviceId: string) {
-      return request<string>(`/api/hg/devices/${deviceId}`, { method: 'DELETE' });
-    },
-
-    lockDevice(deviceId: string, endpoint: string) {
-      return request<HgLockDeviceResult>(`/api/hg/devices/${deviceId}/lock`, {
-        method: 'POST',
-        body: JSON.stringify({ endpoint }),
-      });
-    },
-
-    unlockDevice(deviceId: string) {
-      return request<string>(`/api/hg/devices/${deviceId}/unlock`, { method: 'POST' });
-    },
-
-    // ─── 链接管理 ───
-    createInvite(fromDevice: string) {
-      return request<HgInviteResponse>(
-        '/api/hg/links/invite',
-        { method: 'POST', body: JSON.stringify({ from_device: fromDevice }) },
-      );
-    },
-
-    acceptInvite(inviteToken: string, deviceId: string) {
-      return request<{ link_id: string; peer: TopologyPeer }>(
-        '/api/hg/links/invite/accept',
-        { method: 'POST', body: JSON.stringify({ invite_token: inviteToken, device_id: deviceId }) },
-      );
-    },
-
-    getLinks() {
-      return request<HgDeviceLink[]>('/api/hg/links');
-    },
-
-    deleteLink(linkId: string) {
-      return request<string>(`/api/hg/links/${linkId}`, { method: 'DELETE' });
-    },
-
-    // ─── 群组管理 ───
-    createGroup(name: string, description?: string, maxDevices?: number) {
-      return request<{ group_id: string; name: string }>('/api/hg/groups', {
-        method: 'POST',
-        body: JSON.stringify({ name, description, max_devices: maxDevices }),
-      });
-    },
-
-    getGroups() {
-      return request<HgGroup[]>('/api/hg/groups');
-    },
-
-    getGroupDetail(groupId: string) {
-      return request<HgGroupDetail>(`/api/hg/groups/${groupId}`);
-    },
-
-    joinGroup(groupId: string, deviceId: string) {
-      return request<HgJoinGroupResponse>(
-        `/api/hg/groups/${groupId}/join`,
-        { method: 'POST', body: JSON.stringify({ device_id: deviceId }) },
-      );
-    },
-
-    leaveGroup(groupId: string, deviceId: string) {
-      return request<string>(`/api/hg/groups/${groupId}/leave/${deviceId}`, { method: 'DELETE' });
-    },
-
-    toggleGroup(groupId: string) {
-      return request<boolean>(`/api/hg/groups/${groupId}/toggle`, { method: 'POST' });
-    },
-
-    deleteGroup(groupId: string) {
-      return request<string>(`/api/hg/groups/${groupId}`, { method: 'DELETE' });
-    },
-
-    createGroupInvite(groupId: string) {
-      return request<HgInviteResponse>(
-        `/api/hg/groups/${groupId}/invite`,
-        { method: 'POST' },
-      );
-    },
-
-    acceptGroupInvite(groupId: string, inviteToken: string, deviceId: string) {
-      return request<HgJoinGroupResponse>(
-        `/api/hg/groups/${groupId}/invite/accept`,
-        { method: 'POST', body: JSON.stringify({ invite_token: inviteToken, device_id: deviceId }) },
-      );
-    },
-  };
+  return json.data;
 }
 
-export type HgApiClient = ReturnType<typeof createHgApiClient>;
+// ─── Devices ───
+
+export async function registerDevice(
+  serverUrl: string,
+  token: string,
+  deviceName: string,
+  os?: string,
+  deviceFingerprint?: string,
+  preferredRegion?: string,
+): Promise<DeviceRegisterResponse> {
+  return serverFetch(serverUrl, '/api/hg/devices/register', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      device_name: deviceName,
+      os,
+      device_fingerprint: deviceFingerprint,
+      preferred_region: preferredRegion,
+    }),
+  });
+}
+
+export async function getDevices(serverUrl: string, token: string): Promise<HgDevice[]> {
+  return serverFetch(serverUrl, '/api/hg/devices', token);
+}
+
+export async function getDeviceConfig(
+  serverUrl: string,
+  token: string,
+  deviceId: string,
+): Promise<HgClientConfig> {
+  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/config`, token);
+}
+
+export async function getTopology(
+  serverUrl: string,
+  token: string,
+  deviceId: string,
+  since?: number,
+): Promise<DeviceTopology> {
+  const qs = since != null ? `?since=${since}` : '';
+  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/topology${qs}`, token);
+}
+
+export async function lockDevice(
+  serverUrl: string,
+  token: string,
+  deviceId: string,
+  endpoint: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/lock`, token, {
+    method: 'POST',
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+export async function unlockDevice(
+  serverUrl: string,
+  token: string,
+  deviceId: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/unlock`, token, {
+    method: 'POST',
+  });
+}
+
+export async function deleteDevice(
+  serverUrl: string,
+  token: string,
+  deviceId: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}`, token, { method: 'DELETE' });
+}
+
+// ─── Links ───
+
+export async function createLinkInvite(
+  serverUrl: string,
+  token: string,
+  fromDevice: string,
+): Promise<CreateLinkInviteResponse> {
+  return serverFetch(serverUrl, '/api/hg/links/invite', token, {
+    method: 'POST',
+    body: JSON.stringify({ from_device: fromDevice }),
+  });
+}
+
+export async function acceptLinkInvite(
+  serverUrl: string,
+  token: string,
+  inviteToken: string,
+  deviceId: string,
+): Promise<AcceptLinkInviteResponse> {
+  return serverFetch(serverUrl, '/api/hg/links/invite/accept', token, {
+    method: 'POST',
+    body: JSON.stringify({ invite_token: inviteToken, device_id: deviceId }),
+  });
+}
+
+export async function listLinks(serverUrl: string, token: string): Promise<HgDeviceLink[]> {
+  return serverFetch(serverUrl, '/api/hg/links', token);
+}
+
+export async function deleteLink(
+  serverUrl: string,
+  token: string,
+  linkId: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/links/${linkId}`, token, { method: 'DELETE' });
+}
+
+// ─── Groups ───
+
+export async function createGroup(
+  serverUrl: string,
+  token: string,
+  name: string,
+  description?: string,
+  maxDevices?: number,
+): Promise<CreateGroupResponse> {
+  return serverFetch(serverUrl, '/api/hg/groups', token, {
+    method: 'POST',
+    body: JSON.stringify({ name, description, max_devices: maxDevices }),
+  });
+}
+
+export async function listGroups(serverUrl: string, token: string): Promise<HgGroup[]> {
+  return serverFetch(serverUrl, '/api/hg/groups', token);
+}
+
+export async function getGroupDetail(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+): Promise<GroupDetail> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}`, token);
+}
+
+export async function joinGroup(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+  deviceId: string,
+): Promise<JoinGroupResponse> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}/join`, token, {
+    method: 'POST',
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+}
+
+export async function leaveGroup(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+  deviceId: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}/leave/${deviceId}`, token, {
+    method: 'DELETE',
+  });
+}
+
+export async function toggleGroup(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+): Promise<boolean> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}/toggle`, token, {
+    method: 'POST',
+  });
+}
+
+export async function deleteGroup(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+): Promise<void> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}`, token, { method: 'DELETE' });
+}
+
+export async function createGroupInvite(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+): Promise<CreateLinkInviteResponse> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}/invite`, token, {
+    method: 'POST',
+  });
+}
+
+export async function acceptGroupInvite(
+  serverUrl: string,
+  token: string,
+  groupId: string,
+  inviteToken: string,
+  deviceId: string,
+): Promise<JoinGroupResponse> {
+  return serverFetch(serverUrl, `/api/hg/groups/${groupId}/invite/accept`, token, {
+    method: 'POST',
+    body: JSON.stringify({ invite_token: inviteToken, device_id: deviceId }),
+  });
+}

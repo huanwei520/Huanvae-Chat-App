@@ -179,7 +179,7 @@ export const SettingsRow: React.FC<SettingsRowProps> = ({
       case 'button':
         return (
           <button
-            className={`settings-row-btn ${buttonVariant === 'danger' ? 'settings-row-btn-danger' : ''}`}
+            className={`subtle-btn subtle-btn--sm ${buttonVariant === 'danger' ? 'subtle-btn--danger' : 'subtle-btn--primary'}`}
             onClick={onButtonClick}
             disabled={buttonDisabled || buttonLoading}
           >

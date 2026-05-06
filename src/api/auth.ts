@@ -56,17 +56,16 @@ async function api<T>(
  * @param deviceInfo - 设备描述信息（如 "DESKTOP-ABC - Windows 10.0.22621 (x86_64)"）
  * @param macAddress - MAC 地址（用于识别同一设备）
  */
-export function login(
+export async function login(
   serverUrl: string,
   userId: string,
   password: string,
   deviceInfo?: string,
   macAddress?: string | null,
 ): Promise<LoginResponse> {
-  // 调试日志
   console.warn('[Auth] 登录请求设备信息:', { deviceInfo, macAddress });
 
-  return api<LoginResponse>(serverUrl, '/api/auth/login', {
+  const result = await api<{ data: LoginResponse }>(serverUrl, '/api/auth/login', {
     method: 'POST',
     body: {
       user_id: userId,
@@ -75,6 +74,7 @@ export function login(
       mac_address: macAddress || undefined,
     },
   });
+  return result.data;
 }
 
 /**

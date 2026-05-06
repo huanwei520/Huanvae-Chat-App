@@ -64,8 +64,11 @@
 /* 毛玻璃卡片 - 主要内容容器 */
 @import './components/glass-card.css';
 
-/* 毛玻璃按钮 - 主要操作按钮 */
-@import './components/glass-button.css';
+/* 统一按钮组件 AppButton - 4 variant × 3 size 全应用唯一按钮系统 */
+@import './components/app-button.css';
+
+/* 浅色底按钮 SubtleBtn - 与 AppButton 互补的扁平风格按钮（行内动作 / 设置项） */
+@import './components/subtle-button.css';
 
 /* 毛玻璃输入框 - 表单输入 */
 @import './components/glass-input.css';

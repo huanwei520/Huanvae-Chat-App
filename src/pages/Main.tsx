@@ -16,11 +16,19 @@
  * - 在消息列表顶部显示同步进度横幅
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMainPage } from '../hooks/useMainPage';
 import { useInitialSync } from '../hooks/useInitialSync';
 import { useAutoUpdateCheck } from '../update/useSilentUpdate';
+// Meeting share event payload (camelCase, from MeetingPage emit)
+interface ShareMeetingEvent {
+  roomId: string;
+  password: string;
+  roomName: string;
+  creatorName: string;
+  creatorAvatar: string;
+}
 
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
@@ -34,9 +42,9 @@ import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
-import { openRemoteDevWindow } from '../remoteDev';
 import { openHuanvaeGuardWindow } from '../huanvaeGuard';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
+import { ShareMeetingModal } from '../meeting/components/ShareMeetingModal';
 import '../styles/miniapps.css';
 import '../styles/voice-call.css';
 
@@ -46,6 +54,24 @@ export function Main() {
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showMiniAppsModal, setShowMiniAppsModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [shareMeetingData, setShareMeetingData] = useState<ShareMeetingEvent | null>(null);
+
+  // 监听会议窗口的分享事件
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<ShareMeetingEvent>('share-meeting-to-chat', (event) => {
+        setShareMeetingData(event.payload);
+      }).then((fn) => { unlisten = fn; });
+    }).catch(() => {
+      // 非 Tauri 环境（浏览器开发模式）忽略
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  const handleShareMeetingClose = useCallback(() => {
+    setShareMeetingData(null);
+  }, []);
 
   // 打开局域网传输独立窗口
   const handleLanTransferClick = () => {
@@ -73,18 +99,6 @@ export function Main() {
   const handleHuanvaeGuardClick = () => {
     if (page.session) {
       void openHuanvaeGuardWindow(
-        page.session.userId,
-        page.session.serverUrl,
-        page.session.accessToken,
-        page.session.refreshToken,
-      );
-    }
-  };
-
-  // 打开远程开发独立窗口
-  const handleRemoteDevClick = () => {
-    if (page.session) {
-      void openRemoteDevWindow(
         page.session.userId,
         page.session.serverUrl,
         page.session.accessToken,
@@ -129,7 +143,6 @@ export function Main() {
         onMeetingClick={() => setShowMeetingModal(true)}
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onLowcodeClick={handleLowcodeClick}
-        onRemoteDevClick={handleRemoteDevClick}
         onHuanvaeGuardClick={handleHuanvaeGuardClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
@@ -302,6 +315,13 @@ export function Main() {
         isOpen={showMiniAppsModal}
         onClose={() => setShowMiniAppsModal(false)}
       />
+      {shareMeetingData && (
+        <ShareMeetingModal
+          isOpen={!!shareMeetingData}
+          onClose={handleShareMeetingClose}
+          meetingData={shareMeetingData}
+        />
+      )}
     </div>
   );
 }

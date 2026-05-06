@@ -34,7 +34,9 @@ import {
   VideoOffIcon,
   PhoneEndIcon,
   ParticipantsIcon,
+  ShareIcon,
 } from '../../components/common/Icons';
+import { ShareMeetingModal } from '../../meeting/components/ShareMeetingModal';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 
@@ -224,6 +226,7 @@ interface MobileMeetingPageProps {
 export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: MobileMeetingPageProps) {
   const [meetingData, setMeetingData] = useState<MeetingWindowData | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // 全屏聚焦模式状态
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -349,13 +352,22 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
           <h1>{displayRoomName}</h1>
           <span className="mobile-meeting-id">房间: {meetingData.roomId}</span>
         </div>
-        <button
-          className={`mobile-meeting-header-btn ${showParticipants ? 'active' : ''}`}
-          onClick={() => setShowParticipants(!showParticipants)}
-        >
-          <ParticipantsIcon />
-          <span className="mobile-participant-count">{webrtc.participants.length + 1}</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="mobile-meeting-header-btn"
+            onClick={() => setShowShareModal(true)}
+            title="分享会议"
+          >
+            <ShareIcon />
+          </button>
+          <button
+            className={`mobile-meeting-header-btn ${showParticipants ? 'active' : ''}`}
+            onClick={() => setShowParticipants(!showParticipants)}
+          >
+            <ParticipantsIcon />
+            <span className="mobile-participant-count">{webrtc.participants.length + 1}</span>
+          </button>
+        </div>
       </header>
 
       {/* 视频区域 */}
@@ -589,6 +601,21 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 分享会议邀请弹窗 */}
+      {showShareModal && meetingData && (
+        <ShareMeetingModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          meetingData={{
+            roomId: meetingData.roomId,
+            password: meetingData.password,
+            roomName: meetingData.roomName,
+            creatorName: meetingData.displayName,
+            creatorAvatar: meetingData.userInfo?.avatar_url || '',
+          }}
+        />
+      )}
     </motion.div>
   );
 }

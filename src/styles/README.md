@@ -9,7 +9,8 @@ src/styles/
 ├── base.css               # 基础布局与动画
 ├── components/            # 可复用组件样式
 │   ├── glass-card.css     # 毛玻璃卡片
-│   ├── glass-button.css   # 毛玻璃按钮
+│   ├── app-button.css     # 主按钮（玻璃渐变）— 配合 src/components/common/AppButton.tsx
+│   ├── subtle-button.css  # 浅色底按钮（行内动作 / 设置项）
 │   ├── glass-input.css    # 毛玻璃输入框
 │   ├── wheel-selector.css # 轮盘选择器
 │   ├── loading.css        # 加载状态
@@ -100,18 +101,35 @@ src/styles/
 
 ---
 
-#### `glass-button.css` - 毛玻璃按钮
+#### `app-button.css` - 主按钮（AppButton 组件）
+
+配合 `src/components/common/AppButton.tsx` 使用，4 variant × 3 size 覆盖全应用主按钮场景。
+原 `.glass-button` 单一类名样式已合并到此组件。
 
 | 类名 | 说明 |
 |------|------|
-| `.glass-button` | 主要操作按钮 |
-| `.button-content` | 按钮内容（图标+文字） |
+| `.app-btn` | 基础（必带） |
+| `.app-btn--{variant}` | primary / danger / secondary / ghost |
+| `.app-btn--{size}` | sm / md / lg |
+| `.app-btn--block` | 撑满父宽度 |
+| `.app-btn--icon-only` | 方形图标按钮 |
+| `.app-btn--loading` | loading 状态 |
 
-**交互状态**：
-- `:hover` - 上浮、放大、增强发光
-- `:active` - 下压、缩小
-- `:disabled` - 降低透明度
-- `::after` - 悬停扫光动画
+**用法**：直接用 `<AppButton variant="primary" size="lg" block>登录</AppButton>` 组件，
+不要手写 className。framer-motion 包装版可用 `<MotionAppButton>`（同文件导出）。
+
+---
+
+#### `subtle-button.css` - 浅色底按钮
+
+与 `app-button.css` 互补的扁平风格按钮，用于行内动作 / 设置项 / 弱强调操作。
+合并自原本分散在多模块的同风格按钮：`.settings-row-btn` / `.reset-confirm-btn` / `.lan-btn`。
+
+| 类名 | 说明 |
+|------|------|
+| `.subtle-btn` | 基础（必带） |
+| `.subtle-btn--{size}` | xs / sm / md |
+| `.subtle-btn--{tone}` | primary / danger / neutral |
 
 ---
 
@@ -278,7 +296,8 @@ box-shadow:
 | `variables.css` | ~150 | 设计 Token |
 | `base.css` | ~190 | 基础布局 |
 | `glass-card.css` | ~170 | 卡片组件 |
-| `glass-button.css` | ~260 | 按钮组件 |
+| `app-button.css` | ~360 | 主按钮组件（AppButton） |
+| `subtle-button.css` | ~80 | 浅色底按钮 |
 | `glass-input.css` | ~230 | 输入框组件 |
 | `wheel-selector.css` | ~340 | Embla 选择器（含详细配置文档） |
 | `loading.css` | ~90 | 加载状态 |

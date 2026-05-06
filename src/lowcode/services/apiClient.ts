@@ -69,10 +69,10 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
         return false;
       }
 
-      const data = await response.json();
+      const raw = await response.json();
+      const data = raw.data ?? raw;
       accessToken = data.access_token;
 
-      // 如果返回了新的刷新令牌，也更新它
       if (data.refresh_token) {
         refreshToken = data.refresh_token;
       }

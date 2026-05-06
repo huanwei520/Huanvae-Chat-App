@@ -11,7 +11,7 @@
  * 仅移动端使用，桌面端不显示
  */
 
-import { useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
@@ -45,16 +45,24 @@ export function MobileMessageFullPreview({
     return false;
   });
 
+  const [copied, setCopied] = useState(false);
+
   // 复制消息
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(content);
-      console.warn('[MessagePreview] 消息已复制');
-      // TODO: 可以添加 Toast 提示
+      setCopied(true);
     } catch (error) {
       console.error('[MessagePreview] 复制失败:', error);
     }
   }, [content]);
+
+  useEffect(() => {
+    if (copied) {
+      const timer = setTimeout(() => setCopied(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [copied]);
 
   // 点击背景关闭
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {
@@ -137,6 +145,7 @@ export function MobileMessageFullPreview({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 20, opacity: 0 }}
             transition={{ duration: 0.2, delay: 0.1 }}
+            style={{ position: 'relative' }}
           >
             <button
               className="mobile-message-preview-copy-btn"
@@ -160,6 +169,29 @@ export function MobileMessageFullPreview({
               </svg>
               <span>复制</span>
             </button>
+            <AnimatePresence>
+              {copied && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  style={{
+                    position: 'absolute',
+                    top: '-40px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: '#fff',
+                    padding: '6px 16px',
+                    borderRadius: '20px',
+                    fontSize: '14px',
+                    whiteSpace: 'nowrap' as const,
+                  }}
+                >
+                  已复制
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </motion.div>
       )}

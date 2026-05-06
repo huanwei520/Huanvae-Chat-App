@@ -7,9 +7,13 @@
  * - 绑定了 serverUrl 的 API 客户端
  * - 移动端会话持久化（后台被杀后可恢复）
  * - Token 主动刷新：解码 JWT 提取过期时间，在过期前 5 分钟自动刷新
+ * - 跨 Tauri 窗口 token 同步：
+ *     - updateTokens 时 emit `session:tokens-updated` 广播给其他窗口（如 HuanvaeGuard）
+ *     - listen `session:request-tokens`，当其他窗口刚打开索要最新 token 时回发
  */
 
 import { createContext, useContext, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import { emit, listen } from '@tauri-apps/api/event';
 import type { Session, SessionContextType } from '../types/session';
 import { createApiClient, type ApiClient } from '../api/client';
 import { removeSessionLock } from '../services/sessionLock';
@@ -79,7 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessionState(null);
   }, []);
 
-  // 更新 tokens（同时更新持久化数据）
+  // 更新 tokens（同时更新持久化数据 + 广播到其他 Tauri 窗口）
   const updateTokens = useCallback((accessToken: string, refreshToken: string) => {
     setSessionState((prev) => {
       if (!prev) {
@@ -101,6 +105,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       return updated;
     });
+
+    // 广播给其他 Tauri 窗口（HuanvaeGuard 等），保证它们的 token 不过期
+    // 失败只打日志，不影响主窗口会话状态
+    emit('session:tokens-updated', { accessToken, refreshToken }).catch((error) => {
+      console.warn('[Session] 跨窗口 token 广播失败:', error);
+    });
   }, []);
 
   // 创建 API 客户端（仅在有会话时）
@@ -121,6 +131,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
     });
   }, [session, updateTokens, clearSession]);
+
+  // 响应其他 Tauri 窗口（HuanvaeGuard 等）对当前 token 的请求
+  // 场景：HG 窗口刚打开时 URL 里的 token 可能已过期（例如笔记本睡眠后），
+  //       HG emit `session:request-tokens`，这里回发最新 token
+  useEffect(() => {
+    const unlistenPromise = listen('session:request-tokens', () => {
+      const current = sessionRef.current;
+      if (!current) { return; }
+      emit('session:tokens-updated', {
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+      }).catch((error) => {
+        console.warn('[Session] 响应 tokens 请求失败:', error);
+      });
+    });
+    return () => { void unlistenPromise.then(fn => fn()); };
+  }, []);
 
   // Token 主动刷新：在过期前 5 分钟自动刷新，避免请求因 Token 失效而失败
   useEffect(() => {

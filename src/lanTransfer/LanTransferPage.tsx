@@ -632,10 +632,10 @@ function SettingsPanel({
           <span className="lan-settings-path" title={saveDirectory}>
             {saveDirectory || '未设置'}
           </span>
-          <button className="lan-btn lan-btn-small" onClick={handleSelectDirectory}>
+          <button className="subtle-btn subtle-btn--xs subtle-btn--neutral" onClick={handleSelectDirectory}>
             选择
           </button>
-          <button className="lan-btn lan-btn-small" onClick={onOpenSaveDirectory}>
+          <button className="subtle-btn subtle-btn--xs subtle-btn--neutral" onClick={onOpenSaveDirectory}>
             <FolderIcon />
           </button>
         </div>
@@ -663,7 +663,7 @@ function SettingsPanel({
               <div key={device.deviceId} className="lan-trusted-device-item">
                 <span>{device.deviceName}</span>
                 <button
-                  className="lan-btn lan-btn-small lan-btn-danger"
+                  className="subtle-btn subtle-btn--xs subtle-btn--danger"
                   onClick={() => onRemoveTrusted(device.deviceId)}
                 >
                   移除

@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { MotionAppButton } from '../components/common/AppButton';
 
 /** 预填充账号信息 */
 interface PrefillAccount {
@@ -246,9 +247,11 @@ export function Login({
 
         {/* 提交按钮 */}
         <motion.div variants={itemVariants}>
-          <motion.button
+          <MotionAppButton
             type="submit"
-            className="glass-button"
+            variant="primary"
+            size="lg"
+            block
             disabled={isLoading}
             variants={buttonVariants}
             whileHover={!isLoading ? 'hover' : undefined}
@@ -268,7 +271,7 @@ export function Login({
             ) : (
               '登陆'
             )}
-          </motion.button>
+          </MotionAppButton>
         </motion.div>
       </form>
 

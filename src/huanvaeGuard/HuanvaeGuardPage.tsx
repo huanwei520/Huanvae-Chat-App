@@ -1,23 +1,45 @@
 /**
- * HuanvaeGuard VPN 管理页面
+ * HuanvaeGuard VPN management page
  *
- * 配色与设置面板统一，变量来源：variables.css + ThemeProvider
- * Tab 切换：设备 / 链接 / 群组
+ * Tabs: Devices | Links | Groups
+ * Runs in a dedicated Tauri window.
+ *
+ * ## Data sources
+ *   - Local service (http://127.0.0.1:19198) for tunnel control (start/stop/status)
+ *   - Remote HG API (`/api/hg/*`) for device/link/group CRUD, fetched via Tauri
+ *     HTTP plugin to bypass browser CORS
+ *
+ * ## Session handling
+ *   Initial tokens arrive via URL query (base64), then kept fresh via Tauri events:
+ *     - `session:tokens-updated` (listen) — main app broadcasts on proactive refresh
+ *     - `session:request-tokens`  (emit on mount) — ask main app for latest on open
+ *   This avoids the stale-token-on-resume problem when the HG window is long-lived.
+ *
+ * ## Status override
+ *   Server `HgDevice.status` relies on heartbeat (not yet wired), so UI overrides
+ *   the self device to "online" whenever the local tunnel is active and its
+ *   address matches `HgDevice.virtual_ip`.
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { platform } from '@tauri-apps/plugin-os';
-import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
+import { formatSize } from '../utils/format';
+import { ListEmpty, ListLoading } from '../components/common/ListStates';
+import { AppButton } from '../components/common/AppButton';
+import { useConfirmDialog } from '../lowcode/components/ConfirmDialog';
+import { getDeviceInfo } from '../services/deviceInfo';
 import * as localApi from './localApi';
-import { createHgApiClient, type HgApiClient } from './serverApi';
-import { getOrCreateKeyPair } from './crypto';
-import { createTopologySync, type TopologySyncHandle } from './topologySync';
+import * as serverApi from './serverApi';
 import type {
-  TunnelStatus, HgDevice, HgDeviceLink, HgGroup, HgGroupDetail, TopologyPeer,
+  TunnelStatus,
+  HgDevice,
+  HgDeviceLink,
+  HgGroup,
+  GroupDetail,
+  CreateLinkInviteResponse,
 } from './types';
-import './HuanvaeGuard.css';
-
-type TabKey = 'devices' | 'links' | 'groups';
+import './HuanvaeGuardPage.css';
 
 interface WindowData {
   userId: string;
@@ -25,6 +47,8 @@ interface WindowData {
   accessToken: string;
   refreshToken: string;
 }
+
+type Tab = 'devices' | 'links' | 'groups';
 
 function parseWindowData(): WindowData | null {
   try {
@@ -45,135 +69,133 @@ function parseWindowData(): WindowData | null {
   }
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-}
-
-function formatHandshake(ts: number): string {
-  if (ts === 0) return 'never';
-  const ago = Math.floor(Date.now() / 1000 - ts);
-  if (ago < 60) return `${ago}s ago`;
-  if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
-  return `${Math.floor(ago / 3600)}h ago`;
-}
-
-function formatTime(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+function formatHandshake(secondsAgo: number): string {
+  // svc API 返回的是"距上次握手的秒数"，不是 Unix 时间戳
+  if (secondsAgo === 0) return 'never';
+  if (secondsAgo < 60) return `${secondsAgo}s ago`;
+  if (secondsAgo < 3600) return `${Math.floor(secondsAgo / 60)}m ago`;
+  return `${Math.floor(secondsAgo / 3600)}h ago`;
 }
 
 export default function HuanvaeGuardPage() {
-  const [windowData] = useState<WindowData | null>(() => parseWindowData());
-  const [isWindows] = useState(() => { try { return platform() === 'windows'; } catch { return false; } });
+  const [windowData, setWindowData] = useState<WindowData | null>(null);
+  const [isWindows, setIsWindows] = useState(false);
   const [serviceRunning, setServiceRunning] = useState(false);
-  const [serviceStarting, setServiceStarting] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('devices');
+  const [activeTab, setActiveTab] = useState<Tab>('devices');
 
-  // 设备
+  // Devices
   const [devices, setDevices] = useState<HgDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-  // 链接
+  // Links
   const [links, setLinks] = useState<HgDeviceLink[]>([]);
+  const [pendingInvite, setPendingInvite] = useState<CreateLinkInviteResponse | null>(null);
+  const [acceptToken, setAcceptToken] = useState('');
+  const [acceptDeviceId, setAcceptDeviceId] = useState('');
 
-  // 群组
+  // Groups
   const [groups, setGroups] = useState<HgGroup[]>([]);
-  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
-  const [groupDetail, setGroupDetail] = useState<HgGroupDetail | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [groupDetail, setGroupDetail] = useState<GroupDetail | null>(null);
+  const [groupInviteToken, setGroupInviteToken] = useState('');
+  const [acceptGroupToken, setAcceptGroupToken] = useState('');
+  const [acceptGroupDeviceId, setAcceptGroupDeviceId] = useState('');
 
-  // 在线拓扑（仅 UI 展示）
-  const [onlinePeers, setOnlinePeers] = useState<TopologyPeer[]>([]);
-
-  // 邀请 token 展示
-  const [inviteToken, setInviteToken] = useState<{ token: string; expiresAt: string; type: string; groupId?: string } | null>(null);
-
+  // UI
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
-  const topoRef = useRef<TopologySyncHandle | null>(null);
-  const svcPollRef = useRef<ReturnType<typeof setInterval>>(undefined);
-  const startedRef = useRef(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // 复用主应用的确认对话框（替代浏览器原生 confirm()）
+  const { confirm, dialogElement: confirmDialog } = useConfirmDialog();
 
   const addLog = useCallback((msg: string) => {
     setLog(prev => [...prev.slice(-49), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   }, []);
 
-  const api = useMemo<HgApiClient | null>(() => {
-    if (!windowData) return null;
-    return createHgApiClient({
-      serverUrl: windowData.serverUrl,
-      accessToken: windowData.accessToken,
-      refreshToken: windowData.refreshToken,
-      onTokenRefresh: (a, r) => addLog(`Token 已刷新: ${a.slice(0, 8)}… / ${r.slice(0, 8)}…`),
-      onSessionExpired: () => { setError('会话已过期，请关闭窗口重新打开'); addLog('会话已过期'); },
-    });
+  // Init
+  useEffect(() => {
+    const data = parseWindowData();
+    setWindowData(data);
+    try {
+      setIsWindows(platform() === 'windows');
+    } catch {
+      setIsWindows(false);
+    }
+  }, []);
+
+  const loadDevices = useCallback(async () => {
+    if (!windowData) return;
+    try {
+      const d = await serverApi.getDevices(windowData.serverUrl, windowData.accessToken);
+      setDevices(d);
+      addLog(`Loaded ${d.length} devices`);
+    } catch (e) {
+      addLog(`Failed to load devices: ${e}`);
+    }
   }, [windowData, addLog]);
 
-  // ─── 服务启动 ───
-  const startService = useCallback(async () => {
-    setServiceStarting(true);
+  const loadLinks = useCallback(async () => {
+    if (!windowData) return;
     try {
-      const msg = await invoke<string>('start_hg_service');
-      addLog(msg);
+      const l = await serverApi.listLinks(windowData.serverUrl, windowData.accessToken);
+      setLinks(l);
     } catch (e) {
-      addLog(`启动失败: ${e}`);
-      setServiceStarting(false);
-      return;
+      addLog(`Failed to load links: ${e}`);
     }
-    let attempts = 0;
-    const maxAttempts = 30;
-    svcPollRef.current = setInterval(async () => {
-      attempts++;
-      const ready = await localApi.checkServiceRunning();
-      if (ready || attempts >= maxAttempts) {
-        clearInterval(svcPollRef.current);
-        svcPollRef.current = undefined;
-        setServiceStarting(false);
-        setServiceRunning(ready);
-        addLog(ready ? '服务已就绪' : '服务启动超时，请确认 UAC 弹窗并允许');
-      }
-    }, 1000);
+  }, [windowData, addLog]);
+
+  const loadGroups = useCallback(async () => {
+    if (!windowData) return;
+    try {
+      const g = await serverApi.listGroups(windowData.serverUrl, windowData.accessToken);
+      setGroups(g);
+    } catch (e) {
+      addLog(`Failed to load groups: ${e}`);
+    }
+  }, [windowData, addLog]);
+
+  // Check service + load initial data
+  useEffect(() => {
+    if (!windowData) return;
+    localApi.checkServiceRunning().then(running => {
+      setServiceRunning(running);
+      if (running) addLog('Service detected on localhost:19198');
+      else addLog('Service not running');
+    });
+    void loadDevices();
+  }, [windowData, addLog, loadDevices]);
+
+  // Load tab data on switch
+  useEffect(() => {
+    if (!windowData) return;
+    if (activeTab === 'links') void loadLinks();
+    if (activeTab === 'groups') void loadGroups();
+  }, [activeTab, windowData, loadLinks, loadGroups]);
+
+  // 订阅主应用 token 刷新事件（跨 Tauri 窗口广播）
+  // - 主应用 SessionContext.updateTokens 会 emit `session:tokens-updated`
+  // - HG 窗口挂载时 emit `session:request-tokens`，主应用会立即回发当前 token
+  // 两种路径合流到同一个监听器，避免 URL 里的 token 陈旧或主应用中途刷新导致 401
+  useEffect(() => {
+    const unlistenPromise = listen<{ accessToken: string; refreshToken: string }>(
+      'session:tokens-updated',
+      (event) => {
+        setWindowData((prev) => (prev ? {
+          ...prev,
+          accessToken: event.payload.accessToken,
+          refreshToken: event.payload.refreshToken,
+        } : prev));
+        addLog('Access token synced from main window');
+      },
+    );
+    // 挂载时主动请求一次（处理打开即过期的边界情况）
+    void emit('session:request-tokens');
+    return () => { void unlistenPromise.then(fn => fn()); };
   }, [addLog]);
 
-  // ─── 初始化 ───
-  useEffect(() => {
-    if (!api) return;
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    const init = async () => {
-      const running = await localApi.checkServiceRunning();
-      if (running) {
-        setServiceRunning(true);
-        addLog('Service detected on localhost:19198');
-      } else if (isWindows) {
-        addLog('服务未运行，正在自动启动…');
-        void startService();
-      } else {
-        addLog('Service not running (non-Windows platform)');
-      }
-      api.getDevices()
-        .then(d => { setDevices(d); addLog(`Loaded ${d.length} devices`); })
-        .catch(e => addLog(`Failed to load devices: ${e}`));
-    };
-    void init();
-
-    return () => {
-      if (svcPollRef.current) { clearInterval(svcPollRef.current); svcPollRef.current = undefined; }
-    };
-  }, [api, addLog, isWindows, startService]);
-
-  // ─── 隧道状态轮询 ───
+  // Poll tunnel status
   useEffect(() => {
     if (!serviceRunning) return;
     const poll = async () => {
@@ -187,660 +209,655 @@ export default function HuanvaeGuardPage() {
     return () => clearInterval(pollRef.current);
   }, [serviceRunning]);
 
+  // Load group detail when selected
   useEffect(() => {
-    return () => { topoRef.current?.stop(); };
-  }, []);
-
-  // ─── Tab 切换时加载数据 ───
-  useEffect(() => {
-    if (!api) return;
-    if (activeTab === 'links') {
-      api.getLinks().then(setLinks).catch(e => addLog(`加载链接失败: ${e}`));
-    } else if (activeTab === 'groups') {
-      api.getGroups().then(setGroups).catch(e => addLog(`加载群组失败: ${e}`));
+    if (!windowData || !selectedGroupId) {
+      setGroupDetail(null);
+      return;
     }
-  }, [api, activeTab, addLog]);
+    serverApi.getGroupDetail(windowData.serverUrl, windowData.accessToken, selectedGroupId)
+      .then(setGroupDetail)
+      .catch(e => addLog(`Failed to load group detail: ${e}`));
+  }, [windowData, selectedGroupId, addLog]);
 
-  // ─── 连接/断开 ───
-  const handleConnect = useCallback(async () => {
-    if (!api || !selectedDeviceId) { setError('请先选择一个设备'); return; }
-    const keypair = getOrCreateKeyPair();
+  // ─── Handlers: Devices ───
+
+  const handleConnect = async () => {
+    if (!windowData || !selectedDeviceId) {
+      setError('Please select a device first');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      addLog('获取设备配置…');
-      const config = await api.getDeviceConfig(selectedDeviceId);
-      addLog(`配置: ${config.peers.length} peers, address=${config.address}`);
+      addLog('Fetching device config...');
+      const config = await serverApi.getDeviceConfig(
+        windowData.serverUrl, windowData.accessToken, selectedDeviceId,
+      );
+      if (!config.private_key) {
+        setError('Server did not provide private key. Check HG_PSK_KEY env.');
+        return;
+      }
+      addLog(`Config: ${config.peers.length} peers, address=${config.address}`);
 
-      const doStart = async () => localApi.startTunnel({
+      addLog('Starting tunnel...');
+      const r = await localApi.startTunnel({
         address: config.address,
-        private_key: keypair.privateKey,
+        private_key: config.private_key,
         peers: config.peers,
         obfuscation: config.obfuscation,
         dns: config.dns ?? undefined,
         mtu: config.mtu,
       });
 
-      addLog('创建隧道…');
-      let r = await doStart();
-
-      if (!r.success) {
-        const err = r.error ?? '';
-        const isPipeBusy = err.includes('231') || err.includes('管道') || err.includes('pipe') || err.includes('adapter');
-        if (isPipeBusy) {
-          addLog('检测到管道冲突，正在重启服务…');
-          try {
-            const msg = await invoke<string>('restart_hg_service');
-            addLog(msg);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            addLog('重试创建隧道…');
-            r = await doStart();
-          } catch (e) {
-            addLog(`服务重启失败: ${e}`);
-          }
-        }
-      }
-
-      if (r.success) {
-        addLog('隧道已启动');
-        topoRef.current?.stop();
-        const sync = createTopologySync({
-          api,
-          deviceId: selectedDeviceId,
-          onLog: addLog,
-          onTopologyUpdated: (peers) => setOnlinePeers(peers),
-        });
-        topoRef.current = sync;
-        sync.start();
-      } else {
-        setError(r.error ?? '未知错误');
-        addLog(`启动失败: ${r.error}`);
+      if (r.success) addLog('Tunnel started successfully');
+      else {
+        setError(r.error ?? 'Unknown error');
+        addLog(`Start failed: ${r.error}`);
       }
     } catch (e) {
       setError(String(e));
-      addLog(`错误: ${e}`);
+      addLog(`Error: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [api, selectedDeviceId, addLog]);
+  };
 
-  const handleDisconnect = useCallback(async () => {
+  const handleDisconnect = async () => {
     setLoading(true);
     try {
-      topoRef.current?.stop();
-      topoRef.current = null;
-      setOnlinePeers([]);
       const r = await localApi.stopTunnel();
-      addLog(r.success ? '隧道已停止，等待管道释放…' : `停止失败: ${r.error}`);
-      if (r.success) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        addLog('就绪');
-      }
+      if (r.success) addLog('Tunnel stopped');
+      else addLog(`Stop failed: ${r.error}`);
     } catch (e) {
-      addLog(`错误: ${e}`);
+      addLog(`Error: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [addLog]);
+  };
 
-  // ─── 设备操作 ───
-  const handleRegisterDevice = useCallback(async () => {
-    if (!api) return;
-    const keypair = getOrCreateKeyPair();
-    const name = prompt('设备名称:');
+  const handleRegisterDevice = async () => {
+    if (!windowData) return;
+    const name = prompt('Device name:');
     if (!name) return;
     setLoading(true);
     try {
-      const resp = await api.registerDevice(name, keypair.publicKey, 'Windows');
-      addLog(`设备已注册: ${resp.device_id}, IP: ${resp.virtual_ip}`);
-      setDevices(await api.getDevices());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, addLog]);
-
-  const handleDeleteDevice = useCallback(async (deviceId: string) => {
-    if (!api || !confirm('确定删除此设备？如设备正在连接中，请先断开隧道。')) return;
-    const isActive = tunnelStatus?.active && selectedDeviceId === deviceId;
-    if (isActive) {
-      setError('请先断开当前设备的隧道连接后再删除');
-      return;
-    }
-    setLoading(true);
-    try {
-      await api.deleteDevice(deviceId);
-      addLog(`设备已删除: ${deviceId.slice(0, 8)}…`);
-      setDevices(await api.getDevices());
-      if (selectedDeviceId === deviceId) setSelectedDeviceId(null);
+      // 复用主应用的 deviceInfo 服务，把 MAC 作为 device_fingerprint 提交
+      // 这样服务端可以做"同设备识别"，避免重复注册或会话冲突
+      const { macAddress } = await getDeviceInfo();
+      const resp = await serverApi.registerDevice(
+        windowData.serverUrl,
+        windowData.accessToken,
+        name,
+        'Windows',
+        macAddress ?? undefined,
+      );
+      addLog(`Device registered: ${resp.device_id}, IP: ${resp.virtual_ip}`);
+      await loadDevices();
     } catch (e) {
-      const msg = String(e);
-      if (msg.includes('500') || msg.includes('内部')) {
-        setError(`删除失败: 服务器内部错误，该设备可能仍有活跃连接或关联的链接/群组，请先清理后重试`);
-      } else {
-        setError(msg);
-      }
-      addLog(`删除设备失败: ${msg}`);
-    } finally { setLoading(false); }
-  }, [api, selectedDeviceId, tunnelStatus, addLog]);
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleLockDevice = useCallback(async (deviceId: string) => {
-    if (!api) return;
-    const endpoint = prompt('输入设备当前 endpoint（如 1.2.3.4:51820）:');
+  const handleDeleteDevice = async (deviceId: string) => {
+    if (!windowData) return;
+    const ok = await confirm({
+      title: 'Delete device',
+      message: 'Delete this device? This will remove its config from the server.',
+      confirmLabel: 'Delete',
+      isDanger: true,
+    });
+    if (!ok) return;
+    try {
+      await serverApi.deleteDevice(windowData.serverUrl, windowData.accessToken, deviceId);
+      addLog('Device deleted');
+      if (selectedDeviceId === deviceId) setSelectedDeviceId(null);
+      await loadDevices();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleLockDevice = async (deviceId: string) => {
+    if (!windowData) return;
+    const endpoint = prompt('Lock to endpoint (IP:port):');
     if (!endpoint) return;
-    setLoading(true);
     try {
-      const result = await api.lockDevice(deviceId, endpoint);
-      addLog(`设备已锁定, PSK: ${result.psk.slice(0, 12)}…`);
-      setDevices(await api.getDevices());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, addLog]);
+      await serverApi.lockDevice(windowData.serverUrl, windowData.accessToken, deviceId, endpoint);
+      addLog(`Device locked to ${endpoint}`);
+      await loadDevices();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleUnlockDevice = useCallback(async (deviceId: string) => {
-    if (!api || !confirm('确定解锁此设备？')) return;
-    setLoading(true);
+  const handleUnlockDevice = async (deviceId: string) => {
+    if (!windowData) return;
     try {
-      await api.unlockDevice(deviceId);
-      addLog('设备已解锁');
-      setDevices(await api.getDevices());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, addLog]);
+      await serverApi.unlockDevice(windowData.serverUrl, windowData.accessToken, deviceId);
+      addLog('Device unlocked');
+      await loadDevices();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  // ─── 链接操作 ───
-  const handleCreateInvite = useCallback(async () => {
-    if (!api || !selectedDeviceId) { setError('请先在"设备"页选择一个设备'); return; }
-    setLoading(true);
-    try {
-      const resp = await api.createInvite(selectedDeviceId);
-      try { await navigator.clipboard.writeText(resp.invite_token); } catch { /* clipboard may fail */ }
-      setInviteToken({ token: resp.invite_token, expiresAt: resp.expires_at, type: '设备邀请' });
-      addLog(`邀请已创建 (过期: ${formatTime(resp.expires_at)})`);
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, selectedDeviceId, addLog]);
+  // ─── Handlers: Links ───
 
-  const handleAcceptInvite = useCallback(async () => {
-    if (!api || !selectedDeviceId) { setError('请先在"设备"页选择一个设备'); return; }
-    const token = prompt('粘贴邀请 Token:');
-    if (!token) return;
-    setLoading(true);
-    try {
-      const resp = await api.acceptInvite(token.trim(), selectedDeviceId);
-      addLog(`链接已建立: ${resp.link_id.slice(0, 8)}…`);
-      setLinks(await api.getLinks());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, selectedDeviceId, addLog]);
-
-  const handleDeleteLink = useCallback(async (linkId: string) => {
-    if (!api || !confirm('确定断开此链接？')) return;
-    try {
-      await api.deleteLink(linkId);
-      addLog('链接已断开');
-      setLinks(await api.getLinks());
-    } catch (e) { setError(String(e)); }
-  }, [api, addLog]);
-
-  // ─── 群组操作 ───
-  const handleCreateGroup = useCallback(async () => {
-    if (!api) return;
-    const name = prompt('群组名称:');
-    if (!name) return;
-    const desc = prompt('群组描述 (可选):') || undefined;
-    setLoading(true);
-    try {
-      const resp = await api.createGroup(name, desc);
-      addLog(`群组已创建: ${resp.name}`);
-      setGroups(await api.getGroups());
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, addLog]);
-
-  const handleToggleGroupDetail = useCallback(async (groupId: string) => {
-    if (!api) return;
-    if (expandedGroupId === groupId) {
-      setExpandedGroupId(null);
-      setGroupDetail(null);
+  const handleCreateInvite = async () => {
+    if (!windowData || !selectedDeviceId) {
+      setError('Select a device on Devices tab first');
       return;
     }
     try {
-      const detail = await api.getGroupDetail(groupId);
-      setGroupDetail(detail);
-      setExpandedGroupId(groupId);
-    } catch (e) { addLog(`加载群组详情失败: ${e}`); }
-  }, [api, expandedGroupId, addLog]);
+      const resp = await serverApi.createLinkInvite(
+        windowData.serverUrl, windowData.accessToken, selectedDeviceId,
+      );
+      setPendingInvite(resp);
+      addLog(`Invite created: ${resp.invite_token.substring(0, 16)}...`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleJoinGroup = useCallback(async (groupId: string) => {
-    if (!api || !selectedDeviceId) { setError('请先在"设备"页选择一个设备'); return; }
-    setLoading(true);
+  const handleAcceptInvite = async () => {
+    if (!windowData || !acceptToken || !acceptDeviceId) {
+      setError('Enter invite token and select target device');
+      return;
+    }
     try {
-      const resp = await api.joinGroup(groupId, selectedDeviceId);
-      addLog(`已加入群组, 待同步 peers: ${resp.pending_peers}`);
-      setGroups(await api.getGroups());
-      if (expandedGroupId === groupId) {
-        const detail = await api.getGroupDetail(groupId);
-        setGroupDetail(detail);
-      }
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, selectedDeviceId, expandedGroupId, addLog]);
+      const resp = await serverApi.acceptLinkInvite(
+        windowData.serverUrl, windowData.accessToken, acceptToken, acceptDeviceId,
+      );
+      addLog(`Link created: ${resp.link_id}`);
+      setAcceptToken('');
+      await loadLinks();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleLeaveGroup = useCallback(async (groupId: string) => {
-    if (!api || !selectedDeviceId || !confirm('确定退出此群组？')) return;
+  const handleDeleteLink = async (linkId: string) => {
+    if (!windowData) return;
     try {
-      await api.leaveGroup(groupId, selectedDeviceId);
-      addLog('已退出群组');
-      setGroups(await api.getGroups());
-      if (expandedGroupId === groupId) {
-        const detail = await api.getGroupDetail(groupId);
-        setGroupDetail(detail);
-      }
-    } catch (e) { setError(String(e)); }
-  }, [api, selectedDeviceId, expandedGroupId, addLog]);
+      await serverApi.deleteLink(windowData.serverUrl, windowData.accessToken, linkId);
+      addLog('Link deleted');
+      await loadLinks();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleToggleGroup = useCallback(async (groupId: string) => {
-    if (!api) return;
+  // ─── Handlers: Groups ───
+
+  const handleCreateGroup = async () => {
+    if (!windowData) return;
+    const name = prompt('Group name:');
+    if (!name) return;
+    const desc = prompt('Description (optional):') ?? undefined;
     try {
-      const active = await api.toggleGroup(groupId);
-      addLog(`群组已${active ? '启用' : '停用'}`);
-      setGroups(await api.getGroups());
-    } catch (e) { setError(String(e)); }
-  }, [api, addLog]);
+      const resp = await serverApi.createGroup(
+        windowData.serverUrl, windowData.accessToken, name, desc,
+      );
+      addLog(`Group created: ${resp.name} (${resp.group_id})`);
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleDeleteGroup = useCallback(async (groupId: string) => {
-    if (!api || !confirm('确定解散此群组？此操作不可撤销。')) return;
+  const handleJoinGroup = async (groupId: string) => {
+    if (!windowData || !selectedDeviceId) {
+      setError('Select a device on Devices tab first');
+      return;
+    }
     try {
-      await api.deleteGroup(groupId);
-      addLog('群组已解散');
-      setGroups(await api.getGroups());
-      if (expandedGroupId === groupId) { setExpandedGroupId(null); setGroupDetail(null); }
-    } catch (e) { setError(String(e)); }
-  }, [api, expandedGroupId, addLog]);
+      const resp = await serverApi.joinGroup(
+        windowData.serverUrl, windowData.accessToken, groupId, selectedDeviceId,
+      );
+      addLog(`Joined group: ${resp.status}`);
+      setSelectedGroupId(groupId);
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleCreateGroupInvite = useCallback(async (groupId: string) => {
-    if (!api) return;
-    setLoading(true);
+  const handleLeaveGroup = async (groupId: string, deviceId: string) => {
+    if (!windowData) return;
     try {
-      const resp = await api.createGroupInvite(groupId);
-      try { await navigator.clipboard.writeText(resp.invite_token); } catch { /* clipboard may fail */ }
-      setInviteToken({ token: resp.invite_token, expiresAt: resp.expires_at, type: '群组邀请', groupId });
-      addLog(`群组邀请已创建 (过期: ${formatTime(resp.expires_at)})`);
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, addLog]);
+      await serverApi.leaveGroup(windowData.serverUrl, windowData.accessToken, groupId, deviceId);
+      addLog('Left group');
+      setSelectedGroupId(groupId);
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  const handleAcceptGroupInvite = useCallback(async (groupId?: string) => {
-    if (!api || !selectedDeviceId) { setError('请先在"设备"页选择一个设备'); return; }
-    const token = prompt('粘贴群组邀请 Token:');
-    if (!token) return;
-    const gid = groupId || prompt('输入群组 ID:');
-    if (!gid) return;
-    setLoading(true);
+  const handleToggleGroup = async (groupId: string) => {
+    if (!windowData) return;
     try {
-      const resp = await api.acceptGroupInvite(gid.trim(), token.trim(), selectedDeviceId);
-      addLog(`已通过邀请加入群组, 待同步 peers: ${resp.pending_peers}`);
-      setGroups(await api.getGroups());
-      if (expandedGroupId === gid) {
-        const detail = await api.getGroupDetail(gid);
-        setGroupDetail(detail);
-      }
-    } catch (e) { setError(String(e)); } finally { setLoading(false); }
-  }, [api, selectedDeviceId, expandedGroupId, addLog]);
+      const active = await serverApi.toggleGroup(windowData.serverUrl, windowData.accessToken, groupId);
+      addLog(`Group ${active ? 'activated' : 'deactivated'}`);
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
-  if (!windowData || !api) {
-    return <div className="hg-page"><p>加载中…</p></div>;
+  const handleDeleteGroup = async (groupId: string) => {
+    if (!windowData) return;
+    const ok = await confirm({
+      title: 'Delete group',
+      message: 'Delete this group? Devices in the group will be removed.',
+      confirmLabel: 'Delete',
+      isDanger: true,
+    });
+    if (!ok) return;
+    try {
+      await serverApi.deleteGroup(windowData.serverUrl, windowData.accessToken, groupId);
+      addLog('Group deleted');
+      if (selectedGroupId === groupId) setSelectedGroupId(null);
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleGroupInvite = async (groupId: string) => {
+    if (!windowData) return;
+    try {
+      const resp = await serverApi.createGroupInvite(
+        windowData.serverUrl, windowData.accessToken, groupId,
+      );
+      setGroupInviteToken(resp.invite_token);
+      addLog(`Group invite: ${resp.invite_token.substring(0, 16)}...`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleAcceptGroupInvite = async (groupId: string) => {
+    if (!windowData || !acceptGroupToken || !acceptGroupDeviceId) {
+      setError('Enter invite token and device ID');
+      return;
+    }
+    try {
+      await serverApi.acceptGroupInvite(
+        windowData.serverUrl, windowData.accessToken,
+        groupId, acceptGroupToken, acceptGroupDeviceId,
+      );
+      addLog('Group invite accepted');
+      setAcceptGroupToken('');
+      await loadGroups();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // ─── Render ───
+
+  if (!windowData) {
+    return <ListLoading message="Loading..." />;
   }
 
   const isActive = tunnelStatus?.active ?? false;
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
+  // 本机当前隧道 IP（去掉 CIDR 前缀），用于覆盖 server 返回的 offline 状态
+  // 服务端状态依赖 heartbeat（目前客户端未发送），但本机隧道在用就是确凿 online
+  const localTunnelIp = isActive && tunnelStatus?.address
+    ? tunnelStatus.address.split('/')[0]
+    : null;
+  const isSelfDevice = (d: HgDevice): boolean =>
+    localTunnelIp != null && d.virtual_ip === localTunnelIp;
+  const displayStatus = (d: HgDevice): string =>
+    isSelfDevice(d) ? 'online' : d.status;
 
   return (
     <div className="hg-page">
-      <h2>HuanvaeGuard</h2>
+      {/* Header */}
+      <header className="hg-header">
+        <h2 className="hg-title">HuanvaeGuard</h2>
+        <span className={`hg-status ${serviceRunning ? 'hg-status-running' : 'hg-status-stopped'}`}>
+          <span className="hg-dot" />
+          {serviceRunning ? 'Service Running' : 'Service Not Running'}
+        </span>
+        {!isWindows && <span className="hg-os-hint">Windows only</span>}
+      </header>
 
-      {/* 服务状态 */}
-      <div className="hg-service-status">
-        <span className={`hg-status-dot ${serviceRunning ? 'running' : serviceStarting ? 'starting' : 'stopped'}`} />
-        <span>{serviceRunning ? '服务运行中' : serviceStarting ? '正在启动服务…' : '服务未运行'}</span>
-        {!isWindows && <span className="hg-platform-warn">(仅 Windows 可用)</span>}
-        {!serviceRunning && !serviceStarting && isWindows && (
-          <button className="hg-btn hg-btn-sm" onClick={() => void startService()}>启动服务</button>
-        )}
-      </div>
-
-      {/* 错误 */}
+      {/* Error */}
       {error && (
-        <div className="hg-error">
-          <span>{error}</span>
-          <button className="hg-error-dismiss" onClick={() => setError(null)}>关闭</button>
+        <div className="hg-error" role="alert">
+          <span className="hg-error-msg">{error}</span>
+          <AppButton variant="secondary" size="sm" onClick={() => setError(null)}>dismiss</AppButton>
         </div>
       )}
 
-      {/* 邀请 Token 展示 */}
-      {inviteToken && (
-        <div className="hg-invite-card">
-          <div className="hg-invite-header">
-            <strong>{inviteToken.type}</strong>
-            <span className="hg-invite-expires">过期: {formatTime(inviteToken.expiresAt)}</span>
-            <button className="hg-error-dismiss" onClick={() => setInviteToken(null)}>关闭</button>
-          </div>
-          {inviteToken.groupId && (
-            <div className="hg-invite-token-row">
-              <span className="hg-invite-label">群组 ID</span>
-              <code className="hg-invite-token">{inviteToken.groupId}</code>
-              <button
-                className="hg-btn hg-btn-sm"
-                onClick={() => { void navigator.clipboard.writeText(inviteToken.groupId!); addLog('群组 ID 已复制'); }}
-              >
-                复制
-              </button>
-            </div>
-          )}
-          <div className="hg-invite-token-row">
-            <span className="hg-invite-label">Token</span>
-            <code className="hg-invite-token">{inviteToken.token}</code>
-            <button
-              className="hg-btn hg-btn-sm"
-              onClick={() => { void navigator.clipboard.writeText(inviteToken.token); addLog('Token 已复制'); }}
-            >
-              复制
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 连接/断开 */}
-      <div className="hg-actions">
-        <button
-          className="hg-btn-connect"
-          onClick={() => void handleConnect()}
-          disabled={loading || isActive || !serviceRunning || !selectedDeviceId}
-        >
-          {loading ? '处理中…' : '连接'}
-        </button>
-        <button
-          className="hg-btn-disconnect"
-          onClick={() => void handleDisconnect()}
-          disabled={loading || !isActive}
-        >
-          断开
-        </button>
-        {selectedDevice && (
-          <span className="hg-selected-device">
-            当前设备: {selectedDevice.device_name} ({selectedDevice.virtual_ip})
-          </span>
-        )}
-      </div>
-
-      {/* 隧道状态 */}
-      {tunnelStatus && isActive && (
-        <div className="hg-tunnel-status">
-          <div className="hg-tunnel-info">
-            <div><strong>接口:</strong> {tunnelStatus.interface_name}</div>
-            <div><strong>地址:</strong> {tunnelStatus.address}</div>
-            <div><strong>端口:</strong> {tunnelStatus.listen_port}</div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <strong>Peers ({tunnelStatus.peers.length})</strong>
-            <table className="hg-peer-table">
-              <thead>
-                <tr>
-                  <th>Public Key</th>
-                  <th>Endpoint</th>
-                  <th className="right">RX</th>
-                  <th className="right">TX</th>
-                  <th className="right">Handshake</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tunnelStatus.peers.map(p => (
-                  <tr key={p.public_key}>
-                    <td className="key">{p.public_key.substring(0, 16)}…</td>
-                    <td>{p.endpoint}</td>
-                    <td className="right">{formatBytes(p.rx_bytes)}</td>
-                    <td className="right">{formatBytes(p.tx_bytes)}</td>
-                    <td className="right">{formatHandshake(p.last_handshake)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 在线设备（拓扑 — 仅 UI 展示） */}
-      {isActive && onlinePeers.length > 0 && (
-        <div className="hg-tunnel-status">
-          <strong>在线设备 ({onlinePeers.length})</strong>
-          <table className="hg-peer-table">
-            <thead>
-              <tr>
-                <th>设备 ID</th>
-                <th>虚拟 IP</th>
-                <th>Endpoint</th>
-                <th>同节点</th>
-              </tr>
-            </thead>
-            <tbody>
-              {onlinePeers.map(p => (
-                <tr key={p.device_id}>
-                  <td className="key">{p.device_id.slice(0, 8)}…</td>
-                  <td>{p.virtual_ip}</td>
-                  <td>{p.endpoint ?? '-'}</td>
-                  <td>{p.is_same_node ? '是' : '否'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Tab 切换 */}
-      <div className="hg-tabs">
-        {(['devices', 'links', 'groups'] as TabKey[]).map(tab => (
+      {/* Tabs */}
+      <nav className="hg-tabs">
+        {(['devices', 'links', 'groups'] as Tab[]).map(tab => (
           <button
             key={tab}
+            type="button"
             className={`hg-tab${activeTab === tab ? ' active' : ''}`}
             onClick={() => setActiveTab(tab)}
           >
-            {{ devices: '设备', links: '链接', groups: '群组' }[tab]}
+            {tab === 'devices' ? 'Devices' : tab === 'links' ? 'Links' : 'Groups'}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {/* ─── 设备 Tab ─── */}
+      {/* ─── Devices Tab ─── */}
       {activeTab === 'devices' && (
-        <div className="hg-tab-panel">
-          <div className="hg-section-header">
-            <span className="hg-section-title">设备列表</span>
-            <button className="hg-btn" onClick={handleRegisterDevice} disabled={loading}>+ 注册</button>
-          </div>
-          {devices.length === 0 ? (
-            <div className="hg-empty">暂无注册设备</div>
-          ) : (
-            <div className="hg-device-list">
-              {devices.map(d => (
-                <div
-                  key={d.device_id}
-                  className={`hg-device-item${selectedDeviceId === d.device_id ? ' selected' : ''}`}
-                >
-                  <label className="hg-device-label">
-                    <input
-                      type="radio"
-                      name="device"
-                      checked={selectedDeviceId === d.device_id}
-                      onChange={() => setSelectedDeviceId(d.device_id)}
-                    />
-                    <span className="hg-device-name">{d.device_name}</span>
-                    <span className="hg-device-ip">{d.virtual_ip}</span>
-                    <span className={`hg-device-status ${d.status === 'active' ? 'active' : 'inactive'}`}>
-                      {d.status}
-                    </span>
-                  </label>
-                  <div className="hg-device-ops">
-                    {d.locked_endpoint ? (
-                      <>
-                        <span className="hg-device-locked" title={`锁定于 ${d.locked_endpoint}`}>🔒</span>
-                        <button className="hg-btn hg-btn-sm" onClick={() => void handleUnlockDevice(d.device_id)}>
-                          解锁
-                        </button>
-                      </>
-                    ) : (
-                      <button className="hg-btn hg-btn-sm" onClick={() => void handleLockDevice(d.device_id)}>
-                        锁定
-                      </button>
-                    )}
-                    <button className="hg-device-delete" onClick={() => void handleDeleteDevice(d.device_id)}>
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))}
+        <>
+          <section className="hg-card">
+            <div className="hg-section-head">
+              <span className="hg-section-title">Devices</span>
+              <AppButton variant="secondary" size="sm" onClick={handleRegisterDevice} disabled={loading}>
+                + Register
+              </AppButton>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* ─── 链接 Tab ─── */}
-      {activeTab === 'links' && (
-        <div className="hg-tab-panel">
-          <div className="hg-section-header">
-            <span className="hg-section-title">设备链接</span>
-            <button className="hg-btn" onClick={handleCreateInvite} disabled={loading || !selectedDeviceId}>
-              + 创建邀请
-            </button>
-            <button className="hg-btn" onClick={handleAcceptInvite} disabled={loading || !selectedDeviceId}>
-              接受邀请
-            </button>
-          </div>
-          {!selectedDeviceId && (
-            <div className="hg-hint">请先在"设备"页选择一个设备后再操作链接</div>
-          )}
-          {links.length === 0 ? (
-            <div className="hg-empty">暂无设备链接</div>
-          ) : (
-            <div className="hg-link-list">
-              {links.map(l => (
-                <div key={l.link_id} className="hg-link-item">
-                  <div className="hg-link-info">
-                    <span className="hg-link-devices">
-                      {l.device_a.slice(0, 8)}… ↔ {l.device_b.slice(0, 8)}…
-                    </span>
-                    <span className="hg-link-source">{l.link_source}</span>
-                    <span className="hg-link-time">{formatTime(l.created_at)}</span>
-                  </div>
-                  <button className="hg-device-delete" onClick={() => void handleDeleteLink(l.link_id)}>
-                    断开
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            {devices.length === 0 ? (
+              <ListEmpty message="No devices registered" />
+            ) : (
+              <div className="hg-device-list">
+                {devices.map(d => {
+                  const status = displayStatus(d);
+                  return (
+                    <label key={d.device_id} className={`hg-device-item${selectedDeviceId === d.device_id ? ' selected' : ''}`}>
+                      <input type="radio" name="device" checked={selectedDeviceId === d.device_id}
+                        onChange={() => setSelectedDeviceId(d.device_id)} />
+                      <span className="hg-device-name">{d.device_name}</span>
+                      <span className="hg-device-ip">{d.virtual_ip}</span>
+                      {isSelfDevice(d) && <span className="hg-device-self">(this device)</span>}
+                      <span className={`hg-device-status${status === 'online' ? ' active' : ''}`}>
+                        {status}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
 
-      {/* ─── 群组 Tab ─── */}
-      {activeTab === 'groups' && (
-        <div className="hg-tab-panel">
-          <div className="hg-section-header">
-            <span className="hg-section-title">群组管理</span>
-            <button className="hg-btn" onClick={handleCreateGroup} disabled={loading}>+ 创建群组</button>
-            <button className="hg-btn" onClick={() => void handleAcceptGroupInvite()} disabled={loading || !selectedDeviceId}>
-              接受群组邀请
-            </button>
-          </div>
-          {groups.length === 0 ? (
-            <div className="hg-empty">暂无群组</div>
-          ) : (
-            <div className="hg-group-list">
-              {groups.map(g => (
-                <div key={g.group_id} className="hg-group-card">
-                  <div className="hg-group-header" onClick={() => void handleToggleGroupDetail(g.group_id)}>
-                    <div className="hg-group-title">
-                      <span className={`hg-group-active-dot ${g.is_active ? 'on' : 'off'}`} />
-                      <strong>{g.name}</strong>
-                      <span className="hg-group-id" title={g.group_id}>{g.group_id.slice(0, 8)}…</span>
-                      {g.description && <span className="hg-group-desc">{g.description}</span>}
-                    </div>
-                    <span className="hg-group-chevron">{expandedGroupId === g.group_id ? '▾' : '▸'}</span>
-                  </div>
-
-                  {expandedGroupId === g.group_id && groupDetail && (
-                    <div className="hg-group-body">
-                      <div className="hg-group-id-full">
-                        <span className="hg-invite-label">群组 ID</span>
-                        <code className="hg-invite-token">{g.group_id}</code>
-                        <button
-                          className="hg-btn hg-btn-sm"
-                          onClick={(e) => { e.stopPropagation(); void navigator.clipboard.writeText(g.group_id); addLog('群组 ID 已复制'); }}
-                        >
-                          复制
-                        </button>
-                      </div>
-                      <div className="hg-group-actions">
-                        <button className="hg-btn hg-btn-sm" onClick={() => void handleJoinGroup(g.group_id)} disabled={!selectedDeviceId}>
-                          加入
-                        </button>
-                        <button className="hg-btn hg-btn-sm" onClick={() => void handleLeaveGroup(g.group_id)} disabled={!selectedDeviceId}>
-                          退出
-                        </button>
-                        <button className="hg-btn hg-btn-sm" onClick={() => void handleCreateGroupInvite(g.group_id)}>
-                          创建邀请
-                        </button>
-                        <button className="hg-btn hg-btn-sm" onClick={() => void handleAcceptGroupInvite(g.group_id)} disabled={!selectedDeviceId}>
-                          接受邀请
-                        </button>
-                        {g.owner_id === windowData.userId && (
-                          <>
-                            <button className="hg-btn hg-btn-sm" onClick={() => void handleToggleGroup(g.group_id)}>
-                              {g.is_active ? '停用' : '启用'}
-                            </button>
-                            <button className="hg-btn hg-btn-sm hg-btn-danger" onClick={() => void handleDeleteGroup(g.group_id)}>
-                              解散
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      <div className="hg-group-members">
-                        <strong>成员 ({groupDetail.devices.length})</strong>
-                        {groupDetail.devices.length === 0 ? (
-                          <div className="hg-empty">暂无成员设备</div>
-                        ) : (
-                          <table className="hg-peer-table">
-                            <thead>
-                              <tr>
-                                <th>设备 ID</th>
-                                <th>虚拟 IP</th>
-                                <th>Endpoint</th>
-                                <th>状态</th>
-                                <th>最后心跳</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {groupDetail.devices.map(d => (
-                                <tr key={d.device_id}>
-                                  <td className="key">{d.device_id.slice(0, 8)}…</td>
-                                  <td>{d.virtual_ip}</td>
-                                  <td>{d.endpoint ?? '-'}</td>
-                                  <td>
-                                    <span className={`hg-device-status ${d.status === 'active' ? 'active' : 'inactive'}`}>
-                                      {d.status ?? '-'}
-                                    </span>
-                                  </td>
-                                  <td>{formatTime(d.last_heartbeat ?? null)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    </div>
+            {/* Device actions */}
+            {selectedDevice && (
+              <div className="hg-device-detail">
+                {selectedDevice.locked_endpoint && (
+                  <span className="hg-detail-badge">Locked: {selectedDevice.locked_endpoint}</span>
+                )}
+                <div className="hg-btn-row">
+                  {selectedDevice.locked_endpoint ? (
+                    <AppButton variant="secondary" size="sm"
+                      onClick={() => handleUnlockDevice(selectedDevice.device_id)}>Unlock</AppButton>
+                  ) : (
+                    <AppButton variant="secondary" size="sm"
+                      onClick={() => handleLockDevice(selectedDevice.device_id)}>Lock</AppButton>
                   )}
+                  <AppButton variant="danger" size="sm"
+                    onClick={() => handleDeleteDevice(selectedDevice.device_id)}>Delete</AppButton>
                 </div>
-              ))}
+              </div>
+            )}
+
+            {/* Connect / Disconnect */}
+            <div className="hg-btn-row" style={{ marginTop: 16, marginBottom: 0 }}>
+              <AppButton variant="primary" size="md"
+                loading={loading}
+                onClick={handleConnect}
+                disabled={isActive || !serviceRunning}>
+                Connect
+              </AppButton>
+              <AppButton variant="danger" size="md"
+                onClick={handleDisconnect}
+                disabled={loading || !isActive}>
+                Disconnect
+              </AppButton>
             </div>
+          </section>
+
+          {/* Tunnel status */}
+          {tunnelStatus && isActive && (
+            <section className="hg-card">
+              <div className="hg-section-head">
+                <span className="hg-section-title">Tunnel</span>
+              </div>
+              <dl className="hg-tunnel-info">
+                <dt>Interface</dt><dd>{tunnelStatus.interface_name}</dd>
+                <dt>Address</dt><dd>{tunnelStatus.address}</dd>
+                <dt>Listen Port</dt><dd>{tunnelStatus.listen_port}</dd>
+              </dl>
+              <div className="hg-peers-title">Peers ({tunnelStatus.peers.length})</div>
+              <table className="hg-peers-table">
+                <thead>
+                  <tr>
+                    <th>Public Key</th><th>Endpoint</th>
+                    <th className="hg-num">RX</th><th className="hg-num">TX</th>
+                    <th className="hg-num">Handshake</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tunnelStatus.peers.map(p => (
+                    <tr key={p.public_key}>
+                      <td className="hg-pubkey">{p.public_key.substring(0, 16)}...</td>
+                      <td>{p.endpoint}</td>
+                      <td className="hg-num">{formatSize(p.rx_bytes)}</td>
+                      <td className="hg-num">{formatSize(p.tx_bytes)}</td>
+                      <td className="hg-num">{formatHandshake(p.last_handshake)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
           )}
-        </div>
+        </>
       )}
 
-      {/* 日志 */}
+      {/* ─── Links Tab ─── */}
+      {activeTab === 'links' && (
+        <section className="hg-card">
+          <div className="hg-section-head">
+            <span className="hg-section-title">Device Links</span>
+            <AppButton variant="secondary" size="sm" onClick={handleCreateInvite}
+              disabled={!selectedDeviceId}>
+              Create Invite
+            </AppButton>
+          </div>
+
+          {pendingInvite && (
+            <div className="hg-invite-section">
+              <label className="hg-label">Share this invite token:</label>
+              <div className="hg-token-display">{pendingInvite.invite_token}</div>
+              <span className="hg-hint">Expires: {new Date(pendingInvite.expires_at).toLocaleString()}</span>
+            </div>
+          )}
+
+          <div className="hg-invite-section">
+            <label className="hg-label">Accept an invite</label>
+            <div className="hg-input-row">
+              <input className="hg-input" placeholder="Invite token" value={acceptToken}
+                onChange={e => setAcceptToken(e.target.value)} />
+              <select className="hg-input" value={acceptDeviceId}
+                onChange={e => setAcceptDeviceId(e.target.value)}>
+                <option value="">Select device</option>
+                {devices.map(d => (
+                  <option key={d.device_id} value={d.device_id}>{d.device_name}</option>
+                ))}
+              </select>
+              <AppButton variant="primary" size="sm"
+                onClick={handleAcceptInvite} disabled={!acceptToken || !acceptDeviceId}>
+                Accept
+              </AppButton>
+            </div>
+          </div>
+
+          {links.length === 0 ? (
+            <ListEmpty message="No links" />
+          ) : (
+            <table className="hg-peers-table">
+              <thead>
+                <tr>
+                  <th>Device A</th><th>Device B</th><th>Source</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {links.map(l => {
+                  const nameA = devices.find(d => d.device_id === l.device_a)?.device_name ?? l.device_a.substring(0, 8);
+                  const nameB = devices.find(d => d.device_id === l.device_b)?.device_name ?? l.device_b.substring(0, 8);
+                  return (
+                    <tr key={l.link_id}>
+                      <td>{nameA}</td><td>{nameB}</td>
+                      <td>{l.link_source}</td>
+                      <td>
+                        <AppButton variant="danger" size="sm"
+                          onClick={() => handleDeleteLink(l.link_id)}>Disconnect</AppButton>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+
+      {/* ─── Groups Tab ─── */}
+      {activeTab === 'groups' && (
+        <>
+          <section className="hg-card">
+            <div className="hg-section-head">
+              <span className="hg-section-title">Network Groups</span>
+              <AppButton variant="secondary" size="sm" onClick={handleCreateGroup}>
+                + Create
+              </AppButton>
+            </div>
+
+            {groups.length === 0 ? (
+              <ListEmpty message="No groups" />
+            ) : (
+              <div className="hg-device-list">
+                {groups.map(g => (
+                  <div key={g.group_id}
+                    className={`hg-group-item${selectedGroupId === g.group_id ? ' selected' : ''}`}
+                    onClick={() => setSelectedGroupId(g.group_id === selectedGroupId ? null : g.group_id)}>
+                    <span className="hg-group-name">{g.name}</span>
+                    <span className={`hg-group-status${g.is_active ? ' active' : ''}`}>
+                      {g.is_active ? 'active' : 'inactive'}
+                    </span>
+                    <div className="hg-group-actions">
+                      <AppButton variant="secondary" size="sm"
+                        onClick={e => { e.stopPropagation(); handleJoinGroup(g.group_id); }}
+                        disabled={!selectedDeviceId}>
+                        Join
+                      </AppButton>
+                      <AppButton variant="secondary" size="sm"
+                        onClick={e => { e.stopPropagation(); handleGroupInvite(g.group_id); }}>
+                        Invite
+                      </AppButton>
+                      <AppButton variant="secondary" size="sm"
+                        onClick={e => { e.stopPropagation(); handleToggleGroup(g.group_id); }}>
+                        Toggle
+                      </AppButton>
+                      <AppButton variant="danger" size="sm"
+                        onClick={e => { e.stopPropagation(); handleDeleteGroup(g.group_id); }}>
+                        Delete
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Group invite section */}
+          {groupInviteToken && (
+            <section className="hg-card">
+              <div className="hg-invite-section">
+                <label className="hg-label">Group invite token:</label>
+                <div className="hg-token-display">{groupInviteToken}</div>
+              </div>
+            </section>
+          )}
+
+          {/* Accept group invite */}
+          {selectedGroupId && (
+            <section className="hg-card">
+              <div className="hg-section-head">
+                <span className="hg-section-title">Accept Group Invite</span>
+              </div>
+              <div className="hg-input-row">
+                <input className="hg-input" placeholder="Group invite token" value={acceptGroupToken}
+                  onChange={e => setAcceptGroupToken(e.target.value)} />
+                <select className="hg-input" value={acceptGroupDeviceId}
+                  onChange={e => setAcceptGroupDeviceId(e.target.value)}>
+                  <option value="">Select device</option>
+                  {devices.map(d => (
+                    <option key={d.device_id} value={d.device_id}>{d.device_name}</option>
+                  ))}
+                </select>
+                <AppButton variant="primary" size="sm"
+                  onClick={() => handleAcceptGroupInvite(selectedGroupId)}
+                  disabled={!acceptGroupToken || !acceptGroupDeviceId}>
+                  Accept
+                </AppButton>
+              </div>
+            </section>
+          )}
+
+          {/* Group detail */}
+          {groupDetail && (
+            <section className="hg-card">
+              <div className="hg-section-head">
+                <span className="hg-section-title">{groupDetail.group.name} — Devices</span>
+              </div>
+              {groupDetail.group.description && (
+                <p className="hg-group-desc">{groupDetail.group.description}</p>
+              )}
+              {groupDetail.devices.length === 0 ? (
+                <ListEmpty message="No devices in group" />
+              ) : (
+                <table className="hg-peers-table">
+                  <thead>
+                    <tr><th>Device</th><th>VPN IP</th><th>Status</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {groupDetail.devices.map(d => (
+                      <tr key={d.device_id}>
+                        <td>{devices.find(dev => dev.device_id === d.device_id)?.device_name ?? d.device_id.substring(0, 8)}</td>
+                        <td>{d.virtual_ip}</td>
+                        <td>{d.status ?? 'unknown'}</td>
+                        <td>
+                          <AppButton variant="danger" size="sm"
+                            onClick={() => handleLeaveGroup(groupDetail.group.group_id, d.device_id)}>
+                            Leave
+                          </AppButton>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </section>
+          )}
+        </>
+      )}
+
+      {/* Log panel */}
       <div className="hg-log">
-        {log.map((l, i) => <div key={i}>{l}</div>)}
-        {log.length === 0 && <div>Ready</div>}
+        {log.length === 0 ? (
+          <div className="hg-log-empty">Ready</div>
+        ) : (
+          log.map((l, i) => (
+            <div key={i} className="hg-log-line">{l}</div>
+          ))
+        )}
       </div>
+
+      {/* 共享 confirm 对话框（取代浏览器原生 confirm()）*/}
+      {confirmDialog}
     </div>
   );
 }

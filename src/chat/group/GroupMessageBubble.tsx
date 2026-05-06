@@ -25,6 +25,7 @@ import { motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
+import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
@@ -387,6 +388,8 @@ export function GroupMessageBubble({
               <div className="bubble-text">
                 <MarkdownRenderer content={message.message_content} />
               </div>
+            ) : message.message_type === 'meeting_invite' ? (
+              <MeetingInviteCard messageContent={message.message_content} />
             ) : (
               <FileMessageContent
                 messageType={message.message_type as 'image' | 'video' | 'file'}

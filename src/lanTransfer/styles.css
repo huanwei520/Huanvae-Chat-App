@@ -890,54 +890,8 @@
   justify-content: flex-end;
 }
 
-/* ============================================
-   通用按钮
-   ============================================ */
-
-.lan-btn {
-  padding: 10px 20px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.lan-btn-accept {
-  background: var(--status-success);
-  color: var(--text-inverse);
-}
-
-.lan-btn-accept:hover {
-  background: var(--status-success);
-  filter: brightness(1.1);
-}
-
-.lan-btn-reject {
-  background: var(--bg-muted);
-  color: var(--text-muted);
-}
-
-.lan-btn-reject:hover {
-  background: var(--status-error-subtle);
-  color: var(--status-error);
-}
-
-.lan-btn-small {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.lan-btn-danger {
-  background: var(--status-error-subtle);
-  color: var(--status-error);
-}
-
-.lan-btn-danger:hover {
-  background: var(--status-error);
-  color: var(--text-inverse);
-}
+/* .lan-btn 系列已迁移到 .subtle-btn（src/styles/components/subtle-button.css）
+   .lan-btn-accept / .lan-btn-reject 为死代码，迁移时一并删除 */
 
 /* ============================================
    批量传输进度
@@ -1450,15 +1404,6 @@
   background: var(--glass-white-20, rgba(255, 255, 255, 0.2));
   position: relative;
   z-index: 1;
-}
-
-.lan-btn-danger {
-  background: var(--error);
-  color: white;
-}
-
-.lan-btn-danger:hover {
-  background: var(--error-dark, #dc2626);
 }
 
 /* ============================================

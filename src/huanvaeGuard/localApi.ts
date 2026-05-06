@@ -1,20 +1,27 @@
 /**
- * localhost:19198 Windows Service API 调用
+ * 本机 HuanvaeGuard Windows Service API 调用 (http://127.0.0.1:19198)
  *
- * 使用 @tauri-apps/plugin-http 的 fetch 绕过 CORS 限制
- * （Tauri WebView origin 为 http://tauri.localhost，
- *  浏览器原生 fetch 会被 huanvaeguard-svc 的 CORS 策略拦截）
- * startTunnel 包含 Named Pipe 冲突自动重试（3 次 / 2s 间隔）
+ * - 走 @tauri-apps/plugin-http 的 fetch，绕开浏览器 CORS
+ *   （svc 不返回 CORS 头；dev 模式前端 origin 是 http://localhost:1420）
+ * - 无鉴权 —— 服务仅监听回环地址。未来 P0 计划中会加 HMAC 或 Token
+ * - svc 自身由 Tauri 进程生命周期控制（见 src-tauri/src/desktop/huanvaeguard.rs）
+ *
+ * 函数一览：
+ *   checkServiceRunning  GET  /api/tunnel/status    探测服务是否监听
+ *   getStatus            GET  /api/tunnel/status    获取隧道状态 + peer 明细
+ *   startTunnel          POST /api/tunnel/start     建立 WireGuard 隧道
+ *   stopTunnel           POST /api/tunnel/stop      关闭隧道
+ *   updatePeers          POST /api/tunnel/peers     替换/增量修改 peers
  */
 
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { fetch } from '@tauri-apps/plugin-http';
 import type { ApiResponse, TunnelStatus, PeerConfig, ObfuscationParams } from './types';
 
 const LOCAL_BASE = 'http://127.0.0.1:19198';
 
 async function localFetch<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
-  const resp = await tauriFetch(`${LOCAL_BASE}${path}`, init);
-  return resp.json() as Promise<ApiResponse<T>>;
+  const resp = await fetch(`${LOCAL_BASE}${path}`, init);
+  return resp.json().catch(() => ({ success: false, error: `HTTP ${resp.status}` }) as ApiResponse<T>);
 }
 
 export async function checkServiceRunning(): Promise<boolean> {
@@ -30,10 +37,6 @@ export async function getStatus(): Promise<ApiResponse<TunnelStatus>> {
   return localFetch('/api/tunnel/status');
 }
 
-function delay(ms: number) {
-  return new Promise<void>((r) => setTimeout(r, ms));
-}
-
 export async function startTunnel(params: {
   address: string;
   private_key: string;
@@ -42,29 +45,11 @@ export async function startTunnel(params: {
   dns?: string;
   mtu?: number;
 }): Promise<ApiResponse<void>> {
-  const body = JSON.stringify(params);
-  const init: RequestInit = {
+  return localFetch('/api/tunnel/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body,
-  };
-
-  const maxRetries = 5;
-  const baseDelay = 3000;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const r = await localFetch<void>('/api/tunnel/start', init);
-    if (r.success) return r;
-
-    const err = r.error ?? '';
-    const isPipeConflict = err.includes('231') || err.includes('pipe') || err.includes('管道')
-      || err.includes('device') || err.includes('adapter');
-    if (!isPipeConflict || attempt >= maxRetries) return r;
-
-    await delay(baseDelay + attempt * 1000);
-  }
-
-  return { success: false, error: 'Max retries exceeded' };
+    body: JSON.stringify(params),
+  });
 }
 
 export async function stopTunnel(): Promise<ApiResponse<void>> {

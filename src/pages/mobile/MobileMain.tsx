@@ -173,6 +173,15 @@ export function MobileMain() {
     setMeetingRoomName(undefined);
   }, [webrtc]);
 
+  // 监听会议邀请卡片触发的加入请求（移动端）
+  const pendingMeetingJoin = useChatStore((s) => s.pendingMeetingJoin);
+  useEffect(() => {
+    if (pendingMeetingJoin) {
+      useChatStore.getState().setPendingMeetingJoin(false);
+      handleEnterMeeting();
+    }
+  }, [pendingMeetingJoin, handleEnterMeeting]);
+
   // 处理移动端手势返回
   const handleMobileBack = useCallback(() => {
     // 优先级 1：主题设置页面打开 → 关闭主题页面

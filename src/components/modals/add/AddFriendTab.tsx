@@ -2,7 +2,7 @@
  * 添加好友表单 Tab
  */
 
-import { motion } from 'framer-motion';
+import { MotionAppButton } from '../../common/AppButton';
 
 interface AddFriendTabProps {
   friendId: string;
@@ -44,15 +44,17 @@ export function AddFriendTab({
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
         />
       </div>
-      <motion.button
-        className="glass-button"
+      <MotionAppButton
+        variant="primary"
+        size="lg"
+        block
         onClick={onSubmit}
         disabled={loading || !friendId.trim()}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
         {loading ? '发送中...' : '发送好友请求'}
-      </motion.button>
+      </MotionAppButton>
     </>
   );
 }

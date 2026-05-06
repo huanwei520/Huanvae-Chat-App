@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { MotionAppButton } from '../common/AppButton';
 import { useApi } from '../../contexts/SessionContext';
 import { changePassword } from '../../api/profile';
 
@@ -81,15 +81,17 @@ export function PasswordForm({ onSuccess, onError }: PasswordFormProps) {
           placeholder="请再次输入新密码"
         />
       </div>
-      <motion.button
-        className="glass-button"
+      <MotionAppButton
+        variant="primary"
+        size="lg"
+        block
         onClick={handleSubmit}
         disabled={loading || !oldPassword || !newPassword || !confirmPassword}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
         {loading ? '修改中...' : '修改密码'}
-      </motion.button>
+      </MotionAppButton>
     </>
   );
 }

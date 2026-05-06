@@ -150,7 +150,7 @@ export function MeetingFloatingWindow({
   // 计算样式：未拖动时用默认位置，拖动后用绝对位置
   const positionStyle = position
     ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
-    : { right: 16, bottom: 100, left: 'auto', top: 'auto' };
+    : { right: 16, bottom: 170, left: 'auto', top: 'auto' };
 
   return (
     <>

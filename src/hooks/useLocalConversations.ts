@@ -55,6 +55,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   image: '[图片]',
   video: '[视频]',
   file: '[文件]',
+  meeting_invite: '[会议邀请]',
 };
 
 /** 将 content_type + content 转为用户可读的预览文本 */

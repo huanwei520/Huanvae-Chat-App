@@ -27,7 +27,7 @@ import { CopyIcon, VideoMeetingIcon } from '../../components/common/Icons';
  * 打开会议窗口
  * 使用 Tauri WebviewWindow API 创建独立窗口
  */
-async function openMeetingWindow(): Promise<void> {
+export async function openMeetingWindow(): Promise<void> {
   // 检查是否已有会议窗口
   const existing = await WebviewWindow.getByLabel('meeting');
   if (existing) {

@@ -378,7 +378,10 @@ export function UnifiedList({
               {isChatTab && card.type === 'group' && (
                 <span className="conv-tag">[群聊]</span>
               )}
-              {card.name}
+              {/* 名字文本：独立容器负责省略号，悬停显示完整名字 */}
+              <span className="conv-name-text" title={card.name}>
+                {card.name}
+              </span>
               {/* 群聊页显示角色标签 */}
               {isGroupTab && card.type === 'group' && (
                 <RoleBadge role={card.role} />
@@ -391,7 +394,14 @@ export function UnifiedList({
             )}
           </div>
           <div className="conv-footer">
-            <span className="conv-preview">
+            <span
+              className="conv-preview"
+              title={
+                activeTab === 'friends' && card.type === 'friend'
+                  ? `@${card.id}`
+                  : card.lastMessage || undefined
+              }
+            >
               {/* 好友页显示 ID，其他显示最后消息 */}
               {activeTab === 'friends' && card.type === 'friend'
                 ? `@${card.id}`
@@ -569,10 +579,17 @@ export function UnifiedList({
                 </div>
                 <div className="conv-info">
                   <div className="conv-header">
-                    <span className="conv-name">AI 助手</span>
+                    <span className="conv-name">
+                      <span className="conv-name-text" title="AI 助手">AI 助手</span>
+                    </span>
                   </div>
                   <div className="conv-footer">
-                    <span className="conv-preview">{aiConversationTitle || '有什么可以帮你的？'}</span>
+                    <span
+                      className="conv-preview"
+                      title={aiConversationTitle || undefined}
+                    >
+                      {aiConversationTitle || '有什么可以帮你的？'}
+                    </span>
                   </div>
                 </div>
               </motion.div>

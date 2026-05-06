@@ -213,39 +213,7 @@
   color: var(--text-light);
 }
 
-/* 行按钮 */
-.settings-row-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary-subtle);
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.settings-row-btn:hover:not(:disabled) {
-  background: var(--primary-subtle);
-}
-
-.settings-row-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.settings-row-btn-danger {
-  background: var(--status-error-subtle);
-  color: var(--status-error);
-}
-
-.settings-row-btn-danger:hover:not(:disabled) {
-  background: var(--status-error-subtle);
-}
+/* 行按钮已迁移到 .subtle-btn（src/styles/components/subtle-button.css） */
 
 /* 行展开内容 */
 .settings-row-expand {
@@ -603,38 +571,7 @@
   margin-top: 12px;
 }
 
-.reset-confirm-btn {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.reset-confirm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.reset-confirm-btn-danger {
-  background: var(--status-error-subtle);
-  color: var(--status-error);
-}
-
-.reset-confirm-btn-danger:hover:not(:disabled) {
-  background: var(--status-error-subtle);
-}
-
-.reset-confirm-btn-cancel {
-  background: var(--bg-muted);
-  color: var(--text-muted);
-}
-
-.reset-confirm-btn-cancel:hover:not(:disabled) {
-  background: var(--bg-muted);
-}
+/* .reset-confirm-btn 系列已迁移到 .subtle-btn（src/styles/components/subtle-button.css） */
 
 /* ============================================
    结果提示

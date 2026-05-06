@@ -2,7 +2,7 @@
  * 加入群聊表单 Tab
  */
 
-import { motion } from 'framer-motion';
+import { MotionAppButton } from '../../common/AppButton';
 
 interface JoinGroupTabProps {
   inviteCode: string;
@@ -30,15 +30,17 @@ export function JoinGroupTab({
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
         />
       </div>
-      <motion.button
-        className="glass-button"
+      <MotionAppButton
+        variant="primary"
+        size="lg"
+        block
         onClick={onSubmit}
         disabled={loading || !inviteCode.trim()}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
         {loading ? '加入中...' : '加入群聊'}
-      </motion.button>
+      </MotionAppButton>
     </>
   );
 }

@@ -1,4 +1,16 @@
-/** HuanvaeGuard 类型定义 */
+/**
+ * HuanvaeGuard 类型定义
+ *
+ * 分两部分：
+ *   1. Local Windows Service types — 对应本机 svc (localhost:19198) 的 API 结构
+ *      （由本仓 src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe 实现）
+ *   2. Server API types — 对应远端 `/api/hg/*` 的结构
+ *      （后端为独立仓库，本仓仅消费 JSON；字段以后端 OpenAPI/文档为准）
+ *
+ * 注：历史注释曾写"与后端 src/huanvaeguard/models/*.rs 对齐"，但该 Rust 路径不在本仓。
+ */
+
+// ─── Local Windows Service types (localhost:19198) ───
 
 export interface ObfuscationParams {
   h1: [number, number];
@@ -44,31 +56,19 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
-/** 服务端 config API 响应 */
+// ─── Server API types (backend /api/hg/*) ───
+
+/** models/config.rs — HgClientConfig */
 export interface HgClientConfig {
   address: string;
   dns: string | null;
   mtu: number;
   peers: PeerConfig[];
   obfuscation: ObfuscationParams;
+  private_key?: string;
 }
 
-/** 服务端设备注册响应 */
-export interface DeviceRegisterResponse {
-  device_id: string;
-  virtual_ip: string;
-  node_endpoint: string | null;
-  topology: TopologyPeer[];
-}
-
-export interface TopologyPeer {
-  device_id: string;
-  public_key: string;
-  virtual_ip: string;
-  endpoint: string | null;
-  is_same_node: boolean;
-}
-
+/** models/device.rs — HgDevice */
 export interface HgDevice {
   device_id: string;
   user_id: string;
@@ -86,18 +86,64 @@ export interface HgDevice {
   updated_at: string;
 }
 
-/** 设备链接 */
+/** models/device.rs — DeviceRegisterResponse */
+export interface DeviceRegisterResponse {
+  device_id: string;
+  virtual_ip: string;
+  node_endpoint: string | null;
+  topology: HgPeerInfo[];
+}
+
+/** models/device.rs — HgPeerInfo (shared across device/link/group queries) */
+export interface HgPeerInfo {
+  device_id: string;
+  public_key: string;
+  virtual_ip: string;
+  endpoint: string | null;
+  is_same_node: boolean;
+  psk_encrypted: string | null;
+  psk_nonce: string | null;
+  status: string | null;
+  last_heartbeat: string | null;
+}
+
+/** models/device.rs — DeviceTopology (incremental sync) */
+export interface DeviceTopology {
+  device_id: string;
+  virtual_ip: string;
+  peers: HgPeerInfo[];
+  topology_version: number;
+}
+
+// ─── Links ───
+
+/** models/link.rs — HgDeviceLink */
 export interface HgDeviceLink {
   link_id: string;
   device_a: string;
   device_b: string;
-  link_source: 'self' | 'manual' | 'group';
+  link_source: string;
   source_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-/** 群组 */
+/** models/link.rs — CreateLinkInviteResponse */
+export interface CreateLinkInviteResponse {
+  invite_id: string;
+  invite_token: string;
+  expires_at: string;
+}
+
+/** models/link.rs — AcceptLinkInviteResponse */
+export interface AcceptLinkInviteResponse {
+  link_id: string;
+  peer: HgPeerInfo;
+}
+
+// ─── Groups ───
+
+/** models/group.rs — HgGroup */
 export interface HgGroup {
   group_id: string;
   name: string;
@@ -109,28 +155,21 @@ export interface HgGroup {
   updated_at: string;
 }
 
-/** 群组详情（含成员设备） */
-export interface HgGroupDetail {
+/** models/group.rs — GroupDetail */
+export interface GroupDetail {
   group: HgGroup;
-  devices: Array<TopologyPeer & { status?: string; last_heartbeat?: string }>;
+  devices: HgPeerInfo[];
 }
 
-/** 邀请创建响应 */
-export interface HgInviteResponse {
-  invite_id: string;
-  invite_token: string;
-  expires_at: string;
+/** models/group.rs — CreateGroupResponse */
+export interface CreateGroupResponse {
+  group_id: string;
+  name: string;
 }
 
-/** 加入群组响应 */
-export interface HgJoinGroupResponse {
+/** models/group.rs — JoinGroupResponse */
+export interface JoinGroupResponse {
   group_id: string;
   status: string;
   pending_peers: number;
-}
-
-/** 锁定设备响应 */
-export interface HgLockDeviceResult {
-  psk: string;
-  psk_hash: string;
 }

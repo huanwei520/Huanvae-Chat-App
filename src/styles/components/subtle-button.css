@@ -1,0 +1,74 @@
+/**
+ * ========================================
+ * Huanvae Chat - 浅色底按钮（Subtle Button）
+ * ========================================
+ *
+ * @description 抽取自原本分散在多个模块 CSS 文件的「浅色底 + 同色字」风格按钮，
+ *              统一命名 + 集中管理，与玻璃渐变主按钮（AppButton）形成两套互补体系。
+ * @layer       第三层 - 组件层
+ *
+ * ## 起源
+ * 原同风格按钮散落在三处定义（差异主要在 padding/font），合并后用 BEM 命名：
+ *   .settings-row-btn / .settings-row-btn-danger
+ *     → .subtle-btn .subtle-btn--sm .subtle-btn--primary / --danger
+ *   .reset-confirm-btn / .reset-confirm-btn-danger / .reset-confirm-btn-cancel
+ *     → .subtle-btn .subtle-btn--sm .subtle-btn--danger / --neutral
+ *   .lan-btn / .lan-btn-small / .lan-btn-danger
+ *     → .subtle-btn .subtle-btn--xs .subtle-btn--neutral / --danger
+ *
+ * ## 类名约定
+ *   .subtle-btn                  基础（必带）
+ *   .subtle-btn--{size}          xs | sm | md
+ *   .subtle-btn--{tone}          primary | danger | neutral
+ *
+ * ## 与 AppButton 的关系
+ * 两者覆盖完全不同的视觉风格，互不冲突：
+ *   - AppButton: 玻璃渐变 + 多层阴影 + 扫光，主行动 / 强调操作
+ *   - SubtleBtn: 浅色底 + 同色字 + 扁平，行内动作 / 设置项
+ */
+
+.subtle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subtle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* size modifiers */
+.subtle-btn--xs { padding: 6px 12px; font-size: 12px; }
+.subtle-btn--sm { padding: 8px 14px; font-size: 13px; }
+.subtle-btn--md { padding: 10px 20px; font-size: 13px; font-weight: 600; transition: all 0.2s; }
+
+/* tone modifiers */
+.subtle-btn--primary {
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+.subtle-btn--primary:hover:not(:disabled) {
+  background: var(--primary-subtle);
+}
+
+.subtle-btn--danger {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+.subtle-btn--danger:hover:not(:disabled) {
+  background: var(--status-error-subtle);
+}
+
+.subtle-btn--neutral {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+.subtle-btn--neutral:hover:not(:disabled) {
+  background: var(--bg-muted);
+}

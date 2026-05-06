@@ -51,7 +51,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background 0.2s;
   -webkit-app-region: no-drag;
 }
 
@@ -125,7 +125,7 @@
   border-radius: 16px;
   background: var(--white-alpha-80);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   text-align: center;
 }
 
@@ -415,7 +415,7 @@
   color: var(--text-muted);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
 
 .theme-page-reset-btn:hover {
