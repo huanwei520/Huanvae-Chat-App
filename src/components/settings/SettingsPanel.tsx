@@ -30,6 +30,7 @@ import { SettingsGroup } from './SettingsGroup';
 import { SettingsRow } from './SettingsRow';
 import { SoundSelector } from './SoundSelector';
 import { DeviceListPanel } from './DeviceListPanel';
+import { AuthorizedAppsPanel } from './AuthorizedAppsPanel';
 import './styles.css';
 
 // ============================================
@@ -235,13 +236,13 @@ const ResetConfirm: React.FC<ResetConfirmProps> = ({ onConfirm, onCancel, loadin
       />
       <div className="reset-confirm-actions">
         <button
-          className="reset-confirm-btn reset-confirm-btn-danger"
+          className="subtle-btn subtle-btn--sm subtle-btn--danger"
           onClick={onConfirm}
           disabled={loading || confirmInput !== '确认清空'}
         >
           {loading ? '重置中...' : '确认重置'}
         </button>
-        <button className="reset-confirm-btn reset-confirm-btn-cancel" onClick={onCancel} disabled={loading}>
+        <button className="subtle-btn subtle-btn--sm subtle-btn--neutral" onClick={onCancel} disabled={loading}>
           取消
         </button>
       </div>
@@ -289,6 +290,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
 
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
+  const [showAuthorizedApps, setShowAuthorizedApps] = useState(false);
 
   // 主题状态
   const themePreset = useThemeStore((s) => s.config.preset);
@@ -540,6 +542,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
               subtitle="查看和管理登录设备"
               type="arrow"
               onClick={() => setShowDeviceList(true)}
+              showDivider={true}
+            />
+            <SettingsRow
+              title="已授权应用"
+              subtitle="管理第三方应用的访问权限"
+              type="arrow"
+              onClick={() => setShowAuthorizedApps(true)}
               showDivider={false}
             />
           </SettingsGroup>
@@ -567,6 +576,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
       <AnimatePresence>
         {showDeviceList && (
           <DeviceListPanel onBack={() => setShowDeviceList(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* 已授权应用面板 */}
+      <AnimatePresence>
+        {showAuthorizedApps && (
+          <AuthorizedAppsPanel onBack={() => setShowAuthorizedApps(false)} />
         )}
       </AnimatePresence>
 

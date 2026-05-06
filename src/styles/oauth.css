@@ -1,0 +1,809 @@
+/* ============================================
+   OAuth UI Styles
+   ============================================ */
+
+/* ============================================
+   AuthorizedAppsPanel — Settings sub-panel
+   ============================================ */
+.oauth-apps-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  z-index: 10;
+}
+
+.oauth-apps-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oauth-apps-title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.oauth-apps-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.oauth-apps-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.oauth-app-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--white-alpha-80);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.oauth-app-card:hover {
+  background: var(--white-alpha-95);
+  border-color: var(--border-default);
+}
+
+.oauth-app-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 600;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.oauth-app-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.oauth-app-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.oauth-app-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.oauth-app-scopes {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.oauth-app-time {
+  font-size: 11px;
+  color: var(--text-disabled);
+}
+
+.oauth-app-revoke-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--status-error);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--status-error);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.oauth-app-revoke-btn:hover:not(:disabled) {
+  background: var(--status-error);
+  color: white;
+}
+
+.oauth-app-revoke-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauth-apps-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
+}
+
+.oauth-apps-empty-icon {
+  font-size: 32px;
+  opacity: 0.4;
+  margin-bottom: 4px;
+}
+
+/* ============================================
+   OAuthConsentModal
+   ============================================ */
+.oauth-consent-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.oauth-consent-dialog {
+  width: 90vw;
+  max-width: 420px;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.oauth-consent-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 24px 16px;
+  gap: 12px;
+}
+
+.oauth-consent-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-size: 24px;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.oauth-consent-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.oauth-consent-app-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.oauth-consent-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.oauth-consent-scopes {
+  padding: 0 24px 20px;
+}
+
+.oauth-scope-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--white-alpha-60);
+  border: 1px solid var(--border-subtle);
+}
+
+.oauth-scope-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.oauth-scope-text {
+  flex: 1;
+}
+
+.oauth-scope-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.oauth-scope-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.oauth-consent-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px 24px;
+}
+
+.oauth-consent-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+}
+
+.oauth-consent-btn.primary {
+  background: var(--primary);
+  color: white;
+}
+
+.oauth-consent-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.oauth-consent-btn.secondary {
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.oauth-consent-btn.secondary:hover:not(:disabled) {
+  background: var(--white-alpha-95);
+}
+
+.oauth-consent-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauth-consent-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.oauth-consent-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px;
+  gap: 12px;
+  color: var(--status-error);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ============================================
+   OAuthClientsPanel
+   ============================================ */
+.oauth-clients-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  z-index: 10001;
+}
+
+.oauth-clients-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oauth-clients-title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.oauth-clients-create-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-clients-create-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.oauth-clients-create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauth-clients-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.oauth-client-card {
+  padding: 16px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--white-alpha-80);
+  transition: background 0.15s ease;
+}
+
+.oauth-client-card:hover {
+  background: var(--white-alpha-95);
+}
+
+.oauth-client-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.oauth-client-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.oauth-client-type-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.oauth-client-type-badge.internal {
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.oauth-client-type-badge.external {
+  background: var(--status-warning-subtle);
+  color: var(--status-warning);
+}
+
+.oauth-client-id {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oauth-client-id .copy-btn {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: var(--white-alpha-60);
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-client-id .copy-btn:hover {
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.oauth-client-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.oauth-client-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.oauth-client-action-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-secondary);
+}
+
+.oauth-client-action-btn:hover:not(:disabled) {
+  background: var(--white-alpha-90);
+}
+
+.oauth-client-action-btn.danger {
+  border-color: var(--status-error);
+  color: var(--status-error);
+}
+
+.oauth-client-action-btn.danger:hover:not(:disabled) {
+  background: var(--status-error);
+  color: white;
+}
+
+.oauth-client-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauth-clients-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
+}
+
+/* ============================================
+   Create Client Form (overlay within panel)
+   ============================================ */
+.oauth-create-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.oauth-create-dialog {
+  width: 90%;
+  max-width: 440px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+}
+
+.oauth-create-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 20px;
+}
+
+.oauth-form-group {
+  margin-bottom: 16px;
+}
+
+.oauth-form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.oauth-form-label .required {
+  color: var(--status-error);
+  margin-left: 2px;
+}
+
+.oauth-form-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--white-alpha-80);
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: border-color 0.15s ease;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.oauth-form-input:focus {
+  border-color: var(--primary);
+}
+
+.oauth-form-input::placeholder {
+  color: var(--text-disabled);
+}
+
+.oauth-uri-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.oauth-uri-row {
+  display: flex;
+  gap: 8px;
+}
+
+.oauth-uri-row .oauth-form-input {
+  flex: 1;
+}
+
+.oauth-uri-remove-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--status-error);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--status-error);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.oauth-uri-remove-btn:hover {
+  background: var(--status-error);
+  color: white;
+}
+
+.oauth-uri-add-btn {
+  padding: 8px;
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-uri-add-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.oauth-scope-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.oauth-scope-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.oauth-scope-checkbox.checked {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.oauth-create-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.oauth-create-actions .oauth-consent-btn {
+  flex: 1;
+}
+
+/* ============================================
+   Secret Display Dialog
+   ============================================ */
+.oauth-secret-dialog {
+  width: 90%;
+  max-width: 440px;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+}
+
+.oauth-secret-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: var(--status-warning-subtle);
+  border: 1px solid var(--status-warning);
+  font-size: 13px;
+  color: var(--status-warning);
+  font-weight: 500;
+}
+
+.oauth-secret-field {
+  margin-bottom: 12px;
+}
+
+.oauth-secret-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.oauth-secret-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--white-alpha-60);
+  border: 1px solid var(--border-subtle);
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.oauth-secret-value .copy-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.oauth-secret-value .copy-btn:hover {
+  filter: brightness(0.9);
+}
+
+.oauth-secret-close-btn {
+  width: 100%;
+  padding: 12px;
+  margin-top: 20px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-secret-close-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* ============================================
+   Shared utilities
+   ============================================ */
+.oauth-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--white-alpha-60);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-back-btn:hover {
+  background: var(--white-alpha-90);
+  color: var(--text-primary);
+}
+
+.oauth-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: oauth-spin 0.6s linear infinite;
+}
+
+@keyframes oauth-spin {
+  to { transform: rotate(360deg); }
+}
+
+.oauth-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: var(--white-alpha-60);
+  color: var(--primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-refresh-btn:hover:not(:disabled) {
+  background: var(--white-alpha-90);
+  transform: rotate(180deg);
+}
+
+.oauth-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -31,8 +31,11 @@ import {
   type MiniApp,
   type MiniAppStatus,
   type CreateMiniAppRequest,
+  type CreateMiniAppResponse,
   type MiniAppContainer,
 } from '../../hooks/useMiniApps';
+import { OAuthClientsPanel } from '../oauth/OAuthClientsPanel';
+import { SecretDisplay, type SecretField } from '../common/SecretDisplay';
 
 // ============================================
 // 类型定义
@@ -58,6 +61,36 @@ const STATUS_MAP: Record<MiniAppStatus, { label: string; className: string }> = 
   published: { label: '已发布', className: 'status-published' },
   stopped: { label: '已停止', className: 'status-stopped' },
 };
+
+export function buildCredentialsFields(r: CreateMiniAppResponse): SecretField[] {
+  const fields: SecretField[] = [];
+  if (r.oauth_client_id) {
+    fields.push({ label: 'OAuth Client ID', value: r.oauth_client_id });
+  }
+  if (r.oauth_client_secret) {
+    fields.push({ label: 'OAuth Client Secret', value: r.oauth_client_secret });
+  }
+  fields.push(
+    { label: 'SSH 端口', value: String(r.container.ssh_port) },
+    { label: 'SSH 用户', value: r.container.ssh_user },
+    { label: 'SSH 密码', value: r.container.ssh_password },
+  );
+  return fields;
+}
+
+/**
+ * 拼接打开小程序 WebviewWindow 的 URL
+ * 平台 JWT 以 `?token=` 或 `&token=` 形式附加在 access_url 之后，
+ * 小程序自己读 URL query 走 OAuth 4 步流程。与后端 ai-demo 约定一致。
+ */
+export function buildMiniAppLaunchUrl(
+  serverUrl: string,
+  accessUrl: string,
+  token: string,
+): string {
+  const separator = accessUrl.includes('?') ? '&' : '?';
+  return `${serverUrl}${accessUrl}${separator}token=${encodeURIComponent(token)}`;
+}
 
 // ============================================
 // 动画变体
@@ -501,18 +534,25 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
     containerInfo: getContainerInfo, resetPassword,
   } = useMiniApps();
   const [showCreate, setShowCreate] = useState(false);
+  const [showOAuthClients, setShowOAuthClients] = useState(false);
   const [containerInfo, setContainerInfo] = useState<MiniAppContainer | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<CreateMiniAppResponse | null>(null);
 
   const handleCreate = useCallback(
     async (data: CreateMiniAppRequest) => {
       const result = await create(data);
       if (result) {
         setShowCreate(false);
-        setTab('mine');
+        setCreatedCredentials(result);
       }
     },
-    [create, setTab],
+    [create],
   );
+
+  const handleCloseCredentials = useCallback(() => {
+    setCreatedCredentials(null);
+    setTab('mine');
+  }, [setTab]);
 
   const handleOpen = useCallback(async (app: MiniApp) => {
     if (!app.access_url || !session) {
@@ -527,7 +567,7 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
       return;
     }
 
-    const fullUrl = `${session.serverUrl}${app.access_url}`;
+    const fullUrl = buildMiniAppLaunchUrl(session.serverUrl, app.access_url, session.accessToken);
 
     const appWindow = new WebviewWindow(windowLabel, {
       url: fullUrl,
@@ -601,14 +641,24 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
               </div>
               <div className="miniapps-header-right">
                 {tab === 'mine' && (
-                  <motion.button
-                    className="miniapp-btn primary"
-                    onClick={() => setShowCreate(true)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    + 创建
-                  </motion.button>
+                  <>
+                    <motion.button
+                      className="miniapp-btn"
+                      onClick={() => setShowOAuthClients(true)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      OAuth 客户端
+                    </motion.button>
+                    <motion.button
+                      className="miniapp-btn primary"
+                      onClick={() => setShowCreate(true)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      + 创建
+                    </motion.button>
+                  </>
                 )}
                 <motion.button
                   className="close-btn"
@@ -717,6 +767,26 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {createdCredentials && (
+          <SecretDisplay
+            title={`${createdCredentials.name} - 创建成功`}
+            warningText="以下凭据仅显示一次，请妥善保存（SSH 密码可通过容器信息重置）"
+            fields={buildCredentialsFields(createdCredentials)}
+            onClose={handleCloseCredentials}
+          />
+        )}
+      </AnimatePresence>
+
+      {createPortal(
+        <AnimatePresence>
+          {showOAuthClients && (
+            <OAuthClientsPanel onBack={() => setShowOAuthClients(false)} />
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </>
   );
 }
