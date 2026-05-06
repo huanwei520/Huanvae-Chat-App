@@ -30,7 +30,12 @@ export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
     setLoading(true);
 
     try {
-      await updateProfile(api, { email, signature });
+      // 空字段视为"未填"，不发送对应字段（让后端 optional 跳过校验）
+      // 否则后端会把空串当作非法 email 格式而拒绝整个请求
+      await updateProfile(api, {
+        email: email.trim() || undefined,
+        signature: signature || undefined,
+      });
       onSuccess('个人信息已更新');
 
       setSession({
@@ -57,7 +62,7 @@ export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
           className="glass-input"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="your@email.com"
+          placeholder="未填写邮箱"
         />
       </div>
       <div className="form-group">
