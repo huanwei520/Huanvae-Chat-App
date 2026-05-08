@@ -36,6 +36,7 @@ import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheSto
 import { formatFileSize } from '../../utils/format';
 import { FilePreviewModal } from './FilePreviewModal';
 import { MobileMediaPreview } from './MobileMediaPreview';
+import { DocumentDownloadAction, LocalBadge } from './DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
 import { CircularProgress } from '../../components/common/CircularProgress';
@@ -125,26 +126,6 @@ const FileIcon = () => (
     <polyline points="14 2 14 8 20 8" />
   </svg>
 );
-
-const DownloadIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
-  </svg>
-);
-
-// ============================================
-// 本地文件标识
-// ============================================
-
-function LocalBadge() {
-  return (
-    <span className="file-local-badge" title="本地文件">
-      📁
-    </span>
-  );
-}
 
 // ============================================
 // 图片消息组件
@@ -601,52 +582,23 @@ function DocumentMessage({
     autoCache: false,
   });
 
-  // 监听下载任务状态（用于显示进度）
+  // 监听下载任务状态（用于卡片层判断 isDownloaded / isDownloading 与本地路径展示）
   const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
 
-  // 判断下载状态
-  const isDownloading = downloadTask && (
+  const isDownloading = !!downloadTask && (
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
   );
   const isDownloaded = isLocal || downloadTask?.status === 'completed';
-
-  // 获取实际的本地路径（优先使用下载完成的路径）
   const actualLocalPath = downloadTask?.localPath ?? localPath;
 
-  // 下载文件（使用后台下载，带进度）
-  const handleDownload = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!src) { return; }
-
-      // 如果已下载或正在下载，不重复触发
-      if (isDownloaded || isDownloading) { return; }
-
-      // 触发后台下载
-      if (fileHash) {
-        triggerBackgroundDownload(
-          src,
-          fileHash,
-          filename,
-          'document',
-          fileSize ?? undefined,
-        );
-      }
-    },
-    [src, fileHash, filename, fileSize, isDownloaded, isDownloading],
-  );
-
-  // 桌面端点击文件消息的处理：已下载打开文件夹，未下载触发下载
-  // 移动端点击打开预览
+  // 桌面端点击卡片：已下载打开文件夹，未下载触发下载（与 inline 下载按钮行为一致）
+  // 移动端点击卡片：打开预览
   const handleDocumentClick = useCallback(() => {
     if (isMobile()) {
-      // 移动端：打开预览
       setShowPreview(true);
     } else if (isDownloaded && actualLocalPath) {
-      // 桌面端已下载：直接打开文件夹
       openInFolder(actualLocalPath);
     } else if (!isDownloading && src && fileHash) {
-      // 桌面端未下载：触发下载
       triggerBackgroundDownload(
         src,
         fileHash,
@@ -660,15 +612,12 @@ function DocumentMessage({
   return (
     <>
       <div className="file-message document-message" onClick={handleDocumentClick}>
-        {/* 本地文件标识 */}
         {isDownloaded && <LocalBadge />}
 
-        {/* 文件图标 */}
         <div className="document-icon">
           <FileIcon />
         </div>
 
-        {/* 文件信息 */}
         <div className="document-info">
           <span className="document-name" title={filename}>
             {filename.length > 20 ? `${filename.slice(0, 17)}...` : filename}
@@ -681,34 +630,25 @@ function DocumentMessage({
           )}
         </div>
 
-        {/* 操作按钮区域 */}
-        <div className="document-actions">
-          {/* 下载中：显示进度 */}
-          {isDownloading && downloadTask && (
-            <div className="document-download-progress">
-              <CircularProgress progress={downloadTask.percent} size={28} strokeWidth={3} />
-            </div>
-          )}
-
-          {/* 未下载且非移动端：显示下载按钮 */}
-          {!isDownloaded && !isDownloading && (
-            <button className="document-download" onClick={handleDownload} title="下载">
-              <DownloadIcon />
-            </button>
-          )}
-        </div>
+        <DocumentDownloadAction
+          layout="inline"
+          fileUuid={fileUuid}
+          fileHash={fileHash}
+          filename={filename}
+          fileSize={fileSize}
+          urlType={urlType}
+          friendId={friendId}
+        />
       </div>
 
-      {/* 移动端使用全屏预览 */}
+      {/* 移动端全屏预览 */}
       {isMobile() && (
         <FilePreviewModal
           isOpen={showPreview}
           onClose={() => setShowPreview(false)}
           fileUuid={fileUuid}
           filename={filename}
-          contentType="application/octet-stream"
           fileSize={fileSize ?? undefined}
-          localPath={actualLocalPath}
           fileHash={fileHash}
           urlType={urlType}
         />

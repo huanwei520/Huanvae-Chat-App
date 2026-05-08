@@ -86,3 +86,16 @@ export function getFileCategory(contentType: string): 'image' | 'video' | 'file'
   if (contentType.startsWith('video/')) { return 'video'; }
   return 'file';
 }
+
+/**
+ * 软删除个人文件（后端 DELETE /api/storage/file/{uuid}）
+ *
+ * 后端行为（参见 backend-docs/storage 7.5）：
+ * - 文件从 GET /api/storage/files 列表移除
+ * - 预签名 URL 请求被拒绝
+ * - MinIO 物理文件保留（revoked_at 软删除）
+ * - 仅限自己上传的 user_files；他人文件返回 404
+ */
+export function deleteFile(api: ApiClient, fileUuid: string): Promise<void> {
+  return api.delete<void>(`/api/storage/file/${fileUuid}`);
+}

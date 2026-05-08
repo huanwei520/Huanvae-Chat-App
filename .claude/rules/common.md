@@ -198,3 +198,64 @@ git stash pop
 - 清理后 typecheck 2 errors，lint 119 problems，初看像是清理引入
 - 基线对比：typecheck 2 errors（完全相同）、lint 155 problems（**比清理后多 36 条**）
 - 结论：所有错误均为 pre-existing，清理反而减少了 36 条 lint 问题
+
+## 重构后接口字段：`_前缀变量` 不是合法的"保留兼容"借口
+
+### CLAUDE.md 明确禁止兜底，看到 `_xxx` 重命名要主动评估"是否真该删除整个字段"
+
+重构组件时常见诱惑：删除某 prop 的内部使用后，把参数名加 `_` 前缀（如 `localPath: _localPath`、`contentType: _contentType`）让 TS 不告警，**并辩称"保留接口兼容性"**。这通常是死代码自欺：
+
+- 如果调用方真依赖该 prop 的某个外部行为，那它不该在重构里被沉默化
+- 如果调用方实际不依赖（用空字符串、占位值、根本不传），就该把字段从 props interface 里**完全删除**，调用方一并清理
+
+CLAUDE.md「功能迭代规则」明确：
+> 完全采用新逻辑，不考虑向后兼容，不使用兜底策略。旧代码和旧文档必须清理干净，保证零污染。
+
+**规则**：重构中产生 `_xxx` 形式重命名的参数时：
+
+1. grep 全部调用方，看每处实际传入的值
+2. 若所有调用方都传死值/占位/不传 → 字段是死的，从 interface 删除 + 调用方清理
+3. 若有真实数据传入但内部不再用 → 内部确实不需要时同样删除；如有持续需要再恢复用途
+4. 不可以"我先标 `_` 等下次再清"——这是把 cleanup 推给未来读者
+
+**触发体感**：code-review 会标 Major（违反 cleanup 规则）。
+
+**反例（2026-05-07）**：
+- 重构 FilePreviewModal 时把 `localPath` / `contentType` 改成 `_localPath` / `_contentType` 并注释"保留接口兼容性"
+- 实际 4 处调用方 (FilesModal / MobileFilesPage / FileMessageContent.DocumentMessage / FilePreviewModal 自身) 全部要么传死值要么不依赖
+- code-review 第一轮标 Major，要求删除字段；删除后 4 处调用方各精简 1-3 行，无任何回归（801/801 测试仍全绿）
+- 教训：看到 `_xxx` 第一反应是"哪个调用方真依赖它"，而不是"留着以防万一"
+
+## Plan 描述与代码 reality 必须 100% 对齐
+
+### 写 Plan 时凭印象会错——必须 grep 验证每个文件的引用
+
+写 Plan 时常凭印象描述某文件"还未使用 X"或"已删除 Y"，但实际通过 import/调用情况完全相反。盲审 Agent 会精确指出这种偏差。
+
+**规则**：Plan 中每写一处涉及"现有代码中是否使用 X"的判断，必须先 `grep` 该 symbol 在目标文件中的实际出现，不可凭记忆。
+
+**反例（2026-05-07）**：
+- 重构「我的文件」时 Plan 写："MobileFilesPage 删除局部 LocalBadge 改为 import 自 chat/shared/DocumentDownloadAction（即使本文件还未实际使用 LocalBadge，仍保留 import）"
+- 盲审 Agent 实际 grep 发现 ImageThumbnail / VideoThumbnail 都在用 `<LocalBadge />`，import 是必需的而非冗余
+- Plan 的注释"还未实际使用"是凭印象错误；写完 Plan 该 grep 一遍引用情况
+
+## Tauri plugin-http 不能用 playwright page.route 拦截
+
+### 所有 `@tauri-apps/plugin-http` 的 fetch 请求都走 Tauri invoke 通道
+
+`@tauri-apps/plugin-http` 不调用浏览器原生 fetch，而是通过 `window.__TAURI_INTERNALS__.invoke('plugin:http|fetch', ...)` 走 Tauri Rust 层。这意味着：
+
+- e2e 测试中 `page.route('**/api/login', ...)` **不会拦截**这些请求
+- 必须在 `__TAURI_INTERNALS__.invoke` 的 mock 内处理 `plugin:http|fetch` / `plugin:http|fetch_send` 等命令
+
+**规则**：评估 Tauri 应用 e2e 完整登录流可行性时：
+1. 先 grep `from '@tauri-apps/plugin-http'` 看哪些 API 调用走此通道
+2. 走 plugin-http 的 API 不能用 page.route 拦截，需要在 tauri-mock invoke 处理
+3. 完整模拟 plugin-http login response 需要二阶段（fetch 返回 rid → fetch_send 返回 body），工作量大
+4. 如果只是为了进入登录后页面，权衡用 vitest 组件测试覆盖动画/渲染契约可能更划算
+
+**反例（2026-05-07）**：
+- 任务"对所有适配检测进行全覆盖"初评估时尝试给 e2e 加完整 auth fixture
+- 探索发现 [`src/api/auth.ts`](src/api/auth.ts) 使用 `import { fetch } from '@tauri-apps/plugin-http'`，page.route 无法拦截
+- 改为分两层覆盖：e2e 覆盖登录前所有可达场景（form toggle / multi-viewport / dark theme），登录后场景由 vitest 组件测试覆盖动画属性（exit prop / body overflow / disabled 守卫）
+- 节省 1-2 天 mock 调试时间，覆盖深度仍达预期

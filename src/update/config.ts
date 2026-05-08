@@ -2,15 +2,25 @@
  * 更新模块配置
  *
  * 集中管理更新相关的配置，包括：
- * - 代理源列表（与 tauri.conf.json 保持一致）
+ * - 自建更新源（store.huanvae.cn，R2 托管，优先级最高）
+ * - 代理源列表（GitHub 代理备用）
  * - GitHub Release 地址
  * - 版本检测 JSON 文件路径
  *
- * 注意：修改代理源时需同步更新 tauri.conf.json 中的 updater.endpoints
+ * 桌面端原生更新由 tauri.conf.json updater.endpoints 控制（首选 R2）
+ * Android 更新由 service.android.ts 使用下方 PROXY_URLS 轮询
  */
 
 // ============================================
-// 代理源配置
+// 自建更新源（Cloudflare R2）
+// ============================================
+
+export const SELF_HOSTED_BASE = 'https://store.huanvae.cn/update/huanvae-chat';
+export const SELF_HOSTED_DESKTOP_JSON = `${SELF_HOSTED_BASE}/latest.json`;
+export const SELF_HOSTED_ANDROID_JSON = `${SELF_HOSTED_BASE}/android-latest.json`;
+
+// ============================================
+// 代理源配置（备用）
 // ============================================
 
 /**

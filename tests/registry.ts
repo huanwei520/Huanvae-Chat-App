@@ -70,6 +70,8 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
 
   // 文件相关
   { name: 'FilesModal', path: 'components/files/FilesModal', category: 'components', description: '文件管理模态框' },
+  { name: 'FileContextMenu', path: 'components/files/FileContextMenu', category: 'components', description: '我的文件右键/长按菜单（纯展示组件）' },
+  { name: 'FileMenuController', path: 'components/files/FileMenuController', category: 'components', description: '我的文件菜单状态解析器（订阅 useFileCache + selectDownloadTask 决定菜单项）' },
 
   // 群组模态框
   { name: 'GroupsModal', path: 'components/GroupsModal', category: 'components', description: '群组管理模态框' },
@@ -157,6 +159,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'FileAttachButton', path: 'chat/shared/FileAttachButton', category: 'chat', description: '文件附件按钮' },
   { name: 'FileMessageContent', path: 'chat/shared/FileMessageContent', category: 'chat', description: '文件消息内容' },
   { name: 'FilePreviewModal', path: 'chat/shared/FilePreviewModal', category: 'chat', description: '文件预览模态框' },
+  { name: 'DocumentDownloadAction', path: 'chat/shared/DocumentDownloadAction', category: 'chat', description: '文档下载/打开操作共享组件（聊天 + 我的文件复用）' },
   { name: 'LocalFilePreview', path: 'chat/shared/LocalFilePreview', category: 'chat', description: '本地文件预览' },
   { name: 'MessageContextMenu', path: 'chat/shared/MessageContextMenu', category: 'chat', description: '消息右键菜单' },
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },

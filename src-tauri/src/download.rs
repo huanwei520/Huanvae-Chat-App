@@ -61,6 +61,12 @@ pub struct DownloadProgress {
     pub percent: f64,
     /// 状态: "downloading" | "completed" | "failed"
     pub status: String,
+    /// 本地路径（仅在 status="completed" 时填充，供前端 listener 直接 completeDownload）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
+    /// 错误信息（仅在 status="failed" 时填充）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// 下载文件并保存到本地
@@ -137,6 +143,8 @@ pub async fn download_and_save_file(
             total: file_size.unwrap_or(0),
             percent: 0.0,
             status: "downloading".to_string(),
+            local_path: None,
+            error: None,
         },
     );
 
@@ -197,6 +205,8 @@ pub async fn download_and_save_file(
                     total: total_size,
                     percent,
                     status: "downloading".to_string(),
+                    local_path: None,
+                    error: None,
                 },
             );
         }
@@ -223,7 +233,9 @@ pub async fn download_and_save_file(
         created_at: None,
     })?;
 
-    // 9. 发送完成事件
+    // 9. 发送完成事件（携带 local_path，让前端 listener 直接驱动 completeDownload，
+    //    不再依赖 triggerBackgroundDownload 的 await 回调；解决 HMR / fire-and-forget /
+    //    跨窗口场景下进度环卡 100% 的问题）
     let _ = window.emit(
         "download-progress",
         DownloadProgress {
@@ -232,6 +244,8 @@ pub async fn download_and_save_file(
             total: total_size,
             percent: 100.0,
             status: "completed".to_string(),
+            local_path: Some(local_path_str.clone()),
+            error: None,
         },
     );
 

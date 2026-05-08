@@ -1,30 +1,29 @@
 /**
- * 文件预览模态框组件（移动端专用）
+ * 文件预览模态框组件
  *
  * 功能：
- * - 文件下载：未下载时显示"下载文件"按钮
- * - 文件打开：已下载时显示"打开文件"按钮，使用系统默认应用打开
+ * - 文档下载/打开：通过共享组件 DocumentDownloadAction（layout="centered"）实现，
+ *   下载/打开行为与聊天文档消息、我的文件文档卡片完全一致
  * - 返回手势：支持移动端返回手势关闭预览
  *
  * 注意：
  * - 图片和视频预览已移至 MobileMediaPreview 组件
  * - 此组件仅用于文档类型文件的预览
- * - 仅在移动端使用（桌面端使用独立窗口）
+ * - 移动端用于全屏文档预览；桌面端从「我的文件」点击文档时也走此弹窗
  *
  * @since 2024-01
  * @updated 2026-02-04 添加移动端"打开文件"功能
  * @updated 2026-02-04 添加返回手势支持
  * @updated 2026-02-04 修复 Android 文件打开：使用 AndroidFs.showViewFileDialog 替代不支持的 openPath
+ * @updated 2026-05-07 抽出 DocumentDownloadAction 共享组件，桌面端「我的文件」也复用此弹窗
  */
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { useFileCache } from '../../hooks/useFileCache';
-import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
-import { triggerBackgroundDownload } from '../../services/fileCache';
 import { formatFileSize } from '../../utils/format';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { DocumentDownloadAction } from './DocumentDownloadAction';
 
 // ============================================
 // 类型定义
@@ -39,15 +38,11 @@ export interface FilePreviewModalProps {
   fileUuid: string;
   /** 文件名 */
   filename: string;
-  /** 文件类型 */
-  contentType: string;
   /** 文件大小 */
   fileSize?: number;
-  /** 本地文件路径（如果有） */
-  localPath?: string | null;
-  /** 文件哈希 */
+  /** 文件哈希（用于本地缓存查找与下载任务订阅） */
   fileHash?: string | null;
-  /** URL 类型 */
+  /** URL 类型（用于预签名端点选择） */
   urlType?: 'user' | 'friend' | 'group';
 }
 
@@ -62,26 +57,15 @@ const CloseIcon = () => (
   </svg>
 );
 
-const DownloadIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
-  </svg>
-);
-
-const OpenIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    <polyline points="15 3 21 3 21 9" />
-    <line x1="10" y1="14" x2="21" y2="3" />
-  </svg>
-);
-
 // ============================================
-// 文件预览组件
+// 文档预览组件
 // ============================================
 
+/**
+ * 下载/打开行为统一委托给 DocumentDownloadAction。
+ * 移动端文件打开失败时，useFileCache.openInFolder 内置兜底（清除映射 + 重新下载），
+ * 因此本组件不再维护 openError UI 状态 — 与桌面端「我的文件」行为对齐。
+ */
 function DocumentPreview({
   fileUuid,
   fileHash,
@@ -95,56 +79,6 @@ function DocumentPreview({
   fileSize: number | undefined;
   urlType: 'user' | 'friend' | 'group';
 }) {
-  const { src, isLocal, localPath } = useFileCache({
-    fileUuid,
-    fileHash,
-    fileName: filename,
-    fileType: 'document',
-    fileSize,
-    urlType,
-    autoCache: false,
-  });
-
-  // 监听下载任务状态
-  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
-
-  // 打开文件错误状态
-  const [openError, setOpenError] = useState<string | null>(null);
-
-  // 判断下载状态
-  const isDownloading = downloadTask && (
-    downloadTask.status === 'pending' || downloadTask.status === 'downloading'
-  );
-  const isDownloaded = isLocal || downloadTask?.status === 'completed';
-  const actualLocalPath = downloadTask?.localPath ?? localPath;
-
-  // 下载文件
-  const handleDownload = useCallback(() => {
-    if (!src || !fileHash) {
-      return;
-    }
-    triggerBackgroundDownload(src, fileHash, filename, 'document', fileSize);
-  }, [src, fileHash, filename, fileSize]);
-
-  // 打开文件（使用系统默认应用）
-  // Android 上私有目录文件无法直接分享给其他应用，需要先复制到公共目录
-  const handleOpen = useCallback(async () => {
-    if (!actualLocalPath) {
-      return;
-    }
-    setOpenError(null);
-    try {
-      const { openWithExternalApp } = await import('../../utils/openWithExternalApp');
-      const result = await openWithExternalApp(actualLocalPath);
-      if (!result.success) {
-        setOpenError(result.message);
-      }
-    } catch (err) {
-      console.error('[FilePreviewModal] 打开文件失败:', err);
-      setOpenError(err instanceof Error ? err.message : '无法打开文件');
-    }
-  }, [actualLocalPath]);
-
   return (
     <div className="file-preview-content">
       <div className="file-preview-download">
@@ -152,32 +86,14 @@ function DocumentPreview({
         <p>{filename}</p>
         {fileSize && <p className="file-size">{formatFileSize(fileSize)}</p>}
 
-        {/* 错误提示 */}
-        {openError && (
-          <p className="file-error-note">❌ {openError}</p>
-        )}
-
-        {/* 按钮：根据下载状态显示不同内容 */}
-        {/* eslint-disable-next-line no-nested-ternary */}
-        {isDownloaded && actualLocalPath ? (
-          // 已下载：显示"打开文件"按钮
-          <button className="download-btn open" onClick={handleOpen}>
-            <OpenIcon />
-            打开文件
-          </button>
-        ) : isDownloading ? (
-          // 下载中：显示进度
-          <button className="download-btn" disabled>
-            <span className="download-spinner" />
-            下载中 {downloadTask?.percent ? `${Math.round(downloadTask.percent)}%` : '...'}
-          </button>
-        ) : (
-          // 未下载：显示"下载文件"按钮
-          <button className="download-btn" onClick={handleDownload}>
-            <DownloadIcon />
-            下载文件
-          </button>
-        )}
+        <DocumentDownloadAction
+          layout="centered"
+          fileUuid={fileUuid}
+          fileHash={fileHash}
+          filename={filename}
+          fileSize={fileSize}
+          urlType={urlType}
+        />
       </div>
     </div>
   );
@@ -192,9 +108,7 @@ export function FilePreviewModal({
   onClose,
   fileUuid,
   filename,
-  contentType: _contentType, // 保留接口兼容性，实际只用于文档预览
   fileSize,
-  localPath: _localPath, // 保留接口兼容性，实际使用 Hook 获取
   fileHash,
   urlType = 'friend',
 }: FilePreviewModalProps) {

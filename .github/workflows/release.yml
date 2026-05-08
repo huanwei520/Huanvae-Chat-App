@@ -506,9 +506,11 @@ jobs:
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
           
-          # 代理源列表（使用第一个作为默认）
+          # 自建 R2 更新源
+          R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
+          # GitHub 代理备用
           PROXY="https://cdn.gh-proxy.org/"
-          
+
           # 获取 release 资产信息
           echo "Fetching release assets..."
           RELEASE_INFO=$(gh api repos/${REPO}/releases/tags/${TAG})
@@ -572,23 +574,23 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "${WIN_NSIS_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+                "url": "${R2_BASE}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "windows-x86_64-msi": {
                 "signature": "${WIN_NSIS_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+                "url": "${R2_BASE}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "darwin-aarch64": {
                 "signature": "${MAC_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_aarch64.dmg"
+                "url": "${R2_BASE}/Huanvae-Chat-App_${VERSION}_aarch64.dmg"
               },
               "linux-x86_64": {
                 "signature": "${LINUX_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+                "url": "${R2_BASE}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               },
               "linux-x86_64-appimage": {
                 "signature": "${LINUX_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+                "url": "${R2_BASE}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               }
             }
           }
@@ -654,12 +656,13 @@ jobs:
           
           # Android APK 文件名格式（与 build-android job 上传的文件名一致）
           APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
-          
+          R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
+
           cat > android-latest.json << EOF
           {
             "version": "${VERSION}",
             "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
-            "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "url": "${R2_BASE}/${APK_NAME}",
             "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
             "size": 0,
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -675,4 +678,67 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} android-latest.json --clobber
           echo "✅ Uploaded android-latest.json to release"
+
+      # ============================================
+      # 上传到 Cloudflare R2（自建更新源）
+      # ============================================
+      - name: Download release assets for R2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          mkdir -p r2-upload
+
+          gh release download "${TAG}" -D r2-upload \
+            -p "*.exe" -p "*.exe.sig" \
+            -p "*.AppImage" -p "*.AppImage.sig" \
+            -p "*.dmg" -p "*.dmg.sig" \
+            -p "*_android.apk" \
+            -p "*.deb" || true
+
+          echo "=== Files to upload ==="
+          ls -lh r2-upload/
+
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT }}
+          AWS_REGION: auto
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="${{ secrets.CF_R2_BUCKET }}"
+
+          # Upload release assets
+          for file in r2-upload/*; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            aws s3 cp "$file" "s3://${BUCKET}/huanvae-chat/${TAG}/${filename}" \
+              --endpoint-url "$AWS_ENDPOINT_URL"
+            echo "✅ ${filename}"
+          done
+
+          # Upload latest.json
+          aws s3 cp latest.json "s3://${BUCKET}/huanvae-chat/latest.json" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --content-type "application/json"
+
+          # Upload android-latest.json
+          if [ -f android-latest.json ]; then
+            aws s3 cp android-latest.json "s3://${BUCKET}/huanvae-chat/android-latest.json" \
+              --endpoint-url "$AWS_ENDPOINT_URL" \
+              --content-type "application/json"
+          fi
+
+          echo "✅ All files uploaded to R2"
+
+      - name: Notify soft-store webhook
+        if: always()
+        run: |
+          curl -sf -X POST "https://store.huanvae.cn/webhook/huanvae-chat" \
+            -H "Authorization: Bearer ${{ secrets.SOFT_STORE_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"version\": \"${{ github.ref_name }}\", \"repo\": \"${{ github.repository }}\"}" \
+            && echo "✅ Webhook notified" \
+            || echo "⚠️ Webhook notification failed (non-blocking)"
 

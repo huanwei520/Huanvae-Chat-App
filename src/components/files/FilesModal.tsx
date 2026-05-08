@@ -5,33 +5,48 @@
  * - 文件列表展示（网格视图）
  * - 分类筛选：总览、图片、视频、文件
  * - 文件名搜索
- * - 文件预览和下载（本地优先）
+ * - 文件预览和下载（本地优先；文档卡片含进度环、本地路径展示，与聊天文档消息一致）
  * - 文件上传（复用聊天上传进度条）
+ * - 右键 / 长按菜单：在文件夹中显示（已下载）/ 下载文件（未下载）/ 删除文件（含确认弹窗）
  *
  * 使用 useFileCache 服务实现本地优先和自动缓存
- * 图片和视频使用独立窗口预览，文档使用模态框预览
+ * 图片和视频使用独立窗口预览，文档使用模态框预览（FilePreviewModal）
+ * 文档下载/打开行为通过 chat/shared/DocumentDownloadAction 共享组件实现
+ * DocumentFileCard 桌面端 click 走三态（已下载→openInFolder / 未下载→triggerBackgroundDownload / 下载中→noop）
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
+import { listen } from '@tauri-apps/api/event';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useFileUpload } from '../../hooks/useFileUpload';
-import { useImageCache, useVideoCache } from '../../hooks/useFileCache';
-import { getFileCategory } from '../../api/storage';
+import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
+import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
+import { getFileCategory, deleteFile } from '../../api/storage';
 import { formatFileSize } from '../../utils/format';
+import { isMobile } from '../../utils/platform';
 import { SearchIcon, CloseIcon, UploadIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { ErrorToast } from '../common/ErrorToast';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
+import { DocumentDownloadAction, LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession, useApi } from '../../contexts/SessionContext';
-import { getPresignedUrl, getCachedFilePath } from '../../services/fileCache';
+import {
+  getPresignedUrl,
+  getCachedFilePath,
+  triggerBackgroundDownload,
+  isFileNotFoundError,
+} from '../../services/fileCache';
 import { invoke } from '@tauri-apps/api/core';
 import { saveFileUuidHash } from '../../db';
+import { useConfirmDialog } from '../../lowcode/components/ConfirmDialog';
+import { FileMenuController } from './FileMenuController';
 import type { FileItem } from '../../api/storage';
 
 // ============================================
@@ -69,15 +84,6 @@ function FileIcon({ contentType }: { contentType: string }) {
     return <span className="file-icon video">🎬</span>;
   }
   return <span className="file-icon document">📄</span>;
-}
-
-/** 本地文件标识 */
-function LocalBadge() {
-  return (
-    <span className="file-local-badge" title="本地文件">
-      📁
-    </span>
-  );
 }
 
 /** 图片缩略图 - 使用 useImageCache */
@@ -194,6 +200,137 @@ function FileThumbnail({
   );
 }
 
+// ============================================
+// 文档文件卡片
+// ============================================
+
+/**
+ * 文档分类卡片
+ *
+ * 仅文档（非图片/视频）走此组件，订阅 useFileCache + selectDownloadTask 以渲染：
+ * - 缩略图区域的 LocalBadge（已下载时）
+ * - 文件信息中的本地路径文本（已下载时）
+ * - 卡片底部的 DocumentDownloadAction（下载按钮 / 进度环 / 已下载隐藏，行为同聊天文档消息）
+ *
+ * 卡片 onClick 三态分支（仿 FileMessageContent.handleDocumentClick）：
+ * - 移动端：onPreview（打开 FilePreviewModal）
+ * - 桌面端已下载：openInFolder(localPath)
+ * - 桌面端下载中：noop（避免重复触发）
+ * - 桌面端未下载：triggerBackgroundDownload（与聊天侧一致，不弹 preview modal）
+ *
+ * 图片/视频走原 FileThumbnail 路径，不调用此组件，避免无谓的文档分类 hook 实例。
+ */
+export function DocumentFileCard({
+  file,
+  index,
+  onPreview,
+  onContextMenu,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  formatDate,
+}: {
+  file: FileItem;
+  index: number;
+  onPreview: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  onTouchStart?: (e: React.TouchEvent) => void;
+  onTouchMove?: (e: React.TouchEvent) => void;
+  onTouchEnd?: (e: React.TouchEvent) => void;
+  formatDate: (dateStr: string) => string;
+}) {
+  const { src, localPath, isLocal, openInFolder } = useFileCache({
+    fileUuid: file.file_uuid,
+    fileHash: file.file_hash,
+    fileName: file.filename,
+    fileType: 'document',
+    urlType: 'user',
+    autoCache: false,
+  });
+  const downloadTask = useFileCacheStore(selectDownloadTask(file.file_hash ?? ''));
+  const isDownloaded = isLocal || downloadTask?.status === 'completed';
+  const isDownloading =
+    downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
+  const actualLocalPath = downloadTask?.localPath ?? localPath;
+
+  const handleClick = useCallback(() => {
+    if (isMobile()) {
+      onPreview();
+      return;
+    }
+    if (isDownloaded && actualLocalPath) {
+      openInFolder(actualLocalPath);
+      return;
+    }
+    if (isDownloading) { return; }
+    if (src && file.file_hash) {
+      triggerBackgroundDownload(
+        src,
+        file.file_hash,
+        file.filename,
+        'document',
+        file.file_size,
+      );
+    }
+  }, [
+    isDownloaded,
+    isDownloading,
+    actualLocalPath,
+    openInFolder,
+    src,
+    file.file_hash,
+    file.filename,
+    file.file_size,
+    onPreview,
+  ]);
+
+  return (
+    <motion.div
+      key={file.file_uuid || `file-${index}`}
+      className="file-card document-file-card"
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ delay: index * 0.03 }}
+      onClick={handleClick}
+      onContextMenu={onContextMenu}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <div className="file-thumbnail">
+        {isDownloaded && <LocalBadge />}
+        <div className="thumbnail-placeholder">
+          <FileIcon contentType={file.content_type} />
+        </div>
+      </div>
+      <div className="file-info">
+        <div className="file-name" title={file.filename}>
+          {file.filename}
+        </div>
+        <div className="file-meta">
+          <span className="file-size">{formatFileSize(file.file_size)}</span>
+          <span className="file-date">{formatDate(file.created_at)}</span>
+        </div>
+        {actualLocalPath && (
+          <div className="document-local-path" title={actualLocalPath}>
+            📁 {actualLocalPath.split(/[/\\]/).pop()}
+          </div>
+        )}
+        <DocumentDownloadAction
+          layout="inline"
+          fileUuid={file.file_uuid}
+          fileHash={file.file_hash}
+          filename={file.filename}
+          fileSize={file.file_size}
+          urlType="user"
+        />
+      </div>
+    </motion.div>
+  );
+}
+
 /** 空状态 */
 function EmptyState({
   loading,
@@ -289,9 +426,32 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
 
   // 预览状态
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
-  const [previewLocalPath, setPreviewLocalPath] = useState<string | null>(null);
-  const [previewFileHash, setPreviewFileHash] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+
+  // 右键/长按菜单状态
+  const [menuFile, setMenuFile] = useState<FileItem | null>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
+
+  // 长按相关
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 删除确认弹窗
+  const { confirm, dialogElement } = useConfirmDialog();
+
+  // 错误 toast（用于服务端 404 等需要用户感知的失败场景）
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); }
+    setToastMessage(msg);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 4000);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); }
+  }, []);
 
   // 缓存每个文件的本地信息
   const [localInfoCache] = useState<Map<string, { path: string | null; hash: string | null }>>(
@@ -307,6 +467,97 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
   );
 
   const api = useApi();
+
+  // ============================================
+  // 菜单 + 长按 + 删除
+  // ============================================
+
+  const openMenu = useCallback(
+    (file: FileItem, x: number, y: number, rect: DOMRect | null) => {
+      setMenuFile(file);
+      setMenuPos({ x, y });
+      setMenuRect(rect);
+    },
+    [],
+  );
+
+  const closeMenu = useCallback(() => {
+    setMenuFile(null);
+  }, []);
+
+  const handleCardContextMenu = useCallback(
+    (file: FileItem) => (e: React.MouseEvent) => {
+      e.preventDefault();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      openMenu(file, e.clientX, e.clientY, rect);
+    },
+    [openMenu],
+  );
+
+  const handleCardTouchStart = useCallback(
+    (file: FileItem) => (e: React.TouchEvent) => {
+      if (!isMobile()) { return; }
+      longPressFiredRef.current = false;
+      const t = e.touches[0];
+      touchStartPosRef.current = { x: t.clientX, y: t.clientY };
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressFiredRef.current = true;
+        openMenu(file, t.clientX, t.clientY, rect);
+      }, 500);
+    },
+    [openMenu],
+  );
+
+  const handleCardTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!longPressTimerRef.current || !touchStartPosRef.current) { return; }
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(t.clientY - touchStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCardTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+  }, []);
+
+  const handleConfirmDelete = useCallback(
+    async (file: FileItem) => {
+      const ok = await confirm({
+        title: '确认删除',
+        message: `文件「${file.filename}」删除后将从云端移除，此操作不可撤销。`,
+        confirmLabel: '删除',
+        isDanger: true,
+      });
+      if (!ok) { return; }
+      try {
+        await deleteFile(api, file.file_uuid);
+        await refresh();
+      } catch (err) {
+        console.error('[FilesModal] 删除文件失败:', err);
+      }
+    },
+    [api, confirm, refresh],
+  );
+
+  // 长按触发菜单后，同次触摸结束的合成 click 应被抑制
+  const wrapClick = useCallback(
+    (handler: () => void) => () => {
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
+      handler();
+    },
+    [],
+  );
 
   // 预览文件
   const handlePreview = useCallback(
@@ -339,7 +590,13 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
             presignedUrl = result.url;
           } catch (err) {
             console.error('[FilesModal] 预获取预签名 URL 失败:', err);
-            // 继续打开窗口，让窗口内部尝试获取
+            // 服务端 404：文件已不可用 → 立即提示并刷新列表，不再打开预览窗口
+            if (isFileNotFoundError(err)) {
+              showToast(`文件「${file.filename}」已从服务器删除，列表已刷新`);
+              await refresh();
+              return;
+            }
+            // 其他错误：继续打开窗口，让窗口内部尝试获取/降级
           }
         }
 
@@ -362,19 +619,34 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
         return;
       }
 
-      // 文档使用模态框预览
+      // 文档使用模态框预览（fileHash 由 FilePreviewModal 内部 useFileCache 自取）
       setPreviewFile(file);
-      setPreviewLocalPath(localPath);
-      setPreviewFileHash(fileHash);
     },
-    [localInfoCache, session, api],
+    [localInfoCache, session, api, refresh, showToast],
   );
+
+  // 监听独立媒体预览窗口的"文件已不可用"事件（服务端 404 时由 MediaPreviewPage emit）
+  // → 刷新列表清理僵尸条目 + 给用户可见反馈
+  useEffect(() => {
+    if (!isOpen) { return; }
+    let unlisten: (() => void) | null = null;
+    listen<{ fileUuid: string; fileHash: string | null }>(
+      'media-preview-file-unavailable',
+      () => {
+        showToast('该文件已从服务器删除，列表已刷新');
+        refresh();
+      },
+    ).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) { unlisten(); }
+    };
+  }, [isOpen, refresh, showToast]);
 
   // 关闭预览
   const closePreview = useCallback(() => {
     setPreviewFile(null);
-    setPreviewLocalPath(null);
-    setPreviewFileHash(null);
   }, []);
 
   // 触发文件选择 - 使用 Tauri 原生对话框获取本地路径
@@ -574,8 +846,8 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
                   className="upload-btn"
                   onClick={handleUploadClick}
                   disabled={uploading}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={uploading ? undefined : { scale: 1.02 }}
+                  whileTap={uploading ? undefined : { scale: 0.98 }}
                 >
                   <UploadIcon />
                   <span>上传文件</span>
@@ -645,36 +917,58 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
                 <>
                   <div className="files-grid">
                     <AnimatePresence mode="popLayout">
-                      {files.map((file, index) => (
-                        <motion.div
-                          key={file.file_uuid || `file-${index}`}
-                          className="file-card"
-                          variants={cardVariants}
-                          initial="initial"
-                          animate="animate"
-                          exit="exit"
-                          transition={{ delay: index * 0.03 }}
-                          onClick={() => handlePreview(file)}
-                        >
-                          <div className="file-thumbnail">
-                            <FileThumbnail
+                      {files.map((file, index) => {
+                        const fileCategory = getFileCategory(file.content_type);
+                        if (fileCategory === 'file') {
+                          return (
+                            <DocumentFileCard
+                              key={file.file_uuid || `file-${index}`}
                               file={file}
-                              onLocalPathFound={(path, hash) =>
-                                handleLocalPathFound(file.file_uuid, path, hash)
-                              }
+                              index={index}
+                              onPreview={wrapClick(() => handlePreview(file))}
+                              onContextMenu={handleCardContextMenu(file)}
+                              onTouchStart={handleCardTouchStart(file)}
+                              onTouchMove={handleCardTouchMove}
+                              onTouchEnd={handleCardTouchEnd}
+                              formatDate={formatDate}
                             />
-                          </div>
-                          <div className="file-info">
-                            <div className="file-name" title={file.filename}>
-                              {file.filename}
+                          );
+                        }
+                        return (
+                          <motion.div
+                            key={file.file_uuid || `file-${index}`}
+                            className="file-card"
+                            variants={cardVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            transition={{ delay: index * 0.03 }}
+                            onClick={wrapClick(() => handlePreview(file))}
+                            onContextMenu={handleCardContextMenu(file)}
+                            onTouchStart={handleCardTouchStart(file)}
+                            onTouchMove={handleCardTouchMove}
+                            onTouchEnd={handleCardTouchEnd}
+                          >
+                            <div className="file-thumbnail">
+                              <FileThumbnail
+                                file={file}
+                                onLocalPathFound={(path, hash) =>
+                                  handleLocalPathFound(file.file_uuid, path, hash)
+                                }
+                              />
                             </div>
-                            <div className="file-meta">
-                              <span className="file-size">{formatFileSize(file.file_size)}</span>
-                              <span className="file-date">{formatDate(file.created_at)}</span>
+                            <div className="file-info">
+                              <div className="file-name" title={file.filename}>
+                                {file.filename}
+                              </div>
+                              <div className="file-meta">
+                                <span className="file-size">{formatFileSize(file.file_size)}</span>
+                                <span className="file-date">{formatDate(file.created_at)}</span>
+                              </div>
                             </div>
-                          </div>
-                        </motion.div>
-                      ))}
+                          </motion.div>
+                        );
+                      })}
                     </AnimatePresence>
                   </div>
 
@@ -698,18 +992,44 @@ export function FilesModal({ isOpen, onClose }: FilesModalProps) {
     <>
       {createPortal(content, document.body)}
 
-      {/* 文件预览模态框 */}
+      {/* 文件预览模态框（fileHash 用于内部 useFileCache 状态订阅） */}
       <FilePreviewModal
         isOpen={!!previewFile}
         onClose={closePreview}
         fileUuid={previewFile?.file_uuid || ''}
         filename={previewFile?.filename || ''}
-        contentType={previewFile?.content_type || ''}
         fileSize={previewFile?.file_size}
-        localPath={previewLocalPath ?? undefined}
-        fileHash={previewFileHash}
+        fileHash={previewFile?.file_hash ?? null}
         urlType="user"
       />
+
+      {/* 右键/长按菜单 */}
+      {menuFile && (
+        <FileMenuController
+          file={menuFile}
+          position={menuPos}
+          cardRect={menuRect}
+          onClose={closeMenu}
+          onDelete={() => {
+            const f = menuFile;
+            closeMenu();
+            handleConfirmDelete(f);
+          }}
+        />
+      )}
+
+      {/* 删除确认弹窗 */}
+      {dialogElement}
+
+      {/* 错误 toast（404 等场景反馈） */}
+      <AnimatePresence>
+        {toastMessage && (
+          <ErrorToast
+            message={toastMessage}
+            onClose={() => setToastMessage(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

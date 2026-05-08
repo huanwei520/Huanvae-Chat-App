@@ -92,6 +92,132 @@ it('subtle-btn--primary 渲染', () => {
 - 改成 render 真组件 `<SettingsRow type="button" buttonVariant="danger" .../>` 验证生成的 button 有 `subtle-btn--danger`、不有 `subtle-btn--primary`，并补 default → primary 反向断言
 - 这才覆盖了 SettingsRow.tsx:182 的 `buttonVariant === 'danger' ? '--danger' : '--primary'` 三元
 
+## framer-motion v12 variants 含 exit 字段时必须配 motion 组件 `exit="exit"` prop
+
+### variants 对象的 exit key 不会自动激活，必须在 motion.* 上显式声明
+
+framer-motion v12 解析 variant 时按 `props[type] !== undefined ? props[type] : context[type]` 取值（[`motion-dom/dist/es/render/utils/animation-state.mjs:86-87`](https://github.com/framer/motion/)）。这意味着即使 variants 对象里写了 `exit: { ... }`，**如果 motion 组件本身没传 `exit="exit"` prop，AnimatePresence 退出时不会触发该 variant**。
+
+**规则**：给 cardVariants/pageVariants/modalVariants 等加 `exit` 字段时，必须同步检查所有引用此 variants 的 `<motion.*>` 是否带 `exit="exit"`：
+
+```tsx
+// ❌ 错误：variants.exit 是装饰，AnimatePresence 退出时无动画
+const cardVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, scale: 0.9 },
+};
+
+<AnimatePresence>
+  {items.map(i => (
+    <motion.div
+      key={i.id}
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      // ❌ 缺 exit="exit"，items 减少时无 exit 动画
+    />
+  ))}
+</AnimatePresence>
+
+// ✅ 正确
+<motion.div
+  variants={cardVariants}
+  initial="initial"
+  animate="animate"
+  exit="exit"        // 必需
+/>
+```
+
+**反例（2026-05-07）**：
+- 修「我的文件」移动端 cardVariants 缺 exit 瑕疵时，只在 cardVariants 加了 `exit: { opacity: 0, scale: 0.9 }`，但 [`MobileFilesPage.tsx`](src/pages/mobile/MobileFilesPage.tsx) 的 `<motion.div>` 没传 `exit="exit"`
+- vitest 单元测试因 `MotionGlobalConfig.skipAnimations = true` 全部通过，盲审 Agent 也判 PASS（仅核对 variants 字段是否存在）
+- code-review Agent 通过读 framer-motion 源码反向验证抓到该 bug：variants 字段存在 ≠ exit 行为生效
+- 教训：修瑕疵时必须**同时**改 variants 定义 + motion 组件 props；测试维度上加 rerender 减项 + waitFor unmount，确保完整链路被验证
+
+## 动画相关变更必须补冲突回归测试（CSS vs framer-motion）
+
+### 同一元素声明 CSS transition 又被 motion variants 控制时会冲突
+
+framer-motion 的 `motion.*` 通过 inline style 逐帧改 `transform` / `opacity`。如果同一元素的 CSS 也声明了 `transition: all` 或显式 `transition: transform/opacity`，浏览器会对每次 inline style 变化启动一次 CSS 过渡 → 进入/退出动画抖动、拖慢、行为不可预期。
+
+`MotionGlobalConfig.skipAnimations = true` 让 vitest 跳过帧更新 → 此类冲突在 vitest 中**永远测不出来**。e2e 真实浏览器才能复现，但项目内登录后页面（FilesModal/MobileFilesPage 等）受 `@tauri-apps/plugin-http` 通道限制 e2e 不可达。
+
+**规则**：每新增一个由 `motion.* + variants` 控制 + 拥有自定义 className 的组件，必须：
+
+1. 检查该 className 在所有 CSS 文件中的 `transition` 字段，移除：
+   - `transition: all <duration>` —— 必须改成具体属性枚举
+   - `transition: transform ...` —— framer-motion 接管 transform，CSS 不能再过渡此属性
+   - `transition: opacity ...` —— 同上
+   - 其他被 variants 控制的属性同理
+
+2. 在 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 的 `MOTION_CONTROLLED_SELECTORS` 注册表中新增一条记录：
+
+```ts
+{
+  selector: '.your-card',                              // CSS 选择器（基础形态）
+  cssFile: 'src/styles/.../your-styles.css',           // 对应 CSS 文件
+  controlledProps: ['transform', 'opacity'],           // motion 控制的属性
+  motionLocation: 'src/.../YourComponent.tsx (cardVariants)', // 来源（仅注释）
+}
+```
+
+3. 跑 `pnpm vitest run tests/animation-conflict.test.ts` 确认 PASS
+
+**何时算"动画相关变更"**：
+- 新增 `motion.* + variants={...}` 组件
+- 给已有 motion 组件加新的动画属性（如 cardVariants 加 `scale`）
+- 给已有 motion 组件的 CSS 加 `transition` 字段
+- 修改已注册 motion 组件的 className
+
+**反例（2026-05-07）**：
+- FilesModal 的 `.file-card` CSS 写了 `transition: all 0.2s ease`，同时 `<motion.div className="file-card">` 用 cardVariants 控制 `opacity` + `y`（即 transform）
+- vitest 全绿、e2e 不可达、code-review 第一轮也未捕获 —— 因为冲突只在真实浏览器逐帧渲染时才暴露
+- 用户提问「文件进入显示部分的动画是否有两套动画在冲突」时才被发现
+- 修复：CSS 改为 `transition: box-shadow 0.2s ease, border-color 0.2s ease;`；`.mobile-file-card` 的 `transition: transform 0.2s ease` 整条删除
+- 同时新建 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 静态解析 CSS 文件，断言注册表中的 selector 不含冲突 transition
+
+## 修改 CSS 后必须跑 `pnpm build` 验证（vitest 不会编译 tailwind）
+
+### vitest / typecheck / lint 都不读 PostCSS / tailwindcss
+
+vitest jsdom 把 `.css` 当字符串 import，typecheck 不解析 CSS，lint 不读 CSS 内容。**只有 `pnpm build`（vite + @tailwindcss/vite）才真正跑 CSS 编译**，能捕获：
+
+- 未闭合字符串（`content: '...';` 漏 `'`）
+- 未闭合规则块（`{` 没配对 `}`）
+- mojibake 导致的语法错误
+- @import 路径错误
+- tailwindcss 指令拼写错误
+
+**规则**：任何修改 CSS 的任务（包括看似无害的注释改动、`transition` 调整等），完成后必须跑：
+
+```bash
+pnpm build
+```
+
+如果时间紧张可以仅跑前 N 秒拿到 CSS 编译错误（vite build 的 CSS 阶段在前期）。`pnpm test:run` 跑过不代表 CSS 没问题。
+
+## 修改 CSS 后跑 [tests/css-encoding.test.ts](tests/css-encoding.test.ts) 守门 BOM / mojibake
+
+### Windows + Edit 工具组合对大型 UTF-8 含中文 CSS 文件有编码风险
+
+PowerShell `Set-Content` 默认写 UTF-8 时**带 BOM**（PowerShell 5.1）；某些编辑工具在写大型 UTF-8 文件时会把字节按 GBK 解释再以 UTF-8 写回，导致：
+
+1. **BOM 被引入**：`@import` 拼接后 BOM 出现在流中部，tailwindcss 报错
+2. **GBK→UTF-8 mojibake**：所有中文变乱码（`释` → `閲`），字符数变化可能让 `'...'` 字符串丢失闭合 → Unterminated string
+
+[tests/css-encoding.test.ts](tests/css-encoding.test.ts) 静态扫描 `src/styles/**/*.css`：
+- 任意文件含 BOM → FAIL
+- 任意文件含已知 mojibake 标记字符（`閲` / `鎺` / `銆` / 等）→ FAIL
+- 运行成本 < 1s，应纳入每次 CSS 修改后的标准验证
+
+**反例（2026-05-08）**：
+- 多次用 Edit 工具修改 [main.css](src/styles/pages/main.css)（5000+ 行，含大量中文注释）后，整个文件被加上 BOM 且全文中文 mojibake
+- `content: '释放以发送文件';` (line 2309) 乱码后变 `'閲婃斁浠ュ彂閫佹枃浠?;`，单引号丢失闭合
+- vitest 837/837 全绿、typecheck/lint 全过，但 `pnpm tauri dev` 启动时 tailwindcss 报 `Unterminated string`，dev server 红屏
+- 修复：`git checkout HEAD -- src/styles/pages/main.css` 还原，然后只用 **ASCII 注释**重做必要改动；新增 `tests/css-encoding.test.ts` 防回归
+- 教训：在 Windows 上对大型含中文 CSS 文件做 Edit 时，注释**必须用 ASCII**（避免触发 Edit 工具的编码 bug 累积破坏整文件）
+
 ## framer-motion v12 包装自定义组件用 motion.create
 
 ### v11 起 motion(Component) 被 deprecated
@@ -172,3 +298,28 @@ beforeEach(() => {
 - `formatHandshake` 原本在 `HuanvaeGuardPage.tsx` 文件内
 - 单测 `import { formatHandshake } from '../../src/huanvaeGuard/HuanvaeGuardPage'` 会触发未 mock 的 `@tauri-apps/plugin-os` 加载
 - 抽到 `src/huanvaeGuard/format.ts` 后，单测零 mock 成本通过
+
+## 注册新组件必须同时改两处文件
+
+### `tests/registry.ts` 不是唯一注册入口
+
+新增组件需要被「全量回归测试」覆盖时，**同时**改两个文件，缺一不可：
+
+1. [tests/registry.ts](tests/registry.ts) — 元数据注册（name/path/category/description）
+2. [tests/components/registry.test.tsx](tests/components/registry.test.tsx) — 实际 `import * as X from '...'` + 加入 `COMPONENT_MAP` 字面量
+
+[`registry.test.tsx`](c:/Users/25615/Desktop/Huanvae-Chat-App/tests/components/registry.test.tsx) 用 `it.each(COMMON_COMPONENTS)` 遍历 registry 元数据，每项做 `expect(COMPONENT_MAP[entry.name]).toBeDefined()` 断言。如果只改了 registry.ts 没改 registry.test.tsx，全量回归会失败「expected undefined to be defined」。
+
+**规则**：注册新组件流程：
+
+1. 改 `tests/registry.ts`，加 `{ name: 'X', path: '...', category: '...', description: '...' }`
+2. 改 `tests/components/registry.test.tsx`：
+   - 顶部 `import * as X from '../../src/.../X'`
+   - `COMPONENT_MAP` 字面量内加 `X,`
+3. 跑 `pnpm vitest run tests/components/registry.test.tsx` 确认 PASS
+
+**反例（2026-05-07）**：
+- 新增 `FileContextMenu` + `FileMenuController` 仅改了 `tests/registry.ts`
+- 全量回归 832/834 通过，2 个失败：`registry.test.tsx > 通用组件 > FileContextMenu/FileMenuController`
+- 错误 `expected undefined to be defined` 指向 `COMPONENT_MAP[entry.name]`
+- 补改 `registry.test.tsx`：加 `import * as FileContextMenu` + `import * as FileMenuController` + 在 COMPONENT_MAP 字面量加两行后 834/834 通过

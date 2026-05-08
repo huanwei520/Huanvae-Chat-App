@@ -23,7 +23,8 @@ export default defineConfig({
   },
 
   use: {
-    baseURL: 'http://127.0.0.1:1420',
+    // 用 'localhost' 让 OS 自动选 IPv4/IPv6，避免 vite 仅绑 IPv6 [::1] 时探测 127.0.0.1 失败
+    baseURL: 'http://localhost:1420',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -31,7 +32,7 @@ export default defineConfig({
   // Vite dev server auto-start
   webServer: {
     command: 'npx vite dev --port 1420',
-    url: 'http://127.0.0.1:1420',
+    url: 'http://localhost:1420',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
     stdout: 'pipe',

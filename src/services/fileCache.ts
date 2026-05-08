@@ -100,6 +100,10 @@ interface DownloadProgressEvent {
   total: number;
   percent: number;
   status: 'downloading' | 'completed' | 'failed';
+  /** 仅在 status='completed' 时由 Rust 填充 */
+  localPath?: string;
+  /** 仅在 status='failed' 时由 Rust 填充 */
+  error?: string;
 }
 
 /** 下载完成事件（跨窗口通知） */
@@ -156,6 +160,19 @@ export async function getCachedFilePath(fileHash: string): Promise<string | null
   } catch {
     return null;
   }
+}
+
+/**
+ * Detects whether the given error indicates the file was not found on the server (404).
+ *
+ * Covers the messages thrown by:
+ *   - services/fileCache.getPresignedUrl   (rethrows api.post error: "文件 未找到" / "HTTP 404")
+ *   - media/MediaPreviewPage.getPresignedUrl (hard-coded "文件不存在")
+ *   - other layers that surface a 404 plain status
+ */
+export function isFileNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /文件不存在|文件\s*未找到|未找到|HTTP\s*404|\b404\b/.test(msg);
 }
 
 /**
@@ -507,13 +524,26 @@ export async function startProgressListener(): Promise<void> {
   if (unlistenProgress) { return; }
 
   unlistenProgress = await listen<DownloadProgressEvent>('download-progress', (event) => {
-    const { fileHash, downloaded, total, percent, status } = event.payload;
+    const { fileHash, downloaded, total, percent, status, localPath, error } = event.payload;
     const store = useFileCacheStore.getState();
+    // 仅当 store 已注册过该 hash 的任务时才处理状态变更，避免误为不相关的 hash 创建空任务
+    const existingTask = store.downloadTasks[fileHash];
 
     if (status === 'downloading') {
-      store.updateDownloadProgress(fileHash, downloaded, total, percent);
+      if (existingTask) {
+        store.updateDownloadProgress(fileHash, downloaded, total, percent);
+      }
+    } else if (status === 'completed') {
+      // 由 Rust 事件直接驱动状态机，不再依赖 triggerBackgroundDownload 的 await 回调
+      // —— 解决 HMR / fire-and-forget / 跨窗口下载导致进度环卡 100% 的问题
+      if (existingTask && localPath) {
+        store.completeDownload(fileHash, localPath);
+      }
+    } else if (status === 'failed') {
+      if (existingTask) {
+        store.failDownload(fileHash, error ?? '下载失败');
+      }
     }
-    // completed 和 failed 由 triggerBackgroundDownload 处理
   });
 }
 

@@ -1,0 +1,174 @@
+/**
+ * 文档下载操作共享组件
+ *
+ * 封装"未下载 → 下载中 → 已下载"三态切换 + 下载/打开行为，复用方包括：
+ * - 聊天文档消息气泡 [FileMessageContent.tsx DocumentMessage]
+ * - 我的文件管理弹窗的文档卡片 [FilesModal.tsx DocumentFileCard]
+ * - 文件预览弹窗的文档预览 [FilePreviewModal.tsx DocumentPreview]
+ *
+ * Layout：
+ * - inline   : 紧凑布局（28px 圆环 / 32px 按钮），用于卡片右下角
+ * - centered : 居中大按钮，用于 FilePreviewModal 全屏预览
+ *
+ * 行为：
+ * - 自身订阅 useFileCacheStore 的下载任务状态，所有调用方共享同一份进度
+ * - 下载点击调用 triggerBackgroundDownload，打开点击调用 useFileCache().openInFolder
+ *   （hook 内置移动端/桌面端分支与文件不存在自动重新下载兜底）
+ * - 按钮 onClick 都执行 e.stopPropagation()，避免冒泡触发外层卡片的点击逻辑
+ */
+
+import { useCallback } from 'react';
+import { useFileCache } from '../../hooks/useFileCache';
+import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
+import { triggerBackgroundDownload } from '../../services/fileCache';
+import { CircularProgress } from '../../components/common/CircularProgress';
+
+// ============================================
+// 图标（搬自 FilePreviewModal 的局部定义，集中到此文件）
+// ============================================
+
+const DownloadIconLarge = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+const DownloadIconSmall = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+const OpenIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" y1="14" x2="21" y2="3" />
+  </svg>
+);
+
+// ============================================
+// 本地文件标识（统一三处调用方原有同名局部定义）
+// ============================================
+
+export function LocalBadge() {
+  return (
+    <span className="file-local-badge" title="本地文件">
+      📁
+    </span>
+  );
+}
+
+// ============================================
+// 主组件
+// ============================================
+
+export interface DocumentDownloadActionProps {
+  fileUuid: string;
+  fileHash: string | null | undefined;
+  filename: string;
+  fileSize?: number | null;
+  urlType?: 'user' | 'friend' | 'group';
+  friendId?: string;
+  /** inline: 紧凑（28px 圆环 + 32px 按钮）；centered: 居中大按钮 */
+  layout?: 'inline' | 'centered';
+}
+
+export function DocumentDownloadAction({
+  fileUuid,
+  fileHash,
+  filename,
+  fileSize,
+  urlType = 'user',
+  friendId,
+  layout = 'inline',
+}: DocumentDownloadActionProps) {
+  const { src, isLocal, localPath, openInFolder } = useFileCache({
+    fileUuid,
+    fileHash,
+    fileName: filename,
+    fileType: 'document',
+    urlType,
+    friendId,
+    autoCache: false,
+  });
+
+  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+
+  const isDownloading = !!downloadTask && (
+    downloadTask.status === 'pending' || downloadTask.status === 'downloading'
+  );
+  const isDownloaded = isLocal || downloadTask?.status === 'completed';
+  const actualLocalPath = downloadTask?.localPath ?? localPath;
+
+  const handleDownload = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!src || !fileHash || isDownloaded || isDownloading) { return; }
+    triggerBackgroundDownload(src, fileHash, filename, 'document', fileSize ?? undefined);
+  }, [src, fileHash, filename, fileSize, isDownloaded, isDownloading]);
+
+  const handleOpen = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (actualLocalPath) {
+      openInFolder(actualLocalPath);
+    }
+  }, [actualLocalPath, openInFolder]);
+
+  // ============================================
+  // centered 布局（FilePreviewModal）
+  // ============================================
+  if (layout === 'centered') {
+    if (isDownloaded && actualLocalPath) {
+      return (
+        <button className="download-btn open" onClick={handleOpen}>
+          <OpenIcon />
+          打开文件
+        </button>
+      );
+    }
+    if (isDownloading) {
+      return (
+        <button className="download-btn" disabled>
+          <CircularProgress
+            progress={downloadTask?.percent ?? 0}
+            size={28}
+            strokeWidth={3}
+            showText={false}
+            progressColor="rgba(255, 255, 255, 0.95)"
+            backgroundColor="rgba(255, 255, 255, 0.3)"
+          />
+          下载中 {Math.round(downloadTask?.percent ?? 0)}%
+        </button>
+      );
+    }
+    return (
+      <button className="download-btn" onClick={handleDownload}>
+        <DownloadIconLarge />
+        下载文件
+      </button>
+    );
+  }
+
+  // ============================================
+  // inline 布局（卡片右下角）
+  // ============================================
+  return (
+    <div className="document-actions">
+      {isDownloading && downloadTask && (
+        <div className="document-download-progress">
+          <CircularProgress progress={downloadTask.percent} size={28} strokeWidth={3} />
+        </div>
+      )}
+      {!isDownloaded && !isDownloading && (
+        <button className="document-download" onClick={handleDownload} title="下载">
+          <DownloadIconSmall />
+        </button>
+      )}
+      {/* 已下载状态：不渲染 actions，由外层卡片承担"打开"行为 */}
+    </div>
+  );
+}

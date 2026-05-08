@@ -5,28 +5,34 @@
  * - 文件列表展示（网格视图）
  * - 分类筛选：总览、图片、视频、文件
  * - 文件名搜索
- * - 文件预览（使用 MobileMediaPreview）
+ * - 文件预览：图片/视频用 MobileMediaPreview，文档用 FilePreviewModal
+ *   （文档预览内的下载/打开行为通过 DocumentDownloadAction 共享，与桌面端「我的文件」一致）
+ * - 长按 500ms 触发文件菜单：在文件夹中打开（已下载）/ 下载文件（未下载文档）/ 删除文件（含确认）
  *
  * 样式：
  * - 使用与抽屉一致的白色毛玻璃效果
  * - 颜色通过 CSS 变量统一管理，支持主题切换
  *
  * 注意：
- * - 移动端不支持 openMediaWindow（WebviewWindow）
- * - 使用 MobileMediaPreview 进行图片/视频预览
+ * - 移动端不支持 openMediaWindow（WebviewWindow），媒体预览走 MobileMediaPreview
  * - 暂不支持文件上传（需要适配移动端文件选择器）
+ * - 长按触发后的合成 click 由 longPressFiredRef 抑制，避免误打开预览
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
 import { useImageCache } from '../../hooks/useFileCache';
-import { getFileCategory } from '../../api/storage';
+import { getFileCategory, deleteFile } from '../../api/storage';
 import { formatFileSize } from '../../utils/format';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
+import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
+import { LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { getPresignedUrl, getCachedFilePath, getVideoSource } from '../../services/fileCache';
+import { useConfirmDialog } from '../../lowcode/components/ConfirmDialog';
+import { FileMenuController } from '../../components/files/FileMenuController';
 import type { FileItem } from '../../api/storage';
 
 // 返回图标
@@ -93,15 +99,6 @@ function FileIcon({ contentType }: { contentType: string }) {
     return <span className="file-icon video">🎬</span>;
   }
   return <span className="file-icon document">📄</span>;
-}
-
-/** 本地文件标识 */
-function LocalBadge() {
-  return (
-    <span className="file-local-badge" title="本地文件">
-      📁
-    </span>
-  );
 }
 
 /** 图片缩略图 */
@@ -333,14 +330,31 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
     hasMore,
     setCategory,
     setSearchQuery,
+    refresh,
     loadMore,
   } = useFiles();
 
-  // 预览状态
+  // 媒体预览状态（图片/视频）
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
   const [previewSrc, setPreviewSrc] = useState('');
   const [previewFilename, setPreviewFilename] = useState('');
+
+  // 文档预览状态
+  const [documentPreview, setDocumentPreview] = useState<FileItem | null>(null);
+
+  // 右键/长按菜单状态
+  const [menuFile, setMenuFile] = useState<FileItem | null>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
+
+  // 长按相关
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 删除确认弹窗
+  const { confirm, dialogElement } = useConfirmDialog();
 
   // 缓存每个文件的本地信息
   const [localInfoCache] = useState<Map<string, { path: string | null; hash: string | null }>>(
@@ -355,13 +369,94 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
     [localInfoCache],
   );
 
+  // ============================================
+  // 长按菜单 + 删除
+  // ============================================
+
+  const openMenu = useCallback(
+    (file: FileItem, x: number, y: number, rect: DOMRect | null) => {
+      setMenuFile(file);
+      setMenuPos({ x, y });
+      setMenuRect(rect);
+    },
+    [],
+  );
+
+  const closeMenu = useCallback(() => {
+    setMenuFile(null);
+  }, []);
+
+  const handleCardTouchStart = useCallback(
+    (file: FileItem) => (e: React.TouchEvent) => {
+      longPressFiredRef.current = false;
+      const t = e.touches[0];
+      touchStartPosRef.current = { x: t.clientX, y: t.clientY };
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressFiredRef.current = true;
+        openMenu(file, t.clientX, t.clientY, rect);
+      }, 500);
+    },
+    [openMenu],
+  );
+
+  const handleCardTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!longPressTimerRef.current || !touchStartPosRef.current) { return; }
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(t.clientY - touchStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCardTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+  }, []);
+
+  const wrapClick = useCallback(
+    (handler: () => void) => () => {
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
+      handler();
+    },
+    [],
+  );
+
+  const handleConfirmDelete = useCallback(
+    async (file: FileItem) => {
+      const ok = await confirm({
+        title: '确认删除',
+        message: `文件「${file.filename}」删除后将从云端移除，此操作不可撤销。`,
+        confirmLabel: '删除',
+        isDanger: true,
+      });
+      if (!ok) { return; }
+      try {
+        await deleteFile(api, file.file_uuid);
+        await refresh();
+      } catch (err) {
+        console.error('[MobileFilesPage] 删除文件失败:', err);
+      }
+    },
+    [api, confirm, refresh],
+  );
+
   // 预览文件
   const handlePreview = useCallback(
     async (file: FileItem) => {
       const fileCategory = getFileCategory(file.content_type);
 
-      // 只支持图片和视频预览
+      // 文档：走 FilePreviewModal（含下载/打开行为，与桌面端「我的文件」一致）
       if (fileCategory !== 'image' && fileCategory !== 'video') {
+        setDocumentPreview(file);
         return;
       }
 
@@ -427,11 +522,21 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
     exit: { x: '100%', opacity: 0, transition: { duration: 0.2 } },
   };
 
-  // 卡片动画
+  // 卡片动画（exit 与桌面端 FilesModal 对齐）
   const cardVariants = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, scale: 0.9 },
   };
+
+  // 页面 mount 期间阻止 body 滚动，避免底层列表被拖动
+  // 与 FilePreviewModal / MobileMediaPreview 的弹窗行为对齐
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   return (
     <motion.div
@@ -501,8 +606,12 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
                   variants={cardVariants}
                   initial="initial"
                   animate="animate"
+                  exit="exit"
                   transition={{ delay: index * 0.03 }}
-                  onClick={() => handlePreview(file)}
+                  onClick={wrapClick(() => handlePreview(file))}
+                  onTouchStart={handleCardTouchStart(file)}
+                  onTouchMove={handleCardTouchMove}
+                  onTouchEnd={handleCardTouchEnd}
                 >
                   <div className="mobile-file-thumbnail">
                     <FileThumbnail
@@ -538,7 +647,7 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
         )}
       </div>
 
-      {/* 媒体预览 */}
+      {/* 媒体预览（图片/视频） */}
       <MobileMediaPreview
         isOpen={previewOpen}
         type={previewType}
@@ -546,6 +655,35 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
         filename={previewFilename}
         onClose={() => setPreviewOpen(false)}
       />
+
+      {/* 文档预览（下载/打开行为复用 DocumentDownloadAction） */}
+      <FilePreviewModal
+        isOpen={!!documentPreview}
+        onClose={() => setDocumentPreview(null)}
+        fileUuid={documentPreview?.file_uuid || ''}
+        filename={documentPreview?.filename || ''}
+        fileSize={documentPreview?.file_size}
+        fileHash={documentPreview?.file_hash}
+        urlType="user"
+      />
+
+      {/* 长按菜单 */}
+      {menuFile && (
+        <FileMenuController
+          file={menuFile}
+          position={menuPos}
+          cardRect={menuRect}
+          onClose={closeMenu}
+          onDelete={() => {
+            const f = menuFile;
+            closeMenu();
+            handleConfirmDelete(f);
+          }}
+        />
+      )}
+
+      {/* 删除确认弹窗 */}
+      {dialogElement}
     </motion.div>
   );
 }

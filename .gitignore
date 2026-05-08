@@ -45,6 +45,11 @@ e2e/test-results/
 playwright-report/
 blob-report/
 
+# Playwright snapshot — 仅保留 CI 平台基线（Linux），开发机生成的 win32/darwin 基线本地用不入库
+# 避免不同开发者本机生成的快照互相覆盖造成无意义 diff
+e2e/snapshots/**/*-chromium-win32.png
+e2e/snapshots/**/*-chromium-darwin.png
+
 # code-server sidecar（体积~230MB，不进 git，README 除外）
 # 参考 src-tauri/binaries/README.md 了解如何在开发机上配置
 src-tauri/binaries/*

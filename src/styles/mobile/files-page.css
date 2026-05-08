@@ -197,7 +197,10 @@
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  /* 不在此处 transition transform — framer-motion cardVariants 通过 inline style 接管 transform，
+     这里若声明 transition: transform 会与 motion 的逐帧更新冲突。
+     :active 的反馈 transform 由浏览器即时呈现，不需要额外 transition。
+     冲突回归测试见 tests/animation-conflict.test.ts */
 }
 
 .mobile-file-card:active {

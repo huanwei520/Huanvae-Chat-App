@@ -23,6 +23,7 @@ import {
   GITHUB_RELEASE_BASE,
   ANDROID_LATEST_JSON_PATH,
   PROXY_TIMEOUT_SECONDS,
+  SELF_HOSTED_ANDROID_JSON,
 } from './config';
 // ============================================
 // 类型定义
@@ -112,6 +113,27 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
   console.warn('[Android Update] 当前版本:', currentVersion);
   console.warn('[Android Update] 代理源数量:', PROXY_URLS.length);
   console.warn('[Android Update] 超时设置:', PROXY_TIMEOUT_SECONDS, '秒');
+
+  // 优先尝试自建更新源（store.huanvae.cn）
+  try {
+    console.warn('[Android Update] 尝试自建源:', SELF_HOSTED_ANDROID_JSON);
+    // eslint-disable-next-line no-await-in-loop
+    const response = await invoke<string>('fetch_update_json', {
+      url: SELF_HOSTED_ANDROID_JSON,
+      timeoutSecs: PROXY_TIMEOUT_SECONDS,
+    });
+    const data: AndroidLatestJson = JSON.parse(response);
+    console.warn('[Android Update] 自建源版本:', data.version);
+    const comparison = compareVersions(data.version, currentVersion);
+    if (comparison > 0) {
+      console.warn('[Android Update] ✓ 自建源发现新版本:', data.version);
+      return { available: true, version: data.version, notes: data.notes, apkUrl: data.url, apkSize: data.size };
+    }
+    console.warn('[Android Update] ✓ 已是最新版本 (自建源)');
+    return { available: false };
+  } catch (e) {
+    console.warn('[Android Update] 自建源失败，回退到代理:', e);
+  }
 
   // 依次尝试多个代理源，直到成功（需要顺序执行）
   for (let i = 0; i < PROXY_URLS.length; i++) {

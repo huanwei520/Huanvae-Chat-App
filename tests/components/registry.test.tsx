@@ -54,6 +54,8 @@ import * as AvatarUploader from '../../src/components/profile/AvatarUploader';
 import * as PasswordForm from '../../src/components/profile/PasswordForm';
 import * as ProfileInfoForm from '../../src/components/profile/ProfileInfoForm';
 import * as FilesModal from '../../src/components/files/FilesModal';
+import * as FileContextMenu from '../../src/components/files/FileContextMenu';
+import * as FileMenuController from '../../src/components/files/FileMenuController';
 import * as GroupsModal from '../../src/components/GroupsModal';
 import * as AddModal from '../../src/components/AddModal';
 import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
@@ -86,6 +88,7 @@ import * as ChatMenu from '../../src/chat/shared/ChatMenu';
 import * as FileAttachButton from '../../src/chat/shared/FileAttachButton';
 import * as FileMessageContent from '../../src/chat/shared/FileMessageContent';
 import * as FilePreviewModal from '../../src/chat/shared/FilePreviewModal';
+import * as DocumentDownloadAction from '../../src/chat/shared/DocumentDownloadAction';
 import * as LocalFilePreview from '../../src/chat/shared/LocalFilePreview';
 import * as MessageContextMenu from '../../src/chat/shared/MessageContextMenu';
 import * as MultiSelectActionBar from '../../src/chat/shared/MultiSelectActionBar';
@@ -239,6 +242,8 @@ const COMPONENT_MAP = {
   PasswordForm,
   ProfileInfoForm,
   FilesModal,
+  FileContextMenu,
+  FileMenuController,
   GroupsModal,
   AddModal,
   SettingsPanel,
@@ -306,6 +311,7 @@ const COMPONENT_MAP = {
   FileAttachButton,
   FileMessageContent,
   FilePreviewModal,
+  DocumentDownloadAction,
   LocalFilePreview,
   MessageContextMenu,
   MultiSelectActionBar,

@@ -28,20 +28,25 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { fetch } from '@tauri-apps/plugin-http';
 import { loadMediaData, clearMediaData } from './api';
 import {
   getCachedFilePath,
   downloadAndSaveFile,
+  triggerBackgroundDownload,
+  startProgressListener,
+  isFileNotFoundError,
   type FileDownloadCompletedEvent,
 } from '../services/fileCache';
+import { useFileCacheStore, selectDownloadTask } from '../stores/fileCacheStore';
 import { formatFileSize } from '../utils/format';
 import {
   reportFriendPermissionError,
   createPresignedUrlErrorContext,
 } from '../services/diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
+import { CircularProgress } from '../components/common/CircularProgress';
 import './styles.css';
 
 // ============================================================================
@@ -95,6 +100,54 @@ const LocalIcon = () => (
     <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
 );
+
+const FolderIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+/**
+ * 错误展示视图
+ *
+ * 区分两类失败：
+ * - 服务器端 404（文件已删除）→ 友好提示 + 关闭按钮，主窗口已被通知刷新列表
+ * - 其他错误 → 原始错误信息
+ */
+function MediaErrorView({ error }: { error: string }) {
+  const isFileGone = isFileNotFoundError(error);
+
+  if (isFileGone) {
+    return (
+      <div className="media-error">
+        <span>该文件已从服务器删除，无法预览。</span>
+        <p style={{ margin: '8px 0 16px', fontSize: 13, opacity: 0.8 }}>
+          主窗口的「我的文件」列表会自动刷新清理。
+        </p>
+        <button
+          onClick={() => window.close()}
+          style={{
+            padding: '8px 24px',
+            borderRadius: 6,
+            border: '1px solid var(--border-color, #444)',
+            background: 'var(--primary, #3b82f6)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: 14,
+          }}
+        >
+          关闭窗口
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="media-error">
+      <span>加载失败: {error}</span>
+    </div>
+  );
+}
 
 // ============================================================================
 // 预签名 URL 获取
@@ -212,6 +265,8 @@ interface FileSource {
   presignedUrl?: string;
   /** 是否需要缓存到本地 */
   shouldCache?: boolean;
+  /** 本地路径（仅当 isLocal=true 时有值；用于"在文件夹中显示"） */
+  localPath?: string;
 }
 
 async function getFileSource(
@@ -233,7 +288,7 @@ async function getFileSource(
         const src = convertFileSrc(state.localPath);
         // eslint-disable-next-line no-console
         console.log('[MediaPreview] 使用传入的本地路径:', state.localPath);
-        return { src, isLocal: true, shouldCache: false };
+        return { src, isLocal: true, shouldCache: false, localPath: state.localPath };
       }
       console.warn('[MediaPreview] 本地路径文件不存在，尝试其他方式:', state.localPath);
     } catch (err) {
@@ -249,7 +304,7 @@ async function getFileSource(
         const src = convertFileSrc(localPath);
         // eslint-disable-next-line no-console
         console.log('[MediaPreview] 使用缓存的本地文件:', localPath);
-        return { src, isLocal: true, shouldCache: false };
+        return { src, isLocal: true, shouldCache: false, localPath };
       }
     } catch (err) {
       console.warn('[MediaPreview] 检查本地缓存失败:', err);
@@ -294,6 +349,7 @@ async function getFileSource(
 function ImageViewer({ state }: { state: MediaState }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isLocal, setIsLocal] = useState(false);
+  const [localPathState, setLocalPathState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -305,6 +361,14 @@ function ImageViewer({ state }: { state: MediaState }) {
   // 文件源信息（用于后台下载）
   const fileSourceRef = useRef<FileSource | null>(null);
   const downloadTriggeredRef = useRef(false);
+
+  // 订阅下载任务状态（用于工具栏按钮三态切换）
+  const downloadTask = useFileCacheStore(selectDownloadTask(state.fileHash ?? ''));
+
+  // 启动进度监听器（独立窗口需要自行启动一次）
+  useEffect(() => {
+    startProgressListener();
+  }, []);
 
   // 加载图片
   useEffect(() => {
@@ -319,6 +383,7 @@ function ImageViewer({ state }: { state: MediaState }) {
         if (!cancelled) {
           setSrc(result.src);
           setIsLocal(result.isLocal);
+          setLocalPathState(result.localPath ?? null);
           fileSourceRef.current = result;
         }
       } catch (err) {
@@ -334,6 +399,15 @@ function ImageViewer({ state }: { state: MediaState }) {
             message = String((err as { message: unknown }).message);
           }
           setError(message);
+          // 服务端 404：通知主窗口从「我的文件」列表中清理该条目
+          if (isFileNotFoundError(err)) {
+            emit('media-preview-file-unavailable', {
+              fileUuid: state.fileUuid,
+              fileHash: state.fileHash ?? null,
+            }).catch(() => {
+              // emit 失败不影响错误展示
+            });
+          }
         }
       } finally {
         if (!cancelled) {
@@ -372,6 +446,7 @@ function ImageViewer({ state }: { state: MediaState }) {
         // 更新为本地路径
         setSrc(convertFileSrc(localPath));
         setIsLocal(true);
+        setLocalPathState(localPath);
       }).catch((err) => {
         console.warn('[MediaPreview] 后台下载失败:', err);
       });
@@ -412,16 +487,40 @@ function ImageViewer({ state }: { state: MediaState }) {
     setPosition({ x: 0, y: 0 });
   }, []);
 
-  // 下载
+  // 下载（走项目统一后台下载链路，避免 <a download> 在 Tauri webview 跨域 URL 上被当作导航）
   const handleDownload = useCallback(() => {
-    if (!src) { return; }
-    const a = document.createElement('a');
-    a.href = src;
-    a.download = state.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }, [src, state.filename]);
+    if (!state.fileHash) {
+      console.warn('[MediaPreview] 无 fileHash，无法触发下载');
+      return;
+    }
+    const presignedUrl = fileSourceRef.current?.presignedUrl ?? src;
+    if (!presignedUrl) {
+      console.warn('[MediaPreview] 无 presigned URL，无法触发下载');
+      return;
+    }
+    triggerBackgroundDownload(
+      presignedUrl,
+      state.fileHash,
+      state.filename,
+      'image',
+      state.fileSize,
+    );
+  }, [state.fileHash, state.filename, state.fileSize, src]);
+
+  // 在文件夹中显示
+  const handleShowInFolder = useCallback(() => {
+    const path = downloadTask?.localPath ?? localPathState;
+    if (!path) { return; }
+    invoke('show_in_folder', { path }).catch((err) => {
+      console.warn('[MediaPreview] 打开文件夹失败:', err);
+    });
+  }, [downloadTask?.localPath, localPathState]);
+
+  // 工具栏按钮三态判定
+  const isCompleted = isLocal || downloadTask?.status === 'completed';
+  const isDownloading =
+    downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
+  const downloadPercent = downloadTask?.percent ?? 0;
 
   if (loading) {
     return (
@@ -433,20 +532,28 @@ function ImageViewer({ state }: { state: MediaState }) {
   }
 
   if (error) {
-    return (
-      <div className="media-error">
-        <span>加载失败: {error}</span>
-      </div>
-    );
+    return <MediaErrorView error={error} />;
   }
 
   return (
     <>
       {/* 工具栏扩展按钮 */}
       <div className="media-toolbar-extra">
-        <button onClick={handleDownload} title="下载">
-          <DownloadIcon />
-        </button>
+        {isDownloading && (
+          <div className="media-download-progress" title={`下载中 ${downloadPercent}%`}>
+            <CircularProgress progress={downloadPercent} size={28} strokeWidth={3} />
+          </div>
+        )}
+        {!isDownloading && isCompleted && (
+          <button onClick={handleShowInFolder} title="在文件夹中显示">
+            <FolderIcon />
+          </button>
+        )}
+        {!isDownloading && !isCompleted && (
+          <button onClick={handleDownload} title="下载">
+            <DownloadIcon />
+          </button>
+        )}
         {isLocal && (
           <span className="media-local-badge">
             <LocalIcon /> 本地文件
@@ -494,8 +601,20 @@ function ImageViewer({ state }: { state: MediaState }) {
 function VideoPlayer({ state }: { state: MediaState }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isLocal, setIsLocal] = useState(false);
+  const [localPathState, setLocalPathState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // 文件源信息（用于点击下载按钮时获取 presigned URL）
+  const fileSourceRef = useRef<FileSource | null>(null);
+
+  // 订阅下载任务状态（工具栏按钮三态切换）
+  const downloadTask = useFileCacheStore(selectDownloadTask(state.fileHash ?? ''));
+
+  // 启动进度监听器（独立窗口需要自行启动一次）
+  useEffect(() => {
+    startProgressListener();
+  }, []);
 
   // 加载视频
   useEffect(() => {
@@ -509,6 +628,8 @@ function VideoPlayer({ state }: { state: MediaState }) {
         if (!cancelled) {
           setSrc(result.src);
           setIsLocal(result.isLocal);
+          setLocalPathState(result.localPath ?? null);
+          fileSourceRef.current = result;
         }
       } catch (err) {
         console.error('[MediaPreview] 视频加载失败:', err);
@@ -523,6 +644,15 @@ function VideoPlayer({ state }: { state: MediaState }) {
             message = String((err as { message: unknown }).message);
           }
           setError(message);
+          // 服务端 404：通知主窗口从「我的文件」列表中清理该条目
+          if (isFileNotFoundError(err)) {
+            emit('media-preview-file-unavailable', {
+              fileUuid: state.fileUuid,
+              fileHash: state.fileHash ?? null,
+            }).catch(() => {
+              // emit 失败不影响错误展示
+            });
+          }
         }
       } finally {
         if (!cancelled) {
@@ -557,6 +687,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
         console.log('[MediaPreview] 收到下载完成事件，切换到本地文件:', localPath);
         setSrc(convertFileSrc(localPath));
         setIsLocal(true);
+        setLocalPathState(localPath);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -567,16 +698,40 @@ function VideoPlayer({ state }: { state: MediaState }) {
     };
   }, [state.fileHash, isLocal]);
 
-  // 下载按钮
+  // 下载按钮（走项目统一后台下载链路；<a download> 在 Tauri webview 跨域 URL 上会被当导航）
   const handleDownload = useCallback(() => {
-    if (!src) { return; }
-    const a = document.createElement('a');
-    a.href = src;
-    a.download = state.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }, [src, state.filename]);
+    if (!state.fileHash) {
+      console.warn('[MediaPreview] 无 fileHash，无法触发下载');
+      return;
+    }
+    const presignedUrl = fileSourceRef.current?.presignedUrl ?? src;
+    if (!presignedUrl) {
+      console.warn('[MediaPreview] 无 presigned URL，无法触发下载');
+      return;
+    }
+    triggerBackgroundDownload(
+      presignedUrl,
+      state.fileHash,
+      state.filename,
+      'video',
+      state.fileSize,
+    );
+  }, [state.fileHash, state.filename, state.fileSize, src]);
+
+  // 在文件夹中显示
+  const handleShowInFolder = useCallback(() => {
+    const path = downloadTask?.localPath ?? localPathState;
+    if (!path) { return; }
+    invoke('show_in_folder', { path }).catch((err) => {
+      console.warn('[MediaPreview] 打开文件夹失败:', err);
+    });
+  }, [downloadTask?.localPath, localPathState]);
+
+  // 工具栏按钮三态判定
+  const isCompleted = isLocal || downloadTask?.status === 'completed';
+  const isDownloading =
+    downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
+  const downloadPercent = downloadTask?.percent ?? 0;
 
   if (loading) {
     return (
@@ -588,20 +743,28 @@ function VideoPlayer({ state }: { state: MediaState }) {
   }
 
   if (error) {
-    return (
-      <div className="media-error">
-        <span>加载失败: {error}</span>
-      </div>
-    );
+    return <MediaErrorView error={error} />;
   }
 
   return (
     <>
       {/* 工具栏扩展按钮 */}
       <div className="media-toolbar-extra">
-        <button onClick={handleDownload} title="下载">
-          <DownloadIcon />
-        </button>
+        {isDownloading && (
+          <div className="media-download-progress" title={`下载中 ${downloadPercent}%`}>
+            <CircularProgress progress={downloadPercent} size={28} strokeWidth={3} />
+          </div>
+        )}
+        {!isDownloading && isCompleted && (
+          <button onClick={handleShowInFolder} title="在文件夹中显示">
+            <FolderIcon />
+          </button>
+        )}
+        {!isDownloading && !isCompleted && (
+          <button onClick={handleDownload} title="下载">
+            <DownloadIcon />
+          </button>
+        )}
         {isLocal && (
           <span className="media-local-badge">
             <LocalIcon /> 本地文件

@@ -91,7 +91,7 @@ export interface Group {
 }
 
 /** 群消息类型 */
-export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system';
+export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite';
 
 /** 群消息 */
 export interface GroupMessage {
