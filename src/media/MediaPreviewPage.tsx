@@ -199,7 +199,8 @@ async function getPresignedUrl(
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
+        // 兼容 ApiResponse wrapper（{ success: false, error/message }）+ 老格式
+        errorMessage = errorData?.error ?? errorData?.message ?? errorData?.data?.error ?? errorMessage;
       } catch {
         // 响应不是 JSON，使用默认错误消息
       }
@@ -231,12 +232,15 @@ async function getPresignedUrl(
     }
 
     const data = await response.json();
-    if (!data.presigned_url) {
+    // 后端统一用 ApiResponse 包裹：{ success, code, data: { presigned_url, expires_at } }
+    // 兼容老接口（无 wrapper）：{ presigned_url, expires_at }
+    const presignedUrl: string | undefined = data?.data?.presigned_url ?? data?.presigned_url;
+    if (!presignedUrl) {
       throw new Error('服务器未返回预签名 URL');
     }
 
     // 解析相对路径为完整 URL
-    const resolvedUrl = optimizePresignedUrl(data.presigned_url, serverUrl);
+    const resolvedUrl = optimizePresignedUrl(presignedUrl, serverUrl);
 
     // eslint-disable-next-line no-console
     console.log('[MediaPreview] 预签名 URL 获取成功');
@@ -507,17 +511,17 @@ function ImageViewer({ state }: { state: MediaState }) {
     );
   }, [state.fileHash, state.filename, state.fileSize, src]);
 
-  // 在文件夹中显示
+  // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
+  // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）
   const handleShowInFolder = useCallback(() => {
-    const path = downloadTask?.localPath ?? localPathState;
-    if (!path) { return; }
-    invoke('show_in_folder', { path }).catch((err) => {
+    if (!localPathState) { return; }
+    invoke('show_in_folder', { path: localPathState }).catch((err) => {
       console.warn('[MediaPreview] 打开文件夹失败:', err);
     });
-  }, [downloadTask?.localPath, localPathState]);
+  }, [localPathState]);
 
-  // 工具栏按钮三态判定
-  const isCompleted = isLocal || downloadTask?.status === 'completed';
+  // 工具栏按钮三态判定 —— 仅依赖 isLocal（Rust stat 校验过的当前真相）
+  const isCompleted = isLocal;
   const isDownloading =
     downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
   const downloadPercent = downloadTask?.percent ?? 0;
@@ -718,17 +722,17 @@ function VideoPlayer({ state }: { state: MediaState }) {
     );
   }, [state.fileHash, state.filename, state.fileSize, src]);
 
-  // 在文件夹中显示
+  // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
+  // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）
   const handleShowInFolder = useCallback(() => {
-    const path = downloadTask?.localPath ?? localPathState;
-    if (!path) { return; }
-    invoke('show_in_folder', { path }).catch((err) => {
+    if (!localPathState) { return; }
+    invoke('show_in_folder', { path: localPathState }).catch((err) => {
       console.warn('[MediaPreview] 打开文件夹失败:', err);
     });
-  }, [downloadTask?.localPath, localPathState]);
+  }, [localPathState]);
 
-  // 工具栏按钮三态判定
-  const isCompleted = isLocal || downloadTask?.status === 'completed';
+  // 工具栏按钮三态判定 —— 仅依赖 isLocal（Rust stat 校验过的当前真相）
+  const isCompleted = isLocal;
   const isDownloading =
     downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
   const downloadPercent = downloadTask?.percent ?? 0;

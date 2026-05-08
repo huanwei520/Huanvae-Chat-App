@@ -162,10 +162,21 @@ export class SyncService {
         return { updatedConversations: [], newMessagesCount: 0 };
       }
 
+      // 用入参 conversations 构建一个 last_seq 索引，用于客户端二次过滤
+      // 防止"同步返回了实际已存在于本地的消息"触发 saveMessages → schedulePreviewNotify
+      // 导致登录后会话列表无意义重排（PREVIEW_CHANGED_EVENT 重新拉预览，
+      // framer-motion layout="position" 检测到新数组引用进行测量后跑动画）
+      const localLastSeqByConvId = new Map(conversations.map(c => [c.id, c.last_seq]));
+
       for (const convResult of syncedConversations) {
-        if (convResult.messages.length > 0) {
+        // 仅保留 seq > 本地 last_seq 的消息；服务端理应已按 last_seq 过滤，
+        // 这里是防御性兜底（若服务端 bug / 客户端 last_seq 漂移仍能保护）
+        const localLastSeq = localLastSeqByConvId.get(convResult.conversation_id) ?? 0;
+        const newMessages = convResult.messages.filter(m => m.seq > localLastSeq);
+
+        if (newMessages.length > 0) {
           // 调试：检查同步 API 返回的消息是否包含尺寸
-          const mediaMessages = convResult.messages.filter(m => m.message_type === 'image' || m.message_type === 'video');
+          const mediaMessages = newMessages.filter(m => m.message_type === 'image' || m.message_type === 'video');
           if (mediaMessages.length > 0) {
             // eslint-disable-next-line no-console
             console.log('%c[Sync] 同步API返回的媒体消息尺寸', 'color: #E91E63; font-weight: bold', {
@@ -181,9 +192,9 @@ export class SyncService {
             });
           }
 
-          // 转换并保存消息
+          // 转换并保存消息（仅真正的新消息）
           const localMessages: Omit<LocalMessage, 'created_at'>[] =
-            convResult.messages.map(msg => ({
+            newMessages.map(msg => ({
               message_uuid: msg.message_uuid,
               conversation_id: convResult.conversation_id,
               conversation_type: convResult.conversation_type,
@@ -210,8 +221,8 @@ export class SyncService {
           newMessagesCount += localMessages.length;
           updatedConversations.push(convResult.conversation_id);
 
-          // 更新会话的最后消息预览（取最后一条消息）
-          const lastMsg = convResult.messages[convResult.messages.length - 1];
+          // 更新会话的最后消息预览（用过滤后的最新消息）
+          const lastMsg = newMessages[newMessages.length - 1];
           if (lastMsg) {
             const previewText = this.getMessagePreviewText(lastMsg.message_type, lastMsg.message_content);
             // eslint-disable-next-line no-await-in-loop
@@ -280,9 +291,18 @@ export class SyncService {
       const convResult = syncedConvs[0];
       if (!convResult || convResult.messages.length === 0) { break; }
 
+      // 防御性过滤：仅保留 seq > currentSeq 的消息，避免重复保存触发预览事件
+      const newMessages = convResult.messages.filter(m => m.seq > currentSeq);
+      if (newMessages.length === 0) {
+        // 服务端返回了不超过 currentSeq 的消息，无需写入；推进 has_more / currentSeq
+        currentSeq = convResult.latest_seq;
+        hasMore = convResult.has_more;
+        continue;
+      }
+
       // 保存消息
       const localMessages: Omit<LocalMessage, 'created_at'>[] =
-        convResult.messages.map(msg => ({
+        newMessages.map(msg => ({
           message_uuid: msg.message_uuid,
           conversation_id: conversationId,
           conversation_type: conversationType,
@@ -313,9 +333,9 @@ export class SyncService {
       // eslint-disable-next-line no-await-in-loop
       await db.updateConversationLastSeq(conversationId, currentSeq);
 
-      // 如果没有更多消息了，更新会话的最后消息预览
-      if (!hasMore && convResult.messages.length > 0) {
-        const lastMsg = convResult.messages[convResult.messages.length - 1];
+      // 如果没有更多消息了，更新会话的最后消息预览（用过滤后的新消息）
+      if (!hasMore && newMessages.length > 0) {
+        const lastMsg = newMessages[newMessages.length - 1];
         const previewText = this.getMessagePreviewText(lastMsg.message_type, lastMsg.message_content);
         // eslint-disable-next-line no-await-in-loop
         await db.updateConversationLastMessage(

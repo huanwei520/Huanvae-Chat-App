@@ -66,6 +66,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/pages/mobile/MobileFilesPage.tsx (cardVariants)',
   },
+  {
+    selector: '.conversation-item',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position")',
+  },
 ];
 
 /**

@@ -384,7 +384,9 @@ export function GroupMessageBubble({
             {!isOwn && (
               <div className="bubble-sender">{message.sender_nickname}</div>
             )}
-            {message.message_type === 'text' || message.message_type === 'system' ? (
+            {message.is_recalled ? (
+              <div className="bubble-text recalled-message">消息已撤回</div>
+            ) : message.message_type === 'text' || message.message_type === 'system' ? (
               <div className="bubble-text">
                 <MarkdownRenderer content={message.message_content} />
               </div>

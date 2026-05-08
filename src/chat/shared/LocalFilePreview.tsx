@@ -2,13 +2,14 @@
  * 本地优先文件预览组件
  *
  * 基于 file_hash 检测本地是否有文件副本：
- * - 有本地文件：直接显示，显示"本地"标签
+ * - 有本地文件：直接显示并渲染 <LocalBadge />（共享于 DocumentDownloadAction）
  * - 无本地文件：从服务器获取预签名 URL
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { getFileSource, type FileSource } from '../../services/fileService';
 import { formatFileSize } from '../../utils/format';
+import { LocalBadge } from './DocumentDownloadAction';
 
 // ============================================================================
 // 类型定义
@@ -189,26 +190,10 @@ export function LocalFilePreview({
 }
 
 // ============================================================================
-// 子组件
+// 样式（内联注入；本地标识由 ./DocumentDownloadAction 的 LocalBadge 统一渲染，
+// 对应 .file-local-badge 全局样式见 styles/pages/main.css）
 // ============================================================================
 
-function LocalBadge() {
-  return (
-    <span className="file-preview__badge file-preview__badge--local">
-      📁 本地
-    </span>
-  );
-}
-
-// ============================================================================
-// 辅助函数（formatFileSize 已迁移至 utils/format.ts）
-// ============================================================================
-
-// ============================================================================
-// 样式（内联，或者可以提取到单独的 CSS 文件）
-// ============================================================================
-
-// 添加到全局 CSS 或组件样式
 const styles = `
 .file-preview {
   position: relative;
@@ -291,21 +276,6 @@ const styles = `
   max-width: 200px;
 }
 
-.file-preview__badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.file-preview__badge--local {
-  background: linear-gradient(135deg, #4CAF50, #8BC34A);
-  color: white;
-}
-
 .file-preview__spinner {
   width: 16px;
   height: 16px;
@@ -320,7 +290,6 @@ const styles = `
 }
 `;
 
-// 注入样式
 if (typeof document !== 'undefined') {
   const styleId = 'local-file-preview-styles';
   if (!document.getElementById(styleId)) {

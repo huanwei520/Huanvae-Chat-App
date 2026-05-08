@@ -405,11 +405,14 @@ function VideoMessage({
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
   );
 
-  // 判断是否已下载完成（包括本地文件或下载完成）
-  const isDownloaded = isLocal || downloadTask?.status === 'completed';
+  // 判断是否已下载完成 —— 唯一真相来自 useFileCache.isLocal（其内部走 Rust stat 校验）。
+  // 不要 OR downloadTask?.status === 'completed'：那是 store 里的内存遗迹，文件被
+  // 外部删除后不会失效，会让徽章卡住。
+  const isDownloaded = isLocal;
 
-  // 获取实际的本地路径（优先使用下载完成的路径）
-  const actualLocalPath = downloadTask?.localPath ?? localPath;
+  // 本地路径直接来自 useFileCache.localPath（与 isLocal 同源，下载完成后由
+  // loadSource 的 Rust 校验产生），无需再 fallback 到 downloadTask?.localPath。
+  const actualLocalPath = localPath;
 
   // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
   const handleClick = useCallback(() => {
@@ -588,8 +591,10 @@ function DocumentMessage({
   const isDownloading = !!downloadTask && (
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
   );
-  const isDownloaded = isLocal || downloadTask?.status === 'completed';
-  const actualLocalPath = downloadTask?.localPath ?? localPath;
+  // 仅依赖 isLocal（useFileCache 内走 Rust stat），不 OR downloadTask?.status === 'completed'
+  // —— store 中的 completed 是内存遗迹，文件被外部删除后不会刷新。
+  const isDownloaded = isLocal;
+  const actualLocalPath = localPath;
 
   // 桌面端点击卡片：已下载打开文件夹，未下载触发下载（与 inline 下载按钮行为一致）
   // 移动端点击卡片：打开预览

@@ -52,13 +52,29 @@ const OpenIcon = () => (
 );
 
 // ============================================
-// 本地文件标识（统一三处调用方原有同名局部定义）
+// 本地文件标识 — 全项目唯一来源
+//
+// 渲染规则：透明白色玻璃质感圆形徽章 + 白色对勾 SVG。
+// 任何"已下载到本地"提示一律 import 并渲染 <LocalBadge />，禁止在调用方再定义同名组件
+// 或自行拼接 .file-local-badge 的子元素。
 // ============================================
 
 export function LocalBadge() {
   return (
-    <span className="file-local-badge" title="本地文件">
-      📁
+    <span className="file-local-badge" title="已保存到本地" aria-label="已保存到本地">
+      <svg
+        viewBox="0 0 16 16"
+        width="12"
+        height="12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="3 8.5 6.5 12 13 4.5" />
+      </svg>
     </span>
   );
 }
@@ -102,8 +118,10 @@ export function DocumentDownloadAction({
   const isDownloading = !!downloadTask && (
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
   );
-  const isDownloaded = isLocal || downloadTask?.status === 'completed';
-  const actualLocalPath = downloadTask?.localPath ?? localPath;
+  // 仅依赖 isLocal（useFileCache 走 Rust stat 校验），不 OR downloadTask?.status === 'completed'
+  // —— store 中的 completed 是内存遗迹，外部删除后不刷新
+  const isDownloaded = isLocal;
+  const actualLocalPath = localPath;
 
   const handleDownload = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

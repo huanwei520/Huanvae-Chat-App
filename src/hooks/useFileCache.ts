@@ -17,7 +17,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useApi } from '../contexts/SessionContext';
 import { useFileCacheStore, selectDownloadTask } from '../stores/fileCacheStore';
 import {
@@ -26,7 +25,6 @@ import {
   triggerBackgroundDownload,
   getFileTypeFromMime,
   startProgressListener,
-  fixAssetUrl,
   type FileSourceResult,
 } from '../services/fileCache';
 import { isMobile } from '../utils/platform';
@@ -188,71 +186,34 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     }
   }, [api, fileUuid, fileHash, urlType, friendId, enabled, autoCache, fileType]);
 
-  // 初始加载
+  // 初始加载：mount 时（或 loadSource 依赖变化时）发起一次文件位置请求
+  // —— Rust get_cached_file_path 会 stat 实际文件，不存在则清理 file_mappings 映射并返回 None
+  // —— getFileSource 拿到 None 后会回退到远程预签名 URL，isLocal 自动为 false，✓ 不渲染
+  // 这就是"向文件请求 → 本地无文件则恢复未下载状态"的唯一判断点
   useEffect(() => {
     loadSource();
   }, [loadSource]);
 
-  // 如果下载完成，更新结果
+  // 下载完成后重新走一次 loadSource —— 让 Rust get_cached_file_path 重新校验
+  // 文件存在性，作为"isLocal/localPath"的唯一权威来源。
+  //
+  // 历史原因：旧代码在此处直接 setResult({ isLocal: true, localPath }) —— 但 store
+  // 中的 downloadTask.status='completed' 是仅在下载会话中设置的内存状态，**不会**
+  // 在文件被外部删除后清理。当组件 mount 时 loadSource 已正确判定 isLocal=false，
+  // 这个 useEffect 会立即把它覆盖为 true，徽章因此卡住。
+  //
+  // 现在仅在状态从非 completed 变成 completed（即 *本会话内* 下载刚完成）时
+  // 触发 loadSource()，让 Rust stat 决定 isLocal。
+  const lastCompletedRef = useRef(false);
   useEffect(() => {
-    if (downloadTask?.status === 'completed' && downloadTask.localPath) {
-      logCache('下载完成，更新为本地路径', {
-        fileHash,
-        localPath: downloadTask.localPath,
-        fileType,
-        isMobile: isMobile(),
-      });
-
-      // 移动端视频：使用本地 HTTP 服务器 URL
-      // 解决 Android WebView 无法通过 asset:// 播放视频的问题
-      const localPath = downloadTask.localPath; // 保存到变量供闭包使用
-      if (fileType === 'video' && isMobile() && fileHash) {
-        invoke<string | null>('get_local_video_url', { fileHash })
-          .then((localVideoUrl) => {
-            if (localVideoUrl) {
-              logCache('使用移动端本地视频服务器', { localVideoUrl });
-              setResult({
-                src: localVideoUrl,
-                isLocal: true,
-                fileHash: fileHash ?? undefined,
-                localPath,
-              });
-            } else {
-              // 回退到 asset 协议（不太可能成功，但作为备选）
-              const rawSrc = convertFileSrc(localPath);
-              const src = fixAssetUrl(rawSrc);
-              setResult({
-                src,
-                isLocal: true,
-                fileHash: fileHash ?? undefined,
-                localPath,
-              });
-            }
-          })
-          .catch(() => {
-            // 出错时回退到 asset 协议
-            const rawSrc = convertFileSrc(localPath);
-            const src = fixAssetUrl(rawSrc);
-            setResult({
-              src,
-              isLocal: true,
-              fileHash: fileHash ?? undefined,
-              localPath,
-            });
-          });
-      } else {
-        // 桌面端或非视频文件：使用 asset 协议
-        const rawSrc = convertFileSrc(localPath);
-        const src = fixAssetUrl(rawSrc);
-        setResult({
-          src,
-          isLocal: true,
-          fileHash: fileHash ?? undefined,
-          localPath,
-        });
-      }
+    const isCompletedNow = downloadTask?.status === 'completed' && !!downloadTask.localPath;
+    if (isCompletedNow && !lastCompletedRef.current) {
+      lastCompletedRef.current = true;
+      loadSource();
+    } else if (!isCompletedNow) {
+      lastCompletedRef.current = false;
     }
-  }, [downloadTask?.status, downloadTask?.localPath, fileHash, fileType]);
+  }, [downloadTask?.status, downloadTask?.localPath, loadSource]);
 
   // 手动触发缓存（使用 ref 获取最新值）
   const cacheFile = useCallback(async () => {

@@ -160,13 +160,17 @@ pub fn get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
     with_db!(db, {
         let mut stmt = db
             .prepare(
+                // 撤回消息保留为预览（content 在 mark_message_recalled 时已被替换为
+                // '[消息已撤回]'），保留其 send_time 让会话卡片留在原排序位置 ——
+                // 与 WeChat / Telegram / WhatsApp 行为一致：撤回是一次"最新交互"，
+                // 不应让卡片掉回到撤回前一条消息的旧时间。仅排除真正软删的消息。
                 "SELECT c.id, c.type, c.name, c.avatar_url,
                         c.last_seq, c.unread_count, c.is_muted, c.is_pinned, c.updated_at,
                         m.content, m.content_type, m.send_time
                  FROM conversations c
                  LEFT JOIN messages m ON m.message_uuid = (
                      SELECT message_uuid FROM messages
-                     WHERE conversation_id = c.id AND is_deleted = 0 AND is_recalled = 0
+                     WHERE conversation_id = c.id AND is_deleted = 0
                      ORDER BY send_time DESC, seq DESC
                      LIMIT 1
                  )

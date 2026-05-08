@@ -419,6 +419,13 @@ export function UnifiedList({
   };
 
   // 渲染卡片列表（不包含 loading/error/empty 状态）
+  // layoutDependency 是一段反映卡片"实际顺序"的稳定字符串：仅当顺序真的变化（新增、
+  // 删除、上下移动）时才让 framer-motion 重新测量并触发 layout 动画。
+  // 这是 framer-motion 的官方推荐做法，参考 https://motion.dev/docs/react-motion-component。
+  // 没有这一行时：sync / 任意 setPreviews 引发的 cards 数组引用变化（即便顺序未变）会让
+  // motion.div 重新测量；任何 1px 误差就会让全部卡片"轻微抖动重排"。
+  const layoutKey = filteredCards.map(c => c.uniqueKey).join('|');
+
   const renderCards = () => {
     if (loading || error || filteredCards.length === 0) {
       return null;
@@ -436,6 +443,7 @@ export function UnifiedList({
           animate="animate"
           exit="exit"
           layout="position"
+          layoutDependency={layoutKey}
           transition={cardTransition}
         >
           {/* 选中指示器：使用 layoutId 实现跨卡片的平滑动画 */}
@@ -564,6 +572,7 @@ export function UnifiedList({
                 animate="animate"
                 exit="exit"
                 layout="position"
+                layoutDependency={layoutKey}
                 transition={cardTransition}
               >
                 {selectedKey === 'ai-assistant' && (

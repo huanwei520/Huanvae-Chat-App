@@ -100,7 +100,23 @@ describe('DocumentDownloadAction', () => {
     expect(document.querySelector('.document-download')).not.toBeInTheDocument();
   });
 
-  it('inline 已下载（completed task）：document-actions 容器存在但无按钮/进度', () => {
+  it('inline 已下载（isLocal=true）：document-actions 容器存在但无按钮/进度', () => {
+    // 已下载的判断仅依赖 useFileCache.isLocal（Rust stat 校验过的当前真相），
+    // 不再认 store 中的 downloadTask.status === 'completed' 这种内存遗迹
+    setupHook({ isLocal: true, localPath: '/data/doc.pdf' });
+    mockHooks.useFileCacheStore.mockReturnValue(undefined);
+
+    render(<DocumentDownloadAction layout="inline" {...PROPS} />);
+
+    expect(document.querySelector('.document-actions')).toBeInTheDocument();
+    expect(document.querySelector('.document-download-progress')).not.toBeInTheDocument();
+    expect(document.querySelector('.document-download')).not.toBeInTheDocument();
+  });
+
+  it('inline isLocal=false 但 store 残留 completed task（文件被外部删除场景）→ 仍渲染下载按钮', () => {
+    // 反向断言：本地文件已被删（isLocal=false），store 里还残留旧的 completed task
+    // —— 必须当作未下载，渲染下载按钮，让用户能重新下载
+    setupHook({ isLocal: false, localPath: null });
     mockHooks.useFileCacheStore.mockReturnValue({
       fileHash: 'hash-abc',
       fileName: 'doc.pdf',
@@ -115,9 +131,8 @@ describe('DocumentDownloadAction', () => {
 
     render(<DocumentDownloadAction layout="inline" {...PROPS} />);
 
-    expect(document.querySelector('.document-actions')).toBeInTheDocument();
-    expect(document.querySelector('.document-download-progress')).not.toBeInTheDocument();
-    expect(document.querySelector('.document-download')).not.toBeInTheDocument();
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveClass('document-download');
   });
 
   it('centered 已下载：渲染 .download-btn.open 大按钮', () => {

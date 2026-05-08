@@ -248,10 +248,12 @@ export function DocumentFileCard({
     autoCache: false,
   });
   const downloadTask = useFileCacheStore(selectDownloadTask(file.file_hash ?? ''));
-  const isDownloaded = isLocal || downloadTask?.status === 'completed';
+  // 仅依赖 isLocal（useFileCache 内走 Rust stat 校验）；store 的 completed 是内存遗迹，
+  // 文件被外部删除后不刷新，OR 进来会让徽章卡住
+  const isDownloaded = isLocal;
   const isDownloading =
     downloadTask?.status === 'pending' || downloadTask?.status === 'downloading';
-  const actualLocalPath = downloadTask?.localPath ?? localPath;
+  const actualLocalPath = localPath;
 
   const handleClick = useCallback(() => {
     if (isMobile()) {
