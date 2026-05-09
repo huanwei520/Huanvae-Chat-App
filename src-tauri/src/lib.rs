@@ -566,10 +566,19 @@ fn db_save_message(message: LocalMessage) -> Result<(), String> {
     db::save_message(message)
 }
 
-/// 批量保存消息
+/// 批量保存消息（INSERT OR REPLACE — 以服务器为准）
 #[tauri::command]
 fn db_save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
     db::save_messages(messages)
+}
+
+/// 批量插入消息（INSERT OR IGNORE — 仅补本地缺失的，不覆盖本地状态）
+///
+/// 历史消息加载专用：保护本地已有的 is_recalled / is_deleted 等状态，
+/// 防止服务器响应不带这些字段时把本地撤回标记覆盖回 0。
+#[tauri::command]
+fn db_save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), String> {
+    db::save_messages_skip_existing(messages)
 }
 
 /// 标记消息为已撤回
@@ -969,6 +978,7 @@ pub fn run() {
             db_get_messages,
             db_save_message,
             db_save_messages,
+            db_save_messages_skip_existing,
             db_mark_message_recalled,
             db_mark_message_deleted,
             db_get_file_mapping,

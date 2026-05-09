@@ -96,6 +96,7 @@ function localMessageToMessage(local: LocalMessage, friendId: string): Message {
     image_height: local.image_height,
     send_time: local.send_time,
     seq: local.seq,
+    is_recalled: local.is_recalled,
   };
 }
 
@@ -405,6 +406,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_hash: null,
       send_time: tempSendTime,
       seq: 0,
+      is_recalled: false,
       sendStatus: 'sending',
       clientId, // 稳定的客户端 ID，用于 React key
     };
@@ -512,6 +514,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_hash: fileHash ?? null,
       send_time: tempSendTime,
       seq: 0,
+      is_recalled: false,
       sendStatus: 'sending',
       clientId, // 稳定的客户端 ID，用于 React key
     };
@@ -616,13 +619,23 @@ export function useLocalFriendMessages(friendId: string | null) {
     try {
       await recallMessage(api, messageUuid);
 
-      // 从 UI 移除
-      setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
+      // 原地更新为撤回占位（不要 filter 移除）。理由：
+      // 1. 与 WeChat / Telegram / WhatsApp 行为一致：自己撤回也保留「[消息已撤回]」占位
+      // 2. 不再调 markMessageDeleted（is_deleted=1）—— 那会让会话预览 JOIN 把这条排除掉，
+      //    导致卡片排序时间退回到上一条旧消息，卡片掉位
+      // 3. markMessageRecalled 仅设 is_recalled=1 + content='[消息已撤回]'；
+      //    is_deleted 保持 0 → 预览 JOIN 包含 → 卡片留在原排序位置（撤回时间）
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.message_uuid === messageUuid
+            ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
+            : m,
+        ),
+      );
 
-      // 删除本地消息（确保切换会话后不再显示）
-      await db.markMessageDeleted(messageUuid);
+      await db.markMessageRecalled(messageUuid);
 
-      logLocal('消息撤回成功并从本地删除', { uuid: messageUuid });
+      logLocal('消息撤回成功（保留为占位）', { uuid: messageUuid });
       return true;
     } catch (err) {
       logError('撤回消息失败', err);
@@ -723,6 +736,7 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_hash: wsMsg.file_hash ?? null,
         send_time: wsMsg.timestamp,
         seq: wsMsg.seq || 0,
+        is_recalled: false,
         clientId: `ws_${wsMsg.message_uuid}`, // 用于触发入场动画
       };
 
@@ -745,10 +759,18 @@ export function useLocalFriendMessages(friendId: string | null) {
 
     logLocal('收到 WebSocket 消息撤回', { uuid: wsMsg.message_uuid });
 
-    // 从 UI 移除
-    setMessages((prev) => prev.filter((m) => m.message_uuid !== wsMsg.message_uuid));
+    // 原地更新 is_recalled=true（与 GroupMessageBubble 一致），保留占位条目而非凭空消失。
+    // message_content 同步替换为 '[消息已撤回]'，与 markMessageRecalled DB 写入对齐，
+    // 下次 reload 时内存与 DB 一致。
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.message_uuid === wsMsg.message_uuid
+          ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
+          : m,
+      ),
+    );
 
-    // 标记本地已撤回
+    // 标记本地已撤回（与 wsHandlers.ts:407 全局调用幂等冗余）
     db.markMessageRecalled(wsMsg.message_uuid).catch((err) => {
       logError('标记消息撤回失败', err);
     });

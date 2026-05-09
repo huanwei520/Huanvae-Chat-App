@@ -72,6 +72,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position")',
   },
+  {
+    selector: '.recall-system-row',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (撤回系统消息行：fade in/out + layout="position")',
+  },
+  {
+    selector: '.message-row',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (普通气泡行：getMessageVariants own/other 入场退场，x/y/scale/opacity)',
+  },
 ];
 
 /**

@@ -1,17 +1,26 @@
 /**
  * 聊天操作 Hook
  *
- * 封装消息的撤回、删除等操作逻辑，同时处理：
- * - 远程 API 调用
- * - 本地数据库标记
- * - 会话卡片的最新消息预览同步刷新
+ * 封装消息的撤回、删除等操作逻辑：
+ *
+ * - 撤回（recall）：直接委托 useLocalFriendMessages.recall / useLocalGroupMessages.recall。
+ *   它们内部完成 [服务器调用 → setMessages.map(is_recalled=true) → db.markMessageRecalled]
+ *   全链路，使当前聊天界面在服务器返回后立即翻转为「消息已撤回」占位胶囊。
+ *   useChatActions 仅负责事后刷新会话列表卡片预览。
+ *
+ *   ❗ 不再使用 removeXxxMessage + db.markMessageDeleted 老路径：
+ *   - removeMessage 会把消息直接 filter 移除 → 用户看不到撤回胶囊
+ *   - markMessageDeleted 写 is_deleted=1 → 会话预览 JOIN 把这条排除 → 卡片排序退回
+ *
+ * - 删除（delete）：保持 filter 移除 + markMessageDeleted 行为。
+ *   删除是用户主动隐藏，与撤回的"显示占位"语义不同。
  */
 
 import { useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
-import { deleteMessage, recallMessage } from '../api/messages';
-import { deleteGroupMessage, recallGroupMessage } from '../api/groupMessages';
+import { deleteMessage } from '../api/messages';
+import { deleteGroupMessage } from '../api/groupMessages';
 import * as db from '../db';
 import type { ChatTarget } from '../types/chat';
 
@@ -19,6 +28,10 @@ interface UseChatActionsParams {
   chatTarget: ChatTarget | null;
   removeFriendMessage: (messageUuid: string) => void;
   removeGroupMessage: (messageUuid: string) => void;
+  /** 好友侧 hook 暴露的 recall：内部完成 server + setMessages.map + markMessageRecalled */
+  recallFriendMessage: (messageUuid: string) => Promise<boolean>;
+  /** 群聊侧 hook 暴露的 recall：内部完成 server + setMessages.map + markMessageRecalled */
+  recallGroupMessage: (messageUuid: string) => Promise<boolean>;
 }
 
 interface UseChatActionsReturn {
@@ -30,6 +43,8 @@ export function useChatActions({
   chatTarget,
   removeFriendMessage,
   removeGroupMessage,
+  recallFriendMessage,
+  recallGroupMessage,
 }: UseChatActionsParams): UseChatActionsReturn {
   const api = useApi();
   const { refreshLastMessagePreview } = useWebSocket();
@@ -37,24 +52,21 @@ export function useChatActions({
   const handleRecallMessage = useCallback(async (messageUuid: string) => {
     if (!chatTarget || chatTarget.type === 'ai') { return; }
 
-    try {
-      if (chatTarget.type === 'friend') {
-        await recallMessage(api, messageUuid);
-        removeFriendMessage(messageUuid);
-      } else {
-        await recallGroupMessage(api, messageUuid);
-        removeGroupMessage(messageUuid);
-      }
-      await db.markMessageDeleted(messageUuid);
+    // 委托 hook 的 recall：服务器撤回 + 立即翻转 is_recalled + DB markMessageRecalled
+    // 失败时 hook 内部已 setError，无需再额外抛
+    const ok = chatTarget.type === 'friend'
+      ? await recallFriendMessage(messageUuid)
+      : await recallGroupMessage(messageUuid);
 
-      const targetId = chatTarget.type === 'friend'
-        ? chatTarget.data.friend_id
-        : chatTarget.data.group_id;
-      await refreshLastMessagePreview(chatTarget.type, targetId);
-    } catch (err) {
-      console.error('撤回失败:', err);
-    }
-  }, [api, chatTarget, removeFriendMessage, removeGroupMessage, refreshLastMessagePreview]);
+    if (!ok) { return; }
+
+    // 撤回成功后刷新会话列表卡片的最新消息预览
+    // （DB 里 is_deleted=0 + content='[消息已撤回]'，预览 JOIN 会带回该占位）
+    const targetId = chatTarget.type === 'friend'
+      ? chatTarget.data.friend_id
+      : chatTarget.data.group_id;
+    await refreshLastMessagePreview(chatTarget.type, targetId);
+  }, [chatTarget, recallFriendMessage, recallGroupMessage, refreshLastMessagePreview]);
 
   const handleDeleteMessage = useCallback(async (messageUuid: string) => {
     if (!chatTarget || chatTarget.type === 'ai') { return; }

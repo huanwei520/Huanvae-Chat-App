@@ -40,6 +40,9 @@ export interface Message {
   send_time: string;
   /** 序列号（用于增量同步） */
   seq?: number;
+  /** 是否已撤回 — 与 GroupMessage 镜像。true 时 MessageBubble 渲染「消息已撤回」占位，
+   * 不再按 message_type 走文件/图片/视频/文本分支 */
+  is_recalled: boolean;
   /** 消息发送状态（仅客户端使用） */
   sendStatus?: MessageSendStatus;
   /** 客户端稳定 ID，用于 React key（避免 UUID 变化导致重新渲染） */

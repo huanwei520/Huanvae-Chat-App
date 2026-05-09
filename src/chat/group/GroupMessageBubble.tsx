@@ -21,7 +21,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
@@ -312,102 +312,127 @@ export function GroupMessageBubble({
     onToggleSelect?.();
   }, [isMultiSelectMode, onToggleSelect]);
 
+  // 撤回切换动画：普通气泡 / 撤回胶囊作为 AnimatePresence 的两个 sibling motion.div
+  // - 切换时（is_recalled false → true）：
+  //     旧 motion.div(key="bubble") unmount → 触发 getMessageVariants(isOwn).exit
+  //         （own 向右 / other 向左 + 下移 + 缩小 + 淡出）
+  //     新 motion.div(key="recall") mount → initial { y: 16, opacity: 0 } → animate { y: 0, opacity: 1 }
+  //         （从对应位置下方 16px 向上渐入）
+  // - mode="popLayout" 让退场和入场可叠加，layout 平滑
+  // - initial={false} 让 reload / 首次 mount 时不重播入场动画（与 .message-bubble 现有「无 clientId 不播」语义一致）
   return (
     <>
-      {/* 外层行容器：多选模式下整行可点击 */}
-      <div
-        className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
-        onClick={handleRowClick}
-      >
-        {/* 多选模式下的选择指示器 - 移到行容器内 */}
-        {isMultiSelectMode && (
+      <AnimatePresence mode="popLayout" initial={false}>
+        {message.is_recalled ? (
           <motion.div
-            className="select-indicator"
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.2 }}
+            key="recall"
+            className="recall-system-row"
+            layout="position"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.28, ease: [0.2, 0.8, 0.2, 1] }}
           >
-            <div className={`select-checkbox ${isSelected ? 'checked' : ''}`}>
-              {isSelected && (
-                <motion.svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  width={14}
-                  height={14}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
-                </motion.svg>
-              )}
+            <div className="recall-system-bubble recalled-message">
+              <span className="recall-system-text">消息已撤回</span>
+              <span className="recall-system-time">{formatMessageTime(message.send_time)}</span>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="bubble"
+            className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
+            onClick={handleRowClick}
+            // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
+            layout={message.sendStatus === 'sending' ? 'position' : false}
+            variants={getMessageVariants(isOwn)}
+            // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
+            initial={message.clientId ? 'initial' : false}
+            animate="animate"
+            exit="exit"
+            transition={transition}
+          >
+            {/* 多选模式下的选择指示器 */}
+            {isMultiSelectMode && (
+              <motion.div
+                className="select-indicator"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className={`select-checkbox ${isSelected ? 'checked' : ''}`}>
+                  {isSelected && (
+                    <motion.svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      width={14}
+                      height={14}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                    </motion.svg>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            <div
+              ref={bubbleRef}
+              className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
+              onContextMenu={handleContextMenu}
+              onClick={handleClick}
+              // 移动端长按触发菜单
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onTouchMove={handleTouchMove}
+            >
+              {/* 发送状态指示器（在左侧显示） */}
+              {isOwn && <SendStatusIndicator status={message.sendStatus} />}
+
+              <div
+                ref={avatarRef}
+                className="bubble-avatar clickable"
+                onClick={handleAvatarClick}
+              >
+                {message.sender_avatar_url ? (
+                  <img src={message.sender_avatar_url} alt={message.sender_nickname} />
+                ) : (
+                  <div className="avatar-placeholder">
+                    {message.sender_nickname.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              <div className="bubble-content">
+                {!isOwn && (
+                  <div className="bubble-sender">{message.sender_nickname}</div>
+                )}
+                {message.message_type === 'text' || message.message_type === 'system' ? (
+                  <div className="bubble-text">
+                    <MarkdownRenderer content={message.message_content} />
+                  </div>
+                ) : message.message_type === 'meeting_invite' ? (
+                  <MeetingInviteCard messageContent={message.message_content} />
+                ) : (
+                  <FileMessageContent
+                    messageType={message.message_type as 'image' | 'video' | 'file'}
+                    messageContent={message.message_content}
+                    fileUuid={message.file_uuid}
+                    fileSize={message.file_size}
+                    fileHash={message.file_hash}
+                    urlType="group"
+                    imageWidth={message.image_width}
+                    imageHeight={message.image_height}
+                  />
+                )}
+                <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
+              </div>
             </div>
           </motion.div>
         )}
-
-        <motion.div
-          ref={bubbleRef}
-          className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
-          // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
-          layout={message.sendStatus === 'sending' ? 'position' : false}
-          variants={getMessageVariants(isOwn)}
-          // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
-          initial={message.clientId ? 'initial' : false}
-          animate="animate"
-          exit="exit"
-          transition={transition}
-          onContextMenu={handleContextMenu}
-          onClick={handleClick}
-          // 移动端长按触发菜单
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          onTouchMove={handleTouchMove}
-        >
-          {/* 发送状态指示器（在左侧显示） */}
-          {isOwn && <SendStatusIndicator status={message.sendStatus} />}
-
-          <div
-            ref={avatarRef}
-            className="bubble-avatar clickable"
-            onClick={handleAvatarClick}
-          >
-            {message.sender_avatar_url ? (
-              <img src={message.sender_avatar_url} alt={message.sender_nickname} />
-            ) : (
-              <div className="avatar-placeholder">
-                {message.sender_nickname.charAt(0).toUpperCase()}
-              </div>
-            )}
-          </div>
-          <div className="bubble-content">
-            {!isOwn && (
-              <div className="bubble-sender">{message.sender_nickname}</div>
-            )}
-            {message.is_recalled ? (
-              <div className="bubble-text recalled-message">消息已撤回</div>
-            ) : message.message_type === 'text' || message.message_type === 'system' ? (
-              <div className="bubble-text">
-                <MarkdownRenderer content={message.message_content} />
-              </div>
-            ) : message.message_type === 'meeting_invite' ? (
-              <MeetingInviteCard messageContent={message.message_content} />
-            ) : (
-              <FileMessageContent
-                messageType={message.message_type as 'image' | 'video' | 'file'}
-                messageContent={message.message_content}
-                fileUuid={message.file_uuid}
-                fileSize={message.file_size}
-                fileHash={message.file_hash}
-                urlType="group"
-                imageWidth={message.image_width}
-                imageHeight={message.image_height}
-              />
-            )}
-            <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-          </div>
-        </motion.div>
-      </div>
+      </AnimatePresence>
 
       {/* 右键菜单（桌面端右键/移动端长按触发） */}
       <MessageContextMenu

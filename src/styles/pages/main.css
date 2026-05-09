@@ -1956,10 +1956,51 @@
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
-/* 撤回消息样式 */
-.recalled-message {
+/* 撤回系统消息样式 - Telegram 风格居中长条毛玻璃胶囊（与 ThemeProvider 调色盘联动）
+   - .recall-system-row: 整行水平居中容器（脱离 own/other 左右对齐）
+   - .recall-system-bubble: 长条毛玻璃胶囊
+       - 横排单行（flex-direction: row）让胶囊呈长条形态
+       - 半透明渐变背景 var(--gradient-glass) + backdrop-filter 毛玻璃质感
+       - 圆角 9999px 形成完整胶囊外形
+       - 边框/高光/颜色全部沿用 ThemeProvider 注入的玻璃 token（--gradient-glass / --glass-border-subtle / --glass-white-50 / --text-light）
+         随用户主题切换自动变化，与项目其它毛玻璃组件视觉一致
+   - 不带头像、不带 sender 名字、不带 own/other 对齐；保留 send_time 时间戳
+   - opacity 由 framer-motion initial/animate/exit 控制，CSS 不写 transition: opacity 避免冲突
+*/
+.recall-system-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 8px 0;
+  padding: 0 16px;
+}
+
+.recall-system-bubble {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: var(--gradient-glass);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
+  border: 1px solid var(--glass-border-subtle);
   color: var(--text-light);
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 9999px;
+  max-width: 80%;
   font-style: italic;
+  white-space: nowrap;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 var(--glass-white-50);
+}
+
+.recall-system-bubble .recall-system-time {
+  font-size: 11px;
+  opacity: 0.65;
+  font-style: normal;
 }
 
 /* ============================================

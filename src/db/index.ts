@@ -309,7 +309,7 @@ export async function saveMessage(
   }
 }
 
-/** 批量保存消息 */
+/** 批量保存消息（INSERT OR REPLACE — 以服务器为准；适用于 sync 增量 / WS 新消息） */
 export async function saveMessages(
   messages: Omit<LocalMessage, 'created_at'>[],
 ): Promise<void> {
@@ -320,6 +320,28 @@ export async function saveMessages(
       created_at: null,
     }));
     await invoke('db_save_messages', { messages: msgs });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
+}
+
+/** 批量插入消息（INSERT OR IGNORE — 仅补本地缺失的，不覆盖本地状态）
+ *
+ * 用途：历史消息加载（loadAllHistoryMessages）—— 服务器响应可能不带 is_recalled
+ * 等本地状态字段，用 INSERT OR REPLACE 会把本地已撤回消息覆盖回 0；本函数确保
+ * 已有的 message_uuid 不被覆盖，仅插入本地缺失的消息。
+ */
+export async function saveMessagesSkipExisting(
+  messages: Omit<LocalMessage, 'created_at'>[],
+): Promise<void> {
+  _pendingWrites++;
+  try {
+    const msgs: LocalMessage[] = messages.map(m => ({
+      ...m,
+      created_at: null,
+    }));
+    await invoke('db_save_messages_skip_existing', { messages: msgs });
   } finally {
     _pendingWrites--;
     schedulePreviewNotify();

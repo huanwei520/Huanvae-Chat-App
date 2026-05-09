@@ -587,13 +587,19 @@ export function useLocalGroupMessages(groupId: string | null) {
     try {
       await recallGroupMessage(api, messageUuid);
 
-      // 从 UI 移除
-      setMessages((prev) => prev.filter((m) => m.message_uuid !== messageUuid));
+      // 原地更新为撤回占位（不要 filter 移除）。理由同好友侧：保留「[消息已撤回]」
+      // 占位 + is_deleted 保持 0 → 会话预览 JOIN 包含 → 群聊卡片不会因自撤回而掉位。
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.message_uuid === messageUuid
+            ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
+            : m,
+        ),
+      );
 
-      // 删除本地消息（确保切换会话后不再显示）
-      await db.markMessageDeleted(messageUuid);
+      await db.markMessageRecalled(messageUuid);
 
-      logLocal('消息撤回成功并从本地删除', { uuid: messageUuid });
+      logLocal('消息撤回成功（保留为占位）', { uuid: messageUuid });
       return true;
     } catch (err) {
       logError('撤回消息失败', err);
@@ -705,8 +711,14 @@ export function useLocalGroupMessages(groupId: string | null) {
 
     logLocal('收到 WebSocket 消息撤回', { uuid: wsMsg.message_uuid });
 
-    // 从 UI 移除
-    setMessages((prev) => prev.filter((m) => m.message_uuid !== wsMsg.message_uuid));
+    // 原地更新为撤回占位（与好友消息行为一致）
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.message_uuid === wsMsg.message_uuid
+          ? { ...m, is_recalled: true, message_content: '[消息已撤回]' }
+          : m,
+      ),
+    );
 
     // 标记本地已撤回
     db.markMessageRecalled(wsMsg.message_uuid).catch((err) => {

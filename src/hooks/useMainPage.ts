@@ -247,6 +247,7 @@ export function useMainPage() {
     loadMessages: loadFriendMessages,
     loadMoreMessages: loadMoreFriendMessages,
     removeMessage: removeFriendMessage,
+    recall: recallFriendMessage,
   } = useLocalFriendMessages(friendId);
 
   // 群聊消息（本地优先）
@@ -263,6 +264,7 @@ export function useMainPage() {
     loadMessages: loadGroupMessages,
     loadMoreMessages: loadMoreGroupMessages,
     removeMessage: removeGroupMessage,
+    recall: recallGroupMessage,
   } = useLocalGroupMessages(groupId);
 
   // AI 消息
@@ -277,6 +279,8 @@ export function useMainPage() {
     chatTarget,
     removeFriendMessage,
     removeGroupMessage,
+    recallFriendMessage,
+    recallGroupMessage,
   });
 
   // 多选模式 Hook

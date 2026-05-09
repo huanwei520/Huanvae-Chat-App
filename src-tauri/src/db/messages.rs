@@ -3,7 +3,8 @@
 //! 处理本地消息的增删改查，包括：
 //! - `get_messages`: 分页获取会话消息（支持 before_seq 游标）
 //! - `save_message`: 保存单条消息
-//! - `save_messages`: 批量保存消息（使用事务）
+//! - `save_messages`: 批量保存消息（使用事务，INSERT OR REPLACE — 以服务器为准）
+//! - `save_messages_skip_existing`: 批量插入消息（INSERT OR IGNORE — 仅补本地缺失，不覆盖本地状态）
 //! - `mark_message_recalled`: 标记消息为已撤回
 //! - `mark_message_deleted`: 标记消息为已删除（软删除）
 //!
@@ -33,7 +34,7 @@ pub fn get_messages(
                  file_size, file_hash, image_width, image_height, seq, reply_to, 
                  is_recalled, is_deleted, send_time, created_at
                  FROM messages 
-                 WHERE conversation_id = ? AND is_deleted = 0 AND is_recalled = 0 AND (seq < ? OR seq = 0)
+                 WHERE conversation_id = ? AND is_deleted = 0 AND (seq < ? OR seq = 0)
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC 
@@ -50,7 +51,7 @@ pub fn get_messages(
                  file_size, file_hash, image_width, image_height, seq, reply_to, 
                  is_recalled, is_deleted, send_time, created_at
                  FROM messages 
-                 WHERE conversation_id = ? AND is_deleted = 0 AND is_recalled = 0
+                 WHERE conversation_id = ? AND is_deleted = 0
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END, 
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC 
@@ -153,9 +154,63 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
 
     for msg in messages {
         tx.execute(
-            "INSERT OR REPLACE INTO messages 
-             (message_uuid, conversation_id, conversation_type, sender_id, sender_name, 
-              sender_avatar, content, content_type, file_uuid, file_url, file_size, 
+            "INSERT OR REPLACE INTO messages
+             (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
+              sender_avatar, content, content_type, file_uuid, file_url, file_size,
+              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                msg.message_uuid,
+                msg.conversation_id,
+                msg.conversation_type,
+                msg.sender_id,
+                msg.sender_name,
+                msg.sender_avatar,
+                msg.content,
+                msg.content_type,
+                msg.file_uuid,
+                msg.file_url,
+                msg.file_size,
+                msg.file_hash,
+                msg.image_width,
+                msg.image_height,
+                msg.seq,
+                msg.reply_to,
+                if msg.is_recalled { 1 } else { 0 },
+                if msg.is_deleted { 1 } else { 0 },
+                msg.send_time,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// 批量插入消息：仅对本地不存在的 message_uuid 写入（INSERT OR IGNORE）
+///
+/// 用途：历史消息加载（loadAllHistoryMessages）—— 服务器返回的历史响应可能不带
+/// is_recalled / is_deleted 等本地状态字段，若用 INSERT OR REPLACE 直接覆盖，会把
+/// 本地已撤回的消息（is_recalled=1）误覆盖回 0，UI 退化为"普通对方消息形态"。
+///
+/// 与 save_messages 的区别：
+/// - save_messages: INSERT OR REPLACE，用于 sync 增量 / WS 新消息（语义是"以服务器为准"）
+/// - save_messages_skip_existing: INSERT OR IGNORE，用于历史补缺（语义是"只补本地缺失的"）
+pub fn save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), String> {
+    let mut guard = DB.lock();
+    let db = guard
+        .as_mut()
+        .ok_or_else(|| "数据库未初始化".to_string())?;
+
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+
+    for msg in messages {
+        tx.execute(
+            "INSERT OR IGNORE INTO messages
+             (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
+              sender_avatar, content, content_type, file_uuid, file_url, file_size,
               file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
