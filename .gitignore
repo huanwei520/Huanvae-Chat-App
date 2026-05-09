@@ -29,6 +29,9 @@ backend-docs/
 # HG service binary directories under src-tauri only (do NOT match src/huanvaeGuard/* — case-insensitive FS)
 src-tauri/resources/HuanvaeGuard/
 src-tauri/target/*/HuanvaeGuard/
+# HuanvaeGuard standalone Rust workspace (separate repo) — 顶层目录，前导斜杠锚定根
+# 仅匹配仓库根的 HuanvaeGuard/，不影响 src/huanvaeGuard/（前端 UI 源码）和 src-tauri/resources/HuanvaeGuard/（二进制资源）
+/HuanvaeGuard/
 
 data/
 
