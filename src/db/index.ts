@@ -363,11 +363,11 @@ export async function saveMessagesSkipExisting(
 }
 
 /** 跨会话搜索消息内容（含文件名）— 调 Rust db_search_messages */
-export async function searchMessages(
+export function searchMessages(
   query: string,
   limit = 50,
 ): Promise<SearchMessageResult[]> {
-  return await invoke<SearchMessageResult[]>('db_search_messages', { query, limit });
+  return invoke<SearchMessageResult[]>('db_search_messages', { query, limit });
 }
 
 /** 标记消息为已删除 */

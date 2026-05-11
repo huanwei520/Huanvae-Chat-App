@@ -301,8 +301,15 @@ export function UnifiedList({
     return result;
   }, [activeTab, friendCards, groupCards]);
 
-  // 卡片列表不再被 searchQuery 过滤（搜索结果在独立下框中渲染）
-  const filteredCards = cards;
+  // 搜索过滤
+  const filteredCards = useMemo(() => {
+    if (!searchQuery) { return cards; }
+    const query = searchQuery.toLowerCase();
+    return cards.filter(
+      card => card.name.toLowerCase().includes(query) ||
+              card.id.toLowerCase().includes(query),
+    );
+  }, [cards, searchQuery]);
 
   // 状态计算
   // 等待本地会话预览加载完成后再渲染卡片，避免首次使用 add_time 排序后再用 lastMessageTime 重新排序
@@ -547,54 +554,54 @@ export function UnifiedList({
           layoutScroll  // 关键：让 Motion 正确计算滚动偏移
           style={{ overflow: 'auto' }}
         >
-            {/* 状态覆盖层：绝对定位，不影响卡片布局 */}
-            <AnimatePresence>
-              {renderOverlay()}
-            </AnimatePresence>
+          {/* 状态覆盖层：绝对定位，不影响卡片布局 */}
+          <AnimatePresence>
+            {renderOverlay()}
+          </AnimatePresence>
 
-            {/* 卡片列表：AI 卡片 + 普通卡片统一由同一个 AnimatePresence 管理退场动画 */}
-            <AnimatePresence mode="popLayout">
-              {/* AI 助手置顶卡片（仅消息 Tab） */}
-              {activeTab === 'chat' && !loading && !error && (
-                <motion.div
-                  key="ai-assistant"
-                  className="conversation-item"
-                  onClick={() => onSelectTarget({ type: 'ai' })}
-                  variants={cardVariants}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  layout="position"
-                  layoutDependency={layoutKey}
-                  transition={cardTransition}
-                >
-                  {selectedKey === 'ai-assistant' && (
-                    <motion.div
-                      layoutId="selected-border"
-                      className="conversation-selected-border"
-                      style={{ borderRadius: 14 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
-                  <div className="conv-avatar">
-                    <AIAvatar />
+          {/* 卡片列表：AI 卡片 + 普通卡片统一由同一个 AnimatePresence 管理退场动画 */}
+          <AnimatePresence mode="popLayout">
+            {/* AI 助手置顶卡片（仅消息 Tab） */}
+            {activeTab === 'chat' && !loading && !error && (
+              <motion.div
+                key="ai-assistant"
+                className="conversation-item"
+                onClick={() => onSelectTarget({ type: 'ai' })}
+                variants={cardVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                layout="position"
+                layoutDependency={layoutKey}
+                transition={cardTransition}
+              >
+                {selectedKey === 'ai-assistant' && (
+                  <motion.div
+                    layoutId="selected-border"
+                    className="conversation-selected-border"
+                    style={{ borderRadius: 14 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <div className="conv-avatar">
+                  <AIAvatar />
+                </div>
+                <div className="conv-info">
+                  <div className="conv-header">
+                    <span className="conv-name">
+                      <span className="conv-name-text" title="AI 助手">AI 助手</span>
+                    </span>
                   </div>
-                  <div className="conv-info">
-                    <div className="conv-header">
-                      <span className="conv-name">
-                        <span className="conv-name-text" title="AI 助手">AI 助手</span>
-                      </span>
-                    </div>
-                    <div className="conv-footer">
-                      <span
-                        className="conv-preview"
-                        title={aiConversationTitle || undefined}
-                      >
-                        {aiConversationTitle || '有什么可以帮你的？'}
-                      </span>
-                    </div>
+                  <div className="conv-footer">
+                    <span
+                      className="conv-preview"
+                      title={aiConversationTitle || undefined}
+                    >
+                      {aiConversationTitle || '有什么可以帮你的？'}
+                    </span>
                   </div>
-                </motion.div>
+                </div>
+              </motion.div>
             )}
             {renderCards()}
           </AnimatePresence>

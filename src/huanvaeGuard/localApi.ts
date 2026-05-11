@@ -19,7 +19,9 @@ import type { ApiResponse, TunnelStatus, PeerConfig, ObfuscationParams } from '.
 
 const LOCAL_BASE = 'http://127.0.0.1:19198';
 
-async function localFetch<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
+type FetchInit = Parameters<typeof fetch>[1];
+
+async function localFetch<T>(path: string, init?: FetchInit): Promise<ApiResponse<T>> {
   const resp = await fetch(`${LOCAL_BASE}${path}`, init);
   return resp.json().catch(() => ({ success: false, error: `HTTP ${resp.status}` }) as ApiResponse<T>);
 }
@@ -33,11 +35,11 @@ export async function checkServiceRunning(): Promise<boolean> {
   }
 }
 
-export async function getStatus(): Promise<ApiResponse<TunnelStatus>> {
+export function getStatus(): Promise<ApiResponse<TunnelStatus>> {
   return localFetch('/api/tunnel/status');
 }
 
-export async function startTunnel(params: {
+export function startTunnel(params: {
   address: string;
   private_key: string;
   peers: PeerConfig[];
@@ -52,11 +54,11 @@ export async function startTunnel(params: {
   });
 }
 
-export async function stopTunnel(): Promise<ApiResponse<void>> {
+export function stopTunnel(): Promise<ApiResponse<void>> {
   return localFetch('/api/tunnel/stop', { method: 'POST' });
 }
 
-export async function updatePeers(peers: PeerConfig[], replace = true): Promise<ApiResponse<void>> {
+export function updatePeers(peers: PeerConfig[], replace = true): Promise<ApiResponse<void>> {
   return localFetch('/api/tunnel/peers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

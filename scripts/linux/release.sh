@@ -193,7 +193,7 @@ echo -e "${YELLOW}  测试标准: 前后端 0 errors, 0 warnings${NC}"
 echo -e "${GRAY}  (忽略: Vite动态导入提示、已标记的await-in-loop、console调试日志)${NC}"
 echo ""
 
-if ! "$SCRIPT_DIR/test-all.sh"; then
+if ! "$SCRIPT_DIR/test-all.sh" "$@"; then
     echo ""
     print_error "测试检查未通过！请修复所有问题后再发布"
     echo ""

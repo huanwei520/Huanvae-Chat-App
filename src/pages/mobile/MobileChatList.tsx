@@ -156,108 +156,108 @@ export function MobileChatList({
 
   return (
     <div className="mobile-chat-list-wrapper">
-    <div className="mobile-contacts">
-      {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
-      <MobileDownloadCard />
+      <div className="mobile-contacts">
+        {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
+        <MobileDownloadCard />
 
-      {/* AI 助手置顶卡片（始终渲染，不受好友/群聊数据影响） */}
-      <div
-        className="mobile-contact-card"
-        onClick={() => onSelectTarget({ type: 'ai' })}
-      >
-        <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
-          <AIAvatar />
-        </div>
-        <div className="mobile-contact-info" style={{ flex: 1 }}>
-          <div className="mobile-contact-name">AI 助手</div>
-          <div
-            className="mobile-contact-role"
-            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {aiConversationTitle || '有什么可以帮你的？'}
+        {/* AI 助手置顶卡片（始终渲染，不受好友/群聊数据影响） */}
+        <div
+          className="mobile-contact-card"
+          onClick={() => onSelectTarget({ type: 'ai' })}
+        >
+          <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+            <AIAvatar />
+          </div>
+          <div className="mobile-contact-info" style={{ flex: 1 }}>
+            <div className="mobile-contact-name">AI 助手</div>
+            <div
+              className="mobile-contact-role"
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {aiConversationTitle || '有什么可以帮你的？'}
+            </div>
           </div>
         </div>
-      </div>
 
-      <AnimatePresence initial={false}>
-        {sortedCards.map((card) => (
-          <motion.div
-            key={card.uniqueKey}
-            className="mobile-contact-card"
-            onClick={() => handleCardClick(card)}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-          >
-            {/* 头像 */}
-            <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
-              {card.type === 'friend' ? (
-                <FriendAvatar friend={card.data as Friend} />
-              ) : (
-                <GroupAvatar group={card.data as Group} />
-              )}
-            </div>
-
-            {/* 信息 */}
-            <div className="mobile-contact-info" style={{ flex: 1 }}>
-              <div className="mobile-contact-name">{card.name}</div>
-              {card.lastMessage && (
-                <div
-                  className="mobile-contact-role"
-                  style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {card.lastMessage}
-                </div>
-              )}
-            </div>
-
-            {/* 时间和未读 */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
-                gap: 4,
-              }}
+        <AnimatePresence initial={false}>
+          {sortedCards.map((card) => (
+            <motion.div
+              key={card.uniqueKey}
+              className="mobile-contact-card"
+              onClick={() => handleCardClick(card)}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
             >
-              {card.lastMessageTime && (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--text-tertiary)',
-                  }}
-                >
-                  {formatMessageTime(card.lastMessageTime)}
-                </span>
-              )}
-              {card.unreadCount > 0 && (
-                <span
-                  style={{
-                    minWidth: 18,
-                    height: 18,
-                    padding: '0 5px',
-                    background: '#ff3b30',
-                    borderRadius: 9,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {card.unreadCount > 99 ? '99+' : card.unreadCount}
-                </span>
-              )}
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
+              {/* 头像 */}
+              <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+                {card.type === 'friend' ? (
+                  <FriendAvatar friend={card.data as Friend} />
+                ) : (
+                  <GroupAvatar group={card.data as Group} />
+                )}
+              </div>
+
+              {/* 信息 */}
+              <div className="mobile-contact-info" style={{ flex: 1 }}>
+                <div className="mobile-contact-name">{card.name}</div>
+                {card.lastMessage && (
+                  <div
+                    className="mobile-contact-role"
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {card.lastMessage}
+                  </div>
+                )}
+              </div>
+
+              {/* 时间和未读 */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-end',
+                  gap: 4,
+                }}
+              >
+                {card.lastMessageTime && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--text-tertiary)',
+                    }}
+                  >
+                    {formatMessageTime(card.lastMessageTime)}
+                  </span>
+                )}
+                {card.unreadCount > 0 && (
+                  <span
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      padding: '0 5px',
+                      background: '#ff3b30',
+                      borderRadius: 9,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {card.unreadCount > 99 ? '99+' : card.unreadCount}
+                  </span>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* 全局搜索浮层 — 从上往下拉出动画；query 清空时反向收回 */}
       <AnimatePresence>

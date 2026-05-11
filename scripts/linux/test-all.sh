@@ -11,6 +11,7 @@
 #   ./scripts/linux/test-all.sh
 #   ./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查
 #   ./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
+#   ./scripts/linux/test-all.sh --skip-e2e      # 跳过 Playwright E2E 测试
 
 set -e
 
@@ -26,10 +27,12 @@ NC='\033[0m'
 # 参数处理
 SKIP_RUST=false
 SKIP_ANDROID=false
+SKIP_E2E=false
 for arg in "$@"; do
     case $arg in
         --skip-rust) SKIP_RUST=true ;;
         --skip-android) SKIP_ANDROID=true ;;
+        --skip-e2e) SKIP_E2E=true ;;
     esac
 done
 
@@ -47,11 +50,14 @@ echo ""
 
 START_TIME=$(date +%s)
 ALL_PASSED=true
-TOTAL_STEPS=9
+TOTAL_STEPS=10
 if $SKIP_RUST; then
     TOTAL_STEPS=$((TOTAL_STEPS - 2))
 fi
 if $SKIP_ANDROID; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+fi
+if $SKIP_E2E; then
     TOTAL_STEPS=$((TOTAL_STEPS - 1))
 fi
 
@@ -194,9 +200,33 @@ else
 fi
 
 # ============================================
-# 6. 前端构建测试 (检查警告)
+# 6. E2E 测试 (Playwright)
 # ============================================
-echo -e "${CYAN}[6/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
+if ! $SKIP_E2E; then
+    echo -e "${CYAN}[6/$TOTAL_STEPS] E2E 视觉回归测试 (Playwright)...${NC}"
+
+    E2E_OUTPUT=$(npx playwright test 2>&1) || true
+    E2E_EXIT=$?
+
+    if [[ $E2E_EXIT -eq 0 ]]; then
+        E2E_PASSED=$(echo "$E2E_OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
+        E2E_SKIPPED=$(echo "$E2E_OUTPUT" | grep -oE "[0-9]+ skipped" | grep -oE "[0-9]+" | head -1)
+        if [[ -n "$E2E_PASSED" ]]; then
+            echo -e "  ${GREEN}✓ PASS: E2E 测试 ($E2E_PASSED passed, ${E2E_SKIPPED:-0} skipped)${NC}"
+        else
+            echo -e "  ${GREEN}✓ PASS: E2E 测试${NC}"
+        fi
+    else
+        echo -e "  ${RED}✗ FAIL: E2E 测试${NC}"
+        echo "$E2E_OUTPUT" | grep -E "(failed|FAIL|Error)" | head -10
+        ALL_PASSED=false
+    fi
+fi
+
+# ============================================
+# 7. 前端构建测试 (检查警告)
+# ============================================
+echo -e "${CYAN}[7/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
 
 BUILD_OUTPUT=$(pnpm build 2>&1) || true
 BUILD_EXIT=$?
@@ -229,10 +259,10 @@ else
 fi
 
 # ============================================
-# 7. Cargo Check (基础编译检查)
+# 8. Cargo Check (基础编译检查)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[7/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
+    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -254,10 +284,10 @@ if ! $SKIP_RUST; then
 fi
 
 # ============================================
-# 8. Cargo Clippy (代码审查 - 严格模式)
+# 9. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
+    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -277,10 +307,10 @@ if ! $SKIP_RUST; then
 fi
 
 # ============================================
-# 9. Android Cargo Clippy (移动端代码审查)
+# 10. Android Cargo Clippy (移动端代码审查)
 # ============================================
 if ! $SKIP_RUST && ! $SKIP_ANDROID; then
-    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
+    echo -e "${CYAN}[10/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
     
     # 检查 Android NDK 是否存在
     if [[ -z "$NDK_HOME" ]]; then

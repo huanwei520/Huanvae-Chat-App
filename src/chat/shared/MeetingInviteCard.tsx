@@ -105,7 +105,11 @@ export function MeetingInviteCard({ messageContent }: MeetingInviteCardProps) {
         onClick={handleJoin}
         disabled={joining || expired}
       >
-        {expired ? '会议已结束' : joining ? '加入中...' : '加入会议'}
+        {(() => {
+          if (expired) { return '会议已结束'; }
+          if (joining) { return '加入中...'; }
+          return '加入会议';
+        })()}
       </button>
 
       {error && <div className="meeting-invite-error">{error}</div>}

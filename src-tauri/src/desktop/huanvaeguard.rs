@@ -288,11 +288,11 @@ fn heal_stuck_service() -> Result<(), String> {
 /// 应用启动时调用：异步拉起服务（不阻塞 Tauri setup），含死锁自愈
 ///
 /// 启动逻辑：
-///   1. 查 SCM 状态；StartPending/StopPending 等到稳定状态
-///   2. Running → 探活；
-///        响应正常 → 直接复用
-///        探活失败（死锁）→ 进入 heal_stuck_service 恢复流程
-///   3. Stopped → sc.exe start
+/// 1. 查 SCM 状态；StartPending/StopPending 等到稳定状态
+/// 2. Running → 探活；
+///    - 响应正常 → 直接复用
+///    - 探活失败（死锁）→ 进入 heal_stuck_service 恢复流程
+/// 3. Stopped → sc.exe start
 ///
 /// 失败只打日志不中断应用启动，因为 HG 是可选功能，主聊天应用应独立可用。
 pub fn spawn_start_on_boot() {

@@ -219,7 +219,11 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
                 onClick={handleSend}
                 disabled={selected.length === 0 || sending}
               >
-                {sent ? '已发送' : sending ? '发送中...' : '发送'}
+                {(() => {
+                  if (sent) { return '已发送'; }
+                  if (sending) { return '发送中...'; }
+                  return '发送';
+                })()}
               </button>
             </div>
           </motion.div>

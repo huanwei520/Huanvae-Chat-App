@@ -403,13 +403,15 @@ export function MessageBubble({
                 {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
               </div>
               <div className="bubble-content">
-                {message.message_type === 'text' ? (
+                {message.message_type === 'text' && (
                   <div className="bubble-text">
                     <MarkdownRenderer content={message.message_content} />
                   </div>
-                ) : message.message_type === 'meeting_invite' ? (
+                )}
+                {message.message_type === 'meeting_invite' && (
                   <MeetingInviteCard messageContent={message.message_content} />
-                ) : (
+                )}
+                {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && (
                   <FileMessageContent
                     messageType={message.message_type}
                     messageContent={message.message_content}

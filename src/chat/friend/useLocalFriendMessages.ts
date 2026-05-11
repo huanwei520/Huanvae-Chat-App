@@ -403,8 +403,11 @@ export function useLocalFriendMessages(friendId: string | null) {
         if (!hasMoreRef.current) {
           return false;
         }
+        // 分页加载必须串行：每页加载后检查是否命中目标消息，再决定是否加载下一页
+        // eslint-disable-next-line no-await-in-loop
         await loadMoreMessages();
         // 让 React 提交 + useEffect 同步 ref
+        // eslint-disable-next-line no-await-in-loop
         await new Promise<void>((r) => {
           setTimeout(r, 0);
         });

@@ -477,7 +477,7 @@ export function handleWebSocketMessage(
       case 'hg_group_toggled':
       case 'hg_obfs_config_changed':
       case 'hg_device_status_changed':
-        console.debug('[WS] HuanvaeGuard event:', msg.type);
+        // HuanvaeGuard 事件：仅冒泡到 Rust，前端无需处理
         break;
     }
 

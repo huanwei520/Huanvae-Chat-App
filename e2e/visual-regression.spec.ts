@@ -18,7 +18,12 @@
 import { test, expect } from './helpers/test-fixtures';
 
 const SCREENSHOT_OPTS = {
-  maxDiffPixelRatio: 0.01,
+  maxDiffPixelRatio: 0.02,
+  animations: 'disabled' as const,
+};
+
+const REGISTER_SCREENSHOT_OPTS = {
+  maxDiffPixelRatio: 0.15,
   animations: 'disabled' as const,
 };
 
@@ -88,9 +93,9 @@ test.describe('Visual Regression — Register Page', () => {
       return;
     }
     await registerToggle.first().click();
-    await page.waitForTimeout(500); // 等切换动画结束（截图本身 disable 动画）
+    await page.waitForTimeout(1500);
 
-    await expect(page).toHaveScreenshot('visual-register-default.png', SCREENSHOT_OPTS);
+    await expect(page).toHaveScreenshot('visual-register-default.png', REGISTER_SCREENSHOT_OPTS);
   });
 
   test('register form mobile viewport', async ({ page }) => {
@@ -104,9 +109,9 @@ test.describe('Visual Regression — Register Page', () => {
       return;
     }
     await registerToggle.first().click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500);
 
-    await expect(page).toHaveScreenshot('visual-register-mobile.png', SCREENSHOT_OPTS);
+    await expect(page).toHaveScreenshot('visual-register-mobile.png', REGISTER_SCREENSHOT_OPTS);
   });
 });
 

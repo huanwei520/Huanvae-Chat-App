@@ -31,11 +31,13 @@ interface ServerApiResponse<T> {
   message?: string;
 }
 
+type FetchInit = Parameters<typeof fetch>[1];
+
 async function serverFetch<T>(
   serverUrl: string,
   path: string,
   token: string,
-  init?: RequestInit,
+  init?: FetchInit,
 ): Promise<T> {
   const resp = await fetch(`${serverUrl}${path}`, {
     ...init,
@@ -56,7 +58,7 @@ async function serverFetch<T>(
 
 // ─── Devices ───
 
-export async function registerDevice(
+export function registerDevice(
   serverUrl: string,
   token: string,
   deviceName: string,
@@ -75,11 +77,11 @@ export async function registerDevice(
   });
 }
 
-export async function getDevices(serverUrl: string, token: string): Promise<HgDevice[]> {
+export function getDevices(serverUrl: string, token: string): Promise<HgDevice[]> {
   return serverFetch(serverUrl, '/api/hg/devices', token);
 }
 
-export async function getDeviceConfig(
+export function getDeviceConfig(
   serverUrl: string,
   token: string,
   deviceId: string,
@@ -87,17 +89,17 @@ export async function getDeviceConfig(
   return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/config`, token);
 }
 
-export async function getTopology(
+export function getTopology(
   serverUrl: string,
   token: string,
   deviceId: string,
   since?: number,
 ): Promise<DeviceTopology> {
-  const qs = since != null ? `?since=${since}` : '';
+  const qs = since !== undefined && since !== null ? `?since=${since}` : '';
   return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/topology${qs}`, token);
 }
 
-export async function lockDevice(
+export function lockDevice(
   serverUrl: string,
   token: string,
   deviceId: string,
@@ -109,7 +111,7 @@ export async function lockDevice(
   });
 }
 
-export async function unlockDevice(
+export function unlockDevice(
   serverUrl: string,
   token: string,
   deviceId: string,
@@ -119,7 +121,7 @@ export async function unlockDevice(
   });
 }
 
-export async function deleteDevice(
+export function deleteDevice(
   serverUrl: string,
   token: string,
   deviceId: string,
@@ -129,7 +131,7 @@ export async function deleteDevice(
 
 // ─── Links ───
 
-export async function createLinkInvite(
+export function createLinkInvite(
   serverUrl: string,
   token: string,
   fromDevice: string,
@@ -140,7 +142,7 @@ export async function createLinkInvite(
   });
 }
 
-export async function acceptLinkInvite(
+export function acceptLinkInvite(
   serverUrl: string,
   token: string,
   inviteToken: string,
@@ -152,11 +154,11 @@ export async function acceptLinkInvite(
   });
 }
 
-export async function listLinks(serverUrl: string, token: string): Promise<HgDeviceLink[]> {
+export function listLinks(serverUrl: string, token: string): Promise<HgDeviceLink[]> {
   return serverFetch(serverUrl, '/api/hg/links', token);
 }
 
-export async function deleteLink(
+export function deleteLink(
   serverUrl: string,
   token: string,
   linkId: string,
@@ -166,7 +168,7 @@ export async function deleteLink(
 
 // ─── Groups ───
 
-export async function createGroup(
+export function createGroup(
   serverUrl: string,
   token: string,
   name: string,
@@ -179,11 +181,11 @@ export async function createGroup(
   });
 }
 
-export async function listGroups(serverUrl: string, token: string): Promise<HgGroup[]> {
+export function listGroups(serverUrl: string, token: string): Promise<HgGroup[]> {
   return serverFetch(serverUrl, '/api/hg/groups', token);
 }
 
-export async function getGroupDetail(
+export function getGroupDetail(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -191,7 +193,7 @@ export async function getGroupDetail(
   return serverFetch(serverUrl, `/api/hg/groups/${groupId}`, token);
 }
 
-export async function joinGroup(
+export function joinGroup(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -203,7 +205,7 @@ export async function joinGroup(
   });
 }
 
-export async function leaveGroup(
+export function leaveGroup(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -214,7 +216,7 @@ export async function leaveGroup(
   });
 }
 
-export async function toggleGroup(
+export function toggleGroup(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -224,7 +226,7 @@ export async function toggleGroup(
   });
 }
 
-export async function deleteGroup(
+export function deleteGroup(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -232,7 +234,7 @@ export async function deleteGroup(
   return serverFetch(serverUrl, `/api/hg/groups/${groupId}`, token, { method: 'DELETE' });
 }
 
-export async function createGroupInvite(
+export function createGroupInvite(
   serverUrl: string,
   token: string,
   groupId: string,
@@ -242,7 +244,7 @@ export async function createGroupInvite(
   });
 }
 
-export async function acceptGroupInvite(
+export function acceptGroupInvite(
   serverUrl: string,
   token: string,
   groupId: string,

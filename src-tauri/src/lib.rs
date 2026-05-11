@@ -26,8 +26,8 @@
 //!
 //! ## 更新日志
 //! - 2026-04-22: 集成 HuanvaeGuard 服务生命周期控制：setup 时异步启动、
-//!              RunEvent::Exit 时同步停止（释放 huanvaeguard-svc.exe 文件锁，
-//!              保证下次 dev rebuild 不会抢占失败）
+//!   RunEvent::Exit 时同步停止（释放 huanvaeguard-svc.exe 文件锁，
+//!   保证下次 dev rebuild 不会抢占失败）
 //! - 2026-01-22: 添加桌面/移动端条件编译，分离平台专属模块
 //! - 2026-01-21: Android 数据目录初始化修复，使用 app.path().app_data_dir() 替代 TMPDIR
 
@@ -243,20 +243,20 @@ fn find_hg_exe(app: &tauri::AppHandle) -> Result<String, String> {
         candidates.push(res_dir.join("HuanvaeGuard").join("huanvaeguard-svc.exe"));
     }
 
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("HuanvaeGuard").join("huanvaeguard-svc.exe"));
-            // 开发模式: target/{debug|release}/../../resources/HuanvaeGuard/
-            if let Some(target_type) = dir.parent() {
-                if let Some(target_root) = target_type.parent() {
-                    candidates.push(
-                        target_root
-                            .join("resources")
-                            .join("HuanvaeGuard")
-                            .join("huanvaeguard-svc.exe"),
-                    );
-                }
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("HuanvaeGuard").join("huanvaeguard-svc.exe"));
+        // 开发模式: target/{debug|release}/../../resources/HuanvaeGuard/
+        if let Some(target_type) = dir.parent()
+            && let Some(target_root) = target_type.parent()
+        {
+            candidates.push(
+                target_root
+                    .join("resources")
+                    .join("HuanvaeGuard")
+                    .join("huanvaeguard-svc.exe"),
+            );
         }
     }
 
@@ -298,16 +298,14 @@ async fn start_hg_service(app: tauri::AppHandle) -> Result<String, String> {
                 return Ok("服务已在运行中".to_string());
             }
 
-            if stdout.contains("STOPPED") || stdout.contains("STOP_PENDING") {
-                if let Ok(out) = std::process::Command::new("sc.exe")
+            if (stdout.contains("STOPPED") || stdout.contains("STOP_PENDING"))
+                && let Ok(out) = std::process::Command::new("sc.exe")
                     .args(["start", "HuanvaeGuard"])
                     .creation_flags(CREATE_NO_WINDOW)
                     .output()
-                {
-                    if out.status.success() {
-                        return Ok("Windows 服务已启动".to_string());
-                    }
-                }
+                && out.status.success()
+            {
+                return Ok("Windows 服务已启动".to_string());
             }
         }
 
@@ -349,7 +347,7 @@ fn shell_execute_runas(exe_path: &str) -> Result<(), String> {
             file.as_ptr(),
             std::ptr::null(),
             std::ptr::null(),
-            SW_HIDE as i32,
+            SW_HIDE,
         )
     };
 
@@ -437,7 +435,7 @@ fn shell_execute_runas_cmd(cmd_args: &str) -> Result<(), String> {
             file.as_ptr(),
             params.as_ptr(),
             std::ptr::null(),
-            SW_HIDE as i32,
+            SW_HIDE,
         )
     };
 
