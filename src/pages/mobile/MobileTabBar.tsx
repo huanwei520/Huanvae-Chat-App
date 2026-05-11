@@ -56,31 +56,33 @@ export function MobileTabBar({
 }: MobileTabBarProps) {
   return (
     <nav className="mobile-tab-bar">
-      {/* 消息Tab */}
-      <div
-        className={`mobile-tab-item ${activeTab === 'chat' ? 'active' : ''}`}
-        onClick={() => onTabChange('chat')}
-      >
-        <div className="mobile-tab-icon">
-          <ChatIcon />
-          {unreadCount > 0 && (
-            <span className="mobile-tab-badge">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
+      <div className="mobile-tab-bar-pill">
+        {/* 消息Tab */}
+        <div
+          className={`mobile-tab-item ${activeTab === 'chat' ? 'active' : ''}`}
+          onClick={() => onTabChange('chat')}
+        >
+          <div className="mobile-tab-icon">
+            <ChatIcon />
+            {unreadCount > 0 && (
+              <span className="mobile-tab-badge">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </div>
+          <span className="mobile-tab-label">消息</span>
         </div>
-        <span className="mobile-tab-label">消息</span>
-      </div>
 
-      {/* 通讯录Tab */}
-      <div
-        className={`mobile-tab-item ${activeTab === 'contacts' ? 'active' : ''}`}
-        onClick={() => onTabChange('contacts')}
-      >
-        <div className="mobile-tab-icon">
-          <ContactsIcon />
+        {/* 通讯录Tab */}
+        <div
+          className={`mobile-tab-item ${activeTab === 'contacts' ? 'active' : ''}`}
+          onClick={() => onTabChange('contacts')}
+        >
+          <div className="mobile-tab-icon">
+            <ContactsIcon />
+          </div>
+          <span className="mobile-tab-label">通讯录</span>
         </div>
-        <span className="mobile-tab-label">通讯录</span>
       </div>
     </nav>
   );

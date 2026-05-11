@@ -3,7 +3,7 @@
  *
  * 从左侧滑出，包含：
  * - 顶部：用户头像和信息
- * - 菜单：我的文件、局域网互传、视频会议、设置
+ * - 菜单：我的文件、局域网互传、小程序、视频会议、设置
  * - 底部：退出登录
  *
  * 注意：
@@ -69,6 +69,23 @@ const LanTransferIcon = () => (
   </svg>
 );
 
+// 小程序图标
+const MiniAppsIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"
+    />
+  </svg>
+);
+
 // 视频会议图标
 const MeetingIcon = () => (
   <svg
@@ -115,6 +132,8 @@ interface MobileDrawerProps {
   onFilesClick: () => void;
   /** 局域网互传点击回调 */
   onLanTransferClick: () => void;
+  /** 小程序点击回调 */
+  onMiniAppsClick: () => void;
   /** 视频会议点击回调 */
   onMeetingClick: () => void;
   /** 设置点击回调 */
@@ -130,6 +149,7 @@ export function MobileDrawer({
   onProfileClick,
   onFilesClick,
   onLanTransferClick,
+  onMiniAppsClick,
   onMeetingClick,
   onSettingsClick,
   onLogout,
@@ -205,6 +225,18 @@ export function MobileDrawer({
           >
             <LanTransferIcon />
             <span>局域网互传</span>
+          </div>
+
+          {/* 小程序 */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onMiniAppsClick();
+              onClose();
+            }}
+          >
+            <MiniAppsIcon />
+            <span>小程序</span>
           </div>
 
           {/* 视频会议 */}

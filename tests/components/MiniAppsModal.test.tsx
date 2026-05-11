@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildMiniAppLaunchUrl,
   buildCredentialsFields,
-} from '../../src/components/miniapps/MiniAppsModal';
+} from '../../src/components/miniapps/launch';
 import type { CreateMiniAppResponse } from '../../src/api/miniapps';
 
 describe('buildMiniAppLaunchUrl', () => {

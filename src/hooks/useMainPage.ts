@@ -192,6 +192,10 @@ export function useMainPage() {
   const setChatTarget = useChatStore((state) => state.setChatTarget);
   // 注意：updateChatTargetRole 在 WebSocket 回调中通过 store.getState() 使用
 
+  // 全局搜索点击跳转：监听 store.pendingScrollToMessageId
+  const pendingScrollToMessageId = useChatStore((s) => s.pendingScrollToMessageId);
+  const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+
   // ============================================
   // 好友/群聊 Hooks（内部使用 Zustand store）
   // ============================================
@@ -246,6 +250,7 @@ export function useMainPage() {
     // sendMediaMessage: sendFriendMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadFriendMessages,
     loadMoreMessages: loadMoreFriendMessages,
+    loadUntilMessage: loadUntilFriendMessage,
     removeMessage: removeFriendMessage,
     recall: recallFriendMessage,
   } = useLocalFriendMessages(friendId);
@@ -263,6 +268,7 @@ export function useMainPage() {
     // sendMediaMessage: sendGroupMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadGroupMessages,
     loadMoreMessages: loadMoreGroupMessages,
+    loadUntilMessage: loadUntilGroupMessage,
     removeMessage: removeGroupMessage,
     recall: recallGroupMessage,
   } = useLocalGroupMessages(groupId);
@@ -742,6 +748,62 @@ export function useMainPage() {
       loadGroupMessages();
     }
   }, [chatTarget, loadFriendMessages, loadGroupMessages]);
+
+  // 全局搜索跳转：当 chatTarget 与 pendingScrollToMessageId 同时存在时，
+  // 加载历史直到目标进入窗口 → 在 DOM 中查找元素 → scrollIntoView → 清空 pending
+  useEffect(() => {
+    if (!pendingScrollToMessageId || !chatTarget) {
+      return;
+    }
+    // AI 会话不支持跳转
+    if (chatTarget.type === 'ai') {
+      setPendingScrollToMessageId(null);
+      return;
+    }
+
+    let cancelled = false;
+    const targetId = pendingScrollToMessageId;
+
+    const run = async () => {
+      const ok =
+        chatTarget.type === 'friend'
+          ? await loadUntilFriendMessage(targetId)
+          : await loadUntilGroupMessage(targetId);
+      if (cancelled) {
+        return;
+      }
+      if (!ok) {
+        // 找不到目标，直接清空
+        setPendingScrollToMessageId(null);
+        return;
+      }
+      // 等一帧让 DOM 渲染目标气泡
+      requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
+        const el = document.querySelector(
+          `[data-message-uuid="${CSS.escape(targetId)}"]`,
+        );
+        if (el) {
+          el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+        setPendingScrollToMessageId(null);
+      });
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pendingScrollToMessageId,
+    chatTarget,
+    loadUntilFriendMessage,
+    loadUntilGroupMessage,
+    setPendingScrollToMessageId,
+  ]);
 
   // ============================================
   // 计算属性

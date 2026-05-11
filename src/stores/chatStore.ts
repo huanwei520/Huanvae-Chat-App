@@ -77,6 +77,14 @@ interface ChatState {
   // ==================== 会议状态 ====================
   /** 是否有待加入的会议（移动端从会议邀请卡片触发） */
   pendingMeetingJoin: boolean;
+
+  // ==================== 跳转状态 ====================
+  /**
+   * 待跳转的目标消息 UUID（来自全局搜索结果点击）
+   * ChatMessages / GroupChatMessages 监听此字段：
+   *   非 null → 加载历史至该消息 + scrollIntoView + 清空
+   */
+  pendingScrollToMessageId: string | null;
 }
 
 interface ChatActions {
@@ -141,6 +149,10 @@ interface ChatActions {
   // ==================== 会议操作 ====================
   /** 设置待加入会议状态 */
   setPendingMeetingJoin: (pending: boolean) => void;
+
+  // ==================== 跳转操作 ====================
+  /** 设置待跳转的目标消息 UUID（搜索结果点击时设置，ChatMessages 滚动到该消息后清空） */
+  setPendingScrollToMessageId: (messageId: string | null) => void;
 }
 
 export type ChatStore = ChatState & ChatActions;
@@ -164,6 +176,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   muteStatus: {},
 
   pendingMeetingJoin: false,
+
+  pendingScrollToMessageId: null,
 
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
@@ -243,6 +257,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   // ==================== 会议操作 ====================
   setPendingMeetingJoin: (pending) => set({ pendingMeetingJoin: pending }),
+
+  // ==================== 跳转操作 ====================
+  setPendingScrollToMessageId: (messageId) => set({ pendingScrollToMessageId: messageId }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

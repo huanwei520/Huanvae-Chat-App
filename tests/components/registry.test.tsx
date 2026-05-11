@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PAGE_COMPONENTS,
   MOBILE_COMPONENTS,
+  SEARCH_COMPONENTS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -33,6 +34,11 @@ import * as AccountSelectorPage from '../../src/pages/AccountSelector';
 import * as MobileHeader from '../../src/pages/mobile/MobileHeader';
 import * as MobileMain from '../../src/pages/mobile/MobileMain';
 import * as MobileThemePage from '../../src/pages/mobile/MobileThemePage';
+import * as MobileMiniAppsPage from '../../src/pages/mobile/MobileMiniAppsPage';
+
+// 全局搜索组件
+import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
+import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -222,6 +228,10 @@ const COMPONENT_MAP = {
   MobileHeader,
   MobileMain,
   MobileThemePage,
+  MobileMiniAppsPage,
+  // 全局搜索
+  GlobalMessageSearchResults,
+  useGlobalMessageSearch,
   // 通用组件
   Avatar,
   AIAvatar,
@@ -398,6 +408,15 @@ describe('页面组件 (Pages)', () => {
 // ============== 移动端组件测试 ==============
 describe('移动端组件 (Mobile Components)', () => {
   it.each(MOBILE_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
+// ============== 全局搜索组件测试 ==============
+describe('全局搜索组件 (Search Components)', () => {
+  it.each(SEARCH_COMPONENTS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

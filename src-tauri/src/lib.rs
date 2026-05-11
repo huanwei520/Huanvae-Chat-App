@@ -581,6 +581,15 @@ fn db_save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), Str
     db::save_messages_skip_existing(messages)
 }
 
+/// 跨会话搜索消息内容（含文件名）
+#[tauri::command]
+fn db_search_messages(
+    query: String,
+    limit: i64,
+) -> Result<Vec<db::SearchMessageResult>, String> {
+    db::search_messages(&query, limit)
+}
+
 /// 标记消息为已撤回
 #[tauri::command(rename_all = "camelCase")]
 fn db_mark_message_recalled(message_uuid: String) -> Result<(), String> {
@@ -979,6 +988,7 @@ pub fn run() {
             db_save_message,
             db_save_messages,
             db_save_messages_skip_existing,
+            db_search_messages,
             db_mark_message_recalled,
             db_mark_message_deleted,
             db_get_file_mapping,
@@ -1082,11 +1092,12 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
+        .run(|_app_handle, _event| {
             // 进程真正退出时（非隐藏到托盘）同步停止 HuanvaeGuard 服务，
             // 释放 huanvaeguard-svc.exe 文件锁，确保下次 rebuild 不被阻塞。
+            // _event 在移动端不消费，下划线前缀压制 unused 警告
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            if let tauri::RunEvent::Exit = event {
+            if let tauri::RunEvent::Exit = _event {
                 desktop::huanvaeguard::stop_on_exit_blocking();
             }
         });

@@ -67,6 +67,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/pages/mobile/MobileFilesPage.tsx (cardVariants)',
   },
   {
+    selector: '.mobile-miniapp-card',
+    cssFile: 'src/styles/mobile/miniapps-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileMiniAppsPage.tsx (cardVariants + whileTap)',
+  },
+  {
     selector: '.conversation-item',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['transform', 'opacity'],
@@ -83,6 +89,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (普通气泡行：getMessageVariants own/other 入场退场，x/y/scale/opacity)',
+  },
+  {
+    selector: '.global-msg-search',
+    cssFile: 'src/styles/search.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/search/GlobalMessageSearchResults.tsx (桌面 scale 缩放 / 移动 translateY 拉出 — desktopVariants/mobileVariants)',
   },
 ];
 

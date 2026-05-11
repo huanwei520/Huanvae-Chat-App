@@ -14,6 +14,10 @@ import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
+import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
+import { useChatStore } from '../../stores';
+import { useSession } from '../../contexts/SessionContext';
+import { parseFriendIdFromConversationId } from '../../utils/conversationId';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
 
@@ -56,6 +60,8 @@ export function MobileChatList({
 }: MobileChatListProps) {
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
+  const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  const { session } = useSession();
 
   // 构建好友卡片
   const friendCards = useMemo((): ConversationCard[] => {
@@ -113,18 +119,10 @@ export function MobileChatList({
     );
   }, [allCards]);
 
-  // 搜索过滤
-  const filteredCards = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return activeCards;
-    }
-    const query = searchQuery.toLowerCase();
-    return activeCards.filter((card) => card.name.toLowerCase().includes(query));
-  }, [activeCards, searchQuery]);
-
+  // 卡片列表不再被 searchQuery 过滤（搜索结果在独立下框中渲染）
   // 按最后消息时间排序（有未读优先，然后按时间）
   const sortedCards = useMemo(() => {
-    return [...filteredCards].sort((a, b) => {
+    return [...activeCards].sort((a, b) => {
       // 有未读的优先
       if (a.unreadCount > 0 && b.unreadCount === 0) {
         return -1;
@@ -137,7 +135,7 @@ export function MobileChatList({
       const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
       return timeB - timeA;
     });
-  }, [filteredCards]);
+  }, [activeCards]);
 
   const handleCardClick = (card: ConversationCard) => {
     if (card.type === 'friend') {
@@ -157,6 +155,7 @@ export function MobileChatList({
   }
 
   return (
+    <div className="mobile-chat-list-wrapper">
     <div className="mobile-contacts">
       {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
       <MobileDownloadCard />
@@ -257,6 +256,45 @@ export function MobileChatList({
             </div>
           </motion.div>
         ))}
+      </AnimatePresence>
+    </div>
+
+      {/* 全局搜索浮层 — 从上往下拉出动画；query 清空时反向收回 */}
+      <AnimatePresence>
+        {searchQuery.trim() !== '' && (
+          <GlobalMessageSearchResults
+            key="search-overlay"
+            query={searchQuery}
+            friends={friends}
+            groups={groups}
+            currentUserId={session?.userId}
+            layout="mobile"
+            onSelectConversation={(type, data) => {
+              if (type === 'friend') {
+                onSelectTarget({ type: 'friend', data: data as Friend });
+              } else {
+                onSelectTarget({ type: 'group', data: data as Group });
+              }
+            }}
+            onSelectMessage={(grp, hit) => {
+              // 仅在找到目标会话时切换并设置跳转 — 避免残留 pending scroll id
+              if (grp.conversationType === 'friend' && session) {
+                const friendId = parseFriendIdFromConversationId(grp.conversationId, session.userId);
+                const friendData = friendId ? friends.find((f) => f.friend_id === friendId) : undefined;
+                if (friendData) {
+                  onSelectTarget({ type: 'friend', data: friendData });
+                  setPendingScrollToMessageId(hit.message.message_uuid);
+                }
+              } else if (grp.conversationType === 'group') {
+                const groupData = groups.find((g) => g.group_id === grp.conversationId);
+                if (groupData) {
+                  onSelectTarget({ type: 'group', data: groupData });
+                  setPendingScrollToMessageId(hit.message.message_uuid);
+                }
+              }
+            }}
+          />
+        )}
       </AnimatePresence>
     </div>
   );

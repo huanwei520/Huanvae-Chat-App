@@ -109,6 +109,33 @@ export function AIChatMessages({
     }
   }, [streamingContent, streamingReasoning, toolStatus, pendingToolCall, scrollToBottom]);
 
+  // 滚动监听：更新 isAtBottomRef 供 ResizeObserver 判断
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) { return; }
+    el.addEventListener('scroll', checkAtBottom, { passive: true });
+    return () => el.removeEventListener('scroll', checkAtBottom);
+  }, [checkAtBottom]);
+
+  // 容器收缩（如 Android 键盘弹起致 WebView 变矮）时，若用户在底部则重新对齐
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') { return; }
+
+    let prevHeight = container.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const el = containerRef.current;
+      if (!el) { return; }
+      const newHeight = el.clientHeight;
+      if (newHeight < prevHeight && isAtBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+      prevHeight = newHeight;
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   if (isLoading) {
     return (
       <div

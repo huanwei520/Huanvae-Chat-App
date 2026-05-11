@@ -101,6 +101,20 @@ export interface ConversationWithPreview {
   msg_send_time: string | null;
 }
 
+/** 消息搜索结果（含会话上下文 + 前后相邻消息预览） */
+export interface SearchMessageResult {
+  /** 命中消息本体 */
+  message: LocalMessage;
+  /** 会话名（来自 conversations 表） */
+  conversation_name: string;
+  /** 会话头像 */
+  conversation_avatar: string | null;
+  /** 前一条消息内容（按 seq 相邻） */
+  context_before: string | null;
+  /** 后一条消息内容 */
+  context_after: string | null;
+}
+
 /** 本地文件映射 */
 export interface LocalFileMapping {
   file_hash: string;
@@ -346,6 +360,14 @@ export async function saveMessagesSkipExisting(
     _pendingWrites--;
     schedulePreviewNotify();
   }
+}
+
+/** 跨会话搜索消息内容（含文件名）— 调 Rust db_search_messages */
+export async function searchMessages(
+  query: string,
+  limit = 50,
+): Promise<SearchMessageResult[]> {
+  return await invoke<SearchMessageResult[]>('db_search_messages', { query, limit });
 }
 
 /** 标记消息为已删除 */

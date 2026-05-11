@@ -1,0 +1,308 @@
+/**
+ * 全局搜索浮层样式 — 横跨卡片列表 + 聊天窗口的独立浮层
+ *
+ * 由 src/components/search/GlobalMessageSearchResults.tsx 使用。
+ *
+ * 挂载位置：
+ * - 桌面端：直接挂在 src/pages/Main.tsx 的 .chat-app 下（与 Sidebar / chat-list-container / chat-window 同级）
+ * - 移动端：挂在 src/pages/mobile/MobileChatList.tsx 的 .mobile-chat-list-wrapper 内
+ *
+ * 视觉：
+ * - 飘浮窗：圆角 + 阴影 + 主题毛玻璃材质 var(--gradient-glass) + backdrop-filter
+ * - 设置 → 主题切换调色盘时自动跟随
+ *
+ * 三段结构：会话 → 聊天记录 → 文件
+ */
+
+/* ============================================
+ * 桌面端：点击空白处关闭浮层的 backdrop
+ * - 覆盖搜索栏下方 + sidebar 右侧的主区域
+ * - z-index 低于浮层（50）+ 低于 sidebar/chat-list-panel (10) 但高于卡片列表内容
+ * - 拦截点击事件 → 清空 query 关闭浮层
+ * ============================================ */
+.chat-app > .search-overlay-backdrop {
+  position: absolute;
+  top: 54px;
+  left: 60px;
+  right: 0;
+  bottom: 0;
+  z-index: 49;
+  background: transparent;
+  cursor: default;
+}
+
+/* ============================================
+ * 桌面端：浮层左上角对齐搜索输入框（.search-box-wrapper），尺寸为 .chat-app 的 75%
+ * - top: 54px = chat-list-header padding-top (16px) + search-box-wrapper height (37.5px) ≈ 搜索框下沿
+ * - left: 72px = chat-sidebar width (60px) + chat-list-header padding-left (12px) = 搜索框左沿
+ * ============================================ */
+.chat-app > .global-msg-search {
+  top: 54px;
+  left: 72px;
+  right: auto;
+  bottom: auto;
+  /* transform 由 framer-motion variants 接管（desktopVariants scale），不在 CSS 设置 */
+  width: 75%;
+  height: 75%;
+  margin: 0;
+}
+
+/* ============================================
+ * 移动端定位上下文：mobile-chat-list-wrapper 包裹 mobile-contacts + 浮层
+ * 浮层 inset:0 锚定到 wrapper（与 mobile-contacts 滚动隔离）
+ * ============================================ */
+.mobile-chat-list-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mobile-chat-list-wrapper > .global-msg-search {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  /* transform 由 framer-motion variants 接管（mobileVariants translateY），不在 CSS 设置 */
+}
+
+/* ============================================
+ * 浮层共用样式
+ * 不透明度 85%：单层 var(--white-alpha-85) 提供精确的 alpha 控制
+ * + backdrop-filter 毛玻璃模糊（保留质感，与项目其他面板一致）
+ * 设置 → 主题调色盘改变 --white-alpha-85 时自动联动
+ * ============================================ */
+.global-msg-search {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--white-alpha-85);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  z-index: 50;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+/* 统一滚动条样式（与 conversation-list / chat-messages-container 一致） */
+.global-msg-search::-webkit-scrollbar {
+  width: 6px;
+}
+
+.global-msg-search::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.global-msg-search::-webkit-scrollbar-thumb {
+  background: rgba(147, 197, 253, 0.3);
+  border-radius: 3px;
+}
+
+.global-msg-search::-webkit-scrollbar-thumb:hover {
+  background: rgba(147, 197, 253, 0.5);
+}
+
+.global-msg-search-loading,
+.global-msg-search-empty,
+.global-msg-search-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.global-msg-search-error {
+  color: #ef4444;
+}
+
+/* 三段 section */
+.global-msg-search-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.global-msg-search-section + .global-msg-search-section {
+  border-top: 1px solid var(--glass-border-subtle);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.global-msg-search-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+.global-msg-search-section-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+/* 会话项（Section 1） */
+.global-msg-search-conv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.global-msg-search-conv-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.global-msg-search-conv-item:active,
+.global-msg-search-conv-item:hover {
+  background: var(--white-alpha-50);
+}
+
+.global-msg-search-conv-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.global-msg-search-conv-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.global-msg-search-conv-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 消息/文件分组（Section 2/3） */
+.global-msg-search-group {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 2px;
+}
+
+.global-msg-search-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 4px 28px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.global-msg-search-group-avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.global-msg-search-group-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.global-msg-search-group-avatar-placeholder {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.global-msg-search-group-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.global-msg-search-group-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.global-msg-search-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.global-msg-search-hit {
+  padding: 8px 16px 8px 28px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.global-msg-search-hit:active,
+.global-msg-search-hit:hover {
+  background: var(--white-alpha-50);
+}
+
+.global-msg-search-content {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.global-msg-search-mark {
+  background: rgba(255, 215, 0, 0.5);
+  color: var(--text-primary);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.global-msg-search-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+}
+
+.global-msg-search-meta-sep {
+  opacity: 0.5;
+}

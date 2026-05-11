@@ -78,6 +78,21 @@ pub struct LocalFileMapping {
     pub created_at: Option<String>,
 }
 
+/// 消息搜索结果（含会话上下文 + 前后相邻消息预览）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMessageResult {
+    /// 命中消息本体
+    pub message: LocalMessage,
+    /// 会话名（来自 conversations 表）
+    pub conversation_name: String,
+    /// 会话头像
+    pub conversation_avatar: Option<String>,
+    /// 前一条消息内容（按 seq 相邻），无则 None
+    pub context_before: Option<String>,
+    /// 后一条消息内容
+    pub context_after: Option<String>,
+}
+
 /// 会话预览（JOIN messages 表的最新消息）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationPreview {

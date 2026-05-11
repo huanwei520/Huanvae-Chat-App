@@ -239,6 +239,134 @@ CLAUDE.md「功能迭代规则」明确：
 - 盲审 Agent 实际 grep 发现 ImageThumbnail / VideoThumbnail 都在用 `<LocalBadge />`，import 是必需的而非冗余
 - Plan 的注释"还未实际使用"是凭印象错误；写完 Plan 该 grep 一遍引用情况
 
+## 跨端复用 pure function 时检查源文件的依赖污染
+
+### 移动端从桌面组件 import 函数会 transitive 拖入桌面 only 模块
+
+桌面端组件（如 `MiniAppsModal.tsx`）顶层经常 `import { WebviewWindow } from '@tauri-apps/api/webviewWindow'` —— Tauri Android 不支持 WebviewWindow 多窗口（[MobileMediaPreview.tsx](src/chat/shared/MobileMediaPreview.tsx) 已注释）。
+
+如果在桌面组件文件**内部**定义了一个 pure function（如 `buildMiniAppLaunchUrl`、`buildCredentialsFields`），移动端组件第一反应是 `import { fn } from '../components/desktop/Modal';`。这会让打包器把整个 Modal 模块（含 WebviewWindow、OAuthClientsPanel、SecretDisplay 等桌面 only 代码）transitive 拖进 Android bundle。
+
+运行时 `import` 一个 symbol 不调用不会崩溃（Tauri Android 会有 stub 抛错只在调用时触发），但属于"间接耦合 desktop-only 模块"，违反 CLAUDE.md「零污染」原则，且白白增大移动端 bundle。
+
+**规则**：plan 阶段识别"桌面端复用 X 函数到移动端"时：
+
+1. 打开桌面组件 X 所在文件的 import 段
+2. 是否含 `WebviewWindow` / 其他 Tauri desktop only API / 大型桌面 only 子组件？
+3. 是 → 抽 X 到独立的纯函数模块（如 `src/components/miniapps/launch.ts`），桌面/移动两端共同 import；从原桌面组件文件删除 X 的定义并改 import from 新模块
+4. 否 → 直接复用即可
+
+**反例（2026-05-10）**：
+- 移动端 MobileMiniAppsPage.tsx 第一版 `import { buildMiniAppLaunchUrl } from '../../components/miniapps/MiniAppsModal'`
+- code-review 标 Major：MiniAppsModal.tsx 顶层 import `WebviewWindow` + `OAuthClientsPanel` + `SecretDisplay` 等数百行桌面代码会被打进 Android bundle
+- 修复：抽到 `src/components/miniapps/launch.ts`（纯函数模块，零依赖），桌面 modal 和移动 page 都改 import from `./launch`，桌面 modal 内删除原函数定义
+- 教训：plan 阶段写"复用 X 函数"时就该读一下 X 所在文件的 import 段，决定要不要先抽离
+
+## 新基础设施必须在同一 PR 内有消费方真正使用
+
+### 「先铺基础设施，将来再切」= 死设施 + 持续写入开销
+
+数据库 schema（FTS 虚表 / 索引 / cache 表 / trigger）和缓存层属于"建了就有持续运行成本"的基础设施。如果在一个 PR 里建好但**实际查询/逻辑没切到该基础设施**，就属于死设施 — 比单纯的死代码更糟，因为：
+
+- 每条 INSERT/UPDATE/DELETE 都触发 trigger 写 FTS 表（强制运行）
+- 占额外存储空间
+- 增加未来读者理解负担（"这个表是干嘛的？"）
+- 收益为零，因为查询路径根本不读
+
+违反 CLAUDE.md「功能迭代规则：完全采用新逻辑，不考虑向后兼容，不使用兜底策略。旧代码和旧文档必须清理干净，保证零污染」。
+
+**规则**：plan 里每加一条新基础设施（FTS 表 / index / cache layer / trigger），必须在**同一 PR 内**有消费方真正使用它：
+
+1. 加 schema/trigger 时，同时把对应查询/逻辑切到该 schema
+2. 不切 = 不加；commit message 写"为将来 FTS 准备"是错的，将来再加成本一样
+3. code-review 看到"加了表/trigger 但 grep 不到查询语句"立刻质疑
+
+**反例（2026-05-11）**：
+- 第一版 `messages.rs` 加了 SQLite FTS5 虚表 `messages_fts` + 3 个 trigger（INSERT/UPDATE/DELETE 同步）+ backfill 检测，但 `search_messages` 函数里仍是 `WHERE m.content LIKE ?`
+- 每条消息写入都强制走 trigger 写 FTS 表，但查询从不读
+- code-review 标 Major（违反零污染原则）
+- 修复：把 `search_messages` SQL 切到 `FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid WHERE messages_fts MATCH ?` — trigger 真正派上用场
+- 教训：plan 阶段写"基础设施先准备，业务后切"时必须警觉，建议同 PR 一并切完
+
+### SQLite FTS5 external content 表的 backfill 必须用 'rebuild' 命令
+
+给已有数据的 messages 表加 FTS5 external content 虚表 + 同步 trigger 时，**已有的历史消息不会自动入索引** — trigger 只对未来的 INSERT/UPDATE/DELETE 生效。必须做一次 backfill。
+
+错误做法：手写 `INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages` 配合 `messages_fts COUNT=0` 检测条件。
+- trigger 创建后任何新消息写入都会让 `messages_fts COUNT` 立即 > 0
+- 检测条件失效 → backfill 跳过 → 历史消息永远不入索引
+- 用户后续搜历史会零命中
+
+正确做法（SQLite 官方推荐）：
+
+```rust
+// 1. 用 COUNT 对比检测同步性（不要只看 messages_fts 是否为空）
+let messages_count: i64 = conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
+let fts_count: i64 = conn.query_row("SELECT COUNT(*) FROM messages_fts", [], |r| r.get(0))?;
+
+// 2. 不一致就用 'rebuild' 强制重建（幂等、原子，会从 external content 表重读所有 content）
+if messages_count != fts_count {
+    conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')", [])?;
+}
+```
+
+`'rebuild'` 是 FTS5 内置的特殊 INSERT 形式，对 external content 表有效，会 truncate FTS 索引 + 从 content='messages' 配置的源表全量重灌。
+
+**反例（2026-05-11）**：
+- 第一版用 `INSERT...SELECT` + `messages_fts COUNT=0` 检测
+- 旧用户的 DB 中 messages 已有数据；新版启动时 trigger 创建完，几条新消息进来 → messages_fts COUNT > 0 → backfill 跳过
+- 历史消息从未入 FTS → 搜历史零命中
+- 修复后用 `'rebuild'` + COUNT 对比，FTS 与 messages 完全同步
+
+## CSS 绝对定位浮层不能锚定到 overflow:auto 的父级
+
+### 浮层会随父级滚动，导致用户滚动后浮层不可见
+
+CSS 中 `position: absolute` 元素相对最近的 `position != static` 祖先定位。如果该祖先同时有 `overflow: auto`，浮层会跟随容器内容滚动 —— anchor 是 content-top 而非 viewport-top。
+
+典型表现：用户先滚动列表到底部，再触发搜索 → 搜索浮层渲染在 content 顶部（用户视口外）→ 看不到浮层。
+
+**规则**：要做覆盖滚动容器的浮层时，**父级必须拆成两层**：
+
+```tsx
+<div className="wrapper">       {/* overflow: hidden + position: relative — 定位锚点 */}
+  <div className="scroll-list"> {/* overflow: auto — 真正的滚动容器 */}
+    {items}
+  </div>
+  <div className="overlay" />   {/* position: absolute; inset: 0 — 锚到 wrapper */}
+</div>
+```
+
+```css
+.wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.scroll-list { overflow-y: auto; height: 100%; }
+.overlay { position: absolute; inset: 0; }
+```
+
+**反面：不要图省事**
+
+```css
+.scroll-list {
+  position: relative;
+  overflow-y: auto;   /* ← 这一行让 overlay 跟随滚动 */
+}
+.scroll-list .overlay {
+  position: absolute;
+  inset: 0;
+}
+```
+
+**反例（2026-05-11）**：
+- 移动端 `.mobile-contacts` 是 `height:100%; overflow-y:auto` 滚动容器
+- 给它直接加 `position: relative` + 内部 `.global-msg-search { position:absolute; inset:0 }` 浮层
+- 列表滚动到底后触发搜索 → 浮层渲染在 content 顶部 → 视口看不到
+- 修复：MobileChatList 外层包 `.mobile-chat-list-wrapper`（relative + overflow:hidden）+ `.mobile-contacts`（保持 overflow:auto）+ 浮层挂 wrapper 内
+
 ## Tauri plugin-http 不能用 playwright page.route 拦截
 
 ### 所有 `@tauri-apps/plugin-http` 的 fetch 请求都走 Tauri invoke 通道

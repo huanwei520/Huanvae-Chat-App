@@ -2,9 +2,12 @@
  * 移动端通讯录页
  *
  * 使用折叠面板展示好友和群聊
+ *
+ * 展开状态由父组件（MobileMain）持有 + 通过 props 注入，避免本组件因
+ * AnimatePresence 切换 tab/进入聊天页时被 unmount 而丢失展开状态。
  */
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
@@ -35,6 +38,14 @@ interface MobileContactsProps {
   searchQuery: string;
   /** 选中目标回调 */
   onSelectTarget: (target: ChatTarget) => void;
+  /** 好友分组是否展开（由父组件持有） */
+  friendsExpanded: boolean;
+  /** 群聊分组是否展开（由父组件持有） */
+  groupsExpanded: boolean;
+  /** 切换好友分组展开 */
+  onToggleFriends: () => void;
+  /** 切换群聊分组展开 */
+  onToggleGroups: () => void;
 }
 
 export function MobileContacts({
@@ -42,10 +53,11 @@ export function MobileContacts({
   groups,
   searchQuery,
   onSelectTarget,
+  friendsExpanded,
+  groupsExpanded,
+  onToggleFriends,
+  onToggleGroups,
 }: MobileContactsProps) {
-  // 折叠状态
-  const [friendsExpanded, setFriendsExpanded] = useState(false);
-  const [groupsExpanded, setGroupsExpanded] = useState(false);
 
   // 搜索过滤
   const filteredFriends = useMemo(() => {
@@ -92,7 +104,7 @@ export function MobileContacts({
       <div className="mobile-contacts-group">
         <div
           className="mobile-contacts-header"
-          onClick={() => setFriendsExpanded(!friendsExpanded)}
+          onClick={onToggleFriends}
         >
           <div className="mobile-contacts-header-left">
             <div
@@ -147,7 +159,7 @@ export function MobileContacts({
       <div className="mobile-contacts-group">
         <div
           className="mobile-contacts-header"
-          onClick={() => setGroupsExpanded(!groupsExpanded)}
+          onClick={onToggleGroups}
         >
           <div className="mobile-contacts-header-left">
             <div

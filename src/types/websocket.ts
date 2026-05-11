@@ -5,18 +5,20 @@
  *
  * 支持的消息类型：
  * - connected: 连接成功，返回未读消息摘要、session_id、resumed 标志
- * - new_message: 新消息通知（含连接级 event seq）
+ * - new_message: 新消息通知（含会话内 seq）
  * - message_recalled: 消息撤回通知
+ * - message_deleted: 消息删除通知（个人删除，同步其他设备）
  * - read_sync: 已读同步通知
  * - system_notification: 系统通知（好友/群聊相关）
  * - heartbeat: 心跳
  * - error: 错误消息
+ * - hg_*: HuanvaeGuard 相关通知（拓扑/节点/群组/混淆/设备状态）
  *
  * 连接恢复机制（2026-03 新增）：
  * - connected 消息包含 session_id，客户端需保存
  * - 重连时 URL 带 session_id + last_seq，服务端自动重放缺失事件
  * - resumed=true 时无需手动 sync，resumed=false 时需要增量同步
- * - 所有 WS 推送事件包含递增 seq，客户端检测跳号时触发 sync
+ * - 所有 WS 推送事件包含递增 event_seq，客户端检测跳号时触发 sync
  *
  * 系统通知类型（notification_type）：
  * 第一批：friend_request, friend_request_approved/rejected,
@@ -62,15 +64,22 @@ export interface UnreadSummary {
 
 export interface FriendUnread {
   friend_id: string;
+  friend_nickname?: string;
+  friend_avatar?: string;
   unread_count: number;
   last_message_preview: string | null;
+  last_message_type?: string;
   last_message_time: string | null;
 }
 
 export interface GroupUnread {
   group_id: string;
+  group_name?: string;
+  group_avatar?: string;
   unread_count: number;
   last_message_preview: string | null;
+  last_message_type?: string;
+  last_sender_nickname?: string;
   last_message_time: string | null;
 }
 
@@ -94,7 +103,7 @@ export interface WsNewMessage {
   content: string;
   /** 消息预览（兼容旧版本，可能为空） */
   preview?: string;
-  message_type: 'text' | 'image' | 'video' | 'file';
+  message_type: 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
   /** 会话内序列号（用于增量同步） */
   seq: number;
   timestamp: string;
@@ -302,6 +311,7 @@ export interface GroupMemberJoinedData {
  */
 export interface WsHeartbeat {
   type: 'heartbeat';
+  timestamp: string;
 }
 
 /**
@@ -309,27 +319,89 @@ export interface WsHeartbeat {
  */
 export interface WsError {
   type: 'error';
-  code: number;
+  code: string;
   message: string;
+}
+
+/**
+ * 消息删除通知（个人删除，仅同步删除者的其他设备）
+ */
+export interface WsMessageDeleted {
+  type: 'message_deleted';
+  source_type: 'friend' | 'group';
+  source_id: string;
+  message_uuid: string;
+}
+
+/**
+ * HuanvaeGuard 拓扑变更通知
+ */
+export interface WsHgTopologyChanged {
+  type: 'hg_topology_changed';
+  device_id: string;
+  added: string[];
+  removed: string[];
+}
+
+/**
+ * HuanvaeGuard 节点迁移通知
+ */
+export interface WsHgNodeMigrated {
+  type: 'hg_node_migrated';
+  device_id: string;
+  from_node: string;
+  to_node: string;
+}
+
+/**
+ * HuanvaeGuard 群组拓扑开关变更
+ */
+export interface WsHgGroupToggled {
+  type: 'hg_group_toggled';
+  group_id: string;
+  is_active: boolean;
+}
+
+/**
+ * HuanvaeGuard 混淆参数变更通知
+ */
+export interface WsHgObfsConfigChanged {
+  type: 'hg_obfs_config_changed';
+  obfs_hash: string;
+}
+
+/**
+ * HuanvaeGuard 设备在线状态变更通知
+ */
+export interface WsHgDeviceStatusChanged {
+  type: 'hg_device_status_changed';
+  device_id: string;
+  status: string;
 }
 
 /**
  * 所有服务器消息类型
  *
- * 所有事件可能包含连接级递增 seq 字段（用于跳号检测）。
- * 客户端应追踪 seq，发现跳号时触发增量同步。
+ * 所有事件包含连接级递增 event_seq 字段（用于跳号检测）。
+ * 客户端应追踪 event_seq，发现跳号时触发增量同步。
  */
 export type WsServerMessage = (
   | WsConnectedMessage
   | WsNewMessage
   | WsMessageRecalled
+  | WsMessageDeleted
   | WsReadSync
   | WsSystemNotification
   | WsHeartbeat
   | WsError
+  | WsHgTopologyChanged
+  | WsHgNodeMigrated
+  | WsHgGroupToggled
+  | WsHgObfsConfigChanged
+  | WsHgDeviceStatusChanged
 ) & {
   /** 连接级事件序列号（递增），用于跳号检测 */
-  seq?: number;
+  event_seq?: number;
 };
 
 // ============================================

@@ -6,7 +6,7 @@
  * - 顶部栏（头像+搜索）
  * - 抽屉侧边栏
  * - 聊天页面（右滑进入）
- * - 全屏页面（个人资料、我的文件、局域网传输、视频会议、设置）
+ * - 全屏页面（个人资料、我的文件、局域网传输、小程序、视频会议、设置）
  *
  * 移动端功能说明：
  * - 视频会议：使用全屏页面替代桌面端的多窗口，不支持屏幕共享
@@ -40,6 +40,7 @@ import { MobileProfilePage } from './MobileProfilePage';
 import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
+import { MobileMiniAppsPage } from './MobileMiniAppsPage';
 import { MobileThemePage } from './MobileThemePage';
 import { MobileAddPage } from './MobileAddPage';
 import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
@@ -50,6 +51,7 @@ import { VoiceCallFloating } from '../../chat/ai/voice/VoiceCallFloating';
 import '../../styles/voice-call.css';
 import { useWebRTC } from '../../meeting/useWebRTC';
 import { loadMeetingData, clearMeetingData, type IceServer } from '../../meeting/api';
+import type { MiniApp } from '../../hooks/useMiniApps';
 // 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
 // import { ProfileModal } from '../../components/ProfileModal';
 // import { FilesModal } from '../../components/files/FilesModal';
@@ -71,11 +73,17 @@ export function MobileMain() {
   const [showProfilePage, setShowProfilePage] = useState(false);
   const [showFilesPage, setShowFilesPage] = useState(false);
   const [showLanTransferPage, setShowLanTransferPage] = useState(false);
+  const [showMiniAppsPage, setShowMiniAppsPage] = useState(false);
+  const [miniAppLaunching, setMiniAppLaunching] = useState<MiniApp | null>(null);
   const [showMeetingEntryPage, setShowMeetingEntryPage] = useState(false);
   const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showThemePage, setShowThemePage] = useState(false);
   const [showAddPage, setShowAddPage] = useState(false);
+
+  // 通讯录展开状态（上抬到此处，避免 MobileContacts 被 AnimatePresence 切换 unmount 时丢失）
+  const [contactsFriendsExpanded, setContactsFriendsExpanded] = useState(false);
+  const [contactsGroupsExpanded, setContactsGroupsExpanded] = useState(false);
 
   // 会议状态（提升到此层级以支持最小化时保持连接）
   const [meetingMinimized, setMeetingMinimized] = useState(false);
@@ -184,6 +192,20 @@ export function MobileMain() {
 
   // 处理移动端手势返回
   const handleMobileBack = useCallback(() => {
+    // 优先级 -1：全局搜索浮层打开（searchQuery 非空）→ 清空 query 关闭浮层
+    // 优先级最高 — 搜索浮层是当前最显眼的临时状态，返回手势应优先关闭它
+    if (page.searchQuery.trim() !== '') {
+      page.setSearchQuery('');
+      return true;
+    }
+
+    // 优先级 0：小程序 iframe 打开 → 关闭 iframe
+    // （小程序与 Theme/Meeting 不会同时打开，无需视觉栈对比；仅保证 iframe 关闭优先于 list 关闭）
+    if (miniAppLaunching) {
+      setMiniAppLaunching(null);
+      return true;
+    }
+
     // 优先级 1：主题设置页面打开 → 关闭主题页面
     if (showThemePage) {
       setShowThemePage(false);
@@ -211,6 +233,12 @@ export function MobileMain() {
     // 优先级 5：局域网互传页面打开 → 关闭页面
     if (showLanTransferPage) {
       setShowLanTransferPage(false);
+      return true;
+    }
+
+    // 优先级 5b：小程序列表页打开 → 关闭页面
+    if (showMiniAppsPage) {
+      setShowMiniAppsPage(false);
       return true;
     }
 
@@ -248,7 +276,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showAddPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
+  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showAddPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -282,6 +310,10 @@ export function MobileMain() {
         }}
         onLanTransferClick={() => {
           setShowLanTransferPage(true);
+          nav.closeDrawer();
+        }}
+        onMiniAppsClick={() => {
+          setShowMiniAppsPage(true);
           nav.closeDrawer();
         }}
         onMeetingClick={() => {
@@ -390,6 +422,10 @@ export function MobileMain() {
                       groups={page.groups}
                       searchQuery={page.searchQuery}
                       onSelectTarget={handleSelectTarget}
+                      friendsExpanded={contactsFriendsExpanded}
+                      groupsExpanded={contactsGroupsExpanded}
+                      onToggleFriends={() => setContactsFriendsExpanded((v) => !v)}
+                      onToggleGroups={() => setContactsGroupsExpanded((v) => !v)}
                     />
                   </motion.div>
                 )}
@@ -494,6 +530,20 @@ export function MobileMain() {
       <AnimatePresence>
         {showLanTransferPage && (
           <MobileLanTransferPage onClose={() => setShowLanTransferPage(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMiniAppsPage && (
+          <MobileMiniAppsPage
+            launchingApp={miniAppLaunching}
+            onLaunch={setMiniAppLaunching}
+            onLaunchEnd={() => setMiniAppLaunching(null)}
+            onClose={() => {
+              setMiniAppLaunching(null);
+              setShowMiniAppsPage(false);
+            }}
+          />
         )}
       </AnimatePresence>
 

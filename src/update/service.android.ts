@@ -117,7 +117,7 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
   // 优先尝试自建更新源（store.huanvae.cn）
   try {
     console.warn('[Android Update] 尝试自建源:', SELF_HOSTED_ANDROID_JSON);
-    // eslint-disable-next-line no-await-in-loop
+
     const response = await invoke<string>('fetch_update_json', {
       url: SELF_HOSTED_ANDROID_JSON,
       timeoutSecs: PROXY_TIMEOUT_SECONDS,

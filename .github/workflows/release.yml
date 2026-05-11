@@ -566,11 +566,47 @@ jobs:
           # - darwin-aarch64: macOS ARM64
           # - linux-x86_64: 默认 Linux (AppImage)
           # - linux-x86_64-appimage: 明确指定 AppImage
+
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          NOTES="Huanvae Chat ${TAG} 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}"
+
+          # GitHub Release 版（proxy URL，供 tauri.conf.json 的备用 endpoint 使用）
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
-            "notes": "Huanvae Chat ${TAG} 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notes": "${NOTES}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${WIN_NSIS_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+              },
+              "windows-x86_64-msi": {
+                "signature": "${WIN_NSIS_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+              },
+              "darwin-aarch64": {
+                "signature": "${MAC_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_aarch64.dmg"
+              },
+              "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+              },
+              "linux-x86_64-appimage": {
+                "signature": "${LINUX_SIG}",
+                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+              }
+            }
+          }
+          EOF
+
+          # R2 版（R2 URL，供 store.huanvae.cn 首选 endpoint 使用）
+          cat > latest-r2.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "${NOTES}",
+            "pub_date": "${PUB_DATE}",
             "platforms": {
               "windows-x86_64": {
                 "signature": "${WIN_NSIS_SIG}",
@@ -595,9 +631,12 @@ jobs:
             }
           }
           EOF
-          
-          echo "Generated latest.json:"
+
+          echo "=== GitHub Release latest.json (proxy URLs): ==="
           cat latest.json
+          echo ""
+          echo "=== R2 latest-r2.json (R2 URLs): ==="
+          cat latest-r2.json
 
       - name: Upload latest.json to Release
         env:
@@ -657,8 +696,22 @@ jobs:
           # Android APK 文件名格式（与 build-android job 上传的文件名一致）
           APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
           R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
+          PROXY="https://cdn.gh-proxy.org/"
 
+          # GitHub Release 版（proxy URL，供代理源回退使用）
           cat > android-latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
+            "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "size": 0,
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          # R2 版（R2 URL，供自建源使用）
+          cat > android-latest-r2.json << EOF
           {
             "version": "${VERSION}",
             "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
@@ -668,9 +721,12 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
-          
-          echo "Generated android-latest.json:"
+
+          echo "=== GitHub android-latest.json: ==="
           cat android-latest.json
+          echo ""
+          echo "=== R2 android-latest-r2.json: ==="
+          cat android-latest-r2.json
 
       - name: Upload android-latest.json
         env:
@@ -718,14 +774,14 @@ jobs:
             echo "✅ ${filename}"
           done
 
-          # Upload latest.json
-          aws s3 cp latest.json "s3://${BUCKET}/huanvae-chat/latest.json" \
+          # Upload R2 版 latest.json（下载 URL 指向 R2）
+          aws s3 cp latest-r2.json "s3://${BUCKET}/huanvae-chat/latest.json" \
             --endpoint-url "$AWS_ENDPOINT_URL" \
             --content-type "application/json"
 
-          # Upload android-latest.json
-          if [ -f android-latest.json ]; then
-            aws s3 cp android-latest.json "s3://${BUCKET}/huanvae-chat/android-latest.json" \
+          # Upload R2 版 android-latest.json（下载 URL 指向 R2）
+          if [ -f android-latest-r2.json ]; then
+            aws s3 cp android-latest-r2.json "s3://${BUCKET}/huanvae-chat/android-latest.json" \
               --endpoint-url "$AWS_ENDPOINT_URL" \
               --content-type "application/json"
           fi

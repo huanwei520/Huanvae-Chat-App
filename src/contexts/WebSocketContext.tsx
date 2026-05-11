@@ -39,6 +39,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useCallback,
@@ -106,7 +107,7 @@ interface WebSocketContextType {
     targetType: 'friend' | 'group',
     targetId: string,
     preview: string,
-    messageType: 'text' | 'image' | 'video' | 'file',
+    messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
     timestamp: string
   ) => void;
   onNewMessage: (callback: (msg: WsNewMessage) => void) => () => void;
@@ -524,7 +525,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     targetType: 'friend' | 'group',
     targetId: string,
     preview: string,
-    messageType: 'text' | 'image' | 'video' | 'file',
+    messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
     timestamp: string,
   ) => {
     const previewText = getMessagePreviewText(messageType, preview);
@@ -710,7 +711,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }
   }, [session?.accessToken, buildWsUrl, installWsHandlers, startPing]);
 
-  const contextValue: WebSocketContextType = {
+  const contextValue = useMemo<WebSocketContextType>(() => ({
     connected,
     connecting,
     unreadSummary,
@@ -730,7 +731,27 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     onMessageRecalled,
     onSystemNotification,
     onReconnected,
-  };
+  }), [
+    connected,
+    connecting,
+    unreadSummary,
+    totalUnread,
+    getFriendUnread,
+    getGroupUnread,
+    pendingNotifications,
+    clearPendingNotification,
+    initPendingNotifications,
+    markRead,
+    connect,
+    disconnect,
+    setActiveChat,
+    updateLastMessage,
+    refreshLastMessagePreview,
+    onNewMessage,
+    onMessageRecalled,
+    onSystemNotification,
+    onReconnected,
+  ]);
 
   return (
     <WebSocketContext.Provider value={contextValue}>

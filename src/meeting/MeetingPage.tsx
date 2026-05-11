@@ -495,7 +495,7 @@ export default function MeetingPage() {
 
   // 分享会议到聊天（通过 Tauri 事件通知主窗口）
   const handleShareToChat = useCallback(async () => {
-    if (!meetingData) return;
+    if (!meetingData) { return; }
     try {
       const { emit } = await import('@tauri-apps/api/event');
       await emit('share-meeting-to-chat', {

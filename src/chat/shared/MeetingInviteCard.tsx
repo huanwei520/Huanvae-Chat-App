@@ -26,7 +26,7 @@ export function MeetingInviteCard({ messageContent }: MeetingInviteCardProps) {
   }
 
   const handleJoin = useCallback(async () => {
-    if (!payload || joining || expired) return;
+    if (!payload || joining || expired) { return; }
 
     setJoining(true);
     setError(null);

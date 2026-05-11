@@ -266,7 +266,7 @@ export async function notify(options: NotificationOptions): Promise<void> {
  * 根据消息类型生成预览文本
  */
 function getMessagePreview(
-  messageType: 'text' | 'image' | 'video' | 'file',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
   content: string,
 ): string {
   switch (messageType) {
@@ -279,6 +279,8 @@ function getMessagePreview(
       return '[视频]';
     case 'file':
       return '[文件]';
+    case 'meeting_invite':
+      return '[会议邀请]';
     default:
       return content;
   }
@@ -298,7 +300,7 @@ export interface NewMessageNotificationParams {
   /** 群名称（仅群消息需要） */
   groupName?: string;
   /** 消息类型 */
-  messageType: 'text' | 'image' | 'video' | 'file';
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
   /** 消息内容 */
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */

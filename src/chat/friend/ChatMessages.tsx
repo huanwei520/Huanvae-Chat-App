@@ -169,6 +169,25 @@ export function ChatMessages({
     }
   }, [loadingMore]);
 
+  // 容器收缩（如 Android 键盘弹起致 WebView 变矮）时，若用户在底部则重新对齐
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') { return; }
+
+    let prevHeight = container.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const el = containerRef.current;
+      if (!el) { return; }
+      const newHeight = el.clientHeight;
+      if (newHeight < prevHeight && isAtBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+      prevHeight = newHeight;
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   // 统计图片消息的尺寸信息
   const imageStats = useMemo(() => {
     const imageMessages = messages.filter((m) => m.message_type === 'image');

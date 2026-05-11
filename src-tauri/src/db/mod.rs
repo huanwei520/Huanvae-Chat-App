@@ -177,6 +177,85 @@ pub fn init_database() -> Result<(), String> {
     )
     .ok();
 
+    // 创建 FTS5 全文索引（搜索消息内容 + 文件名）
+    // content='messages' 表示 FTS 表是 messages 表的"外部内容"视图，节省存储
+    // tokenize='unicode61' 内置 unicode 分词器（中英文按字符切分）
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+            content,
+            content='messages',
+            content_rowid='rowid',
+            tokenize='unicode61'
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 messages_fts 失败: {}", e))?;
+
+    // 同步 trigger：messages 表变更时维护 FTS
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+        END",
+        [],
+    )
+    .ok();
+
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+        END",
+        [],
+    )
+    .ok();
+
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+            INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+        END",
+        [],
+    )
+    .ok();
+
+    // FTS 索引同步性校验 + 必要时强制 rebuild
+    //
+    // 背景：FTS5 external content 表的 trigger 是 IF NOT EXISTS 创建，但只能同步 trigger
+    // 创建之后的 INSERT/UPDATE/DELETE。历史消息（trigger 创建前已存在）必须通过 backfill
+    // 或 'rebuild' 命令灌入。
+    //
+    // 旧实现：检查 messages_fts COUNT=0 → INSERT...SELECT。但 trigger 同时在为新消息写 FTS，
+    // 检查瞬间可能 COUNT > 0（仅含新消息），导致历史消息永远不被回灌。
+    //
+    // 新实现：对比 messages 与 messages_fts 的 COUNT。任一不一致 → 用 SQLite 官方推荐的
+    // 'rebuild' 命令重建索引（external content FTS 的标准做法）。幂等且原子。
+    let messages_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap_or(0);
+    let fts_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages_fts", [], |row| row.get(0))
+        .unwrap_or(0);
+    println!(
+        "[DB] FTS 同步检查: messages={} messages_fts={}",
+        messages_count, fts_count
+    );
+    if messages_count != fts_count {
+        println!("[DB] FTS 索引不同步，执行 rebuild...");
+        match conn.execute(
+            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')",
+            [],
+        ) {
+            Ok(_) => {
+                let new_count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM messages_fts", [], |row| row.get(0))
+                    .unwrap_or(0);
+                println!("[DB] FTS rebuild 完成，新 COUNT={}", new_count);
+            }
+            Err(e) => {
+                eprintln!("[DB] FTS rebuild 失败（不阻塞启动）: {}", e);
+            }
+        }
+    }
+
     // 创建文件映射表（hash -> 本地路径）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS file_mappings (

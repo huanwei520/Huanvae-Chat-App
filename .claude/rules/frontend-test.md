@@ -177,6 +177,22 @@ framer-motion 的 `motion.*` 通过 inline style 逐帧改 `transform` / `opacit
 - 修复：CSS 改为 `transition: box-shadow 0.2s ease, border-color 0.2s ease;`；`.mobile-file-card` 的 `transition: transform 0.2s ease` 整条删除
 - 同时新建 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 静态解析 CSS 文件，断言注册表中的 selector 不含冲突 transition
 
+### 检查时机前移到 plan 阶段（不要等到 code-review/blind-review）
+
+写新 motion + variants 组件的 plan 时，CSS 设计稿就应该一开始避免：
+
+- `transition: all` —— 永远不写，必须明确属性枚举
+- `transition: transform ...` / `transition: opacity ...` —— 不写，让 framer-motion 全权接管
+- `:active { transform: scale(0.98); }` 形式的 CSS 反馈 —— 改用 motion.div 的 `whileTap={{ scale: 0.98 }}`，避免 `:active` 触发 transform 与 motion variants 抢同一帧
+
+同时 plan 中**预先**列出"将 selector 加入 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) `MOTION_CONTROLLED_SELECTORS`"作为一条变更项，与组件实现并行落地，而非事后追加。
+
+**反例（2026-05-10）**：
+- MobileMiniAppsPage 的 `.mobile-miniapp-card` CSS 写了 `transition: background 0.2s ease, transform 0.15s ease;` + `:active { transform: scale(0.98); }`，同时 motion.div 用 cardVariants 控制 `y` (即 transform)
+- vitest/typecheck/lint/code-review 第一轮全绿（前述事后视角规则覆盖了"修瑕疵时"，但没明确说"plan 阶段就该写对"）
+- blind-review 在 PASS 后做附加检查时才抓到
+- 教训：motion 组件的 CSS plan 设计稿，一开始就不该写 `transform` 过渡 / `:active` transform 反馈；写完立刻把 selector 加到注册表
+
 ## 修改 CSS 后必须跑 `pnpm build` 验证（vitest 不会编译 tailwind）
 
 ### vitest / typecheck / lint 都不读 PostCSS / tailwindcss
@@ -323,3 +339,86 @@ beforeEach(() => {
 - 全量回归 832/834 通过，2 个失败：`registry.test.tsx > 通用组件 > FileContextMenu/FileMenuController`
 - 错误 `expected undefined to be defined` 指向 `COMPONENT_MAP[entry.name]`
 - 补改 `registry.test.tsx`：加 `import * as FileContextMenu` + `import * as FileMenuController` + 在 COMPONENT_MAP 字面量加两行后 834/834 通过
+
+### 新建 COMPONENTS 章节时必须三处同步（不仅两处）
+
+如果不是给已有章节（如 `COMMON_COMPONENTS`）加条目，而是**新建一个章节**（如 `SEARCH_COMPONENTS`），需要做的事是上面两处之外**还要在 registry.test.tsx 加一段 describe + it.each 遍历断言**：
+
+```tsx
+// registry.test.tsx 顶部 import
+import {
+  ...,
+  SEARCH_COMPONENTS,  // 新章节也要 import
+  ...,
+} from '../registry';
+
+// 在 describe 列表末尾加新章节遍历
+describe('全局搜索组件 (Search Components)', () => {
+  it.each(SEARCH_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+```
+
+**规则**：新建 COMPONENTS 章节流程是**三处同步**：
+1. `tests/registry.ts` — 加 `export const SEARCH_COMPONENTS = [...]` 章节
+2. `tests/components/registry.test.tsx` — import 章节 + import 各模块 + COMPONENT_MAP 字面量加条目
+3. `tests/components/registry.test.tsx` — **加 `describe('xxx') { it.each(SEARCH_COMPONENTS)... }` 块**
+
+第 3 步是关键。已有章节的 it.each 是已建好的，新章节没人遍历它 → 后续给该章节新增条目时，全量回归不会因"未注册"失败，rule 失去防回归价值。
+
+**反例（2026-05-11）**：
+- 新增 `SEARCH_COMPONENTS` 章节（GlobalMessageSearchResults + useGlobalMessageSearch）
+- 改了 registry.ts（加章节）+ registry.test.tsx（加 import + COMPONENT_MAP），跑全量回归 960/960 通过
+- code-review 第二轮抓到 Major：缺 `describe('全局搜索组件') + it.each(SEARCH_COMPONENTS)` 遍历块 → 未来 SEARCH_COMPONENTS 新增条目时，全量回归不会因"未注册"失败
+- 补加 describe 块后 173/173 通过
+
+## vitest fake timer 与真实 Promise 协调用 async 版本
+
+### `vi.advanceTimersByTime`（同步）只推进 setTimeout，不 flush microtask
+
+被测 hook 里典型异步模式：
+
+```ts
+const timer = setTimeout(async () => {
+  const data = await someAsyncFn();  // mockResolvedValue 是真实 Promise
+  setState(data);
+}, 500);
+```
+
+测试用 `vi.useFakeTimers()` 后：
+- `vi.advanceTimersByTime(500)` 同步触发 setTimeout 回调，async 函数启动
+- 但 `await someAsyncFn()` 后续的代码进入 microtask 队列，**fake timer 不推进 microtask**
+- 测试 act() 退出时 setState 没机会执行 → 断言看不到结果 → 测试超时
+
+**规则**：测 hook 里"setTimeout + await mock"组合时，必须用 vi 的 async 版本：
+
+```ts
+// 错误：同步版本不 flush microtask，测试超时
+await act(async () => {
+  vi.advanceTimersByTime(500);
+});
+
+// 正确：async 版本含 microtask flush
+await act(async () => {
+  await vi.advanceTimersByTimeAsync(500);
+});
+
+// 或者直接跑完所有 timer（推荐用于"等到稳定"）
+await act(async () => {
+  await vi.runAllTimersAsync();
+});
+```
+
+**何时算"setTimeout + await mock"组合**：
+- 防抖 hook（debounce）测试
+- 节流 hook 测试
+- 模拟数据加载延迟的 hook
+- 任何在 setTimeout 回调内 `await` 真实 Promise（mockResolvedValue/mockRejectedValue）的代码
+
+**反例（2026-05-11）**：
+- `useGlobalMessageSearch` 用 setTimeout(500ms) 防抖 → 回调里 `await searchMessages()` (mockResolvedValue 真实 Promise)
+- 测试用 `vi.advanceTimersByTime(500)` 同步版 → 3 个用例超时
+- test-runner 改用 `vi.advanceTimersByTimeAsync` / `vi.runAllTimersAsync` 后 7/7 通过

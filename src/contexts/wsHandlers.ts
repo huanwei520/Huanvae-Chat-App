@@ -7,7 +7,9 @@
  * - new_message: 保存到本地数据库并更新会话预览
  * - message_recalled: 刷新本地数据库预览并通知 UI 重载
  * - system_notification: 更新待处理计数
- * - 所有事件的连接级 seq 返回给 Context 用于跳号检测
+ * - message_deleted: 标记本地消息已删除并刷新会话预览
+ * - hg_*: HuanvaeGuard 事件（日志记录）
+ * - 所有事件的连接级 event_seq 返回给 Context 用于跳号检测
  */
 
 import type {
@@ -60,7 +62,7 @@ export interface MessageHandlerResult {
  * 生成消息预览文本
  */
 export function getMessagePreviewText(
-  messageType: 'text' | 'image' | 'video' | 'file',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
   preview: string,
 ): string {
   switch (messageType) {
@@ -70,6 +72,8 @@ export function getMessagePreviewText(
       return '[图片]';
     case 'video':
       return '[视频]';
+    case 'meeting_invite':
+      return '[会议邀请]';
     default:
       return '[文件]';
   }
@@ -311,9 +315,9 @@ export function handleWebSocketMessage(
     const msg = JSON.parse(data) as WsServerMessage;
     const result: MessageHandlerResult = {};
 
-    // 提取连接级 event seq（所有消息类型都可能携带）
-    if (msg.seq !== undefined) {
-      result.eventSeq = msg.seq;
+    // 提取连接级 event_seq（所有消息类型都携带，与业务 seq 分离）
+    if (msg.event_seq !== undefined) {
+      result.eventSeq = msg.event_seq;
     }
 
     switch (msg.type) {
@@ -455,6 +459,25 @@ export function handleWebSocketMessage(
 
       case 'error':
         console.error('[WebSocket] 服务端错误:', msg.code, msg.message);
+        break;
+
+      case 'message_deleted':
+        db.markMessageDeleted(msg.message_uuid).then(async () => {
+          const conversationId = msg.source_type === 'friend'
+            ? getFriendConversationId(ctx.currentUserId ?? '', msg.source_id)
+            : msg.source_id;
+          await db.refreshConversationPreview(conversationId);
+        }).catch(err => {
+          console.error('[WS] 删除消息或刷新预览失败:', err);
+        });
+        break;
+
+      case 'hg_topology_changed':
+      case 'hg_node_migrated':
+      case 'hg_group_toggled':
+      case 'hg_obfs_config_changed':
+      case 'hg_device_status_changed':
+        console.debug('[WS] HuanvaeGuard event:', msg.type);
         break;
     }
 

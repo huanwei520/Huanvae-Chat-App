@@ -342,6 +342,7 @@ export function GroupMessageBubble({
           <motion.div
             key="bubble"
             className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
+            data-message-uuid={message.message_uuid}
             onClick={handleRowClick}
             // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
             layout={message.sendStatus === 'sending' ? 'position' : false}

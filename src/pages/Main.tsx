@@ -33,6 +33,10 @@ interface ShareMeetingEvent {
 // 组件导入
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { UnifiedList } from '../components/unified/UnifiedList';
+import { GlobalMessageSearchResults } from '../components/search/GlobalMessageSearchResults';
+import { useChatStore } from '../stores';
+import { parseFriendIdFromConversationId } from '../utils/conversationId';
+import type { Friend, Group } from '../types/chat';
 import { ChatPanel, EmptyChat } from '../chat';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
@@ -50,6 +54,7 @@ import '../styles/voice-call.css';
 
 export function Main() {
   const page = useMainPage();
+  const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showMiniAppsModal, setShowMiniAppsModal] = useState(false);
@@ -276,6 +281,65 @@ export function Main() {
           )}
         </AnimatePresence>
       </motion.section>
+
+      {/* 全局搜索：backdrop 淡入淡出 + 浮层从搜索框左上角缩放展开/收回 */}
+      <AnimatePresence>
+        {page.searchQuery.trim() !== '' && (
+          <motion.div
+            key="search-backdrop"
+            className="search-overlay-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => page.setSearchQuery('')}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {page.searchQuery.trim() !== '' && (
+          <GlobalMessageSearchResults
+            key="search-overlay"
+            query={page.searchQuery}
+            friends={page.friends}
+            groups={page.groups}
+            currentUserId={page.session?.userId}
+            layout="desktop"
+            onSelectConversation={(type, data) => {
+              if (type === 'friend') {
+                page.handleSelectTarget({ type: 'friend', data: data as Friend });
+              } else {
+                page.handleSelectTarget({ type: 'group', data: data as Group });
+              }
+            }}
+            onSelectMessage={(grp, hit) => {
+              // 仅在找到目标会话时切换并设置跳转 — 避免残留 pending scroll id
+              if (grp.conversationType === 'friend' && page.session) {
+                const friendId = parseFriendIdFromConversationId(
+                  grp.conversationId,
+                  page.session.userId,
+                );
+                const friendData = friendId
+                  ? page.friends.find((f) => f.friend_id === friendId)
+                  : undefined;
+                if (friendData) {
+                  page.handleSelectTarget({ type: 'friend', data: friendData });
+                  setPendingScrollToMessageId(hit.message.message_uuid);
+                }
+              } else if (grp.conversationType === 'group') {
+                const groupData = page.groups.find(
+                  (g) => g.group_id === grp.conversationId,
+                );
+                if (groupData) {
+                  page.handleSelectTarget({ type: 'group', data: groupData });
+                  setPendingScrollToMessageId(hit.message.message_uuid);
+                }
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* AI 语音通话浮窗（桌面端通话条） */}
       <AnimatePresence>

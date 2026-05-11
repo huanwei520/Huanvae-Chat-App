@@ -36,6 +36,13 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
   { name: 'MobileHeader', path: 'pages/mobile/MobileHeader', category: 'components', description: '移动端顶部栏（含 WebSocket 连接状态指示器）' },
   { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
   { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
+  { name: 'MobileMiniAppsPage', path: 'pages/mobile/MobileMiniAppsPage', category: 'pages', description: '移动端小程序页面（公开列表 + iframe 启动）' },
+];
+
+// ============== 全局搜索组件 ==============
+export const SEARCH_COMPONENTS: ComponentEntry[] = [
+  { name: 'GlobalMessageSearchResults', path: 'components/search/GlobalMessageSearchResults', category: 'components', description: '跨会话消息内容/文件名搜索结果（移动+桌面共用）' },
+  { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
 ];
 
 // ============== 通用组件 ==============

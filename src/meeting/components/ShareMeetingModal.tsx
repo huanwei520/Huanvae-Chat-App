@@ -35,13 +35,13 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
   const [activeTab, setActiveTab] = useState<'friends' | 'groups'>('friends');
 
   const filteredFriends = useMemo(() => {
-    if (!search) return friends;
+    if (!search) { return friends; }
     const q = search.toLowerCase();
     return friends.filter((f: Friend) => f.friend_nickname.toLowerCase().includes(q));
   }, [friends, search]);
 
   const filteredGroups = useMemo(() => {
-    if (!search) return groups;
+    if (!search) { return groups; }
     const q = search.toLowerCase();
     return groups.filter((g: Group) => g.group_name.toLowerCase().includes(q));
   }, [groups, search]);
@@ -62,7 +62,7 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
   );
 
   const handleSend = useCallback(async () => {
-    if (selected.length === 0 || sending) return;
+    if (selected.length === 0 || sending) { return; }
 
     setSending(true);
     const content = JSON.stringify({
@@ -167,47 +167,47 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
             <div className="share-meeting-list">
               {activeTab === 'friends'
                 ? filteredFriends.map((f: Friend) => (
-                    <div
-                      key={f.friend_id}
-                      className={`share-meeting-item ${isSelected('friend', f.friend_id) ? 'selected' : ''}`}
-                      onClick={() =>
-                        toggleSelect({
-                          type: 'friend',
-                          id: f.friend_id,
-                          name: f.friend_nickname,
-                          avatar: f.friend_avatar_url,
-                        })
-                      }
-                    >
-                      <div className={`share-meeting-checkbox ${isSelected('friend', f.friend_id) ? 'checked' : ''}`} />
-                      {f.friend_avatar_url ? (
-                        <img className="share-meeting-avatar" src={f.friend_avatar_url} alt="" />
-                      ) : (
-                        <div className="share-meeting-avatar share-meeting-avatar-placeholder">
-                          {f.friend_nickname.charAt(0)}
-                        </div>
-                      )}
-                      <span className="share-meeting-name">{f.friend_nickname}</span>
-                    </div>
-                  ))
+                  <div
+                    key={f.friend_id}
+                    className={`share-meeting-item ${isSelected('friend', f.friend_id) ? 'selected' : ''}`}
+                    onClick={() =>
+                      toggleSelect({
+                        type: 'friend',
+                        id: f.friend_id,
+                        name: f.friend_nickname,
+                        avatar: f.friend_avatar_url,
+                      })
+                    }
+                  >
+                    <div className={`share-meeting-checkbox ${isSelected('friend', f.friend_id) ? 'checked' : ''}`} />
+                    {f.friend_avatar_url ? (
+                      <img className="share-meeting-avatar" src={f.friend_avatar_url} alt="" />
+                    ) : (
+                      <div className="share-meeting-avatar share-meeting-avatar-placeholder">
+                        {f.friend_nickname.charAt(0)}
+                      </div>
+                    )}
+                    <span className="share-meeting-name">{f.friend_nickname}</span>
+                  </div>
+                ))
                 : filteredGroups.map((g: Group) => (
-                    <div
-                      key={g.group_id}
-                      className={`share-meeting-item ${isSelected('group', g.group_id) ? 'selected' : ''}`}
-                      onClick={() =>
-                        toggleSelect({
-                          type: 'group',
-                          id: g.group_id,
-                          name: g.group_name,
-                          avatar: g.group_avatar_url,
-                        })
-                      }
-                    >
-                      <div className={`share-meeting-checkbox ${isSelected('group', g.group_id) ? 'checked' : ''}`} />
-                      <img className="share-meeting-avatar" src={g.group_avatar_url} alt="" />
-                      <span className="share-meeting-name">{g.group_name}</span>
-                    </div>
-                  ))}
+                  <div
+                    key={g.group_id}
+                    className={`share-meeting-item ${isSelected('group', g.group_id) ? 'selected' : ''}`}
+                    onClick={() =>
+                      toggleSelect({
+                        type: 'group',
+                        id: g.group_id,
+                        name: g.group_name,
+                        avatar: g.group_avatar_url,
+                      })
+                    }
+                  >
+                    <div className={`share-meeting-checkbox ${isSelected('group', g.group_id) ? 'checked' : ''}`} />
+                    <img className="share-meeting-avatar" src={g.group_avatar_url} alt="" />
+                    <span className="share-meeting-name">{g.group_name}</span>
+                  </div>
+                ))}
             </div>
 
             <div className="share-meeting-footer">

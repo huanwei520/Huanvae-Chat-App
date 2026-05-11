@@ -124,6 +124,16 @@ export function useLocalFriendMessages(friendId: string | null) {
   const currentFriendId = useRef<string | null>(null);
   const dbInitialized = useRef(false);
 
+  // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
+  const messagesRef = useRef<Message[]>(messages);
+  const hasMoreRef = useRef<boolean>(hasMore);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
   // ============================================
   // 数据库初始化检查
   // ============================================
@@ -375,6 +385,34 @@ export function useLocalFriendMessages(friendId: string | null) {
       setLoadingMore(false);
     }
   }, [friendId, session, hasMore, messages]);
+
+  // ============================================
+  // 加载历史直到目标消息进入窗口（用于全局搜索点击跳转）
+  // ============================================
+
+  /**
+   * 循环 loadMoreMessages 直到 messages 中包含目标 messageUuid
+   * 或 hasMore=false 或达 maxIterations 防死循环。
+   */
+  const loadUntilMessage = useCallback(
+    async (messageUuid: string, maxIterations = 20): Promise<boolean> => {
+      for (let i = 0; i < maxIterations; i++) {
+        if (messagesRef.current.some((m) => m.message_uuid === messageUuid)) {
+          return true;
+        }
+        if (!hasMoreRef.current) {
+          return false;
+        }
+        await loadMoreMessages();
+        // 让 React 提交 + useEffect 同步 ref
+        await new Promise<void>((r) => {
+          setTimeout(r, 0);
+        });
+      }
+      return messagesRef.current.some((m) => m.message_uuid === messageUuid);
+    },
+    [loadMoreMessages],
+  );
 
   // ============================================
   // 发送文本消息（乐观更新）
@@ -840,6 +878,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     syncing,
     loadMessages,
     loadMoreMessages,
+    loadUntilMessage,
     sendTextMessage,
     sendMediaMessage,
     recall,
