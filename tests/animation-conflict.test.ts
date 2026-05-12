@@ -76,7 +76,7 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     selector: '.conversation-item',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['transform', 'opacity'],
-    motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position")',
+    motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position" guarded by isTabSwitching window)',
   },
   {
     selector: '.recall-system-row',

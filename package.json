@@ -1,7 +1,7 @@
 {
   "name": "Huanvae-Chat-App",
   "private": true,
-  "version": "1.1.8",
+  "version": "1.1.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -52,7 +52,7 @@
     "better-react-mathjax": "2.4.0-beta-1",
     "culori": "^4.0.2",
     "dagre": "^0.8.5",
-    "framer-motion": "^12.26.2",
+    "framer-motion": "^12.38.0",
     "highlight.js": "^11.11.1",
     "liquid-glass-tailwind-react": "^1.0.56",
     "mermaid": "^11.12.2",

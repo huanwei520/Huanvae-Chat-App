@@ -24,7 +24,7 @@
  * - 面板极窄（< 120px）时自动隐藏
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { AIAvatar } from '../common/AIAvatar';
@@ -311,6 +311,26 @@ export function UnifiedList({
     );
   }, [cards, searchQuery]);
 
+  // Tab 切换守卫窗口：在 activeTab 变化后 350ms 内禁用 layout="position"。
+  // 原因：popLayout + 全量 key 替换场景下，exit 元素清理触发 LayoutGroup 二次测量 +
+  // layout="position" 用 tween 把卡片向下推 1-2px（视觉上"切换完成后弹动一下"）。
+  // 350ms = cardTransition.x.duration 250ms + popLayout exit 250ms 内最长冲突窗口 + 50ms 余量。
+  // 窗口外仍启用 layout="position"，保留"同 tab 内排序变化时卡片平滑滑动"的动画。
+  const prevTabRef = useRef(activeTab);
+  const [isTabSwitching, setIsTabSwitching] = useState(false);
+  useEffect(() => {
+    if (prevTabRef.current === activeTab) { return; }
+    prevTabRef.current = activeTab;
+    setIsTabSwitching(true);
+    const timer = setTimeout(() => setIsTabSwitching(false), 350);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
+
+  // layoutDependency：反映卡片"实际顺序"的稳定字符串，仅当顺序真的变化（新增、删除、
+  // 上下移动）时让 framer-motion 重新测量并触发 layout 动画。
+  // 配合 isTabSwitching 守卫使用：守卫窗口内不传 layout/layoutDependency。
+  const layoutKey = filteredCards.map(c => c.uniqueKey).join('|');
+
   // 状态计算
   // 等待本地会话预览加载完成后再渲染卡片，避免首次使用 add_time 排序后再用 lastMessageTime 重新排序
   const loading = friendsLoading || groupsLoading || !localConversationsReady;
@@ -419,13 +439,12 @@ export function UnifiedList({
   };
 
   // 渲染卡片列表（不包含 loading/error/empty 状态）
-  // layoutDependency 是一段反映卡片"实际顺序"的稳定字符串：仅当顺序真的变化（新增、
-  // 删除、上下移动）时才让 framer-motion 重新测量并触发 layout 动画。
-  // 这是 framer-motion 的官方推荐做法，参考 https://motion.dev/docs/react-motion-component。
-  // 没有这一行时：sync / 任意 setPreviews 引发的 cards 数组引用变化（即便顺序未变）会让
-  // motion.div 重新测量；任何 1px 误差就会让全部卡片"轻微抖动重排"。
-  const layoutKey = filteredCards.map(c => c.uniqueKey).join('|');
-
+  // 关键设计：仅在非 tab 切换窗口期启用 layout="position"。
+  // - tab 切换窗口期（isTabSwitching=true）：不传 layout，避免 popLayout + 全量 key 替换
+  //   场景下 exit 元素清理触发的 LayoutGroup 二次测量（视觉上"切换完成后向下弹动"）
+  // - 非切换期：layout="position" + layoutDependency={layoutKey}，保留同 tab 内卡片
+  //   排序变化（如新消息推到顶部）时的平滑滑动动画
+  const layoutProps = isTabSwitching ? {} : { layout: 'position' as const, layoutDependency: layoutKey };
   const renderCards = () => {
     if (loading || error || filteredCards.length === 0) {
       return null;
@@ -442,8 +461,7 @@ export function UnifiedList({
           initial="initial"
           animate="animate"
           exit="exit"
-          layout="position"
-          layoutDependency={layoutKey}
+          {...layoutProps}
           transition={cardTransition}
         >
           {/* 选中指示器：使用 layoutId 实现跨卡片的平滑动画 */}
@@ -571,8 +589,7 @@ export function UnifiedList({
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                layout="position"
-                layoutDependency={layoutKey}
+                {...layoutProps}
                 transition={cardTransition}
               >
                 {selectedKey === 'ai-assistant' && (
