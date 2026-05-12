@@ -485,3 +485,46 @@ await act(async () => {
 - **未重跑测试**就送 Round 2
 - Round 2 标 P0：`tests/App/AppUpdateToast.test.tsx` 的 import 正则 `\{\s*UpdateToast\s*,\s*useStartupUpdateCheck\s*\}` 不再匹配新的 `{UpdateToast, useStartupUpdateCheck, useUpdateToastProps}`
 - 修复：放宽正则为 `\{[^}]*\bUpdateToast\b[^}]*\buseStartupUpdateCheck\b[^}]*\}`
+
+## DOM API 陷阱
+
+### `element.scrollIntoView()` 会沿祖先链冒泡，可能滚动到外层容器
+
+`element.scrollIntoView({ block: 'start' })` 不是"只滚动最近的 overflow 父元素"。它会**遍历所有可滚动祖先**，让每一层都尝试把目标元素对齐到该层的视口边缘。即使祖先元素的 `overflow` 是默认值（visible），但只要内容超过 viewport，浏览器仍可能滚动 document。
+
+**典型坑（2026-05-13）**：内嵌组件用 `scrollIntoView` 恢复滚动位置时，**整个 ChatPanel / 外层 wrapper / document body 也被推上**，目标容器外的内容失踪、底部出现空白。
+
+**规则**：在需要"仅滚动当前容器自己"的场景，不要用 `scrollIntoView`。改用**手动算 scrollTop 差值并直接赋值**：
+
+```ts
+// ✓ 推荐：精确控制容器自身 scrollTop，零冒泡
+const containerRect = container.getBoundingClientRect();
+const elRect = el.getBoundingClientRect();
+container.scrollTop += elRect.top - containerRect.top;
+
+// ✗ 错误：会让 container 的所有可滚动祖先也滚动
+el.scrollIntoView({ block: 'start' });
+```
+
+`scrollIntoView` 仍可用于"全文档跳转到某锚点"（如导航 ToC 跳转），那种场景**就是**希望整页面滚动。
+
+### 防回退断言：替换 scrollIntoView 后必须显式断言它未被调用
+
+scrollIntoView 在 jsdom 中**默认是 undefined**（jsdom 不实现），所以：
+
+- 代码即使误回退到 `el.scrollIntoView()` 也会静默 noop（不抛错），单测不会失败
+- 用 scrollTop 主路径断言不足以防止未来误回退
+
+**规则**：在测试"手动 scrollTop"主路径时，**必须同时显式断言 scrollIntoView 未被调用**：
+
+```ts
+const spy = vi.fn();
+el.scrollIntoView = spy;  // 在 jsdom 中赋值即可，因为原本是 undefined
+// ... 触发 hook ...
+expect(container.scrollTop).toBe(50);
+expect(spy).not.toHaveBeenCalled();  // ← 防回退关键断言
+```
+
+否则未来某个 contributor "顺手" 把代码改回 scrollIntoView 时，测试静默通过，bug 重现。
+
+**反例（2026-05-13）**：useScrollAnchorRestore 改用手动 scrollTop 后，初版测试只断言 `expect(container.scrollTop).toBe(50)`。code-review 第二轮指出"jsdom 中 scrollIntoView 是 undefined，误回退 noop 不报错"——补加 `expect(scrollIntoViewSpy).not.toHaveBeenCalled()` 后才形成完整防护。

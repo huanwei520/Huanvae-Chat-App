@@ -14,6 +14,7 @@ import {
   MOBILE_COMPONENTS,
   SEARCH_COMPONENTS,
   UPDATE_COMPONENTS,
+  CHAT_RESTORE_HOOKS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -43,6 +44,9 @@ import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch'
 
 // 更新模块 Hooks
 import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
+
+// 聊天滚动恢复 Hooks
+import * as useScrollAnchorRestore from '../../src/hooks/useScrollAnchorRestore';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -238,6 +242,8 @@ const COMPONENT_MAP = {
   useGlobalMessageSearch,
   // 更新模块 Hooks
   useStartupUpdateCheck,
+  // 聊天滚动恢复 Hooks
+  useScrollAnchorRestore,
   // 通用组件
   Avatar,
   AIAvatar,
@@ -432,6 +438,15 @@ describe('全局搜索组件 (Search Components)', () => {
 // ============== 更新模块 Hooks 测试 ==============
 describe('更新模块 Hooks (Update Components)', () => {
   it.each(UPDATE_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
+// ============== 聊天滚动恢复 Hooks 测试 ==============
+describe('聊天滚动恢复 Hooks (Chat Restore Hooks)', () => {
+  it.each(CHAT_RESTORE_HOOKS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

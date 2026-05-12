@@ -139,3 +139,45 @@ Tauri 2 提供 [`Manager::asset_protocol_scope()`](https://docs.rs/tauri/latest/
 | **本项目**（portable 模式） | `<exe_dir>/data/` | 运行时 `allow_directory(get_app_root(), true)` | 数据跟应用走、支持装非 C 盘 |
 
 两种做法 API 都是 Tauri 2 稳定接口。portable 模式没有官方专项支持但 API 链路完整可用，官方明确说 `executableDir()` Windows 不支持，没有 `$EXE` 内置变量也是设计层面的暗示。
+
+### Windows 上 asset 协议 URL 是 `http://asset.localhost`，CSP 必须配 http 不是 https
+
+Tauri 2 在 Windows 上 asset 协议的实际 URL host 是 **`http://asset.localhost`**（http，不是 https；Linux/macOS 用 `asset://`）。这与某些早期文档/旧版本可能不同，**实际以 Tauri 2.x 行为为准**。
+
+`tauri.conf.json` CSP 必须显式列 `http://asset.localhost` 才能让 `<img>` `<video>` 通过 CSP 校验。
+
+**坑（2026-05-13）**：本项目 CSP 原配置：
+
+```
+img-src 'self' data: blob: asset: https://asset.localhost http: https:;
+                                                          ^^^^^^^^^^
+                                       通配 → 任何 http:// 都允许 ✅
+                                       
+media-src 'self' blob: data: http://127.0.0.1:* asset: https://asset.localhost;
+                                                       ^^^^^^^^^^^^^^^^^^^^
+                                  只允许 https，但 Windows 实际是 http ✗
+```
+
+现象：图片正常（img-src 有 `http:` 通配兜底）、文件下载正常（不走 webview 协议）、**视频在 NSIS 生产构建中无法播放也无预览封面**（`<video src="http://asset.localhost/...">` 被 CSP `media-src` 拦截）。
+
+**修复**：每个会用到 asset 协议的 CSP directive 都必须显式列 `http://asset.localhost`：
+
+```
+img-src   'self' data: blob: asset: http://asset.localhost https://asset.localhost ...;
+media-src 'self' blob: data: http://127.0.0.1:* asset: http://asset.localhost https://asset.localhost;
+```
+
+**调研误区**（同次任务）：第一次调研时基于推测说"Tauri asset 协议不支持 Range 请求所以视频不能播"——错误。实际查 Tauri 2.9.5 源码 `tauri/src/protocol/asset.rs:82-141` 确认完整支持 Range/206 Partial Content/MAX_LEN 分块。**遇到协议层问题（CSP / scope / Range / MIME）必须直接看 Tauri crate 源码，不要凭印象推测**。本地 cargo 源码路径：`~/.cargo/registry/src/.../tauri-2.x.x/src/protocol/`。
+
+### Tauri 2 asset 协议确实支持 Range（不要再传播误判）
+
+[tauri-2.9.5/src/protocol/asset.rs:82-141](file://~/.cargo/registry/src/.../tauri-2.9.5/src/protocol/asset.rs#L82) 完整实现：
+
+- 解析 `Range: bytes=x-y` 请求头（via `http_range` crate）
+- 响应 `206 Partial Content` + `Content-Range: bytes start-end/total`
+- 包含 `Accept-Ranges: bytes` 头
+- 支持 multi-part range（multipart/byteranges boundary）
+- 每段最多 1MB（`MAX_LEN = 1_000 * 1_024`）防止 OOM
+- 无 Windows 平台特定差异
+
+视频 `<video preload="metadata">` 的 Range 请求 / 拖动进度条 / 流式播放在 Tauri 2 中都能正常工作 —— **只要 CSP 正确配置**。

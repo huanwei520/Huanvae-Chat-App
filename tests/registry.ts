@@ -50,6 +50,11 @@ export const UPDATE_COMPONENTS: ComponentEntry[] = [
   { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
 ];
 
+// ============== 聊天滚动恢复 Hooks ==============
+export const CHAT_RESTORE_HOOKS: ComponentEntry[] = [
+  { name: 'useScrollAnchorRestore', path: 'hooks/useScrollAnchorRestore', category: 'hooks', description: '聊天滚动位置恢复 Hook（滚动锚点记录 + useLayoutEffect 同步定位）' },
+];
+
 // ============== 通用组件 ==============
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件

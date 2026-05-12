@@ -24,6 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
+import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
@@ -230,23 +231,42 @@ export function ChatMessages({
     isAtBottomRef.current = true;
   }, []);
 
-  // 消息数量变化时的滚动处理
+  // 首次渲染的锚点恢复：useLayoutEffect 在 paint 前同步运行，让"切回会话"那一帧
+  // 用户看到消息时已在上次阅读位置，无两步跳跃。
+  //
+  // 锚点失效（消息被删 / 不在加载范围）→ 降级到 scrollToBottom（保持现行行为）。
+  // 非首次渲染（新消息追加等）走下方的现有逻辑，不受此 Hook 影响。
+  const handleFallbackToBottom = useCallback(() => {
+    if (containerRef.current && messages.length > 0) {
+      scrollToBottom(true);
+    }
+  }, [messages.length, scrollToBottom]);
+
+  const handleFirstRenderHandled = useCallback(() => {
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages.length]);
+
+  useScrollAnchorRestore({
+    chatKey: `friend-${friend.friend_id}`,
+    containerRef,
+    messagesLength: messages.length,
+    isFirstRender: prevMessagesLengthRef.current === -1,
+    onFallbackToBottom: handleFallbackToBottom,
+    onFirstRenderHandled: handleFirstRenderHandled,
+  });
+
+  // 消息数量变化时的滚动处理（非首次渲染的增量更新逻辑）
   useLayoutEffect(() => {
     const currentLength = messages.length;
 
-    // 初始渲染：滚动到底部
-    if (prevMessagesLengthRef.current === -1 || prevMessagesLengthRef.current === 0) {
-      logScroll('首次渲染/从0加载', {
+    // 初始渲染：交由 useScrollAnchorRestore 处理（锚点恢复或降级滚到底）
+    // 这里不再执行，避免与 useScrollAnchorRestore 双重 scrollTo 冲突
+    if (prevMessagesLengthRef.current === -1) {
+      logScroll('首次渲染/从0加载（由 useScrollAnchorRestore 处理）', {
         currentLength,
         friendId: friend.friend_id,
         imageStats,
       });
-      prevMessagesLengthRef.current = currentLength;
-
-      // 滚动到底部
-      if (containerRef.current && currentLength > 0) {
-        scrollToBottom(true);
-      }
       return;
     }
 

@@ -31,6 +31,7 @@ import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { sendGroupMessage, recallGroupMessage, type GroupMessage } from '../../api/groupMessages';
 import { recordUploadedFile } from '../../services/fileService';
+import { useChatStore } from '../../stores/chatStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
 // ============================================================================
@@ -103,7 +104,14 @@ export function useLocalGroupMessages(groupId: string | null) {
   const ws = useWebSocket();
 
   // 状态
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  //
+  // messages 初始值：尝试从 chatStore.cachedGroupMessages 读取上次离开时的快照。
+  // 让 ChatPanel mount 时第一帧就有数据显示，消除"切回会话短暂空白"。
+  // 异步 loadMessages 会在挂载后调用 db.getMessages(50) 校准，新消息追加合并。
+  const [messages, setMessages] = useState<GroupMessage[]>(() => {
+    if (!groupId) { return []; }
+    return useChatStore.getState().cachedGroupMessages[groupId] ?? [];
+  });
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -145,12 +153,27 @@ export function useLocalGroupMessages(groupId: string | null) {
   useEffect(() => {
     if (groupId !== currentGroupId.current) {
       logLocal('切换群组', { from: currentGroupId.current, to: groupId });
-      setMessages([]);
+      // 首次 mount（currentGroupId.current === null）不清空 messages —— 保留 useState
+      // 初始化时从 chatStore.cachedGroupMessages 读到的快照。
+      if (currentGroupId.current !== null) {
+        setMessages([]);
+      }
       setHasMore(true);
       setError(null);
       conversationRef.current = null;
       currentGroupId.current = groupId;
     }
+  }, [groupId]);
+
+  // unmount 时把当前 messages 缓存到 chatStore，用于下次 mount 时秒开。
+  // 通过 messagesRef.current 读 unmount 那一刻的最新 messages 值。
+  useEffect(() => {
+    const captureGroupId = groupId;
+    return () => {
+      if (captureGroupId && messagesRef.current.length > 0) {
+        useChatStore.getState().cacheGroupMessages(captureGroupId, messagesRef.current);
+      }
+    };
   }, [groupId]);
 
   // ============================================

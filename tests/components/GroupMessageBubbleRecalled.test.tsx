@@ -61,6 +61,13 @@ vi.mock('../../src/chat/shared/SendStatusIndicator', () => ({
   SendStatusIndicator: () => null,
 }));
 
+vi.mock('../../src/hooks/useFileCache', () => ({
+  useFileCache: () => ({
+    localPath: null,
+    isLocal: false,
+  }),
+}));
+
 import { GroupMessageBubble } from '../../src/chat/group/GroupMessageBubble';
 
 function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {

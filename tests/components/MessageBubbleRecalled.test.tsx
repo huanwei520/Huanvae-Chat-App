@@ -67,6 +67,13 @@ vi.mock('../../src/components/common/Avatar', () => ({
   FriendAvatar: () => <div data-testid="friend-avatar" />,
 }));
 
+vi.mock('../../src/hooks/useFileCache', () => ({
+  useFileCache: () => ({
+    localPath: null,
+    isLocal: false,
+  }),
+}));
+
 import { MessageBubble } from '../../src/chat/friend/MessageBubble';
 
 const session: SessionInfo & { userId: string } = {

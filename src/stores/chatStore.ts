@@ -32,7 +32,8 @@
  */
 
 import { create } from 'zustand';
-import type { Friend, Group, ChatTarget } from '../types/chat';
+import type { Friend, Group, ChatTarget, Message } from '../types/chat';
+import type { GroupMessage } from '../api/groupMessages';
 
 // ============================================
 // 类型定义
@@ -85,6 +86,55 @@ interface ChatState {
    *   非 null → 加载历史至该消息 + scrollIntoView + 清空
    */
   pendingScrollToMessageId: string | null;
+
+  // ==================== 切换会话恢复状态 ====================
+  /**
+   * 每会话当前已加载消息的全量内存缓存（含 loadMore 加载的历史）。
+   *
+   * key: `friend-${friendId}` / `group-${groupId}` —— 与 scrollAnchors 共用同一 key 格式。
+   * value: 当前 messages 数组（按时间正序，全量保留）。
+   *
+   * 为什么不 slice(-50)：用户翻历史触发 loadMore 后，滚动锚点 uuid 可能指向
+   * 50 条之外的消息。如果只缓存尾部 50 条，锚点对应的 DOM 元素切回时不存在，
+   * 触发降级 scrollToBottom 把用户拉回到底，违背"恢复到上次阅读位置"的预期。
+   *
+   * 用途：用户切换聊天 A → B → A 时，A 的 ChatPanel mount 触发新的
+   * useLocalFriendMessages，messages 初始值从此缓存读取 → 第一帧就有数据显示，
+   * 不再等待 db.getMessages(50) 异步完成产生空白闪烁。
+   *
+   * 时机：
+   *   - 写入：useLocal*Messages 的 useEffect cleanup（unmount 触发）保存当前 messages 全量
+   *   - 读取：useLocal*Messages 的 useState 初始化函数
+   *   - 校准：mount 后异步 db.getMessages(50) 与缓存合并（新消息追加）
+   *   - 清理：用户退出登录 / 切换账号（resetAll 同步清空）
+   *
+   * 注意：不缓存"附件是否在本地"（isLocal/localPath）—— 那是文件系统 SSOT，
+   * 永远由 useFileCache 通过 Rust get_cached_file_path 实时 stat 校验。
+   */
+  cachedFriendMessages: Record<string, Message[]>;
+
+  /**
+   * 群聊会话的消息缓存（key = groupId，value = 全量 GroupMessage）。
+   * 与 cachedFriendMessages 同设计，但类型不同（Message vs GroupMessage 字段集差异）。
+   * 同样不 slice(-50)，原因见上方注释。
+   */
+  cachedGroupMessages: Record<string, GroupMessage[]>;
+
+  /**
+   * 每会话的滚动锚点 message_uuid。
+   *
+   * key: 与 cachedMessages 同格式。
+   * value: 视口顶部第一条完全可见消息的 message_uuid。
+   *
+   * 用途：用户在 A 中向上翻阅历史 → 切换到 B → 切回 A 时恢复到上次阅读位置。
+   *
+   * 时机：
+   *   - 写入：ChatMessages 滚动事件 200ms 防抖后扫描视口顶部消息 uuid
+   *   - 读取：ChatMessages 首次渲染时 useLayoutEffect 同步 scrollIntoView
+   *   - 失效：锚点消息被本地删除（querySelector 返回 null）→ 降级滚到底
+   *   - 清理：用户退出登录 / 切换账号
+   */
+  scrollAnchors: Record<string, string>;
 }
 
 interface ChatActions {
@@ -153,6 +203,30 @@ interface ChatActions {
   // ==================== 跳转操作 ====================
   /** 设置待跳转的目标消息 UUID（搜索结果点击时设置，ChatMessages 滚动到该消息后清空） */
   setPendingScrollToMessageId: (messageId: string | null) => void;
+
+  // ==================== 切换会话恢复操作 ====================
+  /**
+   * 缓存私聊会话的全量当前 messages（unmount 时调用）。
+   * 不截断 —— 完整保留 loadMore 加载的历史，确保滚动锚点可定位。
+   */
+  cacheFriendMessages: (friendId: string, messages: Message[]) => void;
+
+  /**
+   * 缓存群聊会话的全量当前 messages（unmount 时调用）。
+   * 同 cacheFriendMessages，不截断。
+   */
+  cacheGroupMessages: (groupId: string, messages: GroupMessage[]) => void;
+
+  /**
+   * 保存某会话的滚动锚点 message_uuid（滚动事件防抖后调用）。
+   * key 格式：`friend-${friendId}` / `group-${groupId}`
+   */
+  saveScrollAnchor: (key: string, messageUuid: string) => void;
+
+  /**
+   * 清空所有缓存和锚点（退出登录 / 切换账号时调用）。
+   */
+  clearCacheAndAnchors: () => void;
 }
 
 export type ChatStore = ChatState & ChatActions;
@@ -178,6 +252,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   pendingMeetingJoin: false,
 
   pendingScrollToMessageId: null,
+
+  cachedFriendMessages: {},
+
+  cachedGroupMessages: {},
+
+  scrollAnchors: {},
 
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
@@ -260,6 +340,36 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   // ==================== 跳转操作 ====================
   setPendingScrollToMessageId: (messageId) => set({ pendingScrollToMessageId: messageId }),
+
+  // ==================== 切换会话恢复操作 ====================
+  // 缓存当前 messages 全量（不再 slice(-50)）：
+  // 用户翻历史触发 loadMore 后，锚点 uuid 可能在第 50 条之外。若 slice(-50)
+  // 缓存只保留尾部 → 切回时 DOM 无锚点元素 → 降级 scrollToBottom，导致回到底部
+  // 而不是用户上次翻到的位置。完整缓存让锚点定位永远可用。
+  // 内存代价：N 条消息 × ~1KB ≈ 几百 KB / 会话，桌面端可接受。
+  cacheFriendMessages: (friendId, messages) =>
+    set((state) => ({
+      cachedFriendMessages: {
+        ...state.cachedFriendMessages,
+        [friendId]: messages,
+      },
+    })),
+
+  cacheGroupMessages: (groupId, messages) =>
+    set((state) => ({
+      cachedGroupMessages: {
+        ...state.cachedGroupMessages,
+        [groupId]: messages,
+      },
+    })),
+
+  saveScrollAnchor: (key, messageUuid) =>
+    set((state) => ({
+      scrollAnchors: { ...state.scrollAnchors, [key]: messageUuid },
+    })),
+
+  clearCacheAndAnchors: () =>
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

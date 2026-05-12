@@ -24,6 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
+import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -182,18 +183,34 @@ export function GroupChatMessages({
     return () => observer.disconnect();
   }, []);
 
-  // 消息数量变化时的滚动处理
+  // 首次渲染的锚点恢复：useLayoutEffect 在 paint 前同步运行，让"切回会话"那一帧
+  // 用户看到消息时已在上次阅读位置。锚点失效降级到滚到底（保持现行行为）。
+  const handleGroupFallbackToBottom = useCallback(() => {
+    if (containerRef.current && messages.length > 0) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      isAtBottomRef.current = true;
+    }
+  }, [messages.length]);
+
+  const handleGroupFirstRenderHandled = useCallback(() => {
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages.length]);
+
+  useScrollAnchorRestore({
+    chatKey: groupId ? `group-${groupId}` : 'group-unknown',
+    containerRef,
+    messagesLength: messages.length,
+    isFirstRender: prevMessagesLengthRef.current === -1,
+    onFallbackToBottom: handleGroupFallbackToBottom,
+    onFirstRenderHandled: handleGroupFirstRenderHandled,
+  });
+
+  // 消息数量变化时的滚动处理（非首次渲染的增量更新逻辑）
   useLayoutEffect(() => {
     const currentLength = messages.length;
 
-    // 初始渲染：滚动到底部
-    if (prevMessagesLengthRef.current === -1 || prevMessagesLengthRef.current === 0) {
-      prevMessagesLengthRef.current = currentLength;
-
-      if (containerRef.current && currentLength > 0) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        isAtBottomRef.current = true;
-      }
+    // 初始渲染：交由 useScrollAnchorRestore 处理
+    if (prevMessagesLengthRef.current === -1) {
       return;
     }
 

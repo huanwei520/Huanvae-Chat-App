@@ -20,7 +20,7 @@
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
@@ -29,7 +29,7 @@ import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
-import { getCachedFilePath } from '../../services/fileCache';
+import { useFileCache } from '../../hooks/useFileCache';
 import { useChatStore } from '../../stores';
 import { isMobile } from '../../utils/platform';
 import { saveToGallery } from '../../utils/saveToGallery';
@@ -113,21 +113,39 @@ export function GroupMessageBubble({
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   // 本地文件路径（用于"在文件夹中显示"功能）
-  const [localPath, setLocalPath] = useState<string | null>(null);
+  //
+  // 通过 useFileCache 拿 localPath（订阅 store）而非自己 useState + 一次性 useEffect，
+  // 是因为：右上角 LocalBadge 用 useFileCache 拿 isLocal 已经订阅了 store；如果这里
+  // 用一次性 getCachedFilePath，下载完成后 store 更新但本地 state 不刷新 → 右键菜单
+  // 的"在文件夹中显示"按钮取决于 localPath 是否非空 → 看不到（需切换会话才生效）。
+  // 改用 useFileCache 后两者共用同一数据源，下载完成即时刷新。
+  const isFileMessage =
+    message.message_type !== 'text' &&
+    message.message_type !== 'system' &&
+    !!message.file_uuid;
+  const fileCacheType = (() => {
+    if (message.message_type === 'image') {
+      return 'image';
+    }
+    if (message.message_type === 'video') {
+      return 'video';
+    }
+    return 'document';
+  })();
+  const { localPath } = useFileCache({
+    fileUuid: message.file_uuid ?? '',
+    fileHash: message.file_hash,
+    fileName: '',
+    fileType: fileCacheType,
+    urlType: 'group',
+    autoCache: false,
+    enabled: isFileMessage,
+  });
 
   // 移动端全屏预览状态
   const [showFullPreview, setShowFullPreview] = useState(false);
   // 双击检测
   const lastTapTimeRef = useRef<number>(0);
-
-  // 获取文件消息的本地缓存路径
-  useEffect(() => {
-    if (message.message_type !== 'text' && message.message_type !== 'system' && message.file_hash) {
-      getCachedFilePath(message.file_hash).then((path) => {
-        setLocalPath(path);
-      });
-    }
-  }, [message.message_type, message.file_hash]);
 
   // 用户信息弹出框状态
   const avatarRef = useRef<HTMLDivElement>(null);

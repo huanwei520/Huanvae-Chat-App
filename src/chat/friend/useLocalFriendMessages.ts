@@ -40,6 +40,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
 import { sendMessage, recallMessage } from '../../api/messages';
 import { recordUploadedFile } from '../../services/fileService';
+import { useChatStore } from '../../stores/chatStore';
 import type { Message } from '../../types/chat';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -110,7 +111,14 @@ export function useLocalFriendMessages(friendId: string | null) {
   const ws = useWebSocket();
 
   // 状态
-  const [messages, setMessages] = useState<Message[]>([]);
+  //
+  // messages 初始值：尝试从 chatStore.cachedFriendMessages 读取上次离开时的快照。
+  // 让 ChatPanel mount 时第一帧就有数据显示，消除"切回会话短暂空白"。
+  // 异步 loadMessages 会在挂载后调用 db.getMessages(50) 校准，新消息追加合并。
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!friendId) { return []; }
+    return useChatStore.getState().cachedFriendMessages[friendId] ?? [];
+  });
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -154,12 +162,33 @@ export function useLocalFriendMessages(friendId: string | null) {
   useEffect(() => {
     if (friendId !== currentFriendId.current) {
       logLocal('切换好友', { from: currentFriendId.current, to: friendId });
-      setMessages([]);
+      // 首次 mount（currentFriendId.current === null）不清空 messages —— 保留 useState
+      // 初始化时从 chatStore.cachedMessages 读到的快照（让切回会话第一帧就有内容）。
+      // 仅当 hook 实例存活但 friendId 真切换时清空。ChatPanel 当前是 unmount/mount 模式，
+      // 此 else 分支理论上不触发，留作未来 keep-alive 改造的兼容。
+      if (currentFriendId.current !== null) {
+        setMessages([]);
+      }
       setHasMore(true);
       setError(null);
       conversationRef.current = null;
       currentFriendId.current = friendId;
     }
+  }, [friendId]);
+
+  // unmount 时把当前 messages 缓存到 chatStore，用于下次 mount 时秒开。
+  // 仅缓存最近 50 条（store.cacheFriendMessages 内部已 slice(-50)），避免内存膨胀。
+  //
+  // 通过 messagesRef.current 读 unmount 那一刻的最新 messages 值（messagesRef 由 line 131
+  // 的 useEffect 实时镜像）；如果 deps 包含 messages，cleanup 会在每次 messages 变化都
+  // 跑一次，写入缓存的频率过高且无意义。仅在 friendId 切换或 unmount 时才需要写缓存。
+  useEffect(() => {
+    const captureFriendId = friendId;
+    return () => {
+      if (captureFriendId && messagesRef.current.length > 0) {
+        useChatStore.getState().cacheFriendMessages(captureFriendId, messagesRef.current);
+      }
+    };
   }, [friendId]);
 
   // ============================================
