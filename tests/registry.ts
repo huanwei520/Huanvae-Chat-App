@@ -45,6 +45,11 @@ export const SEARCH_COMPONENTS: ComponentEntry[] = [
   { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
 ];
 
+// ============== 更新模块 Hooks ==============
+export const UPDATE_COMPONENTS: ComponentEntry[] = [
+  { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
+];
+
 // ============== 通用组件 ==============
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件

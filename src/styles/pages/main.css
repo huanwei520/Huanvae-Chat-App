@@ -3929,7 +3929,10 @@
   width: 100%;
   height: 100%;
   border-radius: 12px;
-  object-fit: cover;  /* 填满容器 */
+  /* contain 保持图片比例完整显示（cover 会裁剪溢出部分）
+     容器尺寸由 calculateDisplaySize 按 aspectRatio 算好，contain 视觉上与 cover 一致；
+     窄屏触发 .image-message max-width:100% 时，容器收缩，contain 让图片完整缩放而非截断 */
+  object-fit: contain;
 }
 
 /* 视频消息 - 根据消息尺寸信息计算容器大小 */
@@ -4115,7 +4118,10 @@
 
 .image-message {
   position: relative;
-  /* 容器尺寸由 JS 动态设置，确保内容填满 */
+  /* 容器尺寸由 JS 动态设置（calculateDisplaySize 硬编码 maxWidth=280），
+     但移动端窄屏（< 380px）气泡 max-width: calc(100% - 58px) 可能小于 280px →
+     不加 max-width:100% 会让容器溢出气泡 + .message-image object-fit:contain 已配合保证缩放 */
+  max-width: 100%;
   overflow: hidden;
   border-radius: 12px;
 }

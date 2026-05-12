@@ -33,8 +33,7 @@ import type { Session, UserProfile } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
 import { setCurrentServerBaseUrl, resolveServerAvatarUrl } from './utils/avatar';
-import { UpdateToast } from './update';
-import { useUpdateToastProps } from './update/store';
+import { UpdateToast, useStartupUpdateCheck, useUpdateToastProps } from './update';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -54,6 +53,9 @@ function App() {
 
   // 全局更新弹窗 props（所有平台共用，防止多实例）
   const updateToastProps = useUpdateToastProps();
+
+  // 启动时更新检查（mount 后 5s 触发一次检测；登录后 Main 的 3s 检测仍照旧，由 store 双锁兜底保证只一次有效检测）
+  useStartupUpdateCheck();
 
   const [currentPage, setCurrentPage] = useState<AppPage>('loading');
   const [authForm, setAuthForm] = useState<AuthFormType>('login');
@@ -478,6 +480,8 @@ function App() {
   if (currentPage === 'loading' || accountsLoading) {
     return (
       <div className={mobileClass}>
+        {/* 全局更新提示弹窗 - 与已登录分支共用 store，分支互斥不会重叠 */}
+        <UpdateToast {...updateToastProps} />
         <div className="floating-orb orb-1" />
         <div className="floating-orb orb-2" />
         <div className="floating-orb orb-3" />
@@ -503,6 +507,8 @@ function App() {
   if (currentPage === 'account-selector') {
     return (
       <div className={mobileClass}>
+        {/* 全局更新提示弹窗 - 与已登录分支共用 store，分支互斥不会重叠 */}
+        <UpdateToast {...updateToastProps} />
         {/* 装饰性浮动元素 */}
         <div className="floating-orb orb-1" />
         <div className="floating-orb orb-2" />
@@ -536,6 +542,9 @@ function App() {
   // 登录/注册页面（共用外层容器，只切换卡片内容）
   return (
     <div className={mobileClass}>
+      {/* 全局更新提示弹窗 - 与已登录分支共用 store，分支互斥不会重叠 */}
+      <UpdateToast {...updateToastProps} />
+
       {/* 动态流动背景装饰 */}
       <div className="flowing-bg" />
 

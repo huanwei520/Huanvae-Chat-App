@@ -77,3 +77,65 @@ fn setup_router_with_token(token: &str) -> Router {
 搭配 `tower::ServiceExt::oneshot` 发请求。需要 `[dev-dependencies] tower = { version = "0.5", features = ["util"] }`。
 
 对**必须**经由 `PROXY_STATE` 的业务状态路径（如真实 SSH 连接），在测试模块注释显式标注"需手动 E2E 验证"，不在单测里尝试伪造。
+
+## Tauri 2 资源协议（asset://）的路径白名单陷阱
+
+### `tauri.conf.json` `assetProtocol.scope` 在 Windows 上覆盖不到 `<exe_dir>/data`
+
+Tauri 2 内置 scope 变量在 Windows 上的精确解析（[官方文档](https://v2.tauri.app/plugin/file-system/#scope)）：
+
+| 变量 | Windows 实际路径 |
+|------|-----------------|
+| `$DATA` | `%APPDATA%`（Roaming，**不是** Local） |
+| `$LOCALDATA` | `%LOCALAPPDATA%` |
+| `$APPDATA` | `%APPDATA%\<bundleId>` |
+| `$APPLOCALDATA` | `%LOCALAPPDATA%\<bundleId>` |
+| `$RESOURCE` | `<exe_dir>\resources\` |
+| **无 `$EXE`** | `executableDir()` 在 Windows **明确"Not supported"** |
+
+**没有任何内置变量指向应用安装目录本体（exe 同级或父级）**。
+
+如果使用 portable 模式（数据跟应用走，`<exe_dir>/data`）：
+- `convertFileSrc(localPath)` 生成 `asset://localhost/<exe_dir>/data/...`
+- asset 协议校验：扫 `assetProtocol.scope` 所有内置变量解析后的路径，全不命中 → **403 拒绝加载**
+- 现象：dev 模式正常（dev 服务器校验宽松），生产 NSIS 构建中图片/视频"瞬间显示后变无法加载"
+
+### 修复：Rust setup 启动时动态注册
+
+Tauri 2 提供 [`Manager::asset_protocol_scope()`](https://docs.rs/tauri/latest/tauri/trait.Manager.html)（自 2.0 stable 起稳定），返回 `tauri::scope::fs::Scope`，可调 `allow_directory(P, recursive: bool)` 在运行时扩展白名单：
+
+```rust
+// src/lib.rs setup 闭包内（桌面 cfg 块）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+{
+    use tauri::Manager;
+    let data_root = user_data::get_app_root();
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&data_root, true) {
+        eprintln!("[AssetScope] 注册数据目录失败: {} (path={:?})", e, data_root);
+    }
+}
+```
+
+要点：
+1. **`use tauri::Manager;`** 必须显式 import 才能在 `&AppHandle` 调用 `asset_protocol_scope()`
+2. **失败用 `eprintln!` 不阻塞启动**：首次安装时数据目录可能还未创建，`allow_directory` 返回 Err 属正常
+3. **`recursive: true`**：递归覆盖所有子目录
+4. 仅当 `tauri.conf.json` 含 `assetProtocol.enable: true` 时该 API 可用（自动开启 `protocol-asset` feature）
+
+### 反例（2026-05-13）
+
+- baseline 起 `user_data.rs` 桌面 prod 模式用 `exe_dir.join("data")`（portable 模式，数据跟应用走，支持装非 C 盘）
+- `tauri.conf.json` scope 仅列 `$DATA/**` 等内置变量
+- bug 一直存在，但 `useFileCache` 早期版本 src 切换有时机问题（常用云端 HTTPS URL，不触发本地切换）→ 表面看不到
+- 改造 useFileCache 让 Rust 进度事件直接驱动 `completeDownload`（更稳定 src 切换）→ bug 必现
+- 修复：setup hook 加 `allow_directory(get_app_root(), true)`，约 8 行 Rust 代码
+- 教训：**portable 模式（exe 同目录数据）+ asset 协议 = 必须运行时动态注册 scope**；写 portable 应用时审计阶段就要确认 scope 路径与数据目录是否对齐
+
+### 与官方推荐做法的差异
+
+| 方案 | 数据位置 | scope 配置 | 适用 |
+|------|---------|-----------|------|
+| **官方推荐**（标准模式） | `app_local_data_dir()` = `%LOCALAPPDATA%\<bundleId>\` | 静态：`scope.allow: ["$APPLOCALDATA/**"]` + `deny: ["$APPLOCALDATA/EBWebView/**"]` | 标准 NSIS 安装、不在意 portable |
+| **本项目**（portable 模式） | `<exe_dir>/data/` | 运行时 `allow_directory(get_app_root(), true)` | 数据跟应用走、支持装非 C 盘 |
+
+两种做法 API 都是 Tauri 2 稳定接口。portable 模式没有官方专项支持但 API 链路完整可用，官方明确说 `executableDir()` Windows 不支持，没有 `$EXE` 内置变量也是设计层面的暗示。

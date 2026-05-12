@@ -66,6 +66,15 @@ export const DESKTOP_LATEST_JSON_PATH = '/latest/download/latest.json';
 /** 更新检查延迟时间（毫秒），避免启动时立即检查 */
 export const UPDATE_CHECK_DELAY = 3000;
 
+/**
+ * 启动时更新检查延迟（毫秒）
+ *
+ * 由 App.tsx 顶层的 useStartupUpdateCheck() 使用，在登录页就触发一次检测。
+ * 比 UPDATE_CHECK_DELAY（3s，登录后主页用）长 2s，让登录页 UI 先稳定渲染，
+ * 同时与主页 hook 错峰避免视觉重叠。
+ */
+export const UPDATE_CHECK_DELAY_STARTUP = 5000;
+
 /** 单个代理超时时间（秒） */
 export const PROXY_TIMEOUT_SECONDS = 10;
 

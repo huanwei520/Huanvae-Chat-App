@@ -455,3 +455,33 @@ await act(async () => {
 - `useGlobalMessageSearch` 用 setTimeout(500ms) 防抖 → 回调里 `await searchMessages()` (mockResolvedValue 真实 Promise)
 - 测试用 `vi.advanceTimersByTime(500)` 同步版 → 3 个用例超时
 - test-runner 改用 `vi.advanceTimersByTimeAsync` / `vi.runAllTimersAsync` 后 7/7 通过
+
+## 静态扫描契约测试与 Code-review Minor 修改的相互依赖
+
+### 用 readFileSync 扫描 src/ 源码做契约性测试时，Code-review 后的任何源码改动都可能让 regex 失效
+
+当组件依赖图过大（如 App.tsx 顶层包了 useAccounts/useSession/useUpdateStore 等多个 hook）以致完整 render 成本极高时，可以用 `readFileSync` 读取 src 源码 + regex 断言"某 hook 在顶层被调用"、"某分支包含 `<X />` 渲染"等结构性契约。这是合理的替代方案，文件头注释中需明确说明用法和原因。
+
+**陷阱**：这类测试对**任何源码格式变动都极敏感**。Code-review 提的 Minor 级"无害"建议（如合并 import、调整 import 顺序、改变量声明位置）会让 regex 不再匹配，导致测试 FAIL。
+
+**规则**：
+
+1. **改 src 源码后必须重跑相关静态扫描测试**。即使是 Code-review Minor 级建议（合并 import / rename / 移位置）也必须跑：
+
+   ```bash
+   pnpm vitest run tests/App/AppUpdateToast.test.tsx tests/animation-conflict.test.ts
+   ```
+
+2. **静态扫描测试的 regex 必须写宽松**：
+   - import 匹配用 `\b<name>\b` 而非紧贴 `{` / `}`，允许任意其他 named symbols 并存
+   - 用 `[^}]*<name>[^}]*` 模式而非要求精确顺序
+   - 关键 assertion 写多个独立 `.toMatch`，每个聚焦一个特征，而非一个庞大正则
+
+3. **Code-review Round 2 启动前必须先重跑测试**。如果 Round 1 接受了 Minor 修改但没跑测试就送 Round 2，Round 2 一定会发现这种 regex 失配（视为 P0），增加来回成本。
+
+**反例（2026-05-13）**：
+- 启动更新检测功能 Round 1 PASS（含 Minor #2「合并 import」建议）
+- 我合并了 `import { UpdateToast, useStartupUpdateCheck } from './update'` + `import { useUpdateToastProps } from './update/store'` 为单行
+- **未重跑测试**就送 Round 2
+- Round 2 标 P0：`tests/App/AppUpdateToast.test.tsx` 的 import 正则 `\{\s*UpdateToast\s*,\s*useStartupUpdateCheck\s*\}` 不再匹配新的 `{UpdateToast, useStartupUpdateCheck, useUpdateToastProps}`
+- 修复：放宽正则为 `\{[^}]*\bUpdateToast\b[^}]*\buseStartupUpdateCheck\b[^}]*\}`

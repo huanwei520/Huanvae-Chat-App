@@ -4,12 +4,14 @@
  * 提供应用自动更新功能：
  * - UpdateToast: 灵动岛风格更新提示组件（所有平台共用）
  * - useUpdateStore: 全局更新状态管理（Zustand Store）
- * - useAutoUpdateCheck: 桌面端自动更新检查 Hook
- * - useAutoUpdateCheckAndroid: Android 自动更新检查 Hook
+ * - useStartupUpdateCheck: 启动时自动更新检查 Hook（App.tsx 顶层，登录前 5s 后触发）
+ * - useAutoUpdateCheck: 桌面端登录后自动更新检查 Hook（Main mount 3s 后触发）
+ * - useAutoUpdateCheckAndroid: Android 登录后自动更新检查 Hook（MobileMain mount 3s 后触发）
  *
  * 架构说明：
- * - UpdateToast 在 App.tsx 统一渲染（全局唯一实例）
- * - 各页面使用 useAutoUpdateCheck/useAutoUpdateCheckAndroid 触发检查
+ * - UpdateToast 在 App.tsx 的所有分支独立渲染（分支互斥 → 同时刻只有一个实例 mount）
+ * - App.tsx 顶层调 useStartupUpdateCheck 在登录页就触发检测
+ * - 登录后 Main/MobileMain 各自再触发一次，store 双锁（isChecking + status !== 'idle'）保证只一次有效检测
  * - 所有状态通过 useUpdateStore 全局管理，防止多实例弹窗
  *
  * 平台隔离：
@@ -37,6 +39,11 @@ export {
   useCheckUpdate,
   useIsChecking,
 } from './store';
+
+// ============================================
+// 启动时 Hook（App.tsx 顶层使用，登录前就触发一次检测）
+// ============================================
+export { useStartupUpdateCheck } from './useStartupUpdateCheck';
 
 // ============================================
 // 桌面端 Hook 和服务
@@ -83,6 +90,7 @@ export {
   ANDROID_LATEST_JSON_PATH,
   DESKTOP_LATEST_JSON_PATH,
   UPDATE_CHECK_DELAY,
+  UPDATE_CHECK_DELAY_STARTUP,
   PROXY_TIMEOUT_SECONDS,
   DEBUG_UPDATE,
 } from './config';

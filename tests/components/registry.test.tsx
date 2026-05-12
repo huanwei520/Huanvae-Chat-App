@@ -13,6 +13,7 @@ import {
   PAGE_COMPONENTS,
   MOBILE_COMPONENTS,
   SEARCH_COMPONENTS,
+  UPDATE_COMPONENTS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -39,6 +40,9 @@ import * as MobileMiniAppsPage from '../../src/pages/mobile/MobileMiniAppsPage';
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
+
+// 更新模块 Hooks
+import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -232,6 +236,8 @@ const COMPONENT_MAP = {
   // 全局搜索
   GlobalMessageSearchResults,
   useGlobalMessageSearch,
+  // 更新模块 Hooks
+  useStartupUpdateCheck,
   // 通用组件
   Avatar,
   AIAvatar,
@@ -417,6 +423,15 @@ describe('移动端组件 (Mobile Components)', () => {
 // ============== 全局搜索组件测试 ==============
 describe('全局搜索组件 (Search Components)', () => {
   it.each(SEARCH_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
+// ============== 更新模块 Hooks 测试 ==============
+describe('更新模块 Hooks (Update Components)', () => {
+  it.each(UPDATE_COMPONENTS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

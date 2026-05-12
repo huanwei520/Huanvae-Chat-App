@@ -429,5 +429,33 @@ mod tests {
         let name = make_user_dir_name("user123", "https://api.huanvae.cn");
         assert_eq!(name, "user123_api_huanvae_cn");
     }
+
+    /// 验证桌面（非 Android）环境下 `get_app_root()` 返回非空 PathBuf。
+    /// 该路径会在 lib.rs setup hook 中传给 `asset_protocol_scope().allow_directory()`，
+    /// 必须非空才能让生产 NSIS 构建中的本地图片/视频通过 asset:// 协议加载。
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn test_get_app_root_returns_non_empty_path() {
+        let root = get_app_root();
+        assert!(
+            !root.as_os_str().is_empty(),
+            "get_app_root() returned empty path on desktop"
+        );
+    }
+
+    /// 验证 `get_app_root()` 路径包含 `data` 子目录名（桌面端结构约定）。
+    /// dev 模式：`<project_root>/data`，prod 模式：`<exe_dir>/data` 或 Linux 系统安装 `~/huanvae-chat-app/data`。
+    /// 该断言确保 asset 协议 allow_directory 注册的是数据子目录，而非更宽泛的 exe 父目录。
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn test_get_app_root_contains_data_segment() {
+        let root = get_app_root();
+        let path_str = root.to_string_lossy();
+        assert!(
+            path_str.contains("data"),
+            "get_app_root() path does not contain 'data' segment: {}",
+            path_str
+        );
+    }
 }
 

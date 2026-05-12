@@ -868,6 +868,31 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // 桌面端：把用户数据根目录注册到 asset 协议白名单
+            //
+            // 背景：tauri.conf.json `assetProtocol.scope` 内置变量（$DATA / $LOCALDATA / $APPDATA 等）
+            // 在 Tauri 2 Windows 上不覆盖 `<exe_dir>/data`（无 $EXE 变量；executableDir 在 Windows
+            // 明确 "Not supported"）。`user_data::get_app_root()` 返回 `<exe_dir>/data` 让数据跟随
+            // 应用安装位置（支持装非 C 盘），所以必须在运行时通过 Manager API 把这个动态路径
+            // 加入 asset 协议白名单，否则生产 NSIS 构建中 `<img src="asset://localhost/...">`
+            // 加载会被 scope 校验拒绝（瞬间显示后变"无法加载"）。
+            //
+            // 该 API 自 Tauri 2.0 stable 起稳定：
+            // https://docs.rs/tauri/latest/tauri/scope/fs/struct.Scope.html#method.allow_directory
+            //
+            // 失败仅记录日志，不阻塞应用启动（如目录首次启动时尚未创建）。
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                use tauri::Manager;
+                let data_root = user_data::get_app_root();
+                if let Err(e) = app.asset_protocol_scope().allow_directory(&data_root, true) {
+                    eprintln!(
+                        "[AssetScope] 注册数据目录失败: {} (path={:?})",
+                        e, data_root
+                    );
+                }
+            }
+
             // 桌面端：清理过期的会话锁
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if let Err(e) = desktop::cleanup_stale_locks(app.handle()) {
