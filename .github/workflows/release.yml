@@ -361,10 +361,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # 初始化 Android 项目（如果 gen/android 不存在）
-      - name: Initialize Android project
-        run: pnpm tauri android init || true
-
       # 配置 Android 签名
       - name: Setup Android Signing
         run: |
@@ -691,8 +687,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
-          PROXY="https://cdn.gh-proxy.org/"
-          
+
           # Android APK 文件名格式（与 build-android job 上传的文件名一致）
           APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
           R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"

@@ -35,6 +35,33 @@ api, chat, components, contexts, db, editor, hooks, huanvaeGuard, lanTransfer, l
 
 **执行方式**: 调用 `/audit <描述>` 触发完整审计流程。当用户直接要求修改代码时，也必须先自动调用 `/audit` 完成审计，不可跳过。
 
+## 核心规则：修改前必须 git snapshot
+
+**在 audit 通过、进入实施阶段之前，必须先把当前未提交的所有改动 commit 成一个 snapshot，作为回退基线。禁止在 dirty working tree 上直接开始新一轮修改。**
+
+具体步骤（实施第一行代码改动之前必做）：
+
+```bash
+# 1. 看当前状态（确认有未提交改动）
+git status --porcelain
+
+# 2. 全部 add（包括新增文件，但不含 .gitignore 已忽略的）
+git add -A
+
+# 3. 提交 snapshot，标记本次任务名称
+git commit -m "snapshot: before <本次任务简述>"
+```
+
+**为什么必须这样做**：
+- 修改出错时可用 `git diff HEAD~1` 精确看到本次新引入的改动，定位回归点
+- 用 `git checkout HEAD~1 -- <file>` 可恢复**某一个文件**到修改前状态，不影响其他修改
+- 避免在 dirty tree 上覆盖性失误（如 Edit 工具误改 + 没有 baseline 对比就发现不了）
+- 与 `/cleanup` 流程中的 "git init baseline" 一致：**任何会涉及多文件改动的工作前，先有 baseline**
+
+**例外**：纯探查（只 Read / Grep / Glob，不修改）不需要 snapshot。仅当下一步是 Edit / Write / Bash 修改命令时才必做。
+
+**如果 working tree 已经干净**（`git status --porcelain` 为空），则跳过此步（HEAD 本身就是 baseline）。
+
 ## 核心规则：测试通过才算完成
 
 **任何功能开发、修改、修复，必须搭配运行对应测试，直到所有相关测试全部通过，任务才算完成。代码写完但测试未通过 = 任务未完成。**
