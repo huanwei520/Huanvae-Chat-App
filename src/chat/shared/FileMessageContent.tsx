@@ -165,13 +165,21 @@ function ImageMessage({
   imageHeight?: number | null;
 }) {
   const { session } = useSession();
-  const { src, isLocal, loading, error, onLoad, localPath, retryWithNewUrl } = useImageCache(
-    fileUuid,
-    fileHash,
-    filename,
-    urlType,
-    friendId,
-  );
+  const {
+    src,
+    isLocal,
+    loading,
+    error,
+    onLoad,
+    localPath,
+    retryWithNewUrl,
+    openInFolder,
+  } = useImageCache(fileUuid, fileHash, filename, urlType, friendId);
+  // 订阅当前图片的下载任务状态，给 MobileMediaPreview 菜单决策用
+  const imageDownloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+  const imageIsDownloading =
+    imageDownloadTask?.status === 'pending'
+    || imageDownloadTask?.status === 'downloading';
 
   // 移动端预览模态框状态
   const [showMobilePreview, setShowMobilePreview] = useState(false);
@@ -305,7 +313,15 @@ function ImageMessage({
           src={src}
           filename={filename}
           localPath={localPath}
+          downloadProgress={imageDownloadTask?.percent ?? 0}
+          isDownloading={imageIsDownloading}
           onClose={() => setShowMobilePreview(false)}
+          onOpenWith={localPath ? () => openInFolder(localPath) : undefined}
+          onDownload={
+            !isLocal && fileHash && src
+              ? () => triggerBackgroundDownload(src, fileHash, filename, 'image', undefined)
+              : undefined
+          }
         />
       )}
     </>
@@ -358,7 +374,7 @@ function VideoMessage({
   imageHeight?: number | null;
 }) {
   const { session } = useSession();
-  const { src, isLocal, loading, error, onPlay, localPath } = useVideoCache(
+  const { src, isLocal, loading, error, onPlay, localPath, openInFolder } = useVideoCache(
     fileUuid,
     fileHash,
     filename,
@@ -539,6 +555,12 @@ function VideoMessage({
           downloadProgress={downloadTask?.percent ?? 0}
           isDownloading={isDownloading}
           onClose={() => setShowMobilePreview(false)}
+          onOpenWith={actualLocalPath ? () => openInFolder(actualLocalPath) : undefined}
+          onDownload={
+            !isLocal && fileHash && src
+              ? () => triggerBackgroundDownload(src, fileHash, filename, 'video', fileSize ?? undefined)
+              : undefined
+          }
         />
       )}
     </>
@@ -617,7 +639,7 @@ function DocumentMessage({
   return (
     <>
       <div className="file-message document-message" onClick={handleDocumentClick}>
-        {isDownloaded && <LocalBadge />}
+        {/* 不渲染 LocalBadge：白底文档气泡白勾不可见；已下载状态通过下方本地路径文本 + 下载按钮消失体现 */}
 
         <div className="document-icon">
           <FileIcon />
@@ -637,6 +659,7 @@ function DocumentMessage({
 
         <DocumentDownloadAction
           layout="inline"
+          variant="chat-document"
           fileUuid={fileUuid}
           fileHash={fileHash}
           filename={filename}

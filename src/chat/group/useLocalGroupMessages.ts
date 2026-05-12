@@ -722,6 +722,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_url: wsMsg.file_url ?? null,
         file_size: wsMsg.file_size ?? null,
         file_hash: wsMsg.file_hash ?? null,
+        image_width: wsMsg.image_width ?? null,
+        image_height: wsMsg.image_height ?? null,
         reply_to: null,
         send_time: wsMsg.timestamp,
         is_recalled: false,

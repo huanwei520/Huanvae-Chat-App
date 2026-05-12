@@ -57,6 +57,9 @@ const OpenIcon = () => (
 // 渲染规则：透明白色玻璃质感圆形徽章 + 白色对勾 SVG。
 // 任何"已下载到本地"提示一律 import 并渲染 <LocalBadge />，禁止在调用方再定义同名组件
 // 或自行拼接 .file-local-badge 的子元素。
+//
+// 装饰用途：仅作"该文件有本地副本"的视觉提示，不响应点击。
+// "打开文件位置"入口由调用方在其他 UI 元素（如预览窗口的菜单按钮）单独提供。
 // ============================================
 
 export function LocalBadge() {
@@ -92,6 +95,11 @@ export interface DocumentDownloadActionProps {
   friendId?: string;
   /** inline: 紧凑（28px 圆环 + 32px 按钮）；centered: 居中大按钮 */
   layout?: 'inline' | 'centered';
+  /** 视觉主题。
+   * - 'default': 默认蓝色按钮 + 默认进度环颜色，用于"我的文件"、FilePreviewModal 等
+   * - 'chat-document': 聊天文档气泡专用绿色（白底文档卡片可见度更好）
+   */
+  variant?: 'default' | 'chat-document';
 }
 
 export function DocumentDownloadAction({
@@ -102,6 +110,7 @@ export function DocumentDownloadAction({
   urlType = 'user',
   friendId,
   layout = 'inline',
+  variant = 'default',
 }: DocumentDownloadActionProps) {
   const { src, isLocal, localPath, openInFolder } = useFileCache({
     fileUuid,
@@ -174,15 +183,27 @@ export function DocumentDownloadAction({
   // ============================================
   // inline 布局（卡片右下角）
   // ============================================
+  // chat-document variant 用 --status-success 主题绿（在白底文档气泡上可见度更好）
+  const isChatDoc = variant === 'chat-document';
+  const progressColor = isChatDoc ? 'var(--status-success)' : undefined;
+  const progressBgColor = isChatDoc ? 'var(--status-success-subtle)' : undefined;
+  const buttonClass = isChatDoc ? 'document-download chat-document' : 'document-download';
+
   return (
     <div className="document-actions">
       {isDownloading && downloadTask && (
         <div className="document-download-progress">
-          <CircularProgress progress={downloadTask.percent} size={28} strokeWidth={3} />
+          <CircularProgress
+            progress={downloadTask.percent}
+            size={28}
+            strokeWidth={3}
+            progressColor={progressColor}
+            backgroundColor={progressBgColor}
+          />
         </div>
       )}
       {!isDownloaded && !isDownloading && (
-        <button className="document-download" onClick={handleDownload} title="下载">
+        <button className={buttonClass} onClick={handleDownload} title="下载">
           <DownloadIconSmall />
         </button>
       )}

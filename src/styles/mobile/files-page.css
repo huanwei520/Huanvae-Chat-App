@@ -66,9 +66,35 @@
   color: var(--text-primary);
 }
 
-.mobile-files-placeholder {
+.mobile-files-upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.mobile-files-upload-btn:active:not(:disabled) {
+  background: var(--white-alpha-50);
+}
+
+.mobile-files-upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mobile-files-upload-progress {
+  padding: 8px 12px;
+  background: var(--white-alpha-85);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border-bottom: 1px solid var(--glass-border-subtle);
 }
 
 /* 搜索栏 */

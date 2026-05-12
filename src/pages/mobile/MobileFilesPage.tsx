@@ -8,6 +8,8 @@
  * - 文件预览：图片/视频用 MobileMediaPreview，文档用 FilePreviewModal
  *   （文档预览内的下载/打开行为通过 DocumentDownloadAction 共享，与桌面端「我的文件」一致）
  * - 长按 500ms 触发文件菜单：在文件夹中打开（已下载）/ 下载文件（未下载文档）/ 删除文件（含确认）
+ * - 文件上传：与桌面端 FilesModal.handleUploadClick 完全一致的逻辑（plugin-dialog + plugin-fs + useFileUpload + copy_file_to_cache）
+ * - 已下载图片/视频缩略图右上角文件夹徽章点击打开文件位置（移动端走 openWithExternalApp）
  *
  * 样式：
  * - 使用与抽屉一致的白色毛玻璃效果
@@ -15,22 +17,37 @@
  *
  * 注意：
  * - 移动端不支持 openMediaWindow（WebviewWindow），媒体预览走 MobileMediaPreview
- * - 暂不支持文件上传（需要适配移动端文件选择器）
+ * - 视频预览时机：handlePreview 视频分支调用 triggerBackgroundDownload，
+ *   与桌面端 useVideoCache.onPlay 行为对齐（首次预览即触发后台缓存）
  * - 长按触发后的合成 click 由 longPressFiredRef 抑制，避免误打开预览
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { readFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 import { useFiles, type FileCategory } from '../../hooks/useFiles';
-import { useImageCache } from '../../hooks/useFileCache';
+import { useImageCache, useFileCache } from '../../hooks/useFileCache';
+import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
+import { useFileUpload } from '../../hooks/useFileUpload';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { getFileCategory, deleteFile } from '../../api/storage';
 import { formatFileSize } from '../../utils/format';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import { UploadIcon } from '../../components/common/Icons';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import { LocalBadge } from '../../chat/shared/DocumentDownloadAction';
+import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { useSession, useApi } from '../../contexts/SessionContext';
-import { getPresignedUrl, getCachedFilePath, getVideoSource } from '../../services/fileCache';
+import {
+  getPresignedUrl,
+  getCachedFilePath,
+  getVideoSource,
+  triggerBackgroundDownload,
+} from '../../services/fileCache';
+import { saveFileUuidHash } from '../../db';
 import { useConfirmDialog } from '../../lowcode/components/ConfirmDialog';
 import { FileMenuController } from '../../components/files/FileMenuController';
 import type { FileItem } from '../../api/storage';
@@ -144,7 +161,13 @@ function ImageThumbnail({
   );
 }
 
-/** 视频缩略图 - 使用 getVideoSource 获取移动端兼容的视频 URL */
+/** 视频缩略图 - 使用 getVideoSource 获取移动端兼容的视频 URL
+ *
+ * 底层 src 仍由 getVideoSource 提供（保持移动端 HTTP 服务器路径）。
+ * 额外引入 useFileCache(autoCache:false) 拿 isLocal —
+ * isLocal 以 useFileCache 为准（订阅下载任务 store，下载完成会自动 reload），
+ * 与桌面端 useVideoCache 行为对齐：列表内下载完后徽章自动出现，无需手动刷新。
+ */
 function VideoThumbnail({
   file,
   onLocalPathFound,
@@ -154,9 +177,18 @@ function VideoThumbnail({
 }) {
   const api = useApi();
   const [src, setSrc] = useState<string | null>(null);
-  const [isLocal, setIsLocal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // isLocal 来自 useFileCache（同源；下载完成 reload 驱动徽章）
+  const { isLocal } = useFileCache({
+    fileUuid: file.file_uuid,
+    fileHash: file.file_hash,
+    fileName: file.filename,
+    fileType: 'video',
+    urlType: 'user',
+    autoCache: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +209,6 @@ function VideoThumbnail({
 
         if (!cancelled) {
           setSrc(result.src);
-          setIsLocal(result.isLocal);
           onLocalPathFound?.(result.isLocal ? result.src : null, file.file_hash ?? null);
         }
       } catch {
@@ -334,11 +365,33 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
     loadMore,
   } = useFiles();
 
+  // 文件上传 hook（与桌面端 FilesModal 一致）
+  const { uploading, progress, uploadFile, resetUpload } = useFileUpload();
+  const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+
   // 媒体预览状态（图片/视频）
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
   const [previewSrc, setPreviewSrc] = useState('');
   const [previewFilename, setPreviewFilename] = useState('');
+  // 当前预览文件的元信息（用于 useFileCache 订阅 + onDownload/onOpenWith 菜单回调）
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+
+  // 订阅当前预览文件的下载状态 + localPath + openInFolder（previewFile=null 时用空占位）
+  const previewCache = useFileCache({
+    fileUuid: previewFile?.file_uuid ?? '',
+    fileHash: previewFile?.file_hash ?? null,
+    fileName: previewFile?.filename ?? '',
+    fileType: previewType,
+    urlType: 'user',
+    autoCache: false,
+  });
+  const previewDownloadTask = useFileCacheStore(
+    selectDownloadTask(previewFile?.file_hash ?? ''),
+  );
+  const previewIsDownloading =
+    previewDownloadTask?.status === 'pending'
+    || previewDownloadTask?.status === 'downloading';
 
   // 文档预览状态
   const [documentPreview, setDocumentPreview] = useState<FileItem | null>(null);
@@ -449,6 +502,147 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
     [api, confirm, refresh],
   );
 
+  // ============================================
+  // 文件上传（与桌面端 FilesModal.handleUploadClick 完全一致）
+  // ============================================
+
+  const handleUploadClick = useCallback(async () => {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        filters: [
+          {
+            name: '所有支持的文件',
+            extensions: [
+              'jpg',
+              'jpeg',
+              'png',
+              'gif',
+              'webp',
+              'mp4',
+              'mov',
+              'avi',
+              'mkv',
+              'webm',
+              'pdf',
+              'doc',
+              'docx',
+              'xls',
+              'xlsx',
+              'ppt',
+              'pptx',
+              'txt',
+              'zip',
+              'rar',
+            ],
+          },
+          { name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
+          { name: '视频', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] },
+          { name: '文档', extensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt'] },
+        ],
+      });
+
+      if (!selected) {
+        return;
+      }
+
+      // Tauri 2.x 返回的是字符串路径
+      const localPath = selected as unknown as string;
+      const fileName = localPath.split(/[/\\]/).pop() || 'file';
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+      // 读取文件内容
+      const fileBytes = await readFile(localPath);
+
+      // 判断 MIME 类型
+      let mimeType = 'application/octet-stream';
+      if (['jpg', 'jpeg'].includes(ext)) {
+        mimeType = 'image/jpeg';
+      } else if (ext === 'png') {
+        mimeType = 'image/png';
+      } else if (ext === 'gif') {
+        mimeType = 'image/gif';
+      } else if (ext === 'webp') {
+        mimeType = 'image/webp';
+      } else if (ext === 'mp4') {
+        mimeType = 'video/mp4';
+      } else if (ext === 'mov') {
+        mimeType = 'video/quicktime';
+      } else if (['avi', 'mkv', 'webm'].includes(ext)) {
+        mimeType = `video/${ext}`;
+      } else if (ext === 'pdf') {
+        mimeType = 'application/pdf';
+      }
+
+      // 创建 File 对象
+      const file = new File([fileBytes], fileName, { type: mimeType });
+
+      setUploadingFile(file);
+
+      // 根据文件类型自动判断 fileType
+      let fileType: 'user_image' | 'user_video' | 'user_document' = 'user_document';
+      if (mimeType.startsWith('image/')) {
+        fileType = 'user_image';
+      } else if (mimeType.startsWith('video/')) {
+        fileType = 'user_video';
+      }
+
+      const result = await uploadFile({
+        file,
+        fileType,
+        storageLocation: 'user_files',
+      });
+
+      if (result.success) {
+        // 保存 file_uuid 到 file_hash 的映射，并复制文件到统一缓存目录
+        if (result.fileUuid && result.fileHash) {
+          await saveFileUuidHash(result.fileUuid, result.fileHash);
+
+          // 复制文件到统一缓存目录（大文件≥100MB不复制，记录原始路径）
+          try {
+            let cacheFileType = 'document';
+            if (mimeType.startsWith('image/')) {
+              cacheFileType = 'image';
+            } else if (mimeType.startsWith('video/')) {
+              cacheFileType = 'video';
+            }
+
+            const { fileCache } = useSettingsStore.getState();
+            const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
+            await invoke<string>('copy_file_to_cache', {
+              sourcePath: localPath,
+              fileHash: result.fileHash,
+              fileName: fileName,
+              fileType: cacheFileType,
+              fileSize: file.size,
+              largeFileThreshold: thresholdBytes,
+            });
+          } catch (cacheErr) {
+            console.error('[MobileFilesPage] 缓存文件失败:', cacheErr);
+          }
+        }
+
+        // 刷新文件列表
+        await refresh();
+      }
+
+      // 延迟清除上传状态
+      setTimeout(() => {
+        setUploadingFile(null);
+        resetUpload();
+      }, 1500);
+    } catch (err) {
+      console.error('[MobileFilesPage] 文件选择失败:', err);
+      setUploadingFile(null);
+      resetUpload();
+    }
+  }, [uploadFile, refresh, resetUpload]);
+
+  const handleCancelUpload = useCallback(() => {
+    setUploadingFile(null);
+    resetUpload();
+  }, [resetUpload]);
+
   // 预览文件
   const handlePreview = useCallback(
     async (file: FileItem) => {
@@ -472,6 +666,17 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
         try {
           const result = await getVideoSource(api, file.file_uuid, file.file_hash, 'user');
           previewUrl = result.src;
+          // 与桌面端 useVideoCache.onPlay 行为对齐：非本地 + 有 hash 时触发后台缓存
+          // triggerBackgroundDownload 内部对同 fileHash 已下载/下载中会跳过，不会重复触发
+          if (!result.isLocal && file.file_hash) {
+            triggerBackgroundDownload(
+              result.src,
+              file.file_hash,
+              file.filename,
+              'video',
+              file.file_size,
+            );
+          }
         } catch (err) {
           console.error('[MobileFilesPage] 获取视频 URL 失败:', err);
           return;
@@ -510,6 +715,7 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
       setPreviewType(fileCategory as 'image' | 'video');
       setPreviewSrc(previewUrl);
       setPreviewFilename(file.filename);
+      setPreviewFile(file);
       setPreviewOpen(true);
     },
     [session, api, localInfoCache],
@@ -552,8 +758,29 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
           <BackIcon />
         </button>
         <h1 className="mobile-files-title">我的文件</h1>
-        <div className="mobile-files-placeholder" />
+        <button
+          className="mobile-files-upload-btn"
+          onClick={handleUploadClick}
+          disabled={uploading}
+          aria-label="上传文件"
+        >
+          {uploading ? <LoadingSpinner /> : <UploadIcon />}
+        </button>
       </header>
+
+      {/* 上传进度条 */}
+      <AnimatePresence>
+        {uploading && uploadingFile && progress && (
+          <div className="mobile-files-upload-progress">
+            <UploadProgress
+              filename={uploadingFile.name}
+              fileSize={uploadingFile.size}
+              progress={progress}
+              onCancel={handleCancelUpload}
+            />
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* 搜索栏 */}
       <div className="mobile-files-search">
@@ -653,7 +880,33 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
         type={previewType}
         src={previewSrc}
         filename={previewFilename}
-        onClose={() => setPreviewOpen(false)}
+        localPath={previewCache.localPath}
+        downloadProgress={previewDownloadTask?.percent ?? 0}
+        isDownloading={previewIsDownloading}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewFile(null);
+        }}
+        onOpenWith={
+          previewCache.localPath
+            ? () => previewCache.openInFolder(previewCache.localPath)
+            : undefined
+        }
+        onDownload={
+          previewFile?.file_hash && previewSrc
+            ? () => {
+              const hash = previewFile.file_hash;
+              if (!hash) { return; }
+              triggerBackgroundDownload(
+                previewSrc,
+                hash,
+                previewFile.filename,
+                previewType,
+                previewFile.file_size,
+              );
+            }
+            : undefined
+        }
       />
 
       {/* 文档预览（下载/打开行为复用 DocumentDownloadAction） */}

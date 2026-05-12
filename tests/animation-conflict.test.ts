@@ -96,6 +96,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/search/GlobalMessageSearchResults.tsx (桌面 scale 缩放 / 移动 translateY 拉出 — desktopVariants/mobileVariants)',
   },
+  {
+    selector: '.mobile-media-preview-menu',
+    cssFile: 'src/styles/mobile/chat-view.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/MobileMediaPreview.tsx (Telegram 风格右对齐下拉菜单：opacity + y + scale variants)',
+  },
 ];
 
 /**

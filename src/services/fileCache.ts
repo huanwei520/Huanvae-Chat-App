@@ -378,11 +378,15 @@ export async function getVideoSource(
   if (isMobile() && fileHash) {
     const localVideoUrl = await getLocalVideoUrl(fileHash);
     if (localVideoUrl) {
+      // 同步取实际文件系统路径用于 openInFolder / saveToGallery / 「通过其它方式打开」
+      // —— src 是 HTTP 服务器 URL（给 <video> 播放），localPath 是磁盘路径（给 Rust 命令）
+      const localPath = await getCachedFilePath(fileHash);
       // eslint-disable-next-line no-console
-      console.log('[FileCache] 使用移动端本地视频服务器:', localVideoUrl);
+      console.log('[FileCache] 使用移动端本地视频服务器:', localVideoUrl, 'localPath:', localPath);
       return {
         src: localVideoUrl,
         isLocal: true,
+        localPath: localPath ?? undefined,
         fileHash,
       };
     }

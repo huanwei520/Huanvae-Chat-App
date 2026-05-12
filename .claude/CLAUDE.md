@@ -268,27 +268,50 @@ Agent(subagent_type="test-runner", prompt="在 /home/huanwei/Huanvae-Chat-Rust/H
 
 ## 修改完成后的验证流程
 
-代码和测试全部编辑完成后，严格按以下顺序执行：
+代码和测试全部编辑完成后，严格按以下顺序执行。**最终门禁是 `scripts/test-all.ps1`，9/9 全绿才算完成**，不可只跑前几步就声明任务通过。
 
-### 第 1 步：类型检查 + Lint
+### 第 1 步：开发期局部验证（迭代时用）
+
+代码改完先快速验证，避免一上来跑全量。**委托 test-runner Agent（haiku）执行**：
+
+```
+Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm typecheck && pnpm lint:strict && pnpm test:run，报告结果")
+```
+
+注意：`pnpm lint:strict`（`--max-warnings 0`）与 `scripts/test-all.ps1` 的 ESLint 阈值对齐。`pnpm lint` 是宽松版，本地试错可用，但**任务完成前必须用 strict 模式校验**，否则 test-all.ps1 会在第 4 步因 warning 而 FAIL。
+
+### 第 2 步：全量门禁 `scripts/test-all.ps1`（不可跳过）
+
+**任何任务完成前必须跑一次，9/9 全绿才允许进入 completion-summary。** 9 项检查：
+
+1. NSIS 安装配置 / 2. package.json 验证 / 3. TypeScript / 4. ESLint 严格模式 / 5. Vitest / 6. 前端 build / 7. cargo check / 8. clippy 桌面 / 9. clippy Android
 
 **委托 test-runner Agent（haiku）执行**：
 
 ```
-Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm typecheck && pnpm lint，报告结果")
+Agent(subagent_type="test-runner", prompt="在 App 目录下用 PowerShell 运行 scripts/test-all.ps1，逐项报告 9 项结果。若 huanvaeguard-svc.exe 占用导致 cargo 失败，先 scripts/dev/hg-service.ps1 -Action stop 再重跑，结束后恢复。")
 ```
 
-### 第 2 步：运行单元/组件测试
+任何一项 FAIL 必须修复后**重新跑完整 9/9**，不许只重跑失败那项。常见坑见 [.claude/rules/rust-dev.md](.claude/rules/rust-dev.md)（HG 服务文件锁）和 [.claude/rules/frontend-test.md](.claude/rules/frontend-test.md)（vi.hoisted、animation-conflict 注册）。
 
-**委托 test-runner Agent（haiku）执行**：
+### 动画类变更的额外门禁（不可跳过）
+
+凡是新增 / 修改 `motion.* + variants` 组件的任务，**plan 阶段就必须列出**「将选择器加入 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) `MOTION_CONTROLLED_SELECTORS` 注册表」作为变更项，与实现并行落地。
+
+判断口径（任一命中即属"动画变更"）：
+
+- 新增 `<motion.* variants={...}>` 组件
+- 给已有 motion 组件加新的 variant 属性（如 cardVariants 加 scale/exit）
+- 给已有 motion 组件的 className 加 / 改 CSS `transition` 字段
+- 修改已注册 motion 组件的 className
+
+完成代码后必须跑：
 
 ```
-Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm test:run，报告通过/失败结果")
+Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm vitest run tests/animation-conflict.test.ts，报告每个 selector 的 PASS/FAIL")
 ```
 
-### 第 3 步：全量回归
-
-**委托 test-runner Agent（haiku）执行**。确保修改对整个项目无影响。
+理由见 [.claude/rules/frontend-test.md「动画相关变更必须补冲突回归测试」](.claude/rules/frontend-test.md#动画相关变更必须补冲突回归测试css-vs-framer-motion)。vitest 因 `MotionGlobalConfig.skipAnimations = true` 测不出 CSS / framer-motion 同帧抢夺 transform 的冲突，**只有该静态扫描测试能拦下**。
 
 ## Git 提交规范
 

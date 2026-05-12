@@ -4068,6 +4068,15 @@
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* chat-document 变体：聊天文档气泡白底，用绿色提升可见度 */
+.document-download.chat-document {
+  color: var(--status-success);
+}
+
+.document-download.chat-document:hover {
+  background: var(--status-success-subtle);
+}
+
 /* 文档操作按钮区域 */
 .document-actions {
   display: flex;

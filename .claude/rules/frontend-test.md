@@ -375,6 +375,39 @@ describe('全局搜索组件 (Search Components)', () => {
 - code-review 第二轮抓到 Major：缺 `describe('全局搜索组件') + it.each(SEARCH_COMPONENTS)` 遍历块 → 未来 SEARCH_COMPONENTS 新增条目时，全量回归不会因"未注册"失败
 - 补加 describe 块后 173/173 通过
 
+## RTL renderHook 不能直接断言 useState lazy initializer 的同步初值
+
+### `result.current` 已是 effect 完成后的状态，lazy initializer 给的初值若被立即 `setX` 覆盖就不可观察
+
+`@testing-library/react` 的 `renderHook` 内部用 `act` 包裹渲染 + flush effects → 返回的 `result.current` 已经历过 mount + 第一波 useEffect 同步部分。这意味着如果 hook 内部有：
+
+```ts
+const [loading, setLoading] = useState(() => !hint);  // hint 命中 → 同步初值 false
+useEffect(() => {
+  loadSource();  // 同步先 setLoading(true)，再 await...
+}, [loadSource]);
+```
+
+测试中 `result.current.loading` **永远拿到 true**（因为 useEffect 在 `result` 返回前已 flush 了 `setLoading(true)`）。lazy initializer 给的 `false` 同步初值**不可直接断言**。
+
+**规则**：
+
+1. **正确地测：分两层验证**
+   - **同步初值**：用"不被 useEffect 立即覆盖的字段"断言（如 `src` / `isLocal` / `localPath` / `initialized` —— lazy init 设值后 useEffect 内的 setX 是别的 setter，不会覆盖这些字段）
+   - **最终状态**：`await waitFor(() => expect(result.current.loading).toBe(false))` 验证异步校验完成后的值
+
+2. **不要硬测 lazy initializer 的同步初值**：
+   - 即使测试通过，也是巧合（依赖 React 内部 batching 时机），不稳定
+   - lazy initializer 的正确性靠 TypeScript 类型 + code review + 间接字段覆盖共同保证
+
+3. **若必须断言 lazy initializer 计算逻辑**：把 lazy initializer 抽成独立纯函数 `computeInitialState(input)` 单测，而不是测 hook 同步初值
+
+**反例（2026-05-12）**：
+- `useFileCache` 用 `useState(() => !hints[fileHash])` 让 hint 命中场景 loading=false（"切回不闪"机制）
+- 测试 `expect(result.current.loading).toBe(false)` 同步断言失败 —— 因为 mount useEffect 已 flush `setLoading(true)`
+- 修复：去掉 loading 同步断言（保留 src/isLocal/initialized 同步断言，这些字段不被 useEffect 立刻覆盖），用 `await waitFor` 验证最终 loading=false
+- code-review Agent 当时标为 Major（"切回不闪机制核心"），但 RTL 模型下不可干净断言；接受技术限制，改用补充 reload 链路 isLocal=true→false 时 hint 被 remove 的反向测试覆盖防御意图
+
 ## vitest fake timer 与真实 Promise 协调用 async 版本
 
 ### `vi.advanceTimersByTime`（同步）只推进 setTimeout，不 flush microtask

@@ -387,3 +387,39 @@ CSS 中 `position: absolute` 元素相对最近的 `position != static` 祖先�
 - 探索发现 [`src/api/auth.ts`](src/api/auth.ts) 使用 `import { fetch } from '@tauri-apps/plugin-http'`，page.route 无法拦截
 - 改为分两层覆盖：e2e 覆盖登录前所有可达场景（form toggle / multi-viewport / dark theme），登录后场景由 vitest 组件测试覆盖动画属性（exit prop / body overflow / disabled 守卫）
 - 节省 1-2 天 mock 调试时间，覆盖深度仍达预期
+
+## PowerShell `Set-Content` 写文件的两个陷阱
+
+### 陷阱 1：`-NoNewline` + 数组参数会把所有行合并成一行
+
+PowerShell 的 `Set-Content -NoNewline -Value @lines` 行为：**不在元素之间插换行**，把数组所有元素**首尾相接**写成单行。常被误用于"原样回写文件 + 不在末尾加多余换行"，结果整个文件被合并成一行，破坏代码。
+
+```powershell
+# ❌ 错误：lines = Get-Content -Encoding UTF8 的行数组，Set-Content -NoNewline 会合并所有元素
+$lines = Get-Content $path -Encoding UTF8
+$lines[549] = "  " + $lines[549]
+Set-Content -Path $path -Value $lines -Encoding UTF8 -NoNewline
+# 结果：文件 612 行变成 1 行
+
+# ✅ 正确：用 \n join 后整体写入（保留换行），不加 -NoNewline
+$content = ($lines -join "`n") + "`n"
+[System.IO.File]::WriteAllText($path, $content, [System.Text.Encoding]::UTF8)
+```
+
+### 陷阱 2：PowerShell 5.1 `Set-Content -Encoding utf8` 写 BOM
+
+PS 5.1 的 `-Encoding utf8` 是 UTF-8 with BOM。给 TS/CSS 等会被其他工具解析的文件加 BOM 会导致 lint/build 报错（已在前述 "css-encoding" 规则中体现）。
+
+正确做法：用 `[System.IO.File]::WriteAllText(path, content, [System.Text.UTF8Encoding]::new($false))` 显式无 BOM。
+
+**规则**：
+
+1. **不要用 PowerShell 批量改文件**。优先使用 Edit 工具（针对单个 occurrence）或 Write 工具（重写整个文件）。这两个工具按字符串处理，不会引入 NoNewline / BOM 问题。
+2. 如果**必须**用 PowerShell（如批量处理多行），用 `[System.IO.File]::WriteAllText` + 显式 UTF8 no-BOM encoding，**不要**用 `Set-Content -NoNewline -Value $array`。
+3. 修改文件后**必须立即**用 Read tool 抽几行验证内容完整（行数 / 缩进 / 内容），不要假设写入成功。
+
+**反例（2026-05-12）**：
+- 修复 UnifiedList.tsx 缩进时用 `Set-Content -NoNewline -Value $lines` 批量写入
+- 文件从 605 行变成 1 行（全部内容合并），所有 JSX 被破坏
+- 用 `git checkout HEAD --` 才恢复
+- 之后所有缩进类修改改回 Edit tool（逐处替换）或单测后重写全文

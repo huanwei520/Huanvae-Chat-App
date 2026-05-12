@@ -256,6 +256,7 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
    - 每个测试用例的名称和验证目标
    - 对每个新增 API 端点：至少 1 个正常流程 + 1 个错误处理
    - 对每个核心 service 方法：至少 1 个测试
+   - **动画类变更的强制项**：如果方案涉及新增 / 修改 `motion.* + variants` 组件、给已有 motion 组件加 variant 属性、改 motion 组件 CSS 的 `transition` 字段、或改其 className，**测试计划必须包含一条「在 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 的 `MOTION_CONTROLLED_SELECTORS` 注册表中新增/更新 selector」**，并指明 selector、对应 CSS 文件、controlledProps（transform / opacity / 等）、来源组件 — 与代码实现并行落地，不可事后补。理由：vitest 默认 skipAnimations，唯独这个静态扫描测试能拦 CSS vs framer-motion 冲突
    - 如果某功能因外部依赖（如需要真实 SSH 服务器、第三方 API）无法编写自动化测试，必须明确标注并给出手动验证步骤
 
 输出格式：

@@ -139,6 +139,22 @@ effort: high
 - 错误路径是否被测试覆盖？（权限不足、参数非法、资源不存在）
 - 边界条件是否被测试？（空列表、超长字符串、并发操作）
 
+### 3.5 动画冲突覆盖（前端 motion 组件专用）
+
+如果本次变更含 `motion.*` 组件（新增 / 修改 variants / 修改对应 CSS transition），必须检查：
+
+- [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 的 `MOTION_CONTROLLED_SELECTORS` 注册表是否补了新 selector？
+- 该 selector 对应的 CSS 文件路径是否准确？
+- `controlledProps` 是否如实列出 framer-motion 控制的属性（transform / opacity / 等）？
+- 该测试是否实际跑过？（不只是注册了 selector）
+
+vitest 默认 `MotionGlobalConfig.skipAnimations = true`，渲染测试**测不出** CSS `transition: all` 与 motion variants 抢同一帧的 bug。只有这个静态扫描测试能拦。**漏注册 = 假覆盖**，列为 Major。
+
+判断方法：
+1. `git diff --name-only -- tests/animation-conflict.test.ts` 看注册表是否变更
+2. 对照本次新增的 `motion.*` 组件 / 改过的 motion variants，逐一核对 selector 在注册表中存在
+3. 缺失任一即上报
+
 ### 4. 测试隔离问题
 
 - 测试是否依赖其他测试的执行顺序或副作用？

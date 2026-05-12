@@ -775,6 +775,8 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_url: wsMsg.file_url ?? null,
         file_size: wsMsg.file_size ?? null,
         file_hash: wsMsg.file_hash ?? null,
+        image_width: wsMsg.image_width ?? null,
+        image_height: wsMsg.image_height ?? null,
         send_time: wsMsg.timestamp,
         seq: wsMsg.seq || 0,
         is_recalled: false,

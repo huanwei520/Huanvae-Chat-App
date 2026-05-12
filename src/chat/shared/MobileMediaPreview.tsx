@@ -9,14 +9,20 @@
  * - 支持双指缩放手势（图片）
  * - 点击背景关闭
  * - 顶部关闭按钮
- * - 底部操作栏：
- *   - 下载中：显示进度条（与视频缓存进度同步）
- *   - 下载完成：显示保存按钮（保存到相册）
+ * - 顶部右侧 ⋮ 三点菜单（Telegram 风格右对齐下拉）：
+ *   - 未下载 → 「下载」（调用 onDownload）
+ *   - 下载中 → 「下载中 X%」（disabled，仅展示状态）
+ *   - 已下载 → 「保存到相册」+ 「通过其它方式打开」（后者调用 onOpenWith）
+ * - 底部进度条：仅下载中显示（被动可见）
  * - 阻止长按触发底层消息气泡的右键菜单
+ *
+ * 菜单样式：透明毛玻璃 + 主题变量（var(--white-alpha-85) / var(--glass-border-subtle) / var(--text-primary)），
+ *           设置 → 主题调色盘改变时自动跟随。
  *
  * @since 2024-01
  * @updated 2026-02-04 添加保存到相册功能，修复长按穿透问题
  * @updated 2026-02-04 添加下载进度条，与视频缓存进度同步显示
+ * @updated 2026-05-12 重构：底部保存按钮迁到顶部 ⋮ 菜单 + 新增「下载」「通过其它方式打开」选项
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -41,7 +47,7 @@ export interface MobileMediaPreviewProps {
   src: string;
   /** 文件名 */
   filename: string;
-  /** 本地文件路径（用于保存到相册） */
+  /** 本地文件路径（用于保存到相册 + 判断"已下载"菜单分支） */
   localPath?: string | null;
   /** 下载进度百分比 (0-100)，用于显示进度条 */
   downloadProgress?: number;
@@ -49,6 +55,10 @@ export interface MobileMediaPreviewProps {
   isDownloading?: boolean;
   /** 关闭回调 */
   onClose: () => void;
+  /** "通过其它方式打开"回调（仅已下载状态显示），通常 wire 到 useFileCache.openInFolder */
+  onOpenWith?: () => void;
+  /** "下载"回调（仅未下载状态显示），调用方触发 triggerBackgroundDownload */
+  onDownload?: () => void;
 }
 
 /**
@@ -97,6 +107,71 @@ function SaveIcon() {
   );
 }
 
+/**
+ * 三点垂直菜单图标（Telegram 风格 kebab）
+ */
+function MoreIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="currentColor"
+      viewBox="0 0 24 24"
+      width={20}
+      height={20}
+    >
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
+    </svg>
+  );
+}
+
+/**
+ * 下载图标（用于菜单"下载"项）
+ */
+function DownloadIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      width={18}
+      height={18}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+      />
+    </svg>
+  );
+}
+
+/**
+ * 外部应用打开图标（用于菜单"通过其它方式打开"项）
+ */
+function OpenWithIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      width={18}
+      height={18}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+      />
+    </svg>
+  );
+}
+
 export function MobileMediaPreview({
   isOpen,
   type,
@@ -106,12 +181,16 @@ export function MobileMediaPreview({
   downloadProgress = 0,
   isDownloading = false,
   onClose,
+  onOpenWith,
+  onDownload,
 }: MobileMediaPreviewProps) {
   // 视频/图片加载状态
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
   // 保存状态
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  // ⋮ 菜单展开状态
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // 移动端返回手势处理：预览打开时拦截返回操作
   useMobileBackHandler(() => {
@@ -276,8 +355,42 @@ export function MobileMediaPreview({
   useEffect(() => {
     if (!isOpen) {
       setSaveStatus('idle');
+      setMenuOpen(false);
     }
   }, [isOpen]);
+
+  // 菜单 action 触发后自动收起
+  const handleMenuSaveToGallery = useCallback(() => {
+    setMenuOpen(false);
+    handleSaveToGallery();
+  }, [handleSaveToGallery]);
+
+  const handleMenuOpenWith = useCallback(() => {
+    setMenuOpen(false);
+    onOpenWith?.();
+  }, [onOpenWith]);
+
+  const handleMenuDownload = useCallback(() => {
+    setMenuOpen(false);
+    onDownload?.();
+  }, [onDownload]);
+
+  // 决定菜单展示哪些项的三态分类
+  const hasLocalFile = !!localPath;
+  let menuState: 'downloading' | 'downloaded' | 'undownloaded';
+  if (isDownloading) {
+    menuState = 'downloading';
+  } else if (hasLocalFile) {
+    menuState = 'downloaded';
+  } else {
+    menuState = 'undownloaded';
+  }
+
+  // 判断当前状态是否有可执行的菜单项（用于决定空态保底显示）
+  const hasAnyAction =
+    menuState === 'downloaded'
+    || menuState === 'downloading'
+    || (menuState === 'undownloaded' && !!onDownload);
 
   const content = (
     <AnimatePresence>
@@ -302,7 +415,96 @@ export function MobileMediaPreview({
               <CloseIcon />
             </button>
             <span className="mobile-media-preview-title">{filename}</span>
+            {/* ⋮ 始终渲染，菜单展开后内部根据状态显示对应项；无项时显示"暂无可用操作" */}
+            <button
+              className="mobile-media-preview-more"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((v) => !v);
+              }}
+              type="button"
+              aria-label="更多操作"
+            >
+              <MoreIcon />
+            </button>
           </div>
+
+          {/* ⋮ 下拉菜单（右对齐，从 ⋮ 下方滑入；点击外部 backdrop 收起） */}
+          <AnimatePresence>
+            {menuOpen && (
+              <>
+                <div
+                  className="mobile-media-preview-menu-backdrop"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                  }}
+                />
+                <motion.div
+                  className="mobile-media-preview-menu"
+                  initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {menuState === 'undownloaded' && onDownload && (
+                    <button
+                      className="mobile-media-preview-menu-item"
+                      onClick={handleMenuDownload}
+                      type="button"
+                    >
+                      <DownloadIcon />
+                      <span>下载</span>
+                    </button>
+                  )}
+                  {menuState === 'downloading' && (
+                    <button
+                      className="mobile-media-preview-menu-item"
+                      disabled
+                      type="button"
+                    >
+                      <DownloadIcon />
+                      <span>下载中 {Math.round(downloadProgress)}%</span>
+                    </button>
+                  )}
+                  {menuState === 'downloaded' && (
+                    <>
+                      <button
+                        className={`mobile-media-preview-menu-item ${saveStatus}`}
+                        onClick={handleMenuSaveToGallery}
+                        disabled={saveStatus === 'saving'}
+                        type="button"
+                      >
+                        <SaveIcon />
+                        <span>
+                          {saveStatus === 'idle' && '保存到相册'}
+                          {saveStatus === 'saving' && '保存中...'}
+                          {saveStatus === 'success' && '已保存'}
+                          {saveStatus === 'error' && '保存失败'}
+                        </span>
+                      </button>
+                      {onOpenWith && (
+                        <button
+                          className="mobile-media-preview-menu-item"
+                          onClick={handleMenuOpenWith}
+                          type="button"
+                        >
+                          <OpenWithIcon />
+                          <span>通过其它方式打开</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {!hasAnyAction && (
+                    <div className="mobile-media-preview-menu-empty">
+                      暂无可用操作
+                    </div>
+                  )}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
 
           {/* 媒体内容 */}
           <div className="mobile-media-preview-content">
@@ -358,11 +560,9 @@ export function MobileMediaPreview({
             )}
           </div>
 
-          {/* 底部操作栏 - 下载进度条或保存按钮 */}
-          <div className="mobile-media-preview-actions">
-            {/* eslint-disable-next-line no-nested-ternary */}
-            {isDownloading ? (
-              /* 下载中：显示进度条 */
+          {/* 底部进度条 - 仅下载中显示（被动可见，无需打开菜单） */}
+          {isDownloading && (
+            <div className="mobile-media-preview-actions">
               <div className="mobile-media-preview-progress">
                 <div className="progress-bar-container">
                   <div
@@ -374,24 +574,8 @@ export function MobileMediaPreview({
                   缓存中 {Math.round(downloadProgress)}%
                 </span>
               </div>
-            ) : localPath ? (
-              /* 下载完成：显示保存按钮 */
-              <button
-                className={`mobile-media-preview-save-btn ${saveStatus}`}
-                onClick={handleSaveToGallery}
-                disabled={saveStatus === 'saving'}
-                type="button"
-              >
-                <SaveIcon />
-                <span>
-                  {saveStatus === 'idle' && '保存'}
-                  {saveStatus === 'saving' && '保存中...'}
-                  {saveStatus === 'success' && '已保存'}
-                  {saveStatus === 'error' && '保存失败'}
-                </span>
-              </button>
-            ) : null}
-          </div>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

@@ -477,7 +477,6 @@ src/styles/mobile/
 | `.media-video-container` | 视频容器 |
 | `.media-loading` | 加载状态 |
 | `.media-error` | 错误状态 |
-| `.media-local-badge` | 本地文件标识 |
 | `.media-zoom-indicator` | 缩放比例指示器 |
 
 **功能特性**：

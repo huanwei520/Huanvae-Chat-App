@@ -94,13 +94,6 @@ const DownloadIcon = () => (
   </svg>
 );
 
-const LocalIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-    <polyline points="22 4 12 14.01 9 11.01" />
-  </svg>
-);
-
 const FolderIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -558,11 +551,6 @@ function ImageViewer({ state }: { state: MediaState }) {
             <DownloadIcon />
           </button>
         )}
-        {isLocal && (
-          <span className="media-local-badge">
-            <LocalIcon /> 本地文件
-          </span>
-        )}
       </div>
 
       {/* 图片容器 */}
@@ -768,11 +756,6 @@ function VideoPlayer({ state }: { state: MediaState }) {
           <button onClick={handleDownload} title="下载">
             <DownloadIcon />
           </button>
-        )}
-        {isLocal && (
-          <span className="media-local-badge">
-            <LocalIcon /> 本地文件
-          </span>
         )}
       </div>
 

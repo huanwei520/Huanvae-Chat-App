@@ -149,18 +149,6 @@
   transform: scale(1.05);
 }
 
-.media-local-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--status-success-subtle);
-  color: var(--status-success);
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-}
-
 .media-download-progress {
   display: inline-flex;
   align-items: center;

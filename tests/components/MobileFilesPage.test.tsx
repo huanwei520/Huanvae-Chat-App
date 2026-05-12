@@ -117,6 +117,55 @@ vi.mock('../../src/hooks/useFileCache', () => ({
   }),
 }));
 
+// ============== Mock useFileUpload + 上传链路依赖 ==============
+const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockResetUpload = vi.hoisted(() => vi.fn());
+const mockUseFileUploadState = vi.hoisted(() => ({
+  uploading: false,
+  progress: null as { percent: number } | null,
+}));
+
+vi.mock('../../src/hooks/useFileUpload', () => ({
+  useFileUpload: () => ({
+    uploading: mockUseFileUploadState.uploading,
+    progress: mockUseFileUploadState.progress,
+    uploadFile: mockUploadFile,
+    resetUpload: mockResetUpload,
+  }),
+}));
+
+const mockOpenDialog = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: mockOpenDialog,
+}));
+
+const mockReadFile = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  readFile: mockReadFile,
+}));
+
+const mockInvoke = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: mockInvoke,
+}));
+
+const mockSaveFileUuidHash = vi.hoisted(() => vi.fn());
+vi.mock('../../src/db', () => ({
+  saveFileUuidHash: mockSaveFileUuidHash,
+}));
+
+vi.mock('../../src/stores/settingsStore', () => ({
+  useSettingsStore: {
+    getState: () => ({ fileCache: { largeFileThresholdMB: 100 } }),
+  },
+}));
+
+vi.mock('../../src/chat/shared/UploadProgress', () => ({
+  UploadProgress: ({ filename }: { filename: string }) => (
+    <div data-testid="upload-progress" data-filename={filename} />
+  ),
+}));
+
 // ============== Mock fileCache services ==============
 const mockTriggerDownload = vi.hoisted(() => vi.fn());
 vi.mock('../../src/services/fileCache', () => ({
@@ -303,5 +352,102 @@ describe('MobileFilesPage 动画与生命周期', () => {
     // 通过验证 spy 接收的最后一次 props.isOpen 来判断
     const lastCall = filePreviewModalSpy.mock.calls[filePreviewModalSpy.mock.calls.length - 1];
     expect(lastCall?.[0].isOpen).toBe(false);
+  });
+});
+
+// ============================================================================
+// 文件上传：与桌面端 FilesModal 行为一致
+// ============================================================================
+
+describe('MobileFilesPage 文件上传', () => {
+  beforeEach(() => {
+    cleanup();
+    mockUseFilesReturn.files = [];
+    mockUseFilesReturn.total = 0;
+    mockUseFilesReturn.refresh.mockReset();
+    mockUploadFile.mockReset();
+    mockResetUpload.mockReset();
+    mockOpenDialog.mockReset();
+    mockReadFile.mockReset();
+    mockInvoke.mockReset();
+    mockSaveFileUuidHash.mockReset();
+    mockUseFileUploadState.uploading = false;
+    mockUseFileUploadState.progress = null;
+  });
+
+  it('点击上传按钮 → openDialog + readFile + uploadFile 链路完整调用', async () => {
+    mockOpenDialog.mockResolvedValue('C:\\Users\\me\\photo.png');
+    mockReadFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockUploadFile.mockResolvedValue({
+      success: true,
+      fileUuid: 'new-uuid',
+      fileHash: 'new-hash',
+      instant: false,
+    });
+    mockInvoke.mockResolvedValue('C:\\cache\\new-hash.png');
+    mockSaveFileUuidHash.mockResolvedValue(undefined);
+
+    render(<MobileFilesPage onClose={vi.fn()} />);
+
+    const uploadBtn = screen.getByLabelText('上传文件');
+    await act(async () => {
+      fireEvent.click(uploadBtn);
+    });
+
+    await waitFor(() => {
+      expect(mockOpenDialog).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(mockReadFile).toHaveBeenLastCalledWith('C:\\Users\\me\\photo.png');
+    });
+    await waitFor(() => {
+      expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    });
+
+    // 验证 uploadFile 参数：fileType 根据扩展名自动判断为 user_image
+    const uploadCall = mockUploadFile.mock.calls[0][0];
+    expect(uploadCall.fileType).toBe('user_image');
+    expect(uploadCall.storageLocation).toBe('user_files');
+    expect(uploadCall.file.name).toBe('photo.png');
+    expect(uploadCall.file.type).toBe('image/png');
+
+    // 验证后续链路：saveFileUuidHash + copy_file_to_cache + refresh
+    await waitFor(() => {
+      expect(mockSaveFileUuidHash).toHaveBeenLastCalledWith('new-uuid', 'new-hash');
+    });
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenLastCalledWith('copy_file_to_cache', expect.objectContaining({
+        sourcePath: 'C:\\Users\\me\\photo.png',
+        fileHash: 'new-hash',
+        fileName: 'photo.png',
+        fileType: 'image',
+      }));
+    });
+    await waitFor(() => {
+      expect(mockUseFilesReturn.refresh).toHaveBeenCalled();
+    });
+  });
+
+  it('openDialog 返回 null（用户取消）→ 不调 uploadFile', async () => {
+    mockOpenDialog.mockResolvedValue(null);
+    render(<MobileFilesPage onClose={vi.fn()} />);
+
+    const uploadBtn = screen.getByLabelText('上传文件');
+    await act(async () => {
+      fireEvent.click(uploadBtn);
+    });
+
+    await waitFor(() => {
+      expect(mockOpenDialog).toHaveBeenCalledTimes(1);
+    });
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it('uploading=true 时按钮 disabled 并显示 LoadingSpinner', () => {
+    mockUseFileUploadState.uploading = true;
+    mockUseFileUploadState.progress = { percent: 50 };
+    render(<MobileFilesPage onClose={vi.fn()} />);
+    const uploadBtn = screen.getByLabelText('上传文件');
+    expect(uploadBtn).toBeDisabled();
   });
 });

@@ -11,14 +11,18 @@ allowed-tools: Read, Grep, Glob, Bash
 
 ## 前置条件
 
-以下环节必须全部完成才能输出汇总：
+以下环节必须全部完成才能输出汇总。**任何一项缺失都禁止输出完成总结**：
 
 - [x] Plan 所有步骤已执行
-- [x] `/code-review` 代码审核通过
-- [x] `/code-review` 测试审核通过
+- [x] `/code-review` 代码审核通过（业务代码）
+- [x] `/code-review` 测试审核通过（含动画冲突测试覆盖检查）
+- [x] **`scripts/test-all.ps1` 全量门禁 9/9 PASS**（不可只跑 typecheck + test:run 就替代）
+- [x] **若任务含动画变更：`pnpm vitest run tests/animation-conflict.test.ts` 注册表已更新且 PASS**
 - [x] 自检逐项核对通过
 - [x] `/blind-review` 盲审通过
 - [x] `/skill-evolve` 经验回顾已执行
+
+`scripts/test-all.ps1` 是最终事实门禁。**`pnpm test:run` 全绿 ≠ test-all.ps1 全绿** —— 后者还跑严格 ESLint（`--max-warnings 0`）、TypeScript、前端 build、cargo check、clippy 桌面 + Android。本地任务结束前如果只跑过 vitest 就声明完成属于违规。
 
 ## 汇总模板
 
@@ -74,6 +78,8 @@ allowed-tools: Read, Grep, Glob, Bash
 |------|------|------|
 | 代码质量审核（业务代码） | PASS | — |
 | 代码质量审核（测试代码） | PASS | — |
+| scripts/test-all.ps1 全量门禁 | 9/9 PASS | NSIS/package.json/TS/ESLint严格/Vitest/build/cargo check/clippy 桌面/clippy Android |
+| 动画冲突测试 | PASS / 不涉及 | 涉及动画时必须列出 tests/animation-conflict.test.ts 新增的 selector |
 | 自检 | PASS | N/N 步骤已完成 |
 | 盲审 | PASS | — |
 | 经验回顾 | 已执行 | {归纳了 N 条经验 / 无可归纳经验} |
