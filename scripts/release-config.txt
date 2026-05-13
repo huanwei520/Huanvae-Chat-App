@@ -15,5 +15,5 @@
 #
 # ============================================
 
-VERSION=1.1.12
-MESSAGE=Android图标修复、R2自建更新源、消息缓存增量合并、CI流程优化
+VERSION=1.1.13
+MESSAGE=修复CI构建：Tauri Rust crate与NPM包版本对齐

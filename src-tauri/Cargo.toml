@@ -12,7 +12,7 @@
 
 [package]
 name = "huanvae-chat-app"
-version = "1.1.12"
+version = "1.1.13"
 description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
@@ -27,23 +27,23 @@ name = "huanvae_chat_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.3", features = [] }
+tauri-build = { version = "2.6.1", features = [] }
 
 # ============================================
 # 共享依赖（所有平台）
 # ============================================
 [dependencies]
-tauri = { version = "2.9.5", features = ["protocol-asset"] }
-tauri-plugin-opener = "2.5.3"
-tauri-plugin-fs = "2.4.5"
-tauri-plugin-http = "2.5.6"
-tauri-plugin-dialog = "2.6.0"
+tauri = { version = "2.11.1", features = ["protocol-asset"] }
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-fs = "2.5.1"
+tauri-plugin-http = "2.5.9"
+tauri-plugin-dialog = "2.7.1"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-os = "2.3.2"
 # Shell 插件：用于 code-server 侧载进程（sidecar）
 # 仅用于启动和管理内嵌的 code-server 可执行文件
-tauri-plugin-shell = "2.3.1"
+tauri-plugin-shell = "2.3.5"
 
 # 序列化
 serde = { version = "1.0.228", features = ["derive"] }
@@ -123,11 +123,11 @@ axum = "0.8.8"
 # ============================================
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # 托盘图标支持
-tauri = { version = "2.9.5", features = ["protocol-asset", "tray-icon"] }
+tauri = { version = "2.11.1", features = ["protocol-asset", "tray-icon"] }
 # 窗口状态记忆
 tauri-plugin-window-state = "2.4.1"
 # 更新器
-tauri-plugin-updater = "2.9.0"
+tauri-plugin-updater = "2.10.1"
 # 系统进程信息（用于会话锁检测）
 sysinfo = "0.33.1"
 # 剪贴板管理（用于粘贴图片功能）
@@ -162,7 +162,7 @@ keyring = { version = "3.6.3", features = ["apple-native"] }
 # 持久化存储（密码 + 会话自动恢复，无需生物验证）
 # 后台被杀后重新打开自动恢复登录状态，与 QQ/微信 体验一致
 # 官方插件：https://v2.tauri.app/plugin/store/
-tauri-plugin-store = "2.4.2"
+tauri-plugin-store = "2.4.3"
 
 # ============================================
 # 移动端返回按钮监听
