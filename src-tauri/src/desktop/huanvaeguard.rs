@@ -46,6 +46,7 @@ const SERVICE_NAME: &str = "HuanvaeGuard";
 /// 服务当前状态（从 `sc query` 解析而来）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum ServiceState {
     /// 服务未在 SCM 中注册（开发环境未跑过 `pnpm hg:install`，或生产环境安装器失败）
     NotInstalled,

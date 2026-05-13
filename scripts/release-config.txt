@@ -15,5 +15,5 @@
 #
 # ============================================
 
-VERSION=1.1.13
-MESSAGE=修复CI构建：Tauri Rust crate与NPM包版本对齐
+VERSION=1.1.14
+MESSAGE=CSP新增frame-src支持移动端iframe小程序加载

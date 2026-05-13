@@ -223,3 +223,35 @@ manifestPlaceholders["usesCleartextTraffic"] = "true"
 - 根因 1：CSP `media-src` 缺 `http: https:` 通配 → `<video>` 加载远程 URL 被拦截
 - 根因 2：用户后端同时有 http/https 部署，Android release `usesCleartextTraffic="false"` 在 OS 层拦截 http 视频
 - 修复：CSP `media-src` 加 `http: https:` + release `usesCleartextTraffic="true"`，下载前的视频远程缩略图也能加载
+
+### CSP 漏配 `frame-src` 会让所有 `<iframe>` 被拦（默认 fallback 到 default-src 'self'）
+
+CSP 规范规定，未显式声明的 `frame-src` 会 fallback 到 `child-src`，再 fallback 到 `default-src`。本项目 `default-src 'self'` → iframe 只允许同源 URL → 任何加载第三方/后端服务器 URL 的 iframe 都会报：
+
+```
+Refused to frame 'https://example.com/...' because it violates the following Content Security Policy directive: "default-src 'self'". Note that 'frame-src' was not explicitly set, so 'default-src' is used as a fallback.
+```
+
+Chrome/Android WebView 在控制台呈现为 `net::ERR_BLOCKED_BY_CSP`。
+
+**适用场景**：
+
+- 移动端小程序通过 iframe 加载（[MobileMiniAppsPage.tsx](src/pages/mobile/MobileMiniAppsPage.tsx) `<iframe src={launchUrl}>`）—— Tauri Android 不支持 WebviewWindow 多窗口，只能用 iframe
+- 任何嵌入 OAuth 第三方授权页 / 内置浏览器视图 / 第三方网页预览
+
+**桌面端不受影响的原因**：桌面 MiniAppsModal 用 `new WebviewWindow(...)` 创建**独立 webview 进程**，主窗口 CSP 不约束子窗口；子窗口加载远程页面的安全控制由它自己的 webview 配置决定（Tauri 默认不限制 navigation）。
+
+**正确写法**（2026-05-13 起本项目状态）：
+
+```
+frame-src 'self' http: https:;
+```
+
+与 `img-src` / `media-src` 末尾的 `http: https:` 通配对称——允许 iframe 加载任意 HTTP/HTTPS 来源。若想收紧只允许特定后端，改为 `frame-src 'self' https://your-backend.example.com`。
+
+**反例（2026-05-13）**：
+
+- 现象：Android APK 打开小程序时控制台报 `net::ERR_BLOCKED_BY_CSP`，iframe 空白
+- 根因：[tauri.conf.json](src-tauri/tauri.conf.json) 的 CSP 字符串无 `frame-src` directive → 按 CSP fallback 规则用 `default-src 'self'` → iframe 只允许同源 → 小程序后端 URL 跨域被拒
+- 修复：在 CSP 字符串中加 `frame-src 'self' http: https:;`，与 img-src/media-src 末尾通配一致
+- 教训：**配 CSP 时必须列全所有要用的资源 directive**：default、script、style、connect、img、media、frame、font、worker。漏一个 directive 会静默 fallback 到 default-src 'self' 导致跨域资源加载诡异失败
