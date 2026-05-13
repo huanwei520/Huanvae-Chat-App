@@ -153,9 +153,12 @@ export function useLocalGroupMessages(groupId: string | null) {
   useEffect(() => {
     if (groupId !== currentGroupId.current) {
       logLocal('切换群组', { from: currentGroupId.current, to: groupId });
-      // 首次 mount（currentGroupId.current === null）不清空 messages —— 保留 useState
-      // 初始化时从 chatStore.cachedGroupMessages 读到的快照。
-      if (currentGroupId.current !== null) {
+      // 切换 groupId 时从 chatStore.cachedGroupMessages 读初值（含 loadMore 历史），
+      // 设计同 useLocalFriendMessages.ts useEffect [friendId]；详细注释见该文件。
+      if (groupId) {
+        const cached = useChatStore.getState().cachedGroupMessages[groupId] ?? [];
+        setMessages(cached);
+      } else {
         setMessages([]);
       }
       setHasMore(true);
@@ -224,7 +227,23 @@ export function useLocalGroupMessages(groupId: string | null) {
       }
 
       const uiMessages = localMessages.map((m) => localMessageToGroupMessage(m));
-      setMessages(uiMessages);
+      // 增量合并：保留缓存的 loadMore 历史 + 用 db 版本更新最新 50 条窗口（同步撤回/删除）
+      // 设计同 useLocalFriendMessages.ts；详细注释见该文件。
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return uiMessages;
+        }
+        const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
+        const updated = prev.map((m) => dbByUuid.get(m.message_uuid) ?? m);
+        const existingUuids = new Set(prev.map((m) => m.message_uuid));
+        const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
+        if (newOnes.length === 0) {
+          return updated;
+        }
+        return [...updated, ...newOnes].sort(
+          (a, b) => new Date(a.send_time).getTime() - new Date(b.send_time).getTime(),
+        );
+      });
       setHasMore(localMessages.length >= limit);
 
       conversationRef.current = await db.getConversation(groupId);

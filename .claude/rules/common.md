@@ -63,6 +63,53 @@ Glob 模式 `**/pattern` 在某些工具实现下**不会匹配仓库根目录�
 - blind-reviewer 汇报 Step 2 的 `cargo test` 因 huanvaeguard-svc.exe 文件锁失败
 - 若直接判 Plan 未通过会错失闭环；实际主对话侧 `hg-service.ps1 -Action stop` 后 4/4 测试全绿
 
+## 缓存与数据库 SSOT 协同：setState 必须用增量合并，不能覆盖
+
+### 当 useState 初值来自缓存、useEffect 又调异步数据库刷新时，禁止直接 setState 覆盖
+
+典型场景：React Hook 内 `useState(() => store.cache[key] ?? [])` 拿缓存的全量数据（如 200 条消息），然后 useEffect 调 `db.getX(50)` 拿最新 50 条 → `setX(dbResults)` 直接覆盖 → **缓存的 200 条全部丢失**。
+
+如果上层依赖"全量"（例如滚动锚点 uuid 指向较老的第 50 条），覆盖后 DOM 中没有该 uuid → 降级到默认行为 → 用户体验崩坏。
+
+**规则**：当 setState 来源是"全量缓存"且数据库刷新是"窗口（最近 N 条）"时，必须做三分支增量合并：
+
+```ts
+setState((prev) => {
+  if (prev.length === 0) {
+    return dbResults;  // 首次加载，无缓存
+  }
+  // 1) 用 db 版本替换 prev 中已存在的（同步 is_recalled / is_deleted / content 等
+  //    离线期间变化的字段；db 是 SSOT）
+  const dbByKey = new Map(dbResults.map((m) => [m.uuid, m]));
+  const updated = prev.map((m) => dbByKey.get(m.uuid) ?? m);
+  // 2) 找出 prev 中没有但 db 中新增的（追加；用户隐藏期间收到的新消息）
+  const existing = new Set(prev.map((m) => m.uuid));
+  const newOnes = dbResults.filter((m) => !existing.has(m.uuid));
+  if (newOnes.length === 0) {
+    return updated;
+  }
+  // 3) 合并并按业务排序键（如 send_time）排序
+  return [...updated, ...newOnes].sort(/* by send_time */);
+});
+```
+
+三个分支缺一不可：
+- `prev=[]` → 用 db 全量
+- `prev` 含 db 已存在的 uuid → **必须用 db 版本替换**（同步离线期间状态变化字段）
+- `prev` 不含 db 新增 uuid → 追加 + 排序
+
+**反例（2026-05-13）**：
+
+- 用户在聊天 A 翻历史触发 loadMore（messages 200+ 条），切到 B 再切回 A
+- 切回时新 hook 实例，`useState(() => cachedFriendMessages[friendId] ?? [])` 读 200 条
+- `useMainPage` useEffect 立刻调 `loadFriendMessages` → `db.getMessages(50)` 返回最新 50 条
+- **原实现** `setMessages(uiMessages)` 直接覆盖 → messages 变 50 条 → 用户翻到的 uuid=50 不在 DOM → 滚动锚点降级 scrollToBottom，用户回到最底
+- **修复**：三分支增量合并；prev 中较老 uuid 保留，db 50 条窗口内若有撤回/删除 → 通过 dbByUuid 替换同步到 UI；db 新增 → 追加 sort
+
+**与 keep-alive 类问题的关系**：当组件用 store 缓存做"unmount/mount 间数据保活"时，**数据库的窗口刷新永远是缓存的子集或交集**，绝不能用窗口数据替换全量缓存。
+
+**同 hook 内的其它路径**：useLocalFriend/GroupMessages 内 syncMessagesInBackground 路径目前仍是"以 uiMessages 为骨架 + 保留 sendingMessages"模式，**在 prev 远大于 uiMessages 时仍有相同覆盖风险**（WS 重连/gap>2s 触发时若用户已翻 200+ 历史会再次丢失）。本次修复未覆盖该路径，作为已知遗留风险。
+
 ## .gitignore 模式在 Windows 上是大小写不敏感的
 
 ### 非完整路径的目录模式会跨大小写匹配

@@ -181,3 +181,45 @@ media-src 'self' blob: data: http://127.0.0.1:* asset: http://asset.localhost ht
 - 无 Windows 平台特定差异
 
 视频 `<video preload="metadata">` 的 Range 请求 / 拖动进度条 / 流式播放在 Tauri 2 中都能正常工作 —— **只要 CSP 正确配置**。
+
+### CSP `media-src` 必须与 `img-src` 对称（含远程域名通配）
+
+`media-src` 控制 `<video>` `<audio>`，`img-src` 控制 `<img>`。**两个 directive 必须列同一组允许的源**，否则会出现"图片远程加载正常，视频远程加载失败"的诡异 bug。
+
+最常见漏配：`img-src` 末尾加了 `http: https:` 通配（允许任意远程 HTTP/HTTPS 域名），但 `media-src` 没加 → 视频远程预签名 URL 被拦截。
+
+**正确写法**（2026-05-13 起本项目状态）：
+
+```
+img-src   'self' data: blob: asset: http://asset.localhost https://asset.localhost http: https:;
+media-src 'self' blob: data: http://127.0.0.1:* asset: http://asset.localhost https://asset.localhost http: https:;
+                                                                                              ^^^^^^^^^^^^^
+                                                                            必须与 img-src 对称
+```
+
+**Android prod 配套：cleartext traffic**
+
+如果后端服务器有 `http://` 部署（自建/局域网/dev 测试），CSP `http:` 通配只是 webview 层放行；Android 9+（API 28+）默认 `usesCleartextTraffic="false"` 在 OS 层拦截 → release 构建中 `<video src="http://...">` 仍被拒绝。
+
+修复：[src-tauri/gen/android/app/build.gradle.kts](src-tauri/gen/android/app/build.gradle.kts) `getByName("release")` 显式：
+
+```kotlin
+manifestPlaceholders["usesCleartextTraffic"] = "true"
+```
+
+`AndroidManifest.xml` 已用 `${usesCleartextTraffic}` 占位符读取，三阶梯一致：
+
+| build | usesCleartextTraffic | 含义 |
+|-------|---------------------|------|
+| defaultConfig | `"false"` | 默认（Android 12+ 推荐） |
+| debug | `"true"` | 本地开发允许 http |
+| release | **`"true"`**（本项目） | 兼容 http 服务器，安全权衡 |
+
+仅当后端全部强制 https 时可改回 `"false"`。
+
+**反例（2026-05-13）**：
+
+- 现象：Android APK 安装后，聊天里图片 OK，**视频缩略图显示"加载失败"**；下载到本地后又能播放
+- 根因 1：CSP `media-src` 缺 `http: https:` 通配 → `<video>` 加载远程 URL 被拦截
+- 根因 2：用户后端同时有 http/https 部署，Android release `usesCleartextTraffic="false"` 在 OS 层拦截 http 视频
+- 修复：CSP `media-src` 加 `http: https:` + release `usesCleartextTraffic="true"`，下载前的视频远程缩略图也能加载

@@ -112,9 +112,11 @@ export function useLocalFriendMessages(friendId: string | null) {
 
   // 状态
   //
-  // messages 初始值：尝试从 chatStore.cachedFriendMessages 读取上次离开时的快照。
-  // 让 ChatPanel mount 时第一帧就有数据显示，消除"切回会话短暂空白"。
-  // 异步 loadMessages 会在挂载后调用 db.getMessages(50) 校准，新消息追加合并。
+  // messages 初始值：useState lazy initializer 仅在 hook 第一次 mount 时跑一次
+  // （App 登录后首次实例化 useMainPage 时）。之后的 friendId 切换由下方的
+  // useEffect [friendId] 从 cachedFriendMessages 重新读取并 setMessages —— 那才是
+  // "切回保留 loadMore 历史"的真正生效路径。这里仅为应对极少数情况（首次实例化
+  // 时 friendId 已经非 null，如刷新页面恢复了 chatTarget），让第一帧就有缓存数据。
   const [messages, setMessages] = useState<Message[]>(() => {
     if (!friendId) { return []; }
     return useChatStore.getState().cachedFriendMessages[friendId] ?? [];
@@ -162,11 +164,20 @@ export function useLocalFriendMessages(friendId: string | null) {
   useEffect(() => {
     if (friendId !== currentFriendId.current) {
       logLocal('切换好友', { from: currentFriendId.current, to: friendId });
-      // 首次 mount（currentFriendId.current === null）不清空 messages —— 保留 useState
-      // 初始化时从 chatStore.cachedMessages 读到的快照（让切回会话第一帧就有内容）。
-      // 仅当 hook 实例存活但 friendId 真切换时清空。ChatPanel 当前是 unmount/mount 模式，
-      // 此 else 分支理论上不触发，留作未来 keep-alive 改造的兼容。
-      if (currentFriendId.current !== null) {
+      // 切换 friendId 时从 chatStore.cachedFriendMessages 读初值（含上次 loadMore
+      // 加载的全部历史）。让 ChatMessages 第一帧就有完整 messages，useLayoutEffect
+      // 的滚动锚点能命中较老消息的 DOM 元素（无 setTimeout / 异步等待）。
+      //
+      // 注意：不能依赖 useState 的 lazy initializer —— useLocalFriendMessages 是
+      // useMainPage 的子 hook，整个登录期间只实例化一次，friendId 切换不是 hook
+      // 重新 mount，所以 useState 初值函数永远不会再跑。必须在 useEffect 显式读。
+      //
+      // 若缓存中没有该 friendId（首次打开会话或退出登录后重新进入），用空数组兜底，
+      // 等下方的 useMainPage useEffect 调 loadMessages 异步加载 db 最新 50 条。
+      if (friendId) {
+        const cached = useChatStore.getState().cachedFriendMessages[friendId] ?? [];
+        setMessages(cached);
+      } else {
         setMessages([]);
       }
       setHasMore(true);
@@ -240,7 +251,40 @@ export function useLocalFriendMessages(friendId: string | null) {
       }
 
       const uiMessages = localMessages.map((m) => localMessageToMessage(m, friendId));
-      setMessages(uiMessages);
+      // 增量合并：保留已缓存的较老消息（loadMore 加载的历史）+ 用 db 版本更新最新 50
+      // 条窗口内的消息（同步撤回/删除等离线期间发生的状态变化）+ 追加 db 中新增的消息。
+      //
+      // 历史原因：原实现 `setMessages(uiMessages)` 直接覆盖。当用户在 A 中翻历史触发
+      // loadMore（messages 含 200+ 条）→ 切到 B → 切回 A，cachedFriendMessages 写入
+      // 全量 200+ 条作为 useState 初值；但 useMainPage 的 useEffect 立刻调 loadMessages
+      // → db.getMessages(50) 只返回最新 50 条 → setMessages 覆盖为 50 条 → 用户向上翻
+      // 的 200+ 条全部丢失 → 滚动锚点（指向较老消息）切回时在 DOM 中找不到 → 降级
+      // 回到最底部。
+      //
+      // 增量合并策略：
+      //   - 无缓存（prev=[]）→ 直接用 db 结果（首次进入会话）
+      //   - 有缓存：用 db 版本替换 prev 中相同 uuid 的消息（捕获离线期间撤回/删除等
+      //     状态更新；db 是 SSOT），不在 db 窗口的较老消息保持 prev 版本（缓存权威）
+      //   - db 有新消息（用户隐藏期间收到的）→ 追加到 prev 末尾按 send_time 排序
+      //
+      // 在线撤回事件仍由 WebSocket onMessageRecalled 独立 handler 即时处理；本逻辑
+      // 仅兜底"用户切走期间发生的撤回/删除"场景（WS 事件已错过但 db 已同步）。
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return uiMessages;
+        }
+        const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
+        // 用 db 版本替换 prev 中存在的（同步状态字段，如 is_recalled / message_content）
+        const updated = prev.map((m) => dbByUuid.get(m.message_uuid) ?? m);
+        const existingUuids = new Set(prev.map((m) => m.message_uuid));
+        const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
+        if (newOnes.length === 0) {
+          return updated;
+        }
+        return [...updated, ...newOnes].sort(
+          (a, b) => new Date(a.send_time).getTime() - new Date(b.send_time).getTime(),
+        );
+      });
       setHasMore(localMessages.length >= limit);
 
       conversationRef.current = await db.getConversation(conversationId);

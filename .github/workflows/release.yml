@@ -28,6 +28,11 @@ env:
     https://cdn.gh-proxy.org/
     https://hk.gh-proxy.org/
     https://gh-proxy.org/
+  # 让 JavaScript actions（actions/checkout / actions/setup-node 等）自身
+  # 用 Node 24 runtime 跑，对齐 GitHub Actions 2026-06-02 强制 Node 24 的时间线。
+  # 注意：这与 setup-node 的 node-version 是两个独立维度，前者控制 action 内部
+  # 引擎，后者控制项目代码执行环境。两者已同步升到 24。
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ============================================
@@ -71,7 +76,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -342,7 +347,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Setup Java
         uses: actions/setup-java@v4
