@@ -50,7 +50,7 @@ echo ""
 
 START_TIME=$(date +%s)
 ALL_PASSED=true
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 if $SKIP_RUST; then
     TOTAL_STEPS=$((TOTAL_STEPS - 2))
 fi
@@ -143,9 +143,85 @@ if $ALL_PASSED; then
 fi
 
 # ============================================
-# 3. TypeScript 类型检查
+# 3. Tauri 版本一致性检查 (Rust crate ↔ NPM)
 # ============================================
-echo -e "${CYAN}[3/$TOTAL_STEPS] TypeScript 类型检查...${NC}"
+echo -e "${CYAN}[3/$TOTAL_STEPS] Tauri 版本一致性检查 (Rust ↔ NPM)...${NC}"
+
+TAURI_VERSION_OK=true
+TAURI_CHECK_RESULT=$(node -e "
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+const cargoToml = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+const cargoLines = cargoToml.split('\n');
+
+function getCargoVersion(crate) {
+  for (let i = 0; i < cargoLines.length; i++) {
+    const t = cargoLines[i].trim();
+    if (t.indexOf(crate) !== 0) continue;
+    const ch = t.charAt(crate.length);
+    if (ch !== ' ' && ch !== '=' && ch !== '\t') continue;
+    const afterName = t.substring(crate.length).trim();
+    if (afterName.charAt(0) !== '=') continue;
+    const val = afterName.substring(1).trim();
+    if (val.charAt(0) === '\"') {
+      const end = val.indexOf('\"', 1);
+      if (end > 0) return val.substring(1, end);
+    }
+    if (val.charAt(0) === '{') {
+      const m = val.match(/version\s*=\s*\"([^\"]*)\"/);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
+function strip(v) { return v.replace(/^[\^~>=<]+/, ''); }
+
+const pairs = [];
+if (allDeps['@tauri-apps/api']) {
+  pairs.push({ npm: '@tauri-apps/api', crate: 'tauri', npmVer: strip(allDeps['@tauri-apps/api']) });
+}
+for (const [name, ver] of Object.entries(allDeps)) {
+  if (name.indexOf('@tauri-apps/plugin-') === 0) {
+    const slug = name.replace('@tauri-apps/plugin-', '');
+    pairs.push({ npm: name, crate: 'tauri-plugin-' + slug, npmVer: strip(allDeps[name]) });
+  }
+}
+
+let errors = 0;
+let checked = 0;
+for (const p of pairs) {
+  const cargoVer = getCargoVersion(p.crate);
+  if (!cargoVer) continue;
+  checked++;
+  const nParts = p.npmVer.split('.');
+  const cParts = cargoVer.split('.');
+  if (nParts[0] !== cParts[0] || nParts[1] !== cParts[1]) {
+    console.error('MISMATCH: ' + p.crate + ' (' + cargoVer + ') vs ' + p.npm + ' (' + p.npmVer + ')');
+    errors++;
+  }
+}
+if (errors > 0) {
+  console.error(errors + ' pair(s) mismatched');
+  process.exit(1);
+} else {
+  console.log(checked + ' pairs checked, all consistent');
+}
+" 2>&1) || TAURI_VERSION_OK=false
+
+if $TAURI_VERSION_OK; then
+    echo -e "  ${GREEN}✓ PASS: $TAURI_CHECK_RESULT${NC}"
+else
+    echo -e "  ${RED}✗ FAIL: Tauri 版本一致性检查${NC}"
+    echo "$TAURI_CHECK_RESULT"
+    ALL_PASSED=false
+fi
+
+# ============================================
+# 4. TypeScript 类型检查
+# ============================================
+echo -e "${CYAN}[4/$TOTAL_STEPS] TypeScript 类型检查...${NC}"
 
 if pnpm tsc --noEmit 2>&1; then
     echo -e "  ${GREEN}✓ PASS: TypeScript${NC}"
@@ -155,9 +231,9 @@ else
 fi
 
 # ============================================
-# 4. ESLint 代码检查 (严格模式)
+# 5. ESLint 代码检查 (严格模式)
 # ============================================
-echo -e "${CYAN}[4/$TOTAL_STEPS] ESLint 代码检查 (0 errors, 0 warnings)...${NC}"
+echo -e "${CYAN}[5/$TOTAL_STEPS] ESLint 代码检查 (0 errors, 0 warnings)...${NC}"
 
 ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
 ESLINT_EXIT=$?
@@ -178,9 +254,9 @@ else
 fi
 
 # ============================================
-# 5. 单元测试
+# 6. 单元测试
 # ============================================
-echo -e "${CYAN}[5/$TOTAL_STEPS] 单元测试...${NC}"
+echo -e "${CYAN}[6/$TOTAL_STEPS] 单元测试...${NC}"
 
 TEST_OUTPUT=$(pnpm test --run 2>&1) || true
 TEST_EXIT=$?
@@ -200,10 +276,10 @@ else
 fi
 
 # ============================================
-# 6. E2E 测试 (Playwright)
+# 7. E2E 测试 (Playwright)
 # ============================================
 if ! $SKIP_E2E; then
-    echo -e "${CYAN}[6/$TOTAL_STEPS] E2E 视觉回归测试 (Playwright)...${NC}"
+    echo -e "${CYAN}[7/$TOTAL_STEPS] E2E 视觉回归测试 (Playwright)...${NC}"
 
     E2E_OUTPUT=$(npx playwright test 2>&1) || true
     E2E_EXIT=$?
@@ -224,9 +300,9 @@ if ! $SKIP_E2E; then
 fi
 
 # ============================================
-# 7. 前端构建测试 (检查警告)
+# 8. 前端构建测试 (检查警告)
 # ============================================
-echo -e "${CYAN}[7/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
+echo -e "${CYAN}[8/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
 
 BUILD_OUTPUT=$(pnpm build 2>&1) || true
 BUILD_EXIT=$?
@@ -259,10 +335,10 @@ else
 fi
 
 # ============================================
-# 8. Cargo Check (基础编译检查)
+# 9. Cargo Check (基础编译检查)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[8/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
+    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -284,10 +360,10 @@ if ! $SKIP_RUST; then
 fi
 
 # ============================================
-# 9. Cargo Clippy (代码审查 - 严格模式)
+# 10. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
+    echo -e "${CYAN}[10/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -307,10 +383,10 @@ if ! $SKIP_RUST; then
 fi
 
 # ============================================
-# 10. Android Cargo Clippy (移动端代码审查)
+# 11. Android Cargo Clippy (移动端代码审查)
 # ============================================
 if ! $SKIP_RUST && ! $SKIP_ANDROID; then
-    echo -e "${CYAN}[10/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
+    echo -e "${CYAN}[11/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
     
     # 检查 Android NDK 是否存在
     if [[ -z "$NDK_HOME" ]]; then
