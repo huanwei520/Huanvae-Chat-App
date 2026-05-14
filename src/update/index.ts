@@ -48,7 +48,7 @@ export { useStartupUpdateCheck } from './useStartupUpdateCheck';
 // ============================================
 // 桌面端 Hook 和服务
 // ============================================
-export { useSilentUpdate, useAutoUpdateCheck } from './useSilentUpdate';
+export { useAutoUpdateCheck } from './useSilentUpdate';
 
 export {
   checkForUpdates,
@@ -64,7 +64,7 @@ export {
 // ============================================
 // Android Hook 和服务
 // ============================================
-export { useSilentUpdateAndroid, useAutoUpdateCheckAndroid } from './useSilentUpdate.android';
+export { useAutoUpdateCheckAndroid } from './useSilentUpdate.android';
 
 export {
   checkForUpdates as checkForUpdatesAndroid,

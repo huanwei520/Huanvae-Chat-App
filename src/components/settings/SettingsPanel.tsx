@@ -42,6 +42,8 @@ interface SettingsPanelProps {
   onClose: () => void;
   /** 打开主题设置页面回调（移动端使用页面导航，桌面端使用独立窗口） */
   onThemeClick?: () => void;
+  /** 打开已信任 NFC 卡列表（仅 Android 显示入口） */
+  onNfcTrustedCardsClick?: () => void;
 }
 
 // ============================================
@@ -274,7 +276,7 @@ const ResultToast: React.FC<ResultToastProps> = ({ type, message }) => (
 // 主组件实现
 // ============================================
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeClick }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeClick, onNfcTrustedCardsClick }) => {
   const { notification, setNotificationEnabled, fileCache, setLargeFileThreshold } = useSettingsStore();
 
   // 数据管理状态
@@ -291,6 +293,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
   const [showAuthorizedApps, setShowAuthorizedApps] = useState(false);
+
+  // 平台名（异步加载，加载完毕前 NFC 入口不渲染，避免桌面端首帧短暂出现按钮）
+  const [platformName, setPlatformName] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { platform } = await import('@tauri-apps/plugin-os');
+        if (!cancelled) { setPlatformName(platform()); }
+      } catch {
+        if (!cancelled) { setPlatformName('unknown'); }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const isAndroid = platformName === 'android';
 
   // 主题状态
   const themePreset = useThemeStore((s) => s.config.preset);
@@ -553,6 +573,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
             />
           </SettingsGroup>
         </SettingsSection>
+
+        {/* 分组 NFC：仅 Android 显示。v2 起 App 启动即全局监听贴卡，无需扫卡入口 */}
+        {isAndroid && onNfcTrustedCardsClick && (
+          <SettingsSection title="NFC">
+            <SettingsGroup>
+              <SettingsRow
+                title="已信任的 NFC 卡"
+                subtitle="管理本机已信任的卡片"
+                type="arrow"
+                onClick={onNfcTrustedCardsClick}
+                showDivider={false}
+              />
+            </SettingsGroup>
+          </SettingsSection>
+        )}
 
         {/* 分组五：关于 */}
         <SettingsSection title="关于">

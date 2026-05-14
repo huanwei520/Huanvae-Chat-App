@@ -470,3 +470,166 @@ PS 5.1 的 `-Encoding utf8` 是 UTF-8 with BOM。给 TS/CSS 等会被其他工�
 - 文件从 605 行变成 1 行（全部内容合并），所有 JSX 被破坏
 - 用 `git checkout HEAD --` 才恢复
 - 之后所有缩进类修改改回 Edit tool（逐处替换）或单测后重写全文
+
+## 摘要式确认 modal 必须给用户看够风险信息（不能仅 host）
+
+### 把"打开 URL"等敏感操作摆到用户面前确认时，仅显示域名不足以让用户识别恶意端点
+
+确认 modal 在展示外部 URL 时常见错误：只显示 `host` —— 例如：
+
+```
+POST 请求: api.legitsite.com   ← 仅 host
+```
+
+但攻击者控制的卡片可以是 `https://api.legitsite.com/admin/delete?id=42` —— 域名合法、路径致命。用户点"信任并执行"时根本不知道在调 admin/delete。
+
+**规则**：
+
+1. URL 摘要必须显示 `host + path 截断版`（path 截到 ~40 字符 + 省略号），让用户能识别敏感端点
+2. query string 可不显示（含 token 等可能暴露）；如果路径中已含敏感信息，截断处理仍能让用户识别 `/admin/`、`/delete`、`/transfer` 等关键词
+3. 不要因为"避免 modal 过宽"就把 path 完全去掉——这种 trade-off 是错的，因为安全 UX 优先于美观
+4. 摘要文本由 **后端可控的 pure function 生成**，不可由卡片自带 `description` 字段填——否则攻击者可写无害描述骗用户信任
+
+**反例（2026-05-14）**：
+- 第一版 NFC 指令 `summarizeAction` 对 `http/request` 只显示 `${method} 请求: ${host}`
+- code-review 指出："Card with `https://api.legitsite.com/admin/delete?id=42` displays "POST 请求: api.legitsite.com" — user can't see the destructive path"
+- 修复后改为 `${method} 请求: ${host}${path 截断}`，并补一条测试 case 验证 `/admin/delete` 出现在摘要中
+
+## 安全敏感的指令解析必须拒绝"规范矛盾"的组合
+
+### 攻击者可利用解析器宽松接受、底层 API 拒绝的组合，把数据藏在 modal 看不到的地方
+
+典型例子：HTTP fetch 规范禁止 `GET + body`（任何 fetch 实现都会抛错），但 URI 解析层经常没显式拒绝，让 `huanvae://http/request?url=...&method=GET&body=<base64>` 通过。结果：
+
+- 实际执行时 fetch 报错 → 表面无害
+- 但 modal 的 `summarizeAction` 只显示方法和 URL，**不显示 body** → 攻击者借此把恶意数据藏到 body 字段，用户在 modal 上完全看不到
+
+**规则**：URI / 指令解析层遇到"会被底层拒绝但能藏数据"的组合时，**必须显式 return null/reject**，不要交给底层 fail。验证矩阵：
+
+- `method` ∈ 白名单 ✓
+- `body` 仅在允许携带 body 的 method 上接受（如 POST/PUT/PATCH）
+- 任何"参数存在但根据其他参数应当被忽略"的字段 → 显式拒绝整条指令
+
+**反例（2026-05-14）**：
+- 第一版 NFC parser 接受 `parseAction('huanvae://http/request?url=...&method=GET&body=<base64>')` → 返回 `{ method: 'GET', body: {...} }`
+- 执行时 fetch 抛错 → 但 body 字段对用户不可见
+- 修复：parseAction 中加 `if (method === 'GET' && body64) { return null; }`，并补测试用例覆盖
+- 教训：解析层"宽进严出"思维不适合安全敏感场景；必须"严进严出"
+
+## tauri-plugin-nfc Android: 必须用 `scan({ type: 'tag' })` 而非 `{ type: 'ndef' }`
+
+### plugin 源码注释自己承认 `ACTION_NDEF_DISCOVERED` "never triggers"
+
+`tauri-plugin-nfc` v2.3.5 Android 端的 `NfcPlugin.kt:382` 注释明确写：
+
+```kotlin
+NfcAdapter.ACTION_NDEF_DISCOVERED -> {
+    // For some reason this one never triggers.
+    ...
+}
+NfcAdapter.ACTION_TECH_DISCOVERED -> {
+    // For some reason this always triggers instead of NDEF_DISCOVERED even though we set ndef filters right now
+    ...
+}
+```
+
+根因有二：
+
+1. **Android NDEF intent 匹配规则**：`ACTION_NDEF_DISCOVERED` IntentFilter 必须附带 data filter（mimeType 或 URI scheme/host/pathPrefix）才会被系统命中。空的 NDEF filter 永远不匹配任何卡片。
+2. **plugin 的 `addDataFilters` 有嵌套 lambda bug**（[NfcPlugin.kt:100-115](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/nfc/android/src/main/java/NfcPlugin.kt)）：
+
+   ```kotlin
+   uri?.let { it -> {                   // ← 这里 `{ ... }` 是 lambda 字面量赋值，body 永不执行
+       it.scheme?.let { intentFilter.addDataScheme(it) }
+       it.host?.let { intentFilter.addDataAuthority(it, null) }
+       it.pathPrefix?.let { intentFilter.addDataPath(it, PatternMatcher.PATTERN_PREFIX) }
+   }}
+   ```
+
+   即便调用方在 `scan({ type: 'ndef', uri: { scheme: 'foo' } })` 传了 uri，scheme/host/pathPrefix 也**不会**被加到 IntentFilter。
+
+### 症状：贴卡时弹系统 chooser（com.android.nfc/.TechListChooserActivity）而非命中 App
+
+如果用 `scan({ type: 'ndef' })`：
+- foreground dispatch 注册了空的 `ACTION_NDEF_DISCOVERED` filter
+- 系统检测到 NFC 卡 → 没有任何前台 App 的 dispatch 匹配 → 系统弹 "选择应用打开" chooser
+- App 进程对此**完全无感知**（logcat 内 plugin 无任何输出，oplus_nfc 系统层倒是有 ntf gid:15）
+
+### 规则
+
+**Tauri Android NFC 扫卡，前台扫任意卡的场景，必须用 `scan({ type: 'tag' })`**：
+
+```ts
+// ❌ 不工作（除非传完整 mimeType/uri 且 plugin 修了 addDataFilters bug）
+const tag = await scan({ type: 'ndef' });
+
+// ✅ 正确用法 — TAG_DISCOVERED 是 catch-all，任何 NFC 卡都命中
+const tag = await scan({ type: 'tag' });
+```
+
+返回的 `Tag.records` 数组结构在 `tag` / `ndef` / `tech` 三个分支完全一致（plugin 内 `readTagInner` 走同一路径），仍能拿到 NDEF URI Record 等数据。
+
+只有以下场景才用 `{ type: 'ndef' }`：
+- 显式只想监听某个 mimeType（`scan({ type: 'ndef', mimeType: 'application/json' })`，mimeType 路径在 plugin 内正常工作）
+- 配合显式 techLists（`scan({ type: 'ndef', techLists: [['android.nfc.tech.Ndef']] })`，强制走 ACTION_TECH_DISCOVERED）
+
+### 反例（2026-05-14）
+
+- 第一版 [MobileNfcScanPage.tsx](src/pages/mobile/MobileNfcScanPage.tsx) 用 `scan({ type: 'ndef' })`
+- ColorOS Realme 真机贴卡：系统弹 chooser，App 完全无响应，logcat plugin 端无输出
+- 排查耗时 6 轮（adb logcat / manifest 检查 / Cargo.toml 验证 / 全面文档调研）
+- 根因定位后改 `scan({ type: 'tag' })` 立即生效
+- 教训：Tauri 第三方 plugin 的官方文档示例可能跟实际可用的调用形式不一致，**遇到"系统弹 chooser"症状第一时间看 plugin 源码注释**（plugin-nfc 源码注释直接说了 NDEF_DISCOVERED 不工作）
+
+## 单次 Promise plugin 做"全局后台监听"的标准模式
+
+### 问题
+
+某些 Tauri plugin 的 API 是"单次 Promise"形态（如 `scan()` 调用 → 等待事件 → 单次 resolve），但产品需求往往是"全局监听"（如 App 启动后任何页面都能响应贴卡）。需要 JS 侧自己包一层 while loop。
+
+### 关键约束（按经验验证顺序）
+
+1. **scan() Promise 后台行为**：plugin 通常在 Activity onPause 不 reject Promise，只 disableForegroundDispatch；onResume 用保存的 session 重新 enableForegroundDispatch。**JS 侧无需监听 visibilitychange**，Promise 在后台期间自然挂起，回前台后继续等贴卡。
+
+2. **scan options 参数形态确认**：`scan(kind, options?)` 是两参形式（plugin-nfc）。不要把 `keepSessionAlive` 写进 kind 对象，typecheck 会失败。
+
+3. **loop 错误分类**：
+   - NFC 不可用（`'NFC unavailable' / 'NFC is disabled'`）→ break loop，不再恢复（plugin 不提供 onStateChange 事件）
+   - 解析失败 / 不支持的指令 → 静默 `continue`（背包碰到地铁卡 / 银行卡是常态）
+   - 业务执行失败 → 显示 error toast，loop 继续
+   - 其他未知错误 → sleep 1s 再继续，避免 hot loop
+
+4. **modal 单深度同步用 Promise resolver**：
+
+   ```ts
+   // hook 内
+   const modalResolverRef = useRef<(() => void) | null>(null);
+
+   // loop 内（陌生卡需要确认时）
+   setPendingConfirm(result);
+   await new Promise<void>((resolve) => {
+     modalResolverRef.current = resolve;
+   });
+   // ← loop 在此挂起，直到 onConfirm/onCancel 调 resolver()
+
+   // 回调内
+   const onConfirmTrust = useCallback(() => {
+     setPendingConfirm(null);
+     // ...业务...
+     modalResolverRef.current?.();
+     modalResolverRef.current = null;
+   }, []);
+   ```
+
+   好处：modal 显示中**不发新 scan**（loop 阻塞），避免 modal stack；用户确认/取消后 loop 自动续上。
+
+5. **React closure latest-ref 模式**：useEffect deps=[] 时 callback 闭包持有的是 mount 时的 props。用 `setMiniAppLaunchingRef.current = opts.setMiniAppLaunching`（每次 render 同步）让 loop 内 deref 拿到最新值。
+
+6. **lint `no-await-in-loop`**：scan loop 本质就是 await + loop，要在文件级 `/* eslint-disable no-await-in-loop */`。`no-promise-executor-return` 在 `await new Promise(r => setTimeout(r, 1000))` 上也会误判，改成 `(resolve) => { setTimeout(resolve, 1000); }` 大括号写法绕过。
+
+### 反例（2026-05-14）
+
+- NFC v2 改造把扫卡从"用户进扫卡页才 scan"改为"App 启动即 scan，无限 loop"
+- 第一版把 `keepSessionAlive: false` 误写进 ScanKind 对象 → typecheck FAIL
+- modal 单深度同步用 React state 而非 Promise resolver → loop 不阻塞，会发新 scan 引起 modal stack；改 Promise resolver 模式后单深度天然保证
+- 教训：plugin Promise + while loop 是可行模式，但必须：① 错误分类（break vs continue vs sleep）② modal 阻塞用 resolver 而非 state ③ disable no-await-in-loop ④ latest-ref 模式持有 callback

@@ -102,6 +102,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/chat/shared/MobileMediaPreview.tsx (Telegram 风格右对齐下拉菜单：opacity + y + scale variants)',
   },
+  {
+    selector: '.nfc-feedback-toast',
+    cssFile: 'src/styles/mobile/nfc-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/nfc/NfcFeedbackToast.tsx (toastVariants: opacity + y 进出场)',
+  },
 ];
 
 /**

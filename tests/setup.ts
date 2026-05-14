@@ -55,6 +55,34 @@ vi.mock('@tauri-apps/plugin-http', () => ({
   fetch: vi.fn(),
 }));
 
+// Mock @tauri-apps/plugin-os
+// 默认返回 'windows'（桌面端测试默认走桌面分支）；测试中需要 Android 路径时
+// 用 `vi.mocked(platform).mockReturnValue('android')` 局部覆盖
+vi.mock('@tauri-apps/plugin-os', () => ({
+  platform: vi.fn(() => 'windows'),
+  arch: vi.fn(() => 'x86_64'),
+  version: vi.fn(() => '10.0.26200'),
+  hostname: vi.fn(() => 'test-host'),
+}));
+
+// Mock @tauri-apps/plugin-nfc
+// scan() 默认 mockResolvedValue 一张空 records 卡（具体测试用例可 mockReturnValueOnce 覆盖）
+vi.mock('@tauri-apps/plugin-nfc', () => ({
+  scan: vi.fn().mockResolvedValue({
+    id: [0x04, 0x12, 0x34, 0x56],
+    kind: ['android.nfc.tech.Ndef'],
+    records: [],
+  }),
+  isAvailable: vi.fn().mockResolvedValue(true),
+  uriRecord: vi.fn((uri: string) => ({
+    tnf: 1,
+    kind: [0x55],
+    id: [],
+    payload: [0, ...Array.from(new TextEncoder().encode(uri))],
+  })),
+  write: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock @tauri-apps/api/webviewWindow
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
   WebviewWindow: vi.fn().mockImplementation(() => ({

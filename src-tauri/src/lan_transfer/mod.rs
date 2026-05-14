@@ -193,7 +193,10 @@ pub async fn respond_to_connection_request(
 }
 
 
-/// 获取待处理的连接请求（已废弃，使用 get_pending_peer_connection_requests）
+/// 获取待处理的连接请求
+///
+/// 注：前端 useLanTransfer.ts 仍在调用此命令；新点对点接口为
+/// `get_pending_peer_connection_requests`，两者并存。
 #[allow(deprecated)]
 #[tauri::command]
 pub fn get_pending_connection_requests() -> Vec<ConnectionRequest> {

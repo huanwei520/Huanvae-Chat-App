@@ -15,5 +15,5 @@
 #
 # ============================================
 
-VERSION=1.1.14
-MESSAGE=CSP新增frame-src支持移动端iframe小程序加载
+VERSION=1.1.15
+MESSAGE=更新HuanvaeGuard Windows客户端,含连接稳定性修复和热路径性能优化

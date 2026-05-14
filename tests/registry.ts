@@ -45,6 +45,19 @@ export const SEARCH_COMPONENTS: ComponentEntry[] = [
   { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
 ];
 
+// ============== NFC 指令执行器 ==============
+// v2 起 App 启动即全局监听贴卡（useNfcGlobalScan），不再有页面级扫卡 UI；
+// NfcFeedbackToast 是单实例 success/error 双变体反馈浮层。
+export const NFC_COMPONENTS: ComponentEntry[] = [
+  { name: 'NfcTrustConfirmModal', path: 'nfc/NfcTrustConfirmModal', category: 'components', description: 'NFC 信任确认对话框（陌生 uid+payload_hash 弹一次）' },
+  { name: 'NfcFeedbackToast', path: 'nfc/NfcFeedbackToast', category: 'components', description: 'NFC 操作反馈浮层（success/error 双变体，3s 自动消失）' },
+  { name: 'MobileNfcTrustedCardsPage', path: 'pages/mobile/MobileNfcTrustedCardsPage', category: 'pages', description: '移动端"已信任 NFC 卡"列表页（按 created_at 倒序，可移除）' },
+  { name: 'useNfcGlobalScan', path: 'hooks/useNfcGlobalScan', category: 'hooks', description: '全局 NFC 监听 hook（MobileMain 启动即 scan loop，仅 Android）' },
+  { name: 'nfcParser', path: 'nfc/parser', category: 'services', description: 'NFC URI Record 解码 + 白名单 parseAction + payload hash' },
+  { name: 'nfcExecutor', path: 'nfc/executor', category: 'services', description: 'NFC action dispatch（miniapp/open / http/request）' },
+  { name: 'nfcTrustStore', path: 'nfc/trustStore', category: 'services', description: 'NFC 信任表 invoke 包装层' },
+];
+
 // ============== 更新模块 Hooks ==============
 export const UPDATE_COMPONENTS: ComponentEntry[] = [
   { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
@@ -244,7 +257,6 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
   { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
-  { name: 'useSilentUpdate', path: 'update/useSilentUpdate', category: 'hooks', description: '静默更新 Hook' },
   { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },

@@ -27,8 +27,6 @@ tests/
 │   ├── platform.test.ts         # 平台检测工具测试（28 个用例，UA 关键词判定、缓存机制、窗口宽度不影响判定）
 │   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
 │   ├── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
-│   ├── aiCard.test.ts           # AI 助手类型和卡片排序测试（11 个用例）
-│   ├── aiToolConfirm.test.ts    # AI Agent 工具确认机制测试（13 个用例，PendingToolCall/确认拒绝 API/状态类型）
 │   └── jwt.test.ts              # JWT 工具函数测试（12 个用例，getTokenExpiresAt/getTokenRemainingMs）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试

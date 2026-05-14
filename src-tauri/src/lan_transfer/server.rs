@@ -1354,11 +1354,7 @@ async fn handle_upload(
         // 计算剩余时间
         let total_bytes = file_meta.as_ref().map(|f| f.file_size).unwrap_or(0);
         let remaining_bytes = total_bytes.saturating_sub(received);
-        let eta_seconds = if speed > 0 {
-            Some(remaining_bytes / speed)
-        } else {
-            None
-        };
+        let eta_seconds = remaining_bytes.checked_div(speed);
 
         // 检查是否应该发送进度事件（每 100ms 一次）
         let should_emit = session.last_progress_time.elapsed().as_millis() >= 100;
@@ -1455,11 +1451,7 @@ async fn handle_upload(
 
         // 重新计算整体 ETA
         let remaining_bytes = session_total_bytes.saturating_sub(session_transferred_bytes);
-        let overall_eta = if speed > 0 {
-            Some(remaining_bytes / speed)
-        } else {
-            None
-        };
+        let overall_eta = remaining_bytes.checked_div(speed);
 
         let progress = BatchTransferProgress {
             session_id: session_id.clone(),

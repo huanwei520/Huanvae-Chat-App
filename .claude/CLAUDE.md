@@ -9,12 +9,38 @@ Huanvae Chat App 是基于 Tauri 2 + React 的跨平台即时通讯客户端，�
 - **状态管理**: Zustand (stores/)
 - **本地数据库**: @tauri-apps/plugin-sql (SQLite)
 - **测试**: Vitest (单元/组件) + Playwright (E2E)
-- **编辑器**: Monaco Editor (内置代码编辑器)
 - **平台**: Windows/macOS/Linux 桌面端 + Android/iOS 移动端
 
 ### 前端模块
 
-api, chat, components, contexts, db, editor, hooks, huanvaeGuard, lanTransfer, lowcode, media, meeting, pages, services, stores, styles, theme, types, update, utils
+api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer, lowcode, media, meeting, pages, services, stores, styles, theme, types, update, utils
+
+## 项目阶段：个人开发验证期（核心约束）
+
+**此项目处于个人开发验证期，所有修改均不考虑向后兼容。** 这条约束高于其他所有"温和清理"措辞，凡是与之冲突的局部规则均按此处约束覆盖。
+
+### 硬性要求
+
+- **新功能制作完成后，必须将旧功能/旧代码/旧文档清理干净，保证无任何误导性残留**
+- 禁止保留 `@deprecated` 函数、向后兼容 stub、兜底分支、`// 旧版兼容` 占位、"以防万一"保留的死代码
+- **注释里写"已废弃"但代码仍可被调用 ≠ 清理完成** — 必须**删除**被废弃代码 + 切换**所有调用方**到新实现
+- 新增字段/属性时不为旧路径保留默认值或迁移逻辑；旧字段一并删除
+- 重命名 API / Hook / 组件时旧名直接删除，不留 alias re-export
+- 没有"灰色地带" — 要么彻底清，要么明确写下为什么必须保留（如 Rust 类型定义、还未迁移到新版本的核心模块），并标注成 `// BACKLOG: 等 <模块名> v2 重构一并删除` 强制后续追踪
+
+### 例外清单（保留必须有明确理由）
+
+仅以下情况可暂留旧代码：
+
+1. **跨模块依赖未完成迁移**：例如 LAN 传输 v2 重构尚未完成，旧 `respond_to_request` 仍被前端 invoke — 这种情况注释必须改写为"前端 useLanTransfer.ts 仍在用，等 LAN v2 重构一并清理"+ 加 BACKLOG 标记，**不能**只写"已废弃"
+2. **跨语言类型定义未对齐**：Rust enum / struct 字段被序列化为 JSON 传给前端，删除字段需要前端 type 同步 — 必须同 PR 同步删除
+3. **存储 schema 不可逆字段**：SQLite 表已有的数据列删除需要 migration，未做 migration 前保留并标记
+
+**判断标准**：能在当前 PR 内删干净就删干净，不能就明确写下原因 + BACKLOG。**禁止只标"已废弃"放着**。
+
+### 与其他规则的关系
+
+此约束**强化**「功能迭代规则」段落（见下方），并扩展到所有修改场景（不只是功能迭代）。审计 / 清理 / 重构 / Bug 修复 / 文档更新 — 全部适用。
 
 ## 核心规则：需求对齐优先
 
@@ -29,11 +55,63 @@ api, chat, components, contexts, db, editor, hooks, huanvaeGuard, lanTransfer, l
 
 **为什么必须这样做**：如果对需求的理解本身就有偏差，后续的审计、计划、实施、审查全部会在错误的方向上执行，且每一步都不会发现问题——因为它们都是拿「自己的理解」而不是「用户的原始意图」作为校验基准。
 
+## 核心规则：修改前必须规划所需 skill 序列
+
+**在需求对齐通过后、进入审计之前，必须先列出本次修改所需的 skill 序列并向用户展示确认。禁止凭直觉直接进入某个 skill 或裸跑工具修改代码。**
+
+### 规划 skill 序列的流程
+
+1. **基于需求性质判断**：
+
+| 修改类型 | 推荐 skill 序列 |
+|---------|-----------------|
+| 功能开发 / Bug 修复 / 重构 | `audit` → `code-review`（实现后）→ `code-review`（测试后）→ `blind-review` → `skill-evolve` → `completion-summary` |
+| 旧代码清理 / 废弃功能删除 | `cleanup` → `code-review` → `blind-review` → `skill-evolve` → `completion-summary` |
+| 模块健康检查 / 问题排查 | `health-check`（含强制二轮反向排查）→ `skill-evolve` → `completion-summary` |
+| 审核结论有争议 | 上面流程中插入 `review-dispute` |
+| 配置变更（settings.json / 权限 / hooks） | `update-config` → `completion-summary` |
+| 仅文档 / 规则文件修改 | 直接修改 + `skill-evolve`（如形成新经验）+ `completion-summary` |
+
+2. **输出规划清单**：以表格列出 skill 调用顺序 + 每步的产出物 + 每步执行 Agent，向用户展示并征得同意
+
+```
+### 修改 skill 规划
+
+| 序号 | Skill | 产出 | 执行 Agent | 必跑 |
+|------|-------|------|-----------|------|
+| 1 | audit | 审计报告 + 用户确认 | opus（主对话）+ Explore 子 Agent | 是 |
+| 2 | 实施（按 audit plan） | 代码改动 | opus（主对话） | 是 |
+| 3 | code-review（业务代码） | 审核报告 | general-purpose Agent | 是 |
+| 4 | code-review（测试代码） | 审核报告 | general-purpose Agent | 是 |
+| 5 | blind-review | 盲审报告 | general-purpose Agent | 是 |
+| 6 | skill-evolve | 经验沉淀文件 | opus（主对话） | 是 |
+| 7 | completion-summary | 完成总结 | opus（主对话） | 是 |
+```
+
+3. **用户确认后才进入第一个 skill**。用户可调整顺序、增删步骤（例：明确不需要测试编写则可砍 4）
+
+### 为什么必须这样做
+
+- **可预测性**：用户和模型对任务整个流程的边界有共识，避免中途突然 "顺手再加一步"
+- **可追溯**：完成总结时可对照规划清单逐项核对，发现漏掉的步骤
+- **避免遗漏 skill**：例如忘记 `blind-review` 或 `skill-evolve`，事后再补成本高
+- **避免越权**：规划阶段就把 "本次不做的事" 列入排除清单，例如规划只清理 P0 死代码、不重构 P2 超长函数，落地时不会偏移
+
+### 禁止情况
+
+- 跳过规划步骤直接 `/audit` 或直接修改
+- 规划清单与实际执行不一致（如规划写了 5 个 skill 实际只跑 3 个，事后必须解释或补跑）
+- 把"是否需要 audit"判断推给后续步骤（审计本身就是规划要决定的事）
+
+### 例外：纯探查任务
+
+只读不写（仅 Read / Grep / Glob / WebFetch）的任务（如"查 X 是什么"、"看一下 Y 的实现"）不需要走 skill 规划，直接答复即可。**判断标准**：任务是否会涉及 Edit / Write / Bash 修改命令，是则必须规划。
+
 ## 核心规则：修改前必须审计
 
 **在进行任何代码修改之前，必须先完成审计流程。禁止跳过审计直接修改代码。**
 
-**执行方式**: 调用 `/audit <描述>` 触发完整审计流程。当用户直接要求修改代码时，也必须先自动调用 `/audit` 完成审计，不可跳过。
+**执行方式**: 调用 `/audit <描述>` 触发完整审计流程。当用户直接要求修改代码时，也必须先自动调用 `/audit` 完成审计，不可跳过。**审计阶段必须执行 `audit` skill 中"第二轮反向排查到具体代码行"硬性步骤**，不允许仅凭第一轮 Agent 报告进入修改方案。
 
 ## 核心规则：修改前必须 git snapshot
 
@@ -163,9 +241,9 @@ src/
 ├── api/            # 后端 API 调用封装
 ├── chat/           # 聊天核心功能
 ├── components/     # 通用 UI 组件
+├── constants/      # 前端常量（动画 variants 等）
 ├── contexts/       # React Context
 ├── db/             # 本地 SQLite 数据库操作
-├── editor/         # 内置代码编辑器
 ├── hooks/          # 自定义 React Hooks
 ├── huanvaeGuard/   # VPN 客户端模块
 ├── lanTransfer/    # 局域网文件传输
@@ -284,7 +362,7 @@ pnpm lint
 
 执行方式：
 ```
-Agent(subagent_type="test-runner", prompt="在 /home/huanwei/Huanvae-Chat-Rust/Huanvae-Chat-App 目录下运行 pnpm test:run，报告结果")
+Agent(subagent_type="test-runner", prompt="在项目根目录下运行 pnpm test:run，报告结果")
 ```
 
 ### 测试编写规范

@@ -47,16 +47,17 @@ import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
 import { MobileMeetingEntryPage } from './MobileMeetingEntryPage';
 import { MobileMeetingPage } from './MobileMeetingPage';
 import { MeetingFloatingWindow } from './MeetingFloatingWindow';
+import { MobileNfcTrustedCardsPage } from './MobileNfcTrustedCardsPage';
+import { NfcTrustConfirmModal } from '../../nfc/NfcTrustConfirmModal';
+import { NfcFeedbackToast } from '../../nfc/NfcFeedbackToast';
+import { summarizeAction } from '../../nfc/parser';
+import { useNfcGlobalScan } from '../../hooks/useNfcGlobalScan';
 import { VoiceCallFloating } from '../../chat/ai/voice/VoiceCallFloating';
 import '../../styles/voice-call.css';
 import { useWebRTC } from '../../meeting/useWebRTC';
 import { loadMeetingData, clearMeetingData, type IceServer } from '../../meeting/api';
-import type { MiniApp } from '../../hooks/useMiniApps';
-// 注意：以下模块使用 WebviewWindow API，在移动端不可用，已移除导入
-// import { ProfileModal } from '../../components/ProfileModal';
-// import { FilesModal } from '../../components/files/FilesModal';
-// import { MeetingEntryModal } from '../../meeting';
-// import { openLanTransferWindow } from '../../lanTransfer';
+import { useApi } from '../../contexts/SessionContext';
+import { listPublishedMiniApps, listMyMiniApps, type MiniApp } from '../../api/miniapps';
 
 // 导入移动端样式
 import '../../styles/mobile/index.css';
@@ -80,6 +81,39 @@ export function MobileMain() {
   const [showSettings, setShowSettings] = useState(false);
   const [showThemePage, setShowThemePage] = useState(false);
   const [showAddPage, setShowAddPage] = useState(false);
+  const [showNfcTrustedCards, setShowNfcTrustedCards] = useState(false);
+
+  // NFC executor 用：按 id 查找小程序（published 优先，fallback 到 mine）
+  const api = useApi();
+  const getMiniAppById = useCallback(
+    async (id: string): Promise<MiniApp | null> => {
+      try {
+        const published = await listPublishedMiniApps(api);
+        const hit = published.find((m) => m.miniapp_id === id);
+        if (hit) { return hit; }
+      } catch {
+        // ignore 列表加载失败，继续 fallback
+      }
+      try {
+        const mine = await listMyMiniApps(api);
+        return mine.find((m) => m.miniapp_id === id) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [api],
+  );
+
+  // 全局 NFC 监听 hook（仅 Android 启动 scan loop；桌面端零开销）
+  // 任何页面贴卡都会触发：陌生卡弹 modal 二次确认，信任卡直接执行 + toast 反馈
+  const nfc = useNfcGlobalScan({
+    setMiniAppLaunching: (app) => {
+      // 与 v1 同：打开 iframe 容器需要先 mount MobileMiniAppsPage
+      setShowMiniAppsPage(true);
+      setMiniAppLaunching(app);
+    },
+    getMiniAppById,
+  });
 
   // 通讯录展开状态（上抬到此处，避免 MobileContacts 被 AnimatePresence 切换 unmount 时丢失）
   const [contactsFriendsExpanded, setContactsFriendsExpanded] = useState(false);
@@ -249,6 +283,13 @@ export function MobileMain() {
       return true;
     }
 
+    // 优先级 6b：已信任 NFC 卡列表 → 关闭
+    // 注意：NFC 信任 modal 不在此处拦截 — modal 上有"取消"按钮，系统返回键不应误关
+    if (showNfcTrustedCards) {
+      setShowNfcTrustedCards(false);
+      return true;
+    }
+
     // 优先级 7：添加好友/群聊页面打开 → 关闭页面
     if (showAddPage) {
       setShowAddPage(false);
@@ -276,7 +317,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showAddPage, showMeetingPage, showMeetingEntryPage, meetingMinimized, nav, handleBack]);
+  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showAddPage, showMeetingPage, showMeetingEntryPage, showNfcTrustedCards, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -617,6 +658,10 @@ export function MobileMain() {
           <MobileSettingsPage
             onClose={() => setShowSettings(false)}
             onThemeClick={() => setShowThemePage(true)}
+            onNfcTrustedCardsClick={() => {
+              setShowSettings(false);
+              setShowNfcTrustedCards(true);
+            }}
           />
         )}
       </AnimatePresence>
@@ -625,6 +670,36 @@ export function MobileMain() {
       <AnimatePresence>
         {showThemePage && (
           <MobileThemePage onClose={() => setShowThemePage(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* 全局 NFC 信任确认 modal（任何页面贴陌生卡都会触发） */}
+      {nfc.pendingConfirm && (
+        <NfcTrustConfirmModal
+          uid={nfc.pendingConfirm.uid}
+          payloadHash={nfc.pendingConfirm.payloadHash}
+          actionSummary={summarizeAction(nfc.pendingConfirm.action)}
+          onConfirm={nfc.onConfirmTrust}
+          onCancel={nfc.onCancelTrust}
+        />
+      )}
+
+      {/* 全局 NFC 反馈 toast（成功/失败） */}
+      <AnimatePresence>
+        {nfc.feedback && (
+          <NfcFeedbackToast
+            variant={nfc.feedback.variant}
+            message={nfc.feedback.message}
+            toastKey={nfc.feedback.key}
+            onDismiss={nfc.onDismissFeedback}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 已信任的 NFC 卡列表 */}
+      <AnimatePresence>
+        {showNfcTrustedCards && (
+          <MobileNfcTrustedCardsPage onBack={() => setShowNfcTrustedCards(false)} />
         )}
       </AnimatePresence>
     </div>

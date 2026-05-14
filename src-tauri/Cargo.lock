@@ -2000,7 +2000,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "huanvae-chat-app"
-version = "1.1.14"
+version = "1.1.15"
 dependencies = [
  "async-channel",
  "axum",
@@ -2033,6 +2033,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-http",
  "tauri-plugin-mobile-onbackpressed-listener",
+ "tauri-plugin-nfc",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-os",
@@ -5365,6 +5366,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-nfc"
+version = "2.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "654a591e2765c4584c439ec468b9ff8fddf731109e5ccefcb214237cbeb4f9f9"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tauri-plugin-notification"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5602,7 +5618,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.18",
- "toml 0.9.10+spec-1.1.0",
+ "toml 1.1.0+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",

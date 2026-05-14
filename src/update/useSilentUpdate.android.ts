@@ -52,16 +52,3 @@ export function useAutoUpdateCheckAndroid(): void {
     return () => clearTimeout(timer);
   }, [checkUpdate, showAvailable]);
 }
-
-/**
- * @deprecated 请使用 useAutoUpdateCheckAndroid() 替代
- * 保留此导出以兼容旧代码，内部使用全局 store
- */
-export function useSilentUpdateAndroid() {
-  // 触发自动检查
-  useAutoUpdateCheckAndroid();
-
-  // 返回全局 store 的 toast props
-  const toastProps = useUpdateStore((s) => s.getToastProps());
-  return { toastProps };
-}

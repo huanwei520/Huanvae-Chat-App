@@ -138,3 +138,16 @@ pub struct LocalGroup {
     pub created_at: String,
     pub updated_at: Option<String>,
 }
+
+/// 已信任的 NFC 卡记录
+///
+/// 联合主键 (uid, payload_hash):
+/// - 同一张卡被改写 NDEF 内容后，payload_hash 变化 → 新记录
+/// - 信任仅作"本地曾确认"标记，不防 UID 仿冒（Magic Card 可克隆 UID）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustedNfcCard {
+    pub uid: String,
+    pub payload_hash: String,
+    pub action_summary: String,
+    pub created_at: i64,
+}

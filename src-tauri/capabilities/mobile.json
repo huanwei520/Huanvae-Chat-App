@@ -43,6 +43,7 @@
     "android-package-install:allow-check-permissions",
     "android-package-install:allow-request-permissions",
     "android-package-install:allow-install",
+    "nfc:default",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",

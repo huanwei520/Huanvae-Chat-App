@@ -1,9 +1,11 @@
 /**
  * 低代码编辑器页面组件测试
  *
- * 测试内容：
- * - 组件模块存在性
- * - 导出完整性
+ * 测试范围：barrel 导出契约 + memo 包装契约
+ *
+ * 不测：
+ * - 组件 displayName / name（TS 编译期已推断，运行时 expect 永真，属于 A 类假测试）
+ * - 与 tests/unit/lowcode.test.ts 重复的 4 个 API 函数 typeof 检查（F 类重复覆盖）
  *
  * @module tests/components/LowcodePage
  */
@@ -21,138 +23,50 @@ import { DynamicOperatorDialog } from '../../src/lowcode/components/DynamicOpera
 import { Toolbar } from '../../src/lowcode/components/Toolbar';
 import { ConfirmDialog, useConfirmDialog } from '../../src/lowcode/components/ConfirmDialog';
 
-describe('LowcodePage', () => {
-  it('should be a valid React component', () => {
-    expect(typeof LowcodePage).toBe('function');
-  });
-
-  it('should have displayName or name', () => {
-    // React 函数组件有 name 属性
-    expect(LowcodePage.name).toBe('LowcodePage');
-  });
-});
-
-describe('FlowCanvas', () => {
-  it('should be a valid React component', () => {
-    expect(typeof FlowCanvas).toBe('function');
-  });
-
-  it('should have displayName or name', () => {
-    expect(FlowCanvas.name).toBe('FlowCanvas');
+describe('非 memo 组件 / hook 导出契约', () => {
+  it.each([
+    ['LowcodePage', LowcodePage],
+    ['FlowCanvas', FlowCanvas],
+    ['OperatorPanel', OperatorPanel],
+    ['useConfirmDialog', useConfirmDialog],
+  ] as const)('%s 是函数（普通组件 / hook）', (_name, fn) => {
+    expect(typeof fn).toBe('function');
   });
 });
 
-describe('ControlFlowDialog', () => {
-  it('should be a valid React memo component', () => {
-    // memo() wraps the component in an object with $$typeof
-    expect(ControlFlowDialog).toBeDefined();
-    expect(typeof ControlFlowDialog).toBe('object');
-    expect((ControlFlowDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
+describe('memo 组件 $$typeof 契约', () => {
+  // 误删 memo() 会让 $$typeof 从 Symbol.for('react.memo') 变为 undefined（普通函数组件没有 $$typeof）。
+  // 父组件因此失去 React.memo bail-out 优化，状态不变时仍重渲染。
+  // 用精确 Symbol 断言替代 toBeDefined()，让本测试在 memo 包装被误删时真正能 fail。
+  it.each([
+    ['ControlFlowDialog', ControlFlowDialog],
+    ['ExecuteDialog', ExecuteDialog],
+    ['EdgeConditionEditor', EdgeConditionEditor],
+    ['ErrorHandlingDialog', ErrorHandlingDialog],
+    ['VirtualNode', VirtualNode],
+    ['DynamicOperatorDialog', DynamicOperatorDialog],
+    ['Toolbar', Toolbar],
+    ['ConfirmDialog', ConfirmDialog],
+  ] as const)('%s 被 React.memo 包装', (_name, comp) => {
+    expect((comp as { $$typeof?: symbol }).$$typeof).toBe(Symbol.for('react.memo'));
   });
 });
 
-describe('ExecuteDialog', () => {
-  it('should be a valid React memo component', () => {
-    expect(ExecuteDialog).toBeDefined();
-    expect(typeof ExecuteDialog).toBe('object');
-    expect((ExecuteDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('OperatorPanel', () => {
-  it('should be a valid React component', () => {
-    expect(typeof OperatorPanel).toBe('function');
-  });
-});
-
-describe('EdgeConditionEditor', () => {
-  it('should be a valid React memo component', () => {
-    expect(EdgeConditionEditor).toBeDefined();
-    expect(typeof EdgeConditionEditor).toBe('object');
-    expect((EdgeConditionEditor as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('ErrorHandlingDialog', () => {
-  it('should be a valid React memo component', () => {
-    expect(ErrorHandlingDialog).toBeDefined();
-    expect(typeof ErrorHandlingDialog).toBe('object');
-    expect((ErrorHandlingDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('VirtualNode', () => {
-  it('should be a valid React memo component', () => {
-    expect(VirtualNode).toBeDefined();
-    expect(typeof VirtualNode).toBe('object');
-    expect((VirtualNode as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('nodeTypes', () => {
-  it('should include virtual node type', () => {
-    expect(nodeTypes).toBeDefined();
+describe('nodeTypes 注册表', () => {
+  it('包含 virtual / operator / formula / equation_network 四种节点类型', () => {
     expect(nodeTypes.virtual).toBe(VirtualNode);
-  });
-
-  it('should include all required node types', () => {
     expect(nodeTypes.operator).toBeDefined();
     expect(nodeTypes.formula).toBeDefined();
     expect(nodeTypes.equation_network).toBeDefined();
-    expect(nodeTypes.virtual).toBeDefined();
   });
 });
 
-describe('DynamicOperatorDialog', () => {
-  it('should be a valid React memo component', () => {
-    expect(DynamicOperatorDialog).toBeDefined();
-    expect(typeof DynamicOperatorDialog).toBe('object');
-    expect((DynamicOperatorDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('Toolbar', () => {
-  it('should be a valid React memo component', () => {
-    expect(Toolbar).toBeDefined();
-    expect(typeof Toolbar).toBe('object');
-    expect((Toolbar as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-
-  it('should accept onClearAll optional prop', () => {
-    // Toolbar props interface includes onClearAll?: () => void
-    // Verify by type-checking that it's a valid memo component accepting this prop
-    const toolbarType = Toolbar as { $$typeof?: symbol; type?: { name?: string } };
-    expect(toolbarType.$$typeof).toBeDefined();
-    // The component accepts onClearAll as optional — no runtime error expected
-  });
-});
-
-describe('ConfirmDialog', () => {
-  it('should be a valid React memo component', () => {
-    expect(ConfirmDialog).toBeDefined();
-    expect(typeof ConfirmDialog).toBe('object');
-    expect((ConfirmDialog as { $$typeof?: symbol }).$$typeof).toBeDefined();
-  });
-});
-
-describe('useConfirmDialog', () => {
-  it('should be a function (hook)', () => {
-    expect(typeof useConfirmDialog).toBe('function');
-  });
-});
-
-describe('lowcode module exports', () => {
-  it('should export LowcodePage from index', async () => {
+describe('lowcode 模块 barrel 导出', () => {
+  // 仅验证 src/lowcode/index.ts 是否漏 re-export LowcodePage 主组件。
+  // API 函数（openLowcodeWindow / saveLowcodeData 等）的 typeof 检查在
+  // tests/unit/lowcode.test.ts 中独立覆盖，此处不重复以避免 F 类重复覆盖。
+  it('re-export LowcodePage 主组件', async () => {
     const module = await import('../../src/lowcode/index');
-    expect(module.LowcodePage).toBeDefined();
     expect(typeof module.LowcodePage).toBe('function');
-  });
-
-  it('should export API functions from index', async () => {
-    const module = await import('../../src/lowcode/index');
-    expect(typeof module.openLowcodeWindow).toBe('function');
-    expect(typeof module.saveLowcodeData).toBe('function');
-    expect(typeof module.loadLowcodeData).toBe('function');
-    expect(typeof module.clearLowcodeData).toBe('function');
   });
 });

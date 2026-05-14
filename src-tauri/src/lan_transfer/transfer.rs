@@ -425,7 +425,10 @@ pub async fn send_connection_request(device_id: &str) -> Result<String, Transfer
     Ok(resp.request_id)
 }
 
-/// 响应连接请求（旧版兼容，已废弃）
+/// 响应连接请求（旧版本）
+///
+/// 注：前端 useLanTransfer.ts 仍在通过 `respond_to_connection_request` 命令调用；
+/// 新点对点接口为 `respond_peer_connection`，两者并存。
 #[allow(deprecated)]
 pub async fn respond_to_request(request_id: &str, accept: bool) -> Result<(), TransferError> {
     let state = get_lan_transfer_state();
@@ -1293,11 +1296,7 @@ fn emit_batch_progress(progress: &ParallelProgress, current_file: Option<FileMet
         0
     };
     let remaining = progress.total_bytes.saturating_sub(transferred);
-    let eta_seconds = if speed > 0 {
-        Some(remaining / speed)
-    } else {
-        None
-    };
+    let eta_seconds = remaining.checked_div(speed);
 
     let batch_progress = BatchTransferProgress {
         session_id: progress.session_id.clone(),
@@ -1483,11 +1482,7 @@ async fn do_file_transfer_with_resume_parallel(
                 status: TransferStatus::Transferring,
                 transferred_bytes: offset,
                 speed,
-                eta_seconds: if speed > 0 {
-                    Some((file_meta.file_size - offset) / speed)
-                } else {
-                    None
-                },
+                eta_seconds: (file_meta.file_size - offset).checked_div(speed),
                 started_at: Utc::now().to_rfc3339(),
             };
 

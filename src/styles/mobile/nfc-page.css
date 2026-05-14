@@ -1,0 +1,319 @@
+/**
+ * NFC 扫卡页 / 已信任卡列表页 / 信任确认 modal 样式
+ *
+ * 风格与 files-page.css / miniapps-page.css 对齐：
+ * - 全屏毛玻璃容器
+ * - 顶部 sticky 标题栏（含返回按钮 + 安全区适配）
+ * - 按钮用 AppButton / subtle-btn 系统
+ *
+ * 不写 `transition: transform` / `transition: opacity`，避免与未来 framer-motion
+ * 包装时同帧抢夺；当前 modal 决策不用 motion，仅 CSS opacity 配合 React 渲染。
+ */
+
+/* ============================================================================
+   全屏页面容器
+   ============================================================================ */
+
+.mobile-nfc-page {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-nfc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-90) 0%,
+    var(--white-alpha-85) 100%
+  );
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.mobile-nfc-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-nfc-back:active {
+  background: var(--white-alpha-50);
+}
+
+.mobile-nfc-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-nfc-header-spacer {
+  width: 40px;
+}
+
+.mobile-nfc-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  overflow-y: auto;
+  gap: 16px;
+}
+
+/* ============================================================================
+   扫卡页：状态机视觉反馈
+   ============================================================================ */
+
+.mobile-nfc-scan-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 16px;
+  text-align: center;
+  color: var(--text-primary);
+  padding: 16px;
+}
+
+.mobile-nfc-scan-icon {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--white-alpha-50);
+  color: var(--text-primary);
+}
+
+.mobile-nfc-scan-icon-pulse {
+  animation: nfc-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes nfc-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.6; }
+}
+
+.mobile-nfc-scan-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-nfc-scan-hint {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 280px;
+}
+
+.mobile-nfc-scan-error {
+  font-size: 14px;
+  color: var(--danger, #d4380d);
+  max-width: 280px;
+  word-break: break-all;
+}
+
+.mobile-nfc-scan-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* ============================================================================
+   信任卡列表页
+   ============================================================================ */
+
+.mobile-nfc-trusted-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.mobile-nfc-trusted-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mobile-nfc-trusted-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--white-alpha-70);
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.mobile-nfc-trusted-summary {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.mobile-nfc-trusted-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  word-break: break-all;
+}
+
+.mobile-nfc-trusted-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* ============================================================================
+   信任确认 modal
+   ============================================================================ */
+
+.mobile-nfc-trust-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.mobile-nfc-trust-modal {
+  width: 100%;
+  max-width: 340px;
+  /* 85% 白 + 强毛玻璃模糊，让 modal 有质感的同时背景文字被模糊化（不重叠） */
+  background: var(--white-alpha-85);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border-radius: 16px;
+  border: 1px solid var(--glass-border-subtle);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mobile-nfc-trust-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.mobile-nfc-trust-modal-summary {
+  font-size: 15px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.mobile-nfc-trust-modal-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  background: var(--white-alpha-50);
+  padding: 8px 10px;
+  border-radius: 8px;
+  word-break: break-all;
+}
+
+.mobile-nfc-trust-modal-warning {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.mobile-nfc-trust-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* ============================================================================
+   NFC 反馈 toast（success / error 双变体）
+   ============================================================================
+   单实例 — 由 useNfcGlobalScan 管理 feedbackKey 自增触发 motion 重 mount。
+   严禁 transition: transform / transition: opacity — framer-motion 控制。
+   居中方式用 left:0 + right:0 + margin:auto，避免与 motion 的 transform 冲突。
+*/
+
+/* 基底：与 SettingsPanel 一致的白色透明毛玻璃 + 蓝色字
+ * 两个变体（success/error）共享毛玻璃 + 蓝字，仅靠 ✓ / ⚠ 图标颜色区分语义
+ */
+.nfc-feedback-toast {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 48px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  /* 白色透明毛玻璃（与 SettingsPanel root 一致） */
+  background: linear-gradient(180deg, var(--white-alpha-60) 0%, var(--white-alpha-40) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  border: 1px solid var(--glass-border-subtle);
+  /* 蓝色字（深蓝 #1d4ed8，与设置 row hover 文字一致） */
+  color: var(--primary-text);
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.18);
+  cursor: pointer;
+}
+
+/* success 与 error 视觉差异仅靠图标色 — 背景与文字保持统一蓝调 */
+.nfc-feedback-toast--success .nfc-feedback-toast-icon {
+  color: var(--primary);
+}
+
+.nfc-feedback-toast--error .nfc-feedback-toast-icon {
+  color: var(--status-error);
+}
+
+.nfc-feedback-toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.nfc-feedback-toast-message {
+  word-break: break-all;
+}

@@ -473,12 +473,6 @@ export async function clearAllData(): Promise<void> {
   await invoke('db_clear_all_data');
 }
 
-/** 清理过期的文件映射（文件不存在的） */
-export function cleanupInvalidFileMappings(): Promise<{ removed: number; total: number }> {
-  // 这个功能需要配合文件系统检查，在调用处实现
-  return Promise.resolve({ removed: 0, total: 0 });
-}
-
 // ============================================================================
 // 好友操作
 // ============================================================================

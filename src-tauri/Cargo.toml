@@ -12,7 +12,7 @@
 
 [package]
 name = "huanvae-chat-app"
-version = "1.1.14"
+version = "1.1.15"
 description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
@@ -186,3 +186,11 @@ tauri-plugin-android-fs = "24.1.0"
 # 提供权限检查、请求和安装功能
 # 参考: https://jsr.io/@kingsword/tauri-plugin-android-package-install
 tauri-plugin-android-package-install = "2.0.1"
+
+# ============================================
+# NFC 读卡（Android / iOS）
+# ============================================
+# 前台扫卡 + 读 NDEF URI Record，App 内主动调 scan() 监听
+# 桌面端不参与链接（crate 顶层 #![cfg(mobile)] 守卫）
+# 参考: https://v2.tauri.app/plugin/nfc/
+tauri-plugin-nfc = "2.3.5"

@@ -13,6 +13,7 @@ import {
   PAGE_COMPONENTS,
   MOBILE_COMPONENTS,
   SEARCH_COMPONENTS,
+  NFC_COMPONENTS,
   UPDATE_COMPONENTS,
   CHAT_RESTORE_HOOKS,
   COMMON_COMPONENTS,
@@ -41,6 +42,15 @@ import * as MobileMiniAppsPage from '../../src/pages/mobile/MobileMiniAppsPage';
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
+
+// NFC 指令执行器
+import * as NfcTrustConfirmModal from '../../src/nfc/NfcTrustConfirmModal';
+import * as NfcFeedbackToast from '../../src/nfc/NfcFeedbackToast';
+import * as MobileNfcTrustedCardsPage from '../../src/pages/mobile/MobileNfcTrustedCardsPage';
+import * as useNfcGlobalScan from '../../src/hooks/useNfcGlobalScan';
+import * as nfcParser from '../../src/nfc/parser';
+import * as nfcExecutor from '../../src/nfc/executor';
+import * as nfcTrustStore from '../../src/nfc/trustStore';
 
 // 更新模块 Hooks
 import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
@@ -156,7 +166,6 @@ import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMes
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
 import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
-import * as useSilentUpdate from '../../src/update/useSilentUpdate';
 import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 
@@ -240,6 +249,14 @@ const COMPONENT_MAP = {
   // 全局搜索
   GlobalMessageSearchResults,
   useGlobalMessageSearch,
+  // NFC
+  NfcTrustConfirmModal,
+  NfcFeedbackToast,
+  MobileNfcTrustedCardsPage,
+  useNfcGlobalScan,
+  nfcParser,
+  nfcExecutor,
+  nfcTrustStore,
   // 更新模块 Hooks
   useStartupUpdateCheck,
   // 聊天滚动恢复 Hooks
@@ -384,7 +401,6 @@ const COMPONENT_MAP = {
   useLocalGroupMessages,
   useAIMessages,
   useWebRTC,
-  useSilentUpdate,
   useUpdateToast,
   useNotificationSounds,
   useLanTransfer,
@@ -429,6 +445,15 @@ describe('移动端组件 (Mobile Components)', () => {
 // ============== 全局搜索组件测试 ==============
 describe('全局搜索组件 (Search Components)', () => {
   it.each(SEARCH_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
+// ============== NFC 指令执行器测试 ==============
+describe('NFC 组件 (NFC Components)', () => {
+  it.each(NFC_COMPONENTS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

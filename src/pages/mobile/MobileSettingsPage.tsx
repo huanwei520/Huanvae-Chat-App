@@ -24,13 +24,19 @@ interface MobileSettingsPageProps {
   onClose: () => void;
   /** 打开主题设置页面回调（移动端专用） */
   onThemeClick?: () => void;
+  /** 打开已信任 NFC 卡列表（仅 Android 显示） */
+  onNfcTrustedCardsClick?: () => void;
 }
 
 // ============================================
 // 主组件
 // ============================================
 
-export function MobileSettingsPage({ onClose, onThemeClick }: MobileSettingsPageProps) {
+export function MobileSettingsPage({
+  onClose,
+  onThemeClick,
+  onNfcTrustedCardsClick,
+}: MobileSettingsPageProps) {
   // 页面动画
   const pageVariants = {
     initial: { x: '100%', opacity: 0 },
@@ -46,7 +52,11 @@ export function MobileSettingsPage({ onClose, onThemeClick }: MobileSettingsPage
       animate="animate"
       exit="exit"
     >
-      <SettingsPanel onClose={onClose} onThemeClick={onThemeClick} />
+      <SettingsPanel
+        onClose={onClose}
+        onThemeClick={onThemeClick}
+        onNfcTrustedCardsClick={onNfcTrustedCardsClick}
+      />
     </motion.div>
   );
 }

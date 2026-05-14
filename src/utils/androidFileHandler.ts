@@ -234,25 +234,3 @@ export async function cleanupTempFiles(filePaths: string[]): Promise<void> {
     }
   }
 }
-
-/**
- * 清理所有临时文件（应用退出时调用）
- */
-export async function cleanupAllTempFiles(): Promise<void> {
-  const os = await platform();
-
-  if (os !== 'android') {
-    return;
-  }
-
-  try {
-    const dataDir = await appDataDir();
-    const cacheDir = await join(dataDir, 'lan_transfer_cache');
-
-    if (await exists(cacheDir)) {
-      await remove(cacheDir, { recursive: true });
-    }
-  } catch {
-    // 忽略清理失败（目录可能不存在或已被删除）
-  }
-}

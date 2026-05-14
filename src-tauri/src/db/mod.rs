@@ -38,6 +38,7 @@ pub mod contacts;
 pub mod conversations;
 pub mod files;
 pub mod messages;
+pub mod nfc;
 pub mod types;
 
 // 重新导出类型和函数
@@ -48,6 +49,7 @@ pub use files::{
     save_file_uuid_hash, update_file_mapping_verified,
 };
 pub use messages::*;
+pub use nfc::*;
 pub use types::*;
 
 // ============================================================================
@@ -347,6 +349,19 @@ pub fn init_database() -> Result<(), String> {
     )
     .map_err(|e| format!("创建 groups 表失败: {}", e))?;
 
+    // 创建 NFC 信任卡表（联合主键防止 payload 改写后仍命中）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS nfc_trusted_cards (
+            uid TEXT NOT NULL,
+            payload_hash TEXT NOT NULL,
+            action_summary TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (uid, payload_hash)
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 nfc_trusted_cards 表失败: {}", e))?;
+
     *db_guard = Some(conn);
     println!("[DB] 数据库初始化完成");
 
@@ -378,7 +393,8 @@ pub fn clear_all_data() -> Result<(), String> {
              DELETE FROM file_uuid_hash;
              DELETE FROM avatars;
              DELETE FROM friends;
-             DELETE FROM groups;",
+             DELETE FROM groups;
+             DELETE FROM nfc_trusted_cards;",
         )
         .map_err(|e| e.to_string())?;
 
