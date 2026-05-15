@@ -6,12 +6,9 @@
  * - 下载更新（带进度）
  * - 安装更新并重启
  *
- * 更新源支持多个代理，按顺序尝试：
- * 1. edgeone.gh-proxy.org
- * 2. cdn.gh-proxy.org
- * 3. hk.gh-proxy.org
- * 4. gh-proxy.org
- * 5. github.com（直连备选）
+ * 更新源（tauri.conf.json updater.endpoints，按顺序尝试）：
+ * 1. store.huanvae.cn（自建 Cloudflare R2，优先）
+ * 2. github.com（直连备用）
  *
  * ## Windows 更新
  * Windows 使用 NSIS EXE 安装包，通过自定义 hooks.nsi 处理旧版本卸载

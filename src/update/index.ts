@@ -70,7 +70,7 @@ export {
   checkForUpdates as checkForUpdatesAndroid,
   downloadApk,
   installApk,
-  extractProxyHost,
+  extractHostname,
   type AndroidUpdateInfo,
   type AndroidDownloadProgress,
   type AndroidProgressCallback,
@@ -83,14 +83,17 @@ export { formatSize as formatSizeAndroid } from '../utils/format';
 // 配置
 // ============================================
 export {
-  PROXY_URLS,
+  SELF_HOSTED_BASE,
+  SELF_HOSTED_DESKTOP_JSON,
+  SELF_HOSTED_ANDROID_JSON,
   GITHUB_OWNER,
   GITHUB_REPO,
   GITHUB_RELEASE_BASE,
+  GITHUB_ANDROID_JSON,
   ANDROID_LATEST_JSON_PATH,
   DESKTOP_LATEST_JSON_PATH,
   UPDATE_CHECK_DELAY,
   UPDATE_CHECK_DELAY_STARTUP,
-  PROXY_TIMEOUT_SECONDS,
+  SOURCE_TIMEOUT_SECONDS,
   DEBUG_UPDATE,
 } from './config';

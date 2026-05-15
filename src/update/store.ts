@@ -43,7 +43,7 @@ interface UpdateStoreState {
   progress: number;
   downloaded: number;
   total: number;
-  proxyUrl: string;
+  sourceUrl: string;
   errorMessage: string;
 
   // 锁状态
@@ -58,7 +58,7 @@ interface UpdateStoreActions {
   // 弹窗操作
   showAvailable: (version: string, notes?: string) => void;
   startDownload: () => void;
-  updateProgress: (progress: number, downloaded: number, total: number, proxyUrl?: string) => void;
+  updateProgress: (progress: number, downloaded: number, total: number, sourceUrl?: string) => void;
   downloadComplete: () => void;
   showError: (message: string) => void;
   dismiss: () => void;
@@ -92,7 +92,7 @@ const initialState: UpdateStoreState = {
   progress: 0,
   downloaded: 0,
   total: 0,
-  proxyUrl: '',
+  sourceUrl: '',
   errorMessage: '',
   isChecking: false,
   desktopUpdateInfo: null,
@@ -123,12 +123,12 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     set({ status: 'downloading', progress: 0, downloaded: 0, total: 0 });
   },
 
-  updateProgress: (progress, downloaded, total, proxyUrl) => {
+  updateProgress: (progress, downloaded, total, sourceUrl) => {
     set({
       progress,
       downloaded,
       total,
-      ...(proxyUrl ? { proxyUrl } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
     });
   },
 
@@ -210,8 +210,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
           throw new Error('没有可用的下载地址');
         }
 
-        const { downloadApk, installApk, ensureInstallPermission, extractProxyHost } = await import('./service.android');
-        const { PROXY_URLS } = await import('./config');
+        const { downloadApk, installApk, ensureInstallPermission } = await import('./service.android');
 
         // 1. 先确保有安装权限（在下载前请求，避免时机冲突）
         console.warn('[UpdateStore] 检查安装权限...');
@@ -222,8 +221,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         store.startDownload();
         console.warn('[UpdateStore] 开始下载 APK:', info.apkUrl);
         const localPath = await downloadApk(info.apkUrl, (progress) => {
-          const proxyHost = extractProxyHost(PROXY_URLS[0] || '');
-          store.updateProgress(progress.percent, progress.downloaded, progress.total, proxyHost);
+          store.updateProgress(progress.percent, progress.downloaded, progress.total, info.apkUrl);
         });
 
         console.warn('[UpdateStore] 下载完成:', localPath);
@@ -297,7 +295,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       progress: state.progress,
       downloaded: state.downloaded,
       total: state.total,
-      proxyUrl: state.proxyUrl,
+      sourceUrl: state.sourceUrl,
       errorMessage: state.errorMessage,
       onUpdate: state.handleUpdate,
       onDismiss: state.dismiss,
@@ -324,7 +322,7 @@ export function useUpdateToastProps(): UpdateToastProps {
   const progress = useUpdateStore((s) => s.progress);
   const downloaded = useUpdateStore((s) => s.downloaded);
   const total = useUpdateStore((s) => s.total);
-  const proxyUrl = useUpdateStore((s) => s.proxyUrl);
+  const sourceUrl = useUpdateStore((s) => s.sourceUrl);
   const errorMessage = useUpdateStore((s) => s.errorMessage);
 
   // 获取稳定的 action 引用（不会随状态变化而变化）
@@ -340,7 +338,7 @@ export function useUpdateToastProps(): UpdateToastProps {
     progress,
     downloaded,
     total,
-    proxyUrl,
+    sourceUrl,
     errorMessage,
     onUpdate: handleUpdate,
     onDismiss: dismiss,

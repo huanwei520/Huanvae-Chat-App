@@ -148,7 +148,7 @@
 }
 
 /* ============================================
-   元信息（大小、代理）
+   元信息（大小、源）
    ============================================ */
 .update-toast-meta {
   display: flex;
@@ -158,7 +158,7 @@
   color: #60a5fa;
 }
 
-.update-toast-proxy {
+.update-toast-source {
   padding: 2px 6px;
   background: rgba(59, 130, 246, 0.1);
   border-radius: 4px;
@@ -266,7 +266,7 @@
   flex-wrap: wrap;
 }
 
-.update-toast-container.mobile .update-toast-proxy {
+.update-toast-container.mobile .update-toast-source {
   font-size: 10px;
   padding: 1px 4px;
 }

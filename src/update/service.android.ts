@@ -2,7 +2,7 @@
  * Android 更新服务
  *
  * 与桌面端 service.ts 完全隔离，专门处理 Android 平台的更新逻辑：
- * - 从 android-latest.json 检查更新（尝试多个代理）
+ * - 从 android-latest.json 检查更新（自建 Cloudflare 优先，GitHub 直连备用）
  * - 使用 Rust 后端下载 APK 到本地存储
  * - 使用 tauri-plugin-android-package-install 安装 APK
  *
@@ -19,12 +19,11 @@ import {
   install,
 } from '@kingsword/tauri-plugin-android-package-install';
 import {
-  PROXY_URLS,
-  GITHUB_RELEASE_BASE,
-  ANDROID_LATEST_JSON_PATH,
-  PROXY_TIMEOUT_SECONDS,
   SELF_HOSTED_ANDROID_JSON,
+  GITHUB_ANDROID_JSON,
+  SOURCE_TIMEOUT_SECONDS,
 } from './config';
+
 // ============================================
 // 类型定义
 // ============================================
@@ -59,8 +58,8 @@ export interface AndroidDownloadProgress {
   downloaded: number;
   /** 总大小（字节） */
   total: number;
-  /** 当前使用的代理 */
-  proxyHost?: string;
+  /** 当前使用的源（用于 UI 显示） */
+  sourceHost?: string;
 }
 
 export type AndroidProgressCallback = (progress: AndroidDownloadProgress) => void;
@@ -100,87 +99,66 @@ async function getCurrentVersion(): Promise<string> {
 }
 
 // ============================================
+// 单源拉取
+// ============================================
+
+async function fetchAndroidLatest(
+  url: string,
+  currentVersion: string,
+  sourceLabel: string,
+): Promise<AndroidUpdateInfo> {
+  console.warn(`[Android Update] 尝试 ${sourceLabel}: ${url}`);
+  const response = await invoke<string>('fetch_update_json', {
+    url,
+    timeoutSecs: SOURCE_TIMEOUT_SECONDS,
+  });
+  const data: AndroidLatestJson = JSON.parse(response);
+  console.warn(`[Android Update] ${sourceLabel} 返回版本:`, data.version);
+
+  const comparison = compareVersions(data.version, currentVersion);
+  if (comparison > 0) {
+    console.warn(`[Android Update] ✓ ${sourceLabel} 发现新版本:`, data.version);
+    return {
+      available: true,
+      version: data.version,
+      notes: data.notes,
+      apkUrl: data.url,
+      apkSize: data.size,
+    };
+  }
+  console.warn(`[Android Update] ✓ 已是最新版本 (${sourceLabel})`);
+  return { available: false };
+}
+
+// ============================================
 // 更新检查
 // ============================================
 
 /**
  * 检查是否有可用更新
- * 依次尝试多个代理源，直到成功获取版本信息
+ *
+ * 顺序：
+ * 1. 自建 Cloudflare R2（store.huanvae.cn） — 优先
+ * 2. GitHub Release 直连 — 备用
  */
 export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
   const currentVersion = await getCurrentVersion();
   console.warn('[Android Update] ========== 开始检查更新 ==========');
   console.warn('[Android Update] 当前版本:', currentVersion);
-  console.warn('[Android Update] 代理源数量:', PROXY_URLS.length);
-  console.warn('[Android Update] 超时设置:', PROXY_TIMEOUT_SECONDS, '秒');
 
-  // 优先尝试自建更新源（store.huanvae.cn）
   try {
-    console.warn('[Android Update] 尝试自建源:', SELF_HOSTED_ANDROID_JSON);
-
-    const response = await invoke<string>('fetch_update_json', {
-      url: SELF_HOSTED_ANDROID_JSON,
-      timeoutSecs: PROXY_TIMEOUT_SECONDS,
-    });
-    const data: AndroidLatestJson = JSON.parse(response);
-    console.warn('[Android Update] 自建源版本:', data.version);
-    const comparison = compareVersions(data.version, currentVersion);
-    if (comparison > 0) {
-      console.warn('[Android Update] ✓ 自建源发现新版本:', data.version);
-      return { available: true, version: data.version, notes: data.notes, apkUrl: data.url, apkSize: data.size };
-    }
-    console.warn('[Android Update] ✓ 已是最新版本 (自建源)');
-    return { available: false };
+    return await fetchAndroidLatest(SELF_HOSTED_ANDROID_JSON, currentVersion, '自建源 Cloudflare');
   } catch (e) {
-    console.warn('[Android Update] 自建源失败，回退到代理:', e);
+    console.warn('[Android Update] 自建源失败，回退到 GitHub 直连:', e);
   }
 
-  // 依次尝试多个代理源，直到成功（需要顺序执行）
-  for (let i = 0; i < PROXY_URLS.length; i++) {
-    const proxy = PROXY_URLS[i];
-    const proxyName = proxy || '直连';
-
-    try {
-      const url = `${proxy}${GITHUB_RELEASE_BASE}${ANDROID_LATEST_JSON_PATH}`;
-      console.warn(`[Android Update] 尝试代理 ${i + 1}/${PROXY_URLS.length}: ${proxyName}`);
-
-      // 使用 Rust 后端发起请求（更好的超时控制）
-      // eslint-disable-next-line no-await-in-loop
-      const response = await invoke<string>('fetch_update_json', {
-        url,
-        timeoutSecs: PROXY_TIMEOUT_SECONDS,
-      });
-
-      console.warn('[Android Update] 响应长度:', response.length);
-      const data: AndroidLatestJson = JSON.parse(response);
-      console.warn('[Android Update] 远程版本:', data.version);
-      console.warn('[Android Update] APK URL:', data.url);
-      console.warn('[Android Update] APK 大小:', data.size);
-
-      // 比较版本号
-      const comparison = compareVersions(data.version, currentVersion);
-      console.warn('[Android Update] 版本比较结果:', comparison, '(>0 表示有更新)');
-
-      if (comparison > 0) {
-        console.warn('[Android Update] ✓ 发现新版本:', data.version);
-        return {
-          available: true,
-          version: data.version,
-          notes: data.notes,
-          apkUrl: data.url,
-          apkSize: data.size,
-        };
-      }
-
-      console.warn('[Android Update] ✓ 已是最新版本');
-      return { available: false };
-    } catch (err) {
-      console.warn(`[Android Update] ✗ 代理 ${proxyName} 失败:`, err);
-      continue; // 尝试下一个代理
-    }
+  try {
+    return await fetchAndroidLatest(GITHUB_ANDROID_JSON, currentVersion, 'GitHub 直连');
+  } catch (e) {
+    console.warn('[Android Update] ✗ GitHub 直连也失败:', e);
   }
 
-  console.warn('[Android Update] ✗ 所有代理均失败');
+  console.warn('[Android Update] ✗ 所有更新源均不可达');
   return { available: false };
 }
 
@@ -299,5 +277,4 @@ export async function installApk(apkPath: string): Promise<void> {
 // 工具函数 - 从 utils/url.ts 导入
 // ============================================
 
-// extractProxyHost 已迁移至 src/utils/url.ts
-export { extractProxyHost } from '../utils/url';
+export { extractHostname } from '../utils/url';

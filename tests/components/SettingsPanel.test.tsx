@@ -60,7 +60,7 @@ vi.mock('../../src/update', () => ({
     progress: 0,
     downloaded: 0,
     total: 0,
-    proxyUrl: '',
+    sourceUrl: '',
     errorMessage: '',
     showAvailable: vi.fn(),
     startDownload: vi.fn(),

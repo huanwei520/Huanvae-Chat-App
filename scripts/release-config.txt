@@ -15,5 +15,5 @@
 #
 # ============================================
 
-VERSION=1.1.15
-MESSAGE=更新HuanvaeGuard Windows客户端,含连接稳定性修复和热路径性能优化
+VERSION=1.1.16
+MESSAGE=更新HuanvaeGuard客户端,新增headless自动化模式+daemon自动重注册+部署脚本修复

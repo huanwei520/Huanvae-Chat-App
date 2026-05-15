@@ -24,7 +24,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { formatSize } from '../../utils/format';
-import { extractProxyHost } from '../../utils/url';
+import { extractHostname } from '../../utils/url';
 import './UpdateToast.css';
 
 // ============================================
@@ -51,8 +51,8 @@ export interface UpdateToastProps {
   downloaded?: number;
   /** 总大小 */
   total?: number;
-  /** 当前使用的代理链接 */
-  proxyUrl?: string;
+  /** 当前正在下载的源 URL（用于显示主机名） */
+  sourceUrl?: string;
   /** 错误信息 */
   errorMessage?: string;
   /** 点击更新按钮 */
@@ -76,7 +76,7 @@ export function UpdateToast({
   progress = 0,
   downloaded = 0,
   total = 0,
-  proxyUrl,
+  sourceUrl,
   errorMessage,
   onUpdate,
   onDismiss,
@@ -168,9 +168,9 @@ export function UpdateToast({
               </div>
               <div className="update-toast-meta">
                 <span>{formatSize(downloaded)} / {formatSize(total)}</span>
-                {proxyUrl && (
-                  <span className="update-toast-proxy">
-                    代理: {extractProxyHost(proxyUrl)}
+                {sourceUrl && (
+                  <span className="update-toast-source">
+                    源: {extractHostname(sourceUrl)}
                   </span>
                 )}
               </div>
@@ -263,11 +263,11 @@ export interface UseUpdateToastReturn {
   progress: number;
   downloaded: number;
   total: number;
-  proxyUrl: string;
+  sourceUrl: string;
   errorMessage: string;
   showAvailable: (version: string, notes?: string) => void;
   startDownload: () => void;
-  updateProgress: (progress: number, downloaded: number, total: number, proxyUrl?: string) => void;
+  updateProgress: (progress: number, downloaded: number, total: number, sourceUrl?: string) => void;
   downloadComplete: () => void;
   showError: (message: string) => void;
   dismiss: () => void;
@@ -280,7 +280,7 @@ export function useUpdateToast(): UseUpdateToastReturn {
   const [progress, setProgress] = useState(0);
   const [downloaded, setDownloaded] = useState(0);
   const [total, setTotal] = useState(0);
-  const [proxyUrl, setProxyUrl] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   const showAvailable = useCallback((v: string, n?: string) => {
@@ -297,12 +297,12 @@ export function useUpdateToast(): UseUpdateToastReturn {
   }, []);
 
   const updateProgress = useCallback(
-    (p: number, d: number, t: number, proxy?: string) => {
+    (p: number, d: number, t: number, source?: string) => {
       setProgress(p);
       setDownloaded(d);
       setTotal(t);
-      if (proxy) {
-        setProxyUrl(proxy);
+      if (source) {
+        setSourceUrl(source);
       }
     },
     [],
@@ -329,7 +329,7 @@ export function useUpdateToast(): UseUpdateToastReturn {
     progress,
     downloaded,
     total,
-    proxyUrl,
+    sourceUrl,
     errorMessage,
     showAvailable,
     startDownload,

@@ -39,14 +39,14 @@ describe('UpdateToast', () => {
           progress={50}
           downloaded={10485760}
           total={20971520}
-          proxyUrl="https://gh-proxy.com"
+          sourceUrl="https://store.huanvae.cn/update/foo.apk"
         />,
       );
 
       expect(screen.getByText('正在下载 v1.0.8')).toBeInTheDocument();
       expect(screen.getByText('50%')).toBeInTheDocument();
       expect(screen.getByText('10.0 MB / 20.0 MB')).toBeInTheDocument();
-      expect(screen.getByText('代理: gh-proxy.com')).toBeInTheDocument();
+      expect(screen.getByText('源: store.huanvae.cn')).toBeInTheDocument();
     });
 
     it('ready 状态显示重启按钮', () => {
@@ -162,13 +162,13 @@ describe('useUpdateToast', () => {
 
     act(() => {
       result.current.startDownload();
-      result.current.updateProgress(50, 1000, 2000, 'https://proxy.com');
+      result.current.updateProgress(50, 1000, 2000, 'https://store.huanvae.cn/foo.apk');
     });
 
     expect(result.current.progress).toBe(50);
     expect(result.current.downloaded).toBe(1000);
     expect(result.current.total).toBe(2000);
-    expect(result.current.proxyUrl).toBe('https://proxy.com');
+    expect(result.current.sourceUrl).toBe('https://store.huanvae.cn/foo.apk');
   });
 
   it('downloadComplete 更新状态为 ready', () => {

@@ -151,11 +151,7 @@ pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String>
         downloaded += chunk.len() as u64;
 
         // 发送进度事件
-        let percent = if total > 0 {
-            (downloaded * 100 / total) as u8
-        } else {
-            0
-        };
+        let percent = (downloaded * 100).checked_div(total).unwrap_or(0) as u8;
 
         // 每 10% 输出一次日志
         if percent >= last_log_percent + 10 {

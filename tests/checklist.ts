@@ -617,7 +617,7 @@ export const FEATURE_CHECKLIST: FeatureCategory[] = [
         steps: [
           'Android 设备启动应用',
           '等待3秒后自动检测 android-latest.json',
-          '验证多代理自动切换（edgeone -> cdn -> hk -> gh-proxy -> 直连）',
+          '验证更新源回退（Cloudflare 自建源失败时回退到 GitHub 直连）',
           '有新版本时验证顶部弹窗显示',
           '点击"更新"按钮验证下载进度显示',
           '验证下载完成后弹出系统安装器',
