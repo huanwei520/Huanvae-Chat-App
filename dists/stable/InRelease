@@ -8,28 +8,28 @@ Codename: stable
 Architectures: amd64
 Components: main
 Description: Huanvae Chat APT Repository
-Date: Thu, 14 May 2026 14:30:43 +0000
+Date: Fri, 15 May 2026 12:11:49 +0000
 MD5Sum:
- 6218eff5d4368ed6d98a528fb064c751 476 main/binary-amd64/Packages.xz
- 48b8801c76adfb8207004cb66b1e728a 432 main/binary-amd64/Packages.gz
- 0b81d845d634f44c47cd71e20273afef 564 main/binary-amd64/Packages
+ 00ffc774d4f4e99b17e163fcac4513b4 564 main/binary-amd64/Packages
+ 25dbaa2bd870be9dbfad0fdb61b3d467 472 main/binary-amd64/Packages.xz
+ ce41a98ab4ce36cefbdc046bdcd04296 432 main/binary-amd64/Packages.gz
 SHA256:
- 110be94178a89c871fac67bc6483e860ac5018426c7381213e50d569e1cc0b9c 476 main/binary-amd64/Packages.xz
- 3fcacef4740a309c7a2fbd5d81b857fb822685edc3c8da80a76392afe16dd753 432 main/binary-amd64/Packages.gz
- 934145deaf7729507150042454796e8af5807b152c58a7ac72a880d68ed9b8cc 564 main/binary-amd64/Packages
+ 4b69461071ccdd221c3d959c11a50c2657ceb5211c0c918c950eecf49e5a1b69 564 main/binary-amd64/Packages
+ 5833f91f9ffdb993baaa4fb5311fac6994ab16561ce33d7bd882af9d86e294f6 472 main/binary-amd64/Packages.xz
+ 6cb36ed15ed935a008103f1129d8e906f7c8d250d0c300365582e176ab5d9bcb 432 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEDae9H18L6XfZzmr1WZnoxteTlwoFAmoF3JMACgkQWZnoxteT
-lwpbog//RKLSlXYLnYQbre+qm9aaLvhoZI0NNBHCiN43beAIZy/M5FlKZzPDbN4F
-LZY1Dvi82ALrYTXi7AUelx/BtyST/9x68gBiB9rCyFzVXHzkVg1Q1x9l3emooIII
-cbvoBk1dDVZgDaiYUDzZIC9WTv+k+hQ4DGWYCzhm5+ULKZnP+Ia4wwd5tmrG2B/j
-p46whN9sOTRdVCOWYN2w+xjjsLf7FVPFuScuwyhW0IDlIwj3n7K7DVcriU8Y6C6B
-FoLYlw5GM/hzLGhTnK6ImukuvL0mlCy9YF4fPxdJioYJRMS1TFi/MznsqaG3bRa+
-Y8uF+T8/mHwXJMaBiNq5Lph4hT9QOtoZ8GrMDfxow3ywmX7BlBU9hl/zqNwCWsc7
-3IiUEQC5xRNGIW5WJXl3EcW9lH9VCgKMUKZ6RGOsP3/sMjcmn5rJDOsc26IA6QH4
-MgRlcyATVidc1WKZAzLkMDfF+so65HmnZLwVlgfsQhTNYto/bZChFQNySm612IrX
-uX4wV1vK5EL3BTa+IHxyR6Mjxx5UK5TU0ZmLD/mT+JxPNw0HtE9iTeFrufcJjXzP
-qbTvMcNQQtQHCGkoMo1gv4RhbKuLGrZNsSzcBEWFB3YYRoPFUNxGNM0CWmUVxSs1
-73XtcRK7Irv+EOZtdXBE1notOeVm4qFH1cbbHap84z/XUxVGmQg=
-=xW2+
+iQIzBAEBCgAdFiEEDae9H18L6XfZzmr1WZnoxteTlwoFAmoHDYYACgkQWZnoxteT
+lwoNyg//SGB112WOHQ449PC4/JFc+haGuMox2Xfsykc6BiS0e7DNdp7M+fjnGEqG
+2MegHathv8tl+KbCejIfACtpHC7S3b+M8uE61EPo9kESIwoXvYdWWRvs7GZV9fZQ
+I255GzGregm3KlJoRcDS6wn4ZbmlpOq66MUdkTLoMd/f3UIVrUo8ZAZvQ65vxU+3
+3dteJct3K5hHtC2Lk9ogdoFPHl3ka3HvPyGTHICRfWaHUAullPiteamYU4FtKb/W
+2nL394qFfcaTCXEMz/y1OfwgyIcqmDv3tkvb71wxw31au/K2qsf5RQXRj/7RKFsO
+o5ZIQ65XMd3x3qNQmlTuWkm1Mk061hkoM8PIFikF/qY6JvzcRgSYU/memMmVEB8Z
+czukL0Avy6DH8KORQriAiuMhpb0BmA7Ozmul4Tg3LUT6TQJDsyuURJFIdKTzgfRG
+IJtpKaCsKPHUSv+SyGTT70Ml9RLTcYm40KEWhiMrToXtlJN+zDDeeo52/QA3QQAX
+BbcUzUdDzhPftE+asswvt1fl7jxOUexX+tmaiaLk+cpMWrrRJRO0t8OxEGqShUnk
+9p3voKH8gOMY6yNCHiyMT/ftK8lKa/XfNmtz+z3GZ4OseBXy2d9+fGlXeYOSVrEq
+RDCmqRz0hdBgvlw115uakaj3ruj8oYTUJ5eHf1Yp4BklTTrhdco=
+=5D//
 -----END PGP SIGNATURE-----
