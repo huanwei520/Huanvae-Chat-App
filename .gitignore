@@ -67,3 +67,7 @@ src-tauri/resources/code-server/
 # Claude Code 本地权限白名单（每台机器独立，不入库）
 .claude/settings.local.json
 
+# 图标 squircle 中间产物 — 由 scripts/icons/make-squircle.py 从 image/IMG_1591.PNG 重新生成
+# src-tauri/icons/ 下的派生图标才是真正参与构建的资源
+scripts/icons/app-icon-squircle.png
+

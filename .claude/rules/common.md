@@ -633,3 +633,73 @@ const tag = await scan({ type: 'tag' });
 - 第一版把 `keepSessionAlive: false` 误写进 ScanKind 对象 → typecheck FAIL
 - modal 单深度同步用 React state 而非 Promise resolver → loop 不阻塞，会发新 scan 引起 modal stack；改 Promise resolver 模式后单深度天然保证
 - 教训：plugin Promise + while loop 是可行模式，但必须：① 错误分类（break vs continue vs sleep）② modal 阻塞用 resolver 而非 state ③ disable no-await-in-loop ④ latest-ref 模式持有 callback
+
+## Tauri 2 应用图标的平台规范陷阱
+
+### macOS 与 iOS 的圆角逻辑根本不同 —— 一个要烘焙、一个禁止烘焙
+
+| 平台 | 圆角来源 | PNG 是否含 alpha | 必须做什么 |
+|------|---------|-----------------|-----------|
+| **macOS** (Big Sur+) | **必须烘焙进 PNG** | 是（squircle 外为透明） | 设计师在 1024 画布中绘制 824 squircle 内容 + 100px 透明 padding 给 dock 阴影 |
+| **iOS** | **系统自动遮罩**（强制） | **否**（含 alpha 会被 App Store 拒：ITMS-90717） | 必须提供方形不含透明的 PNG，iOS 系统在显示时自动加圆角 |
+| Windows/Linux/Android | 跟随 PNG 本体形状 | 是（squircle 外为透明） | PNG 是 squircle 就显示 squircle |
+
+**规则**：当任务是"所有平台统一 squircle"时，**iOS AppIcon 必然有平台特殊性**：
+1. 给 `pnpm tauri icon` 喂入烘焙好的 squircle PNG（带 alpha）
+2. Tauri 自动检测 iOS 平台并把 squircle 外的透明合成为白色 → 生成方形不含 alpha 的 AppIcon-*.png
+3. iOS 设备上系统对 AppIcon 加圆角遮罩，最终显示仍是 squircle 形状
+
+**这不是 bug，是 Apple 平台规范**。盲审看到 iOS AppIcon 四角是 `RGBA=(255,255,255,255)` 不要判 FAIL，要识别为正常合成。
+
+### `pnpm tauri icon` 实际覆盖范围远超 `bundle.icon` 数组
+
+`tauri.conf.json` 的 `bundle.icon` 数组只列了少数 key files（如 32x32 / 128x128 / .icns / .ico），但 `pnpm tauri icon` 命令实际会**覆盖更多文件**：
+
+- ✓ `src-tauri/icons/{32x32,64x64,128x128,128x128@2x,icon}.png` (通用)
+- ✓ `src-tauri/icons/icon.{icns,ico}` (macOS / Windows)
+- ✓ `src-tauri/icons/Square{30,44,71,89,107,142,150,284,310}x*Logo.png` + `StoreLogo.png` (Windows Store / WinRT)
+- ✓ `src-tauri/icons/ios/AppIcon-*.png` (18 个 iOS 尺寸，自动合成白底)
+- ✓ `src-tauri/gen/android/app/src/main/res/mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher{,_round,_foreground}.png` (15 个 Android 文件)
+
+**规则**：审计图标资源覆盖范围时，**不能**只看 `bundle.icon` 数组，必须实际跑一次 `pnpm tauri icon` 然后对比文件时间戳。否则审计报告会把 Square*Logo / iOS / Android mipmap 误判为"不会被覆盖、需要手动处理"。
+
+### macOS squircle 数学：superellipse 不是普通圆角
+
+Apple 自 Big Sur 用 **superellipse** `|x|^n + |y|^n = 1`（n=5 近似 Apple 连续曲率），不是 CSS `border-radius` 的圆弧。视觉差异：
+
+- **圆角矩形**：直边 → 圆弧 → 直边（有明显切换点）
+- **squircle**：曲率连续从中心扩散到角落，整体更"软"更"圆润"
+
+实现踩坑（[scripts/icons/make-squircle.py](scripts/icons/make-squircle.py)）：
+
+```python
+# ❌ 错误：先 paste 内容到大画布再 multiply 大 squircle mask
+# 内容方形完全落在大 squircle 内部 → 圆角对内容不可见
+img.thumbnail((824, 824))
+canvas.paste(img, (100, 100), img)   # 824 方形 alpha=255 落在 1024 画布
+mask = make_squircle_mask(1024)
+final = ImageChops.multiply(canvas.alpha, mask)   # squircle 半径 > 824 方形对角 → 无圆角效果
+
+# ✅ 正确：先用与内容同尺寸的 squircle mask 剪源图，再放进 padded 画布
+img.thumbnail((824, 824))
+content_mask = make_squircle_mask(824)
+img_squircle = apply_alpha(img, content_mask)   # 824 内容本身被剪成 squircle
+canvas.paste(img_squircle, (100, 100), img_squircle)  # 居中到 1024
+```
+
+**关键判断**：squircle mask 的尺寸**必须等于**要被剪的内容尺寸，**不能等于**最终输出画布尺寸 —— 否则内容方形会完全包含在更大的 squircle 内部，圆角看不见。
+
+### 一键流程
+
+源图 → squircle → 全平台派生：
+
+```bash
+# 1. 准备方形 1024+ 源图（scripts/icons/make-squircle.py 拒绝非方形）
+# 2. 生成 squircle padded PNG (1024×1024, alpha squircle)
+python3 scripts/icons/make-squircle.py image/YourSource.PNG scripts/icons/app-icon-squircle.png
+
+# 3. Tauri 派生全平台（macOS .icns + Windows .ico + iOS 自动合成白底 + Android mipmap）
+pnpm tauri icon scripts/icons/app-icon-squircle.png
+```
+
+中间产物 `scripts/icons/app-icon-squircle.png` 入 `.gitignore`（可由脚本随时重生），`scripts/icons/make-squircle.py` 入仓。
