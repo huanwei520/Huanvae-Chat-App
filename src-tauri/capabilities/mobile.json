@@ -30,19 +30,6 @@
     "mobile-onbackpressed-listener:allow-register-back-event",
     "mobile-onbackpressed-listener:allow-registerListener",
     "store:default",
-    "android-fs:all",
-    {
-      "identifier": "android-fs:scope",
-      "allow": [
-        "$APPDATA/**/*",
-        "$APPCACHE/**/*",
-        "$APPLOCALDATA/**/*"
-      ]
-    },
-    "android-package-install:default",
-    "android-package-install:allow-check-permissions",
-    "android-package-install:allow-request-permissions",
-    "android-package-install:allow-install",
     "nfc:default",
     "core:window:allow-show",
     "core:window:allow-hide",

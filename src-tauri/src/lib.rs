@@ -52,9 +52,10 @@ mod desktop;
 mod clipboard;
 
 // ============================================
-// 移动专属模块 (Android/iOS)
+// Android 专属模块（mobile_media_server 用于绕过 WebView 的 asset:// 视频播放
+// 限制；iOS 不需要 — iOS WKWebView 原生支持 file:// 视频 URL）
 // ============================================
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 mod mobile_media_server;
 
 // ============================================
@@ -231,19 +232,20 @@ fn get_windows_installer_type() -> String {
 // 移动端本地视频 URL Commands
 // ============================================================================
 
-/// 获取本地视频的 HTTP URL（移动端）
+/// 获取本地视频的 HTTP URL（仅 Android 真实）
 ///
 /// 如果视频已缓存到本地，返回本地服务器 URL；否则返回 None
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 #[tauri::command(rename_all = "camelCase")]
 async fn get_local_video_url(file_hash: String) -> Option<String> {
     mobile_media_server::get_local_video_url(file_hash).await
 }
 
-/// 获取本地视频的 HTTP URL（桌面端存根）
+/// 获取本地视频的 HTTP URL（桌面端 / iOS 占位）
 ///
-/// 桌面端使用 asset:// 协议，不需要此功能
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+/// 桌面端使用 asset:// 协议；iOS WKWebView 原生支持 file:// 视频 URL，
+/// 都不需要本地 HTTP 媒体服务器
+#[cfg(not(target_os = "android"))]
 #[tauri::command(rename_all = "camelCase")]
 async fn get_local_video_url(_file_hash: String) -> Option<String> {
     None
@@ -606,8 +608,8 @@ pub fn run() {
 
     // 移动端：不包含 updater 和 window-state 插件
     // - store: 密码 + 会话持久化存储
-    // - android-fs: 处理 content:// URI 文件读取（局域网传输需要）
-    // - android-package-install: 应用内 APK 安装（自动更新需要）
+    // - android-fs: 处理 content:// URI 文件读取（仅 Android）
+    // - android-package-install: 应用内 APK 安装（仅 Android）
     // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = tauri::Builder::default()
@@ -619,9 +621,13 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_android_fs::init())
-        .plugin(tauri_plugin_android_package_install::init())
         .plugin(tauri_plugin_nfc::init());
+
+    // Android 专属插件（iOS 上没有对应 crate）
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .plugin(tauri_plugin_android_fs::init())
+        .plugin(tauri_plugin_android_package_install::init());
 
     builder
         .setup(|app| {

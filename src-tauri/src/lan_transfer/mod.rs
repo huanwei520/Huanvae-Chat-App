@@ -413,12 +413,17 @@ pub fn get_lan_debug_info() -> Result<serde_json::Value, String> {
         })
         .unwrap_or_default();
 
+    #[cfg(not(target_os = "ios"))]
     let device_id = mac_address::get_mac_address()
         .map(|opt| {
             opt.map(|mac| mac.to_string().replace(':', ""))
                 .unwrap_or_else(|| "Unknown".to_string())
         })
         .unwrap_or_else(|e| format!("Error: {}", e));
+
+    // iOS 系统强制返回假 MAC（02:00:00:00:00:00），无法用作设备标识
+    #[cfg(target_os = "ios")]
+    let device_id = "iOS-NoMAC".to_string();
 
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
