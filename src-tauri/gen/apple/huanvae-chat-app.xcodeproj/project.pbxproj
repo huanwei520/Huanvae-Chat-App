@@ -1,0 +1,576 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		07BD2EA085E87B0BA7C881CA /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9C3114B30432D059DCDBB4D /* QuartzCore.framework */; };
+		1C2DE365BA1D33F583B599CA /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDA14B6E35E9270EE7C6F2C0 /* CoreGraphics.framework */; };
+		3F8F98F72960956A44E6F3F1 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AD8234368E4E52B08B533862 /* LaunchScreen.storyboard */; };
+		517E862C82545AC1755CB102 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6D76C9A1D93735702BA0198A /* UIKit.framework */; };
+		6FB91F2F89FB967B55AABDA4 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F53BB75E895B36622D1676C /* Security.framework */; };
+		7B3D24EE35E9FE89788FE469 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0F4BCD16F53303D7C2277B79 /* main.mm */; };
+		81796D09CCF4D3B94C499AEE /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 50CD7233DCC288C88E2CF588 /* assets */; };
+		9EF3212CA332A66299D31318 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E94DD7B644837678302B5652 /* Assets.xcassets */; };
+		B67522C7A00A4518D6599FE1 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 56C3043DFCF0F4B2D97B11CD /* libapp.a */; };
+		D4D40FB0D3084B78A9B0142A /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1593830CDD4A243F3AA13D0A /* MetalKit.framework */; };
+		F171F3E9DF1479394EA7A7E8 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F111FE948B596B73FEDADF55 /* Metal.framework */; };
+		F8AC7CCD0AC9B4EFAC4A3796 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20EDC922689AD695BCB66F7D /* WebKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		052389D3EE308720710BD6D2 /* files.rs */ = {isa = PBXFileReference; path = files.rs; sourceTree = "<group>"; };
+		08F7947358FE590A0DD844CA /* config.rs */ = {isa = PBXFileReference; path = config.rs; sourceTree = "<group>"; };
+		0F4BCD16F53303D7C2277B79 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		0F8FE8B36412ED2E42A53845 /* types.rs */ = {isa = PBXFileReference; path = types.rs; sourceTree = "<group>"; };
+		10A6624CB708368D74783798 /* sounds.rs */ = {isa = PBXFileReference; path = sounds.rs; sourceTree = "<group>"; };
+		10AB0541C5BD417A3F0C2712 /* resume.rs */ = {isa = PBXFileReference; path = resume.rs; sourceTree = "<group>"; };
+		150A4F4FBCA44DC60F26DF7D /* linux.rs */ = {isa = PBXFileReference; path = linux.rs; sourceTree = "<group>"; };
+		1593830CDD4A243F3AA13D0A /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		20EDC922689AD695BCB66F7D /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		22DF745A85421EFA4B19873D /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		24CA74420B4711E461833EBA /* android_update.rs */ = {isa = PBXFileReference; path = android_update.rs; sourceTree = "<group>"; };
+		26C7E2DD995A9262F916E11F /* transfer.rs */ = {isa = PBXFileReference; path = transfer.rs; sourceTree = "<group>"; };
+		27CD202A473151DB49FE7524 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		288530453072C354525951DA /* discovery.rs */ = {isa = PBXFileReference; path = discovery.rs; sourceTree = "<group>"; };
+		2A83A5817ABC0A1330DD0F28 /* mobile_media_server.rs */ = {isa = PBXFileReference; path = mobile_media_server.rs; sourceTree = "<group>"; };
+		2B7A9F2CFB11BF9542293475 /* nfc.rs */ = {isa = PBXFileReference; path = nfc.rs; sourceTree = "<group>"; };
+		3054B26AEB2C858C5C1B95B2 /* huanvaeguard.rs */ = {isa = PBXFileReference; path = huanvaeguard.rs; sourceTree = "<group>"; };
+		32DDC6B8F441040E2DBF9D59 /* contacts.rs */ = {isa = PBXFileReference; path = contacts.rs; sourceTree = "<group>"; };
+		35D74687A03D521CCC42F86D /* clipboard.rs */ = {isa = PBXFileReference; path = clipboard.rs; sourceTree = "<group>"; };
+		3B6544653938890A2657AC1A /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		3D18C6F76FF2421BC8271936 /* device_info.rs */ = {isa = PBXFileReference; path = device_info.rs; sourceTree = "<group>"; };
+		3F79B6F8DAA585DFEDCD7982 /* android.rs */ = {isa = PBXFileReference; path = android.rs; sourceTree = "<group>"; };
+		476B220EEA27B6792B27DB8A /* protocol.rs */ = {isa = PBXFileReference; path = protocol.rs; sourceTree = "<group>"; };
+		483CE2D0DA41DC4A931CE597 /* download.rs */ = {isa = PBXFileReference; path = download.rs; sourceTree = "<group>"; };
+		4A15C92F24F735F0F7E40850 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		50CD7233DCC288C88E2CF588 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		513F817A8F3E7BE8379C7909 /* huanvae-chat-app_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "huanvae-chat-app_iOS.entitlements"; sourceTree = "<group>"; };
+		56C3043DFCF0F4B2D97B11CD /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		6D76C9A1D93735702BA0198A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		705D7E9E95BF7CC15CD1B69B /* storage.rs */ = {isa = PBXFileReference; path = storage.rs; sourceTree = "<group>"; };
+		79E40D0C76AC755ED53106F7 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		8BC36AAFC33A2DFADC829C2E /* session_lock.rs */ = {isa = PBXFileReference; path = session_lock.rs; sourceTree = "<group>"; };
+		8C27F566044CBA1ED7A84384 /* types.rs */ = {isa = PBXFileReference; path = types.rs; sourceTree = "<group>"; };
+		8CACCBD27DA2E5ACDBD7FF5E /* macos.rs */ = {isa = PBXFileReference; path = macos.rs; sourceTree = "<group>"; };
+		8F53BB75E895B36622D1676C /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		9C79CBE4F181A6A66DD4E268 /* installer_type.rs */ = {isa = PBXFileReference; path = installer_type.rs; sourceTree = "<group>"; };
+		A418558F90D0281978835D52 /* macos.rs */ = {isa = PBXFileReference; path = macos.rs; sourceTree = "<group>"; };
+		AD8234368E4E52B08B533862 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		AFBDC020684BF15CC6CCA657 /* types.rs */ = {isa = PBXFileReference; path = types.rs; sourceTree = "<group>"; };
+		B83B6601280A81B5A9963C70 /* user_data.rs */ = {isa = PBXFileReference; path = user_data.rs; sourceTree = "<group>"; };
+		B8F8B26C9CC8FDDC78DC1D5A /* windows.rs */ = {isa = PBXFileReference; path = windows.rs; sourceTree = "<group>"; };
+		BAB6850784632BA42B28DF7F /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		C6000B72E15652BBD7141997 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CB0586D152C5A6A1899D9AA0 /* server.rs */ = {isa = PBXFileReference; path = server.rs; sourceTree = "<group>"; };
+		D14B47CDCC33DBB507C5D7CE /* conversations.rs */ = {isa = PBXFileReference; path = conversations.rs; sourceTree = "<group>"; };
+		D5DFB6D67F1FDB0E354D04A1 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		D8D7B3479981C024C3C649E8 /* huanvae-chat-app_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "huanvae-chat-app_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD6CBA18F0846AD8950F4E43 /* linux.rs */ = {isa = PBXFileReference; path = linux.rs; sourceTree = "<group>"; };
+		E0858D1E84DA0CA7E14A2AFB /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		E433C9D967FAD5E4D4650AFD /* windows.rs */ = {isa = PBXFileReference; path = windows.rs; sourceTree = "<group>"; };
+		E94DD7B644837678302B5652 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EA75CEBA66B89971E0F0713F /* messages.rs */ = {isa = PBXFileReference; path = messages.rs; sourceTree = "<group>"; };
+		EDA14B6E35E9270EE7C6F2C0 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		EEB2238A31B2012529A46BB4 /* tray.rs */ = {isa = PBXFileReference; path = tray.rs; sourceTree = "<group>"; };
+		F111FE948B596B73FEDADF55 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		F9C3114B30432D059DCDBB4D /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C38A173FDEA12FB514BEE267 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B67522C7A00A4518D6599FE1 /* libapp.a in Frameworks */,
+				1C2DE365BA1D33F583B599CA /* CoreGraphics.framework in Frameworks */,
+				F171F3E9DF1479394EA7A7E8 /* Metal.framework in Frameworks */,
+				D4D40FB0D3084B78A9B0142A /* MetalKit.framework in Frameworks */,
+				07BD2EA085E87B0BA7C881CA /* QuartzCore.framework in Frameworks */,
+				6FB91F2F89FB967B55AABDA4 /* Security.framework in Frameworks */,
+				517E862C82545AC1755CB102 /* UIKit.framework in Frameworks */,
+				F8AC7CCD0AC9B4EFAC4A3796 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0729FEFB83E5F66009C5E751 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		138283B21F13EA06A3914C46 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				EDA14B6E35E9270EE7C6F2C0 /* CoreGraphics.framework */,
+				56C3043DFCF0F4B2D97B11CD /* libapp.a */,
+				F111FE948B596B73FEDADF55 /* Metal.framework */,
+				1593830CDD4A243F3AA13D0A /* MetalKit.framework */,
+				F9C3114B30432D059DCDBB4D /* QuartzCore.framework */,
+				8F53BB75E895B36622D1676C /* Security.framework */,
+				6D76C9A1D93735702BA0198A /* UIKit.framework */,
+				20EDC922689AD695BCB66F7D /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		1FEAD149AF517C3AA5A094C2 = {
+			isa = PBXGroup;
+			children = (
+				50CD7233DCC288C88E2CF588 /* assets */,
+				E94DD7B644837678302B5652 /* Assets.xcassets */,
+				AD8234368E4E52B08B533862 /* LaunchScreen.storyboard */,
+				0729FEFB83E5F66009C5E751 /* Externals */,
+				4437E93D56203D837B86F503 /* huanvae-chat-app_iOS */,
+				ED7C86605C6B2821D6BFD087 /* Sources */,
+				C93B55531FEE6095DFC07002 /* src */,
+				138283B21F13EA06A3914C46 /* Frameworks */,
+				A39FFB7C5B517B3A895B381E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		332168DE510076DA7405DFA4 /* db */ = {
+			isa = PBXGroup;
+			children = (
+				32DDC6B8F441040E2DBF9D59 /* contacts.rs */,
+				D14B47CDCC33DBB507C5D7CE /* conversations.rs */,
+				052389D3EE308720710BD6D2 /* files.rs */,
+				EA75CEBA66B89971E0F0713F /* messages.rs */,
+				22DF745A85421EFA4B19873D /* mod.rs */,
+				2B7A9F2CFB11BF9542293475 /* nfc.rs */,
+				8C27F566044CBA1ED7A84384 /* types.rs */,
+			);
+			path = db;
+			sourceTree = "<group>";
+		};
+		335F46E31DCE5BC96190BD72 /* lan_transfer */ = {
+			isa = PBXGroup;
+			children = (
+				08F7947358FE590A0DD844CA /* config.rs */,
+				288530453072C354525951DA /* discovery.rs */,
+				3B6544653938890A2657AC1A /* mod.rs */,
+				476B220EEA27B6792B27DB8A /* protocol.rs */,
+				10AB0541C5BD417A3F0C2712 /* resume.rs */,
+				CB0586D152C5A6A1899D9AA0 /* server.rs */,
+				26C7E2DD995A9262F916E11F /* transfer.rs */,
+				D2377946F3314A8072B27608 /* diagnostics */,
+			);
+			path = lan_transfer;
+			sourceTree = "<group>";
+		};
+		4437E93D56203D837B86F503 /* huanvae-chat-app_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				513F817A8F3E7BE8379C7909 /* huanvae-chat-app_iOS.entitlements */,
+				C6000B72E15652BBD7141997 /* Info.plist */,
+			);
+			path = "huanvae-chat-app_iOS";
+			sourceTree = "<group>";
+		};
+		A04A51353B8A7F775C9B08FD /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				27CD202A473151DB49FE7524 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		A39FFB7C5B517B3A895B381E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D8D7B3479981C024C3C649E8 /* huanvae-chat-app_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A41998ECAD0E10744FF0AFEE /* huanvae-chat-app */ = {
+			isa = PBXGroup;
+			children = (
+				0F4BCD16F53303D7C2277B79 /* main.mm */,
+				A04A51353B8A7F775C9B08FD /* bindings */,
+			);
+			path = "huanvae-chat-app";
+			sourceTree = "<group>";
+		};
+		C93B55531FEE6095DFC07002 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				24CA74420B4711E461833EBA /* android_update.rs */,
+				35D74687A03D521CCC42F86D /* clipboard.rs */,
+				3D18C6F76FF2421BC8271936 /* device_info.rs */,
+				483CE2D0DA41DC4A931CE597 /* download.rs */,
+				BAB6850784632BA42B28DF7F /* lib.rs */,
+				E0858D1E84DA0CA7E14A2AFB /* main.rs */,
+				2A83A5817ABC0A1330DD0F28 /* mobile_media_server.rs */,
+				10A6624CB708368D74783798 /* sounds.rs */,
+				705D7E9E95BF7CC15CD1B69B /* storage.rs */,
+				B83B6601280A81B5A9963C70 /* user_data.rs */,
+				332168DE510076DA7405DFA4 /* db */,
+				DCB11B1537B8ADB61DA839E4 /* desktop */,
+				335F46E31DCE5BC96190BD72 /* lan_transfer */,
+				EFC17508A6BF0274397376AE /* permissions */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		D2377946F3314A8072B27608 /* diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				3F79B6F8DAA585DFEDCD7982 /* android.rs */,
+				DD6CBA18F0846AD8950F4E43 /* linux.rs */,
+				8CACCBD27DA2E5ACDBD7FF5E /* macos.rs */,
+				79E40D0C76AC755ED53106F7 /* mod.rs */,
+				AFBDC020684BF15CC6CCA657 /* types.rs */,
+				E433C9D967FAD5E4D4650AFD /* windows.rs */,
+			);
+			path = diagnostics;
+			sourceTree = "<group>";
+		};
+		DCB11B1537B8ADB61DA839E4 /* desktop */ = {
+			isa = PBXGroup;
+			children = (
+				3054B26AEB2C858C5C1B95B2 /* huanvaeguard.rs */,
+				9C79CBE4F181A6A66DD4E268 /* installer_type.rs */,
+				4A15C92F24F735F0F7E40850 /* mod.rs */,
+				8BC36AAFC33A2DFADC829C2E /* session_lock.rs */,
+				EEB2238A31B2012529A46BB4 /* tray.rs */,
+			);
+			path = desktop;
+			sourceTree = "<group>";
+		};
+		ED7C86605C6B2821D6BFD087 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A41998ECAD0E10744FF0AFEE /* huanvae-chat-app */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		EFC17508A6BF0274397376AE /* permissions */ = {
+			isa = PBXGroup;
+			children = (
+				150A4F4FBCA44DC60F26DF7D /* linux.rs */,
+				A418558F90D0281978835D52 /* macos.rs */,
+				D5DFB6D67F1FDB0E354D04A1 /* mod.rs */,
+				0F8FE8B36412ED2E42A53845 /* types.rs */,
+				B8F8B26C9CC8FDDC78DC1D5A /* windows.rs */,
+			);
+			path = permissions;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4245496213992C8F2A19D6A2 /* huanvae-chat-app_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4A8AD15AA4213B6E7477B47A /* Build configuration list for PBXNativeTarget "huanvae-chat-app_iOS" */;
+			buildPhases = (
+				A811210FAAA4F8A87DFFD1DA /* Build Rust Code */,
+				5B75999F926F226C3E905CAB /* Sources */,
+				DD53A01ED4FF1897BEF3581C /* Resources */,
+				C38A173FDEA12FB514BEE267 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "huanvae-chat-app_iOS";
+			packageProductDependencies = (
+			);
+			productName = "huanvae-chat-app_iOS";
+			productReference = D8D7B3479981C024C3C649E8 /* huanvae-chat-app_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		28EABAB95543353336BD34CE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 8A2D0F108B9A7F61FCEF80D2 /* Build configuration list for PBXProject "huanvae-chat-app" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1FEAD149AF517C3AA5A094C2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A39FFB7C5B517B3A895B381E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4245496213992C8F2A19D6A2 /* huanvae-chat-app_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DD53A01ED4FF1897BEF3581C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9EF3212CA332A66299D31318 /* Assets.xcassets in Resources */,
+				3F8F98F72960956A44E6F3F1 /* LaunchScreen.storyboard in Resources */,
+				81796D09CCF4D3B94C499AEE /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A811210FAAA4F8A87DFFD1DA /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "pnpm tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5B75999F926F226C3E905CAB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7B3D24EE35E9FE89788FE469 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		09B946C8E409D7CDF6FBF9FF /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		4A2E518C1D7EE1B08D175215 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "huanvae-chat-app_iOS/huanvae-chat-app_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "huanvae-chat-app_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.huanwei520.huanvae-chat-app;
+				PRODUCT_NAME = "Huanvae-Chat-App";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		9CAF8098C965D81AE5143AAD /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		CA6833260B066ADC7D15020D /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "huanvae-chat-app_iOS/huanvae-chat-app_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "huanvae-chat-app_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.huanwei520.huanvae-chat-app;
+				PRODUCT_NAME = "Huanvae-Chat-App";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4A8AD15AA4213B6E7477B47A /* Build configuration list for PBXNativeTarget "huanvae-chat-app_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4A2E518C1D7EE1B08D175215 /* debug */,
+				CA6833260B066ADC7D15020D /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		8A2D0F108B9A7F61FCEF80D2 /* Build configuration list for PBXProject "huanvae-chat-app" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9CAF8098C965D81AE5143AAD /* debug */,
+				09B946C8E409D7CDF6FBF9FF /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 28EABAB95543353336BD34CE /* Project object */;
+}
