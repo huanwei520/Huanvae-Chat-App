@@ -45,7 +45,7 @@ src-tauri/gen/android/app/keystore.properties
 
 # Android build 期由 bundle.resources 复制进 assets/ 的运行时资源（每次构建重生成，不入 git）
 # 注意：这是 Tauri build 流程的副产物，不是 Android 项目源文件
-src-tauri/gen/android/app/src/main/assets/HuanvaeGuard/
+# HuanvaeGuard/ 资源已通过 tauri.windows.conf.json 限定为 Windows-only，Android build 不再生成
 src-tauri/gen/android/app/src/main/assets/Notification-Sounds/
 
 # Playwright

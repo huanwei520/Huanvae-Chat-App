@@ -255,3 +255,175 @@ frame-src 'self' http: https:;
 - 根因：[tauri.conf.json](src-tauri/tauri.conf.json) 的 CSP 字符串无 `frame-src` directive → 按 CSP fallback 规则用 `default-src 'self'` → iframe 只允许同源 → 小程序后端 URL 跨域被拒
 - 修复：在 CSP 字符串中加 `frame-src 'self' http: https:;`，与 img-src/media-src 末尾通配一致
 - 教训：**配 CSP 时必须列全所有要用的资源 directive**：default、script、style、connect、img、media、frame、font、worker。漏一个 directive 会静默 fallback 到 default-src 'self' 导致跨域资源加载诡异失败
+
+## 平台限定模块的 cfg 守卫：调用点不够，必须收紧到 mod 声明
+
+### 调用点 cfg 守卫不能保证模块"在该平台不参与编译"
+
+常见错误模式：某模块只依赖一个平台（如 Windows SCM、macOS launchd、Linux systemd），但代码组织上用了"桌面端"二分思维：
+
+```rust
+// src/desktop/mod.rs
+pub mod platform_specific;   // 没有 cfg 守卫
+
+// src/desktop/platform_specific.rs
+pub fn do_thing() {
+    #[cfg(target_os = "windows")]
+    { /* 真实实现 */ }
+    #[cfg(not(target_os = "windows"))]
+    { /* 占位 / NotInstalled / return false */ }
+}
+
+// src/lib.rs
+#[cfg(not(any(target_os = "android", target_os = "ios")))]  // ← "桌面端" 守卫
+desktop::platform_specific::do_thing();
+```
+
+问题：
+1. **mac/Linux 桌面端仍参与编译该模块** — `desktop::platform_specific` 在所有桌面 target 上都被 cargo 解析、类型检查、链接
+2. **函数体内的 `cfg(not(windows))` 分支会被执行** — 通常是空操作 + 一行 `eprintln!` 提示"未注册"或"暂不支持"，造成 **mac/Linux 上运行时的误导日志**
+3. **cfg 收紧调用点不彻底** — 即便把 lib.rs 的调用守卫改成 `target_os = "windows"`，模块内部其他 `pub fn` 仍会被编译，**module 内的私有 helper（`fn probe_xxx()` / `fn heal_xxx()`）会在 non-Windows target 触发 `dead_code` 警告 → `cargo clippy --max-warnings 0` FAIL**
+
+### 正确模式：模块层 cfg 守卫
+
+```rust
+// src/desktop/mod.rs
+#[cfg(target_os = "windows")]
+pub mod platform_specific;        // ← 整个模块在非 Windows target 不参与编译
+
+// src/lib.rs setup
+#[cfg(target_os = "windows")]
+desktop::platform_specific::do_thing();
+
+// 跨平台命令分发：用 cfg 二选一实现
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn query_state() -> RealEnum { real_impl() }
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn query_state() -> &'static str { "not_installed" }   // ← 占位仅一行，无 dead helper
+```
+
+要点：
+1. **mod 声明加 cfg** — 让整个模块文件在非目标 target 上对 cargo 不可见
+2. **调用点 cfg 必须与 mod cfg 同集合** — 否则 non-target 编译会因模块不存在而报 `unresolved module` 编译错误
+3. **跨平台 Tauri 命令双分支** — Windows 真实实现 + 非 Windows 占位返回，让前端 invoke 接口一致；占位实现保持极简（一行 return 字符串），不引入新的 helper
+
+### 反例（2026-05-24）
+
+- `desktop::huanvaeguard` 是 Windows-only VPN 服务管理（用 `sc.exe` 操作 Windows SCM）
+- 初版用"桌面端"二分：`desktop/mod.rs` 无 cfg 守卫直接 `pub mod huanvaeguard;`；lib.rs 调用点用 `not(any(android, ios))` 守卫
+- macOS 上跑 `pnpm tauri dev` 时，`spawn_start_on_boot()` 被调用 → `query_state()` 在非 Windows 走 `cfg(not(windows))` 分支返回 `NotInstalled` → eprintln `[HuanvaeGuard] 服务未注册：开发环境请运行 pnpm hg:install`
+- 用户看到 mac 控制台"弹出 huanvaeguard 启动"日志，反馈"误导"
+- 第一次修复只改了 lib.rs 调用点 cfg 为 `target_os = "windows"`，code-review 发现：huanvaeguard.rs 内部 `probe_http_health` / `heal_stuck_service` / `query_service_pid` / `wait_for_state` 等私有 helper 在 mac/Linux 编译时变 dead code → `cargo clippy` warning 会让 `test-all.ps1` 第 8 步 FAIL
+- 二次修复：`desktop/mod.rs` 把 `pub mod huanvaeguard;` 加 `#[cfg(target_os = "windows")]`，配套调整 `huanvaeguard_service_state` Tauri 命令双分支 cfg 也对齐 `target_os = "windows"` vs `not(target_os = "windows")`
+- mac 上 `cargo check --lib` 0 warnings 0 errors 通过
+
+### 判断标准
+
+写一个跨平台模块时，先回答：
+
+| 问题 | 是 → mod 层 cfg | 否 → 函数层 cfg 即可 |
+|------|-----------------|---------------------|
+| 模块是否只对单一/部分 target 有真实意义？ | ✓ | |
+| 不参与目标 target 时是否有内部 helper 会变 dead code？ | ✓ | |
+| 占位实现是否极简（一行 return）？ | ✓ | |
+| 占位实现是否需要复杂业务逻辑（跨平台共享 trait / 状态机）？ | | ✓ |
+
+90% 的"Windows 服务 / macOS launchd / 平台特定 API"场景都满足前三条，应该用 mod 层 cfg。
+
+## Tauri 2 平台限定资源：用 platform-specific config 而非顶层 bundle.resources
+
+### 问题：`bundle.resources` 是统一字段，跨所有 target 复制
+
+[tauri.conf.json](src-tauri/tauri.conf.json) 的 `bundle.resources` 是顶层配置，[tauri-bundler 源码确认](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-bundler/src/bundle/settings.rs)：
+
+| 平台子结构 | resources 字段 | files 字段（语义不同） |
+|------------|---------------|----------------------|
+| `BundleSettings`（顶层） | ✅ `resources: Option<Vec<String>>` | — |
+| `MacOsSettings` / `DebianSettings` / `RpmSettings` / `AppImageSettings` | ❌ 无 | ✅ `files`（自定义文件映射，非约定 Resources/） |
+| `WindowsSettings` | ❌ 无 | ❌ 无 |
+
+`bundle.{platform}.files` 是"自定义文件映射"语义，与 `resources` 的"约定到 Resources/ 目录"不同。Windows 平台**完全没有** files 字段。
+
+### 后果：Windows 专属二进制被打进所有平台 bundle
+
+如果项目把 Windows-only 二进制（如 `huanvaeguard-svc.exe` 3.4 MB + `wintun.dll` 427 KB）配在顶层 `bundle.resources`：
+
+- macOS DMG → 复制到 `.app/Contents/Resources/`（[macos/app.rs:287](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-bundler/src/bundle/macos/app.rs#L287)）
+- Linux DEB → 复制到安装路径下的 resources/
+- Android APK → 复制到 `src/main/assets/`（Tauri 文档明确说"the resources are stored in the APK as assets"）
+- iOS IPA → 复制到 `.app/Contents/Resources/`
+
+**单平台资源在四个不需要它的平台上浪费 N×M 字节**。
+
+### 解决方案：Tauri 2 platform-specific config files
+
+[Tauri 2 官方机制](https://v2.tauri.app/develop/configuration-files/)：和 `tauri.conf.json` 同级放一个或多个：
+
+- `tauri.windows.conf.json`
+- `tauri.macos.conf.json`
+- `tauri.linux.conf.json`
+- `tauri.android.conf.json`
+- `tauri.ios.conf.json`
+
+CLI 自动检测，**dev / build / android / ios 所有命令都生效**，无需在 package.json / Cargo.toml / .gitignore 注册。
+
+合并语义：**RFC 7396 JSON Merge Patch**（关键！与 deep merge 不同）：
+- 对象：逐 key 递归合并，相同 key 覆盖
+- 数组：**完全替换**（不追加）
+- 标量：覆盖
+
+### 拆分模式
+
+**主 `tauri.conf.json`** 只保留跨平台资源：
+
+```json
+"bundle": {
+  "resources": {
+    "../Notification-Sounds/*": "Notification-Sounds/"
+  }
+}
+```
+
+**`tauri.windows.conf.json`** 仅声明 Windows 增量：
+
+```json
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "resources/HuanvaeGuard/*": "HuanvaeGuard/"
+    }
+  }
+}
+```
+
+Windows build 时合并后 `bundle.resources` = `{"../Notification-Sounds/*": ..., "resources/HuanvaeGuard/*": ...}`；非 Windows build 只剩 `Notification-Sounds`。
+
+### 三个细节
+
+1. **resources 是 object map 时合并语义是叠加** — 因为 RFC 7396 对 object 是"逐 key 合并，相同 key 覆盖"。新 key 添加，相同 key 替换。`resources` 既支持数组（`["./assets"]`）也支持对象 map（`{"src": "dest"}`）；项目用对象 map 时合并行为是"叠加 + 同名覆盖"，**不是替换整个 resources 对象**。如果用数组形式，按 RFC 7396 数组**完全替换**。
+
+2. **.gitignore stale 规则要清理** — 用顶层 `bundle.resources` 时项目可能有形如 `src-tauri/gen/android/app/src/main/assets/<resource-name>/` 的 .gitignore 规则（Android build 副产物）。拆分到 Windows-only 后这条规则变 stale（Android build 不再生成该目录），按 CLAUDE.md「无误导性残留」原则应删除。
+
+3. **`$schema` 字段可选但建议加** — 让 IDE 提供 autocomplete + 校验，主配置和平台 override 都用同一 schema URL。
+
+### 反例（2026-05-24）
+
+- 项目的 `huanvaeguard-svc.exe` (3.4 MB) + `wintun.dll` (427 KB) 仅 Windows 上有意义，但 `tauri.conf.json` 顶层 `bundle.resources` 让它被打进 mac DMG / Linux DEB / Android APK / iOS IPA，**单次构建浪费 ~3.8 MB**
+- 项目 .gitignore 早已观察过 Android build 复制行为，写了 `src-tauri/gen/android/app/src/main/assets/HuanvaeGuard/` 规则忽略 — 这条规则的存在本身就是 bundle.resources 跨平台行为的证据
+- 修复：把 `"resources/HuanvaeGuard/*"` 从主 tauri.conf.json 移到新建的 `tauri.windows.conf.json`，删除 stale 的 .gitignore 行
+- 验证：mac `cargo check --lib` 0 warnings；前端 typecheck/lint/test 全绿
+- 教训：**Tauri 2 跨平台项目的任何"平台限定资源"都应该走 platform-specific config，不要污染顶层 bundle.resources**
+
+### 选择 platform-specific config 还是顶层 bundle.resources 的判断
+
+| 资源用途 | 配置位置 |
+|---------|---------|
+| 所有平台都需要的运行时资源（声音 / 字体 / 图标） | `tauri.conf.json` 顶层 `bundle.resources` |
+| 仅某平台需要的二进制 / 驱动 / 系统服务文件 | `tauri.<platform>.conf.json` 的 `bundle.resources` |
+| 某平台特殊的安装期文件（LICENSE / 启动脚本） | `tauri.conf.json` 的 `bundle.{macOS,deb,rpm,appimage}.files`（不是 resources）|
+
+混用规则：跨平台基础资源放顶层主配置，平台增量放对应 platform-specific config 即可，由 RFC 7396 自动合并。

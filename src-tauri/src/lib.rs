@@ -587,28 +587,6 @@ fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
-// ============================================================================
-// HuanvaeGuard VPN 服务 Commands（桌面端专属 — 实际仅 Windows 有效）
-// ============================================================================
-
-/// 查询 HuanvaeGuard 本机服务状态（桌面端）
-///
-/// 注：HG 服务生命周期由 setup 的 `spawn_start_on_boot()` 和 `RunEvent::Exit` 的
-/// `stop_on_exit_blocking()` 自动管理，前端无需主动 start/stop；仅保留 state 查询
-/// 命令供未来 UI 显示 VPN 状态使用。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[tauri::command(rename_all = "camelCase")]
-fn huanvaeguard_service_state() -> desktop::huanvaeguard::ServiceState {
-    desktop::huanvaeguard::query_state()
-}
-
-/// 查询 HuanvaeGuard 服务状态（移动端存根）
-#[cfg(any(target_os = "android", target_os = "ios"))]
-#[tauri::command(rename_all = "camelCase")]
-fn huanvaeguard_service_state() -> &'static str {
-    "not_installed"
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 桌面端：包含 updater、window-state 和 clipboard-manager 插件
@@ -890,8 +868,6 @@ pub fn run() {
             android_update::get_app_version,
             android_update::fetch_update_json,
             android_update::download_apk,
-            // HuanvaeGuard VPN 服务控制（桌面端真实，移动端存根）
-            huanvaeguard_service_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

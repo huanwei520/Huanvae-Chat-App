@@ -44,10 +44,8 @@ use std::time::{Duration, Instant};
 const SERVICE_NAME: &str = "HuanvaeGuard";
 
 /// 服务当前状态（从 `sc query` 解析而来）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub enum ServiceState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServiceState {
     /// 服务未在 SCM 中注册（开发环境未跑过 `pnpm hg:install`，或生产环境安装器失败）
     NotInstalled,
     Stopped,
@@ -74,7 +72,7 @@ fn sc_command() -> Command {
 }
 
 /// 查询服务状态（幂等、非阻塞、无需管理员权限）
-pub fn query_state() -> ServiceState {
+fn query_state() -> ServiceState {
     #[cfg(not(target_os = "windows"))]
     {
         return ServiceState::NotInstalled;
@@ -108,7 +106,7 @@ pub fn query_state() -> ServiceState {
 }
 
 /// 启动服务。幂等：已 Running / StartPending 直接返回 Ok
-pub fn try_start() -> Result<(), String> {
+fn try_start() -> Result<(), String> {
     match query_state() {
         ServiceState::NotInstalled => Err(
             "HuanvaeGuard 服务未注册：开发环境请运行 `pnpm hg:install`，生产环境请重装应用"
@@ -133,7 +131,7 @@ pub fn try_start() -> Result<(), String> {
 }
 
 /// 停止服务。幂等：NotInstalled / Stopped 直接返回 Ok
-pub fn try_stop() -> Result<(), String> {
+fn try_stop() -> Result<(), String> {
     match query_state() {
         ServiceState::NotInstalled | ServiceState::Stopped => Ok(()),
         _ => {
