@@ -16,7 +16,7 @@
 //! - 设备信息：获取设备标识用于登录
 //! - 窗口状态：记忆窗口位置和大小，下次启动时恢复
 //! - 局域网传输：局域网内设备发现和文件互传
-//! - HuanvaeGuard VPN：绑定本机 Windows Service 生命周期到 Tauri 进程（桌面端）
+//! - HuanvaeGuard VPN：绑定本机 Windows Service 生命周期到 Tauri 进程（仅 Windows）
 //! - Android 更新：应用内 APK 下载和安装（Android 专属）
 //!
 //! ## 平台支持
@@ -684,9 +684,10 @@ pub fn run() {
                 eprintln!("[Tray] 初始化托盘失败: {}", e);
             }
 
-            // 桌面端：异步启动 HuanvaeGuard 服务（非阻塞，失败只打日志）
+            // 仅 Windows：异步启动 HuanvaeGuard 服务（非阻塞，失败只打日志）
             // 绑定到 Tauri 进程生命周期：进程退出时由 RunEvent::Exit 停服务
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            // macOS/Linux 桌面端无 HG 实现，跳过避免误导日志；移动端被 desktop 模块 cfg 排除
+            #[cfg(target_os = "windows")]
             desktop::huanvaeguard::spawn_start_on_boot();
 
             // Android/iOS：注册返回按钮监听插件（必须在 setup 中注册）
@@ -895,10 +896,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
-            // 进程真正退出时（非隐藏到托盘）同步停止 HuanvaeGuard 服务，
+            // 仅 Windows：进程真正退出时（非隐藏到托盘）同步停止 HuanvaeGuard 服务，
             // 释放 huanvaeguard-svc.exe 文件锁，确保下次 rebuild 不被阻塞。
-            // _event 在移动端不消费，下划线前缀压制 unused 警告
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            // _event 在 Windows 之外不消费，下划线前缀压制 unused 警告
+            #[cfg(target_os = "windows")]
             if let tauri::RunEvent::Exit = _event {
                 desktop::huanvaeguard::stop_on_exit_blocking();
             }

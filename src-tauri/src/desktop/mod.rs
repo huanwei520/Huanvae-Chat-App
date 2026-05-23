@@ -6,16 +6,14 @@
 //! - 系统托盘：关闭窗口时最小化到托盘
 //! - 会话锁：同设备同账户单开控制
 //! - 安装类型检测：检测 Windows 上是 MSI 还是 NSIS 安装（用于更新器）
-//! - HuanvaeGuard 服务生命周期：Windows Service 的启停绑定到 Tauri 进程
+//! - HuanvaeGuard 服务生命周期：Windows Service 的启停绑定到 Tauri 进程（仅 Windows）
 //!
 //! ## 条件编译
 //! 此模块使用 `#[cfg(desktop)]` 或 `#[cfg(not(any(target_os = "android", target_os = "ios")))]`
-//!
-//! ## 更新日志
-//! - 2026-04-22: 添加 huanvaeguard 模块（Windows Service 启停控制，退出时释放 exe 文件锁）
-//! - 2026-01-24: 添加 installer_type 模块，支持检测 Windows 安装类型
-//! - 2026-01-22: 创建桌面专属模块，从根目录分离 tray.rs 和 session_lock.rs
+//! 内部 `huanvaeguard` 子模块进一步限定为 `#[cfg(target_os = "windows")]`，
+//! 因为 HG 依赖 Windows SCM (sc.exe / taskkill)，mac/Linux 无对应实现。
 
+#[cfg(target_os = "windows")]
 pub mod huanvaeguard;
 pub mod installer_type;
 pub mod session_lock;
