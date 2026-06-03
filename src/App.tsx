@@ -32,7 +32,8 @@ import type { AppPage, SavedAccount } from './types/account';
 import type { Session, UserProfile } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
-import { setCurrentServerBaseUrl, resolveServerAvatarUrl } from './utils/avatar';
+import { discoverEndpoints } from './services/discovery';
+import { resolveServerAvatarUrl } from './utils/avatar';
 import { UpdateToast, useStartupUpdateCheck, useUpdateToastProps } from './update';
 import './styles/index.css';
 
@@ -99,9 +100,6 @@ function App() {
     profile: UserProfile,
     avatarPath: string | null,
   ) => {
-    // 设置服务器基础 URL（用于后续头像相对路径解析）
-    setCurrentServerBaseUrl(serverUrl);
-
     // 设置当前用户数据目录（这会创建目录结构）
     await setCurrentUser(userId, serverUrl);
 
@@ -139,7 +137,11 @@ function App() {
     setError(null);
 
     try {
-      // 0. 检查是否有同账户实例已在运行
+      // 0. 先发现后端 IP + CA(设置 secureHttp 注入层 active + 回环反代目标);失败不阻塞(退化用内置 CA)。
+      //    desktop 账号选择登录链路无 session 恢复,必须在此发现,否则 login/头像/上传 拿不到 active。
+      await discoverEndpoints().catch(() => undefined);
+
+      // 0.1 检查是否有同账户实例已在运行
       const { canProceed, message } = await checkAndHandleSessionConflict(
         account.server_url,
         account.user_id,
@@ -232,10 +234,10 @@ function App() {
         ),
       ]);
 
-      // 7. 后台异步更新头像（不阻塞登录，需要完整 URL 供 Tauri 下载）
-      const resolvedAvatarUrl = resolveServerAvatarUrl(profile.user_avatar_url);
-      if (resolvedAvatarUrl) {
-        updateAvatar(account.server_url, account.user_id, resolvedAvatarUrl)
+      // 7. 后台异步更新头像（不阻塞登录）：传后端原始路径，updateAvatar 内部解析为逻辑域名 URL
+      //    + directIp 改写后交 Rust 钉 CA 下载到本地缓存（非显示用的回环代理 URL）。
+      if (profile.user_avatar_url) {
+        updateAvatar(account.server_url, account.user_id, profile.user_avatar_url)
           .then(path => saveAccount(account.user_id, profile.user_nickname, account.server_url, password, path))
           .catch(() => {});
       }
@@ -249,7 +251,6 @@ function App() {
 
   // 处理新登录
   const handleLogin = useCallback(async (
-    serverUrl: string,
     userId: string,
     password: string,
   ) => {
@@ -257,6 +258,10 @@ function App() {
     setError(null);
 
     try {
+      // serverUrl 不再由用户输入:重登录(密码丢失)沿用所选账号的逻辑域名;
+      // 新登录由发现服务(ca.huanvae.cn → 内置 CA)择最快域名。物理直连 IP 由 secureHttp 注入层处理。
+      const serverUrl = selectedAccount?.server_url ?? `https://${(await discoverEndpoints()).domain}`;
+
       // 0. 检查是否有同账户实例已在运行
       const { canProceed, message } = await checkAndHandleSessionConflict(serverUrl, userId);
       if (!canProceed) {
@@ -288,10 +293,9 @@ function App() {
         ),
       ]);
 
-      // 6. 后台异步下载头像并更新账号（不阻塞登录，需要完整 URL 供 Tauri 下载）
-      const resolvedAvatarUrl = resolveServerAvatarUrl(profile.user_avatar_url);
-      if (resolvedAvatarUrl) {
-        updateAvatar(serverUrl, userId, resolvedAvatarUrl)
+      // 6. 后台异步下载头像并更新账号（不阻塞登录）：传后端原始路径，updateAvatar 内部解析 + directIp 下载。
+      if (profile.user_avatar_url) {
+        updateAvatar(serverUrl, userId, profile.user_avatar_url)
           .then(path => saveAccount(userId, profile.user_nickname, serverUrl, password, path))
           .catch(() => {});
       }
@@ -301,11 +305,10 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [saveAccount, updateAvatar, createSessionAndLogin]);
+  }, [saveAccount, updateAvatar, createSessionAndLogin, selectedAccount]);
 
   // 处理注册
   const handleRegister = useCallback(async (
-    serverUrl: string,
     userId: string,
     nickname: string,
     password: string,
@@ -315,6 +318,9 @@ function App() {
     setError(null);
 
     try {
+      // serverUrl 由发现服务择最快域名(不再由用户输入)
+      const serverUrl = `https://${(await discoverEndpoints()).domain}`;
+
       // 1. 调用注册 API
       await register(serverUrl, {
         server_url: serverUrl,
@@ -324,8 +330,8 @@ function App() {
         email,
       });
 
-      // 2. 注册成功后自动登录
-      await handleLogin(serverUrl, userId, password);
+      // 2. 注册成功后自动登录(handleLogin 内部重新发现, 命中缓存为同一域名)
+      await handleLogin(userId, password);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -360,6 +366,9 @@ function App() {
       console.warn('[App] 移动端启动，尝试恢复会话...');
 
       try {
+        // 先跑发现服务(刷新可用域名 + CA,设置 secureHttp 注入层的 active);失败不阻塞(secureHttp 退化用内置 CA)
+        await discoverEndpoints().catch(() => undefined);
+
         // 从本地存储恢复会话（与 QQ/微信 体验一致）
         const savedSession = await restoreSession();
 
@@ -386,9 +395,6 @@ function App() {
             .then(res => ({ success: true, profile: res.data }))
             .catch(() => ({ success: false, profile: null })),
         ]);
-
-        // 设置服务器基础 URL（用于头像相对路径解析）
-        setCurrentServerBaseUrl(savedSession.serverUrl);
 
         if (profileResult.success && profileResult.profile) {
           // Token 有效，使用最新的 profile（解析头像相对路径）
@@ -585,7 +591,6 @@ function App() {
                 isLoading={isLoading}
                 error={error}
                 prefillAccount={selectedAccount ? {
-                  serverUrl: selectedAccount.server_url,
                   userId: selectedAccount.user_id,
                 } : null}
               />

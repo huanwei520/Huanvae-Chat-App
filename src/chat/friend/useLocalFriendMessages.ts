@@ -147,7 +147,7 @@ export function useLocalFriendMessages(friendId: string | null) {
   // ============================================
   // 数据库初始化检查
   // ============================================
-  // 注意：数据库在登录时已由 useAuth 初始化
+  // 注意：数据库在登录时已由 App.tsx 的登录流程初始化
   // 这里只标记为已初始化（当有 session 时）
 
   useEffect(() => {

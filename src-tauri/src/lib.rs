@@ -63,6 +63,24 @@ mod mobile_media_server;
 // ============================================
 mod android_update;
 
+// ============================================
+// 统一安全 HTTP(自管 TLS / 内置私有 CA / 直连源站 IP)
+// 见工作区 DESIGN-app-discovery-selfsigned-tls.md
+// ============================================
+mod secure_net;
+
+// ============================================
+// 数据面 WebSocket(走 Rust:tokio-tungstenite + rustls 内置私有 CA)
+// 浏览器 WebSocket 用系统信任,验不过自签 leaf,故 WS 同 secure_net 迁到 Rust
+// ============================================
+mod ws_proxy;
+
+// ============================================
+// 回环安全反代(webview 原生 <img>/<video>/上传 XHR 验不过自签,经 127.0.0.1 反代由
+// secure_net 钉 CA 客户端转发到源站 IP)。见 secure_proxy.rs。
+// ============================================
+mod secure_proxy;
+
 use db::{
     ConversationPreview, LocalConversation, LocalFileMapping, LocalFriend, LocalGroup,
     LocalMessage,
@@ -603,8 +621,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_shell::init());
+        .plugin(tauri_plugin_clipboard_manager::init());
 
     // 移动端：不包含 updater 和 window-state 插件
     // - store: 密码 + 会话持久化存储
@@ -808,6 +825,18 @@ pub fn run() {
             download::copy_file_to_cache,
             download::show_in_folder,
             download::is_file_exists,
+            // 统一安全 HTTP(发现面系统信任 / 数据面内置 CA + 直连源站 IP)
+            secure_net::secure_http,
+            // 流式安全 HTTP(SSE,Channel 逐块推回)
+            secure_net::secure_http_stream,
+            // 数据面 WebSocket(内置 CA + 直连源站 IP,Channel 推帧)
+            ws_proxy::ws_connect,
+            ws_proxy::ws_send_text,
+            ws_proxy::ws_send_binary,
+            ws_proxy::ws_close,
+            // 回环安全反代(webview 原生加载/上传 走自签源站)
+            secure_proxy::ensure_secure_proxy,
+            secure_proxy::set_proxy_target,
             // WebView 权限管理
             reset_webview_permissions,
             // 提示音管理

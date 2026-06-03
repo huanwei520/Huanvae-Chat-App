@@ -4,7 +4,12 @@
  * 用于向后端上报严重错误，便于问题追踪和调试。
  * 目前支持：
  * - 好友文件权限错误（403）
+ *
+ * 上报经回环安全反代(http://127.0.0.1:<port>)转发到源站——webview 原生 fetch 验不过私有 CA 自签 leaf,
+ * 且连逻辑域名会触发 ICP/SNI 拦截,故必须经 secure_proxy 中转。
  */
+
+import { proxyRequestUrl } from './secureProxy';
 
 // ============================================
 // 类型定义
@@ -68,7 +73,7 @@ export async function reportFriendPermissionError(
 
   try {
     const response = await fetch(
-      `${serverUrl}/api/diagnostic/report/friend-permission`,
+      proxyRequestUrl(`${serverUrl}/api/diagnostic/report/friend-permission`),
       {
         method: 'POST',
         headers: {

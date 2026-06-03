@@ -5,7 +5,8 @@
  * 调用服务器格式使用下划线 "_"
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { secureHttp } from '../services/secureFetch';
+import { resolveForSecureHttp } from '../services/discovery';
 import type { LoginResponse, ProfileResponse, RegisterData } from '../types/account';
 
 /**
@@ -32,19 +33,28 @@ async function api<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await secureHttp({
     method,
+    url: `${baseUrl}${path}`,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: body ? JSON.stringify(body) : null,
+    ...(resolveForSecureHttp() ?? { pin_ca: true }),
   });
 
-  const data = await response.json().catch(() => ({}));
-
   if (!response.ok) {
-    throw new Error(data.error || `HTTP ${response.status}`);
+    let errMsg = `HTTP ${response.status}`;
+    try {
+      const e = response.body ? response.json<{ error?: string }>() : {};
+      if (e.error) {
+        errMsg = e.error;
+      }
+    } catch {
+      // 非 JSON 错误体 → 保留默认 errMsg
+    }
+    throw new Error(errMsg);
   }
 
-  return data as T;
+  return response.body ? response.json<T>() : ({} as T);
 }
 
 /**

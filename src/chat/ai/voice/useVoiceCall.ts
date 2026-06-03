@@ -8,6 +8,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ApiClient } from '../../../api/client';
 import { VoiceRecorder, TtsAudioQueue } from './voiceAudio';
+import { RustWebSocket } from '../../../services/rustWebSocket';
+import { resolveForSecureHttp } from '../../../services/discovery';
 
 export interface VoiceCallState {
   isActive: boolean;
@@ -60,7 +62,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
   const [state, setState] = useState<VoiceCallState>(INITIAL_STATE);
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<RustWebSocket | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const ttsQueueRef = useRef<TtsAudioQueue | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -109,7 +111,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
 
   function sendInterrupt() {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) { return; }
+    if (!ws || ws.readyState !== RustWebSocket.OPEN) { return; }
     ws.send(JSON.stringify({ type: 'interrupt' }));
     ttsQueueRef.current?.flush();
     patch({ isProcessing: false, isAiSpeaking: false });
@@ -126,7 +128,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
     const token = api.getAccessToken();
     const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/api/ai/voice/stream?token=${encodeURIComponent(token)}`;
 
-    const ws = new WebSocket(wsUrl);
+    const ws = new RustWebSocket(wsUrl, resolveForSecureHttp() ?? { pin_ca: true });
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
@@ -262,12 +264,12 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- startRecorder is stable, adding it would cause unnecessary re-renders
   }, [api, patch]);
 
-  function startRecorder(ws: WebSocket) {
+  function startRecorder(ws: RustWebSocket) {
     const recorder = new VoiceRecorder();
     recorderRef.current = recorder;
 
     recorder.onAudioFrame = (wav) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === RustWebSocket.OPEN) {
         ws.send(wav);
       }
     };
@@ -285,7 +287,7 @@ export function useVoiceCall(api: ApiClient | null): UseVoiceCallReturn {
 
   const disconnect = useCallback(() => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === RustWebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'end_session' }));
     }
     cleanup();

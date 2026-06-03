@@ -76,27 +76,13 @@ export {
 } from './api';
 
 // 算子服务
-export { fetchOperators, fetchOperatorDetail } from './services/operatorService';
+export { fetchOperators } from './services/operatorService';
 
 // API 客户端（带自动 Token 刷新）
 export { createLowcodeApiClient } from './services/apiClient';
 
-// 流程服务（推荐使用 createWorkflowService 工厂函数）
-export {
-  createWorkflowService,
-  // 兼容旧 API（不推荐使用）
-  createWorkflow,
-  getWorkflows,
-  getWorkflow,
-  updateWorkflow,
-  deleteWorkflow,
-  validateWorkflow,
-  validateDefinition,
-  exportWorkflow,
-  executeWorkflow,
-  executeConfig,
-  getExecution,
-} from './services/workflowService';
+// 流程服务（统一经 createWorkflowService 工厂 + LowcodeApiClient，走 secure_http 直连源站）
+export { createWorkflowService } from './services/workflowService';
 
 // 分类配置服务
 export { createCategoryService } from './services/categoryService';

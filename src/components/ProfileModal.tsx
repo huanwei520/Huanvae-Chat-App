@@ -90,10 +90,11 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
         },
       });
 
-      // 更新本地账号缓存（确保退出后账户选择页面显示最新头像）
-      if (newAvatarUrl) {
+      // 更新本地账号缓存（确保退出后账户选择页面显示最新头像）：传后端原始路径，
+      // updateAvatar 内部解析为逻辑域名 URL + directIp 下载（非显示用的回环代理 URL）。
+      if (profileResult.user_avatar_url) {
         try {
-          await updateAvatar(session.serverUrl, session.userId, newAvatarUrl);
+          await updateAvatar(session.serverUrl, session.userId, profileResult.user_avatar_url);
         } catch {
           // 本地缓存更新失败不影响使用
         }

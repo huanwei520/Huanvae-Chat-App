@@ -7,14 +7,13 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MotionAppButton } from '../components/common/AppButton';
 
-/** 预填充账号信息 */
+/** 预填充账号信息（密码丢失重登时回填账号） */
 interface PrefillAccount {
-  serverUrl: string;
   userId: string;
 }
 
 interface LoginProps {
-  onLogin: (serverUrl: string, userId: string, password: string) => Promise<void>;
+  onLogin: (userId: string, password: string) => Promise<void>;
   onGoToRegister: () => void;
   onBack?: () => void;
   hasAccounts: boolean;
@@ -101,24 +100,12 @@ export function Login({
   error,
   prefillAccount,
 }: LoginProps) {
-  const [protocol, setProtocol] = useState<'https://' | 'http://'>('https://');
-  const [serverHost, setServerHost] = useState('');
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
 
-  // 当有预填充账号时，自动填充服务器和账号
+  // 当有预填充账号时（密码丢失重登），自动填充账号
   useEffect(() => {
     if (prefillAccount) {
-      // 解析协议和主机
-      if (prefillAccount.serverUrl.startsWith('https://')) {
-        setProtocol('https://');
-        setServerHost(prefillAccount.serverUrl.replace('https://', ''));
-      } else if (prefillAccount.serverUrl.startsWith('http://')) {
-        setProtocol('http://');
-        setServerHost(prefillAccount.serverUrl.replace('http://', ''));
-      } else {
-        setServerHost(prefillAccount.serverUrl);
-      }
       setUserId(prefillAccount.userId);
       setPassword(''); // 密码需要重新输入
     }
@@ -127,14 +114,10 @@ export function Login({
   // 是否为重新登录模式（有预填充账号）
   const isReloginMode = !!prefillAccount;
 
-  const toggleProtocol = () => {
-    setProtocol(prev => prev === 'https://' ? 'http://' : 'https://');
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const fullUrl = protocol + serverHost;
-    await onLogin(fullUrl, userId, password);
+    // 服务器地址不再由用户输入：登录域名由 App 经发现服务确定(新登录择优 / 重登录沿用账号域名)
+    await onLogin(userId, password);
   };
 
   return (
@@ -162,7 +145,7 @@ export function Login({
         Huanvae Chat
       </motion.h1>
       <motion.p className="login-subtitle" variants={itemVariants}>
-        {isReloginMode ? '请重新输入密码' : '选择你的HuanvaeChat登陆节点'}
+        {isReloginMode ? '请重新输入密码' : '登陆你的 Huanvae Chat 账号'}
       </motion.p>
 
       {/* 错误提示 */}
@@ -178,36 +161,6 @@ export function Login({
 
       {/* 表单 */}
       <form onSubmit={handleSubmit}>
-        {/* 服务器地址 */}
-        <motion.div className="form-group" variants={itemVariants}>
-          <label className="form-label" htmlFor="server-url">
-            服务器地址
-          </label>
-          <div className="input-with-prefix">
-            <button
-              type="button"
-              className="protocol-toggle"
-              onClick={toggleProtocol}
-              disabled={isLoading || isReloginMode}
-              title="点击切换协议"
-            >
-              {protocol}
-            </button>
-            <motion.input
-              type="text"
-              id="server-url"
-              className="glass-input with-prefix"
-              placeholder="example.com"
-              value={serverHost}
-              onChange={(e) => setServerHost(e.target.value)}
-              whileFocus={{ scale: 1.01 }}
-              required
-              disabled={isLoading || isReloginMode}
-              readOnly={isReloginMode}
-            />
-          </div>
-        </motion.div>
-
         {/* 账号 */}
         <motion.div className="form-group" variants={itemVariants}>
           <label className="form-label" htmlFor="user-id">

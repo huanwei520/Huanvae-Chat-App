@@ -1,21 +1,18 @@
 /**
  * 注册表单状态管理 Hook
  *
- * 从 Register.tsx 中提取的表单状态和验证逻辑
+ * 从 Register.tsx 中提取的表单状态和验证逻辑。
+ * 服务器地址不再由用户输入（由发现服务确定），故注册仅两步：① 账号信息 ② 密码。
  */
 
 import { useState, useCallback } from 'react';
 
-export type RegisterStep = 1 | 2 | 3;
+export type RegisterStep = 1 | 2;
 
 export interface RegisterFormState {
   // 步骤
   step: RegisterStep;
   direction: number;
-
-  // 服务器
-  protocol: 'https://' | 'http://';
-  serverHost: string;
 
   // 用户信息
   userId: string;
@@ -31,9 +28,6 @@ export interface RegisterFormState {
 }
 
 export interface RegisterFormActions {
-  setProtocol: (protocol: 'https://' | 'http://') => void;
-  toggleProtocol: () => void;
-  setServerHost: (host: string) => void;
   setUserId: (id: string) => void;
   setNickname: (name: string) => void;
   setEmail: (email: string) => void;
@@ -44,16 +38,11 @@ export interface RegisterFormActions {
   goBack: () => void;
   validateStep1: () => boolean;
   validateStep2: () => boolean;
-  validateStep3: () => boolean;
-  getFullServerUrl: () => string;
 }
 
 export function useRegisterForm(): RegisterFormState & RegisterFormActions {
   const [step, setStep] = useState<RegisterStep>(1);
   const [direction, setDirection] = useState(1);
-
-  const [protocol, setProtocol] = useState<'https://' | 'http://'>('https://');
-  const [serverHost, setServerHost] = useState('');
 
   const [userId, setUserId] = useState('');
   const [nickname, setNickname] = useState('');
@@ -63,10 +52,6 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const [localError, setLocalError] = useState<string | null>(null);
-
-  const toggleProtocol = useCallback(() => {
-    setProtocol(prev => prev === 'https://' ? 'http://' : 'https://');
-  }, []);
 
   const goToStep = useCallback((newStep: RegisterStep) => {
     setDirection(newStep > step ? 1 : -1);
@@ -80,15 +65,8 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
     }
   }, [step, goToStep]);
 
+  // 步骤 1：账号信息
   const validateStep1 = useCallback(() => {
-    if (!serverHost.trim()) {
-      setLocalError('请输入服务器地址');
-      return false;
-    }
-    return true;
-  }, [serverHost]);
-
-  const validateStep2 = useCallback(() => {
     if (!userId.trim()) {
       setLocalError('请输入账号');
       return false;
@@ -100,7 +78,8 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
     return true;
   }, [userId, nickname]);
 
-  const validateStep3 = useCallback(() => {
+  // 步骤 2：密码
+  const validateStep2 = useCallback(() => {
     if (password.length < 6) {
       setLocalError('密码至少需要6个字符');
       return false;
@@ -112,16 +91,10 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
     return true;
   }, [password, confirmPassword]);
 
-  const getFullServerUrl = useCallback(() => {
-    return protocol + serverHost;
-  }, [protocol, serverHost]);
-
   return {
     // State
     step,
     direction,
-    protocol,
-    serverHost,
     userId,
     nickname,
     email,
@@ -130,9 +103,6 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
     localError,
 
     // Actions
-    setProtocol,
-    toggleProtocol,
-    setServerHost,
     setUserId,
     setNickname,
     setEmail,
@@ -143,7 +113,5 @@ export function useRegisterForm(): RegisterFormState & RegisterFormActions {
     goBack,
     validateStep1,
     validateStep2,
-    validateStep3,
-    getFullServerUrl,
   };
 }

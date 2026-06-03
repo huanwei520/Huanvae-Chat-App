@@ -146,7 +146,6 @@ import * as MeetingEntryModal from '../../src/meeting/components/MeetingEntryMod
 import * as MediaPreviewPage from '../../src/media/MediaPreviewPage';
 
 // Hooks
-import * as useAuth from '../../src/hooks/useAuth';
 import * as useFriends from '../../src/hooks/useFriends';
 import * as useGroups from '../../src/hooks/useGroups';
 import * as useFiles from '../../src/hooks/useFiles';
@@ -381,7 +380,6 @@ const COMPONENT_MAP = {
   // 媒体组件
   MediaPreviewPage,
   // Hooks
-  useAuth,
   useFriends,
   useGroups,
   useFiles,
@@ -578,7 +576,6 @@ describe('注册表完整性', () => {
   it('应包含核心 Hooks', () => {
     const hookNames = HOOKS.map((c) => c.name);
 
-    expect(hookNames).toContain('useAuth');
     expect(hookNames).toContain('useFriends');
     expect(hookNames).toContain('useGroups');
     expect(hookNames).toContain('useChatActions');

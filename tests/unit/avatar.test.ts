@@ -4,17 +4,19 @@
  * 测试 src/utils/avatar.ts 中的所有导出函数
  *
  * 包含测试：
- * - setCurrentServerBaseUrl / resolveServerAvatarUrl: 相对路径解析
+ * - resolveServerAvatarUrl: 委托回环安全反代(secureProxy.proxyResourceUrl)解析头像 URL
  * - getLocalFileUrl: 调用 convertFileSrc，非绝对路径时警告
- * - getAvatarUrl: 优先本地，回退服务器（含相对路径解析），两者都无时返回 null
+ * - getAvatarUrl: 优先本地，回退服务器（经反代解析），两者都无时返回 null
  * - isLocalFileUrl: asset:// 为 true，http:// 为 false
  * - isServerUrl: http/https 为 true，asset:// 和 ftp:// 为 false
+ *
+ * 注：头像不再直连源站，改为经回环安全反代(http://127.0.0.1:<port>)中转——webview 的 <img>
+ * 用系统信任验不过私有 CA 自签 leaf。avatar.ts 仅薄委托,真正的 URL 改写逻辑测试见 secureProxy.test.ts。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
-  setCurrentServerBaseUrl,
   resolveServerAvatarUrl,
   getLocalFileUrl,
   getAvatarUrl,
@@ -27,57 +29,46 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
 }));
 
+// 把 secureProxy 的 proxyResourceUrl 替换为可控 stub,验证 avatar.ts 的委托契约
+const proxyMock = vi.hoisted(() => ({ proxyResourceUrl: vi.fn() }));
+vi.mock('../../src/services/secureProxy', () => proxyMock);
+
 describe('头像工具函数 (utils/avatar)', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    setCurrentServerBaseUrl('https://api.huanvae.cn');
+    proxyMock.proxyResourceUrl.mockReset();
+    // 默认: 把相对路径/URL 映射成可预期的反代 URL
+    proxyMock.proxyResourceUrl.mockImplementation((p: string | null | undefined) =>
+      p ? `http://127.0.0.1:47823/${String(p).replace(/^\/+/, '')}` : null,
+    );
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
-    setCurrentServerBaseUrl('');
   });
 
-  describe('resolveServerAvatarUrl', () => {
-    it('null/undefined 应返回 null', () => {
+  describe('resolveServerAvatarUrl (委托 secureProxy.proxyResourceUrl)', () => {
+    it('把入参原样转交 proxyResourceUrl 并返回其结果', () => {
+      const out = resolveServerAvatarUrl('avatars/user123.jpg?t=1706000000');
+      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/user123.jpg?t=1706000000');
+      expect(out).toBe('http://127.0.0.1:47823/avatars/user123.jpg?t=1706000000');
+    });
+
+    it('proxyResourceUrl 返回 null 时原样返回 null（null/undefined/空串入参）', () => {
+      proxyMock.proxyResourceUrl.mockReturnValue(null);
       expect(resolveServerAvatarUrl(null)).toBeNull();
       expect(resolveServerAvatarUrl(undefined)).toBeNull();
       expect(resolveServerAvatarUrl('')).toBeNull();
+      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledTimes(3);
     });
 
-    it('已经是完整 URL 应原样返回（兼容旧数据）', () => {
-      expect(resolveServerAvatarUrl('https://api.huanvae.cn/avatars/user.jpg'))
-        .toBe('https://api.huanvae.cn/avatars/user.jpg');
-      expect(resolveServerAvatarUrl('http://example.com/avatar.png'))
-        .toBe('http://example.com/avatar.png');
-    });
-
-    it('相对路径应拼接服务器基础 URL', () => {
-      expect(resolveServerAvatarUrl('avatars/user123.jpg?t=1706000000'))
-        .toBe('https://api.huanvae.cn/avatars/user123.jpg?t=1706000000');
-    });
-
-    it('带前导斜杠的相对路径应正确处理', () => {
-      expect(resolveServerAvatarUrl('/avatars/user123.jpg'))
-        .toBe('https://api.huanvae.cn/avatars/user123.jpg');
-    });
-
-    it('服务器 URL 有尾部斜杠时不应产生双斜杠', () => {
-      setCurrentServerBaseUrl('https://api.huanvae.cn/');
-      expect(resolveServerAvatarUrl('avatars/user.jpg'))
-        .toBe('https://api.huanvae.cn/avatars/user.jpg');
-    });
-
-    it('未设置服务器 URL 时应原样返回路径', () => {
-      setCurrentServerBaseUrl('');
-      expect(resolveServerAvatarUrl('avatars/user.jpg')).toBe('avatars/user.jpg');
-    });
-
-    it('群聊头像相对路径应正确解析', () => {
-      expect(resolveServerAvatarUrl('avatars/group-123.jpg?t=1706000000'))
-        .toBe('https://api.huanvae.cn/avatars/group-123.jpg?t=1706000000');
+    it('完整 URL 入参也透传给 proxyResourceUrl（由其决定是否改写）', () => {
+      proxyMock.proxyResourceUrl.mockReturnValue('http://127.0.0.1:47823/avatars/user.jpg');
+      const out = resolveServerAvatarUrl('https://api.huanvae.cn/avatars/user.jpg');
+      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('https://api.huanvae.cn/avatars/user.jpg');
+      expect(out).toBe('http://127.0.0.1:47823/avatars/user.jpg');
     });
   });
 
@@ -100,30 +91,29 @@ describe('头像工具函数 (utils/avatar)', () => {
   });
 
   describe('getAvatarUrl', () => {
-    it('有本地路径时应优先返回本地 URL', () => {
-      const result = getAvatarUrl('/local/avatar.png', 'https://server.com/avatar.png');
+    it('有本地路径时应优先返回本地 URL（不走反代）', () => {
+      const result = getAvatarUrl('/local/avatar.png', 'avatars/server.png');
       expect(result).toBe('asset://localhost//local/avatar.png');
+      expect(proxyMock.proxyResourceUrl).not.toHaveBeenCalled();
     });
 
-    it('无本地路径有服务器完整 URL 时应返回服务器 URL', () => {
-      const result = getAvatarUrl(null, 'https://server.com/avatar.png');
-      expect(result).toBe('https://server.com/avatar.png');
-    });
-
-    it('无本地路径有服务器相对路径时应解析为完整 URL', () => {
+    it('无本地路径时经反代解析服务器 URL', () => {
       const result = getAvatarUrl(null, 'avatars/user.jpg?t=123');
-      expect(result).toBe('https://api.huanvae.cn/avatars/user.jpg?t=123');
+      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/user.jpg?t=123');
+      expect(result).toBe('http://127.0.0.1:47823/avatars/user.jpg?t=123');
     });
 
     it('两者都无时应返回 null', () => {
+      proxyMock.proxyResourceUrl.mockReturnValue(null);
       expect(getAvatarUrl(null, null)).toBeNull();
       expect(getAvatarUrl(undefined, undefined)).toBeNull();
       expect(getAvatarUrl('', '')).toBeNull();
     });
 
-    it('本地路径为空时回退到服务器 URL', () => {
-      const result = getAvatarUrl('', 'https://server.com/avatar.png');
-      expect(result).toBe('https://server.com/avatar.png');
+    it('本地路径为空时回退到服务器 URL（经反代）', () => {
+      const result = getAvatarUrl('', 'avatars/server.png');
+      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/server.png');
+      expect(result).toBe('http://127.0.0.1:47823/avatars/server.png');
     });
   });
 

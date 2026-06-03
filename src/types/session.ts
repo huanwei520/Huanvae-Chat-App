@@ -18,7 +18,11 @@ export interface UserProfile {
 
 /** 会话信息 */
 export interface Session {
-  /** 登录的服务器 URL */
+  /**
+   * 登录的**逻辑域名**（如 `https://api.huanvae.cn`，由发现服务确定）。
+   * 作为稳定标识用于账号库 key、本地数据目录命名、UI 显示；
+   * 物理直连 IP 不入此字段，由 secureHttp / WS 注入层经发现服务 resolve 处理。
+   */
   serverUrl: string;
   /** 用户 ID */
   userId: string;

@@ -1,14 +1,15 @@
 /**
  * 服务端 HuanvaeGuard API 调用
  *
- * - 走 @tauri-apps/plugin-http 的 fetch，绕开浏览器 CORS
- *   （svc 和远端服务器都不会回 Access-Control-Allow-Origin）
+ * - 走 Rust secure_http(secureFetch),自管 TLS / 内置私有 CA / 可直连源站 IP,
+ *   同时绕开浏览器 CORS（svc 和远端服务器都不会回 Access-Control-Allow-Origin）
  * - Token 由调用方传入（目前从 HuanvaeGuardPage.windowData 取，经 Tauri 事件同步）
  * - 返回包格式：{ success, code, data, error? } —— 统一由 serverFetch 解包到 data
  * - 后端为独立仓库，本仓仅消费 JSON，字段语义以后端文档为准
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { secureHttp } from '../services/secureFetch';
+import { resolveForSecureHttp } from '../services/discovery';
 import type {
   HgClientConfig,
   DeviceRegisterResponse,
@@ -31,7 +32,12 @@ interface ServerApiResponse<T> {
   message?: string;
 }
 
-type FetchInit = Parameters<typeof fetch>[1];
+/** serverFetch 的最小请求选项(对齐迁移前 plugin-http FetchInit 用到的子集) */
+interface FetchInit {
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+}
 
 async function serverFetch<T>(
   serverUrl: string,
@@ -39,17 +45,27 @@ async function serverFetch<T>(
   token: string,
   init?: FetchInit,
 ): Promise<T> {
-  const resp = await fetch(`${serverUrl}${path}`, {
-    ...init,
+  // 用户 VPN master 的 /api/hg/* 属数据面 → 经 Rust secure_http(自签 + 内置 CA;
+  // 子窗口内 resolveForSecureHttp 为 null 时退化 pin_ca,内置 CA 仍验通自签 leaf)。
+  const resp = await secureHttp({
+    method: init?.method ?? 'GET',
+    url: `${serverUrl}${path}`,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
       ...init?.headers,
     },
+    body: init?.body ?? null,
+    ...(resolveForSecureHttp() ?? { pin_ca: true }),
   });
-  const json: ServerApiResponse<T> = await resp.json().catch(() => ({
-    success: false, code: resp.status, data: null as T,
-  }));
+  let json: ServerApiResponse<T>;
+  try {
+    json = resp.body
+      ? resp.json<ServerApiResponse<T>>()
+      : { success: false, code: resp.status, data: null as T };
+  } catch {
+    json = { success: false, code: resp.status, data: null as T };
+  }
   if (!resp.ok || !json.success) {
     throw new Error(json.error ?? json.message ?? `HTTP ${resp.status}`);
   }

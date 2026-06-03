@@ -29,7 +29,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
-import { fetch } from '@tauri-apps/plugin-http';
+import { secureHttp } from '../services/secureFetch';
+import { resolveForSecureHttp } from '../services/discovery';
 import { loadMediaData, clearMediaData } from './api';
 import {
   getCachedFilePath,
@@ -179,19 +180,22 @@ async function getPresignedUrl(
   console.log('[MediaPreview] 请求预签名 URL:', { endpoint, urlType, fileUuid });
 
   try {
-    const response = await fetch(endpoint, {
+    // 独立预览窗口:经 Rust secure_http(自签 + 内置 CA;窗口内 resolve 为 null 退化 pin_ca)
+    const response = await secureHttp({
       method: 'POST',
+      url: endpoint,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ operation: 'preview' }),
+      ...(resolveForSecureHttp() ?? { pin_ca: true }),
     });
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}`;
       try {
-        const errorData = await response.json();
+        const errorData = response.json<{ error?: string; message?: string; data?: { error?: string } }>();
         // 兼容 ApiResponse wrapper（{ success: false, error/message }）+ 老格式
         errorMessage = errorData?.error ?? errorData?.message ?? errorData?.data?.error ?? errorMessage;
       } catch {
@@ -224,7 +228,7 @@ async function getPresignedUrl(
       throw new Error(errorMessage);
     }
 
-    const data = await response.json();
+    const data = response.json<{ data?: { presigned_url?: string }; presigned_url?: string }>();
     // 后端统一用 ApiResponse 包裹：{ success, code, data: { presigned_url, expires_at } }
     // 兼容老接口（无 wrapper）：{ presigned_url, expires_at }
     const presignedUrl: string | undefined = data?.data?.presigned_url ?? data?.presigned_url;

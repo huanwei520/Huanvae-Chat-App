@@ -62,6 +62,8 @@ import type {
   WsMessageRecalled,
   WsSystemNotification,
 } from '../types/websocket';
+import { RustWebSocket } from '../services/rustWebSocket';
+import { resolveForSecureHttp } from '../services/discovery';
 
 // ============================================
 // 常量
@@ -136,7 +138,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const { session, api, clearSession } = useSession();
 
   // Refs - 使用 ref 存储最新值，避免闭包陈旧问题
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<RustWebSocket | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
@@ -320,9 +322,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, []);
 
   /** 为 WebSocket 实例安装标准事件处理器 */
-  const installWsHandlers = useCallback((ws: WebSocket) => {
+  const installWsHandlers = useCallback((ws: RustWebSocket) => {
     ws.onmessage = (event) => {
-      handleMessage(event.data);
+      handleMessage(event.data as string);
     };
 
     ws.onerror = () => {
@@ -386,12 +388,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, [handleMessage, refreshToken, clearSession, getReconnectDelay]);
 
   /** 启动 Ping 定时器 */
-  const startPing = useCallback((ws: WebSocket) => {
+  const startPing = useCallback((ws: RustWebSocket) => {
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
     }
     pingIntervalRef.current = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === RustWebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, PING_INTERVAL);
@@ -405,7 +407,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       return;
     }
 
-    if (wsRef.current?.readyState === WebSocket.OPEN || connectingRef.current) {
+    if (wsRef.current?.readyState === RustWebSocket.OPEN || connectingRef.current) {
       return;
     }
 
@@ -416,7 +418,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const url = buildWsUrl(token, serverUrl);
 
     try {
-      const ws = new WebSocket(url);
+      const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -486,7 +488,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   // ============================================
 
   const markRead = useCallback((targetType: 'friend' | 'group', targetId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === RustWebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'mark_read',
         target_type: targetType,
@@ -636,7 +638,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }
 
     const oldWs = wsRef.current;
-    if (!oldWs || oldWs.readyState !== WebSocket.OPEN) {
+    if (!oldWs || oldWs.readyState !== RustWebSocket.OPEN) {
       return;
     }
 
@@ -656,7 +658,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const url = buildWsUrl(token, serverUrl);
 
     try {
-      const newWs = new WebSocket(url);
+      const newWs = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
 
       newWs.onopen = () => {
         // 1. 解除旧连接所有 handler（防止后续事件干扰）
@@ -697,7 +699,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         newWs.close();
 
         // 如果旧连接已被服务端关闭（竞态），需要执行完整重连
-        if (oldWs.readyState !== WebSocket.OPEN) {
+        if (oldWs.readyState !== RustWebSocket.OPEN) {
           console.warn('[WebSocket] Token 热切换失败且旧连接已断开，执行重连');
           wsRef.current = null;
           setConnected(false);

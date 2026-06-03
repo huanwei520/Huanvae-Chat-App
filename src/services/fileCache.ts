@@ -41,6 +41,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { directIpUrl } from './discovery';
 import type { ApiClient } from '../api/client';
 import { useFileCacheStore } from '../stores/fileCacheStore';
 import {
@@ -186,7 +187,8 @@ export function downloadAndSaveFile(
   fileSize?: number,
 ): Promise<string> {
   return invoke<string>('download_and_save_file', {
-    url,
+    // 改写主机为源站 IP(IP 字面量=不发 SNI 绕 ICP);Rust 用 secure_net 钉 CA 客户端连、内置 CA 验
+    url: directIpUrl(url),
     fileHash,
     fileName,
     fileType,

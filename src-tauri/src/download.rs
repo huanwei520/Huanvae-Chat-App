@@ -18,12 +18,11 @@
 //! ## 性能优化
 //!
 //! 下载采用以下优化策略提升大文件下载速度：
-//! - **全局 HTTP Client**: 复用连接池，避免重复 TCP 握手
+//! - **钉 CA HTTP Client**: 复用 secure_net 的钉私有 CA 客户端(连源站 IP / 无 SNI / 内置 CA),自带连接池
 //! - **异步文件 IO**: 使用 `tokio::fs` 避免阻塞 async 运行时
 //! - **缓冲写入**: 8MB 缓冲区减少磁盘 IO 次数（约 128 倍）
 
 use futures_util::StreamExt;
-use once_cell::sync::Lazy;
 use tauri::{Emitter, Window};
 use tokio::io::AsyncWriteExt;
 
@@ -36,16 +35,6 @@ use crate::user_data;
 /// - 211MB 文件：从约 3300 次 IO 减少到约 26 次
 /// - 提升下载速度 10-100 倍（取决于磁盘性能）
 const DOWNLOAD_BUFFER_SIZE: usize = 8 * 1024 * 1024;
-
-/// 全局 HTTP Client（复用连接池）
-///
-/// 避免每次下载都创建新的 Client，复用 TCP 连接
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .pool_max_idle_per_host(5)
-        .build()
-        .expect("Failed to create HTTP client")
-});
 
 /// 下载进度事件
 #[derive(Clone, serde::Serialize)]
@@ -148,8 +137,11 @@ pub async fn download_and_save_file(
         },
     );
 
-    // 6. 使用全局 HTTP Client 发起下载请求（复用连接池）
-    let response = HTTP_CLIENT
+    // 6. 钉 CA 客户端(连源站 IP / 无 SNI / 内置 CA,与 secure_http 同套信任;JS 已把 url 主机改写成 IP)
+    //    发起下载,自带连接池复用
+    let client = crate::secure_net::pinned_client(300)
+        .map_err(|e| format!("构建下载 client 失败: {e}"))?;
+    let response = client
         .get(&url)
         .send()
         .await

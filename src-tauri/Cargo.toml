@@ -41,9 +41,6 @@ tauri-plugin-dialog = "2.7.1"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-os = "2.3.2"
-# Shell 插件：用于 code-server 侧载进程（sidecar）
-# 仅用于启动和管理内嵌的 code-server 可执行文件
-tauri-plugin-shell = "2.3.5"
 
 # 序列化
 serde = { version = "1.0.228", features = ["derive"] }
@@ -118,6 +115,18 @@ hostname = "0.4.2"
 
 # HTTP 服务器（移动端媒体服务器）
 axum = "0.8.8"
+
+# ============================================
+# 数据面 WebSocket（ws_proxy.rs：浏览器 WebSocket 验不过自签 leaf，搬到 Rust）
+# 与 secure_net.rs(reqwest+rustls)同套：rustls 只信内置私有 CA。
+# 只启 connect + __rustls-tls(rustls Connector/握手所需的最小内部 feature)，
+# 不用 rustls-tls-webpki-roots —— 恒传自建 Connector::Rustls(只信内置 CA)，
+# webpki-roots 公共根数据永不被用到，纳入即冗余(零污染)。
+# ============================================
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect", "__rustls-tls"] }
+# rustls 与 reqwest 共用 0.23(ring provider)；显式构建 ClientConfig + ring provider
+rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = "2.2.0"
 
 # ============================================
 # 桌面平台专属依赖 (Windows/macOS/Linux)

@@ -10,7 +10,14 @@
  * - 主动刷新：SessionContext 通过定时器在 Token 过期前 5 分钟调用 refreshAccessToken
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { secureHttp } from '../services/secureFetch';
+import { resolveForSecureHttp } from '../services/discovery';
+
+/** /api/auth/refresh 响应载荷(可能裹在 ApiResponse.data 内,也可能裸返回) */
+interface TokenPayload {
+  access_token: string;
+  refresh_token?: string;
+}
 
 export interface ApiClientConfig {
   /** 服务器 URL */
@@ -48,20 +55,20 @@ export function createApiClient(config: ApiClientConfig) {
    */
   async function refreshAccessToken(): Promise<boolean> {
     try {
-      const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+      const response = await secureHttp({
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        url: `${baseUrl}/api/auth/refresh`,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
+        ...(resolveForSecureHttp() ?? { pin_ca: true }),
       });
 
       if (!response.ok) {
         return false;
       }
 
-      const raw = await response.json();
-      const data = raw.data ?? raw;
+      const raw = response.json<{ data?: TokenPayload } & Partial<TokenPayload>>();
+      const data: TokenPayload = (raw.data ?? raw) as TokenPayload;
       accessToken = data.access_token;
 
       if (onTokenRefresh) {
@@ -99,11 +106,12 @@ export function createApiClient(config: ApiClientConfig) {
       ? JSON.stringify(body ?? {})
       : undefined;
 
-    let response = await fetch(`${baseUrl}${path}`, {
-      method,
-      headers,
-      body: requestBody,
-    });
+    // 数据面统一经 Rust secure_http(rustls 自管 TLS + 内置私有 CA + 发现服务给的 resolve 直连源站 IP)。
+    // resolve 未就绪(理论上登录后必有)时退化为 pin_ca + reqwest DNS(灰云直连)。
+    const resolve = resolveForSecureHttp() ?? { pin_ca: true };
+    const url = `${baseUrl}${path}`;
+
+    let response = await secureHttp({ method, url, headers, body: requestBody ?? null, ...resolve });
 
     // 如果返回 401，尝试刷新 Token
     if (response.status === 401 && !skipAuth) {
@@ -112,11 +120,7 @@ export function createApiClient(config: ApiClientConfig) {
       if (refreshed) {
         // 使用新 Token 重试请求
         headers['Authorization'] = `Bearer ${accessToken}`;
-        response = await fetch(`${baseUrl}${path}`, {
-          method,
-          headers,
-          body: requestBody,
-        });
+        response = await secureHttp({ method, url, headers, body: requestBody ?? null, ...resolve });
       } else {
         // 刷新失败，触发会话过期回调
         if (onSessionExpired) {
@@ -126,10 +130,20 @@ export function createApiClient(config: ApiClientConfig) {
       }
     }
 
-    const data = await response.json().catch(() => ({}));
+    // secure_http 一次性收完 body;空体(如 204)安全降级为空对象(对齐原 .catch(()=>({})) 行为)
+    let data: Record<string, unknown> = {};
+    try {
+      if (response.body) {
+        data = response.json<Record<string, unknown>>();
+      }
+    } catch {
+      data = {};
+    }
 
     if (!response.ok) {
-      throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      throw new Error(
+        (data.error as string) || (data.message as string) || `HTTP ${response.status}`,
+      );
     }
 
     // 解包 ApiResponse 格式：{ success, code, data: T }

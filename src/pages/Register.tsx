@@ -1,9 +1,9 @@
 /**
  * 注册页面 - 分步骤注册
  *
- * 步骤1: 服务器地址
- * 步骤2: 账号、昵称、邮箱
- * 步骤3: 密码确认
+ * 步骤1: 账号、昵称、邮箱
+ * 步骤2: 密码确认
+ * (服务器地址由发现服务确定，不再由用户输入)
  *
  * 表单状态管理已提取到 useRegisterForm Hook
  */
@@ -18,7 +18,6 @@ import { useRegisterForm } from '../hooks/useRegisterForm';
 
 interface RegisterProps {
   onRegister: (
-    serverUrl: string,
     userId: string,
     nickname: string,
     password: string,
@@ -90,6 +89,7 @@ const ArrowRightIcon = () => (
 export function Register({ onRegister, onGoToLogin, isLoading, error }: RegisterProps) {
   const form = useRegisterForm();
 
+  // 步骤1：账号信息 → 进入步骤2
   const handleStep1Submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (form.validateStep1()) {
@@ -97,19 +97,12 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
     }
   };
 
-  const handleStep2Submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (form.validateStep2()) {
-      form.goToStep(3);
-    }
-  };
-
-  const handleStep3Submit = async (e: React.FormEvent) => {
+  // 步骤2：密码 → 提交注册(serverUrl 由 App 经发现服务确定)
+  const handleStep2Submit = async (e: React.FormEvent) => {
     e.preventDefault();
     form.setLocalError(null);
-    if (form.validateStep3()) {
+    if (form.validateStep2()) {
       await onRegister(
-        form.getFullServerUrl(),
         form.userId,
         form.nickname,
         form.password,
@@ -127,7 +120,7 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
   };
 
   const displayError = form.localError || error;
-  const stepTitles = { 1: '选择服务器', 2: '填写信息', 3: '设置密码' };
+  const stepTitles = { 1: '填写信息', 2: '设置密码' };
 
   return (
     <>
@@ -147,7 +140,7 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
       </motion.p>
 
       <motion.div className="step-indicator" variants={itemVariants}>
-        {[1, 2, 3].map((s) => (
+        {[1, 2].map((s) => (
           <div key={s} className={`step-dot ${s === form.step ? 'active' : ''} ${s < form.step ? 'completed' : ''}`} />
         ))}
       </motion.div>
@@ -162,35 +155,6 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
         <AnimatePresence mode="wait" custom={form.direction}>
           {form.step === 1 && (
             <motion.form key="step1" onSubmit={handleStep1Submit} custom={form.direction} variants={stepVariants} initial="enter" animate="center" exit="exit" transition={stepTransition}>
-              <motion.div className="form-group" variants={itemVariants}>
-                <label className="form-label" htmlFor="reg-server-url">服务器地址</label>
-                <div className="input-with-prefix">
-                  <button type="button" className="protocol-toggle" onClick={form.toggleProtocol} title="点击切换协议">
-                    {form.protocol}
-                  </button>
-                  <motion.input
-                    type="text"
-                    id="reg-server-url"
-                    className="glass-input with-prefix"
-                    placeholder="example.com"
-                    value={form.serverHost}
-                    onChange={(e) => form.setServerHost(e.target.value)}
-                    whileFocus={{ scale: 1.01 }}
-                    required
-                    autoFocus
-                  />
-                </div>
-              </motion.div>
-              <motion.div variants={itemVariants}>
-                <MotionAppButton type="submit" variant="primary" size="lg" block rightIcon={<ArrowRightIcon />} variants={buttonVariants} whileHover="hover" whileTap="tap">
-                  下一步
-                </MotionAppButton>
-              </motion.div>
-            </motion.form>
-          )}
-
-          {form.step === 2 && (
-            <motion.form key="step2" onSubmit={handleStep2Submit} custom={form.direction} variants={stepVariants} initial="enter" animate="center" exit="exit" transition={stepTransition}>
               <motion.div className="form-group" variants={itemVariants}>
                 <label className="form-label" htmlFor="reg-user-id">账号</label>
                 <motion.input type="text" id="reg-user-id" className="glass-input" placeholder="请输入账号（user_id）" value={form.userId} onChange={(e) => form.setUserId(e.target.value)} whileFocus={{ scale: 1.01 }} required autoFocus />
@@ -211,8 +175,8 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
             </motion.form>
           )}
 
-          {form.step === 3 && (
-            <motion.form key="step3" onSubmit={handleStep3Submit} custom={form.direction} variants={stepVariants} initial="enter" animate="center" exit="exit" transition={stepTransition}>
+          {form.step === 2 && (
+            <motion.form key="step2" onSubmit={handleStep2Submit} custom={form.direction} variants={stepVariants} initial="enter" animate="center" exit="exit" transition={stepTransition}>
               <motion.div className="form-group" variants={itemVariants}>
                 <label className="form-label" htmlFor="reg-password">密码</label>
                 <motion.input type="password" id="reg-password" className="glass-input" placeholder="请输入密码（至少6位）" value={form.password} onChange={(e) => form.setPassword(e.target.value)} whileFocus={{ scale: 1.01 }} required autoFocus />

@@ -27,6 +27,7 @@
  */
 
 import type { ProgressCallback } from '../types/api';
+import { proxyRequestUrl } from '../services/secureProxy';
 
 /**
  * 带进度回调的文件上传
@@ -95,7 +96,9 @@ export function uploadWithProgress<T = unknown>(
       reject(new Error('网络错误'));
     };
 
-    xhr.open('POST', url);
+    // 经回环安全反代上传(webview 原生 XHR 验不过私有 CA 自签 leaf,且连逻辑域名会触发 ICP/SNI 拦截):
+    // 反代转发到源站 IP(钉内置 CA、不发 SNI、Host=逻辑域名)。
+    xhr.open('POST', proxyRequestUrl(url));
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.send(formData);
   });

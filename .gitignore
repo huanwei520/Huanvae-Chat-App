@@ -58,11 +58,9 @@ blob-report/
 e2e/snapshots/**/*-chromium-win32.png
 e2e/snapshots/**/*-chromium-darwin.png
 
-# code-server sidecar（体积~230MB，不进 git，README 除外）
-# 参考 src-tauri/binaries/README.md 了解如何在开发机上配置
-src-tauri/binaries/*
-!src-tauri/binaries/README.md
-src-tauri/resources/code-server/
+# mTLS 客户端私钥 — 随二进制 include_bytes! 内置，本机 provision，绝不进 git/GitHub remote
+# （公钥证书 *.cert.pem / huanvae-ca.pem 本就未 track；私钥再显式 ignore，防 git add -A 误暂存）
+src-tauri/resources/app-client.key.pem
 
 # Claude Code 本地权限白名单（每台机器独立，不入库）
 .claude/settings.local.json

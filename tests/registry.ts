@@ -237,7 +237,6 @@ export const MEDIA_COMPONENTS: ComponentEntry[] = [
 
 // ============== Hooks ==============
 export const HOOKS: ComponentEntry[] = [
-  { name: 'useAuth', path: 'hooks/useAuth', category: 'hooks', description: '认证 Hook' },
   { name: 'useFriends', path: 'hooks/useFriends', category: 'hooks', description: '好友列表 Hook' },
   { name: 'useGroups', path: 'hooks/useGroups', category: 'hooks', description: '群组列表 Hook' },
   { name: 'useFiles', path: 'hooks/useFiles', category: 'hooks', description: '文件管理 Hook' },

@@ -12,6 +12,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { directIpUrl } from '../services/discovery';
+import { resolveStorageUrl } from '../utils/network';
 import { isMobile } from '../utils/platform';
 import {
   storePassword as mobileStorePassword,
@@ -147,10 +149,14 @@ export function useAccounts() {
     userId: string,
     avatarUrl: string,
   ): Promise<string | null> => {
+    // avatarUrl 传后端返回的相对路径或逻辑域名 URL(不是显示用的回环代理 URL):
+    // 先解析为 https 逻辑域名完整 URL, 再 directIpUrl 改写主机为源站 IP(不发 SNI 绕 ICP),
+    // 交 Rust secure_net 钉 CA 客户端下载到本地缓存(供 asset:// 显示)。
+    const downloadUrl = directIpUrl(resolveStorageUrl(avatarUrl, serverUrl) ?? avatarUrl);
     const localPath = await invoke<string>('update_account_avatar', {
       serverUrl,
       userId,
-      avatarUrl,
+      avatarUrl: downloadUrl,
     });
 
     await loadAccounts();

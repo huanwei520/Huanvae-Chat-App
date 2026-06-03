@@ -7,39 +7,24 @@
  * 优先使用本地缓存头像，回退到服务器 URL。
  *
  * 后端返回的头像 URL 为相对路径（如 "avatars/user.jpg?t=123"），
- * 前端需要拼接 STORAGE_BASE_URL（与 API 基础地址相同）获取完整 URL。
+ * 前端经回环安全反代(proxyResourceUrl)改写为 http://127.0.0.1:<port>/<path+query> 显示
+ * （webview 的 <img> 用系统信任验不过私有 CA 自签 leaf，故必须经 secure_proxy 中转）。
  */
 
 import { convertFileSrc } from '@tauri-apps/api/core';
-
-// ============================================================================
-// 服务器基础 URL 管理（单例，登录时设置）
-// ============================================================================
-
-let _currentServerBaseUrl = '';
+import { proxyResourceUrl } from '../services/secureProxy';
 
 /**
- * 设置当前服务器基础 URL（登录时调用一次）
+ * 将后端返回的头像 URL 解析为可显示 URL（委托回环安全反代 proxyResourceUrl）
  *
- * 后续所有 resolveServerAvatarUrl 调用会使用此值拼接相对路径。
- */
-export function setCurrentServerBaseUrl(url: string): void {
-  _currentServerBaseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-}
-
-/**
- * 将后端返回的头像相对路径解析为完整 URL
- *
- * - null/undefined → null
- * - 已经是完整 URL（http/https 开头）→ 原样返回（兼容旧数据）
- * - 相对路径 → 拼接 serverBaseUrl 返回完整 URL
+ * - null/undefined/空 → null
+ * - 完整 URL / 相对路径 → 改写为 http://127.0.0.1:<port>/<path+query>（反代未就绪时:完整URL原样、相对路径null）
  */
 export function resolveServerAvatarUrl(path: string | null | undefined): string | null {
-  if (!path) { return null; }
-  if (path.startsWith('http://') || path.startsWith('https://')) { return path; }
-  if (!_currentServerBaseUrl) { return path; }
-  const rel = path.startsWith('/') ? path.slice(1) : path;
-  return `${_currentServerBaseUrl}/${rel}`;
+  // 经回环安全反代取头像(走自签源站:钉内置 CA、连源站 IP、不发 SNI)——
+  // webview 的 <img> 用系统信任,无法直接验私有 CA 自签证书,故必须经 secure_proxy 中转。
+  // proxyResourceUrl 会把相对路径 / 完整域名 URL 都改写成 http://127.0.0.1:<port>/<path+query>。
+  return proxyResourceUrl(path);
 }
 
 // ============================================================================

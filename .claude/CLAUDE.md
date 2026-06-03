@@ -273,7 +273,7 @@ src-tauri/
 
 - 组件使用函数式组件 + Hooks
 - 状态管理使用 Zustand store（`stores/` 目录）
-- API 调用封装在 `api/` 目录，使用 @tauri-apps/plugin-http
+- API 调用封装在 `api/` 目录，数据面走 `invoke('secure_http')`（经 `src/services/secureFetch.ts`，Rust 自管 TLS 钉私有 CA + mTLS）；webview 原生加载（头像/上传）经回环安全反代 `secureProxy.ts`。仅 `huanvaeGuard/localApi.ts`（回环 127.0.0.1）+ `nfc/executor.ts`（NFC 任意外链）例外保留 @tauri-apps/plugin-http
 - 本地数据持久化使用 @tauri-apps/plugin-sql (SQLite)
 - 样式使用 TailwindCSS 4
 - TypeScript strict mode

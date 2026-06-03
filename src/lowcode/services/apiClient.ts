@@ -7,11 +7,18 @@
  * @module lowcode/services/apiClient
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { secureHttp } from '../../services/secureFetch';
+import { resolveForSecureHttp } from '../../services/discovery';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
+
+/** /api/auth/refresh 响应载荷(可能裹在 ApiResponse.data 内,也可能裸返回) */
+interface TokenPayload {
+  access_token: string;
+  refresh_token?: string;
+}
 
 /** API 客户端配置 */
 export interface LowcodeApiClientConfig {
@@ -56,12 +63,12 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
     try {
       console.warn('[Lowcode API] 尝试刷新 Token...');
 
-      const response = await fetch(`${serverUrl}/api/auth/refresh`, {
+      const response = await secureHttp({
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        url: `${serverUrl}/api/auth/refresh`,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
+        ...(resolveForSecureHttp() ?? { pin_ca: true }),
       });
 
       if (!response.ok) {
@@ -69,8 +76,8 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
         return false;
       }
 
-      const raw = await response.json();
-      const data = raw.data ?? raw;
+      const raw = response.json<{ data?: TokenPayload } & Partial<TokenPayload>>();
+      const data: TokenPayload = (raw.data ?? raw) as TokenPayload;
       accessToken = data.access_token;
 
       if (data.refresh_token) {
@@ -105,15 +112,12 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    const requestBody = body !== undefined ? JSON.stringify(body) : undefined;
+    const requestBody = body !== undefined ? JSON.stringify(body) : null;
     const url = `${serverUrl}${path}`;
+    const resolve = resolveForSecureHttp() ?? { pin_ca: true };
 
-    // 第一次请求
-    let response = await fetch(url, {
-      method,
-      headers,
-      body: requestBody,
-    });
+    // 第一次请求(经 Rust secure_http,自签 + 内置 CA;子窗口内 resolve 为 null 时退化 pin_ca)
+    let response = await secureHttp({ method, url, headers, body: requestBody, ...resolve });
 
     // 如果返回 401，尝试刷新 Token 并重试
     if (response.status === 401 && !skipAuth) {
@@ -122,11 +126,7 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
       if (refreshed) {
         // 使用新 Token 重试请求
         headers['Authorization'] = `Bearer ${accessToken}`;
-        response = await fetch(url, {
-          method,
-          headers,
-          body: requestBody,
-        });
+        response = await secureHttp({ method, url, headers, body: requestBody, ...resolve });
       } else {
         // 刷新失败，触发会话过期回调
         if (onSessionExpired) {
@@ -136,16 +136,23 @@ export function createLowcodeApiClient(config: LowcodeApiClientConfig) {
       }
     }
 
-    // 解析响应
-    const data = await response.json().catch(() => ({}));
+    // 解析响应(空体安全降级)
+    let data: Record<string, unknown> = {};
+    try {
+      if (response.body) {
+        data = response.json<Record<string, unknown>>();
+      }
+    } catch {
+      data = {};
+    }
 
     if (!response.ok) {
-      throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      throw new Error((data.error as string) || (data.message as string) || `HTTP ${response.status}`);
     }
 
     // 处理标准 API 响应格式
     if (data.success === false) {
-      throw new Error(data.error || data.message || '操作失败');
+      throw new Error((data.error as string) || (data.message as string) || '操作失败');
     }
 
     // 返回 data 字段（如果存在）或整个响应

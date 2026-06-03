@@ -352,7 +352,8 @@ pub async fn download_avatar(
     user_id: &str,
     avatar_url: &str,
 ) -> Result<String, StorageError> {
-    let client = reqwest::Client::new();
+    // 钉 CA 客户端(连源站 IP / 无 SNI / 内置 CA,与 secure_http 同套;JS 已把 avatar_url 主机改写成 IP)
+    let client = crate::secure_net::pinned_client(60).map_err(StorageError::Request)?;
     let response = client.get(avatar_url).send().await?;
     
     if !response.status().is_success() {

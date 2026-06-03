@@ -8,14 +8,16 @@
  * - 秒传支持（基于 UUID 映射）
  * - 自动重试机制
  *
- * 分片上传使用 XMLHttpRequest 直传 MinIO（支持上传进度事件）
- * API 请求使用 Tauri HTTP 插件绕过 CORS 限制
+ * 分片上传用 XMLHttpRequest(支持上传进度事件),经回环安全反代(http://127.0.0.1:<port>)转发到源站——
+ * webview 原生 XHR 验不过私有 CA 自签 leaf 且连逻辑域名会触发 ICP/SNI 拦截,故必须经 secure_proxy 中转。
+ * API 请求(请求上传 / 取分片预签名 URL / 确认)走 ApiClient(invoke secure_http,直连源站 IP)。
  */
 
 import { useState, useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { formatFileSize } from '../utils/format';
 import { optimizePresignedUrl } from '../utils/network';
+import { proxyRequestUrl } from '../services/secureProxy';
 
 // ============================================
 // 类型定义
@@ -319,7 +321,8 @@ function uploadChunk(
     // 设置超时时间（90秒，兼容 Cloudflare 100秒限制）
     xhr.timeout = 90000;
 
-    xhr.open('PUT', url);
+    // 预签名分片 URL 经回环安全反代转发(Host=逻辑域名,兼容 presigned 签名);webview 直传验不过自签 leaf。
+    xhr.open('PUT', proxyRequestUrl(url));
     xhr.send(chunk);
   });
 }

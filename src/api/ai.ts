@@ -4,13 +4,23 @@
  * 支持 SSE 流式对话（含 Agent Loop 工具调用）和会话管理
  */
 
-import { fetch } from '@tauri-apps/plugin-http';
+import { invoke, Channel } from '@tauri-apps/api/core';
+import { resolveForSecureHttp } from '../services/discovery';
+import { rewriteUrlHost } from '../services/secureFetch';
+import { proxyRequestUrl } from '../services/secureProxy';
 import type { ApiClient } from './client';
 import type {
   AIConversation,
   AIMessage,
   AIConversationsResponse,
 } from '../types/chat';
+
+/** secure_http_stream(Rust)经 Channel 推回的事件(对齐 secure_net.rs StreamEvent) */
+type SecureStreamEvent =
+  | { event: 'open'; status: number }
+  | { event: 'chunk'; data: string }
+  | { event: 'done' }
+  | { event: 'error'; message: string };
 
 /** 工具调用信息 */
 export interface AIToolCallEvent {
@@ -76,88 +86,114 @@ export async function streamAIMessage(
   const baseUrl = api.getBaseUrl();
   const token = api.getAccessToken();
 
-  const response = await fetch(`${baseUrl}/api/ai/chat/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      message,
-      ...(conversationId ? { conversation_id: conversationId } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error((err as Record<string, string>).error || `HTTP ${response.status}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) { throw new Error('响应体不可读'); }
-
-  const decoder = new TextDecoder();
+  // SSE 行解析状态(逻辑同原 reader 循环,由 Channel chunk 驱动)
   let buffer = '';
   let eventType = '';
 
-  try {
-    while (true) {
-      if (signal?.aborted) {
-        reader.cancel();
-        break;
-      }
-
-      // eslint-disable-next-line no-await-in-loop
-      const { done, value } = await reader.read();
-      if (done) { break; }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          eventType = line.slice(7).trim();
-        } else if (line.startsWith('data: ') || (eventType === 'content' && line === 'data:')) {
-          const data = line.startsWith('data: ') ? line.slice(6) : '';
-          switch (eventType) {
-            case 'conversation_id':
-              callbacks.onConversationId?.(data);
-              break;
-            case 'status':
-              callbacks.onStatus?.(data as AIStatus);
-              break;
-            case 'reasoning':
-              callbacks.onReasoning?.(data || '\n');
-              break;
-            case 'content':
-              callbacks.onContent?.(data || '\n');
-              break;
-            case 'tool_call':
-              try { callbacks.onToolCall?.(JSON.parse(data)); } catch { /* ignore */ }
-              break;
-            case 'tool_call_pending':
-              try { callbacks.onToolCallPending?.(JSON.parse(data)); } catch { /* ignore */ }
-              break;
-            case 'tool_result':
-              try { callbacks.onToolResult?.(JSON.parse(data)); } catch { /* ignore */ }
-              break;
-            case 'usage':
-              try { callbacks.onUsage?.(JSON.parse(data)); } catch { /* ignore */ }
-              break;
-            case 'error':
-              callbacks.onError?.(data);
-              break;
-            case 'done':
-              callbacks.onDone?.();
-              break;
-          }
+  const dispatchLines = () => {
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith('data: ') || (eventType === 'content' && line === 'data:')) {
+        const data = line.startsWith('data: ') ? line.slice(6) : '';
+        switch (eventType) {
+          case 'conversation_id':
+            callbacks.onConversationId?.(data);
+            break;
+          case 'status':
+            callbacks.onStatus?.(data as AIStatus);
+            break;
+          case 'reasoning':
+            callbacks.onReasoning?.(data || '\n');
+            break;
+          case 'content':
+            callbacks.onContent?.(data || '\n');
+            break;
+          case 'tool_call':
+            try { callbacks.onToolCall?.(JSON.parse(data)); } catch { /* ignore */ }
+            break;
+          case 'tool_call_pending':
+            try { callbacks.onToolCallPending?.(JSON.parse(data)); } catch { /* ignore */ }
+            break;
+          case 'tool_result':
+            try { callbacks.onToolResult?.(JSON.parse(data)); } catch { /* ignore */ }
+            break;
+          case 'usage':
+            try { callbacks.onUsage?.(JSON.parse(data)); } catch { /* ignore */ }
+            break;
+          case 'error':
+            callbacks.onError?.(data);
+            break;
+          case 'done':
+            callbacks.onDone?.();
+            break;
         }
       }
     }
-  } finally {
-    reader.releaseLock();
-  }
+  };
+
+  // 经 Rust secure_http_stream(自签 + 内置 CA)流式;Channel 逐块推回。
+  // plugin-http 无法真流式、也不能信任私有 CA(见 SSE 研究结论),故走 Channel。
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const channel = new Channel<SecureStreamEvent>();
+    channel.onmessage = (msg) => {
+      if (settled) { return; }
+      switch (msg.event) {
+        case 'open':
+          break;
+        case 'chunk':
+          if (signal?.aborted) { settled = true; resolve(); return; }
+          buffer += msg.data;
+          dispatchLines();
+          break;
+        case 'done':
+          settled = true;
+          if (buffer) { buffer += '\n'; dispatchLines(); }
+          resolve();
+          break;
+        case 'error': {
+          settled = true;
+          let m = msg.message;
+          try {
+            m = (JSON.parse(msg.message) as { error?: string }).error ?? msg.message;
+          } catch {
+            // 非 JSON 错误体 → 用原始 message
+          }
+          reject(new Error(m));
+          break;
+        }
+      }
+    };
+
+    // 注入直连参数:direct_ip/direct_port → 把 URL 主机改写为该 IP(不发 SNI 绕 ICP),
+    // 其余(pin_ca/extra_ca)透传给 secure_http_stream。(变量名避开外层 Promise 的 resolve。)
+    const inject = resolveForSecureHttp() ?? { pin_ca: true };
+    const { direct_ip, direct_port, ...injectRest } = inject;
+    const streamUrl = direct_ip && direct_port
+      ? rewriteUrlHost(`${baseUrl}/api/ai/chat/stream`, direct_ip, direct_port)
+      : `${baseUrl}/api/ai/chat/stream`;
+    invoke('secure_http_stream', {
+      req: {
+        method: 'POST',
+        url: streamUrl,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          message,
+          ...(conversationId ? { conversation_id: conversationId } : {}),
+        }),
+        ...injectRest,
+      },
+      onEvent: channel,
+    }).catch((e: unknown) => {
+      if (!settled) {
+        settled = true;
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  });
 }
 
 /**
@@ -284,10 +320,12 @@ export async function createVoiceProfile(
     formData.append('system_prompt', systemPrompt);
   }
 
-  const url = `${baseUrl}/api/ai/voice_profiles`;
-  console.warn('[VoiceProfile] 发送 POST 请求 (使用原生 fetch)', { url });
+  // 经回环安全反代上传 multipart/FormData:webview→http://127.0.0.1:<port>(本地明文回环)→ Rust 反代
+  // 钉内置 CA、连源站 IP、不发 SNI、Host=逻辑域名转发到源站。原生 fetch 直连逻辑域名会被 ICP/SNI 拦 +
+  // 验不过私有 CA 自签 leaf,故必须经反代;反代逐字节转发请求体(含 multipart 边界),无需 secure_net 支持 multipart。
+  const url = proxyRequestUrl(`${baseUrl}/api/ai/voice_profiles`);
+  console.warn('[VoiceProfile] 发送 POST 请求 (经回环安全反代)', { url });
 
-  // 必须使用原生 fetch，Tauri plugin-http 的 fetch 不能正确序列化 FormData
   const response = await globalThis.fetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}` },

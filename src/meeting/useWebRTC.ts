@@ -44,6 +44,8 @@ import {
   type Participant,
   type ServerMessage,
 } from './api';
+import { RustWebSocket } from '../services/rustWebSocket';
+import { resolveForSecureHttp } from '../services/discovery';
 
 // ============================================
 // 类型定义
@@ -251,7 +253,7 @@ export function useWebRTC(): UseWebRTCReturn {
   }, []);
 
   // ========== Refs ==========
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<RustWebSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const iceServersRef = useRef<IceServer[]>([]);
   const myIdRef = useRef<string | null>(null);
@@ -292,7 +294,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 发送 WebSocket 消息 */
   const sendMessage = useCallback((message: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === RustWebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
   }, []);
@@ -1290,7 +1292,7 @@ export function useWebRTC(): UseWebRTCReturn {
     setMeetingState('connecting');
     setError(null);
 
-    const ws = new WebSocket(url);
+    const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
     wsRef.current = ws;
 
     // 心跳定时器
@@ -1299,7 +1301,7 @@ export function useWebRTC(): UseWebRTCReturn {
     ws.onopen = () => {
       console.warn('[WebRTC] WebSocket 已连接');
       heartbeatInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === RustWebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
         }
       }, 25000);
@@ -1307,7 +1309,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data) as ServerMessage;
+        const msg = JSON.parse(event.data as string) as ServerMessage;
         console.warn('[WebRTC] 收到消息:', msg.type);
         handleMessage(msg);
       } catch {

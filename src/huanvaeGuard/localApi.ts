@@ -1,8 +1,11 @@
 /**
  * 本机 HuanvaeGuard Windows Service API 调用 (http://127.0.0.1:19198)
  *
- * - 走 @tauri-apps/plugin-http 的 fetch，绕开浏览器 CORS
- *   （svc 不返回 CORS 头；dev 模式前端 origin 是 http://localhost:1420）
+ * - **刻意保留 plugin-http(不迁 secure_http)**：本路径是**回环明文 http**(127.0.0.1)，
+ *   既无 TLS(故无需 secure_net 的内置 CA 自管 TLS)、也非后端数据面调用(api.huanvae.cn)，
+ *   不在"自签 TLS 直连数据面"迁移范围内。plugin-http 在此的作用是绕开浏览器 CORS
+ *   （svc 不返回 CORS 头；dev 模式前端 origin 是 http://localhost:1420）。
+ *   未来即便加鉴权(HMAC/Token)也是 header 注入，仍走 plugin-http，无需迁移。
  * - 无鉴权 —— 服务仅监听回环地址。未来 P0 计划中会加 HMAC 或 Token
  * - svc 自身由 Tauri 进程生命周期控制（见 src-tauri/src/desktop/huanvaeguard.rs）
  *
