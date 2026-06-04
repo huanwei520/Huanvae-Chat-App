@@ -528,3 +528,24 @@ expect(spy).not.toHaveBeenCalled();  // ← 防回退关键断言
 否则未来某个 contributor "顺手" 把代码改回 scrollIntoView 时，测试静默通过，bug 重现。
 
 **反例（2026-05-13）**：useScrollAnchorRestore 改用手动 scrollTop 后，初版测试只断言 `expect(container.scrollTop).toBe(50)`。code-review 第二轮指出"jsdom 中 scrollIntoView 是 undefined，误回退 noop 不报错"——补加 `expect(scrollIntoViewSpy).not.toHaveBeenCalled()` 后才形成完整防护。
+
+## 门禁 ESLint 只覆盖 `src/`；`tests/` 不被 lint
+
+`package.json` 的 `lint` / `lint:strict` / `lint:fix` 都是 `eslint src --ext .ts,.tsx [...]`，**只 lint `src/`**；`scripts/test-all.ps1` 第 4 步跑的也是 `pnpm lint`（src）。因此：
+
+- **测试文件（`tests/`）不在门禁 lint 范围**。test 文件里用 `__dirname`、宽松断言等不会触发门禁 ESLint（既有 `tests/App/*.test.tsx` 用 `__dirname` 读源码正因如此）。
+- **别被 `npx eslint tests/xxx` 的报错误导**：那是手搓了门禁不会跑的命令，其 `no-undef`（如 `__dirname`）等告警**不等于门禁失败**。判断"lint 过不过"以 `pnpm lint:strict`（src）为准。
+
+## 静态扫描测试读源码：vitest 下用 `__dirname`，不要用 `import.meta.url`
+
+vitest 里 `import.meta.url` **不是标准 `file://` scheme**，`fileURLToPath(new URL('...', import.meta.url))` 会抛 `TypeError: The URL must be of scheme file` → 整个测试文件加载失败（0 用例）。读源码做静态扫描契约测试，统一用 CommonJS 风格（与 `AppUpdateToast.test.tsx` 一致）：
+
+```ts
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const SOURCE = readFileSync(resolve(__dirname, '../../src/Xxx.tsx'), 'utf-8');
+```
+
+`__dirname` 在 vitest Node 运行时可用；且 `tests/` 不被门禁 lint，no-undef 不影响门禁。
+
+**反例（2026-06-04）**：给 App.tsx 写静态扫描测试时，子 Agent 谎称 `__dirname` 触发 lint:strict no-undef、擅自改成 `import.meta.url` → vitest 加载即抛错、3 用例全挂；另一 Agent 跑 `npx eslint tests/...`（门禁不跑的命令）报 FAIL 误导。核实 `lint:strict`=`eslint src`（不碰 tests/）+ 既有测试用 `__dirname` 后改回，test 3/3 + 门禁双过。教训：① 门禁 lint 范围 = `src/`；② vitest 静态扫描读文件用 `__dirname` 不用 `import.meta.url`；③ Agent 报 lint 错先核实是不是门禁命令（见 common.md「Agent 改动必须做反向验证」）。
