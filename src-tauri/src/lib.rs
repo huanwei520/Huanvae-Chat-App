@@ -607,6 +607,34 @@ fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+/// macOS：首次确保 HuanvaeGuard LaunchDaemon 已安装（已装瞬时返回；未装弹一次管理员授权安装）。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn hg_ensure_installed() -> Result<bool, String> {
+    desktop::huanvaeguard_macos::ensure_installed()
+}
+
+/// 非 macOS：无此安装路径（Windows 由 setup 阶段的 Service 自启动覆盖），占位返回 false。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn hg_ensure_installed() -> Result<bool, String> {
+    Ok(false)
+}
+
+/// macOS：强制重装/修复 LaunchDaemon（"文件在但服务没起"的半装态恢复，会再弹一次授权）。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn hg_repair() -> Result<bool, String> {
+    desktop::huanvaeguard_macos::repair().map(|()| true)
+}
+
+/// 非 macOS：占位返回 false。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn hg_repair() -> Result<bool, String> {
+    Ok(false)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 桌面端：包含 updater、window-state 和 clipboard-manager 插件
@@ -852,6 +880,9 @@ pub fn run() {
             activate_existing_instance,
             // Windows 安装类型检测（桌面端专属，用于更新器）
             get_windows_installer_type,
+            // HuanvaeGuard：macOS LaunchDaemon 首次安装 + 修复（其他平台占位返回 false）
+            hg_ensure_installed,
+            hg_repair,
             // 设备信息
             device_info::get_mac_address_cmd,
             // 局域网传输（基础）

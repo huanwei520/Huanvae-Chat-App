@@ -6,15 +6,18 @@
 //! - 系统托盘：关闭窗口时最小化到托盘
 //! - 会话锁：同设备同账户单开控制
 //! - 安装类型检测：检测 Windows 上是 MSI 还是 NSIS 安装（用于更新器）
-//! - HuanvaeGuard 服务生命周期：Windows Service 的启停绑定到 Tauri 进程（仅 Windows）
+//! - HuanvaeGuard 服务生命周期：Windows Service（sc.exe，启停绑定 Tauri 进程）/
+//!   macOS LaunchDaemon（launchctl 安装，launchd 常驻托管）
 //!
 //! ## 条件编译
 //! 此模块使用 `#[cfg(desktop)]` 或 `#[cfg(not(any(target_os = "android", target_os = "ios")))]`
-//! 内部 `huanvaeguard` 子模块进一步限定为 `#[cfg(target_os = "windows")]`，
-//! 因为 HG 依赖 Windows SCM (sc.exe / taskkill)，mac/Linux 无对应实现。
+//! 内部 HG 子模块按平台进一步限定：`huanvaeguard`（Windows，依赖 SCM sc.exe / taskkill）、
+//! `huanvaeguard_macos`（macOS，依赖 launchctl + osascript 提权）；Linux 暂无实现。
 
 #[cfg(target_os = "windows")]
 pub mod huanvaeguard;
+#[cfg(target_os = "macos")]
+pub mod huanvaeguard_macos;
 pub mod installer_type;
 pub mod session_lock;
 pub mod tray;

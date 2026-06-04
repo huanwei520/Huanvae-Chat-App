@@ -15,3 +15,19 @@ export function formatHandshake(secondsAgo: number): string {
   if (secondsAgo < 3600) { return `${Math.floor(secondsAgo / 60)} 分钟前`; }
   return `${Math.floor(secondsAgo / 3600)} 小时前`;
 }
+
+/**
+ * 把 @tauri-apps/plugin-os 的 platform() 原子值映射为设备注册上报用的展示名（os 字段）
+ * - 'windows' → 'Windows'
+ * - 'macos'   → 'macOS'
+ * - 'linux'   → 'Linux'
+ * - 其他/空   → 原值或 'Unknown'
+ */
+export function osLabel(platform: string): string {
+  switch (platform) {
+    case 'windows': return 'Windows';
+    case 'macos': return 'macOS';
+    case 'linux': return 'Linux';
+    default: return platform || 'Unknown';
+  }
+}

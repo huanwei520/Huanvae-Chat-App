@@ -427,3 +427,32 @@ Windows build 时合并后 `bundle.resources` = `{"../Notification-Sounds/*": ..
 | 某平台特殊的安装期文件（LICENSE / 启动脚本） | `tauri.conf.json` 的 `bundle.{macOS,deb,rpm,appimage}.files`（不是 resources）|
 
 混用规则：跨平台基础资源放顶层主配置，平台增量放对应 platform-specific config 即可，由 RFC 7396 自动合并。
+
+## macOS 特权守护进程安装：osascript 提权 + launchd + 单引号注入防护
+
+### 模式（与 Windows Service 对称的 macOS 落地）
+
+需要在 macOS 上装一个 **root 守护进程**（如创建 utun 的 VPN daemon）时，标准落地：
+
+1. **二进制 + plist 走 platform-specific config 打包**：`tauri.macos.conf.json` 把 `resources/<name>/*` 打到 `.app/Contents/Resources/<name>/`（见上一节）；二进制 .gitignore（镜像 Windows `resources/HuanvaeGuard/`）。
+2. **运行时解析资源路径**：复用 `user_data::get_notification_sounds_dir` 同款 dev/prod 检测（dev=`target/{debug,release}` 回溯到 `src-tauri/resources/<name>`；prod=`Contents/Resources/<name>`）。**抽成纯函数 `resolve_resource_dir(exe_dir)`** 便于单测。
+3. **提权安装（个人测试阶段）**：纯 Rust `Command::new("osascript").args(["-e", &apple_script])`，`apple_script = format!("do shell script \"{escaped}\" with administrator privileges")` 弹一次系统管理员密码，以 root 执行 `cp` 二进制 + `cp` plist（`chown root:wheel` + `chmod 644`）+ `launchctl bootstrap system <plist> || launchctl load <plist>`。**无需 Tauri shell 插件**（与 Windows `sc.exe` 同走 `std::process::Command`）。
+4. **launchd 常驻托管**：plist `RunAtLoad + KeepAlive + UserName root`，装一次后开机自起/崩溃自拉，App **不负责启停**（比 Windows Service 简单——无 `spawn_start_on_boot`/`stop_on_exit`）。`is_installed()`（二进制+plist 均存在）早返回避免重复弹密码。命令 `hg_ensure_installed` 用 cfg 双分支：macos 真实现 / 非 macos 占位 `Ok(false)` 一行。
+5. **前端**：仅 `platform()==='macos'` 时 `invoke('hg_ensure_installed')`，失败/取消授权 try/catch 后**仍打开窗口**降级（页面显示"服务未运行"）。
+
+### Shell 注入防护（root 执行，必须做对）
+
+osascript 以 **root** 执行拼接的 shell 命令时：
+- **主防线**：所有路径用**单引号 `'...'` 包裹** —— shell 单引号内不解释任何元字符（`$`/反引号/`$()`/换行/`;`/`&&`/空格全字面化），**唯一**能逃逸的字符是单引号本身。
+- **唯一补充 guard**：拒绝含单引号的路径（`fn path_is_shell_safe(p)=!p.contains('\'')`），即关闭全部注入向量。路径来自 `current_exe()` 非用户输入。
+- **抽成纯函数 + 单测**（含 `'` 拒绝 / 正常路径接受），给这条安全关键分支回归保护。
+- AppleScript 转义：`shell.replace('\\',"\\\\").replace('"',"\\\"")`，**先转义 `\` 再转义 `"`**（避免二次转义）。
+
+### Gatekeeper（个人测试 vs 产品化）
+
+- 个人测试：安装脚本对二进制 `xattr -dr com.apple.quarantine` 绕 Gatekeeper（无 Developer ID）。
+- 产品化：改 `.pkg` + postinstall（取代 osascript）+ `codesign --sign "Developer ID Application"` + `xcrun notarytool`。osascript 路径是 MVP，注释里要诚实标 `// 产品化改 .pkg + 公证`。
+
+### 一次做对（2026-06-04 macOS HuanvaeGuard daemon 安装）
+
+mod 层 `#[cfg(target_os="macos")]`（不踩 2026-05-24 Windows huanvaeguard 的 dead_code 陷阱）、命令双分支占位、注入防护单引号包裹+guard、纯函数+单测。code-review + 盲审双过，cargo check/clippy 0 warning，1077 vitest 全绿。

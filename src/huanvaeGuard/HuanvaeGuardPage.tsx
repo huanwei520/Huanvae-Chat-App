@@ -30,8 +30,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { platform } from '@tauri-apps/plugin-os';
 import { emit, listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { formatSize } from '../utils/format';
-import { formatHandshake } from './format';
+import { formatHandshake, osLabel } from './format';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
 import { AppButton } from '../components/common/AppButton';
 import { useConfirmDialog, usePromptDialog } from '../lowcode/components/ConfirmDialog';
@@ -105,7 +106,7 @@ function parseWindowData(): WindowData | null {
 
 export default function HuanvaeGuardPage() {
   const [windowData, setWindowData] = useState<WindowData | null>(null);
-  const [isWindows, setIsWindows] = useState(false);
+  const [osPlatform, setOsPlatform] = useState<string>('');
   const [serviceRunning, setServiceRunning] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('devices');
@@ -147,9 +148,9 @@ export default function HuanvaeGuardPage() {
     const data = parseWindowData();
     setWindowData(data);
     try {
-      setIsWindows(platform() === 'windows');
+      setOsPlatform(platform());
     } catch {
-      setIsWindows(false);
+      setOsPlatform('');
     }
   }, []);
 
@@ -274,6 +275,8 @@ export default function HuanvaeGuardPage() {
         private_key: config.private_key,
         peers: config.peers,
         obfuscation: config.obfuscation,
+        // 注：macOS daemon 当前不应用 dns（IP-only，见 hg-macos network.rs 的 deferred 日志）；
+        // Windows daemon 生效。如需 macOS VPN 内域名解析需另做 networksetup/scutil（暂未实现）。
         dns: config.dns ?? undefined,
         mtu: config.mtu,
       });
@@ -304,6 +307,23 @@ export default function HuanvaeGuardPage() {
     }
   };
 
+  // macOS 专用：强制重装/修复 LaunchDaemon（恢复"文件在但服务没起"的半装态）
+  // Windows 服务由 Tauri 进程生命周期管理，无需此入口（按钮仅 macOS + 服务未运行时显示）
+  const handleRepair = async () => {
+    setLoading(true);
+    try {
+      await invoke('hg_repair');
+      addLog('已请求重新安装服务');
+      const running = await localApi.checkServiceRunning();
+      setServiceRunning(running);
+      addLog(running ? '服务已就绪' : '服务仍未运行（请确认已授权安装）');
+    } catch (e) {
+      addLog(`修复失败：${e}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRegisterDevice = async () => {
     if (!windowData) { return; }
     const name = await showPrompt({ title: '注册设备', placeholder: '设备名称' });
@@ -317,7 +337,7 @@ export default function HuanvaeGuardPage() {
         windowData.serverUrl,
         windowData.accessToken,
         name,
-        'Windows',
+        osLabel(osPlatform),
         macAddress ?? undefined,
       );
       addLog(`设备已注册：${resp.device_id}，IP：${resp.virtual_ip}`);
@@ -534,6 +554,7 @@ export default function HuanvaeGuardPage() {
   }
 
   const isActive = tunnelStatus?.active ?? false;
+  const isSupported = osPlatform === 'windows' || osPlatform === 'macos';
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
   // 本机当前隧道 IP（去掉 CIDR 前缀），用于覆盖 server 返回的 offline 状态
   // 服务端状态依赖 heartbeat（目前客户端未发送），但本机隧道在用就是确凿 online
@@ -560,7 +581,12 @@ export default function HuanvaeGuardPage() {
           <span className="hg-dot" />
           {serviceRunning ? '服务运行中' : '服务未运行'}
         </span>
-        {!isWindows && <span className="hg-os-hint">仅 Windows 支持</span>}
+        {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
+        {osPlatform === 'macos' && !serviceRunning && (
+          <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
+            安装/修复服务
+          </AppButton>
+        )}
       </header>
 
       {/* Error */}
