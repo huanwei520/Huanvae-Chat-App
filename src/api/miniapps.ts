@@ -6,7 +6,7 @@
  *
  * 覆盖端点：
  * - 列表：公共已发布 / 我的小程序
- * - CRUD：创建 / 更新 / 删除
+ * - 申请：提交创建申请(审批制,不再用户自助生成) / 更新 / 删除
  * - 状态：发布 / 取消发布
  * - 容器：启动 / 停止 / 重启 / 查看信息 / 重置密码
  */
@@ -17,8 +17,15 @@ import type { ApiClient } from './client';
 // 类型定义
 // ============================================
 
-/** 小程序状态 */
-export type MiniAppStatus = 'draft' | 'running' | 'published' | 'stopped';
+/** 小程序状态(审批制:新建即 pending,管理员审批后才 running) */
+export type MiniAppStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'running'
+  | 'published'
+  | 'stopped'
+  | 'draft';
 
 /** 小程序信息 */
 export interface MiniApp {
@@ -36,28 +43,27 @@ export interface MiniApp {
   published_at: string | null;
 }
 
-/** 创建小程序请求 */
+/** 提交小程序创建申请请求(审批制) */
 export interface CreateMiniAppRequest {
   name: string;
   display_name: string;
   description?: string;
   icon_url?: string;
+  /** 申请人提议 CPU(核数,如 "2.0");省略则后端默认 2c。审批时管理员可调,后端硬上限钳制 */
+  proposed_cpu?: string;
+  /** 申请人提议内存(如 "2g");省略则后端默认 2g */
+  proposed_mem?: string;
 }
 
-/** 创建小程序响应 */
-export interface CreateMiniAppResponse {
+/**
+ * 提交创建申请响应(审批制:仅登记 pending,容器/凭据/OAuth 在管理员审批通过后才生成,
+ * 此处不返回)。访问地址此刻仅占位。
+ */
+export interface MiniAppRequestResponse {
   miniapp_id: string;
   name: string;
   status: MiniAppStatus;
   access_url: string;
-  container: {
-    ssh_port: number;
-    ssh_user: string;
-    ssh_password: string;
-  };
-  // 后端 OAuth 客户端注册成功时返回；失败时省略（serde skip_serializing_if Option::is_none）
-  oauth_client_id?: string;
-  oauth_client_secret?: string;
 }
 
 /** 更新小程序请求 */
@@ -103,12 +109,16 @@ export function getMiniApp(api: ApiClient, id: string): Promise<MiniApp> {
   return api.get<MiniApp>(`/api/miniapps/${id}`);
 }
 
-/** 创建小程序（自动启动开发容器） */
-export function createMiniApp(
+/**
+ * 提交小程序创建申请(审批制)。
+ * 不再用户自助生成容器:写入 status='pending',待 Atlas 管理员审批通过后才注册
+ * 小程序专属 HG 设备 + 起容器 + 建 OAuth 客户端。响应不含容器/凭据/OAuth。
+ */
+export function submitMiniAppRequest(
   api: ApiClient,
   data: CreateMiniAppRequest,
-): Promise<CreateMiniAppResponse> {
-  return api.post<CreateMiniAppResponse>('/api/miniapps', data as unknown as Record<string, unknown>);
+): Promise<MiniAppRequestResponse> {
+  return api.post<MiniAppRequestResponse>('/api/miniapps', data as unknown as Record<string, unknown>);
 }
 
 /** 更新小程序信息（仅创建者） */
@@ -166,7 +176,13 @@ export function getContainerInfo(api: ApiClient, id: string): Promise<MiniAppCon
   return api.get<MiniAppContainer>(`/api/miniapps/${id}/container`);
 }
 
-/** 重置 SSH 密码（仅创建者） */
-export function resetSSHPassword(api: ApiClient, id: string): Promise<{ new_password: string }> {
-  return api.post<{ new_password: string }>(`/api/miniapps/${id}/reset-password`, {});
+/** 重置 SSH 密码（仅创建者）。password_synced 指示新密码是否已同步进容器。 */
+export function resetSSHPassword(
+  api: ApiClient,
+  id: string,
+): Promise<{ new_password: string; password_synced: boolean }> {
+  return api.post<{ new_password: string; password_synced: boolean }>(
+    `/api/miniapps/${id}/reset-password`,
+    {},
+  );
 }

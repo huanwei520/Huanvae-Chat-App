@@ -15,7 +15,7 @@ import { useApi } from '../contexts/SessionContext';
 import {
   listPublishedMiniApps,
   listMyMiniApps,
-  createMiniApp,
+  submitMiniAppRequest,
   updateMiniApp,
   deleteMiniApp,
   publishMiniApp,
@@ -29,7 +29,7 @@ import {
   type MiniAppStatus,
   type CreateMiniAppRequest,
   type UpdateMiniAppRequest,
-  type CreateMiniAppResponse,
+  type MiniAppRequestResponse,
   type MiniAppContainer,
 } from '../api/miniapps';
 
@@ -53,8 +53,8 @@ interface UseMiniAppsReturn {
   /** 刷新当前列表 */
   refresh: () => Promise<void>;
 
-  /** 创建小程序 */
-  create: (data: CreateMiniAppRequest) => Promise<CreateMiniAppResponse | null>;
+  /** 提交小程序创建申请(审批制;成功返回 pending 记录,不含容器/凭据) */
+  create: (data: CreateMiniAppRequest) => Promise<MiniAppRequestResponse | null>;
   /** 更新小程序 */
   update: (id: string, data: UpdateMiniAppRequest) => Promise<boolean>;
   /** 删除小程序 */
@@ -170,11 +170,11 @@ export function useMiniApps(): UseMiniAppsReturn {
     async (data: CreateMiniAppRequest) => {
       setOperatingId('__creating__');
       try {
-        const result = await createMiniApp(api, data);
+        const result = await submitMiniAppRequest(api, data);
         await refresh();
         return result;
       } catch (e) {
-        setError(e instanceof Error ? e.message : '创建失败');
+        setError(e instanceof Error ? e.message : '提交申请失败');
         return null;
       } finally {
         setOperatingId(null);
@@ -277,4 +277,4 @@ export function useMiniApps(): UseMiniAppsReturn {
   };
 }
 
-export type { MiniApp, MiniAppStatus, CreateMiniAppRequest, CreateMiniAppResponse, MiniAppContainer };
+export type { MiniApp, MiniAppStatus, CreateMiniAppRequest, MiniAppRequestResponse, MiniAppContainer };

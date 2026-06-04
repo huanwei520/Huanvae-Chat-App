@@ -50,11 +50,16 @@ src/
 
 **不涉及**：Tauri 端不调用 `src/api/oauth.ts` 的任何函数，不管理 oauth_client_id/secret。那些字段由小程序自己在创建时保存并写入小程序代码。
 
-## 开发者凭据展示
+## 开发者凭据展示（审批制改造后已变更）
 
-创建小程序的响应（[CreateMiniAppResponse](src/api/miniapps.ts)）可选返回 `oauth_client_id?` + `oauth_client_secret?`（OAuth 客户端注册成功时才有）。MiniAppsModal 的 `handleCreate` 成功后用 `SecretDisplay` 弹窗一次性展示：OAuth 凭据 + SSH 凭据。关闭弹窗后切到「我的」tab。
+**收回用户自助创建后**:小程序创建走「提交申请」(`submitMiniAppRequest` → `MiniAppRequestResponse`,
+仅 `{miniapp_id, name, status:'pending', access_url}`),**响应不含容器/SSH/OAuth 凭据**。
+MiniAppsModal 的 `handleCreate` 成功后只关闭表单 + 切到「我的」tab(新申请以「待审批」徽章出现)。
+原 `buildCredentialsFields` + 创建即时 `SecretDisplay` 凭据弹窗**已删除**。
 
-**凭据字段构建**：`buildCredentialsFields(r: CreateMiniAppResponse)` pure function，OAuth 字段缺失时自动省略对应行。
+凭据在 **Atlas 管理员审批通过**后由后端生成(注册 HG 设备 + 起容器 + 建 OAuth client);
+开发者后续经「容器信息」/ `resetSSHPassword`(返回 `{new_password, password_synced}`)获取 SSH 凭据。
+OAuth 客户端凭据经 `OAuthClientsPanel`(仍用 `SecretDisplay`)查看。
 
 ## 注意事项
 
@@ -63,5 +68,5 @@ src/
 - CSS class `oauth-back-btn` 独立于 `settings-back-btn`，避免跨组件样式依赖
 - `ApiClient` 自动解包 `ApiResponse.data`，void 端点（delete/revoke）返回值可忽略
 - `AuthorizeResponse` 是 untagged union，用 `isConsentRequired()` 类型守卫区分
-- `SecretDisplay` 已抽到 `src/components/common/`，接口 `{title, warningText?, fields[], onClose, closeLabel?}`。OAuthClientsPanel 和 MiniAppsModal 都应复用此组件而非自己重写凭据弹窗
+- `SecretDisplay` 已抽到 `src/components/common/`，接口 `{title, warningText?, fields[], onClose, closeLabel?}`。OAuthClientsPanel 复用此组件展示 OAuth 凭据(MiniAppsModal 审批制改造后不再即时展示创建凭据,见上「开发者凭据展示」)
 - `OAuthConsentModal` 当前无调用方（预留给未来的外部第三方授权页，需要新 `/oauth/authorize` 路由 + Tauri deep link 才能激活）

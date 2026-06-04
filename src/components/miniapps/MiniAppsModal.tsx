@@ -31,12 +31,10 @@ import {
   type MiniApp,
   type MiniAppStatus,
   type CreateMiniAppRequest,
-  type CreateMiniAppResponse,
   type MiniAppContainer,
 } from '../../hooks/useMiniApps';
 import { OAuthClientsPanel } from '../oauth/OAuthClientsPanel';
-import { SecretDisplay } from '../common/SecretDisplay';
-import { buildMiniAppLaunchUrl, buildCredentialsFields } from './launch';
+import { buildMiniAppLaunchUrl } from './launch';
 
 // ============================================
 // 类型定义
@@ -57,6 +55,9 @@ const TAB_CONFIG: { key: MiniAppTab; label: string }[] = [
 ];
 
 const STATUS_MAP: Record<MiniAppStatus, { label: string; className: string }> = {
+  pending: { label: '待审批', className: 'status-pending' },
+  approved: { label: '已批准', className: 'status-approved' },
+  rejected: { label: '已驳回', className: 'status-rejected' },
   draft: { label: '草稿', className: 'status-draft' },
   running: { label: '运行中', className: 'status-running' },
   published: { label: '已发布', className: 'status-published' },
@@ -208,7 +209,7 @@ function CreateDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="miniapp-create-header">
-          <h3>创建小程序</h3>
+          <h3>申请创建小程序</h3>
           <button className="close-btn" onClick={handleClose}>
             <CloseIcon />
           </button>
@@ -258,7 +259,7 @@ function CreateDialog({
             onClick={handleSubmit}
             disabled={creating || !name.trim() || !displayName.trim()}
           >
-            {creating ? '创建中...' : '创建'}
+            {creating ? '提交中...' : '提交申请'}
           </button>
         </div>
       </motion.div>
@@ -507,23 +508,19 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
   const [showCreate, setShowCreate] = useState(false);
   const [showOAuthClients, setShowOAuthClients] = useState(false);
   const [containerInfo, setContainerInfo] = useState<MiniAppContainer | null>(null);
-  const [createdCredentials, setCreatedCredentials] = useState<CreateMiniAppResponse | null>(null);
 
   const handleCreate = useCallback(
     async (data: CreateMiniAppRequest) => {
+      // 审批制:提交申请成功(status=pending),不再即时返回容器/凭据。
+      // 关闭表单 + 切到「我的」,新申请以「待审批」徽章出现在列表中。
       const result = await create(data);
       if (result) {
         setShowCreate(false);
-        setCreatedCredentials(result);
+        setTab('mine');
       }
     },
-    [create],
+    [create, setTab],
   );
-
-  const handleCloseCredentials = useCallback(() => {
-    setCreatedCredentials(null);
-    setTab('mine');
-  }, [setTab]);
 
   const handleOpen = useCallback(async (app: MiniApp) => {
     if (!app.access_url || !session) {
@@ -735,17 +732,6 @@ export function MiniAppsModal({ isOpen, onClose }: MiniAppsModalProps) {
             onClose={() => setContainerInfo(null)}
             onResetPassword={handleResetPassword}
             resetting={operatingId === containerInfo.miniapp_id}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {createdCredentials && (
-          <SecretDisplay
-            title={`${createdCredentials.name} - 创建成功`}
-            warningText="以下凭据仅显示一次，请妥善保存（SSH 密码可通过容器信息重置）"
-            fields={buildCredentialsFields(createdCredentials)}
-            onClose={handleCloseCredentials}
           />
         )}
       </AnimatePresence>

@@ -269,6 +269,22 @@
   color: #dc2626;
 }
 
+/* 审批制状态 */
+.status-pending {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.status-approved {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.status-rejected {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
 /* ============================================
    按钮
    transition 仅声明 background/box-shadow/border-color/opacity，
