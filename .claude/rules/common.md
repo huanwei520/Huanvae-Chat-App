@@ -703,3 +703,32 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 ```
 
 中间产物 `scripts/icons/app-icon-squircle.png` 入 `.gitignore`（可由脚本随时重生），`scripts/icons/make-squircle.py` 入仓。
+
+## macOS 系统钥匙串(keyring)访问要省着用：每次 get/set 都可能弹系统密码框
+
+### 一次登录弹 N 次密码框的两类根因
+
+桌面端用 `keyring` crate(macOS `apple-native` = 登录钥匙串)存账号密码时，**每次 `get_password()`/`set_password()` 都是一次钥匙串访问**——当 App 未签名 / ad-hoc 签名(签名身份每次构建都变)时，item 的 ACL 不信任当前身份 → **每次访问都弹系统密码框**，且「始终允许」也压不住(身份不稳定)。所以登录路径上的钥匙串访问次数 = 弹框次数，必须压到最少。
+
+两类把"1 次必要访问"放大成"N 次弹框"的反模式：
+
+1. **移动端的重试循环被桌面也跑**：为移动端生物认证(指纹失败自动重试 `MAX_RETRIES=5`)写的 `while` 重试循环若**没用 `isMobile()` 门控**，桌面也会跑——而桌面 `getPassword` = 钥匙串读，读失败被当"生物认证失败"重试 → 每次重试再弹一次 → 一次登录弹满 5 次。**规则**：凡是"失败自动重试"的认证循环，必须 `if (isMobile())` 门控；桌面钥匙串读**失败即转手动输入**，不重试(系统钥匙串弹框不是可重试的生物认证)。
+
+2. **保存账号时无条件重写密码**：`save_account` 若无条件 `set_password`(写钥匙串)，那么登录流程里每次"刷新昵称/头像"都调 `saveAccount(…password…)` → 每次都重写钥匙串 → 每次弹框。尤其"已保存账号登录"——密码**刚从钥匙串读出、根本没变**，再写回纯属多余；以及"头像下载后 `.then(saveAccount(…password…))`"也是冗余写。
+
+### 规则：元数据写(JSON) 与 凭据写(钥匙串) 必须分开
+
+- 把账号信息(昵称/头像路径/server)存普通 JSON 文件，把**密码单独**存钥匙串。
+- 提供**只改元数据、不碰钥匙串**的命令(本项目：`update_account_nickname` / `update_account_avatar`，均只 `write_accounts` 不调 keyring)，登录后刷新昵称/头像走它们。
+- 钥匙串**写**只在"用户首次输入/修改密码"那一刻发生(本项目：手动登录/注册的 `saveAccount`)。已保存账号登录、信息刷新一律不写钥匙串。
+- 目标：已保存账号登录 = **1 次钥匙串读(0 写)**；新登录 = **1 次写**。
+
+### 彻底消除弹框(本次未做，记为方向)
+
+即便压到 1 次，未签名 App 每次仍会弹那 1 次(ACL 不信任)。彻底消除需 **Developer ID 签名**(签名身份稳定后「始终允许」可持久)，或改用 **App 私有加密文件**(自管 AES) 存密码、绕开钥匙串 ACL。
+
+### 反例(2026-06-04)
+
+- macOS 上一次"已保存账号登录"弹 5 次系统密码框。根因：`handleLoginWithAccount` 的 `MAX_BIO_RETRIES=5` 重试循环未 isMobile 门控(桌面照跑)+ 登录后 `saveAccount` 重写密码 + 头像后 `.then(saveAccount)` 再重写。
+- 修复(纯前端)：重试循环 `if(isMobile())` 门控、桌面读失败转手动登录；已保存账号登录改 `updateNickname`(不碰钥匙串)、删两处头像后 `saveAccount` 冗余重写。降到 1 读 0 写。
+- 教训：写"认证重试循环"先想清桌面/移动语义差异；`save_account` 这种"既写元数据又写凭据"的命令，在"只想更新元数据"的调用点会偷偷多写一次钥匙串。

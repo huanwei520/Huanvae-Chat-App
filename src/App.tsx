@@ -48,6 +48,7 @@ function App() {
     getPassword,
     deleteAccount,
     updateAvatar,
+    updateNickname,
   } = useAccounts();
 
   const { session, setSession, isLoggedIn, restoreSession: restoreSessionToContext } = useSession();
@@ -152,50 +153,72 @@ function App() {
         return;
       }
 
-      // 1. 从密钥链获取密码（移动端会触发生物认证）
-      //    生物认证失败时自动重试，直到成功、用户取消或达到最大重试次数
+      // 1. 从密钥链/安全存储获取密码
       let password!: string;
-      const MAX_BIO_RETRIES = 5;
-      let bioAttempt = 0;
-      let bioSuccess = false;
+      if (isMobile()) {
+        // 移动端：getPassword 触发生物认证，失败时自动重试，
+        // 直到成功、用户取消或达到最大重试次数
+        const MAX_BIO_RETRIES = 5;
+        let bioAttempt = 0;
+        let bioSuccess = false;
 
-      while (!bioSuccess) {
+        while (!bioSuccess) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            password = await getPassword(account.server_url, account.user_id);
+            bioSuccess = true;
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+
+            if (errMsg.includes('未找到保存的密码')) {
+              setSelectedAccount(account);
+              setAuthForm('login');
+              setCurrentPage('login');
+              setIsLoading(false);
+              setError('密码未保存，请重新输入密码登录');
+              return;
+            }
+
+            bioAttempt++;
+            const errLower = errMsg.toLowerCase();
+            const userCancelled = errLower.includes('cancel') ||
+              errLower.includes('取消') ||
+              errLower.includes('user_canceled') ||
+              errLower.includes('negative');
+
+            if (userCancelled || bioAttempt >= MAX_BIO_RETRIES) {
+              setIsLoading(false);
+              setError(
+                bioAttempt >= MAX_BIO_RETRIES
+                  ? '验证失败次数过多，请稍后重试'
+                  : '验证已取消',
+              );
+              return;
+            }
+
+            // 非主动取消的失败，短暂延迟后自动重新弹出生物认证
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise<void>(r => { setTimeout(r, 600); });
+          }
+        }
+      } else {
+        // 桌面：getPassword = 系统钥匙串读，弹一次系统密码框。读失败（未保存/用户
+        // 拒绝/ACL 不信任）不重试——钥匙串弹框不是可重试的生物认证，重试只会反复
+        // 弹框（曾导致一次登录弹 5 次密码）；直接转手动输密码登录。
         try {
-          // eslint-disable-next-line no-await-in-loop
           password = await getPassword(account.server_url, account.user_id);
-          bioSuccess = true;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-
-          if (errMsg.includes('未找到保存的密码')) {
-            setSelectedAccount(account);
-            setAuthForm('login');
-            setCurrentPage('login');
-            setIsLoading(false);
-            setError('密码未保存，请重新输入密码登录');
-            return;
-          }
-
-          bioAttempt++;
-          const errLower = errMsg.toLowerCase();
-          const userCancelled = errLower.includes('cancel') ||
-            errLower.includes('取消') ||
-            errLower.includes('user_canceled') ||
-            errLower.includes('negative');
-
-          if (userCancelled || bioAttempt >= MAX_BIO_RETRIES) {
-            setIsLoading(false);
-            setError(
-              bioAttempt >= MAX_BIO_RETRIES
-                ? '验证失败次数过多，请稍后重试'
-                : '验证已取消',
-            );
-            return;
-          }
-
-          // 非主动取消的失败，短暂延迟后自动重新弹出生物认证
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise<void>(r => { setTimeout(r, 600); });
+          setSelectedAccount(account);
+          setAuthForm('login');
+          setCurrentPage('login');
+          setIsLoading(false);
+          setError(
+            errMsg.includes('未找到保存的密码')
+              ? '密码未保存，请重新输入密码登录'
+              : '读取保存的密码失败，请手动登录',
+          );
+          return;
         }
       }
 
@@ -215,15 +238,11 @@ function App() {
       const profileResponse = await getProfile(account.server_url, loginResponse.access_token);
       const profile = profileResponse.data;
 
-      // 5. 保存账号 与 创建会话 并行执行（账号保存非进入主界面的前置条件）
+      // 5. 刷新账号元数据（昵称）与 创建会话 并行执行。
+      //    密码刚从钥匙串读出、未变化，**不再重写钥匙串**（避免多余的系统密码框）；
+      //    昵称走 updateNickname（仅改 JSON 元数据，不碰钥匙串）。
       await Promise.all([
-        saveAccount(
-          account.user_id,
-          profile.user_nickname,
-          account.server_url,
-          password,
-          account.avatar_path,
-        ),
+        updateNickname(account.server_url, account.user_id, profile.user_nickname),
         createSessionAndLogin(
           account.server_url,
           account.user_id,
@@ -234,11 +253,10 @@ function App() {
         ),
       ]);
 
-      // 7. 后台异步更新头像（不阻塞登录）：传后端原始路径，updateAvatar 内部解析为逻辑域名 URL
-      //    + directIp 改写后交 Rust 钉 CA 下载到本地缓存（非显示用的回环代理 URL）。
+      // 7. 后台异步更新头像（不阻塞登录）：updateAvatar 已把头像路径持久化到账号元数据
+      //    （update_account_avatar，不碰钥匙串），无需再 saveAccount 重写密码。
       if (profile.user_avatar_url) {
         updateAvatar(account.server_url, account.user_id, profile.user_avatar_url)
-          .then(path => saveAccount(account.user_id, profile.user_nickname, account.server_url, password, path))
           .catch(() => {});
       }
 
@@ -247,7 +265,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [getPassword, updateAvatar, saveAccount, createSessionAndLogin]);
+  }, [getPassword, updateAvatar, updateNickname, createSessionAndLogin]);
 
   // 处理新登录
   const handleLogin = useCallback(async (
@@ -293,10 +311,10 @@ function App() {
         ),
       ]);
 
-      // 6. 后台异步下载头像并更新账号（不阻塞登录）：传后端原始路径，updateAvatar 内部解析 + directIp 下载。
+      // 6. 后台异步下载头像并更新账号（不阻塞登录）：updateAvatar 已把头像路径持久化
+      //    到账号元数据（不碰钥匙串），无需再 saveAccount 重写密码。
       if (profile.user_avatar_url) {
         updateAvatar(serverUrl, userId, profile.user_avatar_url)
-          .then(path => saveAccount(userId, profile.user_nickname, serverUrl, password, path))
           .catch(() => {});
       }
 
