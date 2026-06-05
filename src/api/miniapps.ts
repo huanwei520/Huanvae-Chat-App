@@ -20,7 +20,6 @@ import type { ApiClient } from './client';
 /** 小程序状态(审批制:新建即 pending,管理员审批后才 running) */
 export type MiniAppStatus =
   | 'pending'
-  | 'approved'
   | 'rejected'
   | 'running'
   | 'published'
@@ -188,7 +187,7 @@ export function resetSSHPassword(
   id: string,
 ): Promise<{ new_password: string; password_synced: boolean }> {
   return api.post<{ new_password: string; password_synced: boolean }>(
-    `/api/miniapps/${id}/reset-password`,
+    `/api/miniapps/${id}/reset_password`,
     {},
   );
 }

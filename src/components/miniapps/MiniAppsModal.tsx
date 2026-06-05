@@ -4,8 +4,8 @@
  * 功能：
  * - 双 Tab 切换：探索已发布小程序 / 管理我的小程序
  * - 搜索过滤
- * - 创建小程序（带表单弹窗）
- * - 小程序卡片：打开、发布/取消发布、容器操作、删除
+ * - 提交创建申请（审批制：填表提交后置 pending，待 Atlas 管理员审批，不再即时起容器/发凭据）
+ * - 小程序卡片：打开、发布/取消发布、容器操作、删除（被驳回时展示驳回原因）
  * - 容器详情弹窗（SSH 信息展示）
  *
  * 复用：
@@ -56,7 +56,6 @@ const TAB_CONFIG: { key: MiniAppTab; label: string }[] = [
 
 const STATUS_MAP: Record<MiniAppStatus, { label: string; className: string }> = {
   pending: { label: '待审批', className: 'status-pending' },
-  approved: { label: '已批准', className: 'status-approved' },
   rejected: { label: '已驳回', className: 'status-rejected' },
   draft: { label: '草稿', className: 'status-draft' },
   running: { label: '运行中', className: 'status-running' },

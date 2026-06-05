@@ -11,7 +11,7 @@
  *
  * 注：审批制改造后,创建走「提交申请」(submitMiniAppRequest),响应不含容器/凭据/OAuth,
  * 原 buildCredentialsFields(创建即时展示凭据)已随之删除——凭据在管理员审批生成后,
- * 由开发者经容器信息 / reset-password 获取。
+ * 由开发者经容器信息 / reset_password 获取。
  */
 
 /**
