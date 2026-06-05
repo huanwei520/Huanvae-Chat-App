@@ -298,9 +298,19 @@ function App() {
       const profileResponse = await getProfile(serverUrl, loginResponse.access_token);
       const profile = profileResponse.data;
 
-      // 4. 保存账号 与 创建会话 并行执行（账号保存非进入主界面的前置条件）
+      // 4. 持久化账号 与 创建会话 并行执行（账号持久化非进入主界面的前置条件）。
+      //    keyring 的 set_password 对【已存在】条目是 find(读) + modify(写) 两次 ACL 门控
+      //    操作（security-framework set_generic_password），未签名 / ad-hoc 构建下会连弹两次
+      //    系统钥匙串框。故仅【新账号】写 keyring（ADD 单次、应用自有不弹框）；已存在账号此处
+      //    密码未变，只更昵称元数据（updateNickname 仅写 JSON、不碰 keyring，0 弹框）。
+      //    注：服务端改密后本地保存的密码会失效，需在账号选择页删除该账号重新登录以刷新。
+      const isNewAccount = !accounts.some(
+        (a) => a.server_url === serverUrl && a.user_id === userId,
+      );
       await Promise.all([
-        saveAccount(userId, profile.user_nickname, serverUrl, password, null),
+        isNewAccount
+          ? saveAccount(userId, profile.user_nickname, serverUrl, password, null)
+          : updateNickname(serverUrl, userId, profile.user_nickname),
         createSessionAndLogin(
           serverUrl,
           userId,
@@ -323,7 +333,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [saveAccount, updateAvatar, createSessionAndLogin, selectedAccount]);
+  }, [saveAccount, updateNickname, updateAvatar, createSessionAndLogin, selectedAccount, accounts]);
 
   // 处理注册
   const handleRegister = useCallback(async (

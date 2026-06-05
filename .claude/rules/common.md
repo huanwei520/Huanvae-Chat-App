@@ -716,12 +716,14 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 
 2. **保存账号时无条件重写密码**：`save_account` 若无条件 `set_password`(写钥匙串)，那么登录流程里每次"刷新昵称/头像"都调 `saveAccount(…password…)` → 每次都重写钥匙串 → 每次弹框。尤其"已保存账号登录"——密码**刚从钥匙串读出、根本没变**，再写回纯属多余；以及"头像下载后 `.then(saveAccount(…password…))`"也是冗余写。
 
+3. **`set_password` 对【已存在】条目是 find+modify 两次操作 = 双弹框**(2026-06-05 实测查证)：keyring 3.6.3 `apple-native` 的 `set_password` 走 `security-framework` 的 `set_generic_password`(`os/macos/passwords.rs:269`)，它对**已存在**条目是 `find_generic_password`(读，ACL 弹框①) + `item.set_password`(改，ACL 弹框②)**两次**门控操作；只有条目**不存在**时才是单次 `SecKeychainAddGenericPassword`(ADD，应用自有不弹框)。所以"新登录 1 次写"这句**只对全新账号成立**；对**已存在账号重写密码**(再次登录/手动兜底)是 **2 次弹框**。**规则**：手动登录路径(`handleLogin`)必须 `isNewAccount ? saveAccount(…) : updateNickname(…)`——新账号才写钥匙串(ADD 单次)，已存在账号只更 JSON 元数据(0 写)。**代价**：已存在账号此处不再刷新本地密码 → 服务端改密后本地失效，需删账号重登(个人验证期可接受，须注释声明)。`get_password` 是单次 find(1 读 1 弹框)，无此问题。
+
 ### 规则：元数据写(JSON) 与 凭据写(钥匙串) 必须分开
 
 - 把账号信息(昵称/头像路径/server)存普通 JSON 文件，把**密码单独**存钥匙串。
 - 提供**只改元数据、不碰钥匙串**的命令(本项目：`update_account_nickname` / `update_account_avatar`，均只 `write_accounts` 不调 keyring)，登录后刷新昵称/头像走它们。
 - 钥匙串**写**只在"用户首次输入/修改密码"那一刻发生(本项目：手动登录/注册的 `saveAccount`)。已保存账号登录、信息刷新一律不写钥匙串。
-- 目标：已保存账号登录 = **1 次钥匙串读(0 写)**；新登录 = **1 次写**。
+- 目标：已保存账号登录 = **1 次钥匙串读(0 写)**；**全新账号**登录 = **1 次 ADD(不弹框)**；**已存在账号手动重登 = 0 写**(走 updateNickname，见上 #3，否则 find+modify 双弹框)。
 
 ### 彻底消除弹框(本次未做，记为方向)
 
