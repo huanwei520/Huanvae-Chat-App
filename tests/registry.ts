@@ -73,6 +73,7 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
   { name: 'Avatar', path: 'components/common/Avatar', category: 'components', description: '头像组件' },
   { name: 'AIAvatar', path: 'components/common/AIAvatar', category: 'components', description: 'AI 助手头像组件' },
+  { name: 'AvatarCropModal', path: 'components/common/AvatarCropModal', category: 'components', description: '头像裁剪弹窗（1:1，个人/群头像共用，含 useAvatarCrop Hook）' },
   { name: 'MarkdownRenderer', path: 'components/common/MarkdownRenderer', category: 'components', description: 'Markdown 渲染组件（聊天气泡内容）' },
   { name: 'CircularProgress', path: 'components/common/CircularProgress', category: 'components', description: '环形进度条' },
   { name: 'ErrorToast', path: 'components/common/ErrorToast', category: 'components', description: '错误提示' },

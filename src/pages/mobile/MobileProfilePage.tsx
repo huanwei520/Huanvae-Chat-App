@@ -20,6 +20,7 @@ import { useAccounts } from '../../hooks/useAccounts';
 import { uploadAvatar, getProfile, updateProfile } from '../../api/profile';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { AvatarUploader, ProfileInfoForm, PasswordForm } from '../../components/profile';
+import { useAvatarCrop } from '../../components/common/AvatarCropModal';
 
 // 返回图标
 const BackIcon = () => (
@@ -67,6 +68,7 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
   // 头像上传状态
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const { requestCrop, cropModal } = useAvatarCrop();
 
   // 昵称更新状态
   const [updatingNickname, setUpdatingNickname] = useState(false);
@@ -90,6 +92,10 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
       return;
     }
 
+    // 选图后先裁剪（1:1）；取消则不上传
+    const cropped = await requestCrop(file);
+    if (!cropped) { return; }
+
     setUploadingAvatar(true);
     setUploadProgress(0);
     setError(null);
@@ -98,7 +104,7 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
       await uploadAvatar(
         session.serverUrl,
         session.accessToken,
-        file,
+        cropped,
         (progress) => setUploadProgress(progress),
       );
 
@@ -264,6 +270,7 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
           </AnimatePresence>
         </div>
       </div>
+      {cropModal}
     </motion.div>
   );
 }
