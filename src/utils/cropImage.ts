@@ -33,33 +33,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * 将 imageSrc 按裁剪区域 area 裁出正方形并导出 jpeg Blob。
- *
- * @param imageSrc 图片地址（通常是 URL.createObjectURL 生成的本地 blob URL）
- * @param area 裁剪区域（像素，来自 react-easy-crop 的 croppedAreaPixels）
- * @param outputSize 导出边长上限（默认 512）
- * @param quality jpeg 质量 0-1（默认 0.9）
- */
-export async function getCroppedBlob(
-  imageSrc: string,
-  area: CropArea,
-  outputSize = 512,
-  quality = 0.9,
-): Promise<Blob> {
-  const img = await loadImage(imageSrc);
-  const size = pickOutputSize(area.width, outputSize);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('无法创建画布上下文');
-  }
-  ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, size, size);
-
-  return new Promise<Blob>((resolve, reject) => {
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
         if (blob) {
@@ -72,4 +47,56 @@ export async function getCroppedBlob(
       quality,
     );
   });
+}
+
+/**
+ * 将 imageSrc 按裁剪区域 area 裁出正方形并导出 jpeg Blob。
+ *
+ * 保证产物 <= maxBytes：先逐步降低 jpeg 质量，仍超限再缩小边长。
+ * 这样裁剪前可放任意大图，裁剪后体积始终受控（默认 ≤2MB），符合后端上传限制。
+ *
+ * @param imageSrc 图片地址（通常是 URL.createObjectURL 生成的本地 blob URL）
+ * @param area 裁剪区域（像素，来自 react-easy-crop 的 croppedAreaPixels）
+ * @param outputSize 导出边长上限（默认 512）
+ * @param maxBytes 产物大小上限（默认 2MB）
+ */
+export async function getCroppedBlob(
+  imageSrc: string,
+  area: CropArea,
+  outputSize = 512,
+  maxBytes = 2 * 1024 * 1024,
+): Promise<Blob> {
+  const img = await loadImage(imageSrc);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('无法创建画布上下文');
+  }
+
+  const draw = (edge: number) => {
+    canvas.width = edge;
+    canvas.height = edge;
+    ctx.clearRect(0, 0, edge, edge);
+    ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, edge, edge);
+  };
+
+  let size = pickOutputSize(area.width, outputSize);
+  draw(size);
+  let blob = await canvasToBlob(canvas, 0.9);
+
+  // 递减依赖上一次结果，必须顺序 await
+  /* eslint-disable no-await-in-loop */
+  let quality = 0.9;
+  while (blob.size > maxBytes && quality > 0.4) {
+    quality -= 0.15;
+    blob = await canvasToBlob(canvas, quality);
+  }
+  while (blob.size > maxBytes && size > 64) {
+    size = Math.floor(size / 2);
+    draw(size);
+    blob = await canvasToBlob(canvas, 0.8);
+  }
+  /* eslint-enable no-await-in-loop */
+
+  return blob;
 }
