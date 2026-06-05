@@ -72,6 +72,8 @@ export async function getCroppedBlob(
   if (!ctx) {
     throw new Error('无法创建画布上下文');
   }
+  // 高质量降采样：原图大比例缩到目标边长时减少软化/锯齿（默认是 'low'）
+  ctx.imageSmoothingQuality = 'high';
 
   const draw = (edge: number) => {
     canvas.width = edge;
