@@ -61,6 +61,7 @@ import * as useScrollAnchorRestore from '../../src/hooks/useScrollAnchorRestore'
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
 import * as AIAvatar from '../../src/components/common/AIAvatar';
+import * as AvatarCropModal from '../../src/components/common/AvatarCropModal';
 import * as MarkdownRenderer from '../../src/components/common/MarkdownRenderer';
 import * as CircularProgress from '../../src/components/common/CircularProgress';
 import * as ErrorToast from '../../src/components/common/ErrorToast';
@@ -263,6 +264,7 @@ const COMPONENT_MAP = {
   // 通用组件
   Avatar,
   AIAvatar,
+  AvatarCropModal,
   MarkdownRenderer,
   CircularProgress,
   ErrorToast,

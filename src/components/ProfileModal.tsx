@@ -16,6 +16,7 @@ import { useAccounts } from '../hooks/useAccounts';
 import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarUploader, ProfileInfoForm, PasswordForm, CloseIcon } from './profile';
+import { useAvatarCrop } from './common/AvatarCropModal';
 
 // ============================================
 // 类型定义
@@ -44,6 +45,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   // 头像上传状态
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const { requestCrop, cropModal } = useAvatarCrop();
 
   // 昵称更新状态
   const [updatingNickname, setUpdatingNickname] = useState(false);
@@ -65,6 +67,10 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       return;
     }
 
+    // 选图后先裁剪（1:1）；取消则不上传
+    const cropped = await requestCrop(file);
+    if (!cropped) { return; }
+
     setUploadingAvatar(true);
     setUploadProgress(0);
     setError(null);
@@ -73,7 +79,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       await uploadAvatar(
         session.serverUrl,
         session.accessToken,
-        file,
+        cropped,
         (progress) => setUploadProgress(progress),
       );
 
@@ -279,6 +285,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           </motion.div>
         </motion.div>
       )}
+      {cropModal}
     </AnimatePresence>
   );
 }

@@ -301,6 +301,9 @@ export function ChatMenuButton({
         onChange={menu.handleAvatarUpload}
       />
 
+      {/* 群头像裁剪弹窗 */}
+      {menu.avatarCropModal}
+
       <AnimatePresence>
         {menu.isOpen && (
           <motion.div

@@ -18,8 +18,9 @@
  * 而无需等待 target prop 变化，避免组件重新挂载
  */
 
-import { useState, useRef, useEffect, useCallback, type ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type ChangeEvent, type ReactNode } from 'react';
 import { useSession, useApi } from '../../contexts/SessionContext';
+import { useAvatarCrop } from '../../components/common/AvatarCropModal';
 import { useChatStore } from '../../stores';
 import { removeFriend } from '../../api/friends';
 import {
@@ -123,6 +124,8 @@ export interface UseChatMenuReturn {
   handleRemoveFriend: () => Promise<void>;
   handleUpdateGroupName: () => Promise<void>;
   handleAvatarUpload: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  /** 头像裁剪弹窗（需在使用方渲染） */
+  avatarCropModal: ReactNode;
   handleInviteMember: () => Promise<void>;
   handleLoadMembers: () => Promise<void>;
   handleLeaveGroup: () => Promise<void>;
@@ -196,6 +199,7 @@ export function useChatMenu({
   // 上传进度
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const { requestCrop, cropModal } = useAvatarCrop();
 
   // 加载历史记录
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -374,10 +378,15 @@ export function useChatMenu({
     if (target.type !== 'group' || !e.target.files?.[0]) { return; }
 
     const file = e.target.files[0];
+    if (fileInputRef.current) { fileInputRef.current.value = ''; }
     if (file.size > 10 * 1024 * 1024) {
       setError('图片大小不能超过 10MB');
       return;
     }
+
+    // 选图后先裁剪（1:1）；取消则不上传
+    const cropped = await requestCrop(file);
+    if (!cropped) { return; }
 
     setUploadingAvatar(true);
     setAvatarUploadProgress(0);
@@ -386,7 +395,7 @@ export function useChatMenu({
       await uploadGroupAvatar(
         api,
         target.data.group_id,
-        file,
+        cropped,
         (progress) => setAvatarUploadProgress(progress),
       );
       setSuccess('群头像已更新');
@@ -402,7 +411,7 @@ export function useChatMenu({
         fileInputRef.current.value = '';
       }
     }
-  }, [api, target, onGroupUpdated]);
+  }, [api, target, onGroupUpdated, requestCrop]);
 
   // 邀请成员
   const handleInviteMember = useCallback(async () => {
@@ -775,6 +784,7 @@ export function useChatMenu({
     handleRemoveFriend,
     handleUpdateGroupName,
     handleAvatarUpload,
+    avatarCropModal: cropModal,
     handleInviteMember,
     handleLoadMembers,
     handleLeaveGroup,
