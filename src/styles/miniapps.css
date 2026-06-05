@@ -216,6 +216,21 @@
   overflow: hidden;
 }
 
+/* Rejection reason shown on the owner's rejected miniapp card.
+   No transform/opacity transition here: the card itself is framer-motion
+   controlled, this child must not compete for the same animated props. */
+.miniapp-card-reject-reason {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--status-error);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 8px;
+  word-break: break-word;
+}
+
 .miniapp-card-info {
   display: flex;
   align-items: center;
@@ -443,6 +458,25 @@
   border-color: rgba(59, 130, 246, 0.4);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
   background: rgba(30, 58, 95, 0.06);
+}
+
+/* Resource proposal row: CPU + memory side by side */
+.miniapp-field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.miniapp-field-row .miniapp-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Helper note under the resource inputs */
+.miniapp-field-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 /* ============================================

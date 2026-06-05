@@ -34,7 +34,7 @@ import {
   type MiniAppContainer,
 } from '../../hooks/useMiniApps';
 import { OAuthClientsPanel } from '../oauth/OAuthClientsPanel';
-import { buildMiniAppLaunchUrl } from './launch';
+import { buildMiniAppLaunchUrl, buildResourceProposal } from './launch';
 
 // ============================================
 // 类型定义
@@ -169,6 +169,8 @@ function CreateDialog({
   const [name, setName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
+  const [cpu, setCpu] = useState('');
+  const [mem, setMem] = useState('');
 
   const handleSubmit = () => {
     if (!name.trim() || !displayName.trim()) {
@@ -178,6 +180,7 @@ function CreateDialog({
       name: name.trim(),
       display_name: displayName.trim(),
       description: description.trim() || undefined,
+      ...buildResourceProposal(cpu, mem),
     });
   };
 
@@ -185,6 +188,8 @@ function CreateDialog({
     setName('');
     setDisplayName('');
     setDescription('');
+    setCpu('');
+    setMem('');
     onClose();
   };
 
@@ -249,6 +254,33 @@ function CreateDialog({
               rows={3}
             />
           </label>
+          <div className="miniapp-field-row">
+            <label className="miniapp-field">
+              <span className="miniapp-field-label">CPU 核数（提议）</span>
+              <input
+                type="number"
+                min="0.5"
+                step="0.5"
+                placeholder="默认 2"
+                value={cpu}
+                onChange={(e) => setCpu(e.target.value)}
+              />
+            </label>
+            <label className="miniapp-field">
+              <span className="miniapp-field-label">内存（提议，GB）</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="默认 2"
+                value={mem}
+                onChange={(e) => setMem(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="miniapp-field-hint">
+            资源为申请提议值，管理员审批时可调整，并受后端硬上限限制；留空则使用默认 2核 / 2GB。
+          </p>
         </div>
         <div className="miniapp-create-footer">
           <button className="miniapp-btn secondary" onClick={handleClose}>
@@ -347,7 +379,7 @@ function ContainerInfoDialog({
 }
 
 /** 小程序卡片 */
-function AppCard({
+export function AppCard({
   app,
   index,
   isMine,
@@ -402,6 +434,12 @@ function AppCard({
 
       {app.description && (
         <p className="miniapp-card-desc">{app.description}</p>
+      )}
+
+      {isMine && app.status === 'rejected' && app.reject_reason && (
+        <p className="miniapp-card-reject-reason">
+          驳回原因：{app.reject_reason}
+        </p>
       )}
 
       <div className="miniapp-card-info">

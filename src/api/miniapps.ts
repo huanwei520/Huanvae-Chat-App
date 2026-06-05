@@ -41,6 +41,12 @@ export interface MiniApp {
   created_at: string;
   updated_at: string;
   published_at: string | null;
+  /**
+   * 驳回原因：仅 status='rejected' 时非空（管理员驳回申请时填写）。
+   * 来自 `/api/miniapps/my` 与 `/api/miniapps/{id}`（MiniappDetail）；
+   * 已发布广场列表 `/api/miniapps`（MiniappListItem）不含此字段，故可选。
+   */
+  reject_reason?: string | null;
 }
 
 /** 提交小程序创建申请请求(审批制) */
