@@ -651,7 +651,17 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        // window-state 只记忆「尺寸/最大化/全屏」，不记忆位置 —— 配合窗口 center:true 始终居中打开，
+        // 避免恢复到屏外 / 右下角漂移被遮蔽（plugin 默认含 POSITION 会在多次启动后越漂越偏）。
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_clipboard_manager::init());
 
     // 移动端：不包含 updater 和 window-state 插件

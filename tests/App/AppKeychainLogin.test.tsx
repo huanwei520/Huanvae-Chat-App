@@ -14,7 +14,7 @@
  *   1. bio 重试循环仅移动端运行（isMobile 门控在前）
  *   2. 桌面存在"读一次失败即转手动登录"的分支（不重试）
  *   3. 登录路径不再"头像后 saveAccount 重写密码"
- *   4. 新登录仅对新账号写 keyring，已存在账号走 updateNickname（修复 C）
+ *   4. 手动登录无条件 saveAccount（迁移 App 私有 AES 后需每次种子，不再按 isNewAccount 跳过）
  *
  * 测试形式：源码静态扫描。原因：handleLoginWithAccount 嵌在 App.tsx 顶层巨型依赖图中，
  * 且登录走 plugin-http 通道 e2e 不可达；结构性测试足以防止回归到多次弹框。
@@ -46,12 +46,12 @@ describe('App.tsx 已保存账号登录钥匙串访问契约（macOS）', () => 
     expect(APP_SOURCE).not.toMatch(/updateAvatar\([^)]*\)\s*\.then\([\s\S]*?saveAccount/);
   });
 
-  it('新登录仅对【新账号】写 keyring，已存在账号走 updateNickname（避免 set_password 的 find+modify 双弹框）', () => {
-    // 修复 C：keyring set_password 对已存在条目是 find(读)+modify(写) 两次 ACL 操作，
-    // 未签名构建下会连弹两次。handleLogin 改为：isNewAccount ? saveAccount(...) : updateNickname(...)。
-    // 断言存在 isNewAccount 存在性判定，且 saveAccount 落在「新账号」三元分支、已存在分支走 updateNickname。
-    expect(APP_SOURCE).toMatch(/const\s+isNewAccount\s*=\s*!accounts\.some/);
-    expect(APP_SOURCE).toMatch(/isNewAccount[\s\S]*?\?[\s\S]*?saveAccount\([\s\S]*?:[\s\S]*?updateNickname\(/);
+  it('手动登录无条件 saveAccount（迁移到 App 私有 AES 后需每次种子，不再按 isNewAccount 跳过）', () => {
+    // macOS 改 App 私有 AES（静默无弹框）后，原"已存在账号走 updateNickname 跳过写"的 isNewAccount
+    // 优化(为躲 keyring find+modify 双弹框)已不适用：已存在账号迁移后 AES 存储为空，首次手动登录
+    // 必须写入，否则"密码未保存"死循环。故 handleLogin 改回无条件 saveAccount，且不再有 isNewAccount。
+    expect(APP_SOURCE).toMatch(/saveAccount\(userId, profile\.user_nickname, serverUrl, password, null\)/);
+    expect(APP_SOURCE).not.toMatch(/isNewAccount/);
   });
 
   it('桌面读密码失败按 未保存 / Touch ID / 其它 三类分流提示（macOS AES+Touch ID 迁移）', () => {
