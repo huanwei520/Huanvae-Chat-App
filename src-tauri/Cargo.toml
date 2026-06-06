@@ -171,7 +171,17 @@ windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_UI_Window
 keyring = { version = "3.6.3", features = ["linux-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3.6.3", features = ["apple-native"] }
+# macOS 不再用 keyring（系统钥匙串对未签名 App 每次读都弹 ACL 框，详见 .claude/rules/common.md）。
+# 改 App 私有 AES-256-GCM 加密文件存密码 + Touch ID(LocalAuthentication) 门禁。
+aes-gcm = "0.10"            # AES-256-GCM 认证加密
+getrandom = "0.2"          # 生成随机 nonce
+sha2 = "0.10"              # 由设备 host UUID 派生 256-bit 密钥
+libc = "0.2"               # gethostuuid 取设备 UUID
+# Touch ID：LocalAuthentication 的 LAContext（objc2 生态，与 tauri 已引入版本对齐）
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-local-authentication = "0.3"
+block2 = "0.6"
 
 # ============================================
 # 移动平台专属依赖 (Android/iOS)

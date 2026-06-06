@@ -202,22 +202,30 @@ function App() {
           }
         }
       } else {
-        // 桌面：getPassword = 系统钥匙串读，弹一次系统密码框。读失败（未保存/用户
-        // 拒绝/ACL 不信任）不重试——钥匙串弹框不是可重试的生物认证，重试只会反复
-        // 弹框（曾导致一次登录弹 5 次密码）；直接转手动输密码登录。
+        // 桌面：getPassword 读已保存密码。
+        // - macOS：App 私有 AES 加密文件 + Touch ID 门禁（无系统钥匙串弹框）。
+        // - Windows/Linux：系统凭据存储读一次。
+        // 失败（未保存 / Touch ID 取消或失败 / 无 Touch ID 硬件）一律不重试，直接转手动输密码登录。
         try {
           password = await getPassword(account.server_url, account.user_id);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
+          const notSaved = errMsg.includes('未找到保存的密码') || errMsg.includes('Account not found');
+          const biometric = errMsg.toLowerCase().includes('biometric') || errMsg.includes('Touch ID');
           setSelectedAccount(account);
           setAuthForm('login');
           setCurrentPage('login');
           setIsLoading(false);
-          setError(
-            errMsg.includes('未找到保存的密码')
-              ? '密码未保存，请重新输入密码登录'
-              : '读取保存的密码失败，请手动登录',
-          );
+
+          let errorMsg: string;
+          if (notSaved) {
+            errorMsg = '密码未保存，请重新输入密码登录';
+          } else if (biometric) {
+            errorMsg = 'Touch ID 未通过，请手动输入密码登录';
+          } else {
+            errorMsg = '读取保存的密码失败，请手动登录';
+          }
+          setError(errorMsg);
           return;
         }
       }

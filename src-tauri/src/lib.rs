@@ -41,6 +41,9 @@ mod lan_transfer;
 mod permissions;
 mod sounds;
 mod storage;
+// macOS 凭据存储：App 私有 AES + Touch ID（替代系统钥匙串，消除未签名 App 的 ACL 弹框）
+#[cfg(target_os = "macos")]
+mod macos_credential_store;
 mod user_data;
 
 // ============================================

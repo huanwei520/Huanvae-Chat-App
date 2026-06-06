@@ -725,9 +725,16 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 - 钥匙串**写**只在"用户首次输入/修改密码"那一刻发生(本项目：手动登录/注册的 `saveAccount`)。已保存账号登录、信息刷新一律不写钥匙串。
 - 目标：已保存账号登录 = **1 次钥匙串读(0 写)**；**全新账号**登录 = **1 次 ADD(不弹框)**；**已存在账号手动重登 = 0 写**(走 updateNickname，见上 #3，否则 find+modify 双弹框)。
 
-### 彻底消除弹框(本次未做，记为方向)
+### 彻底消除弹框 —— macOS 已改 App 私有 AES + Touch ID(2026-06-06 落地)
 
-即便压到 1 次，未签名 App 每次仍会弹那 1 次(ACL 不信任)。彻底消除需 **Developer ID 签名**(签名身份稳定后「始终允许」可持久)，或改用 **App 私有加密文件**(自管 AES) 存密码、绕开钥匙串 ACL。
+**根因复核(查证 Apple 官方 + Tauri 社区 + keyring crate 源码)**：未签名 / ad-hoc 签名 App 读系统钥匙串，`SecKeychainFindGenericPassword`(keyring `apple-native` 用的 legacy API)对"非本签名创建的条目"弹 ACL 框；Apple DTS(Quinn,论坛 thread 649081)证实可弹两个框("use confidential information" + "access key")。dev 每次 `cargo build` 签名变 → 每次都弹,点「允许」(非「始终允许」)下次还弹。**调试埋点实测确认：代码只读 1 次 keychain,2 个框全来自这一次调用 → 纯 OS/ACL 行为,代码层无解。**
+
+**为什么 keyring 自带的"数据保护钥匙串"也不行**：`use_apple_protected_store()`(iOS 风格,支持 Touch ID)在 macOS 需 `keychain-access-groups` entitlement = **必须签名**,未签名报 `errSecMissingEntitlement(-34018)`。Touch ID 用在钥匙串条目同样要数据保护钥匙串(legacy 文件型钥匙串**结构上不支持生物识别**,只认账户密码)。
+
+**落地方案(macOS only,仅 macOS 改,Win/Linux 保留 keyring)**：[macos_credential_store.rs](../../src-tauri/src/macos_credential_store.rs) —— 密码 AES-256-GCM 加密写 App 私有 `credentials.enc`(0600)；密钥 `SHA256(内置salt ‖ gethostuuid())`(换机不可解、不存盘)；读取前 `LAContext.evaluatePolicy(.biometrics)` Touch ID 门禁(objc2-local-authentication + block2 + mpsc 同步),失败/取消/无硬件 → 返回错误,前端 desktop 分支转手动登录(回退)。`storage.rs` 三套 cfg(macOS AES / Win-Linux keyring / mobile stub),`StorageError::Keyring`+`From<keyring::Error>` cfg 排除 macOS、`Crypto`/`Biometric` cfg macOS(否则 dead_code → clippy FAIL)。`Info.plist` 加 `NSFaceIDUsageDescription`。
+- **安全取舍(已与用户确认)**：未签名拿不到 Secure Enclave,密钥必须 App 无提示可派生 → 本质"强混淆 + Touch ID 体验门禁",非强加密,比系统钥匙串安全性下降,换 0 弹框 + Touch ID。
+- **Touch ID 未签名 dev 可行性需真机实测**(LAContext 不像钥匙串 ACL 依赖稳定签名,大概率可用;`tauri dev` 裸二进制无 .app Info.plist 时行为待验)。
+- **Developer ID 签名**仍是另一条路(签名稳定后系统钥匙串点一次「始终允许」永久生效)。
 
 ### 反例(2026-06-04)
 

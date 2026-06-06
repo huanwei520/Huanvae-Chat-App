@@ -13,6 +13,10 @@
         <string>_hvae-xfer._tcp</string>
     </array>
     
+    <!-- Touch ID / 生物识别用途说明（LocalAuthentication 解锁已保存的登录密码） -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>Huanvae Chat 使用 Touch ID 验证你的身份，以解锁已保存的登录密码、免去每次手动输入。</string>
+
     <!-- 应用类别 -->
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.social-networking</string>

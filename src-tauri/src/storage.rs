@@ -4,7 +4,8 @@
 //! 调用服务器格式使用下划线 "_"
 //!
 //! ## 平台差异
-//! - 桌面端：使用系统密钥链 (keyring) 安全存储密码，使用 dirs::data_local_dir() 获取数据目录
+//! - macOS：App 私有 AES-256-GCM 加密文件 + Touch ID（见 macos_credential_store），消除系统钥匙串 ACL 弹框
+//! - Windows/Linux：使用系统密钥链 (keyring) 安全存储密码，使用 dirs::data_local_dir() 获取数据目录
 //! - Android：使用 Tauri app.path().app_data_dir() API 获取可写数据目录，密码暂不持久化
 //! - iOS：暂未支持
 //!
@@ -71,9 +72,23 @@ pub enum StorageError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    // Windows/Linux 桌面端用 keyring；macOS 改 App 私有 AES（见 macos_credential_store）
     #[error("Keyring error: {0}")]
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(all(
+        not(target_os = "macos"),
+        not(target_os = "android"),
+        not(target_os = "ios")
+    ))]
     Keyring(String),
+
+    // macOS 私有加密存储专属错误
+    #[error("Crypto error: {0}")]
+    #[cfg(target_os = "macos")]
+    Crypto(String),
+
+    #[error("Biometric error: {0}")]
+    #[cfg(target_os = "macos")]
+    Biometric(String),
 
     #[error("Request error: {0}")]
     Request(String),
@@ -86,8 +101,12 @@ pub enum StorageError {
     PlatformNotSupported(String),
 }
 
-// 桌面端：keyring 错误转换
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+// Windows/Linux 桌面端：keyring 错误转换（macOS 不用 keyring）
+#[cfg(all(
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "ios")
+))]
 impl From<keyring::Error> for StorageError {
     fn from(err: keyring::Error) -> Self {
         StorageError::Keyring(err.to_string())
@@ -126,7 +145,7 @@ struct AccountsStore {
 /// ## 平台差异
 /// - 桌面端：使用 dirs::data_local_dir()（无需预初始化）
 /// - Android：使用 init_android_data_dir() 初始化的全局变量（需在 setup 阶段调用）
-fn get_app_data_dir() -> Result<PathBuf, StorageError> {
+pub(crate) fn get_app_data_dir() -> Result<PathBuf, StorageError> {
     // Android: 使用预初始化的全局变量
     #[cfg(target_os = "android")]
     let app_dir = {
@@ -182,10 +201,10 @@ fn get_accounts_file() -> Result<PathBuf, StorageError> {
     Ok(app_dir.join("accounts.json"))
 }
 
-/// 生成密钥链的 key（仅桌面端使用）
+/// 生成凭据条目 key（桌面端使用：Windows/Linux 作 keyring key，macOS 作私有加密文件的 map key）
 /// 格式: huanvae-chat-{server}-{user_id}
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn make_keyring_key(server_url: &str, user_id: &str) -> String {
+pub(crate) fn make_keyring_key(server_url: &str, user_id: &str) -> String {
     // 移除协议前缀和特殊字符，使用短横线
     let server_clean = server_url
         .replace("https://", "")
@@ -243,15 +262,25 @@ pub fn save_account(
     password: String,
     avatar_path: Option<String>,
 ) -> Result<(), StorageError> {
-    // 1. 保存密码到系统密钥链（仅桌面端）
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    // 1a. macOS：保存到 App 私有 AES 加密文件（替代系统钥匙串，消除 ACL 弹框）
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_credential_store::save_password(&server_url, &user_id, &password)?;
+    }
+
+    // 1b. Windows/Linux：保存到系统密钥链
+    #[cfg(all(
+        not(target_os = "macos"),
+        not(target_os = "android"),
+        not(target_os = "ios")
+    ))]
     {
         let key = make_keyring_key(&server_url, &user_id);
         let entry = keyring::Entry::new("huanvae-chat", &key)?;
         entry.set_password(&password)?;
     }
 
-    // 移动端暂不保存密码（需要用户每次登录输入）
+    // 1c. 移动端暂不保存密码（需要用户每次登录输入）
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         // 移动端：密码不持久化存储，仅保存账号信息
@@ -289,12 +318,20 @@ pub fn save_account(
     Ok(())
 }
 
-/// 获取账号密码（从系统密钥链）
+/// 获取账号密码 —— macOS：Touch ID 门禁 + 解密 App 私有加密文件
 ///
-/// ## 平台支持
-/// - 桌面端：从系统密钥链读取
-/// - 移动端：返回错误（需要用户手动输入）
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+/// 未保存 → AccountNotFound；Touch ID 失败/取消/无硬件 → Biometric。两者均由前端转手动登录。
+#[cfg(target_os = "macos")]
+pub fn get_account_password(server_url: &str, user_id: &str) -> Result<String, StorageError> {
+    crate::macos_credential_store::get_password(server_url, user_id)
+}
+
+/// 获取账号密码 —— Windows/Linux：从系统密钥链读取
+#[cfg(all(
+    not(target_os = "macos"),
+    not(target_os = "android"),
+    not(target_os = "ios")
+))]
 pub fn get_account_password(server_url: &str, user_id: &str) -> Result<String, StorageError> {
     let key = make_keyring_key(server_url, user_id);
     let entry = keyring::Entry::new("huanvae-chat", &key)?;
@@ -313,8 +350,18 @@ pub fn get_account_password(_server_url: &str, _user_id: &str) -> Result<String,
 
 /// 删除已保存的账号
 pub fn delete_account(server_url: &str, user_id: &str) -> Result<(), StorageError> {
-    // 1. 从密钥链删除密码（仅桌面端）
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    // 1a. macOS：从 App 私有加密文件删除（不弹框）
+    #[cfg(target_os = "macos")]
+    {
+        let _ = crate::macos_credential_store::delete_password(server_url, user_id);
+    }
+
+    // 1b. Windows/Linux：从系统密钥链删除
+    #[cfg(all(
+        not(target_os = "macos"),
+        not(target_os = "android"),
+        not(target_os = "ios")
+    ))]
     {
         let key = make_keyring_key(server_url, user_id);
         if let Ok(entry) = keyring::Entry::new("huanvae-chat", &key) {

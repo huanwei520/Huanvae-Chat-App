@@ -53,4 +53,12 @@ describe('App.tsx 已保存账号登录钥匙串访问契约（macOS）', () => 
     expect(APP_SOURCE).toMatch(/const\s+isNewAccount\s*=\s*!accounts\.some/);
     expect(APP_SOURCE).toMatch(/isNewAccount[\s\S]*?\?[\s\S]*?saveAccount\([\s\S]*?:[\s\S]*?updateNickname\(/);
   });
+
+  it('桌面读密码失败按 未保存 / Touch ID / 其它 三类分流提示（macOS AES+Touch ID 迁移）', () => {
+    // 修复 D：macOS 改 App 私有 AES + Touch ID 后，getPassword 失败可能是
+    // 未保存(AccountNotFound) 或 Touch ID 未通过(biometric)；desktop 分支应分流提示并转手动登录。
+    expect(APP_SOURCE).toMatch(/Account not found/);
+    expect(APP_SOURCE).toMatch(/biometric/);
+    expect(APP_SOURCE).toMatch(/Touch ID 未通过/);
+  });
 });

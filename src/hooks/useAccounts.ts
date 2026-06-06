@@ -6,7 +6,8 @@
  * 提供账号的增删改查功能。
  *
  * ## 平台差异
- * - 桌面端：使用 Tauri 后端 + 系统密钥链（keyring）存储密码
+ * - macOS：App 私有 AES 加密文件存密码 + Touch ID(LocalAuthentication) 门禁（无系统钥匙串弹框）
+ * - Windows/Linux：使用 Tauri 后端 + 系统密钥链（keyring）存储密码
  * - 移动端：使用 Tauri 后端存储账号信息 + plugin-store 安全存储密码
  */
 
