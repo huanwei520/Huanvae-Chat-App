@@ -640,7 +640,7 @@ fn hg_repair() -> Result<bool, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 桌面端：包含 updater、window-state 和 clipboard-manager 插件
+    // 桌面端：包含 updater 和 clipboard-manager 插件（不用 window-state，窗口每次居中不记忆）
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -651,20 +651,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // window-state 只记忆「尺寸/最大化/全屏」，不记忆位置 —— 配合窗口 center:true 始终居中打开，
-        // 避免恢复到屏外 / 右下角漂移被遮蔽（plugin 默认含 POSITION 会在多次启动后越漂越偏）。
-        .plugin(
-            tauri_plugin_window_state::Builder::new()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
-                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
-                )
-                .build(),
-        )
+        // 不用 window-state 插件：窗口每次按 tauri.conf.json 的 center:true 居中、默认尺寸打开，
+        // 不记忆位置/尺寸。原插件会在窗口创建（已居中）后恢复上次位置，造成"先居中再漂到右下角/屏外"。
         .plugin(tauri_plugin_clipboard_manager::init());
 
-    // 移动端：不包含 updater 和 window-state 插件
+    // 移动端：不包含 updater 插件
     // - store: 密码 + 会话持久化存储
     // - android-fs: 处理 content:// URI 文件读取（仅 Android）
     // - android-package-install: 应用内 APK 安装（仅 Android）
