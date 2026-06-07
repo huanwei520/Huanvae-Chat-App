@@ -19,8 +19,6 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
-use std::time::Duration;
 
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
@@ -140,48 +138,6 @@ fn write_map(map: &CredMap) -> Result<(), StorageError> {
 }
 
 // ============================================================================
-// Touch ID（LocalAuthentication / LAContext）
-// ============================================================================
-
-/// LAPolicyDeviceOwnerAuthenticationWithBiometrics = 1（仅生物识别，不回退系统密码）。
-const LA_POLICY_BIOMETRICS: objc2_local_authentication::LAPolicy =
-    objc2_local_authentication::LAPolicy::DeviceOwnerAuthenticationWithBiometrics;
-
-/// 弹 Touch ID 验证；通过返回 Ok，否则 Err（前端据此转手动登录）。
-fn touch_id_gate(reason: &str) -> Result<(), StorageError> {
-    use block2::RcBlock;
-    use objc2::runtime::Bool;
-    use objc2_foundation::NSString;
-    use objc2_local_authentication::LAContext;
-
-    let context = unsafe { LAContext::new() };
-
-    // canEvaluatePolicy:error: —— 无 Touch ID 硬件 / 未录入指纹时返回 Err
-    if unsafe { context.canEvaluatePolicy_error(LA_POLICY_BIOMETRICS) }.is_err() {
-        return Err(StorageError::Biometric(
-            "biometric_unavailable：本机不支持或未启用 Touch ID".to_string(),
-        ));
-    }
-
-    let reason_ns = NSString::from_str(reason);
-    let (tx, rx) = mpsc::channel::<bool>();
-    let reply = RcBlock::new(move |success: Bool, _err: *mut objc2_foundation::NSError| {
-        let _ = tx.send(success.as_bool());
-    });
-
-    unsafe {
-        context.evaluatePolicy_localizedReason_reply(LA_POLICY_BIOMETRICS, &reason_ns, &reply);
-    }
-
-    // evaluatePolicy 异步回调；阻塞等待结果（reply 在私有队列触发，不会死锁）
-    match rx.recv_timeout(Duration::from_secs(60)) {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(StorageError::Biometric("biometric_failed：Touch ID 验证未通过".to_string())),
-        Err(_) => Err(StorageError::Biometric("biometric_timeout：Touch ID 验证超时".to_string())),
-    }
-}
-
-// ============================================================================
 // 对外 API（storage.rs 的 macOS 分支调用）
 // ============================================================================
 
@@ -201,7 +157,18 @@ pub fn get_password(server_url: &str, user_id: &str) -> Result<String, StorageEr
     let Some(entry) = map.get(&key) else {
         return Err(StorageError::AccountNotFound);
     };
-    touch_id_gate("解锁已保存的登录密码")?;
+    // Touch ID 门禁：无 Touch ID 硬件 / 验证失败都转手动登录（前端 desktop 分支据 Biometric 错误回退）
+    match crate::macos_biometric::authenticate("解锁已保存的登录密码") {
+        crate::macos_biometric::BiometricResult::Authenticated => {}
+        crate::macos_biometric::BiometricResult::Unavailable => {
+            return Err(StorageError::Biometric(
+                "biometric_unavailable：本机不支持或未启用 Touch ID".to_string(),
+            ));
+        }
+        crate::macos_biometric::BiometricResult::Failed(e) => {
+            return Err(StorageError::Biometric(e));
+        }
+    }
     decrypt(entry)
 }
 

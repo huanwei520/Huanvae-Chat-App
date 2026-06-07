@@ -256,6 +256,14 @@ export default function HuanvaeGuardPage() {
       setError('请先选择一个设备');
       return;
     }
+    // 打开 VPN 前生物识别门禁：本机有 Touch ID 则优先验证（macOS）；通过或本机无 Touch ID（含
+    // Windows/Linux，命令返回 'unavailable'）→ 继续；取消/失败 → 抛错 → 中止打开。
+    try {
+      await invoke('biometric_authenticate', { reason: '打开 VPN 前验证身份' });
+    } catch {
+      setError('需要 Touch ID 验证才能打开 VPN');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

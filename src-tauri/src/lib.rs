@@ -44,6 +44,9 @@ mod storage;
 // macOS 凭据存储：App 私有 AES + Touch ID（替代系统钥匙串，消除未签名 App 的 ACL 弹框）
 #[cfg(target_os = "macos")]
 mod macos_credential_store;
+// macOS 生物识别（Touch ID）共享门禁：凭据解锁 + 打开 VPN 前验证复用
+#[cfg(target_os = "macos")]
+mod macos_biometric;
 mod user_data;
 
 // ============================================
@@ -638,6 +641,26 @@ fn hg_repair() -> Result<bool, String> {
     Ok(false)
 }
 
+/// macOS：生物识别（Touch ID）门禁。前端打开 VPN 前调用以"有 Touch ID 则优先生物识别"。
+/// - 通过 → `Ok("authenticated")`；无 Touch ID 硬件 → `Ok("unavailable")`（前端照常放行）；
+/// - 取消/失败/超时 → `Err(原因)`（前端中止动作）。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn biometric_authenticate(reason: String) -> Result<String, String> {
+    match macos_biometric::authenticate(&reason) {
+        macos_biometric::BiometricResult::Authenticated => Ok("authenticated".to_string()),
+        macos_biometric::BiometricResult::Unavailable => Ok("unavailable".to_string()),
+        macos_biometric::BiometricResult::Failed(e) => Err(e),
+    }
+}
+
+/// 非 macOS：无生物识别，返回 "unavailable"（前端照常放行，不门禁）。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn biometric_authenticate(_reason: String) -> Result<String, String> {
+    Ok("unavailable".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 桌面端：包含 updater 和 clipboard-manager 插件（不用 window-state，窗口每次居中不记忆）
@@ -887,6 +910,7 @@ pub fn run() {
             // HuanvaeGuard：macOS LaunchDaemon 首次安装 + 修复（其他平台占位返回 false）
             hg_ensure_installed,
             hg_repair,
+            biometric_authenticate,
             // 设备信息
             device_info::get_mac_address_cmd,
             // 局域网传输（基础）
