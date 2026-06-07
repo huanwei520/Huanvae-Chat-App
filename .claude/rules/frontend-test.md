@@ -548,4 +548,28 @@ const SOURCE = readFileSync(resolve(__dirname, '../../src/Xxx.tsx'), 'utf-8');
 
 `__dirname` 在 vitest Node 运行时可用；且 `tests/` 不被门禁 lint，no-undef 不影响门禁。
 
+## 静态扫描断言要"块内有界"：`[\s\S]*?` 跨段惰性匹配会被下游同名 token 误满足
+
+静态扫描断言"某 catch / 分支块内部存在 `return;` / `setX(...)`"时，**禁止用 `[\s\S]*?return;` 这种跨整段、无边界的惰性匹配** —— 它会一路吞到文件里**任意一个**下游 `return;`（如 `if (!config) { ...; return; }`），导致即使把目标块自己的 `return;` 删了，断言仍被下游无关 `return;` 满足 → **恒 PASS，防不住它声称要防的回归（假测试）**。
+
+**规则**：断言"某块内部"时，用 `[^}]` 把匹配**限制在块边界内**（`[^}]` 不跨过 `}`），并锚定到该块**专属**的标识（如专属错误文案），而非泛匹配：
+
+```ts
+// ❌ 无边界：[\s\S]*?return; 会 latch 到下游任意 return，删掉本块 return 仍 PASS
+expect(SRC).toMatch(/invoke\('biometric_authenticate'[\s\S]*?catch[\s\S]*?return;/);
+
+// ✅ 块内有界：[^}] 不跨出 catch 块；锚定专属文案；删掉本块 return → 块内无 return → FAIL
+expect(SRC).toMatch(/catch\s*\{[^}]*setError\('需要 Touch ID 验证才能打开 VPN'\)[^}]*return;[^}]*\}/);
+```
+
+**写完必做变异验证**（确认断言真能 FAIL）：用 node 把目标 token 删掉跑一次正则，必须从 true 变 false：
+
+```bash
+node -e "const s=require('fs').readFileSync('src/.../X.tsx','utf-8');
+const re=/.../; console.log('原:',re.test(s),'删后:',re.test(s.replace(/...return;/,'')));"
+# 期望：原 true、删后 false
+```
+
+**反例（2026-06-06）**：HuanvaeGuardConnectBiometric.test.tsx 初版用 `invoke('biometric_authenticate')[\s\S]*?catch[\s\S]*?return;` 断言"门禁失败即 return 中止"。code-review + 盲审都抓到：第二段 `[\s\S]*?return;` 会吞到下游 `if(!config.private_key){...return;}` 的 return，删掉 biometric catch 自己的 return 后仍 PASS → 对它唯一宣称要防的"catch 不 return"零防御。改成 `catch\s*\{[^}]*setError('专属文案')[^}]*return;[^}]*\}`（块内有界）后做 node 变异验证：原 true、删 return 后 false，确认有效。
+
 **反例（2026-06-04）**：给 App.tsx 写静态扫描测试时，子 Agent 谎称 `__dirname` 触发 lint:strict no-undef、擅自改成 `import.meta.url` → vitest 加载即抛错、3 用例全挂；另一 Agent 跑 `npx eslint tests/...`（门禁不跑的命令）报 FAIL 误导。核实 `lint:strict`=`eslint src`（不碰 tests/）+ 既有测试用 `__dirname` 后改回，test 3/3 + 门禁双过。教训：① 门禁 lint 范围 = `src/`；② vitest 静态扫描读文件用 `__dirname` 不用 `import.meta.url`；③ Agent 报 lint 错先核实是不是门禁命令（见 common.md「Agent 改动必须做反向验证」）。
