@@ -52,6 +52,25 @@ export function readReceiptText(readers: number, eligible: number): string | nul
   return readers >= eligible ? '全部已读' : `${readers} 人已读`;
 }
 
+/**
+ * 纯函数：某条群消息当前应展示的已读文案。
+ *
+ * msgSeq<=0（乐观发送窗口 / 从本地 DB 加载的旧消息，真实序号未分配）→ null 不展示。
+ * 关键：占位 0 必须挡掉——否则 countReadersAtSeq(_, 0, _) 把默认 last_read_seq=0 的
+ * 全体成员误计为已读，自己刚发出、无人读的消息瞬时虚显"全部已读"。
+ * 真实 seq 由发送响应回写 + WebSocket 回显补齐。
+ */
+export function groupReadReceiptText(
+  msgSeq: number,
+  readers: number,
+  eligible: number,
+): string | null {
+  if (msgSeq <= 0) {
+    return null;
+  }
+  return readReceiptText(readers, eligible);
+}
+
 /** 取群消息列表中的最大 seq（无则 0） */
 export function maxGroupSeqOf(messages: GroupMessage[]): number {
   return messages.reduce((max, m) => (m.seq > max ? m.seq : max), 0);

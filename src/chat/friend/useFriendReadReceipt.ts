@@ -29,9 +29,15 @@ export interface FriendReadReceipt {
   myLastReadSeq: number;
 }
 
-/** 某条消息是否已被读到：阅读者 last-read-seq >= 该消息 seq（seq 缺失时视为未读，如发送中） */
+/**
+ * 某条消息是否已被读到：阅读者 last-read-seq >= 该消息 seq。
+ *
+ * seq 缺失(undefined)或仍是占位 0（乐观发送窗口 / 从本地 DB 加载的旧消息）→ 视为未读。
+ * 关键：占位 0 必须挡掉——否则 readerLastReadSeq(>=0) >= 0 恒真，会让自己刚发出、
+ * 对方根本没读的消息瞬时虚显"已读"。真实 seq 由发送响应回写 + WebSocket 回显补齐。
+ */
 export function isReadBySeq(msgSeq: number | undefined, readerLastReadSeq: number): boolean {
-  if (msgSeq === undefined) {
+  if (msgSeq === undefined || msgSeq <= 0) {
     return false;
   }
   return readerLastReadSeq >= msgSeq;

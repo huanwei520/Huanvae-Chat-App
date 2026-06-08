@@ -479,6 +479,7 @@ export function useLocalGroupMessages(groupId: string | null) {
             ...msg,
             message_uuid: response.message_uuid,
             send_time: response.send_time,
+            seq: response.seq,
             sendStatus: 'sent',
           }
           : msg,
@@ -500,7 +501,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_hash: null,
         image_width: null,
         image_height: null,
-        seq: 0,
+        seq: response.seq,
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
@@ -509,7 +510,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       await db.saveMessage(localMessage);
 
       logLocal('消息发送成功并保存到本地', { uuid: response.message_uuid });
-      // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
+      // 注意：seq 已从发送响应回写；WebSocket 回显仅用于补充顺序等其它字段（不再主动触发同步）
     } catch (err) {
       logError('发送消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -608,6 +609,7 @@ export function useLocalGroupMessages(groupId: string | null) {
             ...msg,
             message_uuid: response.message_uuid,
             send_time: response.send_time,
+            seq: response.seq,
             sendStatus: 'sent',
           }
           : msg,
@@ -629,7 +631,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_hash: fileHash || null,
         image_width: null, // 图片尺寸在发送后由后端返回
         image_height: null,
-        seq: 0,
+        seq: response.seq,
         reply_to: null,
         is_recalled: false,
         is_deleted: false,
@@ -639,7 +641,7 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       logLocal('媒体消息发送成功', { uuid: response.message_uuid, hasFileLink: !!fileHash });
       logFileLink('媒体消息已链接到本地', { uuid: response.message_uuid, fileHash, localPath });
-      // 注意：不再主动触发同步，seq 会通过 WebSocket 推送更新
+      // 注意：seq 已从发送响应回写；WebSocket 回显仅用于补充顺序等其它字段（不再主动触发同步）
 
       return response;
     } catch (err) {

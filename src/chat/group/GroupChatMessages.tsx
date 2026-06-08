@@ -24,7 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
-import { useGroupReadReceipt, readReceiptText } from './useGroupReadReceipt';
+import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
@@ -303,7 +303,7 @@ export function GroupChatMessages({
               // 每条消息（含他人发的）都显示阅读状态：已读人数排除该消息发送者，应读 = member_count − 1
               let readReceipt: { text: string } | undefined;
               if (message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
-                const text = readReceiptText(countReaders(message.seq, message.sender_id), memberCount - 1);
+                const text = groupReadReceiptText(message.seq, countReaders(message.seq, message.sender_id), memberCount - 1);
                 if (text) {
                   readReceipt = { text };
                 }

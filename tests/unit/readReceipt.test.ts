@@ -2,15 +2,16 @@
  * 已读回执纯函数单元测试
  *
  * 覆盖：
- * - isReadBySeq（按 seq 判定：阅读者 last-read-seq >= 消息 seq → 已读；seq 缺失 → 未读）
+ * - isReadBySeq（按 seq 判定：阅读者 last-read-seq >= 消息 seq → 已读；seq 缺失/占位 0 → 未读）
  * - maxSeqOf / maxGroupSeqOf（取消息列表最大 seq）
  * - countReadersAtSeq（群聊：读到某 seq 的成员数，排除发送者）
  * - readReceiptText（群聊文案：全部已读 / N 人已读 / 无应读者 null）
+ * - groupReadReceiptText（群聊文案 + seq>0 守卫：占位 0 → null，防虚显"全部已读"）
  */
 
 import { describe, it, expect } from 'vitest';
 import { isReadBySeq, maxSeqOf } from '../../src/chat/friend/useFriendReadReceipt';
-import { countReadersAtSeq, readReceiptText, maxGroupSeqOf } from '../../src/chat/group/useGroupReadReceipt';
+import { countReadersAtSeq, readReceiptText, groupReadReceiptText, maxGroupSeqOf } from '../../src/chat/group/useGroupReadReceipt';
 import type { Message } from '../../src/types/chat';
 import type { GroupMessage } from '../../src/api/groupMessages';
 
@@ -29,6 +30,12 @@ describe('isReadBySeq（按 seq 已读判定）', () => {
 
   it('阅读者位置 < 消息 seq 返回 false', () => {
     expect(isReadBySeq(5, 4)).toBe(false);
+  });
+
+  it('消息 seq 为占位 0（乐观发送窗口/旧本地消息）一律返回 false（防自己刚发的消息虚显已读，回归用例）', () => {
+    // 若不挡 seq=0：readerLastReadSeq(>=0) >= 0 恒真 → 误判已读
+    expect(isReadBySeq(0, 100)).toBe(false);
+    expect(isReadBySeq(0, 0)).toBe(false);
   });
 });
 
@@ -94,5 +101,22 @@ describe('readReceiptText（群聊文案）', () => {
 
   it('无人已读显示"0 人已读"', () => {
     expect(readReceiptText(0, 2)).toBe('0 人已读');
+  });
+});
+
+describe('groupReadReceiptText（含 seq>0 守卫的群消息文案）', () => {
+  it('seq 为占位 0（乐观发送窗口/旧本地消息）→ null 不展示（防虚显"全部已读"，回归用例）', () => {
+    // 若不挡：countReaders(0,_) 把默认 last_read_seq=0 全体计入 → readReceiptText 误显"全部已读"
+    expect(groupReadReceiptText(0, 3, 3)).toBeNull();
+    expect(groupReadReceiptText(0, 0, 3)).toBeNull();
+  });
+
+  it('seq>0 时按已读/应读人数走 readReceiptText（全部已读 / N 人已读）', () => {
+    expect(groupReadReceiptText(5, 3, 3)).toBe('全部已读');
+    expect(groupReadReceiptText(5, 1, 3)).toBe('1 人已读');
+  });
+
+  it('seq>0 但无应读者（eligible<=0，如单人群）→ null', () => {
+    expect(groupReadReceiptText(5, 0, 0)).toBeNull();
   });
 });
