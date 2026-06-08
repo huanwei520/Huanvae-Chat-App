@@ -321,7 +321,7 @@ function ImageMessage({
           onOpenWith={localPath ? () => openInFolder(localPath) : undefined}
           onDownload={
             !isLocal && fileHash && src
-              ? () => triggerBackgroundDownload(src, fileHash, filename, 'image', undefined)
+              ? () => triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'image', undefined)
               : undefined
           }
         />
@@ -442,7 +442,7 @@ function VideoMessage({
       // 这样消息列表中可以显示下载进度
       if (!isDownloaded && !isDownloading && fileHash && src) {
         triggerBackgroundDownload(
-          src,
+          presignedUrl ?? src,
           fileHash,
           filename,
           'video',
@@ -459,7 +459,7 @@ function VideoMessage({
     // 如果文件未下载且有 fileHash 和 src，开始下载
     if (!isDownloaded && !isDownloading && fileHash && src) {
       triggerBackgroundDownload(
-        src,
+        presignedUrl ?? src,
         fileHash,
         filename,
         'video',
@@ -560,7 +560,7 @@ function VideoMessage({
           onOpenWith={actualLocalPath ? () => openInFolder(actualLocalPath) : undefined}
           onDownload={
             !isLocal && fileHash && src
-              ? () => triggerBackgroundDownload(src, fileHash, filename, 'video', fileSize ?? undefined)
+              ? () => triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'video', fileSize ?? undefined)
               : undefined
           }
         />
@@ -599,7 +599,7 @@ function DocumentMessage({
   friendId?: string;
 }) {
   const [showPreview, setShowPreview] = useState(false);
-  const { src, isLocal, localPath, openInFolder } = useFileCache({
+  const { src, presignedUrl, isLocal, localPath, openInFolder } = useFileCache({
     fileUuid,
     fileHash,
     fileName: filename,
@@ -629,14 +629,14 @@ function DocumentMessage({
       openInFolder(actualLocalPath);
     } else if (!isDownloading && src && fileHash) {
       triggerBackgroundDownload(
-        src,
+        presignedUrl ?? src,
         fileHash,
         filename,
         'document',
         fileSize ?? undefined,
       );
     }
-  }, [isDownloaded, actualLocalPath, isDownloading, src, fileHash, filename, fileSize, openInFolder]);
+  }, [isDownloaded, actualLocalPath, isDownloading, src, presignedUrl, fileHash, filename, fileSize, openInFolder]);
 
   return (
     <>

@@ -239,7 +239,7 @@ export function DocumentFileCard({
   onTouchEnd?: (e: React.TouchEvent) => void;
   formatDate: (dateStr: string) => string;
 }) {
-  const { src, localPath, isLocal, openInFolder } = useFileCache({
+  const { src, presignedUrl, localPath, isLocal, openInFolder } = useFileCache({
     fileUuid: file.file_uuid,
     fileHash: file.file_hash,
     fileName: file.filename,
@@ -267,7 +267,7 @@ export function DocumentFileCard({
     if (isDownloading) { return; }
     if (src && file.file_hash) {
       triggerBackgroundDownload(
-        src,
+        presignedUrl ?? src,
         file.file_hash,
         file.filename,
         'document',
@@ -280,6 +280,7 @@ export function DocumentFileCard({
     actualLocalPath,
     openInFolder,
     src,
+    presignedUrl,
     file.file_hash,
     file.filename,
     file.file_size,

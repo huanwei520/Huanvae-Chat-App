@@ -112,7 +112,7 @@ export function DocumentDownloadAction({
   layout = 'inline',
   variant = 'default',
 }: DocumentDownloadActionProps) {
-  const { src, isLocal, localPath, openInFolder } = useFileCache({
+  const { src, presignedUrl, isLocal, localPath, openInFolder } = useFileCache({
     fileUuid,
     fileHash,
     fileName: filename,
@@ -135,8 +135,9 @@ export function DocumentDownloadAction({
   const handleDownload = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (!src || !fileHash || isDownloaded || isDownloading) { return; }
-    triggerBackgroundDownload(src, fileHash, filename, 'document', fileSize ?? undefined);
-  }, [src, fileHash, filename, fileSize, isDownloaded, isDownloading]);
+    // 下载必须用原始 presignedUrl(Rust directIpUrl 改写 host→源站IP);src 是反代 loopback URL,被改写后变无效路径 → 400
+    triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'document', fileSize ?? undefined);
+  }, [src, presignedUrl, fileHash, filename, fileSize, isDownloaded, isDownloading]);
 
   const handleOpen = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

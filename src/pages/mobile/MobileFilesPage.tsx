@@ -373,6 +373,9 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewType, setPreviewType] = useState<'image' | 'video'>('image');
   const [previewSrc, setPreviewSrc] = useState('');
+  // 下载专用原始 presigned URL（与 previewSrc 区分：previewSrc 是显示用反代/asset，
+  // 下载必须用原始 URL，否则被 directIpUrl 改写 host→源站IP 后变无效路径 → 400）
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState('');
   const [previewFilename, setPreviewFilename] = useState('');
   // 当前预览文件的元信息（用于 useFileCache 订阅 + onDownload/onOpenWith 菜单回调）
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
@@ -659,6 +662,7 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
       }
 
       let previewUrl: string;
+      let downloadUrl = '';
 
       if (fileCategory === 'video') {
         // 视频：使用 getVideoSource 获取移动端兼容的 URL
@@ -666,11 +670,13 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
         try {
           const result = await getVideoSource(api, file.file_uuid, file.file_hash, 'user');
           previewUrl = result.src;
+          downloadUrl = result.presignedUrl ?? result.src;
           // 与桌面端 useVideoCache.onPlay 行为对齐：非本地 + 有 hash 时触发后台缓存
           // triggerBackgroundDownload 内部对同 fileHash 已下载/下载中会跳过，不会重复触发
           if (!result.isLocal && file.file_hash) {
+            // 下载用原始 presignedUrl(非反代 src,否则 directIpUrl 改写后 → 400)
             triggerBackgroundDownload(
-              result.src,
+              result.presignedUrl ?? result.src,
               file.file_hash,
               file.filename,
               'video',
@@ -700,11 +706,13 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
           // 使用本地路径
           const { convertFileSrc } = await import('@tauri-apps/api/core');
           previewUrl = convertFileSrc(localPath);
+          downloadUrl = previewUrl;
         } else {
-          // 获取预签名 URL
+          // 获取预签名 URL（getPresignedUrl 返回原始 URL，可直接用于下载）
           try {
             const result = await getPresignedUrl(api, file.file_uuid, 'user');
             previewUrl = result.url;
+            downloadUrl = result.url;
           } catch (err) {
             console.error('[MobileFilesPage] 获取预签名 URL 失败:', err);
             return;
@@ -714,6 +722,7 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
 
       setPreviewType(fileCategory as 'image' | 'video');
       setPreviewSrc(previewUrl);
+      setPreviewDownloadUrl(downloadUrl);
       setPreviewFilename(file.filename);
       setPreviewFile(file);
       setPreviewOpen(true);
@@ -893,12 +902,12 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
             : undefined
         }
         onDownload={
-          previewFile?.file_hash && previewSrc
+          previewFile?.file_hash && previewDownloadUrl
             ? () => {
               const hash = previewFile.file_hash;
               if (!hash) { return; }
               triggerBackgroundDownload(
-                previewSrc,
+                previewDownloadUrl,
                 hash,
                 previewFile.filename,
                 previewType,

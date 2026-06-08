@@ -287,11 +287,11 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
         useFileCacheStore.getState().removeDownloadTask(currentFileHash);
       }
 
-      // 触发重新下载
+      // 触发重新下载（用原始 presignedUrl，不能用反代 src，会被 directIpUrl 弄坏 → 400）
       const currentResult = resultRef.current;
       if (currentResult?.src && currentFileHash) {
         await triggerBackgroundDownload(
-          currentResult.src,
+          currentResult.presignedUrl ?? currentResult.src,
           currentFileHash,
           fileName,
           fileType,
