@@ -24,7 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
-import { useGroupReadReceipt } from './useGroupReadReceipt';
+import { useGroupReadReceipt, readReceiptText } from './useGroupReadReceipt';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
@@ -117,8 +117,8 @@ export function GroupChatMessages({
     });
   }, [messages]);
 
-  // 群已读回执：维护各成员已读位置，按每条消息 seq 统计"N 人已读"
-  const { countReaders } = useGroupReadReceipt(groupId ?? null);
+  // 群已读回执：维护各成员已读位置，按每条消息 seq 统计已读人数（应读人数 = member_count − 1，排除发送者）
+  const { countReaders, memberCount } = useGroupReadReceipt(groupId ?? null, sortedMessages);
 
   // 切换群组时重置状态
   useEffect(() => {
@@ -300,6 +300,15 @@ export function GroupChatMessages({
               const stableKey = getStableKey(message);
               const isSelected = selectedMessages.has(message.message_uuid);
 
+              // 每条消息（含他人发的）都显示阅读状态：已读人数排除该消息发送者，应读 = member_count − 1
+              let readReceipt: { text: string } | undefined;
+              if (message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
+                const text = readReceiptText(countReaders(message.seq, message.sender_id), memberCount - 1);
+                if (text) {
+                  readReceipt = { text };
+                }
+              }
+
               return (
                 <GroupMessageBubble
                   key={stableKey}
@@ -313,11 +322,7 @@ export function GroupChatMessages({
                   onDelete={() => onDelete?.(message.message_uuid)}
                   onEnterMultiSelect={onEnterMultiSelect}
                   isAdmin={isAdmin}
-                  readReceipt={
-                    isOwn && message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled
-                      ? { count: countReaders(message.seq, currentUserId) }
-                      : undefined
-                  }
+                  readReceipt={readReceipt}
                 />
               );
             })}

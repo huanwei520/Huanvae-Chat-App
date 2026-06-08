@@ -52,7 +52,7 @@ interface MessageBubbleProps {
   onDelete?: () => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
-  /** 已读回执：仅在自己最后一条已发消息上传入，决定显示"已读"/"未读" */
+  /** 已读回执：传入则显示"已读"/"未读"（我发的看对方是否已读、对方发的看我是否已读）；发送中/失败/已撤回不传 */
   readReceipt?: { isRead: boolean };
 }
 
@@ -444,7 +444,7 @@ export function MessageBubble({
                   />
                 )}
                 <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-                {isOwn && readReceipt && (
+                {readReceipt && (
                   <ReadReceiptLabel text={readReceipt.isRead ? '已读' : '未读'} />
                 )}
               </div>

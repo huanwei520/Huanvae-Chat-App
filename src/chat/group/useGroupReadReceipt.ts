@@ -1,27 +1,32 @@
 /**
- * 群聊已读回执 Hook
+ * 群聊已读回执 Hook（每条消息显示"全部已读 / N 人已读"）
  *
  * @module chat/group
  * @location src/chat/group/useGroupReadReceipt.ts
  *
- * 维护群内各成员的"已读到的消息序列号"(last-read-seq)，供发送方在每条自己发出的
- * 群消息上显示"N 人已读"。
+ * 维护群内各成员的"已读到的消息序列号"(last-read-seq)，供每条消息统计已读人数。
  *
  * 数据来源：
- * 1. 进入群聊时拉一次 GET /api/groups/{id}/read-positions 快照建立初始映射；
- * 2. 之后订阅 WebSocket 的 group read_sync（带 reader_id + seq）实时推进对应成员位置。
+ * 1. 进入群聊拉一次 GET /api/groups/{id}/read-positions 快照（各成员 last_read_seq + member_count）；
+ * 2. 订阅 WebSocket 的 group read_sync（带 reader_id + seq）实时推进对应成员位置；
+ * 3. 我在群内时 App 会自动 markRead，故把"我自己的位置"乐观推进到当前已加载消息的最大 seq，
+ *    使我对别人消息的已读也被统计在内。
  *
- * 某条消息 seq 的已读人数 = last-read-seq >= 该 seq 的成员数（排除发送者本人）。
+ * 某条消息(seq=S, sender=X)的已读人数 = last-read-seq>=S 的成员数（排除发送者 X）；
+ * 应读人数 = member_count − 1（排除发送者）。
  */
 
-import { useEffect, useState, useCallback } from 'react';
-import { useApi } from '../../contexts/SessionContext';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useApi, useSession } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getGroupReadPositions } from '../../api/groups';
+import type { GroupMessage } from '../../api/groupMessages';
 
 export interface GroupReadReceipt {
   /** 统计某条消息 seq 的已读人数（排除发送者 senderId 本人） */
   countReaders: (seq: number, senderId: string) => number;
+  /** 群活跃成员总数（含发送者） */
+  memberCount: number;
 }
 
 /**
@@ -37,15 +42,35 @@ export function countReadersAtSeq(
   ).length;
 }
 
-export function useGroupReadReceipt(groupId: string | null): GroupReadReceipt {
+/**
+ * 纯函数：根据已读人数与应读人数生成展示文案（"全部已读" / "N 人已读"）；无应读者返回 null（不展示）
+ */
+export function readReceiptText(readers: number, eligible: number): string | null {
+  if (eligible <= 0) {
+    return null;
+  }
+  return readers >= eligible ? '全部已读' : `${readers} 人已读`;
+}
+
+/** 取群消息列表中的最大 seq（无则 0） */
+export function maxGroupSeqOf(messages: GroupMessage[]): number {
+  return messages.reduce((max, m) => (m.seq > max ? m.seq : max), 0);
+}
+
+export function useGroupReadReceipt(groupId: string | null, messages: GroupMessage[]): GroupReadReceipt {
   const api = useApi();
   const ws = useWebSocket();
+  const { session } = useSession();
+  const myUserId = session?.userId ?? '';
+
   // member_id -> last_read_seq
   const [positions, setPositions] = useState<Record<string, number>>({});
+  const [memberCount, setMemberCount] = useState(0);
 
   // 拉取初始已读位置快照
   useEffect(() => {
     setPositions({});
+    setMemberCount(0);
     if (!groupId) {
       return undefined;
     }
@@ -60,6 +85,7 @@ export function useGroupReadReceipt(groupId: string | null): GroupReadReceipt {
           map[p.user_id] = p.last_read_seq;
         });
         setPositions(map);
+        setMemberCount(resp.member_count);
       })
       .catch((err) => {
         console.warn('[ReadReceipt] 获取群已读位置失败:', err);
@@ -89,10 +115,24 @@ export function useGroupReadReceipt(groupId: string | null): GroupReadReceipt {
     return unsubscribe;
   }, [ws, groupId]);
 
+  // 我在群内即视为已读到最新（App 打开/收到消息会 markRead），使我对别人消息的已读也被统计
+  const maxLoadedSeq = useMemo(() => maxGroupSeqOf(messages), [messages]);
+  useEffect(() => {
+    if (!myUserId || maxLoadedSeq <= 0) {
+      return;
+    }
+    setPositions((prev) => {
+      if ((prev[myUserId] ?? 0) >= maxLoadedSeq) {
+        return prev;
+      }
+      return { ...prev, [myUserId]: maxLoadedSeq };
+    });
+  }, [myUserId, maxLoadedSeq]);
+
   const countReaders = useCallback(
     (seq: number, senderId: string) => countReadersAtSeq(positions, seq, senderId),
     [positions],
   );
 
-  return { countReaders };
+  return { countReaders, memberCount };
 }

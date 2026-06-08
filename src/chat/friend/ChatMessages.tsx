@@ -24,7 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
-import { useFriendReadReceipt, isMessageReadByPeer } from './useFriendReadReceipt';
+import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
@@ -122,17 +122,8 @@ export function ChatMessages({
     });
   }, [messages]);
 
-  // 私聊已读回执：订阅对方已读时间；仅在自己最后一条已发成功的消息上显示"已读/未读"
-  const peerReadAt = useFriendReadReceipt(friend.friend_id);
-  const lastOwnMessageUuid = useMemo(() => {
-    for (let i = sortedMessages.length - 1; i >= 0; i -= 1) {
-      const m = sortedMessages[i];
-      if (m.sender_id === session.userId && m.sendStatus !== 'sending' && m.sendStatus !== 'failed' && !m.is_recalled) {
-        return m.message_uuid;
-      }
-    }
-    return null;
-  }, [sortedMessages, session.userId]);
+  // 私聊已读回执：按 seq 双向。每条消息显示——我发的看对方是否已读、对方发的看我是否已读
+  const { peerLastReadSeq, myLastReadSeq } = useFriendReadReceipt(friend.friend_id, sortedMessages);
 
   // 切换好友时重置状态
   useEffect(() => {
@@ -395,6 +386,13 @@ export function ChatMessages({
               const stableKey = getStableKey(message);
               const isSelected = selectedMessages.has(message.message_uuid);
 
+              // 每条消息都显示：我发的看对方是否已读、对方发的看我是否已读；发送中/失败/已撤回不显示
+              let readReceipt: { isRead: boolean } | undefined;
+              if (!message.is_recalled && message.sendStatus !== 'sending' && message.sendStatus !== 'failed') {
+                const readerSeq = isOwn ? peerLastReadSeq : myLastReadSeq;
+                readReceipt = { isRead: isReadBySeq(message.seq, readerSeq) };
+              }
+
               return (
                 <MessageBubble
                   key={stableKey}
@@ -408,11 +406,7 @@ export function ChatMessages({
                   onRecall={() => onRecall?.(message.message_uuid)}
                   onDelete={() => onDelete?.(message.message_uuid)}
                   onEnterMultiSelect={onEnterMultiSelect}
-                  readReceipt={
-                    isOwn && message.message_uuid === lastOwnMessageUuid
-                      ? { isRead: isMessageReadByPeer(message.send_time, peerReadAt) }
-                      : undefined
-                  }
+                  readReceipt={readReceipt}
                 />
               );
             })}

@@ -66,7 +66,8 @@ export interface ReadPosition {
 /** 群已读位置响应（client.ts 已解包 ApiResponse.data） */
 export interface GroupReadPositionsResponse {
   positions: ReadPosition[];
-  // 注：后端同时返回 member_count（活跃成员总数），App 端"N 人已读"只需 positions，故不声明该字段
+  /** 群活跃成员总数（含发送者）；某条消息应读人数 = member_count − 1（排除发送者） */
+  member_count: number;
 }
 
 /** 收到的群邀请 */

@@ -11,6 +11,24 @@ import type {
   SendMessageResponse,
 } from '../types/chat';
 
+/** 私聊会话双方已读位置（client.ts 已解包 ApiResponse.data） */
+export interface FriendReadPositionsResponse {
+  /** 当前用户在本会话已读到的序列号（用于"对方发的消息我是否已读"） */
+  my_last_read_seq: number;
+  /** 对方在本会话已读到的序列号（用于"我发的消息对方是否已读"） */
+  peer_last_read_seq: number;
+}
+
+/**
+ * 获取私聊会话双方的已读位置（已读回执初始快照）
+ */
+export function getFriendReadPositions(
+  api: ApiClient,
+  friendId: string,
+): Promise<FriendReadPositionsResponse> {
+  return api.get<FriendReadPositionsResponse>(`/api/messages/${friendId}/read-positions`);
+}
+
 /**
  * 获取消息列表
  *

@@ -54,8 +54,8 @@ interface GroupMessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 当前用户是否为管理员/群主（可撤回任意消息） */
   isAdmin?: boolean;
-  /** 已读回执：仅在自己发出的消息上传入，显示"N 人已读" */
-  readReceipt?: { count: number };
+  /** 已读回执：传入则显示阅读状态文案（"全部已读" / "N 人已读"）；发送中/失败/已撤回不传 */
+  readReceipt?: { text: string };
 }
 
 // 使用统一的消息动画配置
@@ -455,9 +455,7 @@ export function GroupMessageBubble({
                   />
                 )}
                 <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-                {isOwn && readReceipt && (
-                  <ReadReceiptLabel text={readReceipt.count > 0 ? `${readReceipt.count} 人已读` : '未读'} />
-                )}
+                {readReceipt && <ReadReceiptLabel text={readReceipt.text} />}
               </div>
             </div>
           </motion.div>

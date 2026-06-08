@@ -141,7 +141,7 @@ export interface WsReadSync {
   source_id: string;
   reader_id: string;
   read_at: string;
-  /** 已读到的消息序列号（群聊为该成员在本群的 last-read-seq，用于"N 人已读"统计；私聊不含此字段） */
+  /** 已读到的消息序列号（reader 在该会话/群的 last-read-seq）：私聊用于"我发的消息对方是否已读"、群聊用于"N 人已读"。私聊与群聊均携带 */
   seq?: number;
 }
 
