@@ -27,6 +27,7 @@ import { LowcodePage } from './lowcode';
 import { HuanvaeGuardPage } from './huanvaeGuard';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
+import { initSafeAreaFallback } from './utils/safeAreaFallback';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
@@ -94,6 +95,10 @@ function renderApp() {
 const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/lowcode']);
 
 async function bootstrap(): Promise<void> {
+  // 安全区兜底:老旧移动端 WebView 的 env(safe-area-inset-*) 失效时(上下同时为 0)注入固定高度
+  // 到 :root --sai-top/--sai-bottom(各处 mobile CSS 用 max(env(...), var(--sai-*, 0px)) 消费)。
+  // 同步执行、渲染前设好,避免首帧顶/底贴系统栏的闪烁。
+  initSafeAreaFallback();
   // 所有窗口都需回环安全反代:头像/图片等 webview 原生加载经 http://127.0.0.1:<port> 中转(验不过私有 CA
   // 自签 leaf,必须走反代)。Rust 侧端口进程级共享 + 幂等,但每个 JS context 需各自取一次端口缓存到本地。
   await initSecureProxy();

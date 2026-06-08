@@ -219,7 +219,7 @@
    移动端适配（通过平台检测添加 .mobile 类）
    ============================================ */
 .update-toast-container.mobile {
-  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  top: calc(max(env(safe-area-inset-top, 0px), var(--sai-top, 0px)) + 8px);
   left: 8px;
   right: 8px;
   transform: none;

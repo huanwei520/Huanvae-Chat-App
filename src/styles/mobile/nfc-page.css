@@ -34,7 +34,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+  padding: calc(12px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 16px 12px;
   background: linear-gradient(
     135deg,
     var(--white-alpha-90) 0%,
@@ -275,7 +275,7 @@
  */
 .nfc-feedback-toast {
   position: fixed;
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(80px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
   left: 0;
   right: 0;
   margin: 0 auto;

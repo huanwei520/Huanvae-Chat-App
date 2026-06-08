@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：edge-to-edge 下让 WebView 暴露 env(safe-area-inset-*)，
+         否则状态栏/导航栏安全区一律取 0（移动端各处 mobile CSS 依赖此值避让系统栏） -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Tauri + React + Typescript</title>
   </head>
 

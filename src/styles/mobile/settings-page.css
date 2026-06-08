@@ -27,12 +27,12 @@
 
 /* 覆盖 SettingsPanel 的头部样式，添加安全区域 */
 .mobile-settings-page .settings-panel-header {
-  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-top: calc(16px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px)));
 }
 
 /* 覆盖 SettingsPanel 的内容区域，添加底部安全区域 */
 .mobile-settings-page .settings-panel-content {
-  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(16px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
 }
 
 /* 覆盖 SettingsPanel 的背景，使用移动端毛玻璃效果 */
