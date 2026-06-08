@@ -14,7 +14,7 @@
   justify-content: center;
   /* 占位：pill 高 44 + 上下边距 12 = 56；底部 safe-area 内嵌 */
   height: 56px;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px));
   background: transparent;
   z-index: 10;
 }
