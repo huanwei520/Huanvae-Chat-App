@@ -24,6 +24,7 @@
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
+import { useGroupReadReceipt } from './useGroupReadReceipt';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
@@ -115,6 +116,9 @@ export function GroupChatMessages({
       return new Date(a.send_time).getTime() - new Date(b.send_time).getTime();
     });
   }, [messages]);
+
+  // 群已读回执：维护各成员已读位置，按每条消息 seq 统计"N 人已读"
+  const { countReaders } = useGroupReadReceipt(groupId ?? null);
 
   // 切换群组时重置状态
   useEffect(() => {
@@ -309,6 +313,11 @@ export function GroupChatMessages({
                   onDelete={() => onDelete?.(message.message_uuid)}
                   onEnterMultiSelect={onEnterMultiSelect}
                   isAdmin={isAdmin}
+                  readReceipt={
+                    isOwn && message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled
+                      ? { count: countReaders(message.seq, currentUserId) }
+                      : undefined
+                  }
                 />
               );
             })}

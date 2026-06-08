@@ -56,6 +56,19 @@ export interface GroupMembersResponse {
   total: number;
 }
 
+/** 群成员已读位置（用于群已读回执"N 人已读"统计） */
+export interface ReadPosition {
+  user_id: string;
+  /** 该成员在本群已读到的消息序列号 */
+  last_read_seq: number;
+}
+
+/** 群已读位置响应（client.ts 已解包 ApiResponse.data） */
+export interface GroupReadPositionsResponse {
+  positions: ReadPosition[];
+  // 注：后端同时返回 member_count（活跃成员总数），App 端"N 人已读"只需 positions，故不声明该字段
+}
+
 /** 收到的群邀请 */
 export interface GroupInvitation {
   request_id: string;
@@ -97,6 +110,13 @@ export function createGroup(api: ApiClient, data: CreateGroupRequest): Promise<C
  */
 export function getGroupMembers(api: ApiClient, groupId: string): Promise<GroupMembersResponse> {
   return api.get<GroupMembersResponse>(`/api/groups/${groupId}/members`);
+}
+
+/**
+ * 获取群已读位置（各成员 last-read-seq + 成员总数），用于群已读回执"N 人已读"
+ */
+export function getGroupReadPositions(api: ApiClient, groupId: string): Promise<GroupReadPositionsResponse> {
+  return api.get<GroupReadPositionsResponse>(`/api/groups/${groupId}/read-positions`);
 }
 
 /**

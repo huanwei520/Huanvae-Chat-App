@@ -123,6 +123,9 @@ import * as ChatMessages from '../../src/chat/friend/ChatMessages';
 import * as MessageBubble from '../../src/chat/friend/MessageBubble';
 import * as GroupChatMessages from '../../src/chat/group/GroupChatMessages';
 import * as GroupMessageBubble from '../../src/chat/group/GroupMessageBubble';
+import * as ReadReceiptLabel from '../../src/chat/shared/ReadReceiptLabel';
+import * as useFriendReadReceipt from '../../src/chat/friend/useFriendReadReceipt';
+import * as useGroupReadReceipt from '../../src/chat/group/useGroupReadReceipt';
 import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
 import * as AIMessageBubble from '../../src/chat/ai/AIMessageBubble';
 import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
@@ -361,6 +364,7 @@ const COMPONENT_MAP = {
   MessageBubble,
   GroupChatMessages,
   GroupMessageBubble,
+  ReadReceiptLabel,
   AIChatMessages,
   AIMessageBubble,
   AIHistoryPanel,
@@ -399,6 +403,8 @@ const COMPONENT_MAP = {
   useRegisterForm,
   useLocalFriendMessages,
   useLocalGroupMessages,
+  useFriendReadReceipt,
+  useGroupReadReceipt,
   useAIMessages,
   useWebRTC,
   useUpdateToast,
