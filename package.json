@@ -21,6 +21,7 @@
     "test:e2e:report": "playwright show-report",
     "test:animation": "playwright test --project=animation-health",
     "test:visual": "playwright test --project=chromium visual-regression",
+    "e2e:public": "cargo test --manifest-path src-tauri/Cargo.toml --test public_e2e -- --nocapture --test-threads=1",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm lint && pnpm test:run",
     "hg:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/hg-service.ps1 -Action install",

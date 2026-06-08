@@ -4,7 +4,7 @@
  * 测试 src/utils/avatar.ts 中的所有导出函数
  *
  * 包含测试：
- * - resolveServerAvatarUrl: 委托回环安全反代(secureProxy.proxyResourceUrl)解析头像 URL
+ * - resolveServerAvatarUrl: 委托回环安全反代(secureProxy.resolveDisplayUrl)解析头像 URL
  * - getLocalFileUrl: 调用 convertFileSrc，非绝对路径时警告
  * - getAvatarUrl: 优先本地，回退服务器（经反代解析），两者都无时返回 null
  * - isLocalFileUrl: asset:// 为 true，http:// 为 false
@@ -29,8 +29,9 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${path}`),
 }));
 
-// 把 secureProxy 的 proxyResourceUrl 替换为可控 stub,验证 avatar.ts 的委托契约
-const proxyMock = vi.hoisted(() => ({ proxyResourceUrl: vi.fn() }));
+// 把 secureProxy 的 resolveDisplayUrl 替换为可控 stub,验证 avatar.ts 的委托契约
+// （resolveDisplayUrl 自身的"后端反代/外部放行"逻辑在 secureProxy.test.ts 测）
+const proxyMock = vi.hoisted(() => ({ resolveDisplayUrl: vi.fn() }));
 vi.mock('../../src/services/secureProxy', () => proxyMock);
 
 describe('头像工具函数 (utils/avatar)', () => {
@@ -38,9 +39,9 @@ describe('头像工具函数 (utils/avatar)', () => {
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    proxyMock.proxyResourceUrl.mockReset();
+    proxyMock.resolveDisplayUrl.mockReset();
     // 默认: 把相对路径/URL 映射成可预期的反代 URL
-    proxyMock.proxyResourceUrl.mockImplementation((p: string | null | undefined) =>
+    proxyMock.resolveDisplayUrl.mockImplementation((p: string | null | undefined) =>
       p ? `http://127.0.0.1:47823/${String(p).replace(/^\/+/, '')}` : null,
     );
   });
@@ -49,25 +50,25 @@ describe('头像工具函数 (utils/avatar)', () => {
     warnSpy.mockRestore();
   });
 
-  describe('resolveServerAvatarUrl (委托 secureProxy.proxyResourceUrl)', () => {
-    it('把入参原样转交 proxyResourceUrl 并返回其结果', () => {
+  describe('resolveServerAvatarUrl (委托 secureProxy.resolveDisplayUrl)', () => {
+    it('把入参原样转交 resolveDisplayUrl 并返回其结果', () => {
       const out = resolveServerAvatarUrl('avatars/user123.jpg?t=1706000000');
-      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/user123.jpg?t=1706000000');
+      expect(proxyMock.resolveDisplayUrl).toHaveBeenCalledWith('avatars/user123.jpg?t=1706000000');
       expect(out).toBe('http://127.0.0.1:47823/avatars/user123.jpg?t=1706000000');
     });
 
-    it('proxyResourceUrl 返回 null 时原样返回 null（null/undefined/空串入参）', () => {
-      proxyMock.proxyResourceUrl.mockReturnValue(null);
+    it('resolveDisplayUrl 返回 null 时原样返回 null（null/undefined/空串入参）', () => {
+      proxyMock.resolveDisplayUrl.mockReturnValue(null);
       expect(resolveServerAvatarUrl(null)).toBeNull();
       expect(resolveServerAvatarUrl(undefined)).toBeNull();
       expect(resolveServerAvatarUrl('')).toBeNull();
-      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledTimes(3);
+      expect(proxyMock.resolveDisplayUrl).toHaveBeenCalledTimes(3);
     });
 
-    it('完整 URL 入参也透传给 proxyResourceUrl（由其决定是否改写）', () => {
-      proxyMock.proxyResourceUrl.mockReturnValue('http://127.0.0.1:47823/avatars/user.jpg');
+    it('完整 URL 入参也透传给 resolveDisplayUrl（由其决定是否改写）', () => {
+      proxyMock.resolveDisplayUrl.mockReturnValue('http://127.0.0.1:47823/avatars/user.jpg');
       const out = resolveServerAvatarUrl('https://api.huanvae.cn/avatars/user.jpg');
-      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('https://api.huanvae.cn/avatars/user.jpg');
+      expect(proxyMock.resolveDisplayUrl).toHaveBeenCalledWith('https://api.huanvae.cn/avatars/user.jpg');
       expect(out).toBe('http://127.0.0.1:47823/avatars/user.jpg');
     });
   });
@@ -94,17 +95,17 @@ describe('头像工具函数 (utils/avatar)', () => {
     it('有本地路径时应优先返回本地 URL（不走反代）', () => {
       const result = getAvatarUrl('/local/avatar.png', 'avatars/server.png');
       expect(result).toBe('asset://localhost//local/avatar.png');
-      expect(proxyMock.proxyResourceUrl).not.toHaveBeenCalled();
+      expect(proxyMock.resolveDisplayUrl).not.toHaveBeenCalled();
     });
 
     it('无本地路径时经反代解析服务器 URL', () => {
       const result = getAvatarUrl(null, 'avatars/user.jpg?t=123');
-      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/user.jpg?t=123');
+      expect(proxyMock.resolveDisplayUrl).toHaveBeenCalledWith('avatars/user.jpg?t=123');
       expect(result).toBe('http://127.0.0.1:47823/avatars/user.jpg?t=123');
     });
 
     it('两者都无时应返回 null', () => {
-      proxyMock.proxyResourceUrl.mockReturnValue(null);
+      proxyMock.resolveDisplayUrl.mockReturnValue(null);
       expect(getAvatarUrl(null, null)).toBeNull();
       expect(getAvatarUrl(undefined, undefined)).toBeNull();
       expect(getAvatarUrl('', '')).toBeNull();
@@ -112,7 +113,7 @@ describe('头像工具函数 (utils/avatar)', () => {
 
     it('本地路径为空时回退到服务器 URL（经反代）', () => {
       const result = getAvatarUrl('', 'avatars/server.png');
-      expect(proxyMock.proxyResourceUrl).toHaveBeenCalledWith('avatars/server.png');
+      expect(proxyMock.resolveDisplayUrl).toHaveBeenCalledWith('avatars/server.png');
       expect(result).toBe('http://127.0.0.1:47823/avatars/server.png');
     });
   });

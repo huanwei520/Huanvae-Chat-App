@@ -31,6 +31,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { secureHttp } from '../services/secureFetch';
 import { resolveForSecureHttp } from '../services/discovery';
+import { resolveDisplayUrl } from '../services/secureProxy';
 import { loadMediaData, clearMediaData } from './api';
 import {
   getCachedFilePath,
@@ -313,11 +314,12 @@ async function getFileSource(
   }
 
   // 3. 使用预获取的预签名 URL（如果有）
+  //    显示 src 经 resolveDisplayUrl 反代（私有 CA）；presignedUrl 保持原始（下载需要）。
   if (state.presignedUrl) {
     // eslint-disable-next-line no-console
     console.log('[MediaPreview] 使用预获取的预签名 URL');
     return {
-      src: state.presignedUrl,
+      src: resolveDisplayUrl(state.presignedUrl) ?? state.presignedUrl,
       isLocal: false,
       presignedUrl: state.presignedUrl,
       shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
@@ -336,7 +338,7 @@ async function getFileSource(
   );
 
   return {
-    src: url,
+    src: resolveDisplayUrl(url) ?? url,
     isLocal: false,
     presignedUrl: url,
     shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
@@ -494,7 +496,9 @@ function ImageViewer({ state }: { state: MediaState }) {
       console.warn('[MediaPreview] 无 fileHash，无法触发下载');
       return;
     }
-    const presignedUrl = fileSourceRef.current?.presignedUrl ?? src;
+    // 下载必须用**原始** presigned URL（Rust directIpUrl 重写 host→IP）；
+    // 不回退到 src —— src 现为反代 loopback URL，传给下载会被 directIpUrl 弄坏。
+    const presignedUrl = fileSourceRef.current?.presignedUrl;
     if (!presignedUrl) {
       console.warn('[MediaPreview] 无 presigned URL，无法触发下载');
       return;
@@ -506,7 +510,7 @@ function ImageViewer({ state }: { state: MediaState }) {
       'image',
       state.fileSize,
     );
-  }, [state.fileHash, state.filename, state.fileSize, src]);
+  }, [state.fileHash, state.filename, state.fileSize]);
 
   // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
   // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）
@@ -700,7 +704,8 @@ function VideoPlayer({ state }: { state: MediaState }) {
       console.warn('[MediaPreview] 无 fileHash，无法触发下载');
       return;
     }
-    const presignedUrl = fileSourceRef.current?.presignedUrl ?? src;
+    // 下载必须用**原始** presigned URL（Rust directIpUrl 重写）；不回退 src（现为反代 loopback）。
+    const presignedUrl = fileSourceRef.current?.presignedUrl;
     if (!presignedUrl) {
       console.warn('[MediaPreview] 无 presigned URL，无法触发下载');
       return;
@@ -712,7 +717,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
       'video',
       state.fileSize,
     );
-  }, [state.fileHash, state.filename, state.fileSize, src]);
+  }, [state.fileHash, state.filename, state.fileSize]);
 
   // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
   // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）

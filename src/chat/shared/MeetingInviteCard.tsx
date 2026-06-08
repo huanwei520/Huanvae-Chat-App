@@ -4,6 +4,7 @@ import { joinRoom, saveMeetingData } from '../../meeting/api';
 import { openMeetingWindow } from '../../meeting/components/MeetingEntryModal';
 import { isMobile } from '../../utils/platform';
 import { useChatStore } from '../../stores/chatStore';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 import type { MeetingInvitePayload } from '../../types/chat';
 import './MeetingInviteCard.css';
 
@@ -91,7 +92,7 @@ export function MeetingInviteCard({ messageContent }: MeetingInviteCardProps) {
           {payload.creator_avatar && (
             <img
               className="meeting-invite-avatar"
-              src={payload.creator_avatar}
+              src={resolveServerAvatarUrl(payload.creator_avatar) || ''}
               alt=""
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />

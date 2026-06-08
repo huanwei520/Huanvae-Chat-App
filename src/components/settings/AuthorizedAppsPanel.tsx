@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOAuthGrants } from '../../hooks/useOAuthGrants';
 import type { OAuthGrant } from '../../api/oauth';
+import { resolveDisplayUrl } from '../../services/secureProxy';
 import '../../styles/oauth.css';
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -86,7 +87,7 @@ const AppCard: React.FC<AppCardProps> = ({ grant, onRevoke, revoking }) => {
     >
       <div className="oauth-app-logo">
         {grant.app_logo_url ? (
-          <img src={grant.app_logo_url} alt={grant.app_name} />
+          <img src={resolveDisplayUrl(grant.app_logo_url) || ''} alt={grant.app_name} />
         ) : (
           grant.app_name.charAt(0).toUpperCase()
         )}

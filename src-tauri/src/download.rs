@@ -81,6 +81,9 @@ pub struct DownloadProgress {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn download_and_save_file(
     url: String,
+    // presigned 按 host 签名(SigV4 SignedHeaders=host):url 已被 JS 改写成源站 IP,需带【改写前的
+    // 原始 host】(=签名时的逻辑域名)当 Host 头,否则签名 host 不匹配 → MinIO 403。前端 downloadAndSaveFile 传入。
+    host: Option<String>,
     file_hash: String,
     file_name: String,
     file_type: String,
@@ -137,12 +140,17 @@ pub async fn download_and_save_file(
         },
     );
 
-    // 6. 钉 CA 客户端(连源站 IP / 无 SNI / 内置 CA,与 secure_http 同套信任;JS 已把 url 主机改写成 IP)
-    //    发起下载,自带连接池复用
-    let client = crate::secure_net::pinned_client(300)
+    // 6. 钉 CA 客户端连源站 IP(无 SNI / 内置 CA / mTLS,与 secure_http 同套信任;JS 已把 url 主机改写成 IP)。
+    //    必须显式带 Host=原始逻辑域名 + 强制 HTTP/1.1(用 pinned_http1_client,对齐 secure_proxy 反代):
+    //    presigned 按 host 签名(SignedHeaders=host),Host 不匹配 → 403;HTTP/2 下显式 Host 与
+    //    :authority(=URL 的 IP)冲突会被判 malformed 返 400,故必须 HTTP/1.1。
+    let client = crate::secure_net::pinned_http1_client(300)
         .map_err(|e| format!("构建下载 client 失败: {e}"))?;
-    let response = client
-        .get(&url)
+    let mut req = client.get(&url);
+    if let Some(h) = host.as_deref() {
+        req = req.header(reqwest::header::HOST, h);
+    }
+    let response = req
         .send()
         .await
         .map_err(|e| format!("请求失败: {}", e))?;

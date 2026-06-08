@@ -13,6 +13,8 @@
 import { invoke } from '@tauri-apps/api/core';
 
 let proxyPortValue = 0;
+/** 反代目标源站的逻辑域名(setProxyTarget 时缓存),用于 resolveDisplayUrl 判定"后端 vs 外部"。 */
+let proxyHostValue = '';
 
 /** 启动回环反代并缓存端口(幂等)。在渲染任何远程头像/图片前调用。 */
 export async function initSecureProxy(): Promise<number> {
@@ -26,6 +28,7 @@ export async function initSecureProxy(): Promise<number> {
 
 /** 设置/更新反代目标源站(discovery 选定 active 后调用)。host=源站逻辑域名(反代转发时显式设的 Host 头)。 */
 export async function setProxyTarget(ip: string, port: number, host: string): Promise<void> {
+  proxyHostValue = host;
   try {
     await invoke('set_proxy_target', { ip, port, host });
   } catch (e) {
@@ -65,6 +68,31 @@ export function proxyResourceUrl(path: string | null | undefined): string | null
     return path.startsWith('http') ? path : null;
   }
   return `http://127.0.0.1:${proxyPortValue}${pq}`;
+}
+
+/**
+ * **唯一收口点**:把"要在 webview 原生 `<img>/<video>` 里显示的远程媒体地址"解析成可显示的 src。
+ * 所有数据面媒体显示(聊天图片/视频、头像、小程序图标、OAuth logo、独立预览窗)都**必须**经此函数,
+ * 不得把裸 presigned/后端 URL 直接喂给 `<img src>`(否则 webview 用系统信任库验私有 CA 自签 leaf 失败)。
+ * 由 `tests/secure-display-routing.test.ts` 静态契约测试强制。
+ * - 空 → null
+ * - 后端资源(相对路径,或 host = 反代逻辑域名的完整 URL)→ 回环反代(`proxyResourceUrl`,钉 CA 取数据)
+ * - 外部资源(host ≠ 逻辑域名的完整 URL,真 CA)→ **原样放行**(webview 直接可加载,反代会把它错转到后端)
+ */
+export function resolveDisplayUrl(input: string | null | undefined): string | null {
+  if (!input) { return null; }
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    try {
+      const u = new URL(input);
+      // 已知反代逻辑域名,且 host 不是它 → 外部资源,原样(真 CA 直连,别反代到后端)
+      if (proxyHostValue && u.hostname !== proxyHostValue) {
+        return input;
+      }
+    } catch {
+      return input;
+    }
+  }
+  return proxyResourceUrl(input);
 }
 
 /**

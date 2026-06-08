@@ -25,6 +25,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { SearchIcon, CloseIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useSession } from '../../contexts/SessionContext';
+import { resolveDisplayUrl } from '../../services/secureProxy';
 import {
   useMiniApps,
   type MiniAppTab,
@@ -418,7 +419,7 @@ export function AppCard({
       <div className="miniapp-card-header">
         <div className="miniapp-card-icon">
           {app.icon_url ? (
-            <img src={app.icon_url} alt={app.display_name} />
+            <img src={resolveDisplayUrl(app.icon_url) || ''} alt={app.display_name} />
           ) : (
             <span className="miniapp-card-icon-placeholder">
               {app.display_name.charAt(0).toUpperCase()}

@@ -17,6 +17,7 @@ import { useSession } from '../../contexts/SessionContext';
 import { useMiniApps } from '../../hooks/useMiniApps';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { buildMiniAppLaunchUrl } from '../../components/miniapps/launch';
+import { resolveDisplayUrl } from '../../services/secureProxy';
 import type { MiniApp } from '../../hooks/useMiniApps';
 
 // 返回图标
@@ -100,7 +101,7 @@ function MiniAppCard({ app, index, onOpen }: MiniAppCardProps) {
     >
       <div className="mobile-miniapp-card-icon">
         {app.icon_url ? (
-          <img src={app.icon_url} alt={app.display_name} />
+          <img src={resolveDisplayUrl(app.icon_url) || ''} alt={app.display_name} />
         ) : (
           <span className="mobile-miniapp-card-icon-placeholder">
             {app.display_name.charAt(0).toUpperCase()}

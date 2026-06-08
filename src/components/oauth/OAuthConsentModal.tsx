@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { useApi } from '../../contexts/SessionContext';
 import { authorize, isConsentRequired, type AuthorizeResponse } from '../../api/oauth';
+import { resolveDisplayUrl } from '../../services/secureProxy';
 import '../../styles/oauth.css';
 
 const SCOPE_LABELS: Record<string, { name: string; desc: string }> = {
@@ -165,7 +166,7 @@ export const OAuthConsentModal: React.FC<OAuthConsentModalProps> = ({
             <div className="oauth-consent-header">
               <div className="oauth-consent-logo">
                 {consentData.app_logo_url ? (
-                  <img src={consentData.app_logo_url} alt={consentData.app_name} />
+                  <img src={resolveDisplayUrl(consentData.app_logo_url) || ''} alt={consentData.app_name} />
                 ) : (
                   consentData.app_name.charAt(0).toUpperCase()
                 )}

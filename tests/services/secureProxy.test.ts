@@ -20,6 +20,7 @@ import {
   proxyPort,
   proxyResourceUrl,
   proxyRequestUrl,
+  resolveDisplayUrl,
 } from '../../src/services/secureProxy';
 
 const PORT = 47823;
@@ -105,6 +106,38 @@ describe('secureProxy', () => {
       expect(proxyRequestUrl(signed)).toBe(
         `http://127.0.0.1:${PORT}/bucket/key?X-Amz-Signature=abc&X-Amz-Expires=900&partNumber=2`,
       );
+    });
+  });
+
+  describe('resolveDisplayUrl(唯一显示收口点:后端反代/外部放行)', () => {
+    beforeEach(async () => {
+      // 端口已就绪(前序 init 设为 PORT);显式设逻辑域名供"后端 vs 外部"判定
+      mocks.invoke.mockResolvedValue(undefined);
+      await setProxyTarget('47.105.101.42', 443, 'api.huanvae.cn');
+    });
+
+    it('后端逻辑域名完整 URL(presigned)→ 反代回环, 签名 query 完整', () => {
+      expect(
+        resolveDisplayUrl('https://api.huanvae.cn/friends-file/x.jpg?X-Amz-Signature=abc&X-Amz-Expires=900'),
+      ).toBe(`http://127.0.0.1:${PORT}/friends-file/x.jpg?X-Amz-Signature=abc&X-Amz-Expires=900`);
+    });
+    it('外部域名(≠逻辑域名)完整 URL → 原样放行(真 CA 直连, 不能反代到后端)', () => {
+      expect(resolveDisplayUrl('https://cdn.example.com/icon.png')).toBe(
+        'https://cdn.example.com/icon.png',
+      );
+    });
+    it('后端相对路径(storage 图标)→ 反代回环', () => {
+      expect(resolveDisplayUrl('/storage/icons/inventory.png')).toBe(
+        `http://127.0.0.1:${PORT}/storage/icons/inventory.png`,
+      );
+    });
+    it('null/undefined/空 → null', () => {
+      expect(resolveDisplayUrl(null)).toBeNull();
+      expect(resolveDisplayUrl(undefined)).toBeNull();
+      expect(resolveDisplayUrl('')).toBeNull();
+    });
+    it('非法完整 URL → 原样(不抛)', () => {
+      expect(resolveDisplayUrl('http://[invalid')).toBe('http://[invalid');
     });
   });
 });

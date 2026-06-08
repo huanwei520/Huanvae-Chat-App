@@ -81,6 +81,8 @@ export interface UseFileCacheResult {
   error: string | null;
   /** 本地路径（如果有） */
   localPath: string | null;
+  /** 远程文件的**原始** presigned URL（未经反代，远程时有值）：供独立预览窗 handoff（不传反代 URL）。 */
+  presignedUrl: string | null;
   /** 手动触发缓存 */
   cacheFile: () => Promise<void>;
   /** 重新加载 */
@@ -233,8 +235,10 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     downloadTriggeredRef.current = true;
     logCache('触发后台下载', { fileHash: currentFileHash, fileName, fileType });
 
+    // 用**原始** presigned URL 下载（Rust directIpUrl 重写 host→IP + pinned client）；
+    // 不能用 currentResult.src（已是反代 loopback URL，会被 directIpUrl 弄坏）。
     await triggerBackgroundDownload(
-      currentResult.src,
+      currentResult.presignedUrl ?? currentResult.src,
       currentFileHash,
       fileName,
       fileType,
@@ -303,6 +307,8 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     loading,
     error,
     localPath: result?.localPath ?? null,
+    // 原始 presigned URL（远程时有值）：用于独立预览窗 handoff（不传反代 URL，避免跨窗端口烘死）。
+    presignedUrl: result?.presignedUrl ?? null,
     cacheFile,
     reload,
     retryWithNewUrl,

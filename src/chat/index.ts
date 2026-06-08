@@ -66,7 +66,6 @@ export { MessageContextMenu } from './shared/MessageContextMenu';
 export { MultiSelectActionBar } from './shared/MultiSelectActionBar';
 export { UploadProgress } from './shared/UploadProgress';
 export { UserProfilePopup, type UserInfo } from './shared/UserProfilePopup';
-export { LocalFilePreview } from './shared/LocalFilePreview';
 
 // 菜单组件
 export * from './shared/menu';

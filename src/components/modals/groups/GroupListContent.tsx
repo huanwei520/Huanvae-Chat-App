@@ -5,6 +5,7 @@
 import { motion } from 'framer-motion';
 import { GroupIconLarge } from '../../common/Icons';
 import type { Group } from '../../../api/groups';
+import { resolveServerAvatarUrl } from '../../../utils/avatar';
 
 interface GroupListContentProps {
   loading: boolean;
@@ -51,7 +52,7 @@ export function GroupListContent({
         >
           <div className="group-avatar">
             {group.group_avatar_url ? (
-              <img src={group.group_avatar_url} alt={group.group_name} />
+              <img src={resolveServerAvatarUrl(group.group_avatar_url) || ''} alt={group.group_name} />
             ) : (
               <GroupIconLarge />
             )}

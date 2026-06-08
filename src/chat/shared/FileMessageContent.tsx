@@ -172,6 +172,7 @@ function ImageMessage({
     error,
     onLoad,
     localPath,
+    presignedUrl,
     retryWithNewUrl,
     openInFolder,
   } = useImageCache(fileUuid, fileHash, filename, urlType, friendId);
@@ -249,15 +250,16 @@ function ImageMessage({
         fileHash,
         urlType,
         localPath,
-        // 传递已获取的预签名 URL，避免独立窗口重复请求
-        presignedUrl: isLocal ? undefined : src,
+        // 传递**原始** presigned URL（非反代 src）：预览窗自己经其反代显示；
+        // 传反代 URL 会把回环端口烘进跨窗字符串，且预览窗下载需原始 URL。
+        presignedUrl: isLocal ? undefined : presignedUrl,
       },
       {
         serverUrl: session.serverUrl,
         accessToken: session.accessToken,
       },
     );
-  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src, imgLoadFailed]);
+  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src, presignedUrl, imgLoadFailed]);
 
   // 容器样式：固定尺寸，不会因图片加载而改变
   const containerStyle: React.CSSProperties = {
@@ -374,7 +376,7 @@ function VideoMessage({
   imageHeight?: number | null;
 }) {
   const { session } = useSession();
-  const { src, isLocal, loading, error, onPlay, localPath, openInFolder } = useVideoCache(
+  const { src, isLocal, loading, error, onPlay, localPath, presignedUrl, openInFolder } = useVideoCache(
     fileUuid,
     fileHash,
     filename,
@@ -475,8 +477,8 @@ function VideoMessage({
         fileHash,
         urlType,
         localPath: actualLocalPath,
-        // 传递已获取的预签名 URL，避免独立窗口重复请求
-        presignedUrl: isLocal ? undefined : src,
+        // 传递**原始** presigned URL（非反代 src）：预览窗自己经其反代显示 + 下载需原始 URL。
+        presignedUrl: isLocal ? undefined : presignedUrl,
       },
       {
         serverUrl: session.serverUrl,
@@ -485,7 +487,7 @@ function VideoMessage({
     );
   }, [
     session, fileUuid, filename, fileSize, fileHash, urlType,
-    actualLocalPath, isLocal, src, isDownloaded, isDownloading,
+    actualLocalPath, isLocal, src, presignedUrl, isDownloaded, isDownloading,
   ]);
 
   // 容器样式

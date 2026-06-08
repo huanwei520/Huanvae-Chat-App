@@ -191,7 +191,6 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'FileMessageContent', path: 'chat/shared/FileMessageContent', category: 'chat', description: '文件消息内容' },
   { name: 'FilePreviewModal', path: 'chat/shared/FilePreviewModal', category: 'chat', description: '文件预览模态框' },
   { name: 'DocumentDownloadAction', path: 'chat/shared/DocumentDownloadAction', category: 'chat', description: '文档下载/打开操作共享组件（聊天 + 我的文件复用）' },
-  { name: 'LocalFilePreview', path: 'chat/shared/LocalFilePreview', category: 'chat', description: '本地文件预览' },
   { name: 'MessageContextMenu', path: 'chat/shared/MessageContextMenu', category: 'chat', description: '消息右键菜单' },
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },

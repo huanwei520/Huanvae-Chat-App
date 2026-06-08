@@ -114,7 +114,6 @@ import * as FileAttachButton from '../../src/chat/shared/FileAttachButton';
 import * as FileMessageContent from '../../src/chat/shared/FileMessageContent';
 import * as FilePreviewModal from '../../src/chat/shared/FilePreviewModal';
 import * as DocumentDownloadAction from '../../src/chat/shared/DocumentDownloadAction';
-import * as LocalFilePreview from '../../src/chat/shared/LocalFilePreview';
 import * as MessageContextMenu from '../../src/chat/shared/MessageContextMenu';
 import * as MultiSelectActionBar from '../../src/chat/shared/MultiSelectActionBar';
 import * as UploadProgress from '../../src/chat/shared/UploadProgress';
@@ -352,7 +351,6 @@ const COMPONENT_MAP = {
   FileMessageContent,
   FilePreviewModal,
   DocumentDownloadAction,
-  LocalFilePreview,
   MessageContextMenu,
   MultiSelectActionBar,
   UploadProgress,

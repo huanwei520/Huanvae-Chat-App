@@ -49,6 +49,7 @@ import {
   createPresignedUrlErrorContext,
 } from './diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
+import { resolveDisplayUrl } from './secureProxy';
 import { isMobile } from '../utils/platform';
 
 // ============================================
@@ -126,7 +127,7 @@ interface PresignedUrlResponse {
 
 /** 文件源结果 */
 export interface FileSourceResult {
-  /** 可用于加载的 URL（本地或远程） */
+  /** 可用于 webview `<img>/<video>` 显示的 src（本地 asset，或远程经 resolveDisplayUrl 反代后的回环 URL） */
   src: string;
   /** 是否来自本地缓存 */
   isLocal: boolean;
@@ -134,6 +135,12 @@ export interface FileSourceResult {
   fileHash?: string;
   /** 本地路径（如果有） */
   localPath?: string;
+  /**
+   * 远程文件的**原始** presigned URL（未经反代）。仅远程(isLocal=false)时有值。
+   * 用途：Rust 后台下载(directIpUrl 重写 host→IP 给 pinned client)与跨窗 handoff 需要原始 URL，
+   * **不能**用反代后的 src（loopback URL 会被 directIpUrl 弄坏 / 跨窗端口烘死）。
+   */
+  presignedUrl?: string;
 }
 
 // ============================================
@@ -186,9 +193,15 @@ export function downloadAndSaveFile(
   fileType: 'image' | 'video' | 'document',
   fileSize?: number,
 ): Promise<string> {
+  // presigned URL 按 host 签名(SigV4 SignedHeaders=host):下载改写成源站 IP 后,Rust 必须显式
+  // 带【改写前的原始 host】(=签名时的逻辑域名)当 Host 头,否则 reqwest 默认 Host=IP 与签名 host
+  // 不符 → MinIO 返 403 SignatureDoesNotMatch。取原始 host 传给 Rust(零假设,后端签哪个域名都精确匹配)。
+  let host: string | null = null;
+  try { host = new URL(url).host; } catch { host = null; }
   return invoke<string>('download_and_save_file', {
     // 改写主机为源站 IP(IP 字面量=不发 SNI 绕 ICP);Rust 用 secure_net 钉 CA 客户端连、内置 CA 验
     url: directIpUrl(url),
+    host,
     fileHash,
     fileName,
     fileType,
@@ -329,11 +342,14 @@ export async function getFileSource(
   }
 
   // 2. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
+  //    显示 src 经 resolveDisplayUrl 收口反代（私有 CA，webview 直连验不过）；
+  //    原始 url 留作 presignedUrl，供 Rust 下载(directIpUrl)与跨窗 handoff。
   const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
   return {
-    src: url,
+    src: resolveDisplayUrl(url) ?? url,
     isLocal: false,
     fileHash: fileHash ?? undefined,
+    presignedUrl: url,
   };
 }
 
@@ -394,40 +410,13 @@ export async function getVideoSource(
     }
   }
 
-  // 2. 无本地缓存或桌面端，获取预签名 URL
+  // 2. 无本地缓存或桌面端，获取预签名 URL（桌面端 <video> 同样经反代显示）
   const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
   return {
-    src: url,
+    src: resolveDisplayUrl(url) ?? url,
     isLocal: false,
     fileHash: fileHash ?? undefined,
-  };
-}
-
-/**
- * 获取文件源并自动缓存（图片专用）
- *
- * 图片加载完成后自动下载保存到本地
- */
-export async function getFileSourceWithAutoCache(
-  api: ApiClient,
-  fileUuid: string,
-  fileHash: string | null | undefined,
-  _fileName: string,
-  _fileType: 'image' | 'video' | 'document',
-  urlType: 'user' | 'friend' | 'group' = 'user',
-): Promise<FileSourceResult & { shouldCache: boolean; presignedUrl?: string }> {
-  const result = await getFileSource(api, fileUuid, fileHash, urlType);
-
-  if (result.isLocal) {
-    // 已有本地缓存，无需下载
-    return { ...result, shouldCache: false };
-  }
-
-  // 需要下载缓存
-  return {
-    ...result,
-    shouldCache: !!fileHash,
-    presignedUrl: result.src,
+    presignedUrl: url,
   };
 }
 

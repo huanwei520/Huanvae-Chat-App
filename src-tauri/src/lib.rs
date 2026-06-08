@@ -73,7 +73,7 @@ mod android_update;
 // 统一安全 HTTP(自管 TLS / 内置私有 CA / 直连源站 IP)
 // 见工作区 DESIGN-app-discovery-selfsigned-tls.md
 // ============================================
-mod secure_net;
+pub mod secure_net;
 
 // ============================================
 // 数据面 WebSocket(走 Rust:tokio-tungstenite + rustls 内置私有 CA)

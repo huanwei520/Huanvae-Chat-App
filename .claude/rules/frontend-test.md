@@ -2,6 +2,24 @@
 
 Vitest + @testing-library/react 下的踩坑点和惯用模式。
 
+## "所有 X 必经 Y" 类不变量：单一收口点 + 静态契约测试强制，不靠散文声明
+
+### vitest mock invoke + jsdom 测不到真 webview/真 TLS，"全部迁移完"的散文声明必漏且无人复查
+
+当某条架构不变量是"**所有** X 都必须经过 Y"（典型：所有 webview 原生 `<img>/<video>` 显示的**远程后端资源**都必须经回环安全反代收口点 `secureProxy.resolveDisplayUrl`——否则系统信任库验不过私有 CA 自签 leaf → certificate invalid），**绝不能靠"人工枚举各处改一遍 + 注释/commit 写'已全部迁移/消灭剩余直连'"来保证**。原因：
+
+- vitest 是 jsdom + mock invoke，`<img src>` 根本不发起加载、不做 TLS；playwright 是浏览器假扮 Tauri（mock invoke）。**真 webview + 真私有 CA 的渲染失败，整套门禁测不到**（门禁全绿 ≠ 真机能显示）。
+- 散文声明是**一次性断言**，写错（漏一处）后没有任何东西复查；人工枚举显示点必漏——尤其**消息 JSON 解析出来的字段**（如会议邀请卡 `payload.creator_avatar`）不在显眼的 hook/service 路径上，最易漏。
+
+**规则**：这类不变量必须用两件套机器强制：
+
+1. **单一收口点**：所有该走该路径的值只能从一个具名函数产出（如 `resolveDisplayUrl`/`resolveServerAvatarUrl`），让"绕过"在结构上不自然。注意区分用途——**显示**用反代 URL，**Rust 下载/跨窗 handoff** 用原始 URL（directIpUrl 重写需裸 URL，传反代 loopback 会坏）；同一产出点同时给两个值、字段分开。
+2. **静态契约测试**（仿 `tests/secure-display-routing.test.ts` / `animation-conflict.test.ts`）：`readFileSync` 扫各显示点源码，断言"必经收口点、裸后端 URL 即 FAIL"，块内有界正则 + **node 变异验证**（还原成裸 URL 必须从 PASS 翻 FAIL，证明非恒真）。把"消灭剩余直连"从散文变成机器复查的不变量。
+
+**审计这类不变量的完整性**：必须把**每个** `<img/video/audio src={X}>` 追到 `X` 的**数据源**——是经收口点解析的（数据边界解析，如 useFriends/useGroups 构建对象时调 resolveServerAvatarUrl，显示点消费已解析值，OK），还是裸接后端字段（BUG）。**不能只查显眼的 fileCache/hook 路径**，要 grep 全部 `src={...avatar|logo|icon|image|cover|_url...}` 并逐一回溯，含消息 content JSON 解析字段。
+
+**反例（2026-06-08）**：2026-06-02 "App 显示层补完（消灭剩余直连）" 靠人工枚举（头像/上传/语音/诊断/lowcode），散文写"消灭剩余直连"，**漏了最大的聊天图片/视频消息显示路径**（fileCache 远程分支返裸 presigned 喂 `<img>`）+ 独立预览窗 + 会议邀请头像；门禁（mock+jsdom）全绿，真机才暴露 certificate invalid。修复=新增 `resolveDisplayUrl` 单一收口 + `secure-display-routing.test.ts` 静态契约（变异验证过）+ 删同类死代码 `LocalFilePreview`。且 audit 的显示点摸排（Explore agent）仍漏了 `MeetingInviteCard.creator_avatar`（消息 JSON 派生），靠 **blind-review 独立 grep 追数据源** 才补上——印证"审计完整性必须追到数据源 + 盲审独立复扫"。
+
 ## tests/setup.ts 的 mock 能力与局限
 
 ### WebviewWindow mock 不含静态方法
