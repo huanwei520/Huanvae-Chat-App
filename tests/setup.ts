@@ -128,21 +128,6 @@ vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
   readText: vi.fn().mockResolvedValue(''),
 }));
 
-// Mock @tauri-apps/plugin-window-state
-vi.mock('@tauri-apps/plugin-window-state', () => ({
-  restoreStateCurrent: vi.fn().mockResolvedValue(undefined),
-  saveWindowState: vi.fn().mockResolvedValue(undefined),
-  StateFlags: {
-    SIZE: 1,
-    POSITION: 2,
-    MAXIMIZED: 4,
-    VISIBLE: 8,
-    DECORATIONS: 16,
-    FULLSCREEN: 32,
-    ALL: 63,
-  },
-}));
-
 // Mock @tauri-apps/api/window
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn().mockReturnValue({

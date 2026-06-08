@@ -117,7 +117,6 @@ describe('MyComponent', () => {
 | `@tauri-apps/plugin-fs` | 文件操作返回空 |
 | `@tauri-apps/plugin-http` | `fetch()` 为空函数 |
 | `@tauri-apps/plugin-os` | `platform()` 返回 `"linux"` |
-| `@tauri-apps/plugin-window-state` | `restoreStateCurrent()` 返回 Promise |
 | `@tauri-apps/api/window` | `getCurrentWindow()` 返回 mock 窗口对象 |
 | `@tauri-apps/api/core` | `invoke()` 返回空函数（可按需 mock） |
 

@@ -273,7 +273,6 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
-  { name: 'windowSize', path: 'services/windowSize', category: 'services', description: '窗口大小服务' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   // 聊天共享模块

@@ -25,22 +25,12 @@ import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { LowcodePage } from './lowcode';
 import { HuanvaeGuardPage } from './huanvaeGuard';
-import { initWindowSize } from './services/windowSize';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
-import { isMobile } from './utils/platform';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
 const pathname = window.location.pathname;
-
-// 主窗口初始化窗口大小（仅桌面端）
-// 移动端不需要 window-state 插件，跳过以加快启动速度
-if ((pathname === '/' || pathname === '') && !isMobile()) {
-  initWindowSize().catch((err) => {
-    console.error('[Main] 窗口大小初始化失败:', err);
-  });
-}
 
 function RootApp() {
   // 会议页面（独立窗口，不需要 Session）

@@ -179,7 +179,6 @@ import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
 import * as settingsStore from '../../src/stores/settingsStore';
-import * as windowSize from '../../src/services/windowSize';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -413,7 +412,6 @@ const COMPONENT_MAP = {
   syncService,
   updateService,
   settingsStore,
-  windowSize,
   // 工具模块
   formatUtils,
   // 聊天共享模块
