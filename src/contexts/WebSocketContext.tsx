@@ -61,6 +61,7 @@ import type {
   WsNewMessage,
   WsMessageRecalled,
   WsSystemNotification,
+  WsReadSync,
 } from '../types/websocket';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp } from '../services/discovery';
@@ -115,6 +116,8 @@ interface WebSocketContextType {
   onNewMessage: (callback: (msg: WsNewMessage) => void) => () => void;
   onMessageRecalled: (callback: (msg: WsMessageRecalled) => void) => () => void;
   onSystemNotification: (callback: (msg: WsSystemNotification) => void) => () => void;
+  /** 订阅已读回执（私聊对方已读 / 群聊某成员已读），用于发送方显示"已读"/"N 人已读" */
+  onReadSync: (callback: (msg: WsReadSync) => void) => () => void;
   /** 订阅重连成功事件（仅在 resumed=false 时触发，用于增量同步） */
   onReconnected: (callback: () => void) => () => void;
   /** 刷新指定会话的最新消息预览（用于删除/撤回后同步卡片显示） */
@@ -172,6 +175,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
   const recalledListeners = useRef<Set<(msg: WsMessageRecalled) => void>>(new Set());
   const notificationListeners = useRef<Set<(msg: WsSystemNotification) => void>>(new Set());
+  const readSyncListeners = useRef<Set<(msg: WsReadSync) => void>>(new Set());
   const reconnectedListeners = useRef<Set<() => void>>(new Set());
 
   // State
@@ -229,6 +233,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       newMessageListeners,
       recalledListeners,
       notificationListeners,
+      readSyncListeners,
     });
 
     if (!result) {
@@ -609,6 +614,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     return () => { notificationListeners.current.delete(callback); };
   }, []);
 
+  const onReadSync = useCallback((callback: (msg: WsReadSync) => void) => {
+    readSyncListeners.current.add(callback);
+    return () => { readSyncListeners.current.delete(callback); };
+  }, []);
+
   const onReconnected = useCallback((callback: () => void) => {
     reconnectedListeners.current.add(callback);
     return () => { reconnectedListeners.current.delete(callback); };
@@ -732,6 +742,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,
+    onReadSync,
     onReconnected,
   }), [
     connected,
@@ -752,6 +763,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     onNewMessage,
     onMessageRecalled,
     onSystemNotification,
+    onReadSync,
     onReconnected,
   ]);
 

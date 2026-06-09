@@ -40,6 +40,7 @@ export interface MessageHandlerContext {
   newMessageListeners: React.RefObject<Set<(msg: WsNewMessage) => void>>;
   recalledListeners: React.RefObject<Set<(msg: import('../types/websocket').WsMessageRecalled) => void>>;
   notificationListeners: React.RefObject<Set<(msg: import('../types/websocket').WsSystemNotification) => void>>;
+  readSyncListeners: React.RefObject<Set<(msg: import('../types/websocket').WsReadSync) => void>>;
 }
 
 /** handleWebSocketMessage 的返回值，供 Context 提取 session recovery 和 seq 信息 */
@@ -420,7 +421,8 @@ export function handleWebSocketMessage(
         break;
 
       case 'read_sync':
-        // 可以在这里更新 UI 显示对方已读状态
+        // 通知监听器更新发送方的已读显示（私聊"已读/未读"、群聊"N 人已读"）
+        ctx.readSyncListeners.current.forEach(cb => cb(msg));
         break;
 
       case 'system_notification':

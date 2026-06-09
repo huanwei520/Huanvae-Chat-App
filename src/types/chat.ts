@@ -69,6 +69,8 @@ export interface SendMessageRequest {
 export interface SendMessageResponse {
   message_uuid: string;
   send_time: string;
+  /** 后端分配的真实消息序号；乐观消息须回写此值，否则 seq=0 会让已读回执虚显"已读" */
+  seq: number;
 }
 
 /** 会话（用于 UI 展示） */

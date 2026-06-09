@@ -54,6 +54,8 @@ interface GroupMessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 当前用户是否为管理员/群主（可撤回任意消息） */
   isAdmin?: boolean;
+  /** 已读回执：传入则显示阅读状态文案（"全部已读" / "N 人已读"）；发送中/失败/已撤回不传 */
+  readReceipt?: { text: string };
 }
 
 // 使用统一的消息动画配置
@@ -85,6 +87,7 @@ function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolea
 
 // 使用统一的发送状态指示器组件
 import { SendStatusIndicator } from '../shared/SendStatusIndicator';
+import { ReadReceiptLabel } from '../shared/ReadReceiptLabel';
 
 export function GroupMessageBubble({
   message,
@@ -97,6 +100,7 @@ export function GroupMessageBubble({
   onDelete,
   onEnterMultiSelect,
   isAdmin = false,
+  readReceipt,
 }: GroupMessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -451,6 +455,7 @@ export function GroupMessageBubble({
                   />
                 )}
                 <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
+                {readReceipt && <ReadReceiptLabel text={readReceipt.text} />}
               </div>
             </div>
           </motion.div>

@@ -52,10 +52,13 @@ interface MessageBubbleProps {
   onDelete?: () => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
+  /** 已读回执：传入则显示"已读"/"未读"（我发的看对方是否已读、对方发的看我是否已读）；发送中/失败/已撤回不传 */
+  readReceipt?: { isRead: boolean };
 }
 
 // 使用统一的发送状态指示器组件
 import { SendStatusIndicator } from '../shared/SendStatusIndicator';
+import { ReadReceiptLabel } from '../shared/ReadReceiptLabel';
 
 // 使用统一的消息动画配置
 import { getMessageVariants, messageTransition } from '../shared/animations';
@@ -90,6 +93,7 @@ export function MessageBubble({
   onRecall,
   onDelete,
   onEnterMultiSelect,
+  readReceipt,
 }: MessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -440,6 +444,9 @@ export function MessageBubble({
                   />
                 )}
                 <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
+                {readReceipt && (
+                  <ReadReceiptLabel text={readReceipt.isRead ? '已读' : '未读'} />
+                )}
               </div>
             </div>
           </motion.div>

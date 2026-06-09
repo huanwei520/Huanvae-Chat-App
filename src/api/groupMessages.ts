@@ -63,6 +63,8 @@ export interface SendGroupMessageRequest {
 export interface SendGroupMessageResponse {
   message_uuid: string;
   send_time: string;
+  /** 后端分配的真实消息序号；乐观消息须回写此值，否则 seq=0 会让"N 人已读"虚显 */
+  seq: number;
 }
 
 // ============================================
