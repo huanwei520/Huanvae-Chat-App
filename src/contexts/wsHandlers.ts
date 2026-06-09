@@ -209,26 +209,34 @@ export function refreshPreviewInSummary(
 }
 
 /**
- * 用本地持久化的 per 会话已读位置纠正 connected 快照 + 计算需回传的已读位置（Tier-1 自愈）。
+ * 用本地持久化的 per 会话已读位置，判定 connected 快照里哪些会话本地已读 + 算需回传的位置（Tier-1 自愈）。
  *
  * 真值口径迁移后：红点真值在服务端按 last-read-seq 派生；客户端把本地已读位置持久化，
- * 重连时①本地纠正快照（无闪烁、覆盖**所有**会话，取代旧的 active-only 兜底
+ * 重连时①判定本地已读会话（覆盖**所有**会话，取代旧的 active-only 兜底
  * mergeConnectedSnapshotWithActiveRead）②回传 resync_read_positions 让服务端 GREATEST
  * 合并、修复抖断丢失的 mark_read（见后端 unread_service::merge_read_positions）。
  *
- * 纠正规则：某会话本地 last_read_seq >= last_seq（已读完本地已收的最新一条，且 last_seq>0）
- * → 视为已读，unread_count 清 0，并把该位置加入 resync。若服务端其实有更新的消息（本地还没收到），
- * 它随后会经 new_message 重新累加未读，红点正确重现（瞬时清 0 不影响最终一致）。
+ * 判定规则：某会话本地 last_read_seq >= last_seq（已读完本地已收的最新一条，且 last_seq>0）
+ * → 视为已读，加入 readXxxIds（由 mergeReadCorrectionIntoLatest 清 0），并把该位置加入 resync。
+ * 若服务端其实有更新的消息（本地还没收到），它随后经 new_message 重新累加未读，红点正确重现。
  *
- * 纯函数（不碰 DB / 网络），便于单测。
+ * 纯函数（不碰 DB / 网络），便于单测。只产出"决策"（哪些会话已读 + resync），
+ * 不直接构造纠正后的 summary —— 应用由 mergeReadCorrectionIntoLatest 合并进【最新】state 完成。
  */
 export function computeConnectedReadCorrection(
   snapshot: UnreadSummary,
   conversations: ReadonlyArray<Pick<db.LocalConversation, 'id' | 'last_seq' | 'last_read_seq'>>,
   currentUserId: string | null,
-): { corrected: UnreadSummary; resyncPositions: import('../types/websocket').WsReadPosition[] } {
+): {
+  resyncPositions: import('../types/websocket').WsReadPosition[];
+  /** 被判定为本地已读、应清零的好友/群 id（供 mergeReadCorrectionIntoLatest 合并进最新 state） */
+  readFriendIds: Set<string>;
+  readGroupIds: Set<string>;
+} {
   const byId = new Map(conversations.map(c => [c.id, c]));
   const resyncPositions: import('../types/websocket').WsReadPosition[] = [];
+  const readFriendIds = new Set<string>();
+  const readGroupIds = new Set<string>();
 
   const isLocallyRead = (convId: string): { read: boolean; seq: number } => {
     const conv = byId.get(convId);
@@ -238,42 +246,79 @@ export function computeConnectedReadCorrection(
     return { read: true, seq: conv.last_read_seq };
   };
 
-  const friendUnreads = snapshot.friend_unreads.map(u => {
-    if (!currentUserId) { return u; }
+  for (const u of snapshot.friend_unreads) {
+    if (!currentUserId) { continue; }
     const { read, seq } = isLocallyRead(getFriendConversationId(currentUserId, u.friend_id));
     if (read) {
       resyncPositions.push({ target_type: 'friend', target_id: u.friend_id, last_read_seq: seq });
-      return { ...u, unread_count: 0 };
+      readFriendIds.add(u.friend_id);
     }
-    return u;
-  });
+  }
 
-  const groupUnreads = snapshot.group_unreads.map(u => {
+  for (const u of snapshot.group_unreads) {
     const { read, seq } = isLocallyRead(u.group_id);
     if (read) {
       resyncPositions.push({ target_type: 'group', target_id: u.group_id, last_read_seq: seq });
-      return { ...u, unread_count: 0 };
+      readGroupIds.add(u.group_id);
     }
-    return u;
-  });
+  }
 
-  const totalCount =
-    friendUnreads.reduce((s, u) => s + u.unread_count, 0) +
-    groupUnreads.reduce((s, u) => s + u.unread_count, 0);
-
-  return {
-    corrected: { total_count: totalCount, friend_unreads: friendUnreads, group_unreads: groupUnreads },
-    resyncPositions,
-  };
+  return { resyncPositions, readFriendIds, readGroupIds };
 }
 
 /**
- * 异步：读本地会话已读位置 → 纠正 connected 快照写回 UI + 回传 resync_read_positions。
- * DB 读失败则降级为原样应用服务端快照（红点仍可显示，下次重连再自愈）。
+ * 把 connected 已读纠正合并进【最新】unreadSummary（而非陈旧快照），杜绝 clobber。
  *
- * 注：本快照可能反映 markRead 的 advanceConversationRead 落库**之前**的状态（二者并发、无原子性）——
- * 极小概率下某会话此刻未被清 0；但 markRead 自身已发 mark_read（服务端权威）+ 新消息经
- * new_message 重新累加未读 + 下次重连再次自愈，最终一致由这些路径保证，非靠此处原子性。
+ * 背景：connected 的纠正要 await db.getConversations()（数十 ms），这期间登录补发的
+ * new_message 会把未读 +1。若用快照算出的 corrected 整体覆盖最新 state，这些增量会被
+ * 回退 → 列表排序"上下抽搐"。本函数改为：以最新 state 为基，仅清那些【自快照以来未变化】
+ * 的已读会话（unread_count + last_message_time 都与快照一致才清）；若某会话期间有新消息/
+ * 标记把它改了，保留最新值（该未读是真实的，不能清）。
+ *
+ * 纯函数，便于单测。
+ */
+export function mergeReadCorrectionIntoLatest(
+  latest: UnreadSummary,
+  snapshot: UnreadSummary,
+  readFriendIds: ReadonlySet<string>,
+  readGroupIds: ReadonlySet<string>,
+): UnreadSummary {
+  const snapFriend = new Map(snapshot.friend_unreads.map(u => [u.friend_id, u]));
+  const snapGroup = new Map(snapshot.group_unreads.map(u => [u.group_id, u]));
+
+  const unchangedSince = (
+    cur: { unread_count: number; last_message_time: string | null },
+    snap: { unread_count: number; last_message_time: string | null } | undefined,
+  ): boolean =>
+    snap !== undefined &&
+    snap.unread_count === cur.unread_count &&
+    snap.last_message_time === cur.last_message_time;
+
+  const friend_unreads = latest.friend_unreads.map(u => {
+    if (u.unread_count === 0 || !readFriendIds.has(u.friend_id)) { return u; }
+    return unchangedSince(u, snapFriend.get(u.friend_id)) ? { ...u, unread_count: 0 } : u;
+  });
+
+  const group_unreads = latest.group_unreads.map(u => {
+    if (u.unread_count === 0 || !readGroupIds.has(u.group_id)) { return u; }
+    return unchangedSince(u, snapGroup.get(u.group_id)) ? { ...u, unread_count: 0 } : u;
+  });
+
+  const total_count =
+    friend_unreads.reduce((s, u) => s + u.unread_count, 0) +
+    group_unreads.reduce((s, u) => s + u.unread_count, 0);
+
+  return { total_count, friend_unreads, group_unreads };
+}
+
+/**
+ * 异步：读本地会话已读位置 → 把已读纠正合并进【最新】unreadSummary + 回传 resync_read_positions。
+ *
+ * 前置：connected handler 已【同步】把服务端快照写入 UI（立基线、红点立刻显示、不丢 S0）。
+ * 本函数随后用 mergeReadCorrectionIntoLatest 仅清"自快照以来未变化的已读会话"——
+ * await db.getConversations() 间隙到达的 new_message 增量一律保留，杜绝陈旧快照覆盖导致的排序抽搐。
+ *
+ * prev 为 null（期间断连/登出已置空）则不复活；DB 读失败仅记日志、保留已同步的快照基线。
  */
 async function applyConnectedReadCorrection(
   snapshot: UnreadSummary,
@@ -281,18 +326,19 @@ async function applyConnectedReadCorrection(
 ): Promise<void> {
   try {
     const conversations = await db.getConversations();
-    const { corrected, resyncPositions } = computeConnectedReadCorrection(
+    const { resyncPositions, readFriendIds, readGroupIds } = computeConnectedReadCorrection(
       snapshot,
       conversations,
       ctx.currentUserId,
     );
-    ctx.setUnreadSummary(corrected);
+    ctx.setUnreadSummary(prev =>
+      prev ? mergeReadCorrectionIntoLatest(prev, snapshot, readFriendIds, readGroupIds) : prev,
+    );
     if (resyncPositions.length > 0) {
       ctx.sendResyncReadPositions(resyncPositions);
     }
   } catch (error) {
-    console.error('[WS] connected 已读位置纠正失败，按服务端快照原样应用:', error);
-    ctx.setUnreadSummary(snapshot);
+    console.error('[WS] connected 已读位置纠正失败，保留已同步的服务端快照:', error);
   }
 }
 
@@ -413,9 +459,11 @@ export function handleWebSocketMessage(
 
     switch (msg.type) {
       case 'connected':
-        // 用本地持久化的 per 会话已读位置纠正快照（覆盖所有会话）+ 回传 resync_read_positions
-        // 让服务端 GREATEST 合并、修复抖断丢失的 mark_read（Tier-1 自愈，取代旧 active-only 兜底）。
-        // 异步（读本地 DB）：纠正后才写回 UI，避免先闪陈旧红点。
+        // 先【同步】立基线：红点立刻显示、不丢服务端快照，且让随后补发的 new_message 在其上叠加。
+        ctx.setUnreadSummary(msg.unread_summary);
+        // 再【异步】用本地持久化的 per 会话已读位置纠正（合并进最新 state，仅清未变化的已读会话）
+        // + 回传 resync_read_positions 让服务端 GREATEST 合并、修复抖断丢失的 mark_read（Tier-1 自愈）。
+        // 经 mergeReadCorrectionIntoLatest 合并，await 间隙到达的 new_message 增量不会被陈旧快照覆盖。
         void applyConnectedReadCorrection(msg.unread_summary, ctx);
         if (msg.session_id) {
           result.sessionId = msg.session_id;

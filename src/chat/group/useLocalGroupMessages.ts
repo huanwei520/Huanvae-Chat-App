@@ -300,6 +300,7 @@ export function useLocalGroupMessages(groupId: string | null) {
           last_message_time: null,
           last_seq: 0,
           unread_count: 0,
+          last_read_seq: 0,
           is_muted: false,
           is_pinned: false,
           updated_at: new Date().toISOString(),

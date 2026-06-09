@@ -112,7 +112,9 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     }
 
     // 创建新会话
-    const newConversation: Omit<LocalConversation, 'synced_at'> = {
+    // saveConversation 不携带 last_read_seq（本地已读位置由 advanceConversationRead 单独维护），
+    // 但返回值需是完整 LocalConversation，故 last_read_seq 在 return 时补 0（新会话尚未读）。
+    const newConversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'> = {
       id: conversationId,
       type,
       name,
@@ -127,7 +129,7 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     };
 
     await db.saveConversation(newConversation);
-    return { ...newConversation, synced_at: null };
+    return { ...newConversation, synced_at: null, last_read_seq: 0 };
   }, []);
 
   /**
