@@ -119,10 +119,12 @@ export function useLocalGroupMessages(groupId: string | null) {
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // 上次渲染的 groupId —— 用于"切换群组时同步重置 messages"（见下方 reset 块）
+  const [prevGroupId, setPrevGroupId] = useState<string | null>(groupId);
 
   // Refs
   const conversationRef = useRef<LocalConversation | null>(null);
-  const currentGroupId = useRef<string | null>(null);
+  const currentGroupId = useRef<string | null>(groupId);
   const dbInitialized = useRef(false);
 
   // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
@@ -147,26 +149,19 @@ export function useLocalGroupMessages(groupId: string | null) {
   }, [session]);
 
   // ============================================
-  // 切换群组时重置
+  // 切换群组时同步重置（渲染期，React 官方"prop 变更即调整 state"模式）
   // ============================================
-
-  useEffect(() => {
-    if (groupId !== currentGroupId.current) {
-      logLocal('切换群组', { from: currentGroupId.current, to: groupId });
-      // 切换 groupId 时从 chatStore.cachedGroupMessages 读初值（含 loadMore 历史），
-      // 设计同 useLocalFriendMessages.ts useEffect [friendId]；详细注释见该文件。
-      if (groupId) {
-        const cached = useChatStore.getState().cachedGroupMessages[groupId] ?? [];
-        setMessages(cached);
-      } else {
-        setMessages([]);
-      }
-      setHasMore(true);
-      setError(null);
-      conversationRef.current = null;
-      currentGroupId.current = groupId;
-    }
-  }, [groupId]);
+  // 设计同 useLocalFriendMessages.ts —— ChatMessages/GroupChatMessages 按 key 重挂但本 hook 不重挂，
+  // 必须渲染期同步把 messages 切到该会话缓存，否则重挂组件首帧拿到上一个会话的 messages
+  // 导致"两次跳转 + 不滚到最新"。缓存缺失用空数组兜底，等 loadMessages 异步加载 db 最新 50 条。
+  if (groupId !== prevGroupId) {
+    setPrevGroupId(groupId);
+    setMessages(groupId ? (useChatStore.getState().cachedGroupMessages[groupId] ?? []) : []);
+    setHasMore(true);
+    setError(null);
+    conversationRef.current = null;
+    currentGroupId.current = groupId;
+  }
 
   // unmount 时把当前 messages 缓存到 chatStore，用于下次 mount 时秒开。
   // 通过 messagesRef.current 读 unmount 那一刻的最新 messages 值。

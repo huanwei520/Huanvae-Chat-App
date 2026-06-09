@@ -77,34 +77,31 @@ describe('loadMessages 增量合并防回归', () => {
   // friendId / groupId 切换时从缓存读初值（核心修复）
   // ============================================
   //
-  // 防回退目标：useLocalFriend/GroupMessages 的 useEffect [friendId/groupId] 切换
-  // 分支不能 setMessages([]) 直接清空，必须 setMessages(cachedFriendMessages[id] ?? [])
-  // 从缓存读取（含 loadMore 加载的全量历史）。
+  // 防回退目标：切换会话时不能 setMessages([]) 直接清空，必须从
+  // cachedFriend/GroupMessages[id] 读取（含 loadMore 加载的全量历史）。
   //
-  // 历史 bug（2026-05-13）：useState lazy initializer 仅在 hook 第一次 mount 时跑
-  // 一次，friendId 切换不重新跑。如果 useEffect 切换分支直接清空 messages，缓存中
-  // 的 200+ 条永远读不出，滚动锚点 querySelector 找不到较老消息 → 降级 scrollToBottom。
+  // 该重置已从 useEffect（paint 后）改为【渲染期同步】（prop 变更即调整 state 模式，
+  // 用 prevFriendId/prevGroupId 触发），使按 key 重挂的 ChatMessages 首帧即正确内容、
+  // 只滚一次（修 bug② "两次跳转" + bug③ "不滚到最新"）。
+  //
+  // 历史 bug（2026-05-13）：useState lazy initializer 仅在 hook 第一次 mount 时跑一次，
+  // friendId 切换不重新跑；若切换分支直接清空 messages，缓存中的 200+ 条永远读不出。
 
   it('useLocalFriendMessages 切换 friendId 时从 cachedFriendMessages 读初值（不清空）', () => {
-    // 匹配 useEffect [friendId] 函数体
+    // 匹配渲染期同步重置块（prevFriendId 触发，以 currentFriendId.current 赋值收尾）
     const block = FRIEND_SRC.match(
-      /if\s*\(friendId\s*!==\s*currentFriendId\.current\)[\s\S]*?currentFriendId\.current\s*=\s*friendId;/,
+      /if\s*\(friendId\s*!==\s*prevFriendId\)[\s\S]*?currentFriendId\.current\s*=\s*friendId;/,
     );
     expect(block).not.toBeNull();
-    // 不应有"无脑清空"分支
-    expect(block![0]).toMatch(
-      /cachedFriendMessages\[friendId\]/,
-    );
-    // 应该用 setMessages(cached) 读缓存
-    expect(block![0]).toMatch(/setMessages\(cached\)/);
+    // 必须从缓存读（friendId 三元 + cachedFriendMessages[friendId]），不能无脑 setMessages([]) 清空
+    expect(block![0]).toMatch(/setMessages\(\s*friendId\s*\?[\s\S]*?cachedFriendMessages\[friendId\]/);
   });
 
   it('useLocalGroupMessages 切换 groupId 时从 cachedGroupMessages 读初值（不清空）', () => {
     const block = GROUP_SRC.match(
-      /if\s*\(groupId\s*!==\s*currentGroupId\.current\)[\s\S]*?currentGroupId\.current\s*=\s*groupId;/,
+      /if\s*\(groupId\s*!==\s*prevGroupId\)[\s\S]*?currentGroupId\.current\s*=\s*groupId;/,
     );
     expect(block).not.toBeNull();
-    expect(block![0]).toMatch(/cachedGroupMessages\[groupId\]/);
-    expect(block![0]).toMatch(/setMessages\(cached\)/);
+    expect(block![0]).toMatch(/setMessages\(\s*groupId\s*\?[\s\S]*?cachedGroupMessages\[groupId\]/);
   });
 });

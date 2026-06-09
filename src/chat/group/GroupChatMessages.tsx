@@ -25,7 +25,6 @@ import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
-import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -87,17 +86,17 @@ export function GroupChatMessages({
   // 是否在底部（用于判断新消息到达时是否自动滚动）
   const isAtBottomRef = useRef(true);
 
-  // 上一次消息数量（-1 表示初始状态）
-  const prevMessagesLengthRef = useRef(-1);
+  // 上一次消息数量（用于增量滚动判断）
+  const prevMessagesLengthRef = useRef(0);
+
+  // 是否已完成"打开会话首次滚到底"（按 key 重挂后每次打开从 false 开始）
+  const didInitialScrollRef = useRef(false);
 
   // 加载锁（防止连续加载）
   const loadLockRef = useRef(false);
 
   // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
   const scrollSnapshotRef = useRef<number | null>(null);
-
-  // 当前群组 ID（用于检测切换）
-  const currentGroupIdRef = useRef(groupId);
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: GroupMessage) => msg.clientId || msg.message_uuid;
@@ -119,14 +118,6 @@ export function GroupChatMessages({
 
   // 群已读回执：维护各成员已读位置，按每条消息 seq 统计已读人数（应读人数 = member_count − 1，排除发送者）
   const { countReaders, memberCount } = useGroupReadReceipt(groupId ?? null, sortedMessages);
-
-  // 切换群组时重置状态
-  useEffect(() => {
-    if (currentGroupIdRef.current !== groupId) {
-      currentGroupIdRef.current = groupId;
-      prevMessagesLengthRef.current = -1;
-    }
-  }, [groupId]);
 
   // 滚动处理：检测是否接近顶部 + 更新是否在底部
   const handleScroll = useCallback(() => {
@@ -187,34 +178,20 @@ export function GroupChatMessages({
     return () => observer.disconnect();
   }, []);
 
-  // 首次渲染的锚点恢复：useLayoutEffect 在 paint 前同步运行，让"切回会话"那一帧
-  // 用户看到消息时已在上次阅读位置。锚点失效降级到滚到底（保持现行行为）。
-  const handleGroupFallbackToBottom = useCallback(() => {
-    if (containerRef.current && messages.length > 0) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      isAtBottomRef.current = true;
-    }
-  }, [messages.length]);
-
-  const handleGroupFirstRenderHandled = useCallback(() => {
-    prevMessagesLengthRef.current = messages.length;
-  }, [messages.length]);
-
-  useScrollAnchorRestore({
-    chatKey: groupId ? `group-${groupId}` : 'group-unknown',
-    containerRef,
-    messagesLength: messages.length,
-    isFirstRender: prevMessagesLengthRef.current === -1,
-    onFallbackToBottom: handleGroupFallbackToBottom,
-    onFirstRenderHandled: handleGroupFirstRenderHandled,
-  });
-
-  // 消息数量变化时的滚动处理（非首次渲染的增量更新逻辑）
+  // 打开会话的滚动 + 消息变化时的增量滚动处理（useLayoutEffect 在 paint 前同步运行）
   useLayoutEffect(() => {
     const currentLength = messages.length;
 
-    // 初始渲染：交由 useScrollAnchorRestore 处理
-    if (prevMessagesLengthRef.current === -1) {
+    // 打开会话：第一帧有消息就立即滚到最新（底部），只滚一次。
+    // GroupChatMessages 按 key={`group-${id}`} 重挂，didInitialScrollRef 每次打开从 false 开始。
+    // 空首帧（缓存未命中、等 db 异步加载）不计，待真正有消息时再滚。
+    if (!didInitialScrollRef.current) {
+      prevMessagesLengthRef.current = currentLength;
+      if (currentLength > 0 && containerRef.current) {
+        didInitialScrollRef.current = true;
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        isAtBottomRef.current = true;
+      }
       return;
     }
 

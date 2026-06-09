@@ -25,7 +25,6 @@ import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
-import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
@@ -92,17 +91,17 @@ export function ChatMessages({
   // 是否在底部（用于判断新消息到达时是否自动滚动）
   const isAtBottomRef = useRef(true);
 
-  // 上一次消息数量（-1 表示初始状态，用于跳过首次渲染的旧消息）
-  const prevMessagesLengthRef = useRef(-1);
+  // 上一次消息数量（用于增量滚动判断）
+  const prevMessagesLengthRef = useRef(0);
+
+  // 是否已完成"打开会话首次滚到底"（按 key 重挂后每次打开从 false 开始）
+  const didInitialScrollRef = useRef(false);
 
   // 加载锁（防止连续加载）
   const loadLockRef = useRef(false);
 
   // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
   const scrollSnapshotRef = useRef<number | null>(null);
-
-  // 当前好友 ID
-  const currentFriendIdRef = useRef(friend.friend_id);
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
@@ -124,15 +123,6 @@ export function ChatMessages({
 
   // 私聊已读回执：按 seq 双向。每条消息显示——我发的看对方是否已读、对方发的看我是否已读
   const { peerLastReadSeq, myLastReadSeq } = useFriendReadReceipt(friend.friend_id, sortedMessages);
-
-  // 切换好友时重置状态
-  useEffect(() => {
-    if (currentFriendIdRef.current !== friend.friend_id) {
-      logScroll('切换好友，重置状态', { from: currentFriendIdRef.current, to: friend.friend_id });
-      currentFriendIdRef.current = friend.friend_id;
-      prevMessagesLengthRef.current = -1;
-    }
-  }, [friend.friend_id]);
 
   // 滚动处理：检测是否接近顶部 + 更新是否在底部
   const handleScroll = useCallback(() => {
@@ -235,42 +225,20 @@ export function ChatMessages({
     isAtBottomRef.current = true;
   }, []);
 
-  // 首次渲染的锚点恢复：useLayoutEffect 在 paint 前同步运行，让"切回会话"那一帧
-  // 用户看到消息时已在上次阅读位置，无两步跳跃。
-  //
-  // 锚点失效（消息被删 / 不在加载范围）→ 降级到 scrollToBottom（保持现行行为）。
-  // 非首次渲染（新消息追加等）走下方的现有逻辑，不受此 Hook 影响。
-  const handleFallbackToBottom = useCallback(() => {
-    if (containerRef.current && messages.length > 0) {
-      scrollToBottom(true);
-    }
-  }, [messages.length, scrollToBottom]);
-
-  const handleFirstRenderHandled = useCallback(() => {
-    prevMessagesLengthRef.current = messages.length;
-  }, [messages.length]);
-
-  useScrollAnchorRestore({
-    chatKey: `friend-${friend.friend_id}`,
-    containerRef,
-    messagesLength: messages.length,
-    isFirstRender: prevMessagesLengthRef.current === -1,
-    onFallbackToBottom: handleFallbackToBottom,
-    onFirstRenderHandled: handleFirstRenderHandled,
-  });
-
-  // 消息数量变化时的滚动处理（非首次渲染的增量更新逻辑）
+  // 打开会话的滚动 + 消息变化时的增量滚动处理（useLayoutEffect 在 paint 前同步运行）
   useLayoutEffect(() => {
     const currentLength = messages.length;
 
-    // 初始渲染：交由 useScrollAnchorRestore 处理（锚点恢复或降级滚到底）
-    // 这里不再执行，避免与 useScrollAnchorRestore 双重 scrollTo 冲突
-    if (prevMessagesLengthRef.current === -1) {
-      logScroll('首次渲染/从0加载（由 useScrollAnchorRestore 处理）', {
-        currentLength,
-        friendId: friend.friend_id,
-        imageStats,
-      });
+    // 打开会话：第一帧有消息就立即滚到最新（底部），只滚一次。
+    // ChatMessages 按 key={`friend-${id}`} 重挂，didInitialScrollRef 每次打开从 false 开始。
+    // 空首帧（缓存未命中、等 db 异步加载）不计，待真正有消息时再滚。
+    if (!didInitialScrollRef.current) {
+      prevMessagesLengthRef.current = currentLength;
+      if (currentLength > 0) {
+        didInitialScrollRef.current = true;
+        logScroll('打开会话，滚到最新', { currentLength, friendId: friend.friend_id });
+        scrollToBottom(true);
+      }
       return;
     }
 
