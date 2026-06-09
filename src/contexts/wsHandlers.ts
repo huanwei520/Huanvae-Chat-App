@@ -22,6 +22,8 @@ import type { PendingNotifications } from './WebSocketContext';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import { friendDisplayName } from '../utils/friendName';
+import { useChatStore } from '../stores/chatStore';
 import {
   notifyNewMessage,
   notifySystemEvent,
@@ -390,10 +392,21 @@ export function handleWebSocketMessage(
           // 群消息使用"群聊"作为标题，好友消息无群名
           const groupName = msg.source_type === 'group' ? '群聊' : undefined;
 
+          // 私聊新消息：用本地好友备注/昵称解析发送者名
+          let senderName = msg.sender_nickname || msg.sender_id;
+          if (msg.source_type === 'friend') {
+            const friend = useChatStore.getState().friends.find(
+              (f) => f.friend_id === msg.sender_id,
+            );
+            if (friend) {
+              senderName = friendDisplayName(friend);
+            }
+          }
+
           notifyNewMessage({
             sourceType: msg.source_type,
             sourceId: msg.source_id,
-            senderName: msg.sender_nickname || msg.sender_id,
+            senderName,
             groupName,
             messageType: msg.message_type,
             content: msg.content || msg.preview || '',

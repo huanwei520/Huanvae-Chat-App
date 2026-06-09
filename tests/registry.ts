@@ -214,6 +214,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'ConfirmDialog', path: 'chat/shared/menu/ConfirmDialog', category: 'chat', description: '确认对话框' },
   { name: 'EditNameForm', path: 'chat/shared/menu/EditNameForm', category: 'chat', description: '编辑名称表单' },
   { name: 'EditNicknameForm', path: 'chat/shared/menu/EditNicknameForm', category: 'chat', description: '编辑昵称表单' },
+  { name: 'EditRemarkForm', path: 'chat/shared/menu/EditRemarkForm', category: 'chat', description: '设置好友备注表单（仅自己可见）' },
   { name: 'InviteCodeManager', path: 'chat/shared/menu/InviteCodeManager', category: 'chat', description: '邀请码管理' },
   { name: 'InviteForm', path: 'chat/shared/menu/InviteForm', category: 'chat', description: '邀请表单' },
   { name: 'MainMenu', path: 'chat/shared/menu/MainMenu', category: 'chat', description: '主菜单' },

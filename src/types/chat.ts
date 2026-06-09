@@ -11,6 +11,8 @@ export interface Friend {
   friend_avatar_url: string | null;
   add_time: string;
   approve_reason: string | null;
+  /** 好友备注名（仅自己可见；未设置为 null）。本地缓存不持久化，由服务器刷新提供 */
+  friend_remark: string | null;
 }
 
 /** 好友列表响应（client.ts 已解包 ApiResponse.data，这里直接是数组） */

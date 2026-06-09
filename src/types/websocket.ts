@@ -65,6 +65,8 @@ export interface UnreadSummary {
 export interface FriendUnread {
   friend_id: string;
   friend_nickname?: string;
+  /** 好友备注名（仅自己可见；未设置时缺省）。会话列表用 备注||昵称 显示 */
+  friend_remark?: string;
   friend_avatar?: string;
   unread_count: number;
   last_message_preview: string | null;
