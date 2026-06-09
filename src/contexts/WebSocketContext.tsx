@@ -234,6 +234,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       recalledListeners,
       notificationListeners,
       readSyncListeners,
+      sendResyncReadPositions: (positions) => {
+        if (positions.length > 0 && wsRef.current?.readyState === RustWebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resync_read_positions', positions }));
+        }
+      },
     });
 
     if (!result) {
@@ -499,6 +504,18 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         target_type: targetType,
         target_id: targetId,
       }));
+    }
+
+    // 持久化本地已读位置（last_read_seq = MAX(last_read_seq, last_seq)），供重连时回传
+    // resync_read_positions 修复抖断丢失的 mark_read。fire-and-forget，失败不影响已读流程。
+    let convId: string | null = targetId; // group: 会话 id 即 group_id
+    if (targetType === 'friend') {
+      convId = userIdRef.current ? getFriendConversationId(userIdRef.current, targetId) : null;
+    }
+    if (convId) {
+      void db.advanceConversationRead(convId).catch(err =>
+        console.error('[WS] 持久化本地已读位置失败:', err),
+      );
     }
 
     setUnreadSummary(prev => {

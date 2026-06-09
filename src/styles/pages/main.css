@@ -590,6 +590,24 @@
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
+/* 键盘导航焦点环 ------------------------------------------------- */
+/* 容器：仅键盘 Tab 聚焦（:focus-visible）显示外环；鼠标点击不显示 */
+.conversation-list:focus { outline: none; }
+.conversation-list:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+/* 已有键盘光标时，环改由激活项体现，去掉容器外环避免双环 */
+.conversation-list--has-cursor:focus-visible { outline: none; }
+
+/* 键盘光标激活项：box-shadow 高亮环（box-shadow 已在 .conversation-item 的 transition 内，
+   且非 framer-motion 控制属性，不与 cardVariants 的 transform/opacity 抢帧）。
+   复合选择器与 :hover 同特异性并置于其后，确保激活态压过 hover */
+.conversation-item.conversation-item--kbd-active {
+  box-shadow: 0 0 0 2px var(--primary), 0 4px 12px rgba(59, 130, 246, 0.12);
+}
+
 /* 选中边框层 - 使用 layoutId 实现跨卡片的平滑动画 */
 /* 桌面端专用：使用蓝色边框作为选中指示，边框在卡片外围 */
 .conversation-selected-border {

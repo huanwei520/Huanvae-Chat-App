@@ -53,6 +53,8 @@ export interface LocalConversation {
   last_message_time: string | null;
   last_seq: number;
   unread_count: number;
+  /** 本地已读位置（per 会话单调推进，仅 advanceConversationRead 维护；saveConversation 不携带） */
+  last_read_seq: number;
   is_muted: boolean;
   is_pinned: boolean;
   updated_at: string;
@@ -195,12 +197,14 @@ export function getConversation(
 
 /** 保存或更新会话 */
 export async function saveConversation(
-  conversation: Omit<LocalConversation, 'synced_at'>,
+  // last_read_seq 是本地已读位置，由 advanceConversationRead 单独维护；保存会话（服务端同步）
+  // 不携带它，Rust 侧 UPSERT 也不覆盖该列（serde default + ON CONFLICT 不更新 last_read_seq）。
+  conversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'>,
 ): Promise<void> {
   _pendingWrites++;
   console.warn(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
   try {
-    const conv: LocalConversation = {
+    const conv = {
       ...conversation,
       synced_at: null,
     };
@@ -210,6 +214,11 @@ export async function saveConversation(
     console.warn(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
+}
+
+/** 推进会话本地已读位置到当前已收最新（last_read_seq = MAX(last_read_seq, last_seq)，单调只升） */
+export async function advanceConversationRead(id: string): Promise<void> {
+  await invoke('db_advance_conversation_read', { id });
 }
 
 /** 更新会话的最后序列号 */

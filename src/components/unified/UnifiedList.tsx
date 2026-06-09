@@ -354,6 +354,100 @@ export function UnifiedList({
     }
   };
 
+  // ============================================
+  // 键盘导航：列表容器聚焦后 ↑/↓ 移动光标、Enter 打开当前光标会话
+  // activeKey 是独立于 selectedTarget（已打开会话）的「键盘光标」，仅由方向键改、失焦重置；
+  // 复用 onSelectTarget 打开逻辑，不重复实现；空/加载/错误态下 navKeys 为空自动 no-op
+  // ============================================
+  const listRef = useRef<HTMLDivElement>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [isListFocused, setIsListFocused] = useState(false);
+
+  // 可导航项的有序 key 列表（与渲染顺序一致：AI 卡片置顶仅 chat tab，其后为筛选后的卡片）
+  const navKeys = useMemo((): string[] => {
+    if (loading || error) { return []; }
+    const keys = activeTab === 'chat' ? ['ai-assistant'] : [];
+    return keys.concat(filteredCards.map((c) => c.uniqueKey));
+  }, [loading, error, activeTab, filteredCards]);
+
+  // 将指定 key 的卡片滚动到容器可视区：手动调 scrollTop，
+  // 避免 scrollIntoView 沿祖先链冒泡导致外层一并滚动
+  const scrollKeyIntoView = (key: string) => {
+    const container = listRef.current;
+    if (!container) { return; }
+    const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-conv-key]'));
+    const el = nodes.find((n) => n.dataset.convKey === key);
+    if (!el) { return; }
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    if (eRect.top < cRect.top) {
+      container.scrollTop += eRect.top - cRect.top;
+    } else if (eRect.bottom > cRect.bottom) {
+      container.scrollTop += eRect.bottom - cRect.bottom;
+    }
+  };
+
+  // 移动键盘光标（delta=+1 下移、-1 上移），在 [0, len-1] 内夹紧（不循环）
+  const moveActiveCursor = (delta: number) => {
+    if (navKeys.length === 0) { return; }
+    const cur = activeKey ? navKeys.indexOf(activeKey) : -1;
+    let next: number;
+    if (cur === -1) {
+      // 首次按方向键：优先在当前已打开会话处显示光标（无则首/末项）
+      const selIdx = selectedKey ? navKeys.indexOf(selectedKey) : -1;
+      if (selIdx !== -1) {
+        next = selIdx;
+      } else if (delta > 0) {
+        next = 0;
+      } else {
+        next = navKeys.length - 1;
+      }
+    } else {
+      next = Math.min(navKeys.length - 1, Math.max(0, cur + delta));
+    }
+    const nextKey = navKeys[next];
+    setActiveKey(nextKey);
+    scrollKeyIntoView(nextKey);
+  };
+
+  // 打开指定 key 的会话（复用点击打开逻辑）
+  const openByKey = (key: string) => {
+    if (key === 'ai-assistant') {
+      onSelectTarget({ type: 'ai' });
+      return;
+    }
+    const card = filteredCards.find((c) => c.uniqueKey === key);
+    if (card) { handleCardClick(card); }
+  };
+
+  const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        moveActiveCursor(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        moveActiveCursor(-1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (activeKey && navKeys.includes(activeKey)) { openByKey(activeKey); }
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleListFocus = () => { setIsListFocused(true); };
+  const handleListBlur = () => {
+    setIsListFocused(false);
+    setActiveKey(null);
+  };
+
+  // 当前是否有有效键盘光标（用于容器/激活项焦点环的二选一显示）
+  const hasCursor = isListFocused && activeKey !== null && navKeys.includes(activeKey);
+
   // 获取搜索框占位符
   const getPlaceholder = (): string => {
     switch (activeTab) {
@@ -455,7 +549,8 @@ export function UnifiedList({
       return (
         <motion.div
           key={card.uniqueKey}
-          className="conversation-item"
+          data-conv-key={card.uniqueKey}
+          className={`conversation-item${isListFocused && card.uniqueKey === activeKey ? ' conversation-item--kbd-active' : ''}`}
           onClick={() => handleCardClick(card)}
           variants={cardVariants}
           initial="initial"
@@ -568,7 +663,14 @@ export function UnifiedList({
       {/* 使用 LayoutGroup 确保选中指示器的 layoutId 动画正确同步 */}
       <LayoutGroup>
         <motion.div
-          className="conversation-list"
+          ref={listRef}
+          className={`conversation-list${hasCursor ? ' conversation-list--has-cursor' : ''}`}
+          role="group"
+          aria-label="会话列表：上下方向键选择会话，回车打开"
+          tabIndex={0}
+          onKeyDown={handleListKeyDown}
+          onFocus={handleListFocus}
+          onBlur={handleListBlur}
           layoutScroll  // 关键：让 Motion 正确计算滚动偏移
           style={{ overflow: 'auto' }}
         >
@@ -583,7 +685,8 @@ export function UnifiedList({
             {activeTab === 'chat' && !loading && !error && (
               <motion.div
                 key="ai-assistant"
-                className="conversation-item"
+                data-conv-key="ai-assistant"
+                className={`conversation-item${isListFocused && activeKey === 'ai-assistant' ? ' conversation-item--kbd-active' : ''}`}
                 onClick={() => onSelectTarget({ type: 'ai' })}
                 variants={cardVariants}
                 initial="initial"
