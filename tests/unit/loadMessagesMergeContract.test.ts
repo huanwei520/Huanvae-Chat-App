@@ -40,8 +40,9 @@ describe('loadMessages 增量合并防回归', () => {
     expect(loadMessagesBlock![0]).toMatch(/setMessages\(\(prev\)\s*=>/);
   });
 
-  it('useLocalFriendMessages 合并按 send_time 排序', () => {
-    expect(FRIEND_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(a\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(b\.send_time\)\.getTime\(\)/);
+  it('useLocalFriendMessages 合并按 send_time 降序 [新→旧]（与数组约定一致）', () => {
+    // 降序 b-a：messages 约定 [新→旧]，loadMore 取 messages[length-1] 作最旧。升序会让分页取错。
+    expect(FRIEND_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(b\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(a\.send_time\)\.getTime\(\)/);
   });
 
   it('useLocalFriendMessages 合并含"prev 全包含分支"', () => {
@@ -67,8 +68,8 @@ describe('loadMessages 增量合并防回归', () => {
     expect(loadMessagesBlock![0]).toMatch(/setMessages\(\(prev\)\s*=>/);
   });
 
-  it('useLocalGroupMessages 合并按 send_time 排序', () => {
-    expect(GROUP_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(a\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(b\.send_time\)\.getTime\(\)/);
+  it('useLocalGroupMessages 合并按 send_time 降序 [新→旧]（与数组约定一致）', () => {
+    expect(GROUP_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(b\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(a\.send_time\)\.getTime\(\)/);
   });
 
   it('useLocalGroupMessages 用 db 版本更新 prev 中已存在 uuid 且保留 clientId（同步状态 + key 稳定）', () => {

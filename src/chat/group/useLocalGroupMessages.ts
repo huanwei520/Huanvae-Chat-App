@@ -242,8 +242,10 @@ export function useLocalGroupMessages(groupId: string | null) {
         if (newOnes.length === 0) {
           return updated;
         }
+        // 降序 [新→旧]，与 db.getMessages / getLatestMessage[0] / loadMore（messages[length-1]=最旧）
+        // 的数组约定一致；显示层 sortedMessages 再各自升序排版，不受此影响。
         return [...updated, ...newOnes].sort(
-          (a, b) => new Date(a.send_time).getTime() - new Date(b.send_time).getTime(),
+          (a, b) => new Date(b.send_time).getTime() - new Date(a.send_time).getTime(),
         );
       });
       setHasMore(localMessages.length >= limit);
