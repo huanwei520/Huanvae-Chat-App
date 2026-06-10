@@ -591,15 +591,15 @@
 }
 
 /* 键盘导航焦点环 ------------------------------------------------- */
-/* 容器：仅键盘 Tab 聚焦（:focus-visible）显示外环；鼠标点击不显示 */
+/* 容器：仅键盘 Tab 聚焦时显示外环。kbd-focused 类由 JS 判定挂上——WKWebView 对
+   <div> 的 :focus-visible 支持不稳定，会出现「聚焦却无外环」；鼠标点击聚焦不点亮。
+   有键盘光标时改由激活项体现外环，故该类仅在「无光标」时挂上，天然避免双环 */
 .conversation-list:focus { outline: none; }
-.conversation-list:focus-visible {
+.conversation-list--kbd-focused {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
   border-radius: 8px;
 }
-/* 已有键盘光标时，环改由激活项体现，去掉容器外环避免双环 */
-.conversation-list--has-cursor:focus-visible { outline: none; }
 
 /* 键盘光标激活项：box-shadow 高亮环（box-shadow 已在 .conversation-item 的 transition 内，
    且非 framer-motion 控制属性，不与 cardVariants 的 transform/opacity 抢帧）。
@@ -1716,12 +1716,20 @@
   flex: 1;
   min-height: 0;
   position: relative;
+  outline: none;  /* 鼠标聚焦不显示默认外环 */
   overflow-anchor: auto; /* 启用滚动锚定 */
   overflow-y: auto;           /* 滚动在此层 */
   overflow-x: hidden;
   /* 左侧 8px，右侧 2px + 滚动条 6px ≈ 8px，保持两侧视觉对称 */
   padding: 10px 2px 10px 8px;
   scrollbar-gutter: stable;   /* 保留滚动条空间，避免宽度跳动 */
+}
+
+/* 仅键盘 Tab 聚焦时显示外环（kbd-focused 由 JS 判定，理由同会话列表容器），
+   让用户知道焦点已落在消息区，可用 End/Home/PageUp/PageDown 滚动 */
+.chat-messages-container--kbd-focused {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .message-placeholder {

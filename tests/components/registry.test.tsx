@@ -162,6 +162,7 @@ import * as useSearchPopup from '../../src/hooks/useSearchPopup';
 import * as useRegisterForm from '../../src/hooks/useRegisterForm';
 import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMessages';
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
+import * as useScrollKeyboardControls from '../../src/chat/shared/useScrollKeyboardControls';
 import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useUpdateToast from '../../src/update/components/UpdateToast';
@@ -394,6 +395,7 @@ const COMPONENT_MAP = {
   useRegisterForm,
   useLocalFriendMessages,
   useLocalGroupMessages,
+  useScrollKeyboardControls,
   useFriendReadReceipt,
   useGroupReadReceipt,
   useAIMessages,

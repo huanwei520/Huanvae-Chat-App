@@ -23,6 +23,7 @@
 
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { useScrollKeyboardControls } from '../shared/useScrollKeyboardControls';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -230,13 +231,17 @@ export function GroupChatMessages({
     }
   }, [messages, messages.length, groupId]);
 
+  // 键盘滚动控制：容器可 Tab 聚焦，End 到最新 / Home 到顶 / PageUp·PageDown 翻页
+  const { kbdFocused, containerProps } = useScrollKeyboardControls(containerRef);
+
   // 是否显示消息列表
   const isEmpty = messages.length === 0;
 
   return (
     <div
       ref={containerRef}
-      className="chat-messages-container"
+      className={`chat-messages-container${kbdFocused ? ' chat-messages-container--kbd-focused' : ''}`}
+      {...containerProps}
     >
       {/* 顶部指示器 */}
       {loadingMore && !isEmpty && (

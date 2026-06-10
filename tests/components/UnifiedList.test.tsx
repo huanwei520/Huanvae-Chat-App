@@ -171,4 +171,28 @@ describe('UnifiedList 会话列表键盘导航', () => {
     fireEvent.keyDown(list, { key: 'ArrowDown' });
     expect(container.querySelector('.conversation-item--kbd-active')).toBeNull();
   });
+
+  it('键盘 Tab 聚焦容器出现焦点环类，失焦移除', () => {
+    const { list } = renderList({ activeTab: 'friends' });
+    fireEvent.focus(list);
+    expect(list.classList.contains('conversation-list--kbd-focused')).toBe(true);
+    fireEvent.blur(list);
+    expect(list.classList.contains('conversation-list--kbd-focused')).toBe(false);
+  });
+
+  it('鼠标按下后聚焦不点亮容器焦点环类（仅键盘点亮）', () => {
+    const { list } = renderList({ activeTab: 'friends' });
+    fireEvent.pointerDown(list);
+    fireEvent.focus(list);
+    expect(list.classList.contains('conversation-list--kbd-focused')).toBe(false);
+  });
+
+  it('出现键盘光标后容器焦点环类移除，改由激活项体现（避免双环）', () => {
+    const { list, container } = renderList({ activeTab: 'friends' });
+    fireEvent.focus(list);
+    expect(list.classList.contains('conversation-list--kbd-focused')).toBe(true);
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(list.classList.contains('conversation-list--kbd-focused')).toBe(false);
+    expect(container.querySelector('.conversation-item--kbd-active')).not.toBeNull();
+  });
 });
