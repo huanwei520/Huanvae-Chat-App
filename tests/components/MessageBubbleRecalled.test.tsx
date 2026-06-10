@@ -58,10 +58,6 @@ vi.mock('../../src/utils/saveToGallery', () => ({
   saveToGallery: vi.fn(),
 }));
 
-vi.mock('../../src/chat/shared/SendStatusIndicator', () => ({
-  SendStatusIndicator: () => null,
-}));
-
 vi.mock('../../src/components/common/Avatar', () => ({
   UserAvatar: () => <div data-testid="user-avatar" />,
   FriendAvatar: () => <div data-testid="friend-avatar" />,
