@@ -35,9 +35,6 @@ const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
 /** 判断是否在底部的阈值（像素） */
 const AT_BOTTOM_THRESHOLD = 100;
 
-/** 临时诊断开关（bug②③ 验收后删除）：打印打开会话时的吸底目标 / 最新消息 / 渲染条数 */
-const OPEN_DEBUG = true;
-
 /** 打开会话后持续重申"吸底"的帧数 —— 抵消重渲染 / 头像异步 / overflow-anchor 致 scrollHeight 后续增长 */
 const OPEN_STICK_FRAMES = 6;
 
@@ -207,15 +204,6 @@ export function GroupChatMessages({
       }
       el.scrollTop = el.scrollHeight;
       stickFramesRef.current -= 1;
-      if (OPEN_DEBUG) {
-        // eslint-disable-next-line no-console
-        console.log('%c[OpenScroll] 群吸底重申帧', 'color:#E91E63', {
-          remain: stickFramesRef.current,
-          scrollHeight: el.scrollHeight,
-          scrollTop: el.scrollTop,
-          clientHeight: el.clientHeight,
-        });
-      }
       stickRafRef.current = requestAnimationFrame(step);
     };
     stickRafRef.current = requestAnimationFrame(step);
@@ -242,23 +230,6 @@ export function GroupChatMessages({
         const el = containerRef.current;
         el.scrollTop = el.scrollHeight;          // 立即吸底
         isAtBottomRef.current = true;
-        if (OPEN_DEBUG) {
-          const newest = sortedMessages[sortedMessages.length - 1];
-          // eslint-disable-next-line no-console
-          console.log('%c[OpenScroll] 群首屏吸底', 'color:#E91E63;font-weight:bold', {
-            groupId,
-            count: currentLength,
-            newest: newest && {
-              uuid: newest.message_uuid.slice(0, 8),
-              content: (newest.message_content || '').slice(0, 18),
-              time: newest.send_time,
-              seq: newest.seq,
-            },
-            scrollHeight: el.scrollHeight,
-            clientHeight: el.clientHeight,
-            scrollTopAfter: el.scrollTop,
-          });
-        }
         startStickToBottom();                    // 随后几帧持续重申吸底
         // 打开会话即把键盘焦点落到消息区，End/Home/PageUp/PageDown 立即可用（桌面）。
         // 用 rAF 延后，确保压过 ChatInputArea mount 时的 textarea autofocus。
@@ -304,7 +275,7 @@ export function GroupChatMessages({
         });
       }
     }
-  }, [messages, messages.length, sortedMessages, groupId, startStickToBottom]);
+  }, [messages, messages.length, groupId, startStickToBottom]);
 
   // 键盘滚动控制：容器可 Tab 聚焦，End 到最新 / Home 到顶 / PageUp·PageDown 翻页
   const { kbdFocused, containerProps } = useScrollKeyboardControls(containerRef);
