@@ -6,6 +6,9 @@
 
 import type { ApiClient } from './client';
 
+/** 申请默认处理策略 */
+export type RequestPolicy = 'manual' | 'auto_accept' | 'auto_reject';
+
 /** 个人资料响应（createApiClient 已自动解包 ApiResponse.data，此处为解包后的扁平结构） */
 export interface ProfileResponse {
   user_id: string;
@@ -14,15 +17,35 @@ export interface ProfileResponse {
   user_signature: string | null;
   user_avatar_url: string | null;
   admin: string;
+  /** 搜索总开关：false=完全不可被搜索/添加 */
+  allow_search: boolean;
+  /** 是否允许通过用户 ID/用户名被添加 */
+  search_visible_by_id: boolean;
+  /** 好友申请默认处理策略 */
+  friend_request_policy: RequestPolicy;
+  /** 群邀请默认处理策略 */
+  group_invite_policy: RequestPolicy;
   created_at: string;
   updated_at: string;
 }
 
-/** 更新资料请求 */
+/** 他人公开资料响应（仅公开字段，不含邮箱与隐私设置） */
+export interface PublicProfileResponse {
+  user_id: string;
+  user_nickname: string;
+  user_signature: string | null;
+  user_avatar_url: string | null;
+}
+
+/** 更新资料请求（所有字段可选，仅传需要更新的） */
 export interface UpdateProfileRequest {
   nickname?: string;
   email?: string;
   signature?: string;
+  allow_search?: boolean;
+  search_visible_by_id?: boolean;
+  friend_request_policy?: RequestPolicy;
+  group_invite_policy?: RequestPolicy;
 }
 
 /** 修改密码请求 */
@@ -42,6 +65,13 @@ export interface UploadAvatarResponse {
  */
 export function getProfile(api: ApiClient): Promise<ProfileResponse> {
   return api.get<ProfileResponse>('/api/profile');
+}
+
+/**
+ * 获取他人公开资料（仅公开字段：id/昵称/签名/头像）
+ */
+export function getPublicProfile(api: ApiClient, userId: string): Promise<PublicProfileResponse> {
+  return api.get<PublicProfileResponse>(`/api/profile/${encodeURIComponent(userId)}/public`);
 }
 
 /**

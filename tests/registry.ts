@@ -98,6 +98,7 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'AvatarUploader', path: 'components/profile/AvatarUploader', category: 'components', description: '头像上传组件' },
   { name: 'PasswordForm', path: 'components/profile/PasswordForm', category: 'components', description: '密码表单' },
   { name: 'ProfileInfoForm', path: 'components/profile/ProfileInfoForm', category: 'components', description: '个人信息表单' },
+  { name: 'PrivacySettingsForm', path: 'components/profile/PrivacySettingsForm', category: 'components', description: '隐私/申请处理设置表单（搜索可见性 + 好友/群申请默认策略）' },
 
   // 文件相关
   { name: 'FilesModal', path: 'components/files/FilesModal', category: 'components', description: '文件管理模态框' },
