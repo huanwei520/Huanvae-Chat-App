@@ -23,6 +23,7 @@
 
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { isMobile } from '../../utils/platform';
 import { useScrollKeyboardControls } from '../shared/useScrollKeyboardControls';
 import { MessageBubble } from './MessageBubble';
 import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
@@ -34,6 +35,12 @@ const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
 
 /** 判断是否在底部的阈值（像素） */
 const AT_BOTTOM_THRESHOLD = 100;
+
+/** 临时诊断开关（bug②③ 验收后删除）：打印打开会话时的吸底目标 / 最新消息 / 渲染条数 */
+const OPEN_DEBUG = true;
+
+/** 打开会话后持续重申"吸底"的帧数 —— 抵消重渲染 / 头像异步 / overflow-anchor 致 scrollHeight 后续增长 */
+const OPEN_STICK_FRAMES = 6;
 
 interface ChatMessagesProps {
   /** @deprecated 不再使用，消息从本地加载速度很快 */
@@ -92,6 +99,10 @@ export function ChatMessages({
 
   // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
   const scrollSnapshotRef = useRef<number | null>(null);
+
+  // 打开会话"吸底泵"的 rAF 句柄 + 剩余重申帧数
+  const stickRafRef = useRef<number | null>(null);
+  const stickFramesRef = useRef(0);
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
@@ -190,18 +201,82 @@ export function ChatMessages({
     isAtBottomRef.current = true;
   }, []);
 
+  // 打开会话"吸底泵"：立即吸底在调用点完成，这里负责随后几帧持续重申，
+  // 抵消"合并重渲染 / 头像异步加载 / overflow-anchor 漂移"导致的 scrollHeight 后续增长，
+  // 否则单帧 scrollTop 会落在旧底部之上 → 看不到最新一条（bug③）。
+  // 用户中途上滑（handleScroll 置 isAtBottomRef=false）则停止，尊重用户操作。
+  const startStickToBottom = useCallback(() => {
+    if (stickRafRef.current !== null) {
+      cancelAnimationFrame(stickRafRef.current);
+    }
+    stickFramesRef.current = OPEN_STICK_FRAMES;
+    const step = () => {
+      const el = containerRef.current;
+      if (!el || stickFramesRef.current <= 0 || !isAtBottomRef.current) {
+        stickRafRef.current = null;
+        return;
+      }
+      el.scrollTop = el.scrollHeight;
+      stickFramesRef.current -= 1;
+      if (OPEN_DEBUG) {
+        // eslint-disable-next-line no-console
+        console.log('%c[OpenScroll] 私聊吸底重申帧', 'color:#E91E63', {
+          remain: stickFramesRef.current,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+          clientHeight: el.clientHeight,
+        });
+      }
+      stickRafRef.current = requestAnimationFrame(step);
+    };
+    stickRafRef.current = requestAnimationFrame(step);
+  }, []);
+
+  // 卸载时取消吸底泵 rAF
+  useEffect(() => () => {
+    if (stickRafRef.current !== null) {
+      cancelAnimationFrame(stickRafRef.current);
+    }
+  }, []);
+
   // 打开会话的滚动 + 消息变化时的增量滚动处理（useLayoutEffect 在 paint 前同步运行）
   useLayoutEffect(() => {
     const currentLength = messages.length;
 
-    // 打开会话：第一帧有消息就立即滚到最新（底部），只滚一次。
+    // 打开会话：第一帧有消息就立即滚到最新（底部），并启动吸底泵持续重申几帧。
     // ChatMessages 按 key={`friend-${id}`} 重挂，didInitialScrollRef 每次打开从 false 开始。
     // 空首帧（缓存未命中、等 db 异步加载）不计，待真正有消息时再滚。
     if (!didInitialScrollRef.current) {
       prevMessagesLengthRef.current = currentLength;
-      if (currentLength > 0) {
+      if (currentLength > 0 && containerRef.current) {
         didInitialScrollRef.current = true;
-        scrollToBottom(true);
+        scrollToBottom(true);                    // 立即吸底
+        const el = containerRef.current;
+        if (OPEN_DEBUG) {
+          const newest = sortedMessages[sortedMessages.length - 1];
+          // eslint-disable-next-line no-console
+          console.log('%c[OpenScroll] 私聊首屏吸底', 'color:#E91E63;font-weight:bold', {
+            friendId: friend.friend_id,
+            count: currentLength,
+            newest: newest && {
+              uuid: newest.message_uuid.slice(0, 8),
+              content: (newest.message_content || '').slice(0, 18),
+              time: newest.send_time,
+              seq: newest.seq,
+            },
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            scrollTopAfter: el.scrollTop,
+          });
+        }
+        startStickToBottom();                    // 随后几帧持续重申吸底
+        // 打开会话即把键盘焦点落到消息区，End/Home/PageUp/PageDown 立即可用（桌面）。
+        // 用 rAF 延后，确保压过 ChatInputArea mount 时的 textarea autofocus。
+        if (!isMobile()) {
+          requestAnimationFrame(() => {
+            containerRef.current?.focus({ preventScroll: true });
+          });
+        }
       }
       return;
     }
@@ -234,7 +309,7 @@ export function ChatMessages({
         });
       }
     }
-  }, [messages, messages.length, friend.friend_id, scrollToBottom]);
+  }, [messages, messages.length, sortedMessages, friend.friend_id, scrollToBottom, startStickToBottom]);
 
   // 键盘滚动控制：容器可 Tab 聚焦，End 到最新 / Home 到顶 / PageUp·PageDown 翻页
   const { kbdFocused, containerProps } = useScrollKeyboardControls(containerRef);

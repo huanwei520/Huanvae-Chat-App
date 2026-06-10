@@ -229,7 +229,14 @@ export function useLocalGroupMessages(groupId: string | null) {
           return uiMessages;
         }
         const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
-        const updated = prev.map((m) => dbByUuid.get(m.message_uuid) ?? m);
+        // 用 db 版本替换 prev 中已存在的（同步 is_recalled / message_content 等 SSOT 字段），
+        // 但保留 prev 的 clientId / sendStatus —— db 版（localMessageToGroupMessage）不带这两字段，
+        // 若丢失会让自己发的消息 React key 从 client_xxx 突变成真 uuid → 打开会话时 AnimatePresence
+        // 卸载重挂 → 退/入场动画 churn + 布局位移（bug② 双跳）。与 syncMessagesInBackground 保持一致。
+        const updated = prev.map((m) => {
+          const dbVer = dbByUuid.get(m.message_uuid);
+          return dbVer ? { ...dbVer, clientId: m.clientId, sendStatus: m.sendStatus } : m;
+        });
         const existingUuids = new Set(prev.map((m) => m.message_uuid));
         const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
         if (newOnes.length === 0) {

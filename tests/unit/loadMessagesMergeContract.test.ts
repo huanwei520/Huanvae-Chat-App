@@ -49,10 +49,13 @@ describe('loadMessages 增量合并防回归', () => {
     expect(FRIEND_SRC).toMatch(/newOnes\.length\s*===\s*0/);
   });
 
-  it('useLocalFriendMessages 用 db 版本更新 prev 中已存在 uuid（同步撤回/删除状态）', () => {
-    // 防回退：阻止"跳过已存在 uuid"退化为不同步状态。必须有 dbByUuid + prev.map(... dbByUuid.get)
+  it('useLocalFriendMessages 用 db 版本更新 prev 中已存在 uuid 且保留 clientId（同步状态 + key 稳定）', () => {
+    // 防回退①：阻止"跳过已存在 uuid"退化为不同步状态。必须有 dbByUuid + prev.map(... dbByUuid.get)
     expect(FRIEND_SRC).toMatch(/dbByUuid\s*=\s*new\s+Map\(/);
-    expect(FRIEND_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)\s*\?\?\s*m/);
+    expect(FRIEND_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)/);
+    // 防回退②：替换 db 版时必须保留 prev 的 clientId —— 否则自己发的消息 React key 从
+    // client_xxx 突变成真 uuid → 打开会话时 AnimatePresence 卸载重挂 → 双跳抖动（bug②）。
+    expect(FRIEND_SRC).toMatch(/clientId:\s*m\.clientId/);
   });
 
   it('useLocalGroupMessages 不直接 setMessages(uiMessages) 覆盖', () => {
@@ -68,9 +71,11 @@ describe('loadMessages 增量合并防回归', () => {
     expect(GROUP_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(a\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(b\.send_time\)\.getTime\(\)/);
   });
 
-  it('useLocalGroupMessages 用 db 版本更新 prev 中已存在 uuid', () => {
+  it('useLocalGroupMessages 用 db 版本更新 prev 中已存在 uuid 且保留 clientId（同步状态 + key 稳定）', () => {
     expect(GROUP_SRC).toMatch(/dbByUuid\s*=\s*new\s+Map\(/);
-    expect(GROUP_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)\s*\?\?\s*m/);
+    expect(GROUP_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)/);
+    // 防回退：替换 db 版时必须保留 prev 的 clientId（理由同 friend 侧，防 bug② 双跳）
+    expect(GROUP_SRC).toMatch(/clientId:\s*m\.clientId/);
   });
 
   // ============================================
