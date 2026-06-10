@@ -3218,6 +3218,65 @@
   color: var(--text-light);
 }
 
+/* 关系操作：删除好友（危险）+ 内联二次确认 */
+.other-profile-op {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  cursor: pointer;
+  background: var(--white-alpha-40);
+  color: var(--text-secondary);
+}
+
+.other-profile-op.danger {
+  color: var(--status-error);
+}
+
+.other-profile-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.other-profile-confirm-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.other-profile-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.other-profile-confirm-cancel,
+.other-profile-confirm-danger {
+  flex: 1;
+  padding: 9px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.other-profile-confirm-cancel {
+  background: var(--white-alpha-40);
+  color: var(--text-secondary);
+}
+
+.other-profile-confirm-danger {
+  background: var(--status-error);
+  color: white;
+}
+
+.other-profile-confirm-cancel:disabled,
+.other-profile-confirm-danger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* 预览卡升级：关系状态 + 查看完整资料按钮 */
 .popup-relation {
   font-size: 12px;
