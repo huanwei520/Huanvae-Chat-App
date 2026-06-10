@@ -196,7 +196,9 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'ReadReceiptLabel', path: 'chat/shared/ReadReceiptLabel', category: 'chat', description: '已读回执小标签（私聊"已读/未读"、群聊"N 人已读"）' },
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },
-  { name: 'UserProfilePopup', path: 'chat/shared/UserProfilePopup', category: 'chat', description: '用户资料弹窗' },
+  { name: 'UserProfilePopup', path: 'chat/shared/UserProfilePopup', category: 'chat', description: '用户资料预览卡（桌面点头像弹出，含关系状态 + 查看完整资料）' },
+  { name: 'OtherProfilePanel', path: 'chat/shared/OtherProfilePanel', category: 'chat', description: '他人完整资料面板（公开字段 + 关系状态 + 快捷操作 + M3 关系操作区占位）' },
+  { name: 'OtherProfileView', path: 'chat/shared/OtherProfileView', category: 'chat', description: '他人资料页容器（桌面右抽屉 / 移动整页，订阅 profileViewStore）' },
 
   // 好友聊天组件
   { name: 'ChatMessages', path: 'chat/friend/ChatMessages', category: 'chat', description: '好友聊天消息列表' },

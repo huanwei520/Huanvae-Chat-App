@@ -18,3 +18,9 @@ export {
   selectCurrentMuteStatus,
   type ChatStore,
 } from './chatStore';
+
+// ============================================
+// 他人资料页查看 Store
+// ============================================
+
+export { useProfileViewStore } from './profileViewStore';

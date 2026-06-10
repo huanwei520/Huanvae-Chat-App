@@ -30,7 +30,7 @@ import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import { isMobile } from '../../utils/platform';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -163,12 +163,21 @@ export function GroupMessageBubble({
     anchorRect: null,
   });
 
+  // 打开他人完整资料页（移动端点头像直接进入）
+  const openProfileView = useProfileViewStore((s) => s.open);
+
   // 点击头像显示/隐藏用户信息
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 多选模式下，点击头像也触发选中
     if (isMultiSelectMode) {
       onToggleSelect?.();
+      return;
+    }
+
+    // 移动端点他人头像直接进完整资料页；桌面端走预览弹窗
+    if (isMobile() && !isOwn) {
+      openProfileView(message.sender_id);
       return;
     }
 
@@ -188,7 +197,7 @@ export function GroupMessageBubble({
       },
       anchorRect: rect,
     });
-  }, [isMultiSelectMode, onToggleSelect, message, profilePopup.isOpen, profilePopup.user?.userId]);
+  }, [isMultiSelectMode, onToggleSelect, isOwn, message, openProfileView, profilePopup.isOpen, profilePopup.user?.userId]);
 
   // 关闭用户信息弹出框
   const handleCloseProfile = useCallback(() => {

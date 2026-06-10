@@ -108,6 +108,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/nfc/NfcFeedbackToast.tsx (toastVariants: opacity + y 进出场)',
   },
+  {
+    selector: '.other-profile-overlay',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/shared/OtherProfileView.tsx (overlayVariants: opacity 进出场)',
+  },
+  {
+    selector: '.other-profile-shell',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/OtherProfileView.tsx (panelVariants: 从右滑入 translateX)',
+  },
 ];
 
 /**
