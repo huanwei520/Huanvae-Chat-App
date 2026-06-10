@@ -80,9 +80,6 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     setLoading(true);
     try {
       const rows = await db.getConversationPreviews();
-      console.warn('[LocalConv] raw preview rows:', rows.map(r =>
-        `${r.id}(${r.type}): msg="${(r.msg_content || '').slice(0, 20)}" type=${r.msg_content_type} time=${r.msg_send_time}`,
-      ));
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
 
@@ -108,18 +105,12 @@ export function useLocalConversations(): UseLocalConversationsReturn {
 
       setPreviews({ friends: friendPreviews, groups: groupPreviews });
 
-      // DEBUG: 输出前两个好友预览
-      const friendEntries = [...friendPreviews.entries()].slice(0, 3);
-      console.warn('[LocalConv] loaded previews:', friendEntries.map(([id, p]) =>
-        `${id}: "${p.lastMessage?.slice(0, 20)}" @ ${p.lastMessageTime}`,
-      ));
-
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
       }
     } catch (err) {
-      console.warn('[LocalConv] 加载本地会话失败:', err);
+      console.error('加载本地会话失败:', err);
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
@@ -134,7 +125,6 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     loadConversations();
 
     const handleChanged = () => {
-      console.warn('[LocalConv] received PREVIEW_CHANGED_EVENT → loadConversations');
       loadConversations();
     };
     window.addEventListener(PREVIEW_CHANGED_EVENT, handleChanged);

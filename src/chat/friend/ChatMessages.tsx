@@ -34,17 +34,6 @@ const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
 /** 判断是否在底部的阈值（像素） */
 const AT_BOTTOM_THRESHOLD = 100;
 
-/** 调试模式 */
-const DEBUG_SCROLL = true;
-
-/** 调试日志 */
-function logScroll(action: string, data?: Record<string, unknown>) {
-  if (DEBUG_SCROLL) {
-    // eslint-disable-next-line no-console
-    console.log(`%c[Scroll] ${action}`, 'color: #E91E63; font-weight: bold', data ?? '');
-  }
-}
-
 interface ChatMessagesProps {
   /** @deprecated 不再使用，消息从本地加载速度很快 */
   loading?: boolean;
@@ -183,36 +172,11 @@ export function ChatMessages({
     return () => observer.disconnect();
   }, []);
 
-  // 统计图片消息的尺寸信息
-  const imageStats = useMemo(() => {
-    const imageMessages = messages.filter((m) => m.message_type === 'image');
-    const withDimensions = imageMessages.filter((m) => m.image_width && m.image_height);
-    const withoutDimensions = imageMessages.filter((m) => !m.image_width || !m.image_height);
-    return {
-      total: imageMessages.length,
-      withDimensions: withDimensions.length,
-      withoutDimensions: withoutDimensions.length,
-      missingList: withoutDimensions.map((m) => ({
-        uuid: m.message_uuid.slice(0, 8),
-        content: m.message_content.slice(0, 20),
-      })),
-    };
-  }, [messages]);
-
   // 滚动到底部的辅助函数
   const scrollToBottom = useCallback((immediate = false) => {
     if (!containerRef.current) { return; }
 
-    const { scrollHeight, scrollTop, clientHeight } = containerRef.current;
-    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-
-    logScroll('执行滚动到底部', {
-      scrollHeight,
-      scrollTop,
-      clientHeight,
-      distanceToBottom,
-      immediate,
-    });
+    const { scrollHeight } = containerRef.current;
 
     if (immediate) {
       containerRef.current.scrollTop = scrollHeight;
@@ -236,7 +200,6 @@ export function ChatMessages({
       prevMessagesLengthRef.current = currentLength;
       if (currentLength > 0) {
         didInitialScrollRef.current = true;
-        logScroll('打开会话，滚到最新', { currentLength, friendId: friend.friend_id });
         scrollToBottom(true);
       }
       return;
@@ -248,55 +211,20 @@ export function ChatMessages({
 
     if (!containerRef.current) { return; }
 
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-
-    logScroll('消息变化', {
-      friendId: friend.friend_id,
-      prevLength,
-      currentLength,
-      deltaMessages,
-      scrollHeight,
-      scrollTop,
-      distanceToBottom,
-      isAtBottom: isAtBottomRef.current,
-      imageStats,
-    });
-
     // 情况1：deltaMessages 为 0，无需处理
     if (deltaMessages === 0) { return; }
 
     // 情况2：加载历史消息（消息增加较多，且有滚动快照）
     // 浏览器的 scroll anchoring 会自动保持视角，无需手动补偿
     if (deltaMessages > 3 && scrollSnapshotRef.current !== null) {
-      logScroll('加载历史消息，依赖 scroll anchoring');
       scrollSnapshotRef.current = null;
       return;
     }
 
     // 情况3：新消息到达（1-3条）
     if (deltaMessages > 0 && deltaMessages <= 3) {
-      // 检查是否有发送中的消息（自己发送的消息始终滚动到底部）
+      // 自己发送的消息始终滚动到底部，否则仅在已处于底部时跟随
       const hasSendingMessage = messages.some((m) => m.sendStatus === 'sending');
-      // 检查新消息中是否有图片
-      const newMessages = messages.slice(-deltaMessages);
-      const hasImageMessage = newMessages.some((m) => m.message_type === 'image');
-      const newImageDimensions = newMessages
-        .filter((m) => m.message_type === 'image')
-        .map((m) => ({
-          uuid: m.message_uuid.slice(0, 8),
-          width: m.image_width,
-          height: m.image_height,
-        }));
-
-      logScroll('新消息到达', {
-        deltaMessages,
-        hasSendingMessage,
-        hasImageMessage,
-        newImageDimensions,
-        isAtBottom: isAtBottomRef.current,
-        willScroll: hasSendingMessage || isAtBottomRef.current,
-      });
 
       if (hasSendingMessage || isAtBottomRef.current) {
         // 使用 requestAnimationFrame 等待渲染完成
@@ -305,7 +233,7 @@ export function ChatMessages({
         });
       }
     }
-  }, [messages, messages.length, friend.friend_id, imageStats, scrollToBottom]);
+  }, [messages, messages.length, friend.friend_id, scrollToBottom]);
 
   // 是否显示消息列表
   const isEmpty = messages.length === 0;

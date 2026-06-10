@@ -24,14 +24,12 @@ function schedulePreviewNotify(): void {
   if (_previewDebounceTimer) {
     clearTimeout(_previewDebounceTimer);
   }
-  console.warn(`[DB-Preview] schedule: pending=${_pendingWrites}`);
   _previewDebounceTimer = setTimeout(() => {
     _previewDebounceTimer = null;
     if (_pendingWrites > 0) {
-      console.warn(`[DB-Preview] SKIPPED: still ${_pendingWrites} writes in flight`);
+      // 仍有写入在途：跳过本次触发，等最后一个写入完成后重新调度，确保查询拿到完整数据
       return;
     }
-    console.warn('[DB-Preview] DISPATCH event');
     window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
   }, 150);
 }
@@ -202,7 +200,6 @@ export async function saveConversation(
   conversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
   try {
     const conv = {
       ...conversation,
@@ -211,7 +208,6 @@ export async function saveConversation(
     await invoke('db_save_conversation', { conversation: conv });
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
@@ -261,13 +257,10 @@ export async function updateConversationLastMessage(
   lastMessageTime: string,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] updateLastMessage START: pending=${_pendingWrites}, msg="${lastMessage.slice(0, 20)}"`);
   try {
     await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
-    console.warn(`[DB-Preview] updateLastMessage OK: msg="${lastMessage.slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] updateLastMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
@@ -317,17 +310,14 @@ export async function saveMessage(
   message: Omit<LocalMessage, 'created_at'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] saveMessage START: pending=${_pendingWrites}, content="${(message.content || '').slice(0, 20)}"`);
   try {
     const msg: LocalMessage = {
       ...message,
       created_at: null,
     };
     await invoke('db_save_message', { message: msg });
-    console.warn(`[DB-Preview] saveMessage OK: content="${(message.content || '').slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] saveMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
