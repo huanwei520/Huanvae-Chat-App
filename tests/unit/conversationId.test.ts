@@ -58,6 +58,31 @@ describe('会话 ID 工具函数 (utils/conversationId)', () => {
       expect(parseFriendIdFromConversationId('group-123', 'alice')).toBeNull();
       expect(parseFriendIdFromConversationId('abc-alice-bob', 'alice')).toBeNull();
     });
+
+    // 回归：用户 ID 本身含连字符（真机账号 vis-test-cf09b2-a/b 实测 bug，
+    // 旧实现 slice(5).split('-') 要求恰 2 段，含连字符 ID 必返回 null → preview 永不命中）
+    describe('用户 ID 含连字符（真机 bug 回归）', () => {
+      const userA = 'vis-test-cf09b2-a';
+      const userB = 'vis-test-cf09b2-b';
+      // 字典序 a < b，故 conv-{a}-{b}
+      const convId = getFriendConversationId(userA, userB);
+
+      it('生成的会话 ID 含两段连字符 ID（前置校验）', () => {
+        expect(convId).toBe('conv-vis-test-cf09b2-a-vis-test-cf09b2-b');
+      });
+
+      it('当前用户在首位：解析出末位的连字符好友 ID', () => {
+        expect(parseFriendIdFromConversationId(convId, userA)).toBe(userB);
+      });
+
+      it('当前用户在末位：解析出首位的连字符好友 ID', () => {
+        expect(parseFriendIdFromConversationId(convId, userB)).toBe(userA);
+      });
+
+      it('当前用户不在该会话中应返回 null', () => {
+        expect(parseFriendIdFromConversationId(convId, 'vis-test-cf09b2-c')).toBeNull();
+      });
+    });
   });
 
   describe('isFriendConversationId - 判断是否为好友会话 ID', () => {
