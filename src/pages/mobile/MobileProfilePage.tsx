@@ -19,7 +19,7 @@ import { useSession, useApi } from '../../contexts/SessionContext';
 import { useAccounts } from '../../hooks/useAccounts';
 import { uploadAvatar, getProfile, updateProfile } from '../../api/profile';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
-import { AvatarUploader, ProfileInfoForm, PasswordForm } from '../../components/profile';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm } from '../../components/profile';
 import { useAvatarCrop } from '../../components/common/AvatarCropModal';
 
 // 返回图标
@@ -50,7 +50,7 @@ interface MobileProfilePageProps {
   onClose: () => void;
 }
 
-type TabType = 'info' | 'password';
+type TabType = 'info' | 'privacy' | 'password';
 
 // ============================================
 // 主组件
@@ -230,6 +230,12 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
             基本信息
           </button>
           <button
+            className={`mobile-profile-tab ${activeTab === 'privacy' ? 'active' : ''}`}
+            onClick={() => setActiveTab('privacy')}
+          >
+            隐私设置
+          </button>
+          <button
             className={`mobile-profile-tab ${activeTab === 'password' ? 'active' : ''}`}
             onClick={() => setActiveTab('password')}
           >
@@ -239,9 +245,13 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
 
         {/* 表单内容 */}
         <div className="mobile-profile-form">
-          {activeTab === 'info' ? (
+          {activeTab === 'info' && (
             <ProfileInfoForm onSuccess={handleSuccess} onError={handleError} />
-          ) : (
+          )}
+          {activeTab === 'privacy' && (
+            <PrivacySettingsForm onSuccess={handleSuccess} onError={handleError} />
+          )}
+          {activeTab === 'password' && (
             <PasswordForm onSuccess={handleSuccess} onError={handleError} />
           )}
 

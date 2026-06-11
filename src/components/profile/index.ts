@@ -4,5 +4,6 @@
 
 export { AvatarUploader } from './AvatarUploader';
 export { ProfileInfoForm } from './ProfileInfoForm';
+export { PrivacySettingsForm } from './PrivacySettingsForm';
 export { PasswordForm } from './PasswordForm';
 export { CloseIcon, CameraIcon } from './ProfileIcons';

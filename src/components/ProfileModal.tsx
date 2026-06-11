@@ -15,7 +15,7 @@ import { useSession, useApi } from '../contexts/SessionContext';
 import { useAccounts } from '../hooks/useAccounts';
 import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
 import { resolveServerAvatarUrl } from '../utils/avatar';
-import { AvatarUploader, ProfileInfoForm, PasswordForm, CloseIcon } from './profile';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, CloseIcon } from './profile';
 import { useAvatarCrop } from './common/AvatarCropModal';
 
 // ============================================
@@ -27,7 +27,7 @@ interface ProfileModalProps {
   onClose: () => void;
 }
 
-type TabType = 'info' | 'password';
+type TabType = 'info' | 'privacy' | 'password';
 
 // ============================================
 // 主组件
@@ -237,6 +237,12 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                 基本信息
               </button>
               <button
+                className={`tab-btn ${activeTab === 'privacy' ? 'active' : ''}`}
+                onClick={() => setActiveTab('privacy')}
+              >
+                隐私设置
+              </button>
+              <button
                 className={`tab-btn ${activeTab === 'password' ? 'active' : ''}`}
                 onClick={() => setActiveTab('password')}
               >
@@ -246,12 +252,19 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
             {/* 表单内容 */}
             <div className="profile-form">
-              {activeTab === 'info' ? (
+              {activeTab === 'info' && (
                 <ProfileInfoForm
                   onSuccess={handleSuccess}
                   onError={handleError}
                 />
-              ) : (
+              )}
+              {activeTab === 'privacy' && (
+                <PrivacySettingsForm
+                  onSuccess={handleSuccess}
+                  onError={handleError}
+                />
+              )}
+              {activeTab === 'password' && (
                 <PasswordForm
                   onSuccess={handleSuccess}
                   onError={handleError}

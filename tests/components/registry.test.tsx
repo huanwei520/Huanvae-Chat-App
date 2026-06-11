@@ -78,6 +78,7 @@ import * as ProfileModal from '../../src/components/ProfileModal';
 import * as AvatarUploader from '../../src/components/profile/AvatarUploader';
 import * as PasswordForm from '../../src/components/profile/PasswordForm';
 import * as ProfileInfoForm from '../../src/components/profile/ProfileInfoForm';
+import * as PrivacySettingsForm from '../../src/components/profile/PrivacySettingsForm';
 import * as FilesModal from '../../src/components/files/FilesModal';
 import * as FileContextMenu from '../../src/components/files/FileContextMenu';
 import * as FileMenuController from '../../src/components/files/FileMenuController';
@@ -286,6 +287,7 @@ const COMPONENT_MAP = {
   AvatarUploader,
   PasswordForm,
   ProfileInfoForm,
+  PrivacySettingsForm,
   FilesModal,
   FileContextMenu,
   FileMenuController,
