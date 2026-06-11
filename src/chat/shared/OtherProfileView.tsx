@@ -18,6 +18,8 @@ import { OtherProfilePanel } from './OtherProfilePanel';
 interface OtherProfileViewProps {
   /** 发送消息：切到与该用户的私聊（由挂载方按平台实现导航） */
   onSendMessage: (userId: string) => void;
+  /** 删除好友后回调（由挂载方刷新好友列表） */
+  onFriendRemoved?: () => void;
 }
 
 const overlayVariants = {
@@ -32,7 +34,7 @@ const panelVariants = {
   exit: { x: '100%' },
 };
 
-export function OtherProfileView({ onSendMessage }: OtherProfileViewProps) {
+export function OtherProfileView({ onSendMessage, onFriendRemoved }: OtherProfileViewProps) {
   const userId = useProfileViewStore((s) => s.userId);
   const close = useProfileViewStore((s) => s.close);
   const mobile = isMobile();
@@ -66,7 +68,7 @@ export function OtherProfileView({ onSendMessage }: OtherProfileViewProps) {
             transition={{ type: 'spring', stiffness: 360, damping: 34 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <OtherProfilePanel userId={userId} onClose={close} onSendMessage={onSendMessage} />
+            <OtherProfilePanel userId={userId} onClose={close} onSendMessage={onSendMessage} onFriendRemoved={onFriendRemoved} />
           </motion.div>
         </motion.div>
       )}

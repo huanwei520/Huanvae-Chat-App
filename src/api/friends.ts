@@ -137,3 +137,38 @@ export function setFriendRemark(
     remark,
   });
 }
+
+/**
+ * 黑名单成员（GET /api/friends/blacklist 返回项，client.ts 已解包 ApiResponse.data 为数组）
+ */
+export interface BlacklistedUser {
+  user_id: string;
+  user_nickname: string | null;
+  user_avatar_url: string | null;
+  created_at: string;
+}
+
+export type BlacklistResponse = BlacklistedUser[];
+
+/**
+ * 拉黑某用户（双向静默：拉黑后双方互发消息均被静默丢弃，对方收不到）
+ * @param targetUserId 被拉黑方用户 ID
+ */
+export function addBlacklist(api: ApiClient, targetUserId: string): Promise<void> {
+  return api.post('/api/friends/blacklist', { target_user_id: targetUserId });
+}
+
+/**
+ * 取消拉黑
+ * @param targetUserId 被拉黑方用户 ID
+ */
+export function removeBlacklist(api: ApiClient, targetUserId: string): Promise<void> {
+  return api.delete(`/api/friends/blacklist/${encodeURIComponent(targetUserId)}`);
+}
+
+/**
+ * 获取黑名单列表（含昵称/头像/拉黑时间）
+ */
+export function getBlacklist(api: ApiClient): Promise<BlacklistResponse> {
+  return api.get<BlacklistResponse>('/api/friends/blacklist');
+}

@@ -1,0 +1,198 @@
+/* ============================================
+   Blacklist management sub-panel
+   Mirrors AuthorizedAppsPanel (oauth.css) layout.
+   Note: .blacklist-panel is framer-motion controlled (x + opacity);
+   do NOT add transform/opacity transitions here to avoid conflict.
+   ============================================ */
+
+.blacklist-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-90) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-high);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-high);
+  z-index: 10;
+}
+
+.blacklist-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.blacklist-title {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.blacklist-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.blacklist-refresh-btn:hover:not(:disabled) {
+  background: var(--white-alpha-80);
+  color: var(--text-primary);
+}
+
+.blacklist-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.blacklist-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.blacklist-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.blacklist-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--white-alpha-80);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.blacklist-row:hover {
+  background: var(--white-alpha-95);
+  border-color: var(--border-default);
+}
+
+.blacklist-avatar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-alpha-15, rgba(99, 102, 241, 0.15));
+  color: var(--primary, #6366f1);
+  font-weight: 600;
+}
+
+.blacklist-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.blacklist-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.blacklist-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blacklist-id {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blacklist-remove-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--status-error, #ef4444);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--status-error, #ef4444);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.blacklist-remove-btn:hover:not(:disabled) {
+  background: var(--status-error, #ef4444);
+  color: #fff;
+}
+
+.blacklist-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.blacklist-confirm-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.blacklist-cancel-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.blacklist-cancel-btn:hover:not(:disabled) {
+  background: var(--white-alpha-80);
+}
+
+.blacklist-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.blacklist-error-text {
+  color: var(--status-error, #ef4444);
+}
+
+.blacklist-retry {
+  color: var(--primary, #6366f1);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}

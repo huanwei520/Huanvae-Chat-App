@@ -109,6 +109,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/nfc/NfcFeedbackToast.tsx (toastVariants: opacity + y 进出场)',
   },
   {
+    selector: '.group-read-list-overlay',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/group/GroupReadListModal.tsx (overlayVariants: opacity 进出场)',
+  },
+  {
+    selector: '.group-read-list-panel',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/group/GroupReadListModal.tsx (桌面 scale/y + 移动 translateY，panelVariantsDesktop/Mobile)',
+  },
+  {
     selector: '.other-profile-overlay',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['opacity'],
@@ -121,16 +133,10 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/chat/shared/OtherProfileView.tsx (panelVariants: 从右滑入 translateX)',
   },
   {
-    selector: '.group-read-list-overlay',
-    cssFile: 'src/styles/pages/main.css',
-    controlledProps: ['opacity'],
-    motionLocation: 'src/chat/group/GroupReadListModal.tsx (overlayVariants: opacity 进出场)',
-  },
-  {
-    selector: '.group-read-list-panel',
-    cssFile: 'src/styles/pages/main.css',
+    selector: '.blacklist-panel',
+    cssFile: 'src/components/settings/blacklist.css',
     controlledProps: ['transform', 'opacity'],
-    motionLocation: 'src/chat/group/GroupReadListModal.tsx (桌面 scale/y + 移动 translateY，panelVariantsDesktop/Mobile)',
+    motionLocation: 'src/components/settings/BlacklistPanel.tsx (设置内黑名单页滑入：initial/animate/exit 的 x + opacity)',
   },
 ];
 

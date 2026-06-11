@@ -380,6 +380,8 @@ export function useMainPage() {
               approve_reason: null,
               // 新通过的好友尚无备注
               friend_remark: null,
+              // 新通过的好友默认未拉黑
+              is_blacklisted: false,
             };
             store.addFriend(newFriend);
           }

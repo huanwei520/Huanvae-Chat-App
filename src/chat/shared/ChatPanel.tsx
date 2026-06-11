@@ -32,6 +32,7 @@ import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
+import { useChatStore } from '../../stores';
 import type { AIMessage, AIConversation } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
 
@@ -232,6 +233,14 @@ export function ChatPanel({
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
+  // 私聊拉黑提示：从 store 读实时拉黑态（资料页拉黑后即时反映，不依赖 chatTarget 快照）
+  const friendBlacklisted = useChatStore((s) =>
+    chatTarget.type === 'friend'
+      ? (s.friends.find((f) => f.friend_id === chatTarget.data.friend_id)?.is_blacklisted
+          ?? chatTarget.data.is_blacklisted)
+      : false,
+  );
+
   const handleAIHistorySelect = useCallback((convId: string) => {
     onAISwitchConversation?.(convId);
     setShowAIHistory(false);
@@ -310,6 +319,11 @@ export function ChatPanel({
           />
         )}
       </div>
+
+      {/* 拉黑提示条（私聊且已拉黑对方） */}
+      {chatTarget.type === 'friend' && friendBlacklisted && (
+        <div className="chat-blacklist-banner">已拉黑，对方收不到你发送的消息</div>
+      )}
 
       {/* AI 历史记录抽屉 */}
       {chatTarget.type === 'ai' && (
