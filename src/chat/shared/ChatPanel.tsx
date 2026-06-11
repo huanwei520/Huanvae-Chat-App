@@ -31,6 +31,7 @@ import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
+import { friendDisplayName } from '../../utils/friendName';
 import type { AIMessage, AIConversation } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
 
@@ -133,7 +134,7 @@ interface ChatPanelProps {
 function getChatTitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'ai') { return 'AI 助手'; }
   return chatTarget.type === 'friend'
-    ? chatTarget.data.friend_nickname
+    ? friendDisplayName(chatTarget.data)
     : chatTarget.data.group_name;
 }
 

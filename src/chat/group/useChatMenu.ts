@@ -22,7 +22,7 @@ import { useState, useRef, useEffect, useCallback, type ChangeEvent, type ReactN
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useAvatarCrop } from '../../components/common/AvatarCropModal';
 import { useChatStore } from '../../stores';
-import { removeFriend } from '../../api/friends';
+import { removeFriend, setFriendRemark as apiSetFriendRemark } from '../../api/friends';
 import {
   updateGroup,
   inviteToGroup,
@@ -94,6 +94,10 @@ export interface UseChatMenuReturn {
   groupNickname: string;
   setGroupNickname: (nickname: string) => void;
 
+  // 好友备注
+  friendRemark: string;
+  setFriendRemark: (remark: string) => void;
+
   // 群公告
   notices: GroupNotice[];
   loadingNotices: boolean;
@@ -146,6 +150,8 @@ export interface UseChatMenuReturn {
   handleCloseMenu: () => void;
   handleUpdateGroupNickname: () => Promise<void>;
   handleClearGroupNickname: () => Promise<void>;
+  handleUpdateFriendRemark: () => Promise<void>;
+  handleClearFriendRemark: () => Promise<void>;
   handleLoadAllHistory: () => Promise<void>;
 }
 
@@ -187,6 +193,9 @@ export function useChatMenu({
 
   // 群内昵称
   const [groupNickname, setGroupNickname] = useState('');
+
+  // 好友备注
+  const [friendRemark, setFriendRemark] = useState('');
 
   // 群公告
   const [notices, setNotices] = useState<GroupNotice[]>([]);
@@ -318,6 +327,9 @@ export function useChatMenu({
   const handleSetView = useCallback((v: MenuView) => {
     if (v === 'edit-name' && target.type === 'group') {
       setNewGroupName(target.data.group_name);
+    }
+    if (v === 'edit-remark' && target.type === 'friend') {
+      setFriendRemark(target.data.friend_remark ?? '');
     }
     if (v === 'notices') {
       handleLoadNotices();
@@ -685,6 +697,51 @@ export function useChatMenu({
     }
   }, [api, target]);
 
+  // 设置好友备注
+  const handleUpdateFriendRemark = useCallback(async () => {
+    if (target.type !== 'friend' || !session || !friendRemark.trim()) { return; }
+
+    const remark = friendRemark.trim();
+    setLoading(true);
+    try {
+      await apiSetFriendRemark(api, session.userId, target.data.friend_id, remark);
+      // 更新 store 中该好友的备注，列表/标题立即刷新
+      const { friends, setFriends } = useChatStore.getState();
+      setFriends(friends.map((f) =>
+        f.friend_id === target.data.friend_id ? { ...f, friend_remark: remark } : f,
+      ));
+      setSuccess('备注已设置');
+      setView('main');
+      setFriendRemark('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '设置失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, session, target, friendRemark]);
+
+  // 清除好友备注
+  const handleClearFriendRemark = useCallback(async () => {
+    if (target.type !== 'friend' || !session) { return; }
+
+    setLoading(true);
+    try {
+      await apiSetFriendRemark(api, session.userId, target.data.friend_id, '');
+      // 更新 store 中该好友的备注，列表/标题立即刷新
+      const { friends, setFriends } = useChatStore.getState();
+      setFriends(friends.map((f) =>
+        f.friend_id === target.data.friend_id ? { ...f, friend_remark: null } : f,
+      ));
+      setSuccess('备注已清除');
+      setView('main');
+      setFriendRemark('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '清除失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, session, target]);
+
   // 加载全部聊天记录
   const handleLoadAllHistory = useCallback(async () => {
     if (loadingHistory || !session) { return; }
@@ -754,6 +811,10 @@ export function useChatMenu({
     groupNickname,
     setGroupNickname,
 
+    // 好友备注
+    friendRemark,
+    setFriendRemark,
+
     // 群公告
     notices,
     loadingNotices,
@@ -805,6 +866,8 @@ export function useChatMenu({
     handleCloseMenu,
     handleUpdateGroupNickname,
     handleClearGroupNickname,
+    handleUpdateFriendRemark,
+    handleClearFriendRemark,
     handleLoadAllHistory,
   };
 }

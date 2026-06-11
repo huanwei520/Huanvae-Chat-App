@@ -125,7 +125,11 @@ import * as ChatMessages from '../../src/chat/friend/ChatMessages';
 import * as MessageBubble from '../../src/chat/friend/MessageBubble';
 import * as GroupChatMessages from '../../src/chat/group/GroupChatMessages';
 import * as GroupMessageBubble from '../../src/chat/group/GroupMessageBubble';
-import * as ReadReceiptLabel from '../../src/chat/shared/ReadReceiptLabel';
+import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
+import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
+import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
+import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
+import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
 import * as useFriendReadReceipt from '../../src/chat/friend/useFriendReadReceipt';
 import * as useGroupReadReceipt from '../../src/chat/group/useGroupReadReceipt';
 import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
@@ -134,6 +138,7 @@ import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
 import * as ConfirmDialog from '../../src/chat/shared/menu/ConfirmDialog';
 import * as EditNameForm from '../../src/chat/shared/menu/EditNameForm';
 import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
+import * as EditRemarkForm from '../../src/chat/shared/menu/EditRemarkForm';
 import * as InviteCodeManager from '../../src/chat/shared/menu/InviteCodeManager';
 import * as InviteForm from '../../src/chat/shared/menu/InviteForm';
 import * as MainMenu from '../../src/chat/shared/menu/MainMenu';
@@ -223,7 +228,6 @@ import * as formatUtils from '../../src/utils/format';
 
 // 聊天共享模块
 import * as chatAnimations from '../../src/chat/shared/animations';
-import * as SendStatusIndicator from '../../src/chat/shared/SendStatusIndicator';
 import * as aiApi from '../../src/api/ai';
 
 // 主题系统
@@ -367,13 +371,18 @@ const COMPONENT_MAP = {
   MessageBubble,
   GroupChatMessages,
   GroupMessageBubble,
-  ReadReceiptLabel,
+  ReadReceiptIcons,
+  PrivateReadReceipt,
+  ReaderAvatarStack,
+  GroupReadReceipt,
+  GroupReadListModal,
   AIChatMessages,
   AIMessageBubble,
   AIHistoryPanel,
   ConfirmDialog,
   EditNameForm,
   EditNicknameForm,
+  EditRemarkForm,
   InviteCodeManager,
   InviteForm,
   MainMenu,
@@ -428,7 +437,6 @@ const COMPONENT_MAP = {
   formatUtils,
   // 聊天共享模块
   chatAnimations,
-  SendStatusIndicator,
   aiApi,
 };
 

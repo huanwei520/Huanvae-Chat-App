@@ -117,3 +117,23 @@ export function removeFriend(
     remove_reason: removeReason || '',
   });
 }
+
+/**
+ * 设置/清除好友备注（仅自己可见）
+ *
+ * @param userId 当前用户 ID
+ * @param friendUserId 好友用户 ID
+ * @param remark 备注名（空串=清除，≤30 字符）
+ */
+export function setFriendRemark(
+  api: ApiClient,
+  userId: string,
+  friendUserId: string,
+  remark: string,
+): Promise<void> {
+  return api.post('/api/friends/remark', {
+    user_id: userId,
+    friend_user_id: friendUserId,
+    remark,
+  });
+}

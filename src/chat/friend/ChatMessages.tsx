@@ -123,7 +123,7 @@ export function ChatMessages({
   }, [messages]);
 
   // 私聊已读回执：按 seq 双向。每条消息显示——我发的看对方是否已读、对方发的看我是否已读
-  const { peerLastReadSeq, myLastReadSeq } = useFriendReadReceipt(friend.friend_id, sortedMessages);
+  const { peerLastReadSeq } = useFriendReadReceipt(friend.friend_id);
 
   // 切换好友时重置状态
   useEffect(() => {
@@ -386,11 +386,11 @@ export function ChatMessages({
               const stableKey = getStableKey(message);
               const isSelected = selectedMessages.has(message.message_uuid);
 
-              // 每条消息都显示：我发的看对方是否已读、对方发的看我是否已读；发送中/失败/已撤回不显示
+              // 仅自己发出的已送达消息计算"对方是否已读"（Telegram 风单向）；
+              // 发送中/失败由 bubble 内状态槽按 sendStatus 显示，已撤回不显示
               let readReceipt: { isRead: boolean } | undefined;
-              if (!message.is_recalled && message.sendStatus !== 'sending' && message.sendStatus !== 'failed') {
-                const readerSeq = isOwn ? peerLastReadSeq : myLastReadSeq;
-                readReceipt = { isRead: isReadBySeq(message.seq, readerSeq) };
+              if (isOwn && !message.is_recalled && message.sendStatus !== 'sending' && message.sendStatus !== 'failed') {
+                readReceipt = { isRead: isReadBySeq(message.seq, peerLastReadSeq) };
               }
 
               return (

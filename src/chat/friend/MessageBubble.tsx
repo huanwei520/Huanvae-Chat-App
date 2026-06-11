@@ -24,6 +24,7 @@ import { useState, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
+import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
@@ -53,13 +54,12 @@ interface MessageBubbleProps {
   onDelete?: () => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
-  /** 已读回执：传入则显示"已读"/"未读"（我发的看对方是否已读、对方发的看我是否已读）；发送中/失败/已撤回不传 */
+  /** 已读回执：仅自己发出的已送达消息传入 isRead（对方是否已读）；对方消息/发送中/失败/已撤回不传 */
   readReceipt?: { isRead: boolean };
 }
 
-// 使用统一的发送状态指示器组件
-import { SendStatusIndicator } from '../shared/SendStatusIndicator';
-import { ReadReceiptLabel } from '../shared/ReadReceiptLabel';
+// 私聊已读回执（仅自己消息，统一状态槽：时钟/灰双勾/绿双勾/红叹号）
+import { PrivateReadReceipt } from '../shared/PrivateReadReceipt';
 
 // 使用统一的消息动画配置
 import { getMessageVariants, messageTransition } from '../shared/animations';
@@ -203,7 +203,7 @@ export function MessageBubble({
         isOpen: true,
         user: {
           userId: friend.friend_id,
-          nickname: friend.friend_nickname,
+          nickname: friendDisplayName(friend),
           avatarUrl: friend.friend_avatar_url,
         },
         anchorRect: rect,
@@ -422,9 +422,6 @@ export function MessageBubble({
               onTouchEnd={handleTouchEnd}
               onTouchMove={handleTouchMove}
             >
-              {/* 发送状态指示器（在左侧显示） */}
-              {isOwn && <SendStatusIndicator status={message.sendStatus} />}
-
               <div
                 ref={avatarRef}
                 className="bubble-avatar clickable"
@@ -453,10 +450,13 @@ export function MessageBubble({
                     imageHeight={message.image_height}
                   />
                 )}
-                <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-                {readReceipt && (
-                  <ReadReceiptLabel text={readReceipt.isRead ? '已读' : '未读'} />
-                )}
+                {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
+                <div className="bubble-meta">
+                  <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
+                  {isOwn && (
+                    <PrivateReadReceipt status={message.sendStatus} isRead={readReceipt?.isRead ?? false} />
+                  )}
+                </div>
               </div>
             </div>
           </motion.div>
@@ -496,7 +496,7 @@ export function MessageBubble({
         <MobileMessageFullPreview
           isOpen={showFullPreview}
           content={message.message_content}
-          senderName={isOwn ? session.profile.user_nickname : friend.friend_nickname}
+          senderName={isOwn ? session.profile.user_nickname : friendDisplayName(friend)}
           sendTime={formatMessageTime(message.send_time)}
           onClose={() => setShowFullPreview(false)}
         />
