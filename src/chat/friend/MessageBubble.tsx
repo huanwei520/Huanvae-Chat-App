@@ -24,6 +24,7 @@ import { useState, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
+import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
@@ -193,7 +194,7 @@ export function MessageBubble({
         isOpen: true,
         user: {
           userId: friend.friend_id,
-          nickname: friend.friend_nickname,
+          nickname: friendDisplayName(friend),
           avatarUrl: friend.friend_avatar_url,
         },
         anchorRect: rect,
@@ -486,7 +487,7 @@ export function MessageBubble({
         <MobileMessageFullPreview
           isOpen={showFullPreview}
           content={message.message_content}
-          senderName={isOwn ? session.profile.user_nickname : friend.friend_nickname}
+          senderName={isOwn ? session.profile.user_nickname : friendDisplayName(friend)}
           sendTime={formatMessageTime(message.send_time)}
           onClose={() => setShowFullPreview(false)}
         />

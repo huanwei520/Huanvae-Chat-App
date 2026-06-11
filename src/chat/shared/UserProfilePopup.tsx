@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { sendFriendRequest } from '../../api/friends';
+import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
 
 /** 用户信息 */
@@ -82,6 +83,9 @@ export function UserProfilePopup({
   const friends = useChatStore((state) => state.friends);
   const friendData = friends.find((f) => f.friend_id === user.userId);
   const isFriend = !!friendData;
+
+  // 显示名：被查看者是我的好友时用 备注||昵称（仅自己可见）；否则用调用方传入的名字
+  const displayName = friendData ? friendDisplayName(friendData) : user.nickname;
 
   // 点击发送消息
   const handleSendMessage = useCallback(() => {
@@ -214,17 +218,17 @@ export function UserProfilePopup({
           {/* 头像 */}
           <div className="popup-avatar">
             {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={user.nickname} />
+              <img src={user.avatarUrl} alt={displayName} />
             ) : (
               <div className="avatar-placeholder">
-                {user.nickname.charAt(0).toUpperCase()}
+                {displayName.charAt(0).toUpperCase()}
               </div>
             )}
           </div>
 
           {/* 用户信息 */}
           <div className="popup-info">
-            <div className="popup-nickname">{user.nickname}</div>
+            <div className="popup-nickname">{displayName}</div>
             <div className="popup-id">@{user.userId}</div>
             {user.signature && (
               <div className="popup-signature">{user.signature}</div>

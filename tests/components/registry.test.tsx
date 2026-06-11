@@ -131,6 +131,7 @@ import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
 import * as ConfirmDialog from '../../src/chat/shared/menu/ConfirmDialog';
 import * as EditNameForm from '../../src/chat/shared/menu/EditNameForm';
 import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
+import * as EditRemarkForm from '../../src/chat/shared/menu/EditRemarkForm';
 import * as InviteCodeManager from '../../src/chat/shared/menu/InviteCodeManager';
 import * as InviteForm from '../../src/chat/shared/menu/InviteForm';
 import * as MainMenu from '../../src/chat/shared/menu/MainMenu';
@@ -368,6 +369,7 @@ const COMPONENT_MAP = {
   ConfirmDialog,
   EditNameForm,
   EditNicknameForm,
+  EditRemarkForm,
   InviteCodeManager,
   InviteForm,
   MainMenu,

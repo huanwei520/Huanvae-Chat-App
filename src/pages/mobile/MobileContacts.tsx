@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
+import { friendDisplayName } from '../../utils/friendName';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 
 // 箭头图标
@@ -66,7 +67,7 @@ export function MobileContacts({
     }
     const query = searchQuery.toLowerCase();
     return friends.filter((f) =>
-      f.friend_nickname.toLowerCase().includes(query),
+      friendDisplayName(f).toLowerCase().includes(query),
     );
   }, [friends, searchQuery]);
 
@@ -144,7 +145,7 @@ export function MobileContacts({
                     </div>
                     <div className="mobile-contact-info">
                       <div className="mobile-contact-name">
-                        {friend.friend_nickname}
+                        {friendDisplayName(friend)}
                       </div>
                     </div>
                   </div>

@@ -26,6 +26,7 @@ import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
+import { friendDisplayName } from '../../utils/friendName';
 import type { AIMessage } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
 
@@ -139,7 +140,7 @@ interface MobileChatViewProps {
 function getChatTitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'ai') { return 'AI 助手'; }
   if (chatTarget.type === 'friend') {
-    return chatTarget.data.friend_nickname || '好友';
+    return friendDisplayName(chatTarget.data);
   }
   return chatTarget.data.group_name || '群聊';
 }

@@ -20,6 +20,7 @@ import { motion } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { formatMessageTime } from '../../utils/time';
+import { friendDisplayName } from '../../utils/friendName';
 import { parseFriendIdFromConversationId } from '../../utils/conversationId';
 import {
   useGlobalMessageSearch,
@@ -152,7 +153,7 @@ export function GlobalMessageSearchResults({
     if (!q) {
       return [];
     }
-    return friends.filter((f) => f.friend_nickname.toLowerCase().includes(q));
+    return friends.filter((f) => friendDisplayName(f).toLowerCase().includes(q));
   }, [friends, query]);
   const matchedGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -241,7 +242,7 @@ export function GlobalMessageSearchResults({
                   <FriendAvatar friend={f} />
                 </div>
                 <span className="global-msg-search-conv-name">
-                  {highlightMatch(f.friend_nickname, query)}
+                  {highlightMatch(friendDisplayName(f), query)}
                 </span>
               </li>
             ))}
