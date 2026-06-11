@@ -20,6 +20,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getGroupReadPositions } from '../../api/groups';
+import { useChatStore } from '../../stores';
 import type { GroupMessage } from '../../api/groupMessages';
 
 export interface GroupReadReceipt {
@@ -82,14 +83,18 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
   const { session } = useSession();
   const myUserId = session?.userId ?? '';
 
-  // member_id -> last_read_seq
-  const [positions, setPositions] = useState<Record<string, number>>({});
-  const [memberCount, setMemberCount] = useState(0);
+  // member_id -> last_read_seq —— 懒初始化读 store 缓存：重开会话首帧即有上次的已读数据
+  // （与好友侧"本地 seq 即时算出"的即时感看齐）。组件按会话 key 重挂，每个群各自初始化一次。
+  const [positions, setPositions] = useState<Record<string, number>>(
+    () => (groupId ? useChatStore.getState().cachedGroupReadReceipts[groupId]?.positions ?? {} : {}),
+  );
+  const [memberCount, setMemberCount] = useState(
+    () => (groupId ? useChatStore.getState().cachedGroupReadReceipts[groupId]?.memberCount ?? 0 : 0),
+  );
 
-  // 拉取初始已读位置快照
+  // 拉取初始已读位置快照（不再开头清空 positions/memberCount：那会抹掉上面的缓存懒初始化；
+  // 组件按会话 key 重挂保证每个群从缓存重新初始化，fetch 仅负责后台重校验）
   useEffect(() => {
-    setPositions({});
-    setMemberCount(0);
     if (!groupId) {
       return undefined;
     }
@@ -147,6 +152,15 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
       return { ...prev, [myUserId]: maxLoadedSeq };
     });
   }, [myUserId, maxLoadedSeq]);
+
+  // 写穿缓存：memberCount/positions 变化时（fetch 完成 / WS 推送 / 乐观推进）写回 store，
+  // 供下次打开该会话懒初始化即用。仅在 memberCount>0（已拿到真实数据）时写，避免缓存空值。
+  const cacheGroupReadReceipt = useChatStore((state) => state.cacheGroupReadReceipt);
+  useEffect(() => {
+    if (groupId && memberCount > 0) {
+      cacheGroupReadReceipt(groupId, { memberCount, positions });
+    }
+  }, [groupId, memberCount, positions, cacheGroupReadReceipt]);
 
   const countReaders = useCallback(
     (seq: number, senderId: string) => countReadersAtSeq(positions, seq, senderId),

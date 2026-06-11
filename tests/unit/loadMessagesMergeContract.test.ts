@@ -99,8 +99,13 @@ describe('loadMessages 增量合并防回归', () => {
       /if\s*\(friendId\s*!==\s*prevFriendId\)[\s\S]*?currentFriendId\.current\s*=\s*friendId;/,
     );
     expect(block).not.toBeNull();
-    // 必须从缓存读（friendId 三元 + cachedFriendMessages[friendId]），不能无脑 setMessages([]) 清空
-    expect(block![0]).toMatch(/setMessages\(\s*friendId\s*\?[\s\S]*?cachedFriendMessages\[friendId\]/);
+    // 必须从缓存读（friendId 三元 + cachedFriendMessages[friendId]）并经 cached 交给 setMessages，
+    // 不能无脑 setMessages([]) 清空
+    expect(block![0]).toMatch(/friendId\s*\?[\s\S]*?cachedFriendMessages\[friendId\]/);
+    expect(block![0]).toMatch(/setMessages\(cached\)/);
+    expect(block![0]).not.toMatch(/setMessages\(\[\]\)/);
+    // 缓存未命中（cached 为空）时同步置 loading=true，使列表占位门控(!loading && 空)加载期不闪"暂无消息"
+    expect(block![0]).toMatch(/setLoading\(cached\.length === 0/);
   });
 
   it('useLocalGroupMessages 切换 groupId 时从 cachedGroupMessages 读初值（不清空）', () => {
@@ -108,6 +113,10 @@ describe('loadMessages 增量合并防回归', () => {
       /if\s*\(groupId\s*!==\s*prevGroupId\)[\s\S]*?currentGroupId\.current\s*=\s*groupId;/,
     );
     expect(block).not.toBeNull();
-    expect(block![0]).toMatch(/setMessages\(\s*groupId\s*\?[\s\S]*?cachedGroupMessages\[groupId\]/);
+    expect(block![0]).toMatch(/groupId\s*\?[\s\S]*?cachedGroupMessages\[groupId\]/);
+    expect(block![0]).toMatch(/setMessages\(cached\)/);
+    expect(block![0]).not.toMatch(/setMessages\(\[\]\)/);
+    // 缓存未命中（cached 为空）时同步置 loading=true，使列表占位门控(!loading && 空)加载期不闪"暂无消息"
+    expect(block![0]).toMatch(/setLoading\(cached\.length === 0/);
   });
 });

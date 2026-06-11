@@ -40,22 +40,24 @@ export function useScrollKeyboardControls(
     (e: KeyboardEvent<HTMLDivElement>) => {
       const el = containerRef.current;
       if (!el) { return; }
+      // 消息容器是 flex-direction: column-reverse，滚动原点在底部：
+      // scrollTop=0 即最新（底部），向上（更旧）为负，顶部为 -(scrollHeight - clientHeight)。
       switch (e.key) {
         case 'End':
           e.preventDefault();
-          el.scrollTop = el.scrollHeight;
+          el.scrollTop = 0;                                   // 最新（底部）
           break;
         case 'Home':
           e.preventDefault();
-          el.scrollTop = 0;
+          el.scrollTop = -(el.scrollHeight - el.clientHeight); // 最旧（顶部）
           break;
         case 'PageDown':
           e.preventDefault();
-          el.scrollTop += el.clientHeight * PAGE_SCROLL_RATIO;
+          el.scrollTop += el.clientHeight * PAGE_SCROLL_RATIO; // 向更新/底部（趋向 0）
           break;
         case 'PageUp':
           e.preventDefault();
-          el.scrollTop -= el.clientHeight * PAGE_SCROLL_RATIO;
+          el.scrollTop -= el.clientHeight * PAGE_SCROLL_RATIO; // 向更旧/顶部（趋向负）
           break;
         default:
           break;

@@ -170,7 +170,11 @@ export function useLocalFriendMessages(friendId: string | null) {
   // 缓存缺失（首次进会话）用空数组兜底，等 useMainPage 的 loadMessages 异步加载 db 最新 50 条。
   if (friendId !== prevFriendId) {
     setPrevFriendId(friendId);
-    setMessages(friendId ? (useChatStore.getState().cachedFriendMessages[friendId] ?? []) : []);
+    const cached = friendId ? (useChatStore.getState().cachedFriendMessages[friendId] ?? []) : [];
+    setMessages(cached);
+    // 缓存未命中（需异步拉 db）时立即标记加载中：让列表占位门控（!loading && 空）在加载期不显示
+    // "暂无消息"，消除占位闪；缓存命中（非空）loading=false 但 isEmpty=false，占位本就不显示。
+    setLoading(cached.length === 0 && friendId !== null);
     setHasMore(true);
     setError(null);
     conversationRef.current = null;
@@ -900,7 +904,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     const unsubscribeNew = ws.onNewMessage((msg) => {
       if (msg.source_type === 'friend' && msg.source_id === friendId) {
         handleNewMessage(msg);
-        ws.markRead('friend', msg.source_id);
+        ws.markRead('friend', msg.source_id, msg.seq);
       }
     });
 

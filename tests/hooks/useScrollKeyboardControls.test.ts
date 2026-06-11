@@ -2,8 +2,10 @@
  * useScrollKeyboardControls 单元测试
  *
  * 覆盖消息容器的键盘滚动控制 + 「仅键盘聚焦」判定：
- * - End → 滚到底（最新）  Home → 滚到顶
- * - PageDown / PageUp → 按视口高度 90% 翻页
+ * 容器是 flex-direction: column-reverse，滚动原点在底部：scrollTop=0 即最新（底部），
+ * 向上（更旧）为负，顶部为 -(scrollHeight - clientHeight)。
+ * - End → 滚到底（最新，scrollTop=0）  Home → 滚到顶（最负）
+ * - PageDown → 向底（趋向 0，+）  PageUp → 向顶（趋向负，−）
  * - 处理的键调用 preventDefault；未处理的键不调用
  * - kbdFocused：键盘聚焦点亮、鼠标按下聚焦不点亮、失焦清除
  */
@@ -39,33 +41,35 @@ describe('useScrollKeyboardControls', () => {
     expect(result.current.containerProps['aria-label']).toContain('End');
   });
 
-  it('End 滚到最新（底部 = scrollHeight）', () => {
+  it('End 滚到最新（column-reverse 底部 = scrollTop 0）', () => {
     const el = makeContainer(1000, 400);
+    el.scrollTop = -300; // 先上滑离底
     const ref = { current: el };
     const { result } = renderHook(() => useScrollKeyboardControls(ref));
     const ev = keyEvent('End');
     result.current.containerProps.onKeyDown(ev);
-    expect(el.scrollTop).toBe(1000);
+    expect(el.scrollTop).toBe(0);
     expect(ev.preventDefault).toHaveBeenCalledTimes(1);
   });
 
-  it('Home 滚到顶部（0）', () => {
+  it('Home 滚到顶部（column-reverse = -(scrollHeight - clientHeight)）', () => {
     const el = makeContainer(1000, 400);
-    el.scrollTop = 500;
+    el.scrollTop = -100;
     const ref = { current: el };
     const { result } = renderHook(() => useScrollKeyboardControls(ref));
     result.current.containerProps.onKeyDown(keyEvent('Home'));
-    expect(el.scrollTop).toBe(0);
+    expect(el.scrollTop).toBe(-600); // -(1000 - 400)
   });
 
-  it('PageDown / PageUp 按 clientHeight*0.9 翻页', () => {
+  it('PageDown / PageUp 按 clientHeight*0.9 翻页（column-reverse：向底趋 0、向顶趋负）', () => {
     const el = makeContainer(1000, 400);
+    el.scrollTop = -360; // 先上滑一页
     const ref = { current: el };
     const { result } = renderHook(() => useScrollKeyboardControls(ref));
-    result.current.containerProps.onKeyDown(keyEvent('PageDown'));
-    expect(el.scrollTop).toBe(360); // 0 + 400*0.9
-    result.current.containerProps.onKeyDown(keyEvent('PageUp'));
-    expect(el.scrollTop).toBe(0); // 360 - 360
+    result.current.containerProps.onKeyDown(keyEvent('PageDown')); // 向底（趋向 0）
+    expect(el.scrollTop).toBe(0); // -360 + 400*0.9
+    result.current.containerProps.onKeyDown(keyEvent('PageUp')); // 向顶（趋向负）
+    expect(el.scrollTop).toBe(-360); // 0 - 360
   });
 
   it('未处理的键不调用 preventDefault、不改 scrollTop', () => {

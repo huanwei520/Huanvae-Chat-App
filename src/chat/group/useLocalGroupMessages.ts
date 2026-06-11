@@ -156,7 +156,11 @@ export function useLocalGroupMessages(groupId: string | null) {
   // 导致"两次跳转 + 不滚到最新"。缓存缺失用空数组兜底，等 loadMessages 异步加载 db 最新 50 条。
   if (groupId !== prevGroupId) {
     setPrevGroupId(groupId);
-    setMessages(groupId ? (useChatStore.getState().cachedGroupMessages[groupId] ?? []) : []);
+    const cached = groupId ? (useChatStore.getState().cachedGroupMessages[groupId] ?? []) : [];
+    setMessages(cached);
+    // 缓存未命中（需异步拉 db）时立即标记加载中：让列表占位门控（!loading && 空）在加载期不显示
+    // "暂无消息"，消除占位闪；缓存命中（非空）loading=false 但 isEmpty=false，占位本就不显示。
+    setLoading(cached.length === 0 && groupId !== null);
     setHasMore(true);
     setError(null);
     conversationRef.current = null;
@@ -821,7 +825,7 @@ export function useLocalGroupMessages(groupId: string | null) {
     const unsubscribeNew = ws.onNewMessage((msg) => {
       if (msg.source_type === 'group' && msg.source_id === groupId) {
         handleNewMessage(msg);
-        ws.markRead('group', msg.source_id);
+        ws.markRead('group', msg.source_id, msg.seq);
       }
     });
 

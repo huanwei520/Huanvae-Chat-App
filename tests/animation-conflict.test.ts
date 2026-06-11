@@ -91,6 +91,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (普通气泡行：getMessageVariants own/other 入场退场，x/y/scale/opacity)',
   },
   {
+    selector: '.chat-messages-container--reverse',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/friend/ChatMessages.tsx + src/chat/group/GroupChatMessages.tsx (消息区容器整块淡入：panelFadeTransition opacity 0→1，打开/切换会话时挂载播一次)',
+  },
+  {
+    selector: '.chat-input-area',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/shared/ChatInputArea.tsx (输入区入场/退场淡入：panelFadeTransition opacity，禁止 y 位移——translateY 扩展 .chat-content 可滚区 + textarea autofocus 滚动会造成头部/消息区假下滑)',
+  },
+  {
     selector: '.global-msg-search',
     cssFile: 'src/styles/search.css',
     controlledProps: ['transform', 'opacity'],

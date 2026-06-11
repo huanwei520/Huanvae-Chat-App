@@ -119,6 +119,14 @@ interface ChatState {
    * 同样不 slice(-50)，原因见上方注释。
    */
   cachedGroupMessages: Record<string, GroupMessage[]>;
+
+  /**
+   * 群已读回执缓存（key = groupId，value = {memberCount, positions}）。
+   * 与好友侧看齐：好友已读由本地消息 seq 即时算出，群已读却需 member_count + 各成员已读位置
+   * （只能网络异步取）。缓存后重开会话首帧即有真实文案，不必等一次网络往返；后台仍用
+   * getGroupReadPositions 重校验 + WS 写穿保持新鲜。清理时机同消息缓存（clearMessageCache 同步清空）。
+   */
+  cachedGroupReadReceipts: Record<string, { memberCount: number; positions: Record<string, number> }>;
 }
 
 interface ChatActions {
@@ -202,6 +210,14 @@ interface ChatActions {
   cacheGroupMessages: (groupId: string, messages: GroupMessage[]) => void;
 
   /**
+   * 缓存群已读回执（{memberCount, positions}），供下次打开该会话首帧即用。
+   */
+  cacheGroupReadReceipt: (
+    groupId: string,
+    data: { memberCount: number; positions: Record<string, number> },
+  ) => void;
+
+  /**
    * 清空所有消息缓存（退出登录 / 切换账号时调用）。
    */
   clearMessageCache: () => void;
@@ -234,6 +250,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   cachedFriendMessages: {},
 
   cachedGroupMessages: {},
+
+  cachedGroupReadReceipts: {},
 
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
@@ -339,8 +357,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
     })),
 
+  cacheGroupReadReceipt: (groupId, data) =>
+    set((state) => ({
+      cachedGroupReadReceipts: {
+        ...state.cachedGroupReadReceipts,
+        [groupId]: data,
+      },
+    })),
+
   clearMessageCache: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadReceipts: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();
