@@ -378,6 +378,8 @@ export function useMainPage() {
               friend_avatar_url: resolveServerAvatarUrl(friendData.friend_avatar_url) || null,
               add_time: friendData.add_time,
               approve_reason: null,
+              // 新通过的好友默认未拉黑
+              is_blacklisted: false,
             };
             store.addFriend(newFriend);
           }

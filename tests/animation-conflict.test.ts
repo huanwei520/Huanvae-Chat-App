@@ -120,6 +120,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform'],
     motionLocation: 'src/chat/shared/OtherProfileView.tsx (panelVariants: 从右滑入 translateX)',
   },
+  {
+    selector: '.blacklist-panel',
+    cssFile: 'src/components/settings/blacklist.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/settings/BlacklistPanel.tsx (设置内黑名单页滑入：initial/animate/exit 的 x + opacity)',
+  },
 ];
 
 /**

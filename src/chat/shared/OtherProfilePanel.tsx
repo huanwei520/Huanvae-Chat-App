@@ -7,7 +7,8 @@
  * - 头像、昵称（好友显示备注名）、@ID（可复制）、签名
  * - 关系状态（好友 / 陌生人）
  * - 快捷操作：好友→发送消息；陌生人→加好友
- * - 关系操作区：好友可删除（含内联二次确认）；更多操作（拉黑/特别关心/群内屏蔽等）后续接入
+ * - 关系操作区：好友可拉黑/取消拉黑（拉黑含内联二次确认）、删除（含内联二次确认）；
+ *   特别关心/群内屏蔽等更多操作后续接入
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段，零隐私泄露）。
  */
@@ -16,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
-import { sendFriendRequest, removeFriend } from '../../api/friends';
+import { sendFriendRequest, removeFriend, addBlacklist, removeBlacklist } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
 
@@ -53,15 +54,19 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
   const api = useApi();
   const { session } = useSession();
   const friends = useChatStore((s) => s.friends);
+  const setFriendBlacklisted = useChatStore((s) => s.setFriendBlacklisted);
 
   const friendData = friends.find((f) => f.friend_id === userId);
   const isFriend = !!friendData;
+  const isBlacklisted = !!friendData?.is_blacklisted;
   const isSelf = session?.userId === userId;
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [confirmingBlacklist, setConfirmingBlacklist] = useState(false);
+  const [blacklisting, setBlacklisting] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -70,6 +75,11 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     let cancelled = false;
     setProfile(null);
     setLoadError(false);
+    // 切换查看对象时重置全部交互态，避免确认条/错误信息串台到新用户（误操作风险）
+    setConfirmingDelete(false);
+    setConfirmingBlacklist(false);
+    setSent(false);
+    setActionError(null);
     getPublicProfile(api, userId)
       .then((p) => { if (!cancelled) { setProfile(p); } })
       .catch(() => { if (!cancelled) { setLoadError(true); } });
@@ -116,11 +126,87 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     }
   };
 
-  // 关系操作区内容（非好友=占位；好友=删除按钮 / 二次确认）
-  function renderRelationOps() {
-    if (!isFriend) {
-      return <div className="other-profile-ops-placeholder">更多操作开发中</div>;
+  const handleBlacklist = async () => {
+    if (blacklisting) { return; }
+    setBlacklisting(true);
+    setActionError(null);
+    try {
+      await addBlacklist(api, userId);
+      setFriendBlacklisted(userId, true);
+      setConfirmingBlacklist(false);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '拉黑失败');
+    } finally {
+      setBlacklisting(false);
     }
+  };
+
+  const handleUnblacklist = async () => {
+    if (blacklisting) { return; }
+    setBlacklisting(true);
+    setActionError(null);
+    try {
+      await removeBlacklist(api, userId);
+      setFriendBlacklisted(userId, false);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '取消拉黑失败');
+    } finally {
+      setBlacklisting(false);
+    }
+  };
+
+  // 拉黑/取消拉黑操作（拉黑需二次确认；取消拉黑直接执行）
+  function renderBlacklistOp() {
+    if (isBlacklisted) {
+      return (
+        <button
+          type="button"
+          className="other-profile-op"
+          onClick={handleUnblacklist}
+          disabled={blacklisting}
+        >
+          {blacklisting ? '处理中...' : '取消拉黑'}
+        </button>
+      );
+    }
+    if (confirmingBlacklist) {
+      return (
+        <div className="other-profile-confirm">
+          <span className="other-profile-confirm-text">拉黑后对方将收不到你发送的消息，确定？</span>
+          <div className="other-profile-confirm-actions">
+            <button
+              type="button"
+              className="other-profile-confirm-cancel"
+              onClick={() => setConfirmingBlacklist(false)}
+              disabled={blacklisting}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="other-profile-confirm-danger"
+              onClick={handleBlacklist}
+              disabled={blacklisting}
+            >
+              {blacklisting ? '拉黑中...' : '确认拉黑'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="other-profile-op danger"
+        onClick={() => setConfirmingBlacklist(true)}
+      >
+        拉黑
+      </button>
+    );
+  }
+
+  // 删除好友操作（含内联二次确认）
+  function renderDeleteOp() {
     if (confirmingDelete) {
       return (
         <div className="other-profile-confirm">
@@ -154,6 +240,19 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
       >
         删除好友
       </button>
+    );
+  }
+
+  // 关系操作区内容（非好友=占位；好友=拉黑/取消拉黑 + 删除）
+  function renderRelationOps() {
+    if (!isFriend) {
+      return <div className="other-profile-ops-placeholder">更多操作开发中</div>;
+    }
+    return (
+      <div className="other-profile-ops-list">
+        {renderBlacklistOp()}
+        {renderDeleteOp()}
+      </div>
     );
   }
 
@@ -210,7 +309,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
           </div>
         )}
 
-        {/* 关系操作区（M3 入口；好友可删除，更多操作后续接入） */}
+        {/* 关系操作区（好友可拉黑/取消拉黑 + 删除；特别关心等更多操作后续接入） */}
         {!isSelf && (
           <div className="other-profile-relation-ops">
             <div className="other-profile-section-title">关系操作</div>

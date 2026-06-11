@@ -713,6 +713,27 @@
   margin-right: 2px;
 }
 
+/* 已拉黑标签（好友列表项） */
+.conv-blacklist-tag {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-light);
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-subtle);
+}
+
+/* 已拉黑好友：头像与名字置灰（仅作用于子元素，避免与 .conversation-item 的
+   Framer Motion transform/opacity 冲突；不在已注册的 motion 选择器上加 transform/opacity transition） */
+.conversation-item.blacklisted .conv-avatar,
+.conversation-item.blacklisted .conv-name-text {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
 .conv-time {
   font-size: 11px;
   color: var(--text-light);
@@ -818,6 +839,16 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* 拉黑提示条（私聊已拉黑对方时显示在聊天头部下方） */
+.chat-blacklist-banner {
+  padding: 8px 24px;
+  font-size: 12px;
+  color: var(--status-error, #ef4444);
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.08));
+  border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+  text-align: center;
 }
 
 .chat-header h2 {
@@ -3216,6 +3247,13 @@
 .other-profile-ops-placeholder {
   font-size: 13px;
   color: var(--text-light);
+}
+
+/* 关系操作列表：拉黑/取消拉黑 + 删除好友，纵向堆叠 */
+.other-profile-ops-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* 关系操作：删除好友（危险）+ 内联二次确认 */

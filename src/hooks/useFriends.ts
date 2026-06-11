@@ -45,6 +45,8 @@ function localFriendToFriend(local: db.LocalFriend): Friend {
     friend_avatar_url: resolveServerAvatarUrl(local.avatar_url) || null,
     add_time: local.created_at,
     approve_reason: null,
+    // 本地缓存不持久化拉黑态；默认 false，由 loadServerFriends 刷新填充
+    is_blacklisted: false,
   };
 }
 

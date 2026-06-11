@@ -402,6 +402,10 @@ export function UnifiedList({
               <span className="conv-name-text" title={card.name}>
                 {card.name}
               </span>
+              {/* 已拉黑标签 */}
+              {card.type === 'friend' && (card.data as Friend).is_blacklisted && (
+                <span className="conv-blacklist-tag">已拉黑</span>
+              )}
               {/* 群聊页显示角色标签 */}
               {isGroupTab && card.type === 'group' && (
                 <RoleBadge role={card.role} />
@@ -455,7 +459,7 @@ export function UnifiedList({
       return (
         <motion.div
           key={card.uniqueKey}
-          className="conversation-item"
+          className={`conversation-item${card.type === 'friend' && (card.data as Friend).is_blacklisted ? ' blacklisted' : ''}`}
           onClick={() => handleCardClick(card)}
           variants={cardVariants}
           initial="initial"

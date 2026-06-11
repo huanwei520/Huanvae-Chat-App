@@ -149,6 +149,8 @@ interface ChatActions {
   addFriend: (friend: Friend) => void;
   /** 移除好友（WebSocket 通知时使用） */
   removeFriend: (friendId: string) => void;
+  /** 设置某好友的拉黑状态（拉黑/取消拉黑后乐观更新，列表与资料页即时反映） */
+  setFriendBlacklisted: (friendId: string, blacklisted: boolean) => void;
 
   // ==================== 群聊操作 ====================
   /** 设置群聊列表 */
@@ -276,6 +278,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   removeFriend: (friendId) => set((state) => ({
     friends: state.friends.filter((f) => f.friend_id !== friendId),
+  })),
+
+  setFriendBlacklisted: (friendId, blacklisted) => set((state) => ({
+    friends: state.friends.map((f) =>
+      f.friend_id === friendId ? { ...f, is_blacklisted: blacklisted } : f,
+    ),
   })),
 
   // ==================== 群聊操作 ====================

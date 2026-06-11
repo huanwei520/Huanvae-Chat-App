@@ -31,6 +31,7 @@ import { SettingsRow } from './SettingsRow';
 import { SoundSelector } from './SoundSelector';
 import { DeviceListPanel } from './DeviceListPanel';
 import { AuthorizedAppsPanel } from './AuthorizedAppsPanel';
+import { BlacklistPanel } from './BlacklistPanel';
 import './styles.css';
 
 // ============================================
@@ -293,6 +294,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
   // 面板导航状态
   const [showDeviceList, setShowDeviceList] = useState(false);
   const [showAuthorizedApps, setShowAuthorizedApps] = useState(false);
+  const [showBlacklist, setShowBlacklist] = useState(false);
 
   // 平台名（异步加载，加载完毕前 NFC 入口不渲染，避免桌面端首帧短暂出现按钮）
   const [platformName, setPlatformName] = useState<string | null>(null);
@@ -569,6 +571,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
               subtitle="管理第三方应用的访问权限"
               type="arrow"
               onClick={() => setShowAuthorizedApps(true)}
+              showDivider={true}
+            />
+            <SettingsRow
+              title="黑名单"
+              subtitle="管理已拉黑的用户"
+              type="arrow"
+              onClick={() => setShowBlacklist(true)}
               showDivider={false}
             />
           </SettingsGroup>
@@ -618,6 +627,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
       <AnimatePresence>
         {showAuthorizedApps && (
           <AuthorizedAppsPanel onBack={() => setShowAuthorizedApps(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* 黑名单管理面板 */}
+      <AnimatePresence>
+        {showBlacklist && (
+          <BlacklistPanel onBack={() => setShowBlacklist(false)} />
         )}
       </AnimatePresence>
 

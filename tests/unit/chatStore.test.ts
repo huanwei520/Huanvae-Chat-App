@@ -27,6 +27,7 @@ const mockFriend: Friend = {
   friend_avatar_url: null,
   add_time: '2024-01-01',
   approve_reason: null,
+  is_blacklisted: false,
 };
 
 const mockGroup: Group = {
@@ -119,6 +120,29 @@ describe('聊天状态管理 (chatStore)', () => {
       useChatStore.getState().setFriends([mockFriend]);
       useChatStore.getState().removeFriend('nonexistent');
       expect(useChatStore.getState().friends).toHaveLength(1);
+    });
+  });
+
+  describe('setFriendBlacklisted', () => {
+    it('应将指定好友的 is_blacklisted 置为 true', () => {
+      useChatStore.getState().setFriends([mockFriend, { ...mockFriend, friend_id: 'f2' }]);
+      useChatStore.getState().setFriendBlacklisted('f1', true);
+      const friends = useChatStore.getState().friends;
+      expect(friends.find((f) => f.friend_id === 'f1')?.is_blacklisted).toBe(true);
+      // 不影响其他好友
+      expect(friends.find((f) => f.friend_id === 'f2')?.is_blacklisted).toBe(false);
+    });
+
+    it('应将指定好友的 is_blacklisted 置回 false', () => {
+      useChatStore.getState().setFriends([{ ...mockFriend, is_blacklisted: true }]);
+      useChatStore.getState().setFriendBlacklisted('f1', false);
+      expect(useChatStore.getState().friends[0].is_blacklisted).toBe(false);
+    });
+
+    it('对不存在的 friend_id 无副作用', () => {
+      useChatStore.getState().setFriends([mockFriend]);
+      useChatStore.getState().setFriendBlacklisted('nonexistent', true);
+      expect(useChatStore.getState().friends[0].is_blacklisted).toBe(false);
     });
   });
 
