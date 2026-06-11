@@ -328,6 +328,52 @@ export function unmuteMember(
   return api.delete(`/api/groups/${groupId}/mute/${userId}`);
 }
 
+// ============================================
+// 群内屏蔽某人消息（D6，单向、仅本群、仅自己可见）
+// ============================================
+
+/** 群内被屏蔽成员项（client.ts 已解包 ApiResponse.data 为数组） */
+export interface GroupMessageBlock {
+  user_id: string;
+  user_nickname: string | null;
+  user_avatar_url: string | null;
+  created_at: string;
+}
+
+export type GroupMessageBlocksResponse = GroupMessageBlock[];
+
+/**
+ * 群内屏蔽某成员的消息（仅本群、仅自己可见；不能屏蔽自己；仅限本群成员）
+ */
+export function addGroupMessageBlock(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  return api.post(`/api/groups/${groupId}/message-blocks`, { target_user_id: targetUserId });
+}
+
+/**
+ * 取消群内屏蔽
+ */
+export function removeGroupMessageBlock(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  return api.delete(`/api/groups/${groupId}/message-blocks/${encodeURIComponent(targetUserId)}`);
+}
+
+/**
+ * 获取本人在该群屏蔽的成员名单
+ */
+export function getGroupMessageBlocks(
+  api: ApiClient,
+  groupId: string,
+): Promise<GroupMessageBlocksResponse> {
+  return api.get<GroupMessageBlocksResponse>(`/api/groups/${groupId}/message-blocks`);
+}
+
 /**
  * 解散群聊
  * 权限：仅群主
