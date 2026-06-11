@@ -713,6 +713,14 @@
   margin-right: 2px;
 }
 
+/* 特别关心星标（好友列表项，名字前） */
+.conv-special-care-star {
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  line-height: 1;
+}
+
 /* 已拉黑标签（好友列表项） */
 .conv-blacklist-tag {
   font-size: 10px;

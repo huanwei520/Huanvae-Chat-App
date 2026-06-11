@@ -14,6 +14,7 @@ import {
   checkNotificationPermission,
   requestNotificationPermission,
   notify,
+  friendNotificationTitle,
 } from '../../src/services/notificationService';
 
 describe('通知服务', () => {
@@ -67,6 +68,16 @@ describe('通知服务', () => {
       const result = await requestNotificationPermission();
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('friendNotificationTitle（特别关心强提醒）', () => {
+    it('特别关心好友：标题带 ⭐ 前缀', () => {
+      expect(friendNotificationTitle('小明', true)).toBe('⭐ 小明');
+    });
+
+    it('普通好友：标题为原名，无 ⭐', () => {
+      expect(friendNotificationTitle('小明', false)).toBe('小明');
     });
   });
 

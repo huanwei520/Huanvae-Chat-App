@@ -56,7 +56,7 @@ describe('BlacklistPanel', () => {
     useChatStore.setState({
       friends: [{
         friend_id: 'u2', friend_nickname: '小李', friend_avatar_url: null,
-        add_time: '', approve_reason: null, friend_remark: null, is_blacklisted: true,
+        add_time: '', approve_reason: null, friend_remark: null, is_blacklisted: true, is_special_care: false,
       }],
     });
     mockGetBlacklist.mockResolvedValue([

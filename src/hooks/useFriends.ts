@@ -49,6 +49,8 @@ function localFriendToFriend(local: db.LocalFriend): Friend {
     friend_remark: null,
     // 本地缓存不持久化拉黑态；默认 false，由 loadServerFriends 刷新填充
     is_blacklisted: false,
+    // 本地缓存不持久化特别关心态；默认 false，由 loadServerFriends 刷新填充
+    is_special_care: false,
   };
 }
 
