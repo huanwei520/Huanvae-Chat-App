@@ -23,6 +23,14 @@ import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import {
+  isReadPositionsLoaded,
+  getReadPositionsSnapshot,
+  getReadPosition,
+  noteMessageSeq,
+  noteRead,
+  seedReadPositions,
+} from './readPositions';
+import {
   notifyNewMessage,
   notifySystemEvent,
   type SystemNotificationType,
@@ -43,6 +51,11 @@ export interface MessageHandlerContext {
   readSyncListeners: React.RefObject<Set<(msg: import('../types/websocket').WsReadSync) => void>>;
   /** 发送 resync_read_positions（重连追平已读位置，Tier-1 自愈） */
   sendResyncReadPositions: (positions: import('../types/websocket').WsReadPosition[]) => void;
+  /** connected 处理后：补发离线/假活期间暂存的 mark_read（服务端 GREATEST 合并，重发幂等） */
+  flushPendingMarkReads: () => void;
+  /** connected 处理后：当前打开的会话执行一次完整 markRead 兜底（人停在会话里时 HTTP sync
+   *  上屏的消息不会被 connected 快照把红点推回；与读位纠正并存，不互斥） */
+  markActiveChatRead: () => void;
 }
 
 /** handleWebSocketMessage 的返回值，供 Context 提取 session recovery 和 seq 信息 */
@@ -209,6 +222,30 @@ export function refreshPreviewInSummary(
 }
 
 /**
+ * 把 summary 中指定会话的未读数清 0（只清零，不增加、不新建条目），并重算 total_count。
+ *
+ * markRead 本地清零与 read_sync 自读消费共用。纯函数，便于单测。
+ */
+export function clearUnreadEntry(
+  summary: UnreadSummary,
+  targetType: 'friend' | 'group',
+  targetId: string,
+): UnreadSummary {
+  const friend_unreads = targetType === 'friend'
+    ? summary.friend_unreads.map(u => (u.friend_id === targetId ? { ...u, unread_count: 0 } : u))
+    : summary.friend_unreads;
+  const group_unreads = targetType === 'group'
+    ? summary.group_unreads.map(u => (u.group_id === targetId ? { ...u, unread_count: 0 } : u))
+    : summary.group_unreads;
+
+  const total_count =
+    friend_unreads.reduce((sum, u) => sum + u.unread_count, 0) +
+    group_unreads.reduce((sum, u) => sum + u.unread_count, 0);
+
+  return { total_count, friend_unreads, group_unreads };
+}
+
+/**
  * 用本地持久化的 per 会话已读位置，判定 connected 快照里哪些会话本地已读 + 算需回传的位置（Tier-1 自愈）。
  *
  * 真值口径迁移后：红点真值在服务端按 last-read-seq 派生；客户端把本地已读位置持久化，
@@ -326,6 +363,8 @@ async function applyConnectedReadCorrection(
 ): Promise<void> {
   try {
     const conversations = await db.getConversations();
+    // 顺手灌入读位内存 Map（单调合并）：下次 connected 即可走同步一步纠正路径
+    seedReadPositions(conversations);
     const { resyncPositions, readFriendIds, readGroupIds } = computeConnectedReadCorrection(
       snapshot,
       conversations,
@@ -459,12 +498,32 @@ export function handleWebSocketMessage(
 
     switch (msg.type) {
       case 'connected':
-        // 先【同步】立基线：红点立刻显示、不丢服务端快照，且让随后补发的 new_message 在其上叠加。
-        ctx.setUnreadSummary(msg.unread_summary);
-        // 再【异步】用本地持久化的 per 会话已读位置纠正（合并进最新 state，仅清未变化的已读会话）
-        // + 回传 resync_read_positions 让服务端 GREATEST 合并、修复抖断丢失的 mark_read（Tier-1 自愈）。
-        // 经 mergeReadCorrectionIntoLatest 合并，await 间隙到达的 new_message 增量不会被陈旧快照覆盖。
-        void applyConnectedReadCorrection(msg.unread_summary, ctx);
+        if (isReadPositionsLoaded()) {
+          // 读位内存 Map 已载入 → 同步算好「快照 ∖ 本地已读」一步 setUnreadSummary：
+          // 消灭「基线（unread>0）→ 纠正（清 0）」两个可见中间态（V 型翻转 → 卡片抽搐）。
+          // mergeReadCorrectionIntoLatest(snap, snap, ...) 即"无并发增量时应用纠正"。
+          const { resyncPositions, readFriendIds, readGroupIds } = computeConnectedReadCorrection(
+            msg.unread_summary,
+            getReadPositionsSnapshot(),
+            ctx.currentUserId,
+          );
+          ctx.setUnreadSummary(
+            mergeReadCorrectionIntoLatest(msg.unread_summary, msg.unread_summary, readFriendIds, readGroupIds),
+          );
+          if (resyncPositions.length > 0) {
+            ctx.sendResyncReadPositions(resyncPositions);
+          }
+        } else {
+          // 冷启动竞态（Map 未载入）：维持两段式 —— 先【同步】立基线（红点立刻显示、不丢快照），
+          // 再【异步】读 db 纠正（functional merge 防陈旧快照 clobber），并顺手灌入 Map。
+          ctx.setUnreadSummary(msg.unread_summary);
+          void applyConnectedReadCorrection(msg.unread_summary, ctx);
+        }
+        // 当前打开的会话兜底标读：发 WS 帧 + 本地清零 + advance（人停在会话里时
+        // 重连 HTTP sync 上屏的消息读位也被推进，红点不再被快照推回）。
+        ctx.markActiveChatRead();
+        // 补发离线/假活期间暂存的 mark_read（服务端读位 GREATEST 合并，重发无害）。
+        ctx.flushPendingMarkReads();
         if (msg.session_id) {
           result.sessionId = msg.session_id;
         }
@@ -478,6 +537,17 @@ export function handleWebSocketMessage(
 
       case 'new_message': {
         const previewText = getMessagePreviewText(msg.message_type, msg.content || msg.preview || '');
+
+        // 读位内存 Map 同步抬 last_seq（落库由 saveMessageToLocal 异步完成，Map 先行，
+        // 保证同帧内的 markRead/read_sync 判定用到最新 last_seq）
+        if (ctx.currentUserId && msg.seq) {
+          noteMessageSeq(
+            msg.source_type === 'friend'
+              ? getFriendConversationId(ctx.currentUserId, msg.source_id)
+              : msg.source_id,
+            msg.seq,
+          );
+        }
 
         // 检查是否是当前活跃的聊天
         const isActiveChat = ctx.activeChatRef.current &&
@@ -558,10 +628,31 @@ export function handleWebSocketMessage(
         ctx.recalledListeners.current.forEach(cb => cb(msg));
         break;
 
-      case 'read_sync':
-        // 通知监听器更新发送方的已读显示（私聊"已读/未读"、群聊"N 人已读"）
+      case 'read_sync': {
+        // 多端自读消费（reader = 本人，帧来自本人其他设备的 mark_read）：推进本地读位 + 清本机红点。
+        // 服务端推给本人其他设备的自读帧，source_id 是"接收者视角的会话对端"
+        // （私聊 = friend_id、群 = group_id），与 new_message 语义一致，可直接拼本地 conversationId。
+        if (ctx.currentUserId && msg.reader_id === ctx.currentUserId && msg.seq !== undefined) {
+          const conversationId = msg.source_type === 'friend'
+            ? getFriendConversationId(ctx.currentUserId, msg.source_id)
+            : msg.source_id;
+          const localPos = getReadPosition(conversationId);
+          // 内存 Map 写穿 + DB 持久化（显式 seq：只推进 last_read_seq，不碰 last_seq 同步游标）
+          noteRead(conversationId, msg.seq);
+          void db.advanceConversationRead(conversationId, msg.seq).catch(err => {
+            console.error('[WS] read_sync 自读推进本地读位失败:', err);
+          });
+          // 别端已读到 >= 本地已收最新 → 该会话红点清 0（只清零，绝不增加/出现负数）；
+          // 读位落后（本地还有别端没读的更新消息）则不动，留给下次 connected 纠正。
+          if (localPos && msg.seq >= localPos.last_seq) {
+            const { source_type, source_id } = msg;
+            ctx.setUnreadSummary(prev => (prev ? clearUnreadEntry(prev, source_type, source_id) : prev));
+          }
+        }
+        // 通知监听器更新发送方的已读显示（私聊"已读/未读"、群聊"N 人已读"）—— 原行为保留
         ctx.readSyncListeners.current.forEach(cb => cb(msg));
         break;
+      }
 
       case 'system_notification':
         // 根据通知类型更新待处理通知计数

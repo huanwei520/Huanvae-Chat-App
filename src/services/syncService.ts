@@ -65,6 +65,38 @@ export interface SyncState {
 }
 
 // ============================================================================
+// 会话同步落库通知（模块级，跨 SyncService 实例存活）
+// ============================================================================
+
+/**
+ * 某会话经 HTTP 增量同步写入了新消息时的通知（latestSeq = 该会话同步后的最新 seq）。
+ *
+ * 用途：activeChat 标读补刀 —— 人停在会话里时 sync 上屏的消息不会有人 markRead，
+ * 红点会挂死。由 WebSocketContext 注入监听器（判定是否 activeChat 并 markRead），
+ * service 层不直接依赖 React context。
+ */
+export type SyncedConversationListener = (
+  conversationId: string,
+  conversationType: ConversationType,
+  latestSeq: number,
+) => void;
+
+let syncedConversationListener: SyncedConversationListener | null = null;
+
+export function setSyncedConversationListener(listener: SyncedConversationListener | null): void {
+  syncedConversationListener = listener;
+}
+
+/** 通知会话同步落库（syncMessages 内部调用；export 供 L2 测试直接驱动接线） */
+export function notifySyncedConversation(
+  conversationId: string,
+  conversationType: ConversationType,
+  latestSeq: number,
+): void {
+  syncedConversationListener?.(conversationId, conversationType, latestSeq);
+}
+
+// ============================================================================
 // 同步服务类
 // ============================================================================
 
@@ -244,12 +276,22 @@ export class SyncService {
         }
 
         // 如果有更多消息，继续同步（分页）
+        let finalSeq = convResult.latest_seq;
         if (convResult.has_more) {
           // eslint-disable-next-line no-await-in-loop
-          await this.syncConversationFully(
+          finalSeq = await this.syncConversationFully(
             convResult.conversation_id,
             convResult.conversation_type,
             convResult.latest_seq,
+          );
+        }
+
+        // 该会话有新消息落库 → 通知接线方（activeChat 标读补刀，见 SyncedConversationListener）
+        if (newMessages.length > 0) {
+          notifySyncedConversation(
+            convResult.conversation_id,
+            convResult.conversation_type,
+            finalSeq,
           );
         }
       }
@@ -266,12 +308,13 @@ export class SyncService {
 
   /**
    * 完整同步单个会话（处理 has_more 分页）
+   * @returns 同步结束后该会话的最新 seq
    */
   private async syncConversationFully(
     conversationId: string,
     conversationType: ConversationType,
     lastSeq: number,
-  ): Promise<void> {
+  ): Promise<number> {
     let currentSeq = lastSeq;
     let hasMore = true;
 
@@ -345,6 +388,8 @@ export class SyncService {
         );
       }
     }
+
+    return currentSeq;
   }
 
   /**

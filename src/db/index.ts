@@ -6,6 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { noteMessageSeq, noteRead } from '../contexts/readPositions';
 
 // ============================================================================
 // 预览变更防抖通知（带写入屏障）
@@ -212,16 +213,23 @@ export async function saveConversation(
   }
 }
 
-/** 推进会话本地已读位置到当前已收最新（last_read_seq = MAX(last_read_seq, last_seq)，单调只升） */
-export async function advanceConversationRead(id: string): Promise<void> {
-  await invoke('db_advance_conversation_read', { id });
+/**
+ * 推进会话本地已读位置（last_read_seq 单调只升）：
+ * 不带 seq 推进到当前已收最新（MAX(last_read_seq, last_seq)）；带 seq 推进到显式读位
+ * （MAX(last_read_seq, seq)，不碰 last_seq 同步游标）。同步写穿读位内存 Map
+ * （connected 同步纠正的判定源）后再落库。
+ */
+export async function advanceConversationRead(id: string, seq?: number): Promise<void> {
+  noteRead(id, seq);
+  await invoke('db_advance_conversation_read', { id, seq: seq ?? null });
 }
 
-/** 更新会话的最后序列号 */
+/** 更新会话的最后序列号（同步写穿读位内存 Map 后落库） */
 export async function updateConversationLastSeq(
   id: string,
   lastSeq: number,
 ): Promise<void> {
+  noteMessageSeq(id, lastSeq);
   await invoke('db_update_conversation_last_seq', { id, lastSeq });
 }
 

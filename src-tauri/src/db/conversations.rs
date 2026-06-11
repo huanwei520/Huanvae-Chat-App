@@ -133,17 +133,33 @@ pub fn save_conversation(conv: LocalConversation) -> Result<(), String> {
     })
 }
 
-/// 推进会话本地已读位置到当前已收最新（last_read_seq = MAX(last_read_seq, last_seq)）。
+/// 推进会话本地已读位置（last_read_seq 单调只升）。
 ///
-/// 用户读会话（markRead）时调用，单调只升。重连时由前端读出并经 resync_read_positions
-/// 回传服务端 GREATEST 合并，修复抖断丢失的 mark_read。
-pub fn advance_conversation_read(id: &str) -> Result<(), String> {
+/// - `seq = None`：推进到当前已收最新（last_read_seq = MAX(last_read_seq, last_seq)），
+///   即"用户正读着这个会话"的语义。
+/// - `seq = Some(s)`：显式读位（收到消息当帧标读 / 多端 read_sync 自读），
+///   last_read_seq = MAX(last_read_seq, s)。不取 MAX(last_seq)、也不抬 last_seq：
+///   read_sync 的 s 来自别端，本端可能持有别端没读过的更新消息（不能凭空标到本地最新）；
+///   last_seq 是增量同步游标，凭空抬高会让 sync 跳过本地未收到的消息。
+///
+/// 重连时由前端读出并经 resync_read_positions 回传服务端 GREATEST 合并，
+/// 修复抖断丢失的 mark_read。
+pub fn advance_conversation_read(id: &str, seq: Option<i64>) -> Result<(), String> {
     with_db!(db, {
-        db.execute(
-            "UPDATE conversations SET last_read_seq = MAX(last_read_seq, last_seq) WHERE id = ?",
-            params![id],
-        )
-        .map_err(|e| e.to_string())?;
+        match seq {
+            Some(seq) => db
+                .execute(
+                    "UPDATE conversations SET last_read_seq = MAX(last_read_seq, ?1) WHERE id = ?2",
+                    params![seq, id],
+                )
+                .map_err(|e| e.to_string())?,
+            None => db
+                .execute(
+                    "UPDATE conversations SET last_read_seq = MAX(last_read_seq, last_seq) WHERE id = ?",
+                    params![id],
+                )
+                .map_err(|e| e.to_string())?,
+        };
 
         Ok(())
     })
