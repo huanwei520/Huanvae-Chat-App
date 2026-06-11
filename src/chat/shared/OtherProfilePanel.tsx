@@ -1,5 +1,5 @@
 /**
- * 他人完整资料面板（公开字段 + 关系状态 + 快捷操作 + 关系操作区占位）
+ * 他人完整资料面板（公开字段 + 关系状态 + 快捷操作 + 关系操作区）
  *
  * @location src/chat/shared/OtherProfilePanel.tsx
  *
@@ -7,7 +7,7 @@
  * - 头像、昵称（好友显示备注名）、@ID（可复制）、签名
  * - 关系状态（好友 / 陌生人）
  * - 快捷操作：好友→发送消息；陌生人→加好友
- * - 关系操作区：M3（拉黑/特别关心/群内屏蔽等）的挂载位，本期占位
+ * - 关系操作区：好友可删除（含内联二次确认）；更多操作（拉黑/特别关心/群内屏蔽等）后续接入
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段，零隐私泄露）。
  */
@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
-import { sendFriendRequest } from '../../api/friends';
+import { sendFriendRequest, removeFriend } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
 
@@ -27,6 +27,8 @@ interface OtherProfilePanelProps {
   onClose: () => void;
   /** 发送消息（切到与该用户的私聊，由挂载方按平台实现导航） */
   onSendMessage: (userId: string) => void;
+  /** 删除好友成功后回调（由挂载方刷新好友列表） */
+  onFriendRemoved?: () => void;
 }
 
 /** 取展示名首字母（占位头像用） */
@@ -47,7 +49,7 @@ function addButtonText(sent: boolean, sending: boolean): string {
   return sending ? '发送中...' : '添加好友';
 }
 
-export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfilePanelProps) {
+export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemoved }: OtherProfilePanelProps) {
   const api = useApi();
   const { session } = useSession();
   const friends = useChatStore((s) => s.friends);
@@ -58,6 +60,8 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -96,6 +100,62 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
       setSending(false);
     }
   };
+
+  const handleRemoveFriend = async () => {
+    if (!session || removing) { return; }
+    setRemoving(true);
+    setActionError(null);
+    try {
+      await removeFriend(api, session.userId, userId);
+      onFriendRemoved?.();
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '删除失败');
+      setRemoving(false);
+      setConfirmingDelete(false);
+    }
+  };
+
+  // 关系操作区内容（非好友=占位；好友=删除按钮 / 二次确认）
+  function renderRelationOps() {
+    if (!isFriend) {
+      return <div className="other-profile-ops-placeholder">更多操作开发中</div>;
+    }
+    if (confirmingDelete) {
+      return (
+        <div className="other-profile-confirm">
+          <span className="other-profile-confirm-text">删除后将解除好友关系，确定？</span>
+          <div className="other-profile-confirm-actions">
+            <button
+              type="button"
+              className="other-profile-confirm-cancel"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={removing}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="other-profile-confirm-danger"
+              onClick={handleRemoveFriend}
+              disabled={removing}
+            >
+              {removing ? '删除中...' : '确认删除'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="other-profile-op danger"
+        onClick={() => setConfirmingDelete(true)}
+      >
+        删除好友
+      </button>
+    );
+  }
 
   return (
     <div className="other-profile-panel">
@@ -150,11 +210,11 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
           </div>
         )}
 
-        {/* 关系操作区（M3 挂载位，本期占位） */}
+        {/* 关系操作区（M3 入口；好友可删除，更多操作后续接入） */}
         {!isSelf && (
           <div className="other-profile-relation-ops">
             <div className="other-profile-section-title">关系操作</div>
-            <div className="other-profile-ops-placeholder">更多操作开发中</div>
+            {renderRelationOps()}
           </div>
         )}
       </div>

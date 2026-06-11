@@ -362,6 +362,7 @@ export function Main() {
           const f = page.friends.find((fr) => fr.friend_id === userId);
           if (f) { page.handleSelectTarget({ type: 'friend', data: f }); }
         }}
+        onFriendRemoved={page.refreshFriends}
       />
 
       {/* 弹窗组件 */}

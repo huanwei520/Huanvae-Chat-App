@@ -710,6 +710,7 @@ export function MobileMain() {
           const f = page.friends.find((fr) => fr.friend_id === userId);
           if (f) { handleSelectTarget({ type: 'friend', data: f }); }
         }}
+        onFriendRemoved={page.refreshFriends}
       />
     </div>
   );

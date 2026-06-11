@@ -23,7 +23,11 @@ const mockGetPublicProfile = vi.hoisted(() => vi.fn());
 vi.mock('../../src/api/profile', () => ({ getPublicProfile: mockGetPublicProfile }));
 
 const mockSendFriendRequest = vi.hoisted(() => vi.fn());
-vi.mock('../../src/api/friends', () => ({ sendFriendRequest: mockSendFriendRequest }));
+const mockRemoveFriend = vi.hoisted(() => vi.fn());
+vi.mock('../../src/api/friends', () => ({
+  sendFriendRequest: mockSendFriendRequest,
+  removeFriend: mockRemoveFriend,
+}));
 
 import { OtherProfilePanel } from '../../src/chat/shared/OtherProfilePanel';
 
@@ -57,6 +61,8 @@ describe('OtherProfilePanel', () => {
     mockGetPublicProfile.mockReset();
     mockSendFriendRequest.mockReset();
     mockSendFriendRequest.mockResolvedValue(undefined);
+    mockRemoveFriend.mockReset();
+    mockRemoveFriend.mockResolvedValue(undefined);
     setFriends([]);
   });
 
@@ -96,6 +102,55 @@ describe('OtherProfilePanel', () => {
     expect(onSendMessage).toHaveBeenCalledWith('carol');
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(mockSendFriendRequest).not.toHaveBeenCalled();
+  });
+
+  it('好友：删除好友需二次确认，确认后调用 removeFriend + onFriendRemoved + onClose', async () => {
+    setFriends(['dave']);
+    mockGetPublicProfile.mockResolvedValue({ user_id: 'dave', user_nickname: 'Dave', user_signature: null, user_avatar_url: null });
+    const onFriendRemoved = vi.fn();
+    const onClose = vi.fn();
+    render(<OtherProfilePanel userId="dave" onClose={onClose} onSendMessage={() => {}} onFriendRemoved={onFriendRemoved} />);
+    await waitFor(() => expect(screen.getByText('已是好友')).toBeInTheDocument());
+
+    // 第一步：点"删除好友"出现二次确认（此时还未调用 API）
+    fireEvent.click(screen.getByRole('button', { name: /删除好友/ }));
+    expect(mockRemoveFriend).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /确认删除/ })).toBeInTheDocument();
+
+    // 第二步：确认删除 → 调 API + 回调 + 关闭
+    fireEvent.click(screen.getByRole('button', { name: /确认删除/ }));
+    await waitFor(() => expect(mockRemoveFriend).toHaveBeenCalledTimes(1));
+    expect(mockRemoveFriend).toHaveBeenCalledWith(mockApi, 'me', 'dave');
+    await waitFor(() => expect(onFriendRemoved).toHaveBeenCalledTimes(1));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('删除好友失败：复位（不关闭、不回调，显示错误，按钮回到删除好友）', async () => {
+    setFriends(['frank']);
+    mockGetPublicProfile.mockResolvedValue({ user_id: 'frank', user_nickname: 'Frank', user_signature: null, user_avatar_url: null });
+    mockRemoveFriend.mockRejectedValue(new Error('网络错误'));
+    const onFriendRemoved = vi.fn();
+    const onClose = vi.fn();
+    render(<OtherProfilePanel userId="frank" onClose={onClose} onSendMessage={() => {}} onFriendRemoved={onFriendRemoved} />);
+    await waitFor(() => expect(screen.getByText('已是好友')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /删除好友/ }));
+    fireEvent.click(screen.getByRole('button', { name: /确认删除/ }));
+
+    await waitFor(() => expect(screen.getByText('网络错误')).toBeInTheDocument());
+    expect(onFriendRemoved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // 复位：确认区消失，回到"删除好友"按钮
+    expect(screen.getByRole('button', { name: /删除好友/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /确认删除/ })).toBeNull();
+  });
+
+  it('非好友不显示删除好友（显示占位）', async () => {
+    mockGetPublicProfile.mockResolvedValue({ user_id: 'eve', user_nickname: 'Eve', user_signature: null, user_avatar_url: null });
+    render(<OtherProfilePanel userId="eve" onClose={() => {}} onSendMessage={() => {}} />);
+    await waitFor(() => expect(screen.getByText('非好友')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /删除好友/ })).toBeNull();
+    expect(screen.getByText('更多操作开发中')).toBeInTheDocument();
   });
 
   it('查看自己时不显示操作区与 M3 占位', async () => {
