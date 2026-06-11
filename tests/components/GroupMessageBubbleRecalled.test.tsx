@@ -47,6 +47,7 @@ vi.mock('../../src/services/fileCache', () => ({
 
 vi.mock('../../src/stores', () => ({
   useChatStore: () => ({}),
+  useProfileViewStore: () => vi.fn(),
 }));
 
 vi.mock('../../src/utils/platform', () => ({

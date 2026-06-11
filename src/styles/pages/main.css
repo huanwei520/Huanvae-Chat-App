@@ -3221,6 +3221,202 @@
   padding: 0 4px;
 }
 
+/* ============================================
+   他人完整资料页（桌面右侧抽屉 / 移动整页）
+   ============================================ */
+.other-profile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--black-alpha-50);
+  backdrop-filter: blur(2px);
+}
+
+.other-profile-shell {
+  height: 100%;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+}
+
+.other-profile-shell.desktop {
+  width: 380px;
+  max-width: 90vw;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.other-profile-shell.mobile {
+  width: 100%;
+}
+
+.other-profile-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.other-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.other-profile-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.other-profile-close {
+  border: none;
+  background: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.other-profile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 20px;
+  gap: 8px;
+}
+
+.other-profile-avatar {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-neutral-3);
+  flex-shrink: 0;
+}
+
+.other-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.other-profile-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 32px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, var(--color-primary-4), var(--color-primary-5));
+}
+
+.other-profile-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 6px;
+}
+
+.other-profile-id {
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.other-profile-signature {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-top: 4px;
+}
+
+.other-profile-relation {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-top: 4px;
+}
+
+.other-profile-hint {
+  font-size: 12px;
+  color: var(--status-error);
+}
+
+.other-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.other-profile-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: white;
+}
+
+.other-profile-action.sent,
+.other-profile-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.other-profile-error {
+  font-size: 12px;
+  color: var(--status-error);
+  text-align: center;
+}
+
+.other-profile-relation-ops {
+  width: 100%;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+}
+
+.other-profile-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.other-profile-ops-placeholder {
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+/* 预览卡升级：关系状态 + 查看完整资料按钮 */
+.popup-relation {
+  font-size: 12px;
+  color: var(--text-light);
+  text-align: center;
+  margin-top: 2px;
+}
+
+.popup-action-btn.view-full {
+  background: var(--white-alpha-40);
+  color: var(--text-secondary);
+}
+
 .char-count {
   display: block;
   text-align: right;

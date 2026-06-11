@@ -38,6 +38,7 @@ import { useChatStore } from '../stores';
 import { parseFriendIdFromConversationId } from '../utils/conversationId';
 import type { Friend, Group } from '../types/chat';
 import { ChatPanel, EmptyChat } from '../chat';
+import { OtherProfileView } from '../chat/shared/OtherProfileView';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
@@ -354,6 +355,14 @@ export function Main() {
           />
         )}
       </AnimatePresence>
+
+      {/* 他人完整资料页（右侧抽屉，点头像/预览卡"查看完整资料"打开） */}
+      <OtherProfileView
+        onSendMessage={(userId) => {
+          const f = page.friends.find((fr) => fr.friend_id === userId);
+          if (f) { page.handleSelectTarget({ type: 'friend', data: f }); }
+        }}
+      />
 
       {/* 弹窗组件 */}
       <ProfileModal

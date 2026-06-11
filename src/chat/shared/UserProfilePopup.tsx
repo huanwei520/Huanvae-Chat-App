@@ -11,7 +11,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { sendFriendRequest } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
@@ -83,6 +83,13 @@ export function UserProfilePopup({
   const friends = useChatStore((state) => state.friends);
   const friendData = friends.find((f) => f.friend_id === user.userId);
   const isFriend = !!friendData;
+
+  // 打开完整资料页
+  const openProfileView = useProfileViewStore((state) => state.open);
+  const handleViewFull = useCallback(() => {
+    openProfileView(user.userId);
+    onClose();
+  }, [openProfileView, user.userId, onClose]);
 
   // 显示名：被查看者是我的好友时用 备注||昵称（仅自己可见）；否则用调用方传入的名字
   const displayName = friendData ? friendDisplayName(friendData) : user.nickname;
@@ -235,6 +242,11 @@ export function UserProfilePopup({
             )}
           </div>
 
+          {/* 关系状态 */}
+          {!isSelf && (
+            <div className="popup-relation">{isFriend ? '已是好友' : '非好友'}</div>
+          )}
+
           {/* 操作按钮 */}
           {!isSelf && (
             <div className="popup-actions">
@@ -257,6 +269,10 @@ export function UserProfilePopup({
                   <span>{getButtonText(sent, sending)}</span>
                 </button>
               )}
+              {/* 点击进入完整资料页 */}
+              <button className="popup-action-btn view-full" onClick={handleViewFull}>
+                <span>查看完整资料</span>
+              </button>
             </div>
           )}
         </motion.div>

@@ -37,6 +37,7 @@ import { MobileChatList } from './MobileChatList';
 import { MobileContacts } from './MobileContacts';
 import { MobileChatView } from './MobileChatView';
 import { MobileProfilePage } from './MobileProfilePage';
+import { OtherProfileView } from '../../chat/shared/OtherProfileView';
 import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
@@ -702,6 +703,14 @@ export function MobileMain() {
           <MobileNfcTrustedCardsPage onBack={() => setShowNfcTrustedCards(false)} />
         )}
       </AnimatePresence>
+
+      {/* 他人完整资料页（移动整页，点头像进入） */}
+      <OtherProfileView
+        onSendMessage={(userId) => {
+          const f = page.friends.find((fr) => fr.friend_id === userId);
+          if (f) { handleSelectTarget({ type: 'friend', data: f }); }
+        }}
+      />
     </div>
   );
 }

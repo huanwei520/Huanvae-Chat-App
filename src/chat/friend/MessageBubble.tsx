@@ -33,6 +33,7 @@ import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { isMobile } from '../../utils/platform';
+import { useProfileViewStore } from '../../stores';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { Friend, Message } from '../../types/chat';
 
@@ -156,12 +157,21 @@ export function MessageBubble({
     isSelf: false,
   });
 
+  // 打开他人完整资料页（移动端点头像直接进入）
+  const openProfileView = useProfileViewStore((s) => s.open);
+
   // 点击头像显示/隐藏用户信息
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 多选模式下，点击头像也触发选中
     if (isMultiSelectMode) {
       onToggleSelect?.();
+      return;
+    }
+
+    // 移动端点他人头像直接进完整资料页；桌面端走预览弹窗
+    if (isMobile() && !isOwn) {
+      openProfileView(friend.friend_id);
       return;
     }
 
@@ -200,7 +210,7 @@ export function MessageBubble({
         isSelf: false,
       });
     }
-  }, [isMultiSelectMode, onToggleSelect, isOwn, session, friend, profilePopup.isOpen, profilePopup.user?.userId]);
+  }, [isMultiSelectMode, onToggleSelect, isOwn, session, friend, openProfileView, profilePopup.isOpen, profilePopup.user?.userId]);
 
   // 关闭用户信息弹出框
   const handleCloseProfile = useCallback(() => {
