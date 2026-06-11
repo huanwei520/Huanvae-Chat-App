@@ -192,7 +192,11 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'FilePreviewModal', path: 'chat/shared/FilePreviewModal', category: 'chat', description: '文件预览模态框' },
   { name: 'DocumentDownloadAction', path: 'chat/shared/DocumentDownloadAction', category: 'chat', description: '文档下载/打开操作共享组件（聊天 + 我的文件复用）' },
   { name: 'MessageContextMenu', path: 'chat/shared/MessageContextMenu', category: 'chat', description: '消息右键菜单' },
-  { name: 'ReadReceiptLabel', path: 'chat/shared/ReadReceiptLabel', category: 'chat', description: '已读回执小标签（私聊"已读/未读"、群聊"N 人已读"）' },
+  { name: 'ReadReceiptIcons', path: 'chat/shared/ReadReceiptIcons', category: 'chat', description: '已读回执 SVG 图标基元（时钟/双勾/失败）' },
+  { name: 'PrivateReadReceipt', path: 'chat/shared/PrivateReadReceipt', category: 'chat', description: '私聊已读回执（仅自己消息：时钟/灰双勾/绿双勾/红叹号）' },
+  { name: 'ReaderAvatarStack', path: 'chat/shared/ReaderAvatarStack', category: 'chat', description: '已读者头像堆叠（16px 重叠，超出显示 +N）' },
+  { name: 'GroupReadReceipt', path: 'chat/group/GroupReadReceipt', category: 'chat', description: '群聊已读回执（绿双勾 + N 人已读 + 头像堆叠，点击展开名单）' },
+  { name: 'GroupReadListModal', path: 'chat/group/GroupReadListModal', category: 'chat', description: '群已读名单弹层（桌面居中 modal / 移动底部 sheet）' },
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },
   { name: 'UserProfilePopup', path: 'chat/shared/UserProfilePopup', category: 'chat', description: '用户资料弹窗' },
@@ -256,8 +260,8 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useRegisterForm', path: 'hooks/useRegisterForm', category: 'hooks', description: '注册表单 Hook' },
   { name: 'useLocalFriendMessages', path: 'chat/friend/useLocalFriendMessages', category: 'hooks', description: '本地好友消息 Hook' },
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
-  { name: 'useFriendReadReceipt', path: 'chat/friend/useFriendReadReceipt', category: 'hooks', description: '私聊已读回执 Hook（按 seq 双向：拉双方 last-read-seq 快照 + read_sync 实时推进，每条消息已读/未读）' },
-  { name: 'useGroupReadReceipt', path: 'chat/group/useGroupReadReceipt', category: 'hooks', description: '群聊已读回执 Hook（read-positions 快照含 member_count + read_sync 实时合并，每条消息全部已读/N 人已读）' },
+  { name: 'useFriendReadReceipt', path: 'chat/friend/useFriendReadReceipt', category: 'hooks', description: '私聊已读回执 Hook（仅自己消息：拉对方 last-read-seq 快照 + read_sync 实时推进，Telegram 风单向）' },
+  { name: 'useGroupReadReceipt', path: 'chat/group/useGroupReadReceipt', category: 'hooks', description: '群聊已读回执 Hook（read-positions 快照含昵称/头像/已读时间 + read_sync 实时合并，N 人已读 + 已读名单）' },
   { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
   { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
@@ -282,7 +286,6 @@ export const SERVICES: ComponentEntry[] = [
   // 聊天共享模块
   { name: 'chatAnimations', path: 'chat/shared/animations', category: 'services', description: '消息动画配置' },
   { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },
-  { name: 'SendStatusIndicator', path: 'chat/shared/SendStatusIndicator', category: 'components', description: '发送状态指示器' },
 ];
 
 // ============== 所有组件汇总 ==============

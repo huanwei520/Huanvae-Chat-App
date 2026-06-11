@@ -108,6 +108,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/nfc/NfcFeedbackToast.tsx (toastVariants: opacity + y 进出场)',
   },
+  {
+    selector: '.group-read-list-overlay',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/group/GroupReadListModal.tsx (overlayVariants: opacity 进出场)',
+  },
+  {
+    selector: '.group-read-list-panel',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/group/GroupReadListModal.tsx (桌面 scale/y + 移动 translateY，panelVariantsDesktop/Mobile)',
+  },
 ];
 
 /**

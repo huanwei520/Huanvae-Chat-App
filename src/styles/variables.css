@@ -84,6 +84,9 @@
   /* 状态色 */
   --status-success: #22c55e;
   --status-success-subtle: rgba(34, 197, 94, 0.15);
+
+  /* 已读回执绿（iOS 风，浅色 #34C759；深色在 [data-theme="dark"] 覆盖为 #30D158） */
+  --read-receipt-green: #34c759;
   --status-warning: #f59e0b;
   --status-warning-subtle: rgba(245, 158, 11, 0.15);
   --status-error: #ef4444;
@@ -297,4 +300,11 @@
   --text-xl: 16px;   /* 特大 - 按钮 */
   --text-2xl: 24px;  /* 超大 - 移动端标题 */
   --text-3xl: 28px;  /* 巨大 - 桌面端标题 */
+}
+
+/* 深色模式覆盖（ThemeProvider 在 <html> 设置 data-theme="dark"）。
+   主题色由 ThemeProvider 动态注入，这里仅覆盖本文件静态定义、需要深色微调的 token。 */
+[data-theme='dark'] {
+  /* 已读回执绿在深色下更亮，提升对比度 */
+  --read-receipt-green: #30d158;
 }
