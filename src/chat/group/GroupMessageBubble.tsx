@@ -34,6 +34,7 @@ import { useChatStore, useProfileViewStore } from '../../stores';
 import { isMobile } from '../../utils/platform';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
+import type { GroupReader } from './useGroupReadReceipt';
 
 interface GroupMessageBubbleProps {
   message: GroupMessage;
@@ -54,8 +55,10 @@ interface GroupMessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 当前用户是否为管理员/群主（可撤回任意消息） */
   isAdmin?: boolean;
-  /** 已读回执：传入则显示阅读状态文案（"全部已读" / "N 人已读"）；发送中/失败/已撤回不传 */
-  readReceipt?: { text: string };
+  /** 已读回执：仅自己发出的已送达消息传入（文案 + 已读者名单）；对方消息/发送中/失败/已撤回不传 */
+  readReceipt?: { text: string | null; readers: GroupReader[] };
+  /** 点击已读回执展开已读名单 */
+  onOpenReadList?: (readers: GroupReader[]) => void;
 }
 
 // 使用统一的消息动画配置
@@ -85,9 +88,8 @@ function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolea
   return now - sendTime < twoMinutes;
 }
 
-// 使用统一的发送状态指示器组件
-import { SendStatusIndicator } from '../shared/SendStatusIndicator';
-import { ReadReceiptLabel } from '../shared/ReadReceiptLabel';
+// 群聊已读回执（仅自己消息，统一状态槽：时钟/红叹号/绿双勾+N人已读+头像堆叠）
+import { GroupReadReceipt } from './GroupReadReceipt';
 
 export function GroupMessageBubble({
   message,
@@ -101,6 +103,7 @@ export function GroupMessageBubble({
   onEnterMultiSelect,
   isAdmin = false,
   readReceipt,
+  onOpenReadList,
 }: GroupMessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -421,9 +424,6 @@ export function GroupMessageBubble({
               onTouchEnd={handleTouchEnd}
               onTouchMove={handleTouchMove}
             >
-              {/* 发送状态指示器（在左侧显示） */}
-              {isOwn && <SendStatusIndicator status={message.sendStatus} />}
-
               <div
                 ref={avatarRef}
                 className="bubble-avatar clickable"
@@ -463,8 +463,18 @@ export function GroupMessageBubble({
                     imageHeight={message.image_height}
                   />
                 )}
-                <div className="bubble-time">{formatMessageTime(message.send_time)}</div>
-                {readReceipt && <ReadReceiptLabel text={readReceipt.text} />}
+                {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
+                <div className="bubble-meta">
+                  <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
+                  {isOwn && (
+                    <GroupReadReceipt
+                      status={message.sendStatus}
+                      text={readReceipt?.text ?? null}
+                      readers={readReceipt?.readers ?? []}
+                      onOpenList={() => onOpenReadList?.(readReceipt?.readers ?? [])}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </motion.div>

@@ -11,6 +11,8 @@ export interface Friend {
   friend_avatar_url: string | null;
   add_time: string;
   approve_reason: string | null;
+  /** 好友备注名（仅自己可见；未设置为 null）。本地缓存不持久化，由服务器刷新提供 */
+  friend_remark: string | null;
   /** 当前用户是否已拉黑此好友。本地缓存不持久化（默认 false），由服务器刷新提供 */
   is_blacklisted: boolean;
 }

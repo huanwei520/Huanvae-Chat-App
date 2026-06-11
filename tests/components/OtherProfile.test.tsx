@@ -45,6 +45,7 @@ function setFriends(ids: string[], blacklistedIds: string[] = []) {
       friend_avatar_url: null,
       add_time: '',
       approve_reason: null,
+      friend_remark: null,
       is_blacklisted: blacklistedIds.includes(id),
     })),
   });

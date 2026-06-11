@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
+import { friendDisplayName } from '../../utils/friendName';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
@@ -75,7 +76,7 @@ export function MobileChatList({
         uniqueKey: `friend-${friend.friend_id}`,
         id: friend.friend_id,
         type: 'friend' as const,
-        name: friend.friend_nickname,
+        name: friendDisplayName(friend),
         avatarUrl: friend.friend_avatar_url,
         lastMessage: localPreview?.lastMessage ?? null,
         lastMessageTime: localPreview?.lastMessageTime ?? null,

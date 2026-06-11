@@ -11,12 +11,14 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatMenu } from '../group/useChatMenu';
+import { friendDisplayName } from '../../utils/friendName';
 import { MenuIcon } from '../../components/common/Icons';
 import {
   type ChatMenuProps,
   MainMenu,
   EditNameForm,
   EditNicknameForm,
+  EditRemarkForm,
   InviteForm,
   MembersList,
   MemberActions,
@@ -94,6 +96,18 @@ export function ChatMenuButton({
           />
         );
 
+      case 'edit-remark':
+        return (
+          <EditRemarkForm
+            value={menu.friendRemark}
+            loading={menu.loading}
+            onChange={menu.setFriendRemark}
+            onSubmit={menu.handleUpdateFriendRemark}
+            onClear={menu.handleClearFriendRemark}
+            onBack={() => menu.handleSetView('main')}
+          />
+        );
+
       case 'invite':
         return (
           <InviteForm
@@ -152,7 +166,7 @@ export function ChatMenuButton({
             message={
               <>
                 确定要删除好友{' '}
-                <strong>{target.type === 'friend' ? target.data.friend_nickname : ''}</strong>{' '}
+                <strong>{target.type === 'friend' ? friendDisplayName(target.data) : ''}</strong>{' '}
                 吗？
               </>
             }

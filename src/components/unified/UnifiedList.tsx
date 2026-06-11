@@ -33,6 +33,7 @@ import { SyncStatusBanner } from '../common/SyncStatusBanner';
 import type { SyncNotification } from '../../hooks/useInitialSync';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
+import { friendDisplayName } from '../../utils/friendName';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import type { NavTab } from '../sidebar/Sidebar';
@@ -223,7 +224,7 @@ export function UnifiedList({
         uniqueKey: `friend-${friend.friend_id}`,
         id: friend.friend_id,
         type: 'friend',
-        name: friend.friend_nickname,
+        name: friendDisplayName(friend),
         avatarUrl: friend.friend_avatar_url,
         lastMessage: localPreview?.lastMessage ?? null,
         lastMessageTime: localPreview?.lastMessageTime ?? friend.add_time,

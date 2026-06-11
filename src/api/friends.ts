@@ -119,6 +119,26 @@ export function removeFriend(
 }
 
 /**
+ * 设置/清除好友备注（仅自己可见）
+ *
+ * @param userId 当前用户 ID
+ * @param friendUserId 好友用户 ID
+ * @param remark 备注名（空串=清除，≤30 字符）
+ */
+export function setFriendRemark(
+  api: ApiClient,
+  userId: string,
+  friendUserId: string,
+  remark: string,
+): Promise<void> {
+  return api.post('/api/friends/remark', {
+    user_id: userId,
+    friend_user_id: friendUserId,
+    remark,
+  });
+}
+
+/**
  * 黑名单成员（GET /api/friends/blacklist 返回项，client.ts 已解包 ApiResponse.data 为数组）
  */
 export interface BlacklistedUser {

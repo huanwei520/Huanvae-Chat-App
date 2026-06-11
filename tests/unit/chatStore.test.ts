@@ -27,6 +27,7 @@ const mockFriend: Friend = {
   friend_avatar_url: null,
   add_time: '2024-01-01',
   approve_reason: null,
+  friend_remark: null,
   is_blacklisted: false,
 };
 

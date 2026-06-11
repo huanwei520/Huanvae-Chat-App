@@ -56,11 +56,17 @@ export interface GroupMembersResponse {
   total: number;
 }
 
-/** 群成员已读位置（用于群已读回执"N 人已读"统计） */
+/** 群成员已读位置（用于群已读回执"N 人已读"统计 + 已读名单展示） */
 export interface ReadPosition {
   user_id: string;
   /** 该成员在本群已读到的消息序列号 */
   last_read_seq: number;
+  /** 已读者展示名（群昵称优先，否则用户昵称，再否则用户 id） */
+  display_name: string;
+  /** 头像 URL（未设置则为 null） */
+  avatar_url: string | null;
+  /** 精确已读时间（RFC3339；从未推进过已读位置则为 null） */
+  last_read_at: string | null;
 }
 
 /** 群已读位置响应（client.ts 已解包 ApiResponse.data） */
