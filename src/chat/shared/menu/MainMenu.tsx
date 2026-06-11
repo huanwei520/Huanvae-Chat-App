@@ -273,13 +273,22 @@ export function MainMenu({
 
       {/* 好友菜单 */}
       {targetType === 'friend' && (
-        <button
-          className="menu-item danger"
-          onClick={() => onSetView('confirm-delete')}
-        >
-          <TrashIcon />
-          <span>删除好友</span>
-        </button>
+        <>
+          <button
+            className="menu-item"
+            onClick={() => onSetView('edit-remark')}
+          >
+            <EditIcon />
+            <span>设置备注</span>
+          </button>
+          <button
+            className="menu-item danger"
+            onClick={() => onSetView('confirm-delete')}
+          >
+            <TrashIcon />
+            <span>删除好友</span>
+          </button>
+        </>
       )}
 
       {/* 群聊菜单 */}

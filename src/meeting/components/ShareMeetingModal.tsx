@@ -5,6 +5,7 @@ import { useApi } from '../../contexts/SessionContext';
 import { useChatStore } from '../../stores/chatStore';
 import { sendMessage } from '../../api/messages';
 import { sendGroupMessage } from '../../api/groupMessages';
+import { friendDisplayName } from '../../utils/friendName';
 import type { Friend, Group } from '../../types/chat';
 import './ShareMeetingModal.css';
 
@@ -37,7 +38,7 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
   const filteredFriends = useMemo(() => {
     if (!search) { return friends; }
     const q = search.toLowerCase();
-    return friends.filter((f: Friend) => f.friend_nickname.toLowerCase().includes(q));
+    return friends.filter((f: Friend) => friendDisplayName(f).toLowerCase().includes(q));
   }, [friends, search]);
 
   const filteredGroups = useMemo(() => {
@@ -174,7 +175,7 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
                       toggleSelect({
                         type: 'friend',
                         id: f.friend_id,
-                        name: f.friend_nickname,
+                        name: friendDisplayName(f),
                         avatar: f.friend_avatar_url,
                       })
                     }
@@ -184,10 +185,10 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
                       <img className="share-meeting-avatar" src={f.friend_avatar_url} alt="" />
                     ) : (
                       <div className="share-meeting-avatar share-meeting-avatar-placeholder">
-                        {f.friend_nickname.charAt(0)}
+                        {friendDisplayName(f).charAt(0)}
                       </div>
                     )}
-                    <span className="share-meeting-name">{f.friend_nickname}</span>
+                    <span className="share-meeting-name">{friendDisplayName(f)}</span>
                   </div>
                 ))
                 : filteredGroups.map((g: Group) => (

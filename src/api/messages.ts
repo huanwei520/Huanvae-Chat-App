@@ -11,10 +11,13 @@ import type {
   SendMessageResponse,
 } from '../types/chat';
 
-/** 私聊会话双方已读位置（client.ts 已解包 ApiResponse.data） */
+/**
+ * 私聊会话已读位置（client.ts 已解包 ApiResponse.data）
+ *
+ * 已读回执改为 Telegram 风单向（只显示自己发出消息的已读态），故仅需对方位置。
+ * 后端该端点仍会返回 my_last_read_seq（前端不再消费，可在后续后端清理中移除）。
+ */
 export interface FriendReadPositionsResponse {
-  /** 当前用户在本会话已读到的序列号（用于"对方发的消息我是否已读"） */
-  my_last_read_seq: number;
   /** 对方在本会话已读到的序列号（用于"我发的消息对方是否已读"） */
   peer_last_read_seq: number;
 }

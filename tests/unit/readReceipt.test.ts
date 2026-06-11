@@ -3,16 +3,17 @@
  *
  * 覆盖：
  * - isReadBySeq（按 seq 判定：阅读者 last-read-seq >= 消息 seq → 已读；seq 缺失/占位 0 → 未读）
- * - maxSeqOf / maxGroupSeqOf（取消息列表最大 seq）
+ * - maxGroupSeqOf（取群消息列表最大 seq）
  * - countReadersAtSeq（群聊：读到某 seq 的成员数，排除发送者）
+ * - readersAtSeq（群聊：列出读到某 seq 的已读者，排除发送者，按已读时间升序，缺信息兜底）
  * - readReceiptText（群聊文案：全部已读 / N 人已读 / 无应读者 null）
  * - groupReadReceiptText（群聊文案 + seq>0 守卫：占位 0 → null，防虚显"全部已读"）
  */
 
 import { describe, it, expect } from 'vitest';
-import { isReadBySeq, maxSeqOf } from '../../src/chat/friend/useFriendReadReceipt';
-import { countReadersAtSeq, readReceiptText, groupReadReceiptText, maxGroupSeqOf } from '../../src/chat/group/useGroupReadReceipt';
-import type { Message } from '../../src/types/chat';
+import { isReadBySeq } from '../../src/chat/friend/useFriendReadReceipt';
+import { countReadersAtSeq, readersAtSeq, readReceiptText, groupReadReceiptText, maxGroupSeqOf } from '../../src/chat/group/useGroupReadReceipt';
+import type { GroupReaderInfo } from '../../src/chat/group/useGroupReadReceipt';
 import type { GroupMessage } from '../../src/api/groupMessages';
 
 describe('isReadBySeq（按 seq 已读判定）', () => {
@@ -39,16 +40,7 @@ describe('isReadBySeq（按 seq 已读判定）', () => {
   });
 });
 
-describe('maxSeqOf / maxGroupSeqOf（取最大 seq）', () => {
-  it('私聊：取最大 seq，忽略 undefined', () => {
-    const msgs = [{ seq: 3 }, { seq: undefined }, { seq: 7 }] as unknown as Message[];
-    expect(maxSeqOf(msgs)).toBe(7);
-  });
-
-  it('私聊：空列表返回 0', () => {
-    expect(maxSeqOf([])).toBe(0);
-  });
-
+describe('maxGroupSeqOf（取最大 seq）', () => {
   it('群聊：取最大 seq', () => {
     const msgs = [{ seq: 10 }, { seq: 42 }, { seq: 5 }] as unknown as GroupMessage[];
     expect(maxGroupSeqOf(msgs)).toBe(42);
@@ -81,6 +73,52 @@ describe('countReadersAtSeq（群聊已读人数统计）', () => {
   it('排除别的发送者：sender=alice 时不计 alice', () => {
     // seq=3：alice(5,排除) bob(3) carol(10) self(8) → 3
     expect(countReadersAtSeq(positions, 3, 'alice')).toBe(3);
+  });
+});
+
+describe('readersAtSeq（群聊已读名单）', () => {
+  const positions = { alice: 5, bob: 3, carol: 10, self: 8 };
+  const readerInfo: Record<string, GroupReaderInfo> = {
+    alice: { displayName: 'Alice', avatarUrl: 'a.png', lastReadAt: '2026-06-10T10:00:00Z' },
+    bob: { displayName: 'Bob', avatarUrl: null, lastReadAt: '2026-06-10T09:00:00Z' },
+    carol: { displayName: 'Carol', avatarUrl: null, lastReadAt: '2026-06-10T08:00:00Z' },
+    self: { displayName: 'Self', avatarUrl: null, lastReadAt: '2026-06-10T11:00:00Z' },
+  };
+
+  it('列出读到该 seq 的已读者（排除发送者），合并展示信息', () => {
+    const readers = readersAtSeq(positions, readerInfo, 4, 'self'); // alice(5) carol(10)
+    expect(readers.map((r) => r.userId).sort()).toEqual(['alice', 'carol']);
+    const alice = readers.find((r) => r.userId === 'alice');
+    expect(alice?.displayName).toBe('Alice');
+    expect(alice?.avatarUrl).toBe('a.png');
+  });
+
+  it('按已读时间升序排列', () => {
+    // seq=1：alice(10:00) bob(09:00) carol(08:00) self(11:00,排除) → carol,bob,alice
+    const readers = readersAtSeq(positions, readerInfo, 1, 'self');
+    expect(readers.map((r) => r.userId)).toEqual(['carol', 'bob', 'alice']);
+  });
+
+  it('混合有/无已读时间：有时间者按升序在前，无时间者排末尾', () => {
+    const pos = { a: 5, b: 5, c: 5, d: 5 };
+    const info: Record<string, GroupReaderInfo> = {
+      a: { displayName: 'A', avatarUrl: null, lastReadAt: '2026-06-10T10:00:00Z' },
+      b: { displayName: 'B', avatarUrl: null, lastReadAt: '2026-06-10T09:00:00Z' },
+      // c、d 无 readerInfo → lastReadAt 视为 null
+    };
+    const ids = readersAtSeq(pos, info, 1, 'self').map((r) => r.userId);
+    expect(ids.slice(0, 2)).toEqual(['b', 'a']); // 有时间者升序在前
+    expect(ids.slice(2).sort()).toEqual(['c', 'd']); // 无时间者排末尾
+  });
+
+  it('占位 seq<=0 返回空数组（防把默认 seq=0 全体误列为已读）', () => {
+    expect(readersAtSeq(positions, readerInfo, 0, 'self')).toEqual([]);
+    expect(readersAtSeq(positions, readerInfo, -1, 'self')).toEqual([]);
+  });
+
+  it('缺展示信息时 displayName 兜底为 userId、头像/时间为 null', () => {
+    const readers = readersAtSeq({ ghost: 9 }, {}, 5, 'self');
+    expect(readers).toEqual([{ userId: 'ghost', displayName: 'ghost', avatarUrl: null, lastReadAt: null }]);
   });
 });
 

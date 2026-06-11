@@ -21,10 +21,12 @@
  * - 加载历史消息时，浏览器 scroll anchoring 自动保持视角
  */
 
-import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
+import type { GroupReader } from './useGroupReadReceipt';
+import { GroupReadListModal } from './GroupReadListModal';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
 import type { GroupMessage } from '../../api/groupMessages';
 
@@ -118,7 +120,10 @@ export function GroupChatMessages({
   }, [messages]);
 
   // 群已读回执：维护各成员已读位置，按每条消息 seq 统计已读人数（应读人数 = member_count − 1，排除发送者）
-  const { countReaders, memberCount } = useGroupReadReceipt(groupId ?? null, sortedMessages);
+  const { countReaders, readersAt, memberCount } = useGroupReadReceipt(groupId ?? null, sortedMessages);
+
+  // 已读名单弹层：保存当前打开的已读者列表（null = 关闭）
+  const [openReaders, setOpenReaders] = useState<GroupReader[] | null>(null);
 
   // 切换群组时重置状态
   useEffect(() => {
@@ -300,13 +305,12 @@ export function GroupChatMessages({
               const stableKey = getStableKey(message);
               const isSelected = selectedMessages.has(message.message_uuid);
 
-              // 每条消息（含他人发的）都显示阅读状态：已读人数排除该消息发送者，应读 = member_count − 1
-              let readReceipt: { text: string } | undefined;
-              if (message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
+              // 仅自己发出的已送达消息显示已读态（含文案 + 已读者名单）：已读人数排除发送者，应读 = member_count − 1；
+              // 发送中/失败由 bubble 内状态槽按 sendStatus 显示，已撤回不显示
+              let readReceipt: { text: string | null; readers: GroupReader[] } | undefined;
+              if (isOwn && message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
                 const text = groupReadReceiptText(message.seq, countReaders(message.seq, message.sender_id), memberCount - 1);
-                if (text) {
-                  readReceipt = { text };
-                }
+                readReceipt = { text, readers: readersAt(message.seq, message.sender_id) };
               }
 
               return (
@@ -323,12 +327,20 @@ export function GroupChatMessages({
                   onEnterMultiSelect={onEnterMultiSelect}
                   isAdmin={isAdmin}
                   readReceipt={readReceipt}
+                  onOpenReadList={setOpenReaders}
                 />
               );
             })}
           </AnimatePresence>
         </LayoutGroup>
       )}
+
+      {/* 已读名单弹层（桌面居中 modal / 移动底部 sheet） */}
+      <GroupReadListModal
+        isOpen={openReaders !== null}
+        readers={openReaders ?? []}
+        onClose={() => setOpenReaders(null)}
+      />
     </div>
   );
 }

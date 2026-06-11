@@ -58,10 +58,6 @@ vi.mock('../../src/utils/saveToGallery', () => ({
   saveToGallery: vi.fn(),
 }));
 
-vi.mock('../../src/chat/shared/SendStatusIndicator', () => ({
-  SendStatusIndicator: () => null,
-}));
-
 vi.mock('../../src/hooks/useFileCache', () => ({
   useFileCache: () => ({
     localPath: null,
