@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { parseFriendIdFromConversationId } from '../utils/conversationId';
 import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
@@ -73,13 +74,18 @@ export function useLocalConversations(): UseLocalConversationsReturn {
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const initializedRef = useRef(false);
+  // 单调请求序号：并发重读时丢弃陈旧响应，防止先发后至的结果覆盖最新结果
+  const requestSeqRef = useRef(0);
 
   const loadConversations = useCallback(async () => {
     if (!session) { return; }
 
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     try {
       const rows = await db.getConversationPreviews();
+      // 期间有更新的请求发起 → 本次结果已陈旧，丢弃（由最新请求落地）
+      if (seq !== requestSeqRef.current) { return; }
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
 
@@ -92,10 +98,9 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         };
 
         if (row.type === 'friend') {
-          const parts = row.id.split('-');
-          if (parts.length === 3) {
-            const [, id1, id2] = parts;
-            const friendId = id1 === session.userId ? id2 : id1;
+          // 统一走工具解析（用户 ID 可含连字符，不能按 '-' split 计数）
+          const friendId = parseFriendIdFromConversationId(row.id, session.userId);
+          if (friendId) {
             friendPreviews.set(friendId, preview);
           }
         } else {
@@ -110,13 +115,15 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         setInitialized(true);
       }
     } catch (err) {
+      if (seq !== requestSeqRef.current) { return; }
       console.error('加载本地会话失败:', err);
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
       }
     } finally {
-      setLoading(false);
+      // 仍有更新的请求在途时保持 loading，由最新请求收尾
+      if (seq === requestSeqRef.current) { setLoading(false); }
     }
   }, [session]);
 

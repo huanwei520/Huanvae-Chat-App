@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
+import { compareByTimeDesc } from '../../components/unified/conversationSort';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
@@ -101,7 +102,9 @@ export function MobileChatList({
         avatarUrl: group.group_avatar_url,
         lastMessage: localPreview?.lastMessage ?? group.last_message_content ?? null,
         lastMessageTime: localPreview?.lastMessageTime ?? group.last_message_time ?? null,
-        unreadCount: unread?.unread_count ?? group.unread_count ?? 0,
+        // 未读数只认 WS unreadSummary（按 last-read-seq 派生口径），不兜底 REST 的
+        // group.unread_count（旧计数器列，口径分叉），与桌面端 UnifiedList 归一
+        unreadCount: unread?.unread_count ?? 0,
         data: group,
       };
     });
@@ -120,21 +123,10 @@ export function MobileChatList({
   }, [allCards]);
 
   // 卡片列表不再被 searchQuery 过滤（搜索结果在独立下框中渲染）
-  // 按最后消息时间排序（有未读优先，然后按时间）
+  // 纯时间降序（新→旧），未读不再优先分层：点击带红点的卡片清未读不会让它下移重排，
+  // 与微信一致（红点仅作徽标）。共享比较器含 NaN 硬化与 uniqueKey tie-break
   const sortedCards = useMemo(() => {
-    return [...activeCards].sort((a, b) => {
-      // 有未读的优先
-      if (a.unreadCount > 0 && b.unreadCount === 0) {
-        return -1;
-      }
-      if (a.unreadCount === 0 && b.unreadCount > 0) {
-        return 1;
-      }
-      // 按时间排序
-      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
-      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
-      return timeB - timeA;
-    });
+    return [...activeCards].sort(compareByTimeDesc);
   }, [activeCards]);
 
   const handleCardClick = (card: ConversationCard) => {
