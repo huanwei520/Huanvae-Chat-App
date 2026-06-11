@@ -15,6 +15,8 @@ export interface Friend {
   friend_remark: string | null;
   /** 当前用户是否已拉黑此好友。本地缓存不持久化（默认 false），由服务器刷新提供 */
   is_blacklisted: boolean;
+  /** 当前用户是否特别关心此好友。本地缓存不持久化（默认 false），由服务器刷新提供 */
+  is_special_care: boolean;
 }
 
 /** 好友列表响应（client.ts 已解包 ApiResponse.data，这里直接是数组） */

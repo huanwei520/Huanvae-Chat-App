@@ -29,6 +29,7 @@ const mockFriend: Friend = {
   approve_reason: null,
   friend_remark: null,
   is_blacklisted: false,
+  is_special_care: false,
 };
 
 const mockGroup: Group = {
@@ -144,6 +145,28 @@ describe('聊天状态管理 (chatStore)', () => {
       useChatStore.getState().setFriends([mockFriend]);
       useChatStore.getState().setFriendBlacklisted('nonexistent', true);
       expect(useChatStore.getState().friends[0].is_blacklisted).toBe(false);
+    });
+  });
+
+  describe('setFriendSpecialCare', () => {
+    it('应将指定好友的 is_special_care 置为 true，不影响其他好友', () => {
+      useChatStore.getState().setFriends([mockFriend, { ...mockFriend, friend_id: 'f2' }]);
+      useChatStore.getState().setFriendSpecialCare('f1', true);
+      const friends = useChatStore.getState().friends;
+      expect(friends.find((f) => f.friend_id === 'f1')?.is_special_care).toBe(true);
+      expect(friends.find((f) => f.friend_id === 'f2')?.is_special_care).toBe(false);
+    });
+
+    it('应将指定好友的 is_special_care 置回 false', () => {
+      useChatStore.getState().setFriends([{ ...mockFriend, is_special_care: true }]);
+      useChatStore.getState().setFriendSpecialCare('f1', false);
+      expect(useChatStore.getState().friends[0].is_special_care).toBe(false);
+    });
+
+    it('对不存在的 friend_id 无副作用', () => {
+      useChatStore.getState().setFriends([mockFriend]);
+      useChatStore.getState().setFriendSpecialCare('nonexistent', true);
+      expect(useChatStore.getState().friends[0].is_special_care).toBe(false);
     });
   });
 

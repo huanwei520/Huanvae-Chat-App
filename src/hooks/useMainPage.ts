@@ -382,6 +382,8 @@ export function useMainPage() {
               friend_remark: null,
               // 新通过的好友默认未拉黑
               is_blacklisted: false,
+              // 新通过的好友默认未特别关心
+              is_special_care: false,
             };
             store.addFriend(newFriend);
           }

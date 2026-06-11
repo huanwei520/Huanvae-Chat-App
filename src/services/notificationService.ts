@@ -305,6 +305,8 @@ export interface NewMessageNotificationParams {
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */
   activeChat?: { type: 'friend' | 'group'; id: string } | null;
+  /** 发送者是否为特别关心好友（true 时强提醒：通知标题带 ⭐ 标记，更醒目） */
+  isSpecialCare?: boolean;
 }
 
 /**
@@ -316,6 +318,14 @@ export interface NewMessageNotificationParams {
  * - 桌面端：手动播放提示音 + 发送系统通知
  * - 移动端：通知渠道自动播放声音，无需手动播放
  */
+/**
+ * 好友消息通知标题：特别关心好友加 ⭐ 前缀强提醒，更醒目。
+ * 抽为纯函数便于单测（notifyNewMessage 依赖 Audio/平台/权限，难直接测）。
+ */
+export function friendNotificationTitle(senderName: string, isSpecialCare: boolean): string {
+  return isSpecialCare ? `⭐ ${senderName}` : senderName;
+}
+
 export async function notifyNewMessage(params: NewMessageNotificationParams): Promise<void> {
   const {
     sourceType,
@@ -325,6 +335,7 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     messageType,
     content,
     activeChat,
+    isSpecialCare,
   } = params;
 
   // 如果当前正在查看该聊天
@@ -356,7 +367,8 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     body = `${senderName}: ${preview}`;
   } else {
     // 好友消息：标题为发送者名称，正文为消息内容
-    title = senderName;
+    // 特别关心好友：标题带 ⭐ 前缀强提醒，更醒目
+    title = friendNotificationTitle(senderName, !!isSpecialCare);
     body = preview;
   }
 

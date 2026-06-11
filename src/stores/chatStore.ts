@@ -151,6 +151,8 @@ interface ChatActions {
   removeFriend: (friendId: string) => void;
   /** 设置某好友的拉黑状态（拉黑/取消拉黑后乐观更新，列表与资料页即时反映） */
   setFriendBlacklisted: (friendId: string, blacklisted: boolean) => void;
+  /** 设置某好友的特别关心状态（标星/取消后乐观更新，列表置顶/标星与资料页即时反映） */
+  setFriendSpecialCare: (friendId: string, specialCare: boolean) => void;
 
   // ==================== 群聊操作 ====================
   /** 设置群聊列表 */
@@ -283,6 +285,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setFriendBlacklisted: (friendId, blacklisted) => set((state) => ({
     friends: state.friends.map((f) =>
       f.friend_id === friendId ? { ...f, is_blacklisted: blacklisted } : f,
+    ),
+  })),
+
+  setFriendSpecialCare: (friendId, specialCare) => set((state) => ({
+    friends: state.friends.map((f) =>
+      f.friend_id === friendId ? { ...f, is_special_care: specialCare } : f,
     ),
   })),
 

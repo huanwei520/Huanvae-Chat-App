@@ -276,9 +276,12 @@ export function UnifiedList({
         break;
 
       case 'friends':
-        // 好友页：仅好友，按添加时间排序
+        // 好友页：特别关心置顶，其余按最后消息时间排序
         result = [...friendCards];
         result.sort((a, b) => {
+          const careA = (a.data as Friend).is_special_care ? 1 : 0;
+          const careB = (b.data as Friend).is_special_care ? 1 : 0;
+          if (careA !== careB) { return careB - careA; }
           const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
           const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
           return timeB - timeA;
@@ -398,6 +401,10 @@ export function UnifiedList({
               {/* 消息页显示 [群聊] 标记 */}
               {isChatTab && card.type === 'group' && (
                 <span className="conv-tag">[群聊]</span>
+              )}
+              {/* 特别关心好友：名字前 ⭐ 标记 */}
+              {card.type === 'friend' && (card.data as Friend).is_special_care && (
+                <span className="conv-special-care-star" title="特别关心">⭐</span>
               )}
               {/* 名字文本：独立容器负责省略号，悬停显示完整名字 */}
               <span className="conv-name-text" title={card.name}>

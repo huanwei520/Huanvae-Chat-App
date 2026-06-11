@@ -7,8 +7,8 @@
  * - 头像、昵称（好友显示备注名）、@ID（可复制）、签名
  * - 关系状态（好友 / 陌生人）
  * - 快捷操作：好友→发送消息；陌生人→加好友
- * - 关系操作区：好友可拉黑/取消拉黑（拉黑含内联二次确认）、删除（含内联二次确认）；
- *   特别关心/群内屏蔽等更多操作后续接入
+ * - 关系操作区：好友可特别关心/取消（标星）、拉黑/取消拉黑（拉黑含内联二次确认）、
+ *   删除（含内联二次确认）；群内屏蔽等更多操作后续接入
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段，零隐私泄露）。
  */
@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
-import { sendFriendRequest, removeFriend, addBlacklist, removeBlacklist } from '../../api/friends';
+import { sendFriendRequest, removeFriend, addBlacklist, removeBlacklist, addSpecialCare, removeSpecialCare } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
 
@@ -50,15 +50,23 @@ function addButtonText(sent: boolean, sending: boolean): string {
   return sending ? '发送中...' : '添加好友';
 }
 
+/** 特别关心按钮文案 */
+function specialCareButtonText(isSpecialCare: boolean, processing: boolean): string {
+  if (processing) { return '处理中...'; }
+  return isSpecialCare ? '取消特别关心' : '特别关心';
+}
+
 export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemoved }: OtherProfilePanelProps) {
   const api = useApi();
   const { session } = useSession();
   const friends = useChatStore((s) => s.friends);
   const setFriendBlacklisted = useChatStore((s) => s.setFriendBlacklisted);
+  const setFriendSpecialCare = useChatStore((s) => s.setFriendSpecialCare);
 
   const friendData = friends.find((f) => f.friend_id === userId);
   const isFriend = !!friendData;
   const isBlacklisted = !!friendData?.is_blacklisted;
+  const isSpecialCare = !!friendData?.is_special_care;
   const isSelf = session?.userId === userId;
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
@@ -67,6 +75,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
   const [removing, setRemoving] = useState(false);
   const [confirmingBlacklist, setConfirmingBlacklist] = useState(false);
   const [blacklisting, setBlacklisting] = useState(false);
+  const [specialCaring, setSpecialCaring] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -75,7 +84,9 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     let cancelled = false;
     setProfile(null);
     setLoadError(false);
-    // 切换查看对象时重置全部交互态，避免确认条/错误信息串台到新用户（误操作风险）
+    // 切换查看对象时重置确认条与错误/已发送提示，避免串台到新用户（误操作风险）。
+    // 各 loading 态（removing/blacklisting/specialCaring）由对应 handler 的 finally 兜底清零，
+    // 且有并发守卫，无需在此重置（重置反而会掩盖在途请求）。
     setConfirmingDelete(false);
     setConfirmingBlacklist(false);
     setSent(false);
@@ -152,6 +163,27 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
       setActionError(err instanceof Error ? err.message : '取消拉黑失败');
     } finally {
       setBlacklisting(false);
+    }
+  };
+
+  // 特别关心切换（非破坏性操作，直接执行无需二次确认）
+  const handleToggleSpecialCare = async () => {
+    if (specialCaring) { return; }
+    setSpecialCaring(true);
+    setActionError(null);
+    const next = !isSpecialCare;
+    try {
+      if (next) {
+        await addSpecialCare(api, userId);
+      } else {
+        await removeSpecialCare(api, userId);
+      }
+      setFriendSpecialCare(userId, next);
+    } catch (err) {
+      const fallback = next ? '特别关心失败' : '取消特别关心失败';
+      setActionError(err instanceof Error ? err.message : fallback);
+    } finally {
+      setSpecialCaring(false);
     }
   };
 
@@ -243,13 +275,28 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     );
   }
 
-  // 关系操作区内容（非好友=占位；好友=拉黑/取消拉黑 + 删除）
+  // 特别关心切换操作（标星/取消，直接执行）
+  function renderSpecialCareOp() {
+    return (
+      <button
+        type="button"
+        className="other-profile-op"
+        onClick={handleToggleSpecialCare}
+        disabled={specialCaring}
+      >
+        {specialCareButtonText(isSpecialCare, specialCaring)}
+      </button>
+    );
+  }
+
+  // 关系操作区内容（非好友=占位；好友=特别关心 + 拉黑/取消拉黑 + 删除）
   function renderRelationOps() {
     if (!isFriend) {
       return <div className="other-profile-ops-placeholder">更多操作开发中</div>;
     }
     return (
       <div className="other-profile-ops-list">
+        {renderSpecialCareOp()}
         {renderBlacklistOp()}
         {renderDeleteOp()}
       </div>
@@ -309,7 +356,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
           </div>
         )}
 
-        {/* 关系操作区（好友可拉黑/取消拉黑 + 删除；特别关心等更多操作后续接入） */}
+        {/* 关系操作区（好友可特别关心 + 拉黑/取消拉黑 + 删除；群内屏蔽等更多操作后续接入） */}
         {!isSelf && (
           <div className="other-profile-relation-ops">
             <div className="other-profile-section-title">关系操作</div>

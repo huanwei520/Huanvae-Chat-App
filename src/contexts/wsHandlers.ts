@@ -392,14 +392,16 @@ export function handleWebSocketMessage(
           // 群消息使用"群聊"作为标题，好友消息无群名
           const groupName = msg.source_type === 'group' ? '群聊' : undefined;
 
-          // 私聊新消息：用本地好友备注/昵称解析发送者名
+          // 私聊新消息：用本地好友备注/昵称解析发送者名 + 取特别关心标记（强提醒）
           let senderName = msg.sender_nickname || msg.sender_id;
+          let isSpecialCare = false;
           if (msg.source_type === 'friend') {
             const friend = useChatStore.getState().friends.find(
               (f) => f.friend_id === msg.sender_id,
             );
             if (friend) {
               senderName = friendDisplayName(friend);
+              isSpecialCare = friend.is_special_care;
             }
           }
 
@@ -411,6 +413,7 @@ export function handleWebSocketMessage(
             messageType: msg.message_type,
             content: msg.content || msg.preview || '',
             activeChat: ctx.activeChatRef.current,
+            isSpecialCare,
           }).catch(err => {
             console.warn('[WS] 发送通知失败:', err);
           });

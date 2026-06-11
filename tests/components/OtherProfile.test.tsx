@@ -7,6 +7,8 @@
  *   好友显示"发送消息"并调用 onSendMessage + onClose；M3 关系操作区占位存在
  * - 拉黑：好友拉黑需二次确认 → addBlacklist + 乐观更新 store；已拉黑显示"取消拉黑"
  *   → removeBlacklist + 乐观更新；拉黑失败保留确认态 + 错误 + store 不变
+ * - 特别关心：好友点"特别关心"直接 → addSpecialCare + 乐观更新；已关心显示"取消特别关心"
+ *   → removeSpecialCare + 乐观更新（无二次确认）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -28,16 +30,20 @@ const mockSendFriendRequest = vi.hoisted(() => vi.fn());
 const mockRemoveFriend = vi.hoisted(() => vi.fn());
 const mockAddBlacklist = vi.hoisted(() => vi.fn());
 const mockRemoveBlacklist = vi.hoisted(() => vi.fn());
+const mockAddSpecialCare = vi.hoisted(() => vi.fn());
+const mockRemoveSpecialCare = vi.hoisted(() => vi.fn());
 vi.mock('../../src/api/friends', () => ({
   sendFriendRequest: mockSendFriendRequest,
   removeFriend: mockRemoveFriend,
   addBlacklist: mockAddBlacklist,
   removeBlacklist: mockRemoveBlacklist,
+  addSpecialCare: mockAddSpecialCare,
+  removeSpecialCare: mockRemoveSpecialCare,
 }));
 
 import { OtherProfilePanel } from '../../src/chat/shared/OtherProfilePanel';
 
-function setFriends(ids: string[], blacklistedIds: string[] = []) {
+function setFriends(ids: string[], blacklistedIds: string[] = [], specialCareIds: string[] = []) {
   useChatStore.setState({
     friends: ids.map((id) => ({
       friend_id: id,
@@ -47,6 +53,7 @@ function setFriends(ids: string[], blacklistedIds: string[] = []) {
       approve_reason: null,
       friend_remark: null,
       is_blacklisted: blacklistedIds.includes(id),
+      is_special_care: specialCareIds.includes(id),
     })),
   });
 }
@@ -74,6 +81,10 @@ describe('OtherProfilePanel', () => {
     mockAddBlacklist.mockResolvedValue(undefined);
     mockRemoveBlacklist.mockReset();
     mockRemoveBlacklist.mockResolvedValue(undefined);
+    mockAddSpecialCare.mockReset();
+    mockAddSpecialCare.mockResolvedValue(undefined);
+    mockRemoveSpecialCare.mockReset();
+    mockRemoveSpecialCare.mockResolvedValue(undefined);
     setFriends([]);
   });
 
@@ -239,5 +250,37 @@ describe('OtherProfilePanel', () => {
     await waitFor(() => expect(screen.getByText('拉黑服务异常')).toBeInTheDocument());
     const f = useChatStore.getState().friends.find((x) => x.friend_id === 'ivan');
     expect(f?.is_blacklisted).toBe(false);
+  });
+
+  it('好友：点"特别关心"直接调用 addSpecialCare 并乐观更新 store（按钮变取消）', async () => {
+    setFriends(['kate']);
+    mockGetPublicProfile.mockResolvedValue({ user_id: 'kate', user_nickname: 'Kate', user_signature: null, user_avatar_url: null });
+    render(<OtherProfilePanel userId="kate" onClose={() => {}} onSendMessage={() => {}} />);
+    await waitFor(() => expect(screen.getByText('已是好友')).toBeInTheDocument());
+
+    // 未特别关心 → 显示"特别关心"（无二次确认，直接执行）
+    fireEvent.click(screen.getByRole('button', { name: /^特别关心$/ }));
+    await waitFor(() => expect(mockAddSpecialCare).toHaveBeenCalledWith(mockApi, 'kate'));
+    await waitFor(() => {
+      const f = useChatStore.getState().friends.find((x) => x.friend_id === 'kate');
+      expect(f?.is_special_care).toBe(true);
+    });
+    expect(screen.getByRole('button', { name: /取消特别关心/ })).toBeInTheDocument();
+    expect(mockRemoveSpecialCare).not.toHaveBeenCalled();
+  });
+
+  it('已特别关心好友：点"取消特别关心"调用 removeSpecialCare 并乐观更新 store', async () => {
+    setFriends(['leo'], [], ['leo']);
+    mockGetPublicProfile.mockResolvedValue({ user_id: 'leo', user_nickname: 'Leo', user_signature: null, user_avatar_url: null });
+    render(<OtherProfilePanel userId="leo" onClose={() => {}} onSendMessage={() => {}} />);
+    await waitFor(() => expect(screen.getByText('已是好友')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: /^特别关心$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /取消特别关心/ }));
+    await waitFor(() => expect(mockRemoveSpecialCare).toHaveBeenCalledWith(mockApi, 'leo'));
+    await waitFor(() => {
+      const f = useChatStore.getState().friends.find((x) => x.friend_id === 'leo');
+      expect(f?.is_special_care).toBe(false);
+    });
   });
 });

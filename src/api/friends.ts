@@ -172,3 +172,19 @@ export function removeBlacklist(api: ApiClient, targetUserId: string): Promise<v
 export function getBlacklist(api: ApiClient): Promise<BlacklistResponse> {
   return api.get<BlacklistResponse>('/api/friends/blacklist');
 }
+
+/**
+ * 特别关心某好友（标星；仅限好友，单向私有）
+ * @param targetUserId 被特别关心的好友用户 ID
+ */
+export function addSpecialCare(api: ApiClient, targetUserId: string): Promise<void> {
+  return api.post('/api/friends/special-care', { target_user_id: targetUserId });
+}
+
+/**
+ * 取消特别关心
+ * @param targetUserId 被特别关心的好友用户 ID
+ */
+export function removeSpecialCare(api: ApiClient, targetUserId: string): Promise<void> {
+  return api.delete(`/api/friends/special-care/${encodeURIComponent(targetUserId)}`);
+}
