@@ -20,7 +20,7 @@
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
@@ -165,13 +165,19 @@ export function GroupMessageBubble({
   // 双击检测
   const lastTapTimeRef = useRef<number>(0);
 
-  // 打开公开资料只读页（非好友/自己点头像走资料页）
+  // 打开公开资料只读页（单击头像看资料）
   const openProfileView = useProfileViewStore((s) => s.open);
-  // store 方法和好友列表（点他人头像：好友进私聊，非好友看资料）
+  // store 方法和好友列表（双击头像：好友进私聊）
   const setChatTarget = useChatStore((state) => state.setChatTarget);
   const friends = useChatStore((state) => state.friends);
+  // 头像单击/双击区分计时器（单击=看资料，双击=进私聊）
+  const avatarClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 点击成员头像：好友→进私聊；非好友→看公开资料；自己→看自己资料
+  useEffect(() => () => {
+    if (avatarClickTimerRef.current) { clearTimeout(avatarClickTimerRef.current); }
+  }, []);
+
+  // 单击成员头像 → 看公开资料；双击 → 进私聊（好友才有私聊，非好友/自己回退看资料）
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 多选模式下，点击头像也触发选中
@@ -179,17 +185,24 @@ export function GroupMessageBubble({
       onToggleSelect?.();
       return;
     }
-    if (isOwn) {
-      openProfileView(message.sender_id);
+    // 第二次点击落在计时窗口内 → 双击：进私聊
+    if (avatarClickTimerRef.current) {
+      clearTimeout(avatarClickTimerRef.current);
+      avatarClickTimerRef.current = null;
+      const friend = friends.find((f) => f.friend_id === message.sender_id);
+      if (friend) {
+        setChatTarget({ type: 'friend', data: friend });
+      } else {
+        openProfileView(message.sender_id);
+      }
       return;
     }
-    const friend = friends.find((f) => f.friend_id === message.sender_id);
-    if (friend) {
-      setChatTarget({ type: 'friend', data: friend });
-    } else {
+    // 首次点击 → 延迟判定为单击：看资料
+    avatarClickTimerRef.current = setTimeout(() => {
+      avatarClickTimerRef.current = null;
       openProfileView(message.sender_id);
-    }
-  }, [isMultiSelectMode, onToggleSelect, isOwn, message.sender_id, friends, setChatTarget, openProfileView]);
+    }, 250);
+  }, [isMultiSelectMode, onToggleSelect, message.sender_id, friends, setChatTarget, openProfileView]);
 
   // D6 群内屏蔽：该发送者是否已被我屏蔽（仅他人消息有意义）
   const isSenderBlocked = useChatStore((state) =>

@@ -1,16 +1,16 @@
 /**
- * GroupMessageBubble 头像点击路由测试（本次 UX 重构核心交互）
+ * GroupMessageBubble 头像单击/双击路由测试（本次 UX 重构核心交互）
  *
- * 锁定契约：点击群成员头像（非撤回态）——
- * - isOwn（自己）→ openProfileView(自己 id)，不进私聊
- * - 他人且是好友 → setChatTarget({type:'friend', data: friend}) 进私聊，不开资料页
- * - 他人非好友 → openProfileView(sender_id) 看公开资料，不进私聊
+ * 锁定契约：群成员头像（非撤回态）——
+ * - 单击 → openProfileView(sender_id) 看公开资料（所有人，含自己）
+ * - 双击 → 好友：setChatTarget 进私聊；非好友/自己：回退看资料（无私聊）
+ * 用 250ms 计时器区分单/双击，避免双击时先误触发单击看资料。
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, cleanup, fireEvent, act } from '@testing-library/react';
 import type { GroupMessage } from '../../src/api/groupMessages';
 import type { Friend } from '../../src/types/chat';
 
@@ -69,41 +69,63 @@ function makeFriend(id: string): Friend {
   };
 }
 
-function clickAvatar() {
+function avatarEl() {
   const avatar = document.querySelector('.bubble-avatar')!;
   expect(avatar).toBeInTheDocument();
-  fireEvent.click(avatar);
+  return avatar;
 }
 
-describe('GroupMessageBubble — 头像点击路由', () => {
+describe('GroupMessageBubble — 头像单击看资料 / 双击进私聊', () => {
   beforeEach(() => {
-    cleanup();
+    vi.useFakeTimers();
     setChatTargetSpy.mockReset();
     openProfileViewSpy.mockReset();
     mockChatState.friends = [];
   });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
 
-  it('他人且是好友 → setChatTarget 进私聊，不开资料页', () => {
+  it('单击 → openProfileView 看资料，不进私聊（好友也是）', () => {
     mockChatState.friends = [makeFriend('user-2')];
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
-    clickAvatar();
+    fireEvent.click(avatarEl());
+    // 计时窗口结束后判定单击
+    act(() => { vi.advanceTimersByTime(260); });
+    expect(openProfileViewSpy).toHaveBeenCalledTimes(1);
+    expect(openProfileViewSpy).toHaveBeenCalledWith('user-2');
+    expect(setChatTargetSpy).not.toHaveBeenCalled();
+  });
+
+  it('双击好友 → setChatTarget 进私聊，不看资料', () => {
+    mockChatState.friends = [makeFriend('user-2')];
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    const avatar = avatarEl();
+    fireEvent.click(avatar);
+    fireEvent.click(avatar); // 计时窗口内第二击 → 双击
     expect(setChatTargetSpy).toHaveBeenCalledTimes(1);
     expect(setChatTargetSpy).toHaveBeenCalledWith({ type: 'friend', data: makeFriend('user-2') });
+    // 双击应取消单击看资料
+    act(() => { vi.advanceTimersByTime(260); });
     expect(openProfileViewSpy).not.toHaveBeenCalled();
   });
 
-  it('他人非好友 → openProfileView 看资料，不进私聊', () => {
-    mockChatState.friends = []; // sender 不在好友列表
+  it('双击非好友 → 回退看资料，不进私聊', () => {
+    mockChatState.friends = []; // sender 非好友
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'stranger-9' })} isOwn={false} />);
-    clickAvatar();
+    const avatar = avatarEl();
+    fireEvent.click(avatar);
+    fireEvent.click(avatar);
     expect(openProfileViewSpy).toHaveBeenCalledTimes(1);
     expect(openProfileViewSpy).toHaveBeenCalledWith('stranger-9');
     expect(setChatTargetSpy).not.toHaveBeenCalled();
   });
 
-  it('自己的头像 → openProfileView 看自己资料，不进私聊', () => {
+  it('单击自己头像 → openProfileView 看自己资料', () => {
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'me' })} isOwn />);
-    clickAvatar();
+    fireEvent.click(avatarEl());
+    act(() => { vi.advanceTimersByTime(260); });
     expect(openProfileViewSpy).toHaveBeenCalledWith('me');
     expect(setChatTargetSpy).not.toHaveBeenCalled();
   });

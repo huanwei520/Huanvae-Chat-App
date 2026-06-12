@@ -288,6 +288,13 @@ export function MainMenu({
       {/* 好友菜单 */}
       {targetType === 'friend' && (
         <>
+          <button
+            className="menu-item"
+            onClick={() => onSetView('edit-remark')}
+          >
+            <EditIcon />
+            <span>设置备注</span>
+          </button>
           {/* 特别关心（直接切换） */}
           <button
             className={`menu-item ${isFriendSpecialCare ? 'active' : ''}`}
@@ -311,13 +318,6 @@ export function MainMenu({
               <span>拉黑</span>
             </button>
           )}
-          <button
-            className="menu-item"
-            onClick={() => onSetView('edit-remark')}
-          >
-            <EditIcon />
-            <span>设置备注</span>
-          </button>
           <button
             className="menu-item danger"
             onClick={() => onSetView('confirm-delete')}
