@@ -140,6 +140,15 @@ interface ChatState {
   groupSpecialCares: Record<string, string[]>;
 
   /**
+   * 每群「我给成员设的私有备注」映射（D7）：groupId → { 被备注成员 user_id → 备注名 }。
+   *
+   * 效果：该成员在本群的显示名（消息气泡/成员列表/已读名单）对我显示为备注，
+   * 优先级 备注 → 群昵称 → 用户昵称。进群时由 getGroupMemberRemarks 加载；设置/清除时乐观更新。
+   * 仅自己可见，单向；与好友备注独立。
+   */
+  groupMemberRemarks: Record<string, Record<string, string>>;
+
+  /**
    * 每会话的滚动锚点 message_uuid。
    *
    * key: 与 cachedMessages 同格式。
@@ -197,6 +206,10 @@ interface ChatActions {
   setGroupSpecialCares: (groupId: string, userIds: string[]) => void;
   /** 群内特别关心/取消某成员（乐观更新，影响该成员发言的通知强提醒 ⭐，M3） */
   setGroupMemberSpecialCare: (groupId: string, userId: string, cared: boolean) => void;
+  /** 设置某群「我给成员设的备注」映射（进群时由 getGroupMemberRemarks 加载，D7） */
+  setGroupMemberRemarks: (groupId: string, remarks: { user_id: string; remark: string }[]) => void;
+  /** 设置/清除群内对某成员的备注（乐观更新；remark 为空串/null 表示清除，D7） */
+  setGroupMemberRemark: (groupId: string, userId: string, remark: string | null) => void;
 
   // ==================== 聊天目标操作 ====================
   /** 设置当前聊天目标 */
@@ -292,6 +305,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   groupSpecialCares: {},
 
+  groupMemberRemarks: {},
+
   scrollAnchors: {},
 
   // ==================== 好友操作 ====================
@@ -384,6 +399,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return { groupSpecialCares: { ...state.groupSpecialCares, [groupId]: next } };
   }),
 
+  setGroupMemberRemarks: (groupId, remarks) => set((state) => {
+    const map: Record<string, string> = {};
+    for (const r of remarks) { map[r.user_id] = r.remark; }
+    return { groupMemberRemarks: { ...state.groupMemberRemarks, [groupId]: map } };
+  }),
+
+  setGroupMemberRemark: (groupId, userId, remark) => set((state) => {
+    const cur = state.groupMemberRemarks[groupId] ?? {};
+    const next = { ...cur };
+    const trimmed = remark?.trim();
+    if (trimmed) {
+      next[userId] = trimmed;
+    } else {
+      delete next[userId];
+    }
+    return { groupMemberRemarks: { ...state.groupMemberRemarks, [groupId]: next } };
+  }),
+
   // ==================== 聊天目标操作 ====================
   setChatTarget: (target) => set({ chatTarget: target }),
 
@@ -450,7 +483,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearCacheAndAnchors: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {}, groupSpecialCares: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

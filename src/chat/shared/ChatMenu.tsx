@@ -11,6 +11,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatMenu } from '../group/useChatMenu';
+import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import { MenuIcon } from '../../components/common/Icons';
 import {
@@ -47,6 +48,10 @@ export function ChatMenuButton({
     onGroupLeft,
     onHistoryLoaded,
   });
+
+  // D7 群内私有备注：本群「我设的备注」映射，用于成员列表显示名替换
+  const groupId = target.type === 'group' ? target.data.group_id : undefined;
+  const groupRemarks = useChatStore((s) => (groupId ? s.groupMemberRemarks[groupId] : undefined));
 
   // 渲染视图内容
   const renderViewContent = () => {
@@ -128,6 +133,7 @@ export function ChatMenuButton({
             loadingMembers={menu.loadingMembers}
             currentUserId={undefined}
             isOwnerOrAdmin={menu.isGroupOwnerOrAdmin}
+            remarks={groupRemarks}
             onBack={() => menu.handleSetView('main')}
             onMemberClick={menu.handleMemberClick}
           />

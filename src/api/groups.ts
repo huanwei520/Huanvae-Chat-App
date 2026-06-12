@@ -421,6 +421,52 @@ export function getGroupSpecialCares(
   return api.get<GroupSpecialCaresResponse>(`/api/groups/${groupId}/special-care`);
 }
 
+// ============================================
+// 群内私有备注（D7，单向、仅本群、仅自己可见）
+// 效果：被备注成员在本群的显示名（气泡/成员列表/已读名单）对我显示为备注（备注→群昵称→用户昵称）。
+// ============================================
+
+/** 群内私有备注项（client.ts 已解包 ApiResponse.data 为数组；user_id = 被备注成员） */
+export interface GroupMemberRemark {
+  user_id: string;
+  remark: string;
+}
+
+export type GroupMemberRemarksResponse = GroupMemberRemark[];
+
+/**
+ * 设置/更新群内备注（仅本群、仅自己可见；不能给自己设；空/超 50 字符拒绝；仅限本群成员；upsert）
+ */
+export function setGroupMemberRemark(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+  remark: string,
+): Promise<void> {
+  return api.put(`/api/groups/${groupId}/member-remarks`, { target_user_id: targetUserId, remark });
+}
+
+/**
+ * 清除群内备注
+ */
+export function removeGroupMemberRemark(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  return api.delete(`/api/groups/${groupId}/member-remarks/${encodeURIComponent(targetUserId)}`);
+}
+
+/**
+ * 获取本人在该群设置的备注名单
+ */
+export function getGroupMemberRemarks(
+  api: ApiClient,
+  groupId: string,
+): Promise<GroupMemberRemarksResponse> {
+  return api.get<GroupMemberRemarksResponse>(`/api/groups/${groupId}/member-remarks`);
+}
+
 /**
  * 解散群聊
  * 权限：仅群主

@@ -30,7 +30,7 @@ import { getSyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { sendGroupMessage, recallGroupMessage, type GroupMessage } from '../../api/groupMessages';
-import { getGroupMessageBlocks, getGroupSpecialCares } from '../../api/groups';
+import { getGroupMessageBlocks, getGroupSpecialCares, getGroupMemberRemarks } from '../../api/groups';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
@@ -122,6 +122,8 @@ export function useLocalGroupMessages(groupId: string | null) {
   const setGroupMessageBlocks = useChatStore((s) => s.setGroupMessageBlocks);
   // M3 群内特别关心：进群时把本群关心集拉进 store，供右键切换 + 群消息通知强提醒判定用。
   const setGroupSpecialCares = useChatStore((s) => s.setGroupSpecialCares);
+  // D7 群内私有备注：进群时把本群备注集拉进 store，供气泡/成员列表/已读名单显示替换用。
+  const setGroupMemberRemarks = useChatStore((s) => s.setGroupMemberRemarks);
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -893,6 +895,18 @@ export function useLocalGroupMessages(groupId: string | null) {
       .catch((err) => { console.warn('[GroupMessages] 加载群关心集失败:', err); });
     return () => { cancelled = true; };
   }, [api, groupId, setGroupSpecialCares]);
+
+  // D7：进群时加载本群私有备注集到 store（失败忽略——仅影响显示名替换）
+  useEffect(() => {
+    if (!groupId) { return; }
+    let cancelled = false;
+    getGroupMemberRemarks(api, groupId)
+      .then((list) => {
+        if (!cancelled) { setGroupMemberRemarks(groupId, list); }
+      })
+      .catch((err) => { console.warn('[GroupMessages] 加载群备注集失败:', err); });
+    return () => { cancelled = true; };
+  }, [api, groupId, setGroupMemberRemarks]);
 
   return {
     messages,

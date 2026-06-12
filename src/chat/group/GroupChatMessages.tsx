@@ -28,6 +28,8 @@ import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt
 import type { GroupReader } from './useGroupReadReceipt';
 import { GroupReadListModal } from './GroupReadListModal';
 import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
+import { useChatStore } from '../../stores';
+import { groupMemberDisplayName } from '../../utils/groupRemark';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -124,6 +126,9 @@ export function GroupChatMessages({
 
   // 已读名单弹层：保存当前打开的已读者列表（null = 关闭）
   const [openReaders, setOpenReaders] = useState<GroupReader[] | null>(null);
+
+  // D7 群内私有备注：本群「我设的备注」映射，用于已读名单显示名替换
+  const groupRemarks = useChatStore((s) => (groupId ? s.groupMemberRemarks[groupId] : undefined));
 
   // 切换群组时重置状态
   useEffect(() => {
@@ -310,7 +315,12 @@ export function GroupChatMessages({
               let readReceipt: { text: string | null; readers: GroupReader[] } | undefined;
               if (isOwn && message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
                 const text = groupReadReceiptText(message.seq, countReaders(message.seq, message.sender_id), memberCount - 1);
-                readReceipt = { text, readers: readersAt(message.seq, message.sender_id) };
+                // D7：已读者显示名套用我设的私有备注（备注→群昵称/原显示名），覆盖头像堆叠 tooltip + 名单弹层
+                const readers = readersAt(message.seq, message.sender_id).map((r) => ({
+                  ...r,
+                  displayName: groupMemberDisplayName(groupRemarks?.[r.userId], r.displayName),
+                }));
+                readReceipt = { text, readers };
               }
 
               return (

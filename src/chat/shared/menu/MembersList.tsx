@@ -5,6 +5,7 @@
 import { MenuHeader } from './MenuHeader';
 import { isMuted, formatMutedUntil } from './utils';
 import { resolveServerAvatarUrl } from '../../../utils/avatar';
+import { groupMemberDisplayName } from '../../../utils/groupRemark';
 import type { GroupMember } from '../../../api/groups';
 
 interface MembersListProps {
@@ -12,6 +13,8 @@ interface MembersListProps {
   loadingMembers: boolean;
   currentUserId: string | undefined;
   isOwnerOrAdmin: boolean;
+  /** D7 群内私有备注：本群「我设的备注」映射（user_id → 备注名）；展示名优先用备注 */
+  remarks?: Record<string, string>;
   onBack: () => void;
   onMemberClick: (member: GroupMember) => void;
 }
@@ -21,6 +24,7 @@ export function MembersList({
   loadingMembers,
   currentUserId,
   isOwnerOrAdmin,
+  remarks,
   onBack,
   onMemberClick,
 }: MembersListProps) {
@@ -39,6 +43,11 @@ export function MembersList({
             const canClick = isOwnerOrAdmin &&
               member.user_id !== currentUserId &&
               member.role !== 'owner';
+            // 显示名：备注优先 → 群昵称 → 用户昵称（头像 alt/占位首字母同步）
+            const displayName = groupMemberDisplayName(
+              remarks?.[member.user_id],
+              member.group_nickname || member.user_nickname,
+            );
 
             return (
               <div
@@ -48,16 +57,16 @@ export function MembersList({
               >
                 <div className="member-avatar">
                   {member.user_avatar_url ? (
-                    <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={member.user_nickname} />
+                    <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={displayName} />
                   ) : (
                     <div className="avatar-placeholder">
-                      {member.user_nickname.charAt(0).toUpperCase()}
+                      {displayName.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
                 <div className="member-info">
                   <span className="member-name">
-                    {member.user_nickname}
+                    {displayName}
                     {member.user_id === currentUserId && ' (我)'}
                   </span>
                   <div className="member-badges">

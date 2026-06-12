@@ -37,8 +37,12 @@ import {
   removeGroupMessageBlock,
   addGroupSpecialCare,
   removeGroupSpecialCare,
+  setGroupMemberRemark as apiSetGroupMemberRemark,
+  removeGroupMemberRemark as apiRemoveGroupMemberRemark,
 } from '../../api/groups';
 import { isMobile } from '../../utils/platform';
+import { groupMemberDisplayName } from '../../utils/groupRemark';
+import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
 import type { GroupReader } from './useGroupReadReceipt';
@@ -279,6 +283,35 @@ export function GroupMessageBubble({
     }
   }, [api, groupId, isOwn, isSenderSpecialCared, message.sender_id, setGroupMemberSpecialCare]);
 
+  // D7 群内私有备注：我给该发送者设的备注（仅他人消息有意义），用于替换显示名
+  const senderRemark = useChatStore((state) =>
+    groupId && !isOwn ? state.groupMemberRemarks[groupId]?.[message.sender_id] : undefined,
+  );
+  const setGroupMemberRemarkLocal = useChatStore((state) => state.setGroupMemberRemark);
+  const [remarkModalOpen, setRemarkModalOpen] = useState(false);
+
+  // 保存/清除备注（乐观更新 store，失败回滚到旧值）。空串 = 清除。
+  const handleSaveRemark = useCallback(async (value: string) => {
+    if (!groupId || isOwn) { return; }
+    const senderId = message.sender_id;
+    const trimmed = value.trim();
+    const prev = senderRemark;
+    setGroupMemberRemarkLocal(groupId, senderId, trimmed || null);
+    try {
+      if (trimmed) {
+        await apiSetGroupMemberRemark(api, groupId, senderId, trimmed);
+      } else {
+        await apiRemoveGroupMemberRemark(api, groupId, senderId);
+      }
+    } catch (err) {
+      setGroupMemberRemarkLocal(groupId, senderId, prev ?? null);
+      console.error('[GroupMessageBubble] 保存备注失败:', err);
+    }
+  }, [api, groupId, isOwn, message.sender_id, senderRemark, setGroupMemberRemarkLocal]);
+
+  // 发送者在本群对我显示的名字：备注优先，否则用消息携带的发送者名（群昵称/用户昵称）
+  const senderDisplayName = groupMemberDisplayName(senderRemark, message.sender_nickname);
+
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -490,16 +523,16 @@ export function GroupMessageBubble({
                 onClick={handleAvatarClick}
               >
                 {message.sender_avatar_url ? (
-                  <img src={message.sender_avatar_url} alt={message.sender_nickname} />
+                  <img src={message.sender_avatar_url} alt={senderDisplayName} />
                 ) : (
                   <div className="avatar-placeholder">
-                    {message.sender_nickname.charAt(0).toUpperCase()}
+                    {senderDisplayName.charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
               <div className="bubble-content">
                 {!isOwn && (
-                  <div className="bubble-sender">{message.sender_nickname}</div>
+                  <div className="bubble-sender">{senderDisplayName}</div>
                 )}
                 {/* D6 群内屏蔽：被屏蔽者消息折叠成占位（内容隐藏），右键可取消屏蔽 */}
                 {isSenderBlocked ? (
@@ -561,6 +594,9 @@ export function GroupMessageBubble({
         isSenderBlocked={isSenderBlocked}
         canSpecialCareSender={!isOwn && !!groupId && message.message_type !== 'system'}
         isSenderSpecialCared={isSenderSpecialCared}
+        canRemarkSender={!isOwn && !!groupId && message.message_type !== 'system'}
+        hasRemark={!!senderRemark}
+        onSetRemark={() => setRemarkModalOpen(true)}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
@@ -593,6 +629,15 @@ export function GroupMessageBubble({
           onClose={() => setShowFullPreview(false)}
         />
       )}
+
+      {/* D7 群内私有备注输入弹窗（右键「设置备注」触发） */}
+      <GroupRemarkInputModal
+        isOpen={remarkModalOpen}
+        memberName={message.sender_nickname}
+        currentRemark={senderRemark ?? ''}
+        onSave={handleSaveRemark}
+        onClose={() => setRemarkModalOpen(false)}
+      />
     </>
   );
 }

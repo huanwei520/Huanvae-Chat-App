@@ -125,6 +125,7 @@ import * as ChatMessages from '../../src/chat/friend/ChatMessages';
 import * as MessageBubble from '../../src/chat/friend/MessageBubble';
 import * as GroupChatMessages from '../../src/chat/group/GroupChatMessages';
 import * as GroupMessageBubble from '../../src/chat/group/GroupMessageBubble';
+import * as GroupRemarkInputModal from '../../src/chat/group/GroupRemarkInputModal';
 import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
@@ -371,6 +372,7 @@ const COMPONENT_MAP = {
   MessageBubble,
   GroupChatMessages,
   GroupMessageBubble,
+  GroupRemarkInputModal,
   ReadReceiptIcons,
   PrivateReadReceipt,
   ReaderAvatarStack,

@@ -211,6 +211,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   // 群聊组件
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
+  { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
 
   // AI 聊天组件
   { name: 'AIChatMessages', path: 'chat/ai/AIChatMessages', category: 'chat', description: 'AI 聊天消息列表' },
