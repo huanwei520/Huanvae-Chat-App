@@ -121,6 +121,16 @@ interface ChatState {
   cachedGroupMessages: Record<string, GroupMessage[]>;
 
   /**
+   * 每群「我屏蔽的成员 user_id」集合（D6）。
+   *
+   * 服务端已过滤新同步/历史消息，但本地 SQLite 缓存的旧消息仍含被屏蔽者内容。
+   * GroupMessageBubble 据此把这些消息渲染成折叠占位（隐藏内容），并保留消息体以便
+   * 右键「取消屏蔽」——这是取消屏蔽的唯一入口（被隐藏的消息无法右键，故不能整条剔除）。
+   * 进群时由 getGroupMessageBlocks 加载；屏蔽/取消时乐观更新。
+   */
+  groupMessageBlocks: Record<string, string[]>;
+
+  /**
    * 每会话的滚动锚点 message_uuid。
    *
    * key: 与 cachedMessages 同格式。
@@ -170,6 +180,10 @@ interface ChatActions {
    * 细粒度更新，只修改指定群的属性，不影响其他群
    */
   updateGroup: (groupId: string, updates: Partial<Group>) => void;
+  /** 设置某群「我屏蔽的成员」集合（进群时由 getGroupMessageBlocks 加载，D6） */
+  setGroupMessageBlocks: (groupId: string, userIds: string[]) => void;
+  /** 群内屏蔽/取消屏蔽某成员（乐观更新，群消息列表即时过滤/恢复，D6） */
+  setGroupMemberBlocked: (groupId: string, userId: string, blocked: boolean) => void;
 
   // ==================== 聊天目标操作 ====================
   /** 设置当前聊天目标 */
@@ -261,6 +275,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   cachedGroupMessages: {},
 
+  groupMessageBlocks: {},
+
   scrollAnchors: {},
 
   // ==================== 好友操作 ====================
@@ -318,6 +334,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       g.group_id === groupId ? { ...g, ...updates } : g,
     ),
   })),
+
+  setGroupMessageBlocks: (groupId, userIds) => set((state) => ({
+    groupMessageBlocks: { ...state.groupMessageBlocks, [groupId]: userIds },
+  })),
+
+  setGroupMemberBlocked: (groupId, userId, blocked) => set((state) => {
+    const cur = state.groupMessageBlocks[groupId] ?? [];
+    let next: string[];
+    if (!blocked) {
+      next = cur.filter((id) => id !== userId);
+    } else if (cur.includes(userId)) {
+      next = cur;
+    } else {
+      next = [...cur, userId];
+    }
+    return { groupMessageBlocks: { ...state.groupMessageBlocks, [groupId]: next } };
+  }),
 
   // ==================== 聊天目标操作 ====================
   setChatTarget: (target) => set({ chatTarget: target }),
@@ -385,7 +418,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearCacheAndAnchors: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

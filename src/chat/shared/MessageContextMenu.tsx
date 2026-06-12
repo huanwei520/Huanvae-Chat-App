@@ -40,6 +40,10 @@ interface MessageContextMenuProps {
   messageContent?: string | null;
   /** 文件类型（用于移动端保存到相册，仅图片/视频有效） */
   fileType?: 'image' | 'video' | 'file' | null;
+  /** D6 群内屏蔽：是否显示「屏蔽此人消息 / 取消屏蔽」项（仅群聊他人消息传 true） */
+  canBlockSender?: boolean;
+  /** D6 群内屏蔽：该发送者当前是否已被屏蔽（决定按钮文案：屏蔽 / 取消屏蔽） */
+  isSenderBlocked?: boolean;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -47,6 +51,8 @@ interface MessageContextMenuProps {
   onSelectText?: () => void;
   /** 保存到相册（移动端专属，图片/视频有效） */
   onSaveToGallery?: () => void;
+  /** D6 群内屏蔽：切换屏蔽/取消屏蔽该发送者 */
+  onToggleBlockSender?: () => void;
   onClose: () => void;
 }
 
@@ -58,11 +64,14 @@ export function MessageContextMenu({
   localPath,
   messageContent,
   fileType,
+  canBlockSender,
+  isSenderBlocked,
   onRecall,
   onDelete,
   onMultiSelect,
   onSelectText,
   onSaveToGallery,
+  onToggleBlockSender,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -172,6 +181,7 @@ export function MessageContextMenu({
       if (hasMessageContent && onSelectText) { itemCount += 1; } // 选取文字
       if (canRecall) { itemCount += 1; }
       if (canSaveToGallery) { itemCount += 1; } // 保存
+      if (canBlockSender && onToggleBlockSender) { itemCount += 1; } // 屏蔽此人
       const menuWidth = itemCount * 52 + 16; // 每项 52px + padding
       const menuHeight = 44;
 
@@ -212,6 +222,7 @@ export function MessageContextMenu({
     if (hasMessageContent) { menuHeight += 36; } // 复制
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
+    if (canBlockSender && onToggleBlockSender) { menuHeight += 48; } // 分隔线 + 屏蔽此人
 
     let x = position.x;
     let y = position.y;
@@ -335,6 +346,22 @@ export function MessageContextMenu({
             <MultiSelectIcon />
             <span>多选</span>
           </button>
+          {/* D6 群内屏蔽：屏蔽 / 取消屏蔽此人消息（仅群聊他人消息） */}
+          {canBlockSender && onToggleBlockSender && (
+            <>
+              <div className="context-menu-divider" />
+              <button
+                className="context-menu-item"
+                onClick={() => {
+                  onToggleBlockSender();
+                  onClose();
+                }}
+              >
+                <BlockIcon />
+                <span>{isSenderBlocked ? '取消屏蔽此人' : '屏蔽此人消息'}</span>
+              </button>
+            </>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
@@ -362,6 +389,13 @@ const RecallIcon = () => (
 const DeleteIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+  </svg>
+);
+
+// 屏蔽图标（D6 群内屏蔽——禁止/no-symbol）
+const BlockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
   </svg>
 );
 

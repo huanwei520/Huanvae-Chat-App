@@ -737,9 +737,7 @@ export function useMainPage() {
   const handleLogout = useCallback(async () => {
     // 清除当前用户数据目录上下文
     await clearCurrentUser();
-    // 清除会话切换恢复缓存（避免下一个登录用户看到上一个用户的消息缓存）
-    useChatStore.getState().clearCacheAndAnchors();
-    // 清除会话
+    // 清除会话（clearSession 内部已统一清空消息缓存/滚动锚点/群内屏蔽集，避免下个登录用户串数据）
     clearSession();
   }, [clearSession]);
 

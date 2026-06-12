@@ -31,6 +31,8 @@ import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useChatStore, useProfileViewStore } from '../../stores';
+import { useApi } from '../../contexts/SessionContext';
+import { addGroupMessageBlock, removeGroupMessageBlock } from '../../api/groups';
 import { isMobile } from '../../utils/platform';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -59,6 +61,8 @@ interface GroupMessageBubbleProps {
   readReceipt?: { text: string | null; readers: GroupReader[] };
   /** 点击已读回执展开已读名单 */
   onOpenReadList?: (readers: GroupReader[]) => void;
+  /** 所在群 ID（D6 群内屏蔽：右键屏蔽/取消屏蔽该发送者时调用 API + 更新 store） */
+  groupId?: string;
 }
 
 // 使用统一的消息动画配置
@@ -104,7 +108,9 @@ export function GroupMessageBubble({
   isAdmin = false,
   readReceipt,
   onOpenReadList,
+  groupId,
 }: GroupMessageBubbleProps) {
+  const api = useApi();
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -218,6 +224,31 @@ export function GroupMessageBubble({
       setChatTarget({ type: 'friend', data: friend });
     }
   }, [friends, setChatTarget]);
+
+  // D6 群内屏蔽：该发送者是否已被我屏蔽（仅他人消息有意义）
+  const isSenderBlocked = useChatStore((state) =>
+    groupId && !isOwn ? (state.groupMessageBlocks[groupId] ?? []).includes(message.sender_id) : false,
+  );
+  const setGroupMemberBlocked = useChatStore((state) => state.setGroupMemberBlocked);
+
+  // 切换屏蔽/取消屏蔽该发送者（乐观更新 store，失败回滚）。被屏蔽者消息渲染成折叠占位，
+  // 但仍可右键此项取消屏蔽——这是取消屏蔽的唯一入口。
+  const handleToggleBlockSender = useCallback(async () => {
+    if (!groupId || isOwn) { return; }
+    const senderId = message.sender_id;
+    const next = !isSenderBlocked;
+    setGroupMemberBlocked(groupId, senderId, next);
+    try {
+      if (next) {
+        await addGroupMessageBlock(api, groupId, senderId);
+      } else {
+        await removeGroupMessageBlock(api, groupId, senderId);
+      }
+    } catch (err) {
+      setGroupMemberBlocked(groupId, senderId, !next);
+      console.error('[GroupMessageBubble] 切换屏蔽失败:', err);
+    }
+  }, [api, groupId, isOwn, isSenderBlocked, message.sender_id, setGroupMemberBlocked]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -441,27 +472,34 @@ export function GroupMessageBubble({
                 {!isOwn && (
                   <div className="bubble-sender">{message.sender_nickname}</div>
                 )}
-                {(message.message_type === 'text' || message.message_type === 'system') && (
-                  <div className="bubble-text">
-                    <MarkdownRenderer content={message.message_content} />
-                  </div>
-                )}
-                {message.message_type === 'meeting_invite' && (
-                  <MeetingInviteCard messageContent={message.message_content} />
-                )}
-                {message.message_type !== 'text'
-                  && message.message_type !== 'system'
-                  && message.message_type !== 'meeting_invite' && (
-                  <FileMessageContent
-                    messageType={message.message_type as 'image' | 'video' | 'file'}
-                    messageContent={message.message_content}
-                    fileUuid={message.file_uuid}
-                    fileSize={message.file_size}
-                    fileHash={message.file_hash}
-                    urlType="group"
-                    imageWidth={message.image_width}
-                    imageHeight={message.image_height}
-                  />
+                {/* D6 群内屏蔽：被屏蔽者消息折叠成占位（内容隐藏），右键可取消屏蔽 */}
+                {isSenderBlocked ? (
+                  <div className="bubble-text bubble-blocked-placeholder">已屏蔽此人消息</div>
+                ) : (
+                  <>
+                    {(message.message_type === 'text' || message.message_type === 'system') && (
+                      <div className="bubble-text">
+                        <MarkdownRenderer content={message.message_content} />
+                      </div>
+                    )}
+                    {message.message_type === 'meeting_invite' && (
+                      <MeetingInviteCard messageContent={message.message_content} />
+                    )}
+                    {message.message_type !== 'text'
+                      && message.message_type !== 'system'
+                      && message.message_type !== 'meeting_invite' && (
+                      <FileMessageContent
+                        messageType={message.message_type as 'image' | 'video' | 'file'}
+                        messageContent={message.message_content}
+                        fileUuid={message.file_uuid}
+                        fileSize={message.file_size}
+                        fileHash={message.file_hash}
+                        urlType="group"
+                        imageWidth={message.image_width}
+                        imageHeight={message.image_height}
+                      />
+                    )}
+                  </>
                 )}
                 {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
                 <div className="bubble-meta">
@@ -490,11 +528,14 @@ export function GroupMessageBubble({
         localPath={localPath}
         messageContent={message.message_type === 'text' ? message.message_content : null}
         fileType={getFileType()}
+        canBlockSender={!isOwn && !!groupId && message.message_type !== 'system'}
+        isSenderBlocked={isSenderBlocked}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
         onSelectText={message.message_type === 'text' ? () => setShowFullPreview(true) : undefined}
         onSaveToGallery={handleSaveToGallery}
+        onToggleBlockSender={handleToggleBlockSender}
         onClose={handleCloseMenu}
       />
 
