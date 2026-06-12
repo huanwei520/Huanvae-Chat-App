@@ -328,6 +328,7 @@ export function GroupChatMessages({
                   isAdmin={isAdmin}
                   readReceipt={readReceipt}
                   onOpenReadList={setOpenReaders}
+                  groupId={groupId}
                 />
               );
             })}

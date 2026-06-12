@@ -102,16 +102,18 @@ describe('chatStore 缓存与滚动锚点', () => {
     expect(useChatStore.getState().scrollAnchors['friend-A']).toBe('msg-new');
   });
 
-  it('clearCacheAndAnchors 清空所有三个字段', () => {
+  it('clearCacheAndAnchors 清空缓存/锚点/群关心集（登出/切号防残留）', () => {
     useChatStore.getState().cacheFriendMessages('friend-A', [makeMessage('m1')]);
     useChatStore.getState().cacheGroupMessages('group-X', [makeGroupMessage('gm1')]);
     useChatStore.getState().saveScrollAnchor('friend-A', 'anchor-1');
+    useChatStore.getState().setGroupSpecialCares('group-X', ['u2']);
 
     useChatStore.getState().clearCacheAndAnchors();
 
     expect(useChatStore.getState().cachedFriendMessages).toEqual({});
     expect(useChatStore.getState().cachedGroupMessages).toEqual({});
     expect(useChatStore.getState().scrollAnchors).toEqual({});
+    expect(useChatStore.getState().groupSpecialCares).toEqual({});
   });
 
   it('cacheFriendMessages 多次写入累积不互相覆盖', () => {

@@ -403,6 +403,11 @@ export function handleWebSocketMessage(
               senderName = friendDisplayName(friend);
               isSpecialCare = friend.is_special_care;
             }
+          } else if (msg.source_type === 'group') {
+            // 群消息：发送者若在本群被我特别关心，则强提醒（通知标题带 ⭐，M3）。
+            // 关心集进群时由 getGroupSpecialCares 加载进 store；未打开过的群无此信息则不强提醒。
+            const cared = useChatStore.getState().groupSpecialCares[msg.source_id] ?? [];
+            isSpecialCare = cared.includes(msg.sender_id);
           }
 
           notifyNewMessage({

@@ -45,9 +45,22 @@ vi.mock('../../src/services/fileCache', () => ({
   getCachedFilePath: vi.fn().mockResolvedValue(null),
 }));
 
+// selector-aware mock：让 GroupMessageBubble 的 useChatStore 选择器（friends /
+// setChatTarget / groupSpecialCares / setGroupMemberSpecialCare）拿到合理空值。
+const mockChatState = vi.hoisted(() => ({
+  friends: [] as unknown[],
+  setChatTarget: () => {},
+  groupSpecialCares: {} as Record<string, string[]>,
+  setGroupMemberSpecialCare: () => {},
+}));
 vi.mock('../../src/stores', () => ({
-  useChatStore: () => ({}),
+  useChatStore: (selector: (s: typeof mockChatState) => unknown) => selector(mockChatState),
   useProfileViewStore: () => vi.fn(),
+}));
+
+// GroupMessageBubble 用 useApi 取 ApiClient（右键特别关心/取消），需 mock 掉
+vi.mock('../../src/contexts/SessionContext', () => ({
+  useApi: () => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }),
 }));
 
 vi.mock('../../src/utils/platform', () => ({

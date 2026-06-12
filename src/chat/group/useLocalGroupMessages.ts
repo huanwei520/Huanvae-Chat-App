@@ -30,6 +30,7 @@ import { getSyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { sendGroupMessage, recallGroupMessage, type GroupMessage } from '../../api/groupMessages';
+import { getGroupSpecialCares } from '../../api/groups';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
@@ -116,6 +117,9 @@ export function useLocalGroupMessages(groupId: string | null) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // M3 群内特别关心：进群时把本群关心集拉进 store，供右键切换 + 群消息通知强提醒判定用。
+  const setGroupSpecialCares = useChatStore((s) => s.setGroupSpecialCares);
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -861,6 +865,18 @@ export function useLocalGroupMessages(groupId: string | null) {
     }
     wasConnectedRef.current = ws.connected;
   }, [ws.connected, syncMessagesInBackground]);
+
+  // M3：进群时加载本群特别关心集到 store（失败忽略——仅影响通知强提醒标记）
+  useEffect(() => {
+    if (!groupId) { return; }
+    let cancelled = false;
+    getGroupSpecialCares(api, groupId)
+      .then((list) => {
+        if (!cancelled) { setGroupSpecialCares(groupId, list.map((c) => c.user_id)); }
+      })
+      .catch((err) => { console.warn('[GroupMessages] 加载群关心集失败:', err); });
+    return () => { cancelled = true; };
+  }, [api, groupId, setGroupSpecialCares]);
 
   return {
     messages,

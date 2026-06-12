@@ -15,6 +15,7 @@ import {
   requestNotificationPermission,
   notify,
   friendNotificationTitle,
+  groupNotificationTitle,
 } from '../../src/services/notificationService';
 
 describe('通知服务', () => {
@@ -78,6 +79,16 @@ describe('通知服务', () => {
 
     it('普通好友：标题为原名，无 ⭐', () => {
       expect(friendNotificationTitle('小明', false)).toBe('小明');
+    });
+  });
+
+  describe('groupNotificationTitle（群内特别关心强提醒，M3）', () => {
+    it('被特别关心成员发言：群名带 ⭐ 前缀', () => {
+      expect(groupNotificationTitle('技术交流群', true)).toBe('⭐ 技术交流群');
+    });
+
+    it('普通成员发言：群名原样，无 ⭐', () => {
+      expect(groupNotificationTitle('技术交流群', false)).toBe('技术交流群');
     });
   });
 
