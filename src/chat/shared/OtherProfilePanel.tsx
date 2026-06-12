@@ -1,14 +1,12 @@
 /**
- * 他人完整资料面板（公开字段 + 关系状态 + 快捷操作 + 关系操作区）
+ * 他人公开资料面板（只读公开字段 + 关系状态；非好友可加好友）
  *
  * @location src/chat/shared/OtherProfilePanel.tsx
  *
- * 由 OtherProfileView 在桌面右侧抽屉 / 移动整页内渲染。展示某用户的公开资料：
+ * 由 OtherProfileView 在桌面右侧抽屉 / 移动整页内渲染。只读展示某用户的公开资料：
  * - 头像、昵称（好友显示备注名）、@ID（可复制）、签名
- * - 关系状态（好友 / 陌生人）
- * - 快捷操作：好友→发送消息；陌生人→加好友
- * - 关系操作区：好友可特别关心/取消（标星）、拉黑/取消拉黑（拉黑含内联二次确认）、
- *   删除（含内联二次确认）；群内屏蔽等更多操作后续接入
+ * - 关系状态（好友 / 陌生人 / 自己）
+ * - 非好友可发起加好友请求（好友关系操作已统一移到私聊三条杠菜单）
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段，零隐私泄露）。
  */
@@ -17,19 +15,15 @@ import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
-import { sendFriendRequest, removeFriend, addBlacklist, removeBlacklist, addSpecialCare, removeSpecialCare } from '../../api/friends';
+import { sendFriendRequest } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
-import { AddUserIcon, ChatIcon } from '../../components/common/Icons';
+import { AddUserIcon } from '../../components/common/Icons';
 
 interface OtherProfilePanelProps {
   /** 被查看用户 id */
   userId: string;
   /** 关闭资料页 */
   onClose: () => void;
-  /** 发送消息（切到与该用户的私聊，由挂载方按平台实现导航） */
-  onSendMessage: (userId: string) => void;
-  /** 删除好友成功后回调（由挂载方刷新好友列表） */
-  onFriendRemoved?: () => void;
 }
 
 /** 取展示名首字母（占位头像用） */
@@ -50,32 +44,17 @@ function addButtonText(sent: boolean, sending: boolean): string {
   return sending ? '发送中...' : '添加好友';
 }
 
-/** 特别关心按钮文案 */
-function specialCareButtonText(isSpecialCare: boolean, processing: boolean): string {
-  if (processing) { return '处理中...'; }
-  return isSpecialCare ? '取消特别关心' : '特别关心';
-}
-
-export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemoved }: OtherProfilePanelProps) {
+export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   const api = useApi();
   const { session } = useSession();
   const friends = useChatStore((s) => s.friends);
-  const setFriendBlacklisted = useChatStore((s) => s.setFriendBlacklisted);
-  const setFriendSpecialCare = useChatStore((s) => s.setFriendSpecialCare);
 
   const friendData = friends.find((f) => f.friend_id === userId);
   const isFriend = !!friendData;
-  const isBlacklisted = !!friendData?.is_blacklisted;
-  const isSpecialCare = !!friendData?.is_special_care;
   const isSelf = session?.userId === userId;
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const [confirmingBlacklist, setConfirmingBlacklist] = useState(false);
-  const [blacklisting, setBlacklisting] = useState(false);
-  const [specialCaring, setSpecialCaring] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -84,11 +63,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     let cancelled = false;
     setProfile(null);
     setLoadError(false);
-    // 切换查看对象时重置确认条与错误/已发送提示，避免串台到新用户（误操作风险）。
-    // 各 loading 态（removing/blacklisting/specialCaring）由对应 handler 的 finally 兜底清零，
-    // 且有并发守卫，无需在此重置（重置反而会掩盖在途请求）。
-    setConfirmingDelete(false);
-    setConfirmingBlacklist(false);
+    // 切换查看对象时重置加好友的已发送/错误提示，避免串台到新用户。
     setSent(false);
     setActionError(null);
     getPublicProfile(api, userId)
@@ -122,187 +97,6 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
     }
   };
 
-  const handleRemoveFriend = async () => {
-    if (!session || removing) { return; }
-    setRemoving(true);
-    setActionError(null);
-    try {
-      await removeFriend(api, session.userId, userId);
-      onFriendRemoved?.();
-      onClose();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : '删除失败');
-      setRemoving(false);
-      setConfirmingDelete(false);
-    }
-  };
-
-  const handleBlacklist = async () => {
-    if (blacklisting) { return; }
-    setBlacklisting(true);
-    setActionError(null);
-    try {
-      await addBlacklist(api, userId);
-      setFriendBlacklisted(userId, true);
-      setConfirmingBlacklist(false);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : '拉黑失败');
-    } finally {
-      setBlacklisting(false);
-    }
-  };
-
-  const handleUnblacklist = async () => {
-    if (blacklisting) { return; }
-    setBlacklisting(true);
-    setActionError(null);
-    try {
-      await removeBlacklist(api, userId);
-      setFriendBlacklisted(userId, false);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : '取消拉黑失败');
-    } finally {
-      setBlacklisting(false);
-    }
-  };
-
-  // 特别关心切换（非破坏性操作，直接执行无需二次确认）
-  const handleToggleSpecialCare = async () => {
-    if (specialCaring) { return; }
-    setSpecialCaring(true);
-    setActionError(null);
-    const next = !isSpecialCare;
-    try {
-      if (next) {
-        await addSpecialCare(api, userId);
-      } else {
-        await removeSpecialCare(api, userId);
-      }
-      setFriendSpecialCare(userId, next);
-    } catch (err) {
-      const fallback = next ? '特别关心失败' : '取消特别关心失败';
-      setActionError(err instanceof Error ? err.message : fallback);
-    } finally {
-      setSpecialCaring(false);
-    }
-  };
-
-  // 拉黑/取消拉黑操作（拉黑需二次确认；取消拉黑直接执行）
-  function renderBlacklistOp() {
-    if (isBlacklisted) {
-      return (
-        <button
-          type="button"
-          className="other-profile-op"
-          onClick={handleUnblacklist}
-          disabled={blacklisting}
-        >
-          {blacklisting ? '处理中...' : '取消拉黑'}
-        </button>
-      );
-    }
-    if (confirmingBlacklist) {
-      return (
-        <div className="other-profile-confirm">
-          <span className="other-profile-confirm-text">拉黑后对方将收不到你发送的消息，确定？</span>
-          <div className="other-profile-confirm-actions">
-            <button
-              type="button"
-              className="other-profile-confirm-cancel"
-              onClick={() => setConfirmingBlacklist(false)}
-              disabled={blacklisting}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="other-profile-confirm-danger"
-              onClick={handleBlacklist}
-              disabled={blacklisting}
-            >
-              {blacklisting ? '拉黑中...' : '确认拉黑'}
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <button
-        type="button"
-        className="other-profile-op danger"
-        onClick={() => setConfirmingBlacklist(true)}
-      >
-        拉黑
-      </button>
-    );
-  }
-
-  // 删除好友操作（含内联二次确认）
-  function renderDeleteOp() {
-    if (confirmingDelete) {
-      return (
-        <div className="other-profile-confirm">
-          <span className="other-profile-confirm-text">删除后将解除好友关系，确定？</span>
-          <div className="other-profile-confirm-actions">
-            <button
-              type="button"
-              className="other-profile-confirm-cancel"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={removing}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="other-profile-confirm-danger"
-              onClick={handleRemoveFriend}
-              disabled={removing}
-            >
-              {removing ? '删除中...' : '确认删除'}
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <button
-        type="button"
-        className="other-profile-op danger"
-        onClick={() => setConfirmingDelete(true)}
-      >
-        删除好友
-      </button>
-    );
-  }
-
-  // 特别关心切换操作（标星/取消，直接执行）
-  function renderSpecialCareOp() {
-    return (
-      <button
-        type="button"
-        className="other-profile-op"
-        onClick={handleToggleSpecialCare}
-        disabled={specialCaring}
-      >
-        {specialCareButtonText(isSpecialCare, specialCaring)}
-      </button>
-    );
-  }
-
-  // 关系操作区内容（非好友=占位；好友=特别关心 + 拉黑/取消拉黑 + 删除）
-  function renderRelationOps() {
-    if (!isFriend) {
-      return <div className="other-profile-ops-placeholder">更多操作开发中</div>;
-    }
-    return (
-      <div className="other-profile-ops-list">
-        {renderSpecialCareOp()}
-        {renderBlacklistOp()}
-        {renderDeleteOp()}
-      </div>
-    );
-  }
-
   return (
     <div className="other-profile-panel">
       <header className="other-profile-header">
@@ -329,38 +123,19 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage, onFriendRemo
 
         <div className="other-profile-relation">{relationLabel(isSelf, isFriend)}</div>
 
-        {/* 快捷操作（自己不显示） */}
-        {!isSelf && (
+        {/* 非好友可加好友（好友的关系操作统一在私聊三条杠菜单） */}
+        {!isSelf && !isFriend && (
           <div className="other-profile-actions">
             {actionError && <div className="other-profile-error">{actionError}</div>}
-            {isFriend ? (
-              <button
-                type="button"
-                className="other-profile-action message"
-                onClick={() => { onSendMessage(userId); onClose(); }}
-              >
-                <ChatIcon />
-                <span>发送消息</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={`other-profile-action add ${sent ? 'sent' : ''}`}
-                onClick={handleAddFriend}
-                disabled={sending || sent}
-              >
-                <AddUserIcon />
-                <span>{addButtonText(sent, sending)}</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* 关系操作区（好友可特别关心 + 拉黑/取消拉黑 + 删除；群内屏蔽等更多操作后续接入） */}
-        {!isSelf && (
-          <div className="other-profile-relation-ops">
-            <div className="other-profile-section-title">关系操作</div>
-            {renderRelationOps()}
+            <button
+              type="button"
+              className={`other-profile-action add ${sent ? 'sent' : ''}`}
+              onClick={handleAddFriend}
+              disabled={sending || sent}
+            >
+              <AddUserIcon />
+              <span>{addButtonText(sent, sending)}</span>
+            </button>
           </div>
         )}
       </div>

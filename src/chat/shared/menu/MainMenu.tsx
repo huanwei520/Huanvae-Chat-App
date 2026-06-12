@@ -23,6 +23,8 @@ import {
   QrCodeIcon,
   UserIcon,
   CloudDownloadIcon,
+  StarIcon,
+  BlockIcon,
 } from '../../../components/common/Icons';
 import { CircularProgress } from '../../../components/common/CircularProgress';
 import { GroupAvatar } from '../../../components/common/Avatar';
@@ -179,11 +181,19 @@ interface MainMenuProps {
   loadingHistory?: boolean;
   /** 加载历史记录进度信息 */
   historyProgress?: string;
+  /** 好友：是否已特别关心（决定按钮文案/图标） */
+  isFriendSpecialCare?: boolean;
+  /** 好友：是否已拉黑（决定显示「拉黑」还是「取消拉黑」） */
+  isFriendBlacklisted?: boolean;
   onSetView: (view: MenuView) => void;
   onUploadAvatar: () => void;
   onToggleMultiSelect: () => void;
   /** 加载全部聊天记录 */
   onLoadAllHistory?: () => void;
+  /** 好友：切换特别关心（直接执行） */
+  onToggleSpecialCare?: () => void;
+  /** 好友：取消拉黑（直接执行） */
+  onUnblacklist?: () => void;
 }
 
 export function MainMenu({
@@ -196,10 +206,14 @@ export function MainMenu({
   avatarUploadProgress = 0,
   loadingHistory = false,
   historyProgress = '',
+  isFriendSpecialCare = false,
+  isFriendBlacklisted = false,
   onSetView,
   onUploadAvatar,
   onToggleMultiSelect,
   onLoadAllHistory,
+  onToggleSpecialCare,
+  onUnblacklist,
 }: MainMenuProps) {
   const title = targetType === 'friend' ? '好友设置' : '群聊设置';
   const isGroup = targetType === 'group';
@@ -281,6 +295,29 @@ export function MainMenu({
             <EditIcon />
             <span>设置备注</span>
           </button>
+          {/* 特别关心（直接切换） */}
+          <button
+            className={`menu-item ${isFriendSpecialCare ? 'active' : ''}`}
+            onClick={onToggleSpecialCare}
+          >
+            <StarIcon filled={isFriendSpecialCare} />
+            <span>{isFriendSpecialCare ? '取消特别关心' : '特别关心'}</span>
+          </button>
+          {/* 拉黑 / 取消拉黑（拉黑经二次确认，取消拉黑直接执行） */}
+          {isFriendBlacklisted ? (
+            <button className="menu-item" onClick={onUnblacklist}>
+              <BlockIcon />
+              <span>取消拉黑</span>
+            </button>
+          ) : (
+            <button
+              className="menu-item danger"
+              onClick={() => onSetView('confirm-blacklist')}
+            >
+              <BlockIcon />
+              <span>拉黑</span>
+            </button>
+          )}
           <button
             className="menu-item danger"
             onClick={() => onSetView('confirm-delete')}

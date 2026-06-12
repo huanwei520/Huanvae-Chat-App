@@ -1919,12 +1919,17 @@
   white-space: pre-wrap;
   min-width: 0;
   overflow: hidden;
+  /* hug text content instead of stretching to the wider meta row sibling
+     (otherwise short messages get trailing blank space) */
+  align-self: flex-start;
+  max-width: 100%;
 }
 
 .message-bubble.own .bubble-text {
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   color: white;
   border-bottom-right-radius: 4px;
+  align-self: flex-end;
 }
 
 .message-bubble.other .bubble-text {
@@ -1932,6 +1937,7 @@
   color: var(--text-primary);
   border: 1px solid var(--white-alpha-80);
   border-bottom-left-radius: 4px;
+  align-self: flex-start;
 }
 
 /* D6 group message block: collapsed placeholder for a blocked sender's message */
@@ -1942,6 +1948,21 @@
   border-bottom-left-radius: 4px;
   font-style: italic;
   font-size: 13px;
+}
+
+/* blacklist undelivered mark: red exclamation left of own bubble when message
+   was silently dropped (seq=0) because the recipient is blacklisted */
+.bubble-undelivered {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--status-error);
+}
+
+.bubble-undelivered svg {
+  width: 16px;
+  height: 16px;
 }
 
 .bubble-time {
@@ -3557,104 +3578,6 @@
   text-align: center;
 }
 
-.other-profile-relation-ops {
-  width: 100%;
-  margin-top: 20px;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 16px;
-}
-
-.other-profile-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.other-profile-ops-placeholder {
-  font-size: 13px;
-  color: var(--text-light);
-}
-
-/* 关系操作列表：拉黑/取消拉黑 + 删除好友，纵向堆叠 */
-.other-profile-ops-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* 关系操作：删除好友（危险）+ 内联二次确认 */
-.other-profile-op {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  cursor: pointer;
-  background: var(--white-alpha-40);
-  color: var(--text-secondary);
-}
-
-.other-profile-op.danger {
-  color: var(--status-error);
-}
-
-.other-profile-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.other-profile-confirm-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.other-profile-confirm-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.other-profile-confirm-cancel,
-.other-profile-confirm-danger {
-  flex: 1;
-  padding: 9px;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.other-profile-confirm-cancel {
-  background: var(--white-alpha-40);
-  color: var(--text-secondary);
-}
-
-.other-profile-confirm-danger {
-  background: var(--status-error);
-  color: white;
-}
-
-.other-profile-confirm-cancel:disabled,
-.other-profile-confirm-danger:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* 预览卡升级：关系状态 + 查看完整资料按钮 */
-.popup-relation {
-  font-size: 12px;
-  color: var(--text-light);
-  text-align: center;
-  margin-top: 2px;
-}
-
-.popup-action-btn.view-full {
-  background: var(--white-alpha-40);
-  color: var(--text-secondary);
-}
-
 .char-count {
   display: block;
   text-align: right;
@@ -4829,139 +4752,6 @@
    ============================================ */
 .input-wrapper.multiline {
   gap: 10px;
-}
-
-/* ============================================
-   用户信息弹出框
-   ============================================ */
-.user-profile-popup {
-  width: 280px;
-  background: linear-gradient(165deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-  border-radius: 16px;
-  box-shadow:
-    0 20px 40px rgba(30, 58, 95, 0.15),
-    0 0 0 1px rgba(30, 58, 95, 0.08);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.popup-avatar {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 3px solid var(--bg-primary);
-  box-shadow: 0 4px 12px rgba(30, 58, 95, 0.12);
-}
-
-.popup-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.popup-avatar .avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  color: var(--bg-primary);
-  font-size: 28px;
-  font-weight: 600;
-}
-
-.popup-info {
-  text-align: center;
-  width: 100%;
-}
-
-.popup-nickname {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
-.popup-id {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  margin-bottom: 8px;
-}
-
-.popup-signature {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  padding: 8px 12px;
-  background: rgba(30, 58, 95, 0.04);
-  border-radius: 8px;
-  word-break: break-word;
-}
-
-.popup-actions {
-  width: 100%;
-  margin-top: 4px;
-}
-
-.popup-error {
-  font-size: 12px;
-  color: var(--status-error);
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.popup-action-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.popup-action-btn.add {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--primary);
-}
-
-.popup-action-btn.add:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.2);
-}
-
-.popup-action-btn.add:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.popup-action-btn.add.sent {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--status-success);
-}
-
-.popup-action-btn.message {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--status-success);
-}
-
-.popup-action-btn.message:hover {
-  background: rgba(16, 185, 129, 0.2);
-}
-
-.popup-action-btn svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* 头像点击样式 */

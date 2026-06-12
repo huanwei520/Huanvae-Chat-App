@@ -33,10 +33,6 @@ vi.mock('../../src/components/common/MarkdownRenderer', () => ({
   ),
 }));
 
-vi.mock('../../src/chat/shared/UserProfilePopup', () => ({
-  UserProfilePopup: () => null,
-}));
-
 vi.mock('../../src/chat/shared/MobileMessageFullPreview', () => ({
   MobileMessageFullPreview: () => null,
 }));
@@ -57,6 +53,7 @@ const mockChatState = vi.hoisted(() => ({
   setGroupMemberSpecialCare: () => {},
   groupMemberRemarks: {} as Record<string, Record<string, string>>,
   setGroupMemberRemark: () => {},
+  friendBlacklistTimes: {} as Record<string, string>,
 }));
 vi.mock('../../src/stores', () => ({
   useChatStore: (selector: (s: typeof mockChatState) => unknown) => selector(mockChatState),
@@ -115,7 +112,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
 
   it('文本消息 + is_recalled=true → 渲染「消息已撤回」', () => {
     const msg = makeMessage({ message_type: 'text', is_recalled: true });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     expect(document.querySelector('.recalled-message')).toBeInTheDocument();
     expect(document.querySelector('.recalled-message')!.textContent).toContain('消息已撤回');
@@ -124,7 +121,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
 
   it('Telegram 风格契约：is_recalled=true → 走 .recall-system-row 独立 DOM 分支，不渲染普通气泡/sender 名字/头像，但保留时间戳', () => {
     const msg = makeMessage({ message_type: 'text', is_recalled: true });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     // 居中系统消息行存在
     expect(document.querySelector('.recall-system-row')).toBeInTheDocument();
@@ -147,7 +144,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
       file_size: 1234,
       file_hash: 'h-1',
     });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     expect(document.querySelector('.recalled-message')).toBeInTheDocument();
     expect(document.querySelector('[data-testid="file-content"]')).not.toBeInTheDocument();
@@ -159,7 +156,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
       is_recalled: true,
       file_uuid: 'img-1',
     });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     expect(document.querySelector('.recalled-message')).toBeInTheDocument();
     expect(document.querySelector('[data-testid="file-content"]')).not.toBeInTheDocument();
@@ -171,7 +168,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
       is_recalled: true,
       file_uuid: 'v-1',
     });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     expect(document.querySelector('.recalled-message')).toBeInTheDocument();
     expect(document.querySelector('[data-testid="file-content"]')).not.toBeInTheDocument();
@@ -183,7 +180,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
       is_recalled: false,
       file_uuid: 'f-2',
     });
-    render(<GroupMessageBubble message={msg} isOwn={false} currentUserId="me" />);
+    render(<GroupMessageBubble message={msg} isOwn={false} />);
 
     expect(document.querySelector('.recalled-message')).not.toBeInTheDocument();
     expect(document.querySelector('[data-testid="file-content"]')).toBeInTheDocument();

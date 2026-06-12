@@ -17,7 +17,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
-import { getFriends as getFriendsFromApi } from '../api/friends';
+import { getFriends as getFriendsFromApi, getBlacklist } from '../api/friends';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import * as db from '../db';
 import type { Friend } from '../types/chat';
@@ -77,6 +77,7 @@ export function useFriends(): UseFriendsReturn {
   const setFriends = useChatStore((state) => state.setFriends);
   const setLoading = useChatStore((state) => state.setFriendsLoading);
   const setError = useChatStore((state) => state.setFriendsError);
+  const setFriendBlacklistTimes = useChatStore((state) => state.setFriendBlacklistTimes);
   const addFriend = useChatStore((state) => state.addFriend);
   const removeFriend = useChatStore((state) => state.removeFriend);
 
@@ -108,8 +109,18 @@ export function useFriends(): UseFriendsReturn {
       console.warn('[Friends] 保存好友到本地失败:', err);
     }
 
+    // 拉黑时间映射（群消息「只折叠拉黑之后发的」需按发送时间比较拉黑时间点）
+    try {
+      const blacklist = await getBlacklist(api);
+      const times: Record<string, string> = {};
+      (Array.isArray(blacklist) ? blacklist : []).forEach((u) => { times[u.user_id] = u.created_at; });
+      setFriendBlacklistTimes(times);
+    } catch (err) {
+      console.warn('[Friends] 加载拉黑时间失败:', err);
+    }
+
     return serverFriends;
-  }, [api]);
+  }, [api, setFriendBlacklistTimes]);
 
   // 加载好友列表（本地优先 + 后台同步）
   const loadFriends = useCallback(async (): Promise<void> => {

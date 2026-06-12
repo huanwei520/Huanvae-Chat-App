@@ -38,10 +38,6 @@ vi.mock('../../src/components/common/MarkdownRenderer', () => ({
   ),
 }));
 
-vi.mock('../../src/chat/shared/UserProfilePopup', () => ({
-  UserProfilePopup: () => null,
-}));
-
 vi.mock('../../src/chat/shared/MobileMessageFullPreview', () => ({
   MobileMessageFullPreview: () => null,
 }));

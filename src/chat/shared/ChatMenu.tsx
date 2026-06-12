@@ -68,6 +68,8 @@ export function ChatMenuButton({
             avatarUploadProgress={menu.avatarUploadProgress}
             loadingHistory={menu.loadingHistory}
             historyProgress={menu.historyProgress}
+            isFriendSpecialCare={menu.isFriendSpecialCare}
+            isFriendBlacklisted={menu.isFriendBlacklisted}
             onSetView={menu.handleSetView}
             onUploadAvatar={() => menu.fileInputRef.current?.click()}
             onToggleMultiSelect={() => {
@@ -75,6 +77,8 @@ export function ChatMenuButton({
               menu.handleCloseMenu();
             }}
             onLoadAllHistory={menu.handleLoadAllHistory}
+            onToggleSpecialCare={menu.handleToggleSpecialCare}
+            onUnblacklist={menu.handleUnblacklist}
           />
         );
 
@@ -181,6 +185,26 @@ export function ChatMenuButton({
             loadingText="删除中..."
             loading={menu.loading}
             onConfirm={menu.handleRemoveFriend}
+            onCancel={() => menu.handleSetView('main')}
+          />
+        );
+
+      case 'confirm-blacklist':
+        return (
+          <ConfirmDialog
+            title="确认拉黑"
+            message={
+              <>
+                确定要拉黑好友{' '}
+                <strong>{target.type === 'friend' ? friendDisplayName(target.data) : ''}</strong>{' '}
+                吗？
+              </>
+            }
+            warning="拉黑后对方将收不到你发送的消息"
+            confirmText="确认拉黑"
+            loadingText="处理中..."
+            loading={menu.loading}
+            onConfirm={menu.handleBlacklist}
             onCancel={() => menu.handleSetView('main')}
           />
         );
