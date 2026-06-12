@@ -704,14 +704,8 @@ export function MobileMain() {
         )}
       </AnimatePresence>
 
-      {/* 他人完整资料页（移动整页，点头像进入） */}
-      <OtherProfileView
-        onSendMessage={(userId) => {
-          const f = page.friends.find((fr) => fr.friend_id === userId);
-          if (f) { handleSelectTarget({ type: 'friend', data: f }); }
-        }}
-        onFriendRemoved={page.refreshFriends}
-      />
+      {/* 他人公开资料页（移动整页，点头像进入只读资料） */}
+      <OtherProfileView />
     </div>
   );
 }

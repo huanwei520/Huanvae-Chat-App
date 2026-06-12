@@ -29,6 +29,7 @@ export type MenuView =
   | 'member-action'
   | 'mute-member'
   | 'confirm-delete'
+  | 'confirm-blacklist'
   | 'confirm-leave'
   | 'confirm-kick'
   | 'notices'

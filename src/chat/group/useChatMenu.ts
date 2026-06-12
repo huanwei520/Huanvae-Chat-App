@@ -22,7 +22,14 @@ import { useState, useRef, useEffect, useCallback, type ChangeEvent, type ReactN
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useAvatarCrop } from '../../components/common/AvatarCropModal';
 import { useChatStore } from '../../stores';
-import { removeFriend, setFriendRemark as apiSetFriendRemark } from '../../api/friends';
+import {
+  removeFriend,
+  setFriendRemark as apiSetFriendRemark,
+  addBlacklist,
+  removeBlacklist,
+  addSpecialCare,
+  removeSpecialCare,
+} from '../../api/friends';
 import {
   updateGroup,
   inviteToGroup,
@@ -122,10 +129,17 @@ export interface UseChatMenuReturn {
   isGroupOwnerOrAdmin: boolean;
   isGroupOwner: boolean;
 
+  // 好友关系状态（用于三条杠菜单的特别关心 / 拉黑 切换文案）
+  isFriendSpecialCare: boolean;
+  isFriendBlacklisted: boolean;
+
   // 操作方法
   handleToggle: () => void;
   handleSetView: (v: MenuView) => void;
   handleRemoveFriend: () => Promise<void>;
+  handleToggleSpecialCare: () => Promise<void>;
+  handleBlacklist: () => Promise<void>;
+  handleUnblacklist: () => Promise<void>;
   handleUpdateGroupName: () => Promise<void>;
   handleAvatarUpload: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   /** 头像裁剪弹窗（需在使用方渲染） */
@@ -230,6 +244,15 @@ export function useChatMenu({
   const isGroupOwnerOrAdmin = target.type === 'group' &&
     (currentRole === 'owner' || currentRole === 'admin');
   const isGroupOwner = target.type === 'group' && currentRole === 'owner';
+
+  // 好友关系状态：订阅 store 中该好友的实时 is_special_care / is_blacklisted
+  // （三条杠菜单据此显示「特别关心 / 取消特别关心」「拉黑 / 取消拉黑」文案）
+  const friendId = target.type === 'friend' ? target.data.friend_id : null;
+  const friendState = useChatStore((state) =>
+    friendId ? state.friends.find((f) => f.friend_id === friendId) : undefined,
+  );
+  const isFriendSpecialCare = !!friendState?.is_special_care;
+  const isFriendBlacklisted = !!friendState?.is_blacklisted;
 
   // 点击外部关闭
   useEffect(() => {
@@ -366,6 +389,57 @@ export function useChatMenu({
       setLoading(false);
     }
   }, [api, session, target, onFriendRemoved]);
+
+  // 特别关心切换（非破坏性，直接执行无需二次确认）
+  const handleToggleSpecialCare = useCallback(async () => {
+    if (target.type !== 'friend' || loading) { return; }
+    const next = !isFriendSpecialCare;
+    setLoading(true);
+    try {
+      if (next) {
+        await addSpecialCare(api, target.data.friend_id);
+      } else {
+        await removeSpecialCare(api, target.data.friend_id);
+      }
+      useChatStore.getState().setFriendSpecialCare(target.data.friend_id, next);
+      setSuccess(next ? '已设为特别关心' : '已取消特别关心');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, target, loading, isFriendSpecialCare]);
+
+  // 拉黑（破坏性，经 confirm-blacklist 视图二次确认后调用）
+  const handleBlacklist = useCallback(async () => {
+    if (target.type !== 'friend' || loading) { return; }
+    setLoading(true);
+    try {
+      await addBlacklist(api, target.data.friend_id);
+      useChatStore.getState().setFriendBlacklisted(target.data.friend_id, true);
+      setSuccess('已拉黑');
+      setView('main');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, target, loading]);
+
+  // 取消拉黑（直接执行）
+  const handleUnblacklist = useCallback(async () => {
+    if (target.type !== 'friend' || loading) { return; }
+    setLoading(true);
+    try {
+      await removeBlacklist(api, target.data.friend_id);
+      useChatStore.getState().setFriendBlacklisted(target.data.friend_id, false);
+      setSuccess('已取消拉黑');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, target, loading]);
 
   // 更新群名称
   const handleUpdateGroupName = useCallback(async () => {
@@ -839,10 +913,17 @@ export function useChatMenu({
     isGroupOwnerOrAdmin,
     isGroupOwner,
 
+    // 好友关系状态
+    isFriendSpecialCare,
+    isFriendBlacklisted,
+
     // 操作方法
     handleToggle,
     handleSetView,
     handleRemoveFriend,
+    handleToggleSpecialCare,
+    handleBlacklist,
+    handleUnblacklist,
     handleUpdateGroupName,
     handleAvatarUpload,
     avatarCropModal: cropModal,

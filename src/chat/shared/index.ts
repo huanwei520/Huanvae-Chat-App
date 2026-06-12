@@ -15,7 +15,6 @@ export { FilePreviewModal } from './FilePreviewModal';
 export { MessageContextMenu } from './MessageContextMenu';
 export { MultiSelectActionBar } from './MultiSelectActionBar';
 export { UploadProgress } from './UploadProgress';
-export { UserProfilePopup, type UserInfo } from './UserProfilePopup';
 
 // 动画配置（消息气泡入场/退出动画）
 export { getMessageVariants, messageTransition } from './animations';

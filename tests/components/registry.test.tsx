@@ -118,7 +118,6 @@ import * as DocumentDownloadAction from '../../src/chat/shared/DocumentDownloadA
 import * as MessageContextMenu from '../../src/chat/shared/MessageContextMenu';
 import * as MultiSelectActionBar from '../../src/chat/shared/MultiSelectActionBar';
 import * as UploadProgress from '../../src/chat/shared/UploadProgress';
-import * as UserProfilePopup from '../../src/chat/shared/UserProfilePopup';
 import * as OtherProfilePanel from '../../src/chat/shared/OtherProfilePanel';
 import * as OtherProfileView from '../../src/chat/shared/OtherProfileView';
 import * as ChatMessages from '../../src/chat/friend/ChatMessages';
@@ -365,7 +364,6 @@ const COMPONENT_MAP = {
   MessageContextMenu,
   MultiSelectActionBar,
   UploadProgress,
-  UserProfilePopup,
   OtherProfilePanel,
   OtherProfileView,
   ChatMessages,

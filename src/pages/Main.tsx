@@ -356,14 +356,8 @@ export function Main() {
         )}
       </AnimatePresence>
 
-      {/* 他人完整资料页（右侧抽屉，点头像/预览卡"查看完整资料"打开） */}
-      <OtherProfileView
-        onSendMessage={(userId) => {
-          const f = page.friends.find((fr) => fr.friend_id === userId);
-          if (f) { page.handleSelectTarget({ type: 'friend', data: f }); }
-        }}
-        onFriendRemoved={page.refreshFriends}
-      />
+      {/* 他人公开资料页（右侧抽屉，点头像打开只读资料） */}
+      <OtherProfileView />
 
       {/* 弹窗组件 */}
       <ProfileModal

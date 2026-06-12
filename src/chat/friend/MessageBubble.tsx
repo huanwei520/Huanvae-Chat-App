@@ -9,7 +9,7 @@
  * - 退出动画（反方向滑出）
  * - 右键菜单（桌面端右键/移动端长按触发：复制、撤回、删除、多选）
  * - 多选模式选中效果
- * - 点击头像显示用户信息弹出框
+ * - 点击头像查看对方公开资料（只读资料页）
  * - 移动端双击全屏预览（仅文本消息）
  * - 文本消息使用 MarkdownRenderer 渲染（支持 GFM、代码高亮）
  *
@@ -29,7 +29,6 @@ import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
-import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { isMobile } from '../../utils/platform';
@@ -143,24 +142,10 @@ export function MessageBubble({
   // 双击检测
   const lastTapTimeRef = useRef<number>(0);
 
-  // 用户信息弹出框状态
-  const avatarRef = useRef<HTMLDivElement>(null);
-  const [profilePopup, setProfilePopup] = useState<{
-    isOpen: boolean;
-    user: UserInfo | null;
-    anchorRect: DOMRect | null;
-    isSelf: boolean;
-  }>({
-    isOpen: false,
-    user: null,
-    anchorRect: null,
-    isSelf: false,
-  });
-
-  // 打开他人完整资料页（移动端点头像直接进入）
+  // 打开公开资料只读页（点头像统一走资料页，桌面/移动一致）
   const openProfileView = useProfileViewStore((s) => s.open);
 
-  // 点击头像显示/隐藏用户信息
+  // 点击头像查看对方（或自己）的公开资料只读页
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 多选模式下，点击头像也触发选中
@@ -168,54 +153,8 @@ export function MessageBubble({
       onToggleSelect?.();
       return;
     }
-
-    // 移动端点他人头像直接进完整资料页；桌面端走预览弹窗
-    if (isMobile() && !isOwn) {
-      openProfileView(friend.friend_id);
-      return;
-    }
-
-    const targetUserId = isOwn ? session.userId : friend.friend_id;
-
-    // 如果弹出框已打开且是同一用户，则关闭
-    if (profilePopup.isOpen && profilePopup.user?.userId === targetUserId) {
-      setProfilePopup((prev) => ({ ...prev, isOpen: false }));
-      return;
-    }
-
-    const rect = avatarRef.current?.getBoundingClientRect() || null;
-
-    if (isOwn) {
-      // 点击自己的头像
-      setProfilePopup({
-        isOpen: true,
-        user: {
-          userId: session.userId,
-          nickname: session.profile.user_nickname,
-          avatarUrl: session.profile.user_avatar_url,
-        },
-        anchorRect: rect,
-        isSelf: true,
-      });
-    } else {
-      // 点击好友的头像
-      setProfilePopup({
-        isOpen: true,
-        user: {
-          userId: friend.friend_id,
-          nickname: friendDisplayName(friend),
-          avatarUrl: friend.friend_avatar_url,
-        },
-        anchorRect: rect,
-        isSelf: false,
-      });
-    }
-  }, [isMultiSelectMode, onToggleSelect, isOwn, session, friend, openProfileView, profilePopup.isOpen, profilePopup.user?.userId]);
-
-  // 关闭用户信息弹出框
-  const handleCloseProfile = useCallback(() => {
-    setProfilePopup((prev) => ({ ...prev, isOpen: false }));
-  }, []);
+    openProfileView(isOwn ? session.userId : friend.friend_id);
+  }, [isMultiSelectMode, onToggleSelect, isOwn, session.userId, friend.friend_id, openProfileView]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -423,7 +362,6 @@ export function MessageBubble({
               onTouchMove={handleTouchMove}
             >
               <div
-                ref={avatarRef}
                 className="bubble-avatar clickable"
                 onClick={handleAvatarClick}
               >
@@ -479,17 +417,6 @@ export function MessageBubble({
         onSaveToGallery={handleSaveToGallery}
         onClose={handleCloseMenu}
       />
-
-      {/* 用户信息弹出框 */}
-      {profilePopup.user && (
-        <UserProfilePopup
-          user={profilePopup.user}
-          anchorRect={profilePopup.anchorRect}
-          isOpen={profilePopup.isOpen}
-          onClose={handleCloseProfile}
-          isSelf={profilePopup.isSelf}
-        />
-      )}
 
       {/* 移动端全屏消息预览（双击触发） */}
       {isMobile() && message.message_type === 'text' && (

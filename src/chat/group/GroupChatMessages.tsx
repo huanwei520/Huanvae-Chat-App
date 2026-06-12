@@ -328,7 +328,6 @@ export function GroupChatMessages({
                   key={stableKey}
                   message={message}
                   isOwn={isOwn}
-                  currentUserId={currentUserId}
                   isMultiSelectMode={isMultiSelectMode}
                   isSelected={isSelected}
                   onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

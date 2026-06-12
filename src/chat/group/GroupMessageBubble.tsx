@@ -27,7 +27,6 @@ import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
-import { UserProfilePopup, type UserInfo } from '../shared/UserProfilePopup';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useChatStore, useProfileViewStore } from '../../stores';
@@ -50,8 +49,6 @@ import type { GroupReader } from './useGroupReadReceipt';
 interface GroupMessageBubbleProps {
   message: GroupMessage;
   isOwn: boolean;
-  /** 当前用户 ID */
-  currentUserId?: string;
   /** 是否处于多选模式 */
   isMultiSelectMode?: boolean;
   /** 是否被选中 */
@@ -107,7 +104,6 @@ import { GroupReadReceipt } from './GroupReadReceipt';
 export function GroupMessageBubble({
   message,
   isOwn,
-  currentUserId,
   isMultiSelectMode = false,
   isSelected = false,
   onToggleSelect,
@@ -169,22 +165,13 @@ export function GroupMessageBubble({
   // 双击检测
   const lastTapTimeRef = useRef<number>(0);
 
-  // 用户信息弹出框状态
-  const avatarRef = useRef<HTMLDivElement>(null);
-  const [profilePopup, setProfilePopup] = useState<{
-    isOpen: boolean;
-    user: UserInfo | null;
-    anchorRect: DOMRect | null;
-  }>({
-    isOpen: false,
-    user: null,
-    anchorRect: null,
-  });
-
-  // 打开他人完整资料页（移动端点头像直接进入）
+  // 打开公开资料只读页（非好友/自己点头像走资料页）
   const openProfileView = useProfileViewStore((s) => s.open);
+  // store 方法和好友列表（点他人头像：好友进私聊，非好友看资料）
+  const setChatTarget = useChatStore((state) => state.setChatTarget);
+  const friends = useChatStore((state) => state.friends);
 
-  // 点击头像显示/隐藏用户信息
+  // 点击成员头像：好友→进私聊；非好友→看公开资料；自己→看自己资料
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 多选模式下，点击头像也触发选中
@@ -192,47 +179,17 @@ export function GroupMessageBubble({
       onToggleSelect?.();
       return;
     }
-
-    // 移动端点他人头像直接进完整资料页；桌面端走预览弹窗
-    if (isMobile() && !isOwn) {
+    if (isOwn) {
       openProfileView(message.sender_id);
       return;
     }
-
-    // 如果弹出框已打开且是同一用户，则关闭
-    if (profilePopup.isOpen && profilePopup.user?.userId === message.sender_id) {
-      setProfilePopup((prev) => ({ ...prev, isOpen: false }));
-      return;
-    }
-
-    const rect = avatarRef.current?.getBoundingClientRect() || null;
-    setProfilePopup({
-      isOpen: true,
-      user: {
-        userId: message.sender_id,
-        nickname: message.sender_nickname,
-        avatarUrl: message.sender_avatar_url || null,
-      },
-      anchorRect: rect,
-    });
-  }, [isMultiSelectMode, onToggleSelect, isOwn, message, openProfileView, profilePopup.isOpen, profilePopup.user?.userId]);
-
-  // 关闭用户信息弹出框
-  const handleCloseProfile = useCallback(() => {
-    setProfilePopup((prev) => ({ ...prev, isOpen: false }));
-  }, []);
-
-  // 获取 store 方法和好友列表
-  const setChatTarget = useChatStore((state) => state.setChatTarget);
-  const friends = useChatStore((state) => state.friends);
-
-  // 发送消息（切换到好友私聊）
-  const handleSendMessage = useCallback((userId: string) => {
-    const friend = friends.find((f) => f.friend_id === userId);
+    const friend = friends.find((f) => f.friend_id === message.sender_id);
     if (friend) {
       setChatTarget({ type: 'friend', data: friend });
+    } else {
+      openProfileView(message.sender_id);
     }
-  }, [friends, setChatTarget]);
+  }, [isMultiSelectMode, onToggleSelect, isOwn, message.sender_id, friends, setChatTarget, openProfileView]);
 
   // D6 群内屏蔽：该发送者是否已被我屏蔽（仅他人消息有意义）
   const isSenderBlocked = useChatStore((state) =>
@@ -518,7 +475,6 @@ export function GroupMessageBubble({
               onTouchMove={handleTouchMove}
             >
               <div
-                ref={avatarRef}
                 className="bubble-avatar clickable"
                 onClick={handleAvatarClick}
               >
@@ -606,18 +562,6 @@ export function GroupMessageBubble({
         onToggleSpecialCareSender={handleToggleSpecialCare}
         onClose={handleCloseMenu}
       />
-
-      {/* 用户信息弹出框 */}
-      {profilePopup.user && (
-        <UserProfilePopup
-          user={profilePopup.user}
-          anchorRect={profilePopup.anchorRect}
-          isOpen={profilePopup.isOpen}
-          onClose={handleCloseProfile}
-          isSelf={currentUserId === profilePopup.user.userId}
-          onSendMessage={handleSendMessage}
-        />
-      )}
 
       {/* 移动端全屏消息预览（双击触发） */}
       {isMobile() && message.message_type === 'text' && (

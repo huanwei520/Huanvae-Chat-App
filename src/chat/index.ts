@@ -26,7 +26,6 @@
  * │   ├── MessageContextMenu.tsx - 右键菜单
  * │   ├── MultiSelectActionBar.tsx - 多选操作栏
  * │   ├── UploadProgress.tsx    - 上传进度
- * │   ├── UserProfilePopup.tsx  - 用户信息弹窗
  * │   └── menu/                 - 群聊菜单组件
  * └── index.ts         # 统一导出
  * ```
@@ -65,7 +64,6 @@ export { FilePreviewModal } from './shared/FilePreviewModal';
 export { MessageContextMenu } from './shared/MessageContextMenu';
 export { MultiSelectActionBar } from './shared/MultiSelectActionBar';
 export { UploadProgress } from './shared/UploadProgress';
-export { UserProfilePopup, type UserInfo } from './shared/UserProfilePopup';
 
 // 菜单组件
 export * from './shared/menu';
