@@ -374,6 +374,53 @@ export function getGroupMessageBlocks(
   return api.get<GroupMessageBlocksResponse>(`/api/groups/${groupId}/message-blocks`);
 }
 
+// ============================================
+// 群内特别关心某成员（M3，单向、仅本群、仅自己可见）
+// 效果：被关心成员在本群发言时，本地通知标题带 ⭐ 强提醒（判定在客户端）。
+// ============================================
+
+/** 群内被特别关心成员项（client.ts 已解包 ApiResponse.data 为数组） */
+export interface GroupSpecialCare {
+  user_id: string;
+  user_nickname: string | null;
+  user_avatar_url: string | null;
+  created_at: string;
+}
+
+export type GroupSpecialCaresResponse = GroupSpecialCare[];
+
+/**
+ * 群内特别关心某成员（仅本群、仅自己可见；不能关心自己；仅限本群成员）
+ */
+export function addGroupSpecialCare(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  return api.post(`/api/groups/${groupId}/special-care`, { target_user_id: targetUserId });
+}
+
+/**
+ * 取消群内特别关心
+ */
+export function removeGroupSpecialCare(
+  api: ApiClient,
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  return api.delete(`/api/groups/${groupId}/special-care/${encodeURIComponent(targetUserId)}`);
+}
+
+/**
+ * 获取本人在该群特别关心的成员名单
+ */
+export function getGroupSpecialCares(
+  api: ApiClient,
+  groupId: string,
+): Promise<GroupSpecialCaresResponse> {
+  return api.get<GroupSpecialCaresResponse>(`/api/groups/${groupId}/special-care`);
+}
+
 /**
  * 解散群聊
  * 权限：仅群主

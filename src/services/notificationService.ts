@@ -305,7 +305,10 @@ export interface NewMessageNotificationParams {
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */
   activeChat?: { type: 'friend' | 'group'; id: string } | null;
-  /** 发送者是否为特别关心好友（true 时强提醒：通知标题带 ⭐ 标记，更醒目） */
+  /**
+   * 发送者是否被特别关心（true 时强提醒：通知标题带 ⭐ 标记，更醒目）。
+   * 好友消息 = 特别关心好友；群消息 = 在本群被特别关心的成员（M3）。
+   */
   isSpecialCare?: boolean;
 }
 
@@ -324,6 +327,14 @@ export interface NewMessageNotificationParams {
  */
 export function friendNotificationTitle(senderName: string, isSpecialCare: boolean): string {
   return isSpecialCare ? `⭐ ${senderName}` : senderName;
+}
+
+/**
+ * 群消息通知标题：被特别关心的群成员发言时，群名加 ⭐ 前缀强提醒，更醒目（M3）。
+ * 发送者信息在通知正文「发送者: 内容」里，故 ⭐ 标在群名上即可一眼看出本群有人值得关注。
+ */
+export function groupNotificationTitle(groupName: string, isSpecialCare: boolean): string {
+  return isSpecialCare ? `⭐ ${groupName}` : groupName;
 }
 
 export async function notifyNewMessage(params: NewMessageNotificationParams): Promise<void> {
@@ -363,7 +374,8 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
 
   if (sourceType === 'group') {
     // 群消息：标题为群名，正文为 "发送者: 消息内容"
-    title = groupName || '群消息';
+    // 被特别关心的群成员发言：群名带 ⭐ 前缀强提醒，更醒目（M3）
+    title = groupNotificationTitle(groupName || '群消息', !!isSpecialCare);
     body = `${senderName}: ${preview}`;
   } else {
     // 好友消息：标题为发送者名称，正文为消息内容

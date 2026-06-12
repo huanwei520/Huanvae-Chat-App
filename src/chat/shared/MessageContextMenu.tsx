@@ -44,6 +44,10 @@ interface MessageContextMenuProps {
   canBlockSender?: boolean;
   /** D6 群内屏蔽：该发送者当前是否已被屏蔽（决定按钮文案：屏蔽 / 取消屏蔽） */
   isSenderBlocked?: boolean;
+  /** M3 群内特别关心：是否显示「特别关心此人 / 取消特别关心」项（仅群聊他人消息传 true） */
+  canSpecialCareSender?: boolean;
+  /** M3 群内特别关心：该发送者当前是否已被特别关心（决定按钮文案） */
+  isSenderSpecialCared?: boolean;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -53,6 +57,8 @@ interface MessageContextMenuProps {
   onSaveToGallery?: () => void;
   /** D6 群内屏蔽：切换屏蔽/取消屏蔽该发送者 */
   onToggleBlockSender?: () => void;
+  /** M3 群内特别关心：切换特别关心/取消该发送者 */
+  onToggleSpecialCareSender?: () => void;
   onClose: () => void;
 }
 
@@ -66,12 +72,15 @@ export function MessageContextMenu({
   fileType,
   canBlockSender,
   isSenderBlocked,
+  canSpecialCareSender,
+  isSenderSpecialCared,
   onRecall,
   onDelete,
   onMultiSelect,
   onSelectText,
   onSaveToGallery,
   onToggleBlockSender,
+  onToggleSpecialCareSender,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -182,6 +191,7 @@ export function MessageContextMenu({
       if (canRecall) { itemCount += 1; }
       if (canSaveToGallery) { itemCount += 1; } // 保存
       if (canBlockSender && onToggleBlockSender) { itemCount += 1; } // 屏蔽此人
+      if (canSpecialCareSender && onToggleSpecialCareSender) { itemCount += 1; } // 特别关心
       const menuWidth = itemCount * 52 + 16; // 每项 52px + padding
       const menuHeight = 44;
 
@@ -223,6 +233,7 @@ export function MessageContextMenu({
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
     if (canBlockSender && onToggleBlockSender) { menuHeight += 48; } // 分隔线 + 屏蔽此人
+    if (canSpecialCareSender && onToggleSpecialCareSender) { menuHeight += 36; } // 特别关心（与屏蔽共用分隔线）
 
     let x = position.x;
     let y = position.y;
@@ -346,21 +357,35 @@ export function MessageContextMenu({
             <MultiSelectIcon />
             <span>多选</span>
           </button>
-          {/* D6 群内屏蔽：屏蔽 / 取消屏蔽此人消息（仅群聊他人消息） */}
+          {/* 群内个人视图操作：特别关心 + 屏蔽（仅群聊他人消息），共用一条分隔线 */}
+          {((canSpecialCareSender && onToggleSpecialCareSender) || (canBlockSender && onToggleBlockSender)) && (
+            <div className="context-menu-divider" />
+          )}
+          {/* M3 群内特别关心：特别关心 / 取消特别关心此人 */}
+          {canSpecialCareSender && onToggleSpecialCareSender && (
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onToggleSpecialCareSender();
+                onClose();
+              }}
+            >
+              <StarIcon filled={isSenderSpecialCared} />
+              <span>{isSenderSpecialCared ? '取消特别关心' : '特别关心此人'}</span>
+            </button>
+          )}
+          {/* D6 群内屏蔽：屏蔽 / 取消屏蔽此人消息 */}
           {canBlockSender && onToggleBlockSender && (
-            <>
-              <div className="context-menu-divider" />
-              <button
-                className="context-menu-item"
-                onClick={() => {
-                  onToggleBlockSender();
-                  onClose();
-                }}
-              >
-                <BlockIcon />
-                <span>{isSenderBlocked ? '取消屏蔽此人' : '屏蔽此人消息'}</span>
-              </button>
-            </>
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onToggleBlockSender();
+                onClose();
+              }}
+            >
+              <BlockIcon />
+              <span>{isSenderBlocked ? '取消屏蔽此人' : '屏蔽此人消息'}</span>
+            </button>
           )}
         </motion.div>
       )}
@@ -389,6 +414,13 @@ const RecallIcon = () => (
 const DeleteIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+  </svg>
+);
+
+// 特别关心图标（M3——五角星，已关心时实心）
+const StarIcon = ({ filled }: { filled?: boolean }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
   </svg>
 );
 

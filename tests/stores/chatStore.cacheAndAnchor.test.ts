@@ -107,6 +107,7 @@ describe('chatStore 缓存与滚动锚点', () => {
     useChatStore.getState().cacheGroupMessages('group-X', [makeGroupMessage('gm1')]);
     useChatStore.getState().saveScrollAnchor('friend-A', 'anchor-1');
     useChatStore.getState().setGroupMessageBlocks('group-X', ['u1']);
+    useChatStore.getState().setGroupSpecialCares('group-X', ['u2']);
 
     useChatStore.getState().clearCacheAndAnchors();
 
@@ -114,6 +115,7 @@ describe('chatStore 缓存与滚动锚点', () => {
     expect(useChatStore.getState().cachedGroupMessages).toEqual({});
     expect(useChatStore.getState().scrollAnchors).toEqual({});
     expect(useChatStore.getState().groupMessageBlocks).toEqual({});
+    expect(useChatStore.getState().groupSpecialCares).toEqual({});
   });
 
   it('cacheFriendMessages 多次写入累积不互相覆盖', () => {

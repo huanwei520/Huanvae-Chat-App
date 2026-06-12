@@ -32,7 +32,12 @@ import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useChatStore, useProfileViewStore } from '../../stores';
 import { useApi } from '../../contexts/SessionContext';
-import { addGroupMessageBlock, removeGroupMessageBlock } from '../../api/groups';
+import {
+  addGroupMessageBlock,
+  removeGroupMessageBlock,
+  addGroupSpecialCare,
+  removeGroupSpecialCare,
+} from '../../api/groups';
 import { isMobile } from '../../utils/platform';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -249,6 +254,30 @@ export function GroupMessageBubble({
       console.error('[GroupMessageBubble] 切换屏蔽失败:', err);
     }
   }, [api, groupId, isOwn, isSenderBlocked, message.sender_id, setGroupMemberBlocked]);
+
+  // M3 群内特别关心：该发送者是否已被我特别关心（仅他人消息有意义）
+  const isSenderSpecialCared = useChatStore((state) =>
+    groupId && !isOwn ? (state.groupSpecialCares[groupId] ?? []).includes(message.sender_id) : false,
+  );
+  const setGroupMemberSpecialCare = useChatStore((state) => state.setGroupMemberSpecialCare);
+
+  // 切换特别关心/取消（乐观更新 store，失败回滚）。效果仅作用于该成员发言时的通知强提醒（⭐）。
+  const handleToggleSpecialCare = useCallback(async () => {
+    if (!groupId || isOwn) { return; }
+    const senderId = message.sender_id;
+    const next = !isSenderSpecialCared;
+    setGroupMemberSpecialCare(groupId, senderId, next);
+    try {
+      if (next) {
+        await addGroupSpecialCare(api, groupId, senderId);
+      } else {
+        await removeGroupSpecialCare(api, groupId, senderId);
+      }
+    } catch (err) {
+      setGroupMemberSpecialCare(groupId, senderId, !next);
+      console.error('[GroupMessageBubble] 切换特别关心失败:', err);
+    }
+  }, [api, groupId, isOwn, isSenderSpecialCared, message.sender_id, setGroupMemberSpecialCare]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -530,12 +559,15 @@ export function GroupMessageBubble({
         fileType={getFileType()}
         canBlockSender={!isOwn && !!groupId && message.message_type !== 'system'}
         isSenderBlocked={isSenderBlocked}
+        canSpecialCareSender={!isOwn && !!groupId && message.message_type !== 'system'}
+        isSenderSpecialCared={isSenderSpecialCared}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
         onSelectText={message.message_type === 'text' ? () => setShowFullPreview(true) : undefined}
         onSaveToGallery={handleSaveToGallery}
         onToggleBlockSender={handleToggleBlockSender}
+        onToggleSpecialCareSender={handleToggleSpecialCare}
         onClose={handleCloseMenu}
       />
 

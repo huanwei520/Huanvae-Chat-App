@@ -106,7 +106,7 @@ interface ChatState {
    *   - 写入：useLocal*Messages 的 useEffect cleanup（unmount 触发）保存当前 messages 全量
    *   - 读取：useLocal*Messages 的 useState 初始化函数
    *   - 校准：mount 后异步 db.getMessages(50) 与缓存合并（新消息追加）
-   *   - 清理：用户退出登录 / 切换账号（resetAll 同步清空）
+   *   - 清理：用户退出登录 / 切换账号（clearCacheAndAnchors 同步清空，经 SessionContext.clearSession 调用）
    *
    * 注意：不缓存"附件是否在本地"（isLocal/localPath）—— 那是文件系统 SSOT，
    * 永远由 useFileCache 通过 Rust get_cached_file_path 实时 stat 校验。
@@ -129,6 +129,15 @@ interface ChatState {
    * 进群时由 getGroupMessageBlocks 加载；屏蔽/取消时乐观更新。
    */
   groupMessageBlocks: Record<string, string[]>;
+
+  /**
+   * 每群「我特别关心的成员 user_id」集合（M3）。
+   *
+   * 效果：被关心成员在本群发言时，本地通知标题带 ⭐ 强提醒（判定在客户端）。
+   * 进群时由 getGroupSpecialCares 加载；右键特别关心/取消时乐观更新。
+   * 与 [[groupMessageBlocks]] 同为「群+成员」单向私有视图，互相独立。
+   */
+  groupSpecialCares: Record<string, string[]>;
 
   /**
    * 每会话的滚动锚点 message_uuid。
@@ -184,6 +193,10 @@ interface ChatActions {
   setGroupMessageBlocks: (groupId: string, userIds: string[]) => void;
   /** 群内屏蔽/取消屏蔽某成员（乐观更新，群消息列表即时过滤/恢复，D6） */
   setGroupMemberBlocked: (groupId: string, userId: string, blocked: boolean) => void;
+  /** 设置某群「我特别关心的成员」集合（进群时由 getGroupSpecialCares 加载，M3） */
+  setGroupSpecialCares: (groupId: string, userIds: string[]) => void;
+  /** 群内特别关心/取消某成员（乐观更新，影响该成员发言的通知强提醒 ⭐，M3） */
+  setGroupMemberSpecialCare: (groupId: string, userId: string, cared: boolean) => void;
 
   // ==================== 聊天目标操作 ====================
   /** 设置当前聊天目标 */
@@ -277,6 +290,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   groupMessageBlocks: {},
 
+  groupSpecialCares: {},
+
   scrollAnchors: {},
 
   // ==================== 好友操作 ====================
@@ -352,6 +367,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return { groupMessageBlocks: { ...state.groupMessageBlocks, [groupId]: next } };
   }),
 
+  setGroupSpecialCares: (groupId, userIds) => set((state) => ({
+    groupSpecialCares: { ...state.groupSpecialCares, [groupId]: userIds },
+  })),
+
+  setGroupMemberSpecialCare: (groupId, userId, cared) => set((state) => {
+    const cur = state.groupSpecialCares[groupId] ?? [];
+    let next: string[];
+    if (!cared) {
+      next = cur.filter((id) => id !== userId);
+    } else if (cur.includes(userId)) {
+      next = cur;
+    } else {
+      next = [...cur, userId];
+    }
+    return { groupSpecialCares: { ...state.groupSpecialCares, [groupId]: next } };
+  }),
+
   // ==================== 聊天目标操作 ====================
   setChatTarget: (target) => set({ chatTarget: target }),
 
@@ -418,7 +450,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearCacheAndAnchors: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {}, groupSpecialCares: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();
