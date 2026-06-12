@@ -210,6 +210,13 @@ export function GroupMessageBubble({
   );
   const setGroupMemberBlocked = useChatStore((state) => state.setGroupMemberBlocked);
 
+  // 好友拉黑：发送者是我拉黑的好友时，其群消息也在所有群折叠（取消拉黑后随 store 自动恢复）。
+  // 与 D6 群屏蔽相互独立：群屏蔽走 groupMessageBlocks（右键取消），拉黑走好友黑名单（私聊/设置取消）。
+  const isSenderBlacklisted = !isOwn
+    && friends.some((f) => f.friend_id === message.sender_id && f.is_blacklisted);
+  // 折叠占位的统一判定：群屏蔽 或 好友拉黑 任一命中
+  const isSenderHidden = isSenderBlocked || isSenderBlacklisted;
+
   // 切换屏蔽/取消屏蔽该发送者（乐观更新 store，失败回滚）。被屏蔽者消息渲染成折叠占位，
   // 但仍可右键此项取消屏蔽——这是取消屏蔽的唯一入口。
   const handleToggleBlockSender = useCallback(async () => {
@@ -503,9 +510,11 @@ export function GroupMessageBubble({
                 {!isOwn && (
                   <div className="bubble-sender">{senderDisplayName}</div>
                 )}
-                {/* D6 群内屏蔽：被屏蔽者消息折叠成占位（内容隐藏），右键可取消屏蔽 */}
-                {isSenderBlocked ? (
-                  <div className="bubble-text bubble-blocked-placeholder">已屏蔽此人消息</div>
+                {/* 折叠占位（内容隐藏）：D6 群屏蔽右键可取消；好友拉黑在私聊/设置取消后自动恢复 */}
+                {isSenderHidden ? (
+                  <div className="bubble-text bubble-blocked-placeholder">
+                    {isSenderBlocked ? '已屏蔽此人消息' : '已拉黑此人消息'}
+                  </div>
                 ) : (
                   <>
                     {(message.message_type === 'text' || message.message_type === 'system') && (
