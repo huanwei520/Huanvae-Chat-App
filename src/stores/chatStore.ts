@@ -121,11 +121,21 @@ interface ChatState {
   cachedGroupMessages: Record<string, GroupMessage[]>;
 
   /**
+   * 每群「我屏蔽的成员 user_id」集合（D6）。
+   *
+   * 服务端已过滤新同步/历史消息，但本地 SQLite 缓存的旧消息仍含被屏蔽者内容。
+   * GroupMessageBubble 据此把这些消息渲染成折叠占位（隐藏内容），并保留消息体以便
+   * 右键「取消屏蔽」——这是取消屏蔽的唯一入口（被隐藏的消息无法右键，故不能整条剔除）。
+   * 进群时由 getGroupMessageBlocks 加载；屏蔽/取消时乐观更新。
+   */
+  groupMessageBlocks: Record<string, string[]>;
+
+  /**
    * 每群「我特别关心的成员 user_id」集合（M3）。
    *
    * 效果：被关心成员在本群发言时，本地通知标题带 ⭐ 强提醒（判定在客户端）。
    * 进群时由 getGroupSpecialCares 加载；右键特别关心/取消时乐观更新。
-   * 单向私有视图（群+成员），仅自己可见。
+   * 与 [[groupMessageBlocks]] 同为「群+成员」单向私有视图，互相独立。
    */
   groupSpecialCares: Record<string, string[]>;
 
@@ -179,6 +189,10 @@ interface ChatActions {
    * 细粒度更新，只修改指定群的属性，不影响其他群
    */
   updateGroup: (groupId: string, updates: Partial<Group>) => void;
+  /** 设置某群「我屏蔽的成员」集合（进群时由 getGroupMessageBlocks 加载，D6） */
+  setGroupMessageBlocks: (groupId: string, userIds: string[]) => void;
+  /** 群内屏蔽/取消屏蔽某成员（乐观更新，群消息列表即时过滤/恢复，D6） */
+  setGroupMemberBlocked: (groupId: string, userId: string, blocked: boolean) => void;
   /** 设置某群「我特别关心的成员」集合（进群时由 getGroupSpecialCares 加载，M3） */
   setGroupSpecialCares: (groupId: string, userIds: string[]) => void;
   /** 群内特别关心/取消某成员（乐观更新，影响该成员发言的通知强提醒 ⭐，M3） */
@@ -274,6 +288,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   cachedGroupMessages: {},
 
+  groupMessageBlocks: {},
+
   groupSpecialCares: {},
 
   scrollAnchors: {},
@@ -333,6 +349,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       g.group_id === groupId ? { ...g, ...updates } : g,
     ),
   })),
+
+  setGroupMessageBlocks: (groupId, userIds) => set((state) => ({
+    groupMessageBlocks: { ...state.groupMessageBlocks, [groupId]: userIds },
+  })),
+
+  setGroupMemberBlocked: (groupId, userId, blocked) => set((state) => {
+    const cur = state.groupMessageBlocks[groupId] ?? [];
+    let next: string[];
+    if (!blocked) {
+      next = cur.filter((id) => id !== userId);
+    } else if (cur.includes(userId)) {
+      next = cur;
+    } else {
+      next = [...cur, userId];
+    }
+    return { groupMessageBlocks: { ...state.groupMessageBlocks, [groupId]: next } };
+  }),
 
   setGroupSpecialCares: (groupId, userIds) => set((state) => ({
     groupSpecialCares: { ...state.groupSpecialCares, [groupId]: userIds },
@@ -417,7 +450,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearCacheAndAnchors: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupSpecialCares: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {}, groupSpecialCares: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

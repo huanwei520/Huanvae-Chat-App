@@ -30,7 +30,7 @@ import { getSyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { sendGroupMessage, recallGroupMessage, type GroupMessage } from '../../api/groupMessages';
-import { getGroupSpecialCares } from '../../api/groups';
+import { getGroupMessageBlocks, getGroupSpecialCares } from '../../api/groups';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
@@ -118,6 +118,8 @@ export function useLocalGroupMessages(groupId: string | null) {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // D6 群内屏蔽：进群时把本群屏蔽集拉进 store，供 GroupMessageBubble 渲染折叠占位用。
+  const setGroupMessageBlocks = useChatStore((s) => s.setGroupMessageBlocks);
   // M3 群内特别关心：进群时把本群关心集拉进 store，供右键切换 + 群消息通知强提醒判定用。
   const setGroupSpecialCares = useChatStore((s) => s.setGroupSpecialCares);
   // sending 状态保留用于向后兼容，但不再使用发送锁
@@ -865,6 +867,20 @@ export function useLocalGroupMessages(groupId: string | null) {
     }
     wasConnectedRef.current = ws.connected;
   }, [ws.connected, syncMessagesInBackground]);
+
+  // D6：进群时加载本群屏蔽集到 store（失败忽略——服务端仍会过滤新同步的消息）。
+  // 屏蔽者的消息不在此处过滤剔除，而是由 GroupMessageBubble 按 store 状态渲染成
+  // 折叠占位（内容隐藏，但保留消息体以便右键「取消屏蔽」——这是唯一的取消入口）。
+  useEffect(() => {
+    if (!groupId) { return; }
+    let cancelled = false;
+    getGroupMessageBlocks(api, groupId)
+      .then((list) => {
+        if (!cancelled) { setGroupMessageBlocks(groupId, list.map((b) => b.user_id)); }
+      })
+      .catch((err) => { console.warn('[GroupMessages] 加载群屏蔽集失败:', err); });
+    return () => { cancelled = true; };
+  }, [api, groupId, setGroupMessageBlocks]);
 
   // M3：进群时加载本群特别关心集到 store（失败忽略——仅影响通知强提醒标记）
   useEffect(() => {

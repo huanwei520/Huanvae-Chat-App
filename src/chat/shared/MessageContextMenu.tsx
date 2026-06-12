@@ -40,6 +40,10 @@ interface MessageContextMenuProps {
   messageContent?: string | null;
   /** 文件类型（用于移动端保存到相册，仅图片/视频有效） */
   fileType?: 'image' | 'video' | 'file' | null;
+  /** D6 群内屏蔽：是否显示「屏蔽此人消息 / 取消屏蔽」项（仅群聊他人消息传 true） */
+  canBlockSender?: boolean;
+  /** D6 群内屏蔽：该发送者当前是否已被屏蔽（决定按钮文案：屏蔽 / 取消屏蔽） */
+  isSenderBlocked?: boolean;
   /** M3 群内特别关心：是否显示「特别关心此人 / 取消特别关心」项（仅群聊他人消息传 true） */
   canSpecialCareSender?: boolean;
   /** M3 群内特别关心：该发送者当前是否已被特别关心（决定按钮文案） */
@@ -51,6 +55,8 @@ interface MessageContextMenuProps {
   onSelectText?: () => void;
   /** 保存到相册（移动端专属，图片/视频有效） */
   onSaveToGallery?: () => void;
+  /** D6 群内屏蔽：切换屏蔽/取消屏蔽该发送者 */
+  onToggleBlockSender?: () => void;
   /** M3 群内特别关心：切换特别关心/取消该发送者 */
   onToggleSpecialCareSender?: () => void;
   onClose: () => void;
@@ -64,6 +70,8 @@ export function MessageContextMenu({
   localPath,
   messageContent,
   fileType,
+  canBlockSender,
+  isSenderBlocked,
   canSpecialCareSender,
   isSenderSpecialCared,
   onRecall,
@@ -71,6 +79,7 @@ export function MessageContextMenu({
   onMultiSelect,
   onSelectText,
   onSaveToGallery,
+  onToggleBlockSender,
   onToggleSpecialCareSender,
   onClose,
 }: MessageContextMenuProps) {
@@ -181,6 +190,7 @@ export function MessageContextMenu({
       if (hasMessageContent && onSelectText) { itemCount += 1; } // 选取文字
       if (canRecall) { itemCount += 1; }
       if (canSaveToGallery) { itemCount += 1; } // 保存
+      if (canBlockSender && onToggleBlockSender) { itemCount += 1; } // 屏蔽此人
       if (canSpecialCareSender && onToggleSpecialCareSender) { itemCount += 1; } // 特别关心
       const menuWidth = itemCount * 52 + 16; // 每项 52px + padding
       const menuHeight = 44;
@@ -222,7 +232,8 @@ export function MessageContextMenu({
     if (hasMessageContent) { menuHeight += 36; } // 复制
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
-    if (canSpecialCareSender && onToggleSpecialCareSender) { menuHeight += 48; } // 分隔线 + 特别关心
+    if (canBlockSender && onToggleBlockSender) { menuHeight += 48; } // 分隔线 + 屏蔽此人
+    if (canSpecialCareSender && onToggleSpecialCareSender) { menuHeight += 36; } // 特别关心（与屏蔽共用分隔线）
 
     let x = position.x;
     let y = position.y;
@@ -346,21 +357,35 @@ export function MessageContextMenu({
             <MultiSelectIcon />
             <span>多选</span>
           </button>
-          {/* M3 群内特别关心：特别关心 / 取消特别关心此人（仅群聊他人消息） */}
+          {/* 群内个人视图操作：特别关心 + 屏蔽（仅群聊他人消息），共用一条分隔线 */}
+          {((canSpecialCareSender && onToggleSpecialCareSender) || (canBlockSender && onToggleBlockSender)) && (
+            <div className="context-menu-divider" />
+          )}
+          {/* M3 群内特别关心：特别关心 / 取消特别关心此人 */}
           {canSpecialCareSender && onToggleSpecialCareSender && (
-            <>
-              <div className="context-menu-divider" />
-              <button
-                className="context-menu-item"
-                onClick={() => {
-                  onToggleSpecialCareSender();
-                  onClose();
-                }}
-              >
-                <StarIcon filled={isSenderSpecialCared} />
-                <span>{isSenderSpecialCared ? '取消特别关心' : '特别关心此人'}</span>
-              </button>
-            </>
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onToggleSpecialCareSender();
+                onClose();
+              }}
+            >
+              <StarIcon filled={isSenderSpecialCared} />
+              <span>{isSenderSpecialCared ? '取消特别关心' : '特别关心此人'}</span>
+            </button>
+          )}
+          {/* D6 群内屏蔽：屏蔽 / 取消屏蔽此人消息 */}
+          {canBlockSender && onToggleBlockSender && (
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onToggleBlockSender();
+                onClose();
+              }}
+            >
+              <BlockIcon />
+              <span>{isSenderBlocked ? '取消屏蔽此人' : '屏蔽此人消息'}</span>
+            </button>
           )}
         </motion.div>
       )}
@@ -396,6 +421,13 @@ const DeleteIcon = () => (
 const StarIcon = ({ filled }: { filled?: boolean }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+  </svg>
+);
+
+// 屏蔽图标（D6 群内屏蔽——禁止/no-symbol）
+const BlockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
   </svg>
 );
 

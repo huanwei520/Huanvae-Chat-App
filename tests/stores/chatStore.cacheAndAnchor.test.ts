@@ -102,10 +102,11 @@ describe('chatStore 缓存与滚动锚点', () => {
     expect(useChatStore.getState().scrollAnchors['friend-A']).toBe('msg-new');
   });
 
-  it('clearCacheAndAnchors 清空缓存/锚点/群关心集（登出/切号防残留）', () => {
+  it('clearCacheAndAnchors 清空缓存/锚点/群屏蔽集（登出/切号防残留）', () => {
     useChatStore.getState().cacheFriendMessages('friend-A', [makeMessage('m1')]);
     useChatStore.getState().cacheGroupMessages('group-X', [makeGroupMessage('gm1')]);
     useChatStore.getState().saveScrollAnchor('friend-A', 'anchor-1');
+    useChatStore.getState().setGroupMessageBlocks('group-X', ['u1']);
     useChatStore.getState().setGroupSpecialCares('group-X', ['u2']);
 
     useChatStore.getState().clearCacheAndAnchors();
@@ -113,6 +114,7 @@ describe('chatStore 缓存与滚动锚点', () => {
     expect(useChatStore.getState().cachedFriendMessages).toEqual({});
     expect(useChatStore.getState().cachedGroupMessages).toEqual({});
     expect(useChatStore.getState().scrollAnchors).toEqual({});
+    expect(useChatStore.getState().groupMessageBlocks).toEqual({});
     expect(useChatStore.getState().groupSpecialCares).toEqual({});
   });
 

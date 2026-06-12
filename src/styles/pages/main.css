@@ -1899,6 +1899,16 @@
   border-bottom-left-radius: 4px;
 }
 
+/* D6 group message block: collapsed placeholder for a blocked sender's message */
+.bubble-text.bubble-blocked-placeholder {
+  background: var(--white-alpha-70);
+  color: var(--text-light);
+  border: 1px dashed var(--white-alpha-80);
+  border-bottom-left-radius: 4px;
+  font-style: italic;
+  font-size: 13px;
+}
+
 .bubble-time {
   font-size: 11px;
   color: var(--text-light);

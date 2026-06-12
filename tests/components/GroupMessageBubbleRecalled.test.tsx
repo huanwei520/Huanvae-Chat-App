@@ -46,10 +46,13 @@ vi.mock('../../src/services/fileCache', () => ({
 }));
 
 // selector-aware mock：让 GroupMessageBubble 的 useChatStore 选择器（friends /
-// setChatTarget / groupSpecialCares / setGroupMemberSpecialCare）拿到合理空值。
+// setChatTarget / groupMessageBlocks / setGroupMemberBlocked）拿到合理空值——
+// 关键是 groupMessageBlocks 为空使 isSenderBlocked=false，不误走 D6 屏蔽占位分支。
 const mockChatState = vi.hoisted(() => ({
   friends: [] as unknown[],
   setChatTarget: () => {},
+  groupMessageBlocks: {} as Record<string, string[]>,
+  setGroupMemberBlocked: () => {},
   groupSpecialCares: {} as Record<string, string[]>,
   setGroupMemberSpecialCare: () => {},
 }));
@@ -58,7 +61,7 @@ vi.mock('../../src/stores', () => ({
   useProfileViewStore: () => vi.fn(),
 }));
 
-// GroupMessageBubble 用 useApi 取 ApiClient（右键特别关心/取消），需 mock 掉
+// D6：GroupMessageBubble 现在用 useApi 取 ApiClient（右键屏蔽/取消屏蔽），需 mock 掉
 vi.mock('../../src/contexts/SessionContext', () => ({
   useApi: () => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }),
 }));
