@@ -422,6 +422,26 @@ export interface WsMarkRead {
 }
 
 /**
+ * 单个会话的已读位置（resync_read_positions 的元素）
+ */
+export interface WsReadPosition {
+  target_type: 'friend' | 'group';
+  target_id: string;
+  last_read_seq: number;
+}
+
+/**
+ * 重连追平已读位置（Tier-1 自愈）
+ *
+ * 收到 connected 后回传本地持久化的 per 会话 last_read_seq，服务端用 GREATEST 单调合并，
+ * 修复抖断时丢失的 mark_read。幂等，可在每次连接/恢复时发送。
+ */
+export interface WsResyncReadPositions {
+  type: 'resync_read_positions';
+  positions: WsReadPosition[];
+}
+
+/**
  * Ping 消息（心跳）
  */
 export interface WsPing {
@@ -431,7 +451,7 @@ export interface WsPing {
 /**
  * 所有客户端消息类型
  */
-export type WsClientMessage = WsMarkRead | WsPing;
+export type WsClientMessage = WsMarkRead | WsResyncReadPositions | WsPing;
 
 // ============================================
 // WebSocket 状态

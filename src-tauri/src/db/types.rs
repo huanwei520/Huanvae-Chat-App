@@ -21,6 +21,10 @@ pub struct LocalConversation {
     pub last_message_time: Option<String>,
     pub last_seq: i64,
     pub unread_count: i64,
+    /// 本地已读位置（per 会话单调推进，仅 advance_conversation_read 维护）。
+    /// 保存会话（server 同步）不携带此字段——故 serde default，save 路径不覆盖它。
+    #[serde(default)]
+    pub last_read_seq: i64,
     pub is_muted: bool,
     pub is_pinned: bool,
     pub updated_at: String,

@@ -56,6 +56,9 @@ interface MessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 已读回执：仅自己发出的已送达消息传入 isRead（对方是否已读）；对方消息/发送中/失败/已撤回不传 */
   readReceipt?: { isRead: boolean };
+  /** 是否播放入场滑入动画：仅"挂载后新增"的实时新消息为 true（由列表用 shouldPlayEnter 判定）；
+   *  切换/打开时已有的历史为 false → 不并拢，整体走面板渐变。 */
+  playEnter?: boolean;
 }
 
 // 私聊已读回执（仅自己消息，统一状态槽：时钟/灰双勾/绿双勾/红叹号）
@@ -95,6 +98,7 @@ export function MessageBubble({
   onDelete,
   onEnterMultiSelect,
   readReceipt,
+  playEnter = false,
 }: MessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -291,7 +295,7 @@ export function MessageBubble({
   //     新 motion.div(key="recall") mount → initial { y: 16, opacity: 0 } → animate { y: 0, opacity: 1 }
   //         （从对应位置下方 16px 向上渐入）
   // - mode="popLayout" 让退场和入场可叠加，layout 平滑
-  // - initial={false} 让 reload / 首次 mount 时不重播入场动画（与 .message-bubble 现有「无 clientId 不播」语义一致）
+  // - initial={false} 让 reload / 首次 mount 时不重播入场动画（与列表用 playEnter/shouldPlayEnter 仅给"挂载后新增"消息播入场的语义一致）
   return (
     <>
       <AnimatePresence mode="popLayout" initial={false}>
@@ -319,8 +323,9 @@ export function MessageBubble({
             // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
             layout={message.sendStatus === 'sending' ? 'position' : false}
             variants={getMessageVariants(isOwn)}
-            // 只有新发送的消息（有 clientId）才触发入场动画，避免同步后所有消息闪烁
-            initial={message.clientId ? 'initial' : false}
+            // 仅"挂载后新增"的实时新消息才演入场（playEnter 由列表用 shouldPlayEnter 判定）；
+            // 切换/打开会话时已有的历史 initial=false → 不并拢，整体走面板渐变。
+            initial={playEnter ? 'initial' : false}
             animate="animate"
             exit="exit"
             transition={transition}

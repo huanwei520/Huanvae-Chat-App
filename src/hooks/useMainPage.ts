@@ -737,7 +737,7 @@ export function useMainPage() {
   const handleLogout = useCallback(async () => {
     // 清除当前用户数据目录上下文
     await clearCurrentUser();
-    // 清除会话（clearSession 内部已统一清空消息缓存/滚动锚点/群内屏蔽集，避免下个登录用户串数据）
+    // 清除会话（clearSession 内部已统一清空消息缓存/群内屏蔽·特别关心·备注私有视图，避免下个登录用户串数据）
     clearSession();
   }, [clearSession]);
 

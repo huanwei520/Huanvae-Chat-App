@@ -63,11 +63,6 @@ export const UPDATE_COMPONENTS: ComponentEntry[] = [
   { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
 ];
 
-// ============== 聊天滚动恢复 Hooks ==============
-export const CHAT_RESTORE_HOOKS: ComponentEntry[] = [
-  { name: 'useScrollAnchorRestore', path: 'hooks/useScrollAnchorRestore', category: 'hooks', description: '聊天滚动位置恢复 Hook（滚动锚点记录 + useLayoutEffect 同步定位）' },
-];
-
 // ============== 通用组件 ==============
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
@@ -263,6 +258,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useRegisterForm', path: 'hooks/useRegisterForm', category: 'hooks', description: '注册表单 Hook' },
   { name: 'useLocalFriendMessages', path: 'chat/friend/useLocalFriendMessages', category: 'hooks', description: '本地好友消息 Hook' },
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
+  { name: 'useScrollKeyboardControls', path: 'chat/shared/useScrollKeyboardControls', category: 'hooks', description: '消息容器键盘滚动控制 Hook（好友/群聊共用：End 到最新 / Home 到顶 / PageUp·PageDown 翻页 + 仅键盘聚焦判定）' },
   { name: 'useFriendReadReceipt', path: 'chat/friend/useFriendReadReceipt', category: 'hooks', description: '私聊已读回执 Hook（仅自己消息：拉对方 last-read-seq 快照 + read_sync 实时推进，Telegram 风单向）' },
   { name: 'useGroupReadReceipt', path: 'chat/group/useGroupReadReceipt', category: 'hooks', description: '群聊已读回执 Hook（read-positions 快照含昵称/头像/已读时间 + read_sync 实时合并，N 人已读 + 已读名单）' },
   { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },

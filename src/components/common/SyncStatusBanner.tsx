@@ -19,8 +19,6 @@ import type { SyncNotification } from '../../hooks/useInitialSync';
 interface SyncStatusBannerProps {
   /** 待显示的同步通知（null 时不显示） */
   notification: SyncNotification | null;
-  /** 已废弃：通知的自动清除现由 useInitialSync 内部管理 */
-  onDismiss?: () => void;
   /** 重试回调 */
   onRetry?: () => void;
 }

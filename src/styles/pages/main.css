@@ -590,6 +590,24 @@
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
+/* 键盘导航焦点环 ------------------------------------------------- */
+/* 容器：仅键盘 Tab 聚焦时显示外环。kbd-focused 类由 JS 判定挂上——WKWebView 对
+   <div> 的 :focus-visible 支持不稳定，会出现「聚焦却无外环」；鼠标点击聚焦不点亮。
+   有键盘光标时改由激活项体现外环，故该类仅在「无光标」时挂上，天然避免双环 */
+.conversation-list:focus { outline: none; }
+.conversation-list--kbd-focused {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* 键盘光标激活项：box-shadow 高亮环（box-shadow 已在 .conversation-item 的 transition 内，
+   且非 framer-motion 控制属性，不与 cardVariants 的 transform/opacity 抢帧）。
+   复合选择器与 :hover 同特异性并置于其后，确保激活态压过 hover */
+.conversation-item.conversation-item--kbd-active {
+  box-shadow: 0 0 0 2px var(--primary), 0 4px 12px rgba(59, 130, 246, 0.12);
+}
+
 /* 选中边框层 - 使用 layoutId 实现跨卡片的平滑动画 */
 /* 桌面端专用：使用蓝色边框作为选中指示，边框在卡片外围 */
 .conversation-selected-border {
@@ -1733,16 +1751,33 @@
 /* 消息列表容器 - 滚动容器，每次切换会话时是全新的 */
 .chat-messages-container {
   display: flex;
-  flex-direction: column;  /* 正常方向，配合 overflow-anchor 实现稳定锚定 */
+  flex-direction: column;  /* 基类保持正常方向（AI 聊天等消费方仍升序渲染）；好友/群消息列表用 --reverse 切到 column-reverse */
   flex: 1;
   min-height: 0;
   position: relative;
-  overflow-anchor: auto; /* 启用滚动锚定 */
+  outline: none;  /* 鼠标聚焦不显示默认外环 */
+  overflow-anchor: auto; /* 默认启用滚动锚定（基类消费方用） */
   overflow-y: auto;           /* 滚动在此层 */
   overflow-x: hidden;
   /* 左侧 8px，右侧 2px + 滚动条 6px ≈ 8px，保持两侧视觉对称 */
   padding: 10px 2px 10px 8px;
   scrollbar-gutter: stable;   /* 保留滚动条空间，避免宽度跳动 */
+}
+
+/* 好友/群消息列表：column-reverse 自锚定底部——滚动原点在底部，上方内容增高（已读回执/头像/图片/
+   任何异步组件）时浏览器原生保持贴底，无需 JS 重滚、无组件预留高度。消息按新→旧渲染（最新在 index 0
+   即视觉底）；顶部指示器置于 DOM 末尾→视觉顶。overflow-anchor:none 让 column-reverse 独占底锚、不争抢。
+   AI 聊天不加此修饰符，仍用基类的 column + 自有滚动逻辑（不在本次范围）。 */
+.chat-messages-container--reverse {
+  flex-direction: column-reverse;
+  overflow-anchor: none;
+}
+
+/* 仅键盘 Tab 聚焦时显示外环（kbd-focused 由 JS 判定，理由同会话列表容器），
+   让用户知道焦点已落在消息区，可用 End/Home/PageUp/PageDown 滚动 */
+.chat-messages-container--kbd-focused {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .message-placeholder {

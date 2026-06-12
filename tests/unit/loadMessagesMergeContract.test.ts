@@ -40,8 +40,9 @@ describe('loadMessages 增量合并防回归', () => {
     expect(loadMessagesBlock![0]).toMatch(/setMessages\(\(prev\)\s*=>/);
   });
 
-  it('useLocalFriendMessages 合并按 send_time 排序', () => {
-    expect(FRIEND_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(a\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(b\.send_time\)\.getTime\(\)/);
+  it('useLocalFriendMessages 合并按 send_time 降序 [新→旧]（与数组约定一致）', () => {
+    // 降序 b-a：messages 约定 [新→旧]，loadMore 取 messages[length-1] 作最旧。升序会让分页取错。
+    expect(FRIEND_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(b\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(a\.send_time\)\.getTime\(\)/);
   });
 
   it('useLocalFriendMessages 合并含"prev 全包含分支"', () => {
@@ -49,10 +50,13 @@ describe('loadMessages 增量合并防回归', () => {
     expect(FRIEND_SRC).toMatch(/newOnes\.length\s*===\s*0/);
   });
 
-  it('useLocalFriendMessages 用 db 版本更新 prev 中已存在 uuid（同步撤回/删除状态）', () => {
-    // 防回退：阻止"跳过已存在 uuid"退化为不同步状态。必须有 dbByUuid + prev.map(... dbByUuid.get)
+  it('useLocalFriendMessages 用 db 版本更新 prev 中已存在 uuid 且保留 clientId（同步状态 + key 稳定）', () => {
+    // 防回退①：阻止"跳过已存在 uuid"退化为不同步状态。必须有 dbByUuid + prev.map(... dbByUuid.get)
     expect(FRIEND_SRC).toMatch(/dbByUuid\s*=\s*new\s+Map\(/);
-    expect(FRIEND_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)\s*\?\?\s*m/);
+    expect(FRIEND_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)/);
+    // 防回退②：替换 db 版时必须保留 prev 的 clientId —— 否则自己发的消息 React key 从
+    // client_xxx 突变成真 uuid → 打开会话时 AnimatePresence 卸载重挂 → 双跳抖动（bug②）。
+    expect(FRIEND_SRC).toMatch(/clientId:\s*m\.clientId/);
   });
 
   it('useLocalGroupMessages 不直接 setMessages(uiMessages) 覆盖', () => {
@@ -64,47 +68,55 @@ describe('loadMessages 增量合并防回归', () => {
     expect(loadMessagesBlock![0]).toMatch(/setMessages\(\(prev\)\s*=>/);
   });
 
-  it('useLocalGroupMessages 合并按 send_time 排序', () => {
-    expect(GROUP_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(a\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(b\.send_time\)\.getTime\(\)/);
+  it('useLocalGroupMessages 合并按 send_time 降序 [新→旧]（与数组约定一致）', () => {
+    expect(GROUP_SRC).toMatch(/\.sort\(\s*\(a,\s*b\)\s*=>\s*new\s+Date\(b\.send_time\)\.getTime\(\)\s*-\s*new\s+Date\(a\.send_time\)\.getTime\(\)/);
   });
 
-  it('useLocalGroupMessages 用 db 版本更新 prev 中已存在 uuid', () => {
+  it('useLocalGroupMessages 用 db 版本更新 prev 中已存在 uuid 且保留 clientId（同步状态 + key 稳定）', () => {
     expect(GROUP_SRC).toMatch(/dbByUuid\s*=\s*new\s+Map\(/);
-    expect(GROUP_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)\s*\?\?\s*m/);
+    expect(GROUP_SRC).toMatch(/dbByUuid\.get\(m\.message_uuid\)/);
+    // 防回退：替换 db 版时必须保留 prev 的 clientId（理由同 friend 侧，防 bug② 双跳）
+    expect(GROUP_SRC).toMatch(/clientId:\s*m\.clientId/);
   });
 
   // ============================================
   // friendId / groupId 切换时从缓存读初值（核心修复）
   // ============================================
   //
-  // 防回退目标：useLocalFriend/GroupMessages 的 useEffect [friendId/groupId] 切换
-  // 分支不能 setMessages([]) 直接清空，必须 setMessages(cachedFriendMessages[id] ?? [])
-  // 从缓存读取（含 loadMore 加载的全量历史）。
+  // 防回退目标：切换会话时不能 setMessages([]) 直接清空，必须从
+  // cachedFriend/GroupMessages[id] 读取（含 loadMore 加载的全量历史）。
   //
-  // 历史 bug（2026-05-13）：useState lazy initializer 仅在 hook 第一次 mount 时跑
-  // 一次，friendId 切换不重新跑。如果 useEffect 切换分支直接清空 messages，缓存中
-  // 的 200+ 条永远读不出，滚动锚点 querySelector 找不到较老消息 → 降级 scrollToBottom。
+  // 该重置已从 useEffect（paint 后）改为【渲染期同步】（prop 变更即调整 state 模式，
+  // 用 prevFriendId/prevGroupId 触发），使按 key 重挂的 ChatMessages 首帧即正确内容、
+  // 只滚一次（修 bug② "两次跳转" + bug③ "不滚到最新"）。
+  //
+  // 历史 bug（2026-05-13）：useState lazy initializer 仅在 hook 第一次 mount 时跑一次，
+  // friendId 切换不重新跑；若切换分支直接清空 messages，缓存中的 200+ 条永远读不出。
 
   it('useLocalFriendMessages 切换 friendId 时从 cachedFriendMessages 读初值（不清空）', () => {
-    // 匹配 useEffect [friendId] 函数体
+    // 匹配渲染期同步重置块（prevFriendId 触发，以 currentFriendId.current 赋值收尾）
     const block = FRIEND_SRC.match(
-      /if\s*\(friendId\s*!==\s*currentFriendId\.current\)[\s\S]*?currentFriendId\.current\s*=\s*friendId;/,
+      /if\s*\(friendId\s*!==\s*prevFriendId\)[\s\S]*?currentFriendId\.current\s*=\s*friendId;/,
     );
     expect(block).not.toBeNull();
-    // 不应有"无脑清空"分支
-    expect(block![0]).toMatch(
-      /cachedFriendMessages\[friendId\]/,
-    );
-    // 应该用 setMessages(cached) 读缓存
+    // 必须从缓存读（friendId 三元 + cachedFriendMessages[friendId]）并经 cached 交给 setMessages，
+    // 不能无脑 setMessages([]) 清空
+    expect(block![0]).toMatch(/friendId\s*\?[\s\S]*?cachedFriendMessages\[friendId\]/);
     expect(block![0]).toMatch(/setMessages\(cached\)/);
+    expect(block![0]).not.toMatch(/setMessages\(\[\]\)/);
+    // 缓存未命中（cached 为空）时同步置 loading=true，使列表占位门控(!loading && 空)加载期不闪"暂无消息"
+    expect(block![0]).toMatch(/setLoading\(cached\.length === 0/);
   });
 
   it('useLocalGroupMessages 切换 groupId 时从 cachedGroupMessages 读初值（不清空）', () => {
     const block = GROUP_SRC.match(
-      /if\s*\(groupId\s*!==\s*currentGroupId\.current\)[\s\S]*?currentGroupId\.current\s*=\s*groupId;/,
+      /if\s*\(groupId\s*!==\s*prevGroupId\)[\s\S]*?currentGroupId\.current\s*=\s*groupId;/,
     );
     expect(block).not.toBeNull();
-    expect(block![0]).toMatch(/cachedGroupMessages\[groupId\]/);
+    expect(block![0]).toMatch(/groupId\s*\?[\s\S]*?cachedGroupMessages\[groupId\]/);
     expect(block![0]).toMatch(/setMessages\(cached\)/);
+    expect(block![0]).not.toMatch(/setMessages\(\[\]\)/);
+    // 缓存未命中（cached 为空）时同步置 loading=true，使列表占位门控(!loading && 空)加载期不闪"暂无消息"
+    expect(block![0]).toMatch(/setLoading\(cached\.length === 0/);
   });
 });

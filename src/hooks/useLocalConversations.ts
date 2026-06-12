@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
+import { parseFriendIdFromConversationId } from '../utils/conversationId';
 import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
@@ -73,16 +74,18 @@ export function useLocalConversations(): UseLocalConversationsReturn {
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const initializedRef = useRef(false);
+  // 单调请求序号：并发重读时丢弃陈旧响应，防止先发后至的结果覆盖最新结果
+  const requestSeqRef = useRef(0);
 
   const loadConversations = useCallback(async () => {
     if (!session) { return; }
 
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     try {
       const rows = await db.getConversationPreviews();
-      console.warn('[LocalConv] raw preview rows:', rows.map(r =>
-        `${r.id}(${r.type}): msg="${(r.msg_content || '').slice(0, 20)}" type=${r.msg_content_type} time=${r.msg_send_time}`,
-      ));
+      // 期间有更新的请求发起 → 本次结果已陈旧，丢弃（由最新请求落地）
+      if (seq !== requestSeqRef.current) { return; }
       const friendPreviews = new Map<string, ConversationPreview>();
       const groupPreviews = new Map<string, ConversationPreview>();
 
@@ -95,10 +98,9 @@ export function useLocalConversations(): UseLocalConversationsReturn {
         };
 
         if (row.type === 'friend') {
-          const parts = row.id.split('-');
-          if (parts.length === 3) {
-            const [, id1, id2] = parts;
-            const friendId = id1 === session.userId ? id2 : id1;
+          // 统一走工具解析（用户 ID 可含连字符，不能按 '-' split 计数）
+          const friendId = parseFriendIdFromConversationId(row.id, session.userId);
+          if (friendId) {
             friendPreviews.set(friendId, preview);
           }
         } else {
@@ -108,24 +110,20 @@ export function useLocalConversations(): UseLocalConversationsReturn {
 
       setPreviews({ friends: friendPreviews, groups: groupPreviews });
 
-      // DEBUG: 输出前两个好友预览
-      const friendEntries = [...friendPreviews.entries()].slice(0, 3);
-      console.warn('[LocalConv] loaded previews:', friendEntries.map(([id, p]) =>
-        `${id}: "${p.lastMessage?.slice(0, 20)}" @ ${p.lastMessageTime}`,
-      ));
-
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
       }
     } catch (err) {
-      console.warn('[LocalConv] 加载本地会话失败:', err);
+      if (seq !== requestSeqRef.current) { return; }
+      console.error('加载本地会话失败:', err);
       if (!initializedRef.current) {
         initializedRef.current = true;
         setInitialized(true);
       }
     } finally {
-      setLoading(false);
+      // 仍有更新的请求在途时保持 loading，由最新请求收尾
+      if (seq === requestSeqRef.current) { setLoading(false); }
     }
   }, [session]);
 
@@ -134,7 +132,6 @@ export function useLocalConversations(): UseLocalConversationsReturn {
     loadConversations();
 
     const handleChanged = () => {
-      console.warn('[LocalConv] received PREVIEW_CHANGED_EVENT → loadConversations');
       loadConversations();
     };
     window.addEventListener(PREVIEW_CHANGED_EVENT, handleChanged);

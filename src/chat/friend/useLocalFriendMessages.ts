@@ -114,7 +114,7 @@ export function useLocalFriendMessages(friendId: string | null) {
   //
   // messages 初始值：useState lazy initializer 仅在 hook 第一次 mount 时跑一次
   // （App 登录后首次实例化 useMainPage 时）。之后的 friendId 切换由下方的
-  // useEffect [friendId] 从 cachedFriendMessages 重新读取并 setMessages —— 那才是
+  // 渲染期同步重置块从 cachedFriendMessages 重新读取并 setMessages —— 那才是
   // "切回保留 loadMore 历史"的真正生效路径。这里仅为应对极少数情况（首次实例化
   // 时 friendId 已经非 null，如刷新页面恢复了 chatTarget），让第一帧就有缓存数据。
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -128,10 +128,12 @@ export function useLocalFriendMessages(friendId: string | null) {
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // 上次渲染的 friendId —— 用于"切换好友时同步重置 messages"（见下方 reset 块）
+  const [prevFriendId, setPrevFriendId] = useState<string | null>(friendId);
 
   // Refs
   const conversationRef = useRef<LocalConversation | null>(null);
-  const currentFriendId = useRef<string | null>(null);
+  const currentFriendId = useRef<string | null>(friendId);
   const dbInitialized = useRef(false);
 
   // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
@@ -158,34 +160,26 @@ export function useLocalFriendMessages(friendId: string | null) {
   }, [session]);
 
   // ============================================
-  // 切换好友时重置
+  // 切换好友时同步重置（渲染期，React 官方"prop 变更即调整 state"模式）
   // ============================================
-
-  useEffect(() => {
-    if (friendId !== currentFriendId.current) {
-      logLocal('切换好友', { from: currentFriendId.current, to: friendId });
-      // 切换 friendId 时从 chatStore.cachedFriendMessages 读初值（含上次 loadMore
-      // 加载的全部历史）。让 ChatMessages 第一帧就有完整 messages，useLayoutEffect
-      // 的滚动锚点能命中较老消息的 DOM 元素（无 setTimeout / 异步等待）。
-      //
-      // 注意：不能依赖 useState 的 lazy initializer —— useLocalFriendMessages 是
-      // useMainPage 的子 hook，整个登录期间只实例化一次，friendId 切换不是 hook
-      // 重新 mount，所以 useState 初值函数永远不会再跑。必须在 useEffect 显式读。
-      //
-      // 若缓存中没有该 friendId（首次打开会话或退出登录后重新进入），用空数组兜底，
-      // 等下方的 useMainPage useEffect 调 loadMessages 异步加载 db 最新 50 条。
-      if (friendId) {
-        const cached = useChatStore.getState().cachedFriendMessages[friendId] ?? [];
-        setMessages(cached);
-      } else {
-        setMessages([]);
-      }
-      setHasMore(true);
-      setError(null);
-      conversationRef.current = null;
-      currentFriendId.current = friendId;
-    }
-  }, [friendId]);
+  // ChatMessages 按 key={`friend-${id}`} 重新挂载，但本 hook 不重挂。若在 useEffect
+  // （paint 后）才重置 messages，重挂的 ChatMessages 第一帧会拿到【上一个会话】的 messages，
+  // 首帧滚动跑在陈旧内容上、真实消息到达后再滚一次 → "两次跳转"+ 不滚到最新。
+  // 改为渲染期同步重置：friendId 一变就把 messages 切到该会话缓存（含上次 loadMore 历史），
+  // React 在 paint 前用新 state 重渲染，ChatMessages 首帧即正确内容、只滚一次。
+  // 缓存缺失（首次进会话）用空数组兜底，等 useMainPage 的 loadMessages 异步加载 db 最新 50 条。
+  if (friendId !== prevFriendId) {
+    setPrevFriendId(friendId);
+    const cached = friendId ? (useChatStore.getState().cachedFriendMessages[friendId] ?? []) : [];
+    setMessages(cached);
+    // 缓存未命中（需异步拉 db）时立即标记加载中：让列表占位门控（!loading && 空）在加载期不显示
+    // "暂无消息"，消除占位闪；缓存命中（非空）loading=false 但 isEmpty=false，占位本就不显示。
+    setLoading(cached.length === 0 && friendId !== null);
+    setHasMore(true);
+    setError(null);
+    conversationRef.current = null;
+    currentFriendId.current = friendId;
+  }
 
   // unmount 时把当前 messages 缓存到 chatStore，用于下次 mount 时秒开。
   // 仅缓存最近 50 条（store.cacheFriendMessages 内部已 slice(-50)），避免内存膨胀。
@@ -258,8 +252,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       // loadMore（messages 含 200+ 条）→ 切到 B → 切回 A，cachedFriendMessages 写入
       // 全量 200+ 条作为 useState 初值；但 useMainPage 的 useEffect 立刻调 loadMessages
       // → db.getMessages(50) 只返回最新 50 条 → setMessages 覆盖为 50 条 → 用户向上翻
-      // 的 200+ 条全部丢失 → 滚动锚点（指向较老消息）切回时在 DOM 中找不到 → 降级
-      // 回到最底部。
+      // 的 200+ 条全部丢失（向上翻历史时缓存的较老消息凭空消失）。
       //
       // 增量合并策略：
       //   - 无缓存（prev=[]）→ 直接用 db 结果（首次进入会话）
@@ -274,15 +267,23 @@ export function useLocalFriendMessages(friendId: string | null) {
           return uiMessages;
         }
         const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
-        // 用 db 版本替换 prev 中存在的（同步状态字段，如 is_recalled / message_content）
-        const updated = prev.map((m) => dbByUuid.get(m.message_uuid) ?? m);
+        // 用 db 版本替换 prev 中存在的（同步状态字段，如 is_recalled / message_content），
+        // 但保留 prev 的 clientId / sendStatus —— db 版（localMessageToMessage）不带这两字段，
+        // 若丢失会让自己发的消息 React key 从 client_xxx 突变成真 uuid → 打开会话时 AnimatePresence
+        // 卸载重挂 → 退/入场动画 churn + 布局位移（bug② 双跳）。与 syncMessagesInBackground 保持一致。
+        const updated = prev.map((m) => {
+          const dbVer = dbByUuid.get(m.message_uuid);
+          return dbVer ? { ...dbVer, clientId: m.clientId, sendStatus: m.sendStatus } : m;
+        });
         const existingUuids = new Set(prev.map((m) => m.message_uuid));
         const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
         if (newOnes.length === 0) {
           return updated;
         }
+        // 降序 [新→旧]，与 db.getMessages / getLatestMessage[0] / loadMore（messages[length-1]=最旧）
+        // 的数组约定一致；显示层 sortedMessages 再各自升序排版，不受此影响。
         return [...updated, ...newOnes].sort(
-          (a, b) => new Date(a.send_time).getTime() - new Date(b.send_time).getTime(),
+          (a, b) => new Date(b.send_time).getTime() - new Date(a.send_time).getTime(),
         );
       });
       setHasMore(localMessages.length >= limit);
@@ -342,6 +343,7 @@ export function useLocalFriendMessages(friendId: string | null) {
           last_message_time: null,
           last_seq: 0,
           unread_count: 0,
+          last_read_seq: 0,
           is_muted: false,
           is_pinned: false,
           updated_at: new Date().toISOString(),
@@ -902,7 +904,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     const unsubscribeNew = ws.onNewMessage((msg) => {
       if (msg.source_type === 'friend' && msg.source_id === friendId) {
         handleNewMessage(msg);
-        ws.markRead('friend', msg.source_id);
+        ws.markRead('friend', msg.source_id, msg.seq);
       }
     });
 

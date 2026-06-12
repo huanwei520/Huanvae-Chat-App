@@ -22,9 +22,12 @@ export function getFriendConversationId(userId: string, friendId: string): strin
 /**
  * 从 conversation_id 中解析好友 ID
  *
- * @param conversationId 会话 ID (格式: conv-user1-user2)
+ * 用户 ID 本身可含连字符（如 vis-test-cf09b2-a），不能按 '-' split 计数；
+ * 必须用 currentUserId 精确定界：两 ID 按字典序拼接，当前用户必为首段或尾段。
+ *
+ * @param conversationId 会话 ID (格式: conv-{smaller}-{larger})
  * @param currentUserId 当前用户 ID
- * @returns 好友 ID
+ * @returns 好友 ID；格式非法或当前用户不在该会话中时返回 null
  */
 export function parseFriendIdFromConversationId(
   conversationId: string,
@@ -34,13 +37,16 @@ export function parseFriendIdFromConversationId(
     return null;
   }
 
-  const parts = conversationId.slice(5).split('-');
-  if (parts.length !== 2) {
-    return null;
+  const pair = conversationId.slice(5);
+  // 当前用户在首位：剩余部分即好友 ID
+  if (pair.startsWith(`${currentUserId}-`)) {
+    return pair.slice(currentUserId.length + 1);
   }
-
-  // 返回不是当前用户的那个 ID
-  return parts[0] === currentUserId ? parts[1] : parts[0];
+  // 当前用户在末位：前面部分即好友 ID
+  if (pair.endsWith(`-${currentUserId}`)) {
+    return pair.slice(0, pair.length - currentUserId.length - 1);
+  }
+  return null;
 }
 
 /**

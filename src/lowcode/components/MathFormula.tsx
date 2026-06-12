@@ -92,17 +92,3 @@ export function MathFormula({ latex, inline = false, className }: MathFormulaPro
     </span>
   );
 }
-
-/**
- * 行内公式快捷组件
- */
-export function InlineMath({ latex, className }: Omit<MathFormulaProps, 'inline'>) {
-  return <MathFormula latex={latex} inline className={className} />;
-}
-
-/**
- * 块级公式快捷组件
- */
-export function BlockMath({ latex, className }: Omit<MathFormulaProps, 'inline'>) {
-  return <MathFormula latex={latex} inline={false} className={className} />;
-}

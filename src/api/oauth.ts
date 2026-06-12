@@ -153,18 +153,6 @@ export function authorize(api: ApiClient, data: AuthorizeRequest): Promise<Autho
   return api.post<AuthorizeResponse>('/api/oauth/authorize', data as unknown as Record<string, unknown>);
 }
 
-export function exchangeToken(api: ApiClient, data: TokenRequest): Promise<TokenResponse> {
-  return api.post<TokenResponse>('/api/oauth/token', data as unknown as Record<string, unknown>);
-}
-
-export function getUserInfo(api: ApiClient): Promise<UserInfoResponse> {
-  return api.get<UserInfoResponse>('/api/oauth/userinfo');
-}
-
-export function revokeToken(api: ApiClient, data: RevokeRequest): Promise<{ message: string }> {
-  return api.post<{ message: string }>('/api/oauth/revoke', data as unknown as Record<string, unknown>);
-}
-
 export function listClients(api: ApiClient): Promise<OAuthClient[]> {
   return api.get<OAuthClient[]>('/api/oauth/clients');
 }

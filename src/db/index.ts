@@ -6,6 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { noteMessageSeq, noteRead } from '../contexts/readPositions';
 
 // ============================================================================
 // 预览变更防抖通知（带写入屏障）
@@ -24,14 +25,12 @@ function schedulePreviewNotify(): void {
   if (_previewDebounceTimer) {
     clearTimeout(_previewDebounceTimer);
   }
-  console.warn(`[DB-Preview] schedule: pending=${_pendingWrites}`);
   _previewDebounceTimer = setTimeout(() => {
     _previewDebounceTimer = null;
     if (_pendingWrites > 0) {
-      console.warn(`[DB-Preview] SKIPPED: still ${_pendingWrites} writes in flight`);
+      // 仍有写入在途：跳过本次触发，等最后一个写入完成后重新调度，确保查询拿到完整数据
       return;
     }
-    console.warn('[DB-Preview] DISPATCH event');
     window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
   }, 150);
 }
@@ -53,6 +52,8 @@ export interface LocalConversation {
   last_message_time: string | null;
   last_seq: number;
   unread_count: number;
+  /** 本地已读位置（per 会话单调推进，仅 advanceConversationRead 维护；saveConversation 不携带） */
+  last_read_seq: number;
   is_muted: boolean;
   is_pinned: boolean;
   updated_at: string;
@@ -195,28 +196,40 @@ export function getConversation(
 
 /** 保存或更新会话 */
 export async function saveConversation(
-  conversation: Omit<LocalConversation, 'synced_at'>,
+  // last_read_seq 是本地已读位置，由 advanceConversationRead 单独维护；保存会话（服务端同步）
+  // 不携带它，Rust 侧 UPSERT 也不覆盖该列（serde default + ON CONFLICT 不更新 last_read_seq）。
+  conversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] saveConversation START: pending=${_pendingWrites}, id=${conversation.id}`);
   try {
-    const conv: LocalConversation = {
+    const conv = {
       ...conversation,
       synced_at: null,
     };
     await invoke('db_save_conversation', { conversation: conv });
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] saveConversation END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
 
-/** 更新会话的最后序列号 */
+/**
+ * 推进会话本地已读位置（last_read_seq 单调只升）：
+ * 不带 seq 推进到当前已收最新（MAX(last_read_seq, last_seq)）；带 seq 推进到显式读位
+ * （MAX(last_read_seq, seq)，不碰 last_seq 同步游标）。同步写穿读位内存 Map
+ * （connected 同步纠正的判定源）后再落库。
+ */
+export async function advanceConversationRead(id: string, seq?: number): Promise<void> {
+  noteRead(id, seq);
+  await invoke('db_advance_conversation_read', { id, seq: seq ?? null });
+}
+
+/** 更新会话的最后序列号（同步写穿读位内存 Map 后落库） */
 export async function updateConversationLastSeq(
   id: string,
   lastSeq: number,
 ): Promise<void> {
+  noteMessageSeq(id, lastSeq);
   await invoke('db_update_conversation_last_seq', { id, lastSeq });
 }
 
@@ -252,13 +265,10 @@ export async function updateConversationLastMessage(
   lastMessageTime: string,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] updateLastMessage START: pending=${_pendingWrites}, msg="${lastMessage.slice(0, 20)}"`);
   try {
     await invoke('db_update_conversation_last_message', { id, lastMessage, lastMessageTime });
-    console.warn(`[DB-Preview] updateLastMessage OK: msg="${lastMessage.slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] updateLastMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }
@@ -308,17 +318,14 @@ export async function saveMessage(
   message: Omit<LocalMessage, 'created_at'>,
 ): Promise<void> {
   _pendingWrites++;
-  console.warn(`[DB-Preview] saveMessage START: pending=${_pendingWrites}, content="${(message.content || '').slice(0, 20)}"`);
   try {
     const msg: LocalMessage = {
       ...message,
       created_at: null,
     };
     await invoke('db_save_message', { message: msg });
-    console.warn(`[DB-Preview] saveMessage OK: content="${(message.content || '').slice(0, 20)}"`);
   } finally {
     _pendingWrites--;
-    console.warn(`[DB-Preview] saveMessage END: pending=${_pendingWrites}`);
     schedulePreviewNotify();
   }
 }

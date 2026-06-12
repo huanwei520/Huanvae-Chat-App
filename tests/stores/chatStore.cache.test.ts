@@ -1,12 +1,11 @@
 /**
- * chatStore 缓存与滚动锚点 action 单测
+ * chatStore 消息缓存 action 单测
  *
  * 验证：
- * 1. cacheFriendMessages 全量写入（不截断；锚点对应的较老消息必须保留）
+ * 1. cacheFriendMessages 全量写入（不截断；切回会话向上翻历史无需重新请求）
  * 2. cacheGroupMessages 全量写入
- * 3. saveScrollAnchor 写入 message_uuid
- * 4. clearCacheAndAnchors 清空所有三个字段
- * 5. 多个 key 隔离（不同会话不互相覆盖）
+ * 3. clearMessageCache 清空好友/群消息缓存
+ * 4. 多个 key 隔离（不同会话不互相覆盖）
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -50,10 +49,10 @@ function makeGroupMessage(uuid: string): GroupMessage {
   };
 }
 
-describe('chatStore 缓存与滚动锚点', () => {
+describe('chatStore 消息缓存', () => {
   beforeEach(() => {
     // 清空所有状态以隔离测试
-    useChatStore.getState().clearCacheAndAnchors();
+    useChatStore.getState().clearMessageCache();
   });
 
   it('cacheFriendMessages 写入并按 key 隔离', () => {
@@ -74,7 +73,7 @@ describe('chatStore 缓存与滚动锚点', () => {
     const msgs = Array.from({ length: 100 }, (_, i) => makeMessage(`m${i}`));
     useChatStore.getState().cacheFriendMessages('friend-A', msgs);
     const cached = useChatStore.getState().cachedFriendMessages['friend-A'];
-    // 全量保留，让滚动锚点（可能指向较老消息）切回时仍能定位
+    // 全量保留：切回会话后向上翻历史无需重新请求（首帧即完整历史）
     expect(cached).toHaveLength(100);
     expect(cached![0].message_uuid).toBe('m0');
     expect(cached![99].message_uuid).toBe('m99');
@@ -89,33 +88,21 @@ describe('chatStore 缓存与滚动锚点', () => {
     expect(cached![79].message_uuid).toBe('gm79');
   });
 
-  it('saveScrollAnchor 写入并支持多 key 隔离', () => {
-    useChatStore.getState().saveScrollAnchor('friend-A', 'msg-uuid-1');
-    useChatStore.getState().saveScrollAnchor('group-X', 'msg-uuid-2');
-    expect(useChatStore.getState().scrollAnchors['friend-A']).toBe('msg-uuid-1');
-    expect(useChatStore.getState().scrollAnchors['group-X']).toBe('msg-uuid-2');
-  });
-
-  it('saveScrollAnchor 重复写入同一 key 覆盖旧值', () => {
-    useChatStore.getState().saveScrollAnchor('friend-A', 'msg-old');
-    useChatStore.getState().saveScrollAnchor('friend-A', 'msg-new');
-    expect(useChatStore.getState().scrollAnchors['friend-A']).toBe('msg-new');
-  });
-
-  it('clearCacheAndAnchors 清空缓存/锚点/群屏蔽集（登出/切号防残留）', () => {
+  it('clearMessageCache 清空好友/群消息缓存与群私有视图（登出/切号防残留）', () => {
     useChatStore.getState().cacheFriendMessages('friend-A', [makeMessage('m1')]);
     useChatStore.getState().cacheGroupMessages('group-X', [makeGroupMessage('gm1')]);
-    useChatStore.getState().saveScrollAnchor('friend-A', 'anchor-1');
-    useChatStore.getState().setGroupMessageBlocks('group-X', ['u1']);
-    useChatStore.getState().setGroupSpecialCares('group-X', ['u2']);
+    // 群私有视图（屏蔽/特别关心/备注）同属会话级数据，登出/切号必须一并清空
+    useChatStore.getState().setGroupMessageBlocks('group-X', ['u9']);
+    useChatStore.getState().setGroupSpecialCares('group-X', ['u8']);
+    useChatStore.getState().setGroupMemberRemarks('group-X', [{ user_id: 'u7', remark: 'r' }]);
 
-    useChatStore.getState().clearCacheAndAnchors();
+    useChatStore.getState().clearMessageCache();
 
     expect(useChatStore.getState().cachedFriendMessages).toEqual({});
     expect(useChatStore.getState().cachedGroupMessages).toEqual({});
-    expect(useChatStore.getState().scrollAnchors).toEqual({});
     expect(useChatStore.getState().groupMessageBlocks).toEqual({});
     expect(useChatStore.getState().groupSpecialCares).toEqual({});
+    expect(useChatStore.getState().groupMemberRemarks).toEqual({});
   });
 
   it('cacheFriendMessages 多次写入累积不互相覆盖', () => {

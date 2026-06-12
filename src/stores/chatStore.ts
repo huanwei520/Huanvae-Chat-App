@@ -91,7 +91,7 @@ interface ChatState {
   /**
    * 每会话当前已加载消息的全量内存缓存（含 loadMore 加载的历史）。
    *
-   * key: `friend-${friendId}` / `group-${groupId}` —— 与 scrollAnchors 共用同一 key 格式。
+   * key: `friend-${friendId}` / `group-${groupId}`。
    * value: 当前 messages 数组（按时间正序，全量保留）。
    *
    * 为什么不 slice(-50)：用户翻历史触发 loadMore 后，滚动锚点 uuid 可能指向
@@ -106,7 +106,7 @@ interface ChatState {
    *   - 写入：useLocal*Messages 的 useEffect cleanup（unmount 触发）保存当前 messages 全量
    *   - 读取：useLocal*Messages 的 useState 初始化函数
    *   - 校准：mount 后异步 db.getMessages(50) 与缓存合并（新消息追加）
-   *   - 清理：用户退出登录 / 切换账号（clearCacheAndAnchors 同步清空，经 SessionContext.clearSession 调用）
+   *   - 清理：用户退出登录 / 切换账号（clearMessageCache 同步清空，经 SessionContext.clearSession 调用）
    *
    * 注意：不缓存"附件是否在本地"（isLocal/localPath）—— 那是文件系统 SSOT，
    * 永远由 useFileCache 通过 Rust get_cached_file_path 实时 stat 校验。
@@ -156,22 +156,6 @@ interface ChatState {
    * 拉黑时记录客户端时间、取消拉黑时清除。
    */
   friendBlacklistTimes: Record<string, string>;
-
-  /**
-   * 每会话的滚动锚点 message_uuid。
-   *
-   * key: 与 cachedMessages 同格式。
-   * value: 视口顶部第一条完全可见消息的 message_uuid。
-   *
-   * 用途：用户在 A 中向上翻阅历史 → 切换到 B → 切回 A 时恢复到上次阅读位置。
-   *
-   * 时机：
-   *   - 写入：ChatMessages 滚动事件 200ms 防抖后扫描视口顶部消息 uuid
-   *   - 读取：ChatMessages 首次渲染时 useLayoutEffect 同步 scrollIntoView
-   *   - 失效：锚点消息被本地删除（querySelector 返回 null）→ 降级滚到底
-   *   - 清理：用户退出登录 / 切换账号
-   */
-  scrollAnchors: Record<string, string>;
 }
 
 interface ChatActions {
@@ -264,7 +248,7 @@ interface ChatActions {
   // ==================== 切换会话恢复操作 ====================
   /**
    * 缓存私聊会话的全量当前 messages（unmount 时调用）。
-   * 不截断 —— 完整保留 loadMore 加载的历史，确保滚动锚点可定位。
+   * 不截断 —— 完整保留 loadMore 加载的历史，切回会话首帧即有完整上下文。
    */
   cacheFriendMessages: (friendId: string, messages: Message[]) => void;
 
@@ -275,15 +259,9 @@ interface ChatActions {
   cacheGroupMessages: (groupId: string, messages: GroupMessage[]) => void;
 
   /**
-   * 保存某会话的滚动锚点 message_uuid（滚动事件防抖后调用）。
-   * key 格式：`friend-${friendId}` / `group-${groupId}`
+   * 清空所有消息缓存与群私有视图（退出登录 / 切换账号时调用）。
    */
-  saveScrollAnchor: (key: string, messageUuid: string) => void;
-
-  /**
-   * 清空所有缓存和锚点（退出登录 / 切换账号时调用）。
-   */
-  clearCacheAndAnchors: () => void;
+  clearMessageCache: () => void;
 }
 
 export type ChatStore = ChatState & ChatActions;
@@ -321,8 +299,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   groupMemberRemarks: {},
 
   friendBlacklistTimes: {},
-
-  scrollAnchors: {},
 
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
@@ -511,13 +487,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
     })),
 
-  saveScrollAnchor: (key, messageUuid) =>
-    set((state) => ({
-      scrollAnchors: { ...state.scrollAnchors, [key]: messageUuid },
-    })),
-
-  clearCacheAndAnchors: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, scrollAnchors: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {} }),
+  clearMessageCache: () =>
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

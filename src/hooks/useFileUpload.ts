@@ -665,14 +665,3 @@ export async function getPresignedUrl(
 
   return resolvedUrl;
 }
-
-/**
- * 清除预签名 URL 缓存
- */
-export function clearPresignedUrlCache(fileUuid?: string) {
-  if (fileUuid) {
-    presignedUrlCache.delete(fileUuid);
-  } else {
-    presignedUrlCache.clear();
-  }
-}

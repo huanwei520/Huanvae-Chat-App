@@ -157,16 +157,32 @@ pub fn get_password(server_url: &str, user_id: &str) -> Result<String, StorageEr
     let Some(entry) = map.get(&key) else {
         return Err(StorageError::AccountNotFound);
     };
-    // Touch ID 门禁：无 Touch ID 硬件 / 验证失败都转手动登录（前端 desktop 分支据 Biometric 错误回退）
-    match crate::macos_biometric::authenticate("解锁已保存的登录密码") {
-        crate::macos_biometric::BiometricResult::Authenticated => {}
-        crate::macos_biometric::BiometricResult::Unavailable => {
-            return Err(StorageError::Biometric(
-                "biometric_unavailable：本机不支持或未启用 Touch ID".to_string(),
-            ));
-        }
-        crate::macos_biometric::BiometricResult::Failed(e) => {
-            return Err(StorageError::Biometric(e));
+    // ╔═══════════════════ DEV-ONLY 登录免指纹旁路（可视化测试用）═══════════════════╗
+    // ║ 一键还原：删掉这个 `if cfg!(debug_assertions) { … } else {` 包裹（连同上面注释）， ║
+    // ║          只留下方 match + decrypt，即恢复原始 Touch ID 门禁逻辑。              ║
+    // ║                                                                              ║
+    // ║ debug 构建（`tauri dev` / `cargo`，等价前端 import.meta.env.DEV=true）→ 跳过    ║
+    // ║   Touch ID 直接解密 → 在 dev 窗口点已存储账号即可直接登录，无需指纹。           ║
+    // ║ release 构建（`tauri build`）→ cfg!(debug_assertions)=false → 走 else 原门禁，   ║
+    // ║   正式路径行为零变化（dev 分支被编译器消除）。                                  ║
+    // ║ 注：用 `if cfg!()` 而非 `#[cfg]`，两分支都参与编译 → 一次 cargo check 覆盖 release。║
+    // ╚══════════════════════════════════════════════════════════════════════════════╝
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[DEV-ONLY] get_password 跳过 Touch ID 门禁（debug 构建，仅可视化测试）；release 构建不会有此行为。"
+        );
+    } else {
+        // Touch ID 门禁（release 路径，原逻辑未改）：无 Touch ID 硬件 / 验证失败都转手动登录
+        match crate::macos_biometric::authenticate("解锁已保存的登录密码") {
+            crate::macos_biometric::BiometricResult::Authenticated => {}
+            crate::macos_biometric::BiometricResult::Unavailable => {
+                return Err(StorageError::Biometric(
+                    "biometric_unavailable：本机不支持或未启用 Touch ID".to_string(),
+                ));
+            }
+            crate::macos_biometric::BiometricResult::Failed(e) => {
+                return Err(StorageError::Biometric(e));
+            }
         }
     }
     decrypt(entry)

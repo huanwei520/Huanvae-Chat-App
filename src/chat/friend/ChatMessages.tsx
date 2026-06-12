@@ -4,50 +4,41 @@
  * @module chat/friend
  * @location src/chat/friend/ChatMessages.tsx
  *
- * 使用 flex-direction: column 实现稳定的视角
- *
- * 功能：
- * - 使用 AnimatePresence 支持消息入场/撤回退出动画
- * - 支持多选模式进行批量操作
- * - 图片尺寸由后端消息携带 image_width/image_height，无需预加载
+ * 使用 flex-direction: column-reverse 实现"自锚定底部"——滚动原点在底部，
+ * 上方内容增高（已读回执 / 头像 / 图片 / 未来任何组件）时浏览器原生保持贴底，
+ * 无需 JS 重滚、无需任何组件预留高度。打开/切换会话天然停在最新一条。
  *
  * 消息排序机制：
- * - 消息按时间正序排列（旧→新）
- * - 发送中的消息排在最后（显示在底部）
+ * - 按时间倒序排列（新→旧，与数据层 [newMessage, ...prev] 一致）
+ * - column-reverse 把 DOM index 0（最新）渲染在视觉底部
+ * - 发送中的消息排在 index 0（视觉最底）
  *
- * 滚动机制：
- * - 切换会话时滚动到底部
- * - 新消息到达时，如果用户在底部则自动滚动
- * - 加载历史消息时，浏览器 scroll anchoring 自动保持视角
+ * 滚动机制（全部由 column-reverse 原生保证，无 JS 重滚）：
+ * - 打开会话：scrollTop=0 即底部，首帧即停在最新
+ * - 新消息到达：prepend 到 index 0（视觉底），在底部时原生跟随、上滑时不打扰
+ * - 内容增高：滚动锚定在底部，上方增高不推走最新一条
+ * - 加载历史：older 追加到 DOM 末尾（视觉顶），底部原生不动，无需补偿
+ *
+ * 出现动画：打开/切换会话（组件按会话 key 重挂）时，容器整块 opacity 淡入
+ * （panelFadeTransition，~200ms）；历史消息不逐条入场（shouldPlayEnter→initial=false），
+ * 实时新消息仍滑入。三者合起来 = 无「从上向下逐条插入」的撑开/推挤/滚动跳变，只有柔和整体淡入。
  */
 
-import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useMemo, useRef, useCallback, useEffect } from 'react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { isMobile } from '../../utils/platform';
+import { useScrollKeyboardControls } from '../shared/useScrollKeyboardControls';
 import { MessageBubble } from './MessageBubble';
 import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
-import { useScrollAnchorRestore } from '../../hooks/useScrollAnchorRestore';
+import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
 const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
 
-/** 判断是否在底部的阈值（像素） */
-const AT_BOTTOM_THRESHOLD = 100;
-
-/** 调试模式 */
-const DEBUG_SCROLL = true;
-
-/** 调试日志 */
-function logScroll(action: string, data?: Record<string, unknown>) {
-  if (DEBUG_SCROLL) {
-    // eslint-disable-next-line no-console
-    console.log(`%c[Scroll] ${action}`, 'color: #E91E63; font-weight: bold', data ?? '');
-  }
-}
-
 interface ChatMessagesProps {
-  /** @deprecated 不再使用，消息从本地加载速度很快 */
+  /** 消息是否加载中：用于占位门控——仅 !loading && 列表为空 才显示"暂无消息"，避免缓存未命中加载期占位闪烁 */
   loading?: boolean;
   messages: Message[];
   session: SessionInfo & { userId: string };
@@ -73,6 +64,7 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({
+  loading = false,
   messages,
   session,
   friend,
@@ -89,25 +81,21 @@ export function ChatMessages({
   // 容器引用
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 是否在底部（用于判断新消息到达时是否自动滚动）
-  const isAtBottomRef = useRef(true);
-
-  // 上一次消息数量（-1 表示初始状态，用于跳过首次渲染的旧消息）
-  const prevMessagesLengthRef = useRef(-1);
-
   // 加载锁（防止连续加载）
   const loadLockRef = useRef(false);
 
-  // 加载历史时的滚动高度记录（仅记录 scrollHeight，补偿时使用当前 scrollTop）
-  const scrollSnapshotRef = useRef<number | null>(null);
+  // 是否已把键盘焦点落到消息区（按会话 key 重挂后每次打开从 false 开始）
+  const didFocusRef = useRef(false);
 
-  // 当前好友 ID
-  const currentFriendIdRef = useRef(friend.friend_id);
+  // 入场动画基准：列表首帧非空时的 key 快照。在快照内 = 挂载时已有的历史（切换/打开不演入场）；
+  // 不在 = 挂载后新增的实时新消息（演滑入）。组件按会话 key 重挂，故每个会话各自捕获一次。
+  const mountedKeysRef = useRef<Set<string> | null>(null);
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
 
-  // 消息去重 + 排序：按 message_uuid 去重后按时间正序（旧→新），发送中的消息排在最后
+  // 消息去重 + 排序：按 message_uuid 去重后按时间倒序（新→旧）。
+  // column-reverse 把 index 0（最新）放在视觉底部；发送中的消息排在 index 0（视觉最底）。
   const sortedMessages = useMemo(() => {
     const seen = new Set<string>();
     const deduped = messages.filter((msg) => {
@@ -116,40 +104,32 @@ export function ChatMessages({
       return true;
     });
     return deduped.sort((a, b) => {
-      if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return 1; }
-      if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return -1; }
-      return new Date(a.send_time).getTime() - new Date(b.send_time).getTime();
+      if (a.sendStatus === 'sending' && b.sendStatus !== 'sending') { return -1; }
+      if (b.sendStatus === 'sending' && a.sendStatus !== 'sending') { return 1; }
+      return new Date(b.send_time).getTime() - new Date(a.send_time).getTime();
     });
   }, [messages]);
+
+  // 捕获挂载入场基准：首帧非空时记下当前 key 快照（缓存未命中首帧为空，待 db 加载到的首批再捕获，
+  // 它们都属"挂载时已有"→ 不演入场；此后真正新增的实时消息不在快照内 → 演滑入）。
+  if (mountedKeysRef.current === null && sortedMessages.length > 0) {
+    mountedKeysRef.current = new Set(sortedMessages.map((m) => getStableKey(m)));
+  }
 
   // 私聊已读回执：按 seq 双向。每条消息显示——我发的看对方是否已读、对方发的看我是否已读
   const { peerLastReadSeq } = useFriendReadReceipt(friend.friend_id);
 
-  // 切换好友时重置状态
-  useEffect(() => {
-    if (currentFriendIdRef.current !== friend.friend_id) {
-      logScroll('切换好友，重置状态', { from: currentFriendIdRef.current, to: friend.friend_id });
-      currentFriendIdRef.current = friend.friend_id;
-      prevMessagesLengthRef.current = -1;
-    }
-  }, [friend.friend_id]);
-
-  // 滚动处理：检测是否接近顶部 + 更新是否在底部
+  // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
+  // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。
+  // 用 Math.abs 写成符号无关，兼容不同引擎对 column-reverse scrollTop 的符号约定。
   const handleScroll = useCallback(() => {
     if (!containerRef.current) { return; }
-
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-
-    // 更新是否在底部
-    isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < AT_BOTTOM_THRESHOLD;
-
-    // 检测是否需要加载更多（距离顶部三分之一可视高度时触发）
     if (!hasMore || loadingMore || loadLockRef.current || !onLoadMore) { return; }
 
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const distanceFromTop = scrollHeight - clientHeight - Math.abs(scrollTop);
     const threshold = clientHeight * LOAD_MORE_THRESHOLD_MULTIPLIER;
-    if (scrollTop < threshold) {
-      // 记录加载前的滚动高度（用于后续补偿）
-      scrollSnapshotRef.current = containerRef.current.scrollHeight;
+    if (distanceFromTop < threshold) {
       loadLockRef.current = true;
       onLoadMore();
     }
@@ -174,216 +154,63 @@ export function ChatMessages({
     }
   }, [loadingMore]);
 
-  // 容器收缩（如 Android 键盘弹起致 WebView 变矮）时，若用户在底部则重新对齐
+  // 打开会话即把键盘焦点落到消息区（桌面），End/Home/PageUp/PageDown 立即可用。
+  // 用 rAF 延后，确保压过 ChatInputArea mount 时的 textarea autofocus；
+  // 等真正有消息时才聚焦（空首帧不计），按 messages.length 变化重试、聚焦一次即止。
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof ResizeObserver === 'undefined') { return; }
-
-    let prevHeight = container.clientHeight;
-    const observer = new ResizeObserver(() => {
-      const el = containerRef.current;
-      if (!el) { return; }
-      const newHeight = el.clientHeight;
-      if (newHeight < prevHeight && isAtBottomRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-      prevHeight = newHeight;
+    if (didFocusRef.current || isMobile() || messages.length === 0) { return; }
+    didFocusRef.current = true;
+    const raf = requestAnimationFrame(() => {
+      containerRef.current?.focus({ preventScroll: true });
     });
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  // 统计图片消息的尺寸信息
-  const imageStats = useMemo(() => {
-    const imageMessages = messages.filter((m) => m.message_type === 'image');
-    const withDimensions = imageMessages.filter((m) => m.image_width && m.image_height);
-    const withoutDimensions = imageMessages.filter((m) => !m.image_width || !m.image_height);
-    return {
-      total: imageMessages.length,
-      withDimensions: withDimensions.length,
-      withoutDimensions: withoutDimensions.length,
-      missingList: withoutDimensions.map((m) => ({
-        uuid: m.message_uuid.slice(0, 8),
-        content: m.message_content.slice(0, 20),
-      })),
-    };
-  }, [messages]);
-
-  // 滚动到底部的辅助函数
-  const scrollToBottom = useCallback((immediate = false) => {
-    if (!containerRef.current) { return; }
-
-    const { scrollHeight, scrollTop, clientHeight } = containerRef.current;
-    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-
-    logScroll('执行滚动到底部', {
-      scrollHeight,
-      scrollTop,
-      clientHeight,
-      distanceToBottom,
-      immediate,
-    });
-
-    if (immediate) {
-      containerRef.current.scrollTop = scrollHeight;
-    } else {
-      containerRef.current.scrollTo({
-        top: scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-    isAtBottomRef.current = true;
-  }, []);
-
-  // 首次渲染的锚点恢复：useLayoutEffect 在 paint 前同步运行，让"切回会话"那一帧
-  // 用户看到消息时已在上次阅读位置，无两步跳跃。
-  //
-  // 锚点失效（消息被删 / 不在加载范围）→ 降级到 scrollToBottom（保持现行行为）。
-  // 非首次渲染（新消息追加等）走下方的现有逻辑，不受此 Hook 影响。
-  const handleFallbackToBottom = useCallback(() => {
-    if (containerRef.current && messages.length > 0) {
-      scrollToBottom(true);
-    }
-  }, [messages.length, scrollToBottom]);
-
-  const handleFirstRenderHandled = useCallback(() => {
-    prevMessagesLengthRef.current = messages.length;
+    return () => cancelAnimationFrame(raf);
   }, [messages.length]);
 
-  useScrollAnchorRestore({
-    chatKey: `friend-${friend.friend_id}`,
-    containerRef,
-    messagesLength: messages.length,
-    isFirstRender: prevMessagesLengthRef.current === -1,
-    onFallbackToBottom: handleFallbackToBottom,
-    onFirstRenderHandled: handleFirstRenderHandled,
-  });
-
-  // 消息数量变化时的滚动处理（非首次渲染的增量更新逻辑）
-  useLayoutEffect(() => {
-    const currentLength = messages.length;
-
-    // 初始渲染：交由 useScrollAnchorRestore 处理（锚点恢复或降级滚到底）
-    // 这里不再执行，避免与 useScrollAnchorRestore 双重 scrollTo 冲突
-    if (prevMessagesLengthRef.current === -1) {
-      logScroll('首次渲染/从0加载（由 useScrollAnchorRestore 处理）', {
-        currentLength,
-        friendId: friend.friend_id,
-        imageStats,
-      });
-      return;
-    }
-
-    const prevLength = prevMessagesLengthRef.current;
-    const deltaMessages = currentLength - prevLength;
-    prevMessagesLengthRef.current = currentLength;
-
-    if (!containerRef.current) { return; }
-
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-
-    logScroll('消息变化', {
-      friendId: friend.friend_id,
-      prevLength,
-      currentLength,
-      deltaMessages,
-      scrollHeight,
-      scrollTop,
-      distanceToBottom,
-      isAtBottom: isAtBottomRef.current,
-      imageStats,
-    });
-
-    // 情况1：deltaMessages 为 0，无需处理
-    if (deltaMessages === 0) { return; }
-
-    // 情况2：加载历史消息（消息增加较多，且有滚动快照）
-    // 浏览器的 scroll anchoring 会自动保持视角，无需手动补偿
-    if (deltaMessages > 3 && scrollSnapshotRef.current !== null) {
-      logScroll('加载历史消息，依赖 scroll anchoring');
-      scrollSnapshotRef.current = null;
-      return;
-    }
-
-    // 情况3：新消息到达（1-3条）
-    if (deltaMessages > 0 && deltaMessages <= 3) {
-      // 检查是否有发送中的消息（自己发送的消息始终滚动到底部）
-      const hasSendingMessage = messages.some((m) => m.sendStatus === 'sending');
-      // 检查新消息中是否有图片
-      const newMessages = messages.slice(-deltaMessages);
-      const hasImageMessage = newMessages.some((m) => m.message_type === 'image');
-      const newImageDimensions = newMessages
-        .filter((m) => m.message_type === 'image')
-        .map((m) => ({
-          uuid: m.message_uuid.slice(0, 8),
-          width: m.image_width,
-          height: m.image_height,
-        }));
-
-      logScroll('新消息到达', {
-        deltaMessages,
-        hasSendingMessage,
-        hasImageMessage,
-        newImageDimensions,
-        isAtBottom: isAtBottomRef.current,
-        willScroll: hasSendingMessage || isAtBottomRef.current,
-      });
-
-      if (hasSendingMessage || isAtBottomRef.current) {
-        // 使用 requestAnimationFrame 等待渲染完成
-        requestAnimationFrame(() => {
-          scrollToBottom(false);
-        });
-      }
-    }
-  }, [messages, messages.length, friend.friend_id, imageStats, scrollToBottom]);
+  // 键盘滚动控制：容器可 Tab 聚焦，End 到最新 / Home 到顶 / PageUp·PageDown 翻页
+  const { kbdFocused, containerProps } = useScrollKeyboardControls(containerRef);
 
   // 是否显示消息列表
   const isEmpty = messages.length === 0;
+  // 仅"加载完成且确为空"才显示占位——加载中（缓存未命中拉 db）不显示，消除"暂无消息"闪烁
+  const showPlaceholder = !loading && isEmpty;
 
   return (
-    <div
+    <motion.div
       ref={containerRef}
-      className="chat-messages-container"
+      className={`chat-messages-container chat-messages-container--reverse${kbdFocused ? ' chat-messages-container--kbd-focused' : ''}`}
+      // 打开/切换会话时整块淡入（容器按会话 key 重挂 → 每次挂载播一次）；
+      // opacity 不影响 column-reverse 布局/滚动，首帧已贴底，淡入期间零布局变化。
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={panelFadeTransition}
+      {...containerProps}
     >
-      {/* 顶部指示器 */}
-      {loadingMore && !isEmpty && (
-        <div className="load-more-indicator">
-          <span className="loading-text">加载中...</span>
-        </div>
-      )}
-      {!loadingMore && !hasMore && !isEmpty && (
-        <div className="load-more-indicator">
-          <span className="no-more-text">无更多记录</span>
-        </div>
-      )}
-
-      {/* 暂无消息占位符 - 始终存在，通过透明度控制 */}
+      {/* 暂无消息占位符 - 绝对定位，与 flex 方向无关，始终在视觉中部 */}
       <motion.div
         className="message-placeholder message-placeholder-absolute"
         initial={false}
         animate={{
-          opacity: isEmpty ? 1 : 0,
-          pointerEvents: isEmpty ? 'auto' : 'none',
+          opacity: showPlaceholder ? 1 : 0,
+          pointerEvents: showPlaceholder ? 'auto' : 'none',
         }}
         transition={{
           duration: 0.3,
           ease: 'easeOut',
-          delay: isEmpty ? 0.25 : 0,
+          delay: showPlaceholder ? 0.25 : 0,
         }}
       >
         <p>暂无消息</p>
         <span>发送一条消息开始聊天吧</span>
       </motion.div>
 
-      {/* 消息列表 */}
+      {/* 消息列表：按 DESC（新→旧）渲染，index 0 为最新；column-reverse 使其落在视觉底部 */}
       {!isEmpty && (
         <LayoutGroup>
           <AnimatePresence mode="popLayout">
             {sortedMessages.map((message) => {
               const isOwn = message.sender_id === session.userId;
               const stableKey = getStableKey(message);
+              const playEnter = shouldPlayEnter(message.clientId, stableKey, mountedKeysRef.current);
               const isSelected = selectedMessages.has(message.message_uuid);
 
               // 仅自己发出的已送达消息计算"对方是否已读"（Telegram 风单向）；
@@ -407,12 +234,25 @@ export function ChatMessages({
                   onDelete={() => onDelete?.(message.message_uuid)}
                   onEnterMultiSelect={onEnterMultiSelect}
                   readReceipt={readReceipt}
+                  playEnter={playEnter}
                 />
               );
             })}
           </AnimatePresence>
         </LayoutGroup>
       )}
-    </div>
+
+      {/* 顶部指示器：置于 DOM 末尾 → column-reverse 下位于视觉顶部（最旧消息上方） */}
+      {loadingMore && !isEmpty && (
+        <div className="load-more-indicator">
+          <span className="loading-text">加载中...</span>
+        </div>
+      )}
+      {!loadingMore && !hasMore && !isEmpty && (
+        <div className="load-more-indicator">
+          <span className="no-more-text">无更多记录</span>
+        </div>
+      )}
+    </motion.div>
   );
 }

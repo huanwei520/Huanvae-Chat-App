@@ -61,9 +61,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // 清除会话（同时移除会话锁和持久化数据）
   const clearSession = useCallback(async () => {
-    // 清空会话级内存缓存（消息缓存/滚动锚点/群内屏蔽集），避免切换账号后串数据。
+    // 清空会话级内存缓存（消息缓存/群内屏蔽·特别关心·备注私有视图），避免切换账号后串数据。
     // 收敛到这里统一处理，覆盖所有登出路径：主动登出 / session 过期 / WS token 刷新失败。
-    useChatStore.getState().clearCacheAndAnchors();
+    useChatStore.getState().clearMessageCache();
 
     // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
     destroySyncService();

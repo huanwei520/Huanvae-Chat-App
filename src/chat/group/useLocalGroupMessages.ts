@@ -127,10 +127,12 @@ export function useLocalGroupMessages(groupId: string | null) {
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // 上次渲染的 groupId —— 用于"切换群组时同步重置 messages"（见下方 reset 块）
+  const [prevGroupId, setPrevGroupId] = useState<string | null>(groupId);
 
   // Refs
   const conversationRef = useRef<LocalConversation | null>(null);
-  const currentGroupId = useRef<string | null>(null);
+  const currentGroupId = useRef<string | null>(groupId);
   const dbInitialized = useRef(false);
 
   // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
@@ -155,26 +157,23 @@ export function useLocalGroupMessages(groupId: string | null) {
   }, [session]);
 
   // ============================================
-  // 切换群组时重置
+  // 切换群组时同步重置（渲染期，React 官方"prop 变更即调整 state"模式）
   // ============================================
-
-  useEffect(() => {
-    if (groupId !== currentGroupId.current) {
-      logLocal('切换群组', { from: currentGroupId.current, to: groupId });
-      // 切换 groupId 时从 chatStore.cachedGroupMessages 读初值（含 loadMore 历史），
-      // 设计同 useLocalFriendMessages.ts useEffect [friendId]；详细注释见该文件。
-      if (groupId) {
-        const cached = useChatStore.getState().cachedGroupMessages[groupId] ?? [];
-        setMessages(cached);
-      } else {
-        setMessages([]);
-      }
-      setHasMore(true);
-      setError(null);
-      conversationRef.current = null;
-      currentGroupId.current = groupId;
-    }
-  }, [groupId]);
+  // 设计同 useLocalFriendMessages.ts —— ChatMessages/GroupChatMessages 按 key 重挂但本 hook 不重挂，
+  // 必须渲染期同步把 messages 切到该会话缓存，否则重挂组件首帧拿到上一个会话的 messages
+  // 导致"两次跳转 + 不滚到最新"。缓存缺失用空数组兜底，等 loadMessages 异步加载 db 最新 50 条。
+  if (groupId !== prevGroupId) {
+    setPrevGroupId(groupId);
+    const cached = groupId ? (useChatStore.getState().cachedGroupMessages[groupId] ?? []) : [];
+    setMessages(cached);
+    // 缓存未命中（需异步拉 db）时立即标记加载中：让列表占位门控（!loading && 空）在加载期不显示
+    // "暂无消息"，消除占位闪；缓存命中（非空）loading=false 但 isEmpty=false，占位本就不显示。
+    setLoading(cached.length === 0 && groupId !== null);
+    setHasMore(true);
+    setError(null);
+    conversationRef.current = null;
+    currentGroupId.current = groupId;
+  }
 
   // unmount 时把当前 messages 缓存到 chatStore，用于下次 mount 时秒开。
   // 通过 messagesRef.current 读 unmount 那一刻的最新 messages 值。
@@ -242,14 +241,23 @@ export function useLocalGroupMessages(groupId: string | null) {
           return uiMessages;
         }
         const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
-        const updated = prev.map((m) => dbByUuid.get(m.message_uuid) ?? m);
+        // 用 db 版本替换 prev 中已存在的（同步 is_recalled / message_content 等 SSOT 字段），
+        // 但保留 prev 的 clientId / sendStatus —— db 版（localMessageToGroupMessage）不带这两字段，
+        // 若丢失会让自己发的消息 React key 从 client_xxx 突变成真 uuid → 打开会话时 AnimatePresence
+        // 卸载重挂 → 退/入场动画 churn + 布局位移（bug② 双跳）。与 syncMessagesInBackground 保持一致。
+        const updated = prev.map((m) => {
+          const dbVer = dbByUuid.get(m.message_uuid);
+          return dbVer ? { ...dbVer, clientId: m.clientId, sendStatus: m.sendStatus } : m;
+        });
         const existingUuids = new Set(prev.map((m) => m.message_uuid));
         const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
         if (newOnes.length === 0) {
           return updated;
         }
+        // 降序 [新→旧]，与 db.getMessages / getLatestMessage[0] / loadMore（messages[length-1]=最旧）
+        // 的数组约定一致；显示层 sortedMessages 再各自升序排版，不受此影响。
         return [...updated, ...newOnes].sort(
-          (a, b) => new Date(a.send_time).getTime() - new Date(b.send_time).getTime(),
+          (a, b) => new Date(b.send_time).getTime() - new Date(a.send_time).getTime(),
         );
       });
       setHasMore(localMessages.length >= limit);
@@ -308,6 +316,7 @@ export function useLocalGroupMessages(groupId: string | null) {
           last_message_time: null,
           last_seq: 0,
           unread_count: 0,
+          last_read_seq: 0,
           is_muted: false,
           is_pinned: false,
           updated_at: new Date().toISOString(),
@@ -824,7 +833,7 @@ export function useLocalGroupMessages(groupId: string | null) {
     const unsubscribeNew = ws.onNewMessage((msg) => {
       if (msg.source_type === 'group' && msg.source_id === groupId) {
         handleNewMessage(msg);
-        ws.markRead('group', msg.source_id);
+        ws.markRead('group', msg.source_id, msg.seq);
       }
     });
 
