@@ -159,28 +159,6 @@ export function getLayoutedElements(
 }
 
 /**
- * 水平布局（从左到右）
- */
-export function layoutHorizontal(
-  nodes: Node[],
-  edges: Edge[],
-  nodeSizes?: Map<string, NodeSize>,
-): Node[] {
-  return getLayoutedElements(nodes, edges, { direction: 'LR', nodeSizes });
-}
-
-/**
- * 垂直布局（从上到下）
- */
-export function layoutVertical(
-  nodes: Node[],
-  edges: Edge[],
-  nodeSizes?: Map<string, NodeSize>,
-): Node[] {
-  return getLayoutedElements(nodes, edges, { direction: 'TB', nodeSizes });
-}
-
-/**
  * 从 React Flow 内部节点获取节点尺寸映射
  *
  * @param nodes - 节点数组

@@ -148,18 +148,6 @@ export interface FileSourceResult {
 // ============================================
 
 /**
- * 检查文件是否已缓存
- */
-export async function isFileCached(fileHash: string): Promise<boolean> {
-  try {
-    return await invoke<boolean>('is_file_cached', { fileHash });
-  } catch (error) {
-    console.error('[FileCache] 检查缓存失败:', error);
-    return false;
-  }
-}
-
-/**
  * 获取已缓存文件的本地路径
  */
 export async function getCachedFilePath(fileHash: string): Promise<string | null> {
@@ -563,11 +551,4 @@ export function getFileTypeFromMime(contentType: string): 'image' | 'video' | 'd
   if (contentType.startsWith('image/')) { return 'image'; }
   if (contentType.startsWith('video/')) { return 'video'; }
   return 'document';
-}
-
-/**
- * 清理过期的 URL 缓存
- */
-export function clearExpiredUrlCache(): void {
-  useFileCacheStore.getState().clearExpiredUrls();
 }

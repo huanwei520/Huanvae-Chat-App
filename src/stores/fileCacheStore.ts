@@ -246,14 +246,6 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
 // 选择器
 // ============================================
 
-/** 获取进行中的下载任务数 */
-export const selectActiveDownloads = (state: FileCacheState & FileCacheActions) =>
-  Object.values(state.downloadTasks).filter((t) => t.status === 'downloading').length;
-
-/** 获取所有下载任务列表 */
-export const selectDownloadTasks = (state: FileCacheState & FileCacheActions) =>
-  Object.values(state.downloadTasks);
-
 /** 获取指定文件的下载任务 */
 export const selectDownloadTask = (fileHash: string) => (state: FileCacheState & FileCacheActions) =>
   state.downloadTasks[fileHash];

@@ -76,9 +76,6 @@ export {
   type AndroidProgressCallback,
 } from './service.android';
 
-// formatSize 统一从 utils/format 导出
-export { formatSize as formatSizeAndroid } from '../utils/format';
-
 // ============================================
 // 配置
 // ============================================

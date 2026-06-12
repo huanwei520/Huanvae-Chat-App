@@ -121,21 +121,3 @@ export async function clearPersistedSession(): Promise<void> {
     console.error('[SessionPersist] 清除会话失败:', error);
   }
 }
-
-/**
- * 检查是否有保存的会话
- *
- * 用于快速判断，不加载完整会话数据
- */
-export async function hasPersistedSession(): Promise<boolean> {
-  if (!isMobile()) {
-    return false;
-  }
-
-  try {
-    const store = await getStore();
-    return await store.has(SESSION_KEY);
-  } catch {
-    return false;
-  }
-}
