@@ -1884,12 +1884,17 @@
   white-space: pre-wrap;
   min-width: 0;
   overflow: hidden;
+  /* hug text content instead of stretching to the wider meta row sibling
+     (otherwise short messages get trailing blank space) */
+  align-self: flex-start;
+  max-width: 100%;
 }
 
 .message-bubble.own .bubble-text {
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   color: white;
   border-bottom-right-radius: 4px;
+  align-self: flex-end;
 }
 
 .message-bubble.other .bubble-text {
@@ -1897,6 +1902,7 @@
   color: var(--text-primary);
   border: 1px solid var(--white-alpha-80);
   border-bottom-left-radius: 4px;
+  align-self: flex-start;
 }
 
 /* D6 group message block: collapsed placeholder for a blocked sender's message */
