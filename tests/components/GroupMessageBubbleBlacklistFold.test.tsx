@@ -1,9 +1,9 @@
 /**
  * GroupMessageBubble 好友拉黑 → 群消息折叠测试
  *
- * 锁定契约：发送者是我拉黑的好友时，其群消息折叠成占位「已拉黑此人消息」（前端折叠，
- * 取消拉黑后随 store 恢复）。与 D6 群屏蔽独立：群屏蔽折叠为「已屏蔽此人消息」。
- * own 消息永不折叠；普通成员正常渲染内容。
+ * 锁定契约：发送者是我拉黑的好友、且消息发送时间晚于拉黑时间点时，其群消息折叠成占位
+ * 「已拉黑此人消息」（只折叠拉黑之后发的；拉黑前历史保留原文。取消拉黑后随 store 恢复）。
+ * 与 D6 群屏蔽独立：群屏蔽折叠为「已屏蔽此人消息」。own 消息永不折叠。
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -35,6 +35,7 @@ const mockChatState = vi.hoisted(() => ({
   setGroupMemberSpecialCare: () => {},
   groupMemberRemarks: {} as Record<string, Record<string, string>>,
   setGroupMemberRemark: () => {},
+  friendBlacklistTimes: {} as Record<string, string>,
 }));
 vi.mock('../../src/stores', () => ({
   useChatStore: (selector: (s: typeof mockChatState) => unknown) => selector(mockChatState),
@@ -63,19 +64,31 @@ function blacklistedFriend(id: string): Friend {
 
 const placeholder = () => document.querySelector('.bubble-blocked-placeholder');
 
+const BL_TIME = '2026-01-02T00:00:00Z';
+
 describe('GroupMessageBubble — 好友拉黑折叠群消息', () => {
   beforeEach(() => {
     cleanup();
     mockChatState.friends = [];
     mockChatState.groupMessageBlocks = {};
+    mockChatState.friendBlacklistTimes = {};
   });
 
-  it('发送者是我拉黑的好友 → 折叠为「已拉黑此人消息」，不渲染内容', () => {
+  it('拉黑好友 + 消息发于拉黑之后 → 折叠为「已拉黑此人消息」，不渲染内容', () => {
     mockChatState.friends = [blacklistedFriend('user-2')];
-    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    mockChatState.friendBlacklistTimes = { 'user-2': BL_TIME };
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', send_time: '2026-01-03T00:00:00Z' })} isOwn={false} />);
     expect(placeholder()).toBeInTheDocument();
     expect(placeholder()!.textContent).toContain('已拉黑此人消息');
     expect(document.querySelector('[data-testid="md"]')).not.toBeInTheDocument();
+  });
+
+  it('拉黑好友 + 消息发于拉黑之前 → 保留原文，不折叠', () => {
+    mockChatState.friends = [blacklistedFriend('user-2')];
+    mockChatState.friendBlacklistTimes = { 'user-2': BL_TIME };
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', send_time: '2026-01-01T00:00:00Z' })} isOwn={false} />);
+    expect(placeholder()).toBeNull();
+    expect(document.querySelector('[data-testid="md"]')!.textContent).toBe('hello');
   });
 
   it('发送者非拉黑好友 → 正常渲染内容，不折叠', () => {

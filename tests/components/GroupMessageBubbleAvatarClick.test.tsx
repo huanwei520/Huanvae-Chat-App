@@ -42,6 +42,7 @@ const mockChatState = vi.hoisted(() => ({
   setGroupMemberSpecialCare: () => {},
   groupMemberRemarks: {} as Record<string, Record<string, string>>,
   setGroupMemberRemark: () => {},
+  friendBlacklistTimes: {} as Record<string, string>,
 }));
 vi.mock('../../src/stores', () => ({
   useChatStore: (selector: (s: typeof mockChatState) => unknown) => selector(mockChatState),

@@ -416,7 +416,10 @@ export function useChatMenu({
     setLoading(true);
     try {
       await addBlacklist(api, target.data.friend_id);
-      useChatStore.getState().setFriendBlacklisted(target.data.friend_id, true);
+      const store = useChatStore.getState();
+      store.setFriendBlacklisted(target.data.friend_id, true);
+      // 记录拉黑时间点：群消息只折叠此刻之后发的，拉黑前历史保留原文
+      store.setFriendBlacklistTime(target.data.friend_id, new Date().toISOString());
       setSuccess('已拉黑');
       setView('main');
     } catch (err) {
