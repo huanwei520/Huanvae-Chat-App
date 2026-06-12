@@ -7,13 +7,13 @@ Huanvae Chat App 是基于 Tauri 2 + React 的跨平台即时通讯客户端，�
 - **框架**: Tauri 2.9 (Rust backend) + React 19 + TypeScript
 - **构建**: Vite + TailwindCSS 4
 - **状态管理**: Zustand (stores/)
-- **本地数据库**: @tauri-apps/plugin-sql (SQLite)
+- **本地数据库**: SQLite（前端经 Rust 命令 `invoke('db_*')` 访问，封装于 `src/db/index.ts`；已不再用 @tauri-apps/plugin-sql 插件）
 - **测试**: Vitest (单元/组件) + Playwright (E2E)
 - **平台**: Windows/macOS/Linux 桌面端 + Android/iOS 移动端
 
 ### 前端模块
 
-api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer, lowcode, media, meeting, pages, services, stores, styles, theme, types, update, utils
+api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer, lowcode, media, meeting, nfc, pages, services, stores, styles, theme, types, update, utils
 
 ## 项目阶段：个人开发验证期（核心约束）
 
@@ -250,6 +250,7 @@ src/
 ├── lowcode/        # 低代码平台
 ├── media/          # 音视频通话
 ├── meeting/        # 会议功能
+├── nfc/            # NFC 扫卡指令执行（解析 huanvae:// 指令 + 信任确认）
 ├── pages/          # 页面组件
 ├── services/       # 业务逻辑服务层
 ├── stores/         # Zustand 状态管理
@@ -273,8 +274,8 @@ src-tauri/
 
 - 组件使用函数式组件 + Hooks
 - 状态管理使用 Zustand store（`stores/` 目录）
-- API 调用封装在 `api/` 目录，数据面走 `invoke('secure_http')`（经 `src/services/secureFetch.ts`，Rust 自管 TLS 钉私有 CA + mTLS）；webview 原生加载（头像/上传）经回环安全反代 `secureProxy.ts`。仅 `huanvaeGuard/localApi.ts`（回环 127.0.0.1）+ `nfc/executor.ts`（NFC 任意外链）例外保留 @tauri-apps/plugin-http
-- 本地数据持久化使用 @tauri-apps/plugin-sql (SQLite)
+- API 调用封装在 `api/` 目录，数据面走 `invoke('secure_http')`（经 `src/services/secureFetch.ts`，Rust 自管 TLS 钉私有 CA + mTLS；AI SSE 流式走 `invoke('secure_http_stream')`，经 Channel 逐块推回，见 `src/api/ai.ts`）；webview 原生加载（头像/上传）经回环安全反代 `secureProxy.ts`。仅 `huanvaeGuard/localApi.ts`（回环 127.0.0.1）+ `nfc/executor.ts`（NFC 任意外链）例外保留 @tauri-apps/plugin-http
+- 本地数据持久化使用 SQLite（数据访问经 Rust 命令 `invoke('db_*')`，见 `src/db/index.ts`）
 - 样式使用 TailwindCSS 4
 - TypeScript strict mode
 

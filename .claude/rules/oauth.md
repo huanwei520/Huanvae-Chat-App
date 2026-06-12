@@ -42,7 +42,7 @@ src/
 后端 OAuth Provider 支持小程序"静默登录"（internal 客户端，无 consent 弹窗）。**Tauri 客户端的责任仅限：把平台 JWT 通过 URL query `?token=xxx` 注入 WebviewWindow**。完整 OAuth 4 步流程（authorize → token → userinfo）由小程序自己的 JS 在 webview 内完成。
 
 **实现位置**：
-- [MiniAppsModal.tsx](src/components/miniapps/MiniAppsModal.tsx) 的 export pure function `buildMiniAppLaunchUrl(serverUrl, accessUrl, token)`
+- [launch.ts](src/components/miniapps/launch.ts) 的 export pure function `buildMiniAppLaunchUrl(serverUrl, accessUrl, token)`（桌面 MiniAppsModal.tsx 与移动 MobileMiniAppsPage.tsx 共同 import；2026-05-10 从 MiniAppsModal 抽离为独立纯函数模块，避免把桌面 only 依赖拖进 Android bundle，见 common.md）
   - access_url 已含 query 时用 `&token=`，否则 `?token=`
   - token 经 `encodeURIComponent` 编码
   - 字段名固定为 `token`（非 `platform_token`），与后端 ai-demo 约定一致
