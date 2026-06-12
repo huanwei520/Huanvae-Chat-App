@@ -20,7 +20,7 @@ import type { GroupReader } from './useGroupReadReceipt';
 interface GroupReadListModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** 已读者名单（已排除发送者，按已读时间升序） */
+  /** 已读者名单（已排除发送者，按已读时间升序；displayName 已在上游套用群内私有备注 D7） */
   readers: GroupReader[];
 }
 
