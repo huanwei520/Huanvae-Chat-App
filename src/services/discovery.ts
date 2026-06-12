@@ -4,7 +4,6 @@
  *
  * 流程:discoverEndpoints → fetchConfig(系统信任拉 {ips,port,domains,ca_pem,ttl})→ pickFastest(经
  * secure_http pin_ca 探测各 IP 的 https://<ip>:port/health,选最快可达)→ 缓存(内存 + discovery.json)。
- * 连不上 → reportFailure 清缓存 + 回查(排除刚失败 IP)。
  *
  * **连 IP 不连域名**:阿里云 ICP 备案拦截被动读明文 SNI;连 IP 字面量不发 SNI → 绕过(实测确认)。
  * 改写在 JS 层完成(resolveForSecureHttp 给出 direct_ip/direct_port,secureFetch/ai/RustWebSocket 改写 URL 主机)。
@@ -276,31 +275,6 @@ export function directIpUrl(url: string): string {
     return url;
   }
   return rewriteUrlHost(url, active.ip, active.port);
-}
-
-/**
- * 直连失败回查:清 active + 该 IP 延迟,重新拉配置 + 择优(排除刚失败 IP 优先,仍允许其兜底)。
- * 拉配置失败退化用缓存;都没有抛错。
- */
-export async function reportFailure(ip: string): Promise<ActiveEndpoint> {
-  if (mem) {
-    mem.active = null;
-    delete mem.perIpLatency[ip];
-  }
-  const cfg = await configOrFallback();
-  const { active, perIpLatency } = await pickFastest(cfg, ip);
-  await saveCache({
-    ips: cfg.ips,
-    port: cfg.port,
-    domains: cfg.domains,
-    caPem: cfg.ca_pem,
-    resolvedAt: Date.now(),
-    ttlMs: cfg.ttl * 1000,
-    active,
-    perIpLatency,
-  });
-  await syncProxyTarget(active);
-  return active;
 }
 
 /** 测试用:重置内存缓存 + store 句柄(prod 不调用) */

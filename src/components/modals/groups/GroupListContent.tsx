@@ -13,6 +13,8 @@ interface GroupListContentProps {
   onGroupSelect?: (group: Group) => void;
   onClose: () => void;
   getRoleText: (role: string) => string;
+  /** 群未读数查询（WS unreadSummary 派生口径；REST group.unread_count 是旧计数器列，不用于显示） */
+  getGroupUnread: (groupId: string) => number;
 }
 
 export function GroupListContent({
@@ -21,6 +23,7 @@ export function GroupListContent({
   onGroupSelect,
   onClose,
   getRoleText,
+  getGroupUnread,
 }: GroupListContentProps) {
   if (loading) {
     return <div className="loading-state">加载中...</div>;
@@ -38,39 +41,42 @@ export function GroupListContent({
 
   return (
     <div className="groups-list">
-      {groups.map((group) => (
-        <motion.div
-          key={group.group_id}
-          className="group-item"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
-          onClick={() => {
-            onGroupSelect?.(group);
-            onClose();
-          }}
-        >
-          <div className="group-avatar">
-            {group.group_avatar_url ? (
-              <img src={resolveServerAvatarUrl(group.group_avatar_url) || ''} alt={group.group_name} />
-            ) : (
-              <GroupIconLarge />
-            )}
-          </div>
-          <div className="group-info">
-            <div className="group-name">{group.group_name}</div>
-            <div className="group-meta">
-              <span className="group-role">{getRoleText(group.role)}</span>
-              {group.last_message_content && (
-                <span className="group-preview">{group.last_message_content}</span>
+      {groups.map((group) => {
+        const unreadCount = getGroupUnread(group.group_id);
+        return (
+          <motion.div
+            key={group.group_id}
+            className="group-item"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ backgroundColor: 'rgba(147, 197, 253, 0.15)' }}
+            onClick={() => {
+              onGroupSelect?.(group);
+              onClose();
+            }}
+          >
+            <div className="group-avatar">
+              {group.group_avatar_url ? (
+                <img src={resolveServerAvatarUrl(group.group_avatar_url) || ''} alt={group.group_name} />
+              ) : (
+                <GroupIconLarge />
               )}
             </div>
-          </div>
-          {group.unread_count && group.unread_count > 0 && (
-            <div className="unread-badge">{group.unread_count}</div>
-          )}
-        </motion.div>
-      ))}
+            <div className="group-info">
+              <div className="group-name">{group.group_name}</div>
+              <div className="group-meta">
+                <span className="group-role">{getRoleText(group.role)}</span>
+                {group.last_message_content && (
+                  <span className="group-preview">{group.last_message_content}</span>
+                )}
+              </div>
+            </div>
+            {unreadCount > 0 && (
+              <div className="unread-badge">{unreadCount}</div>
+            )}
+          </motion.div>
+        );
+      })}
     </div>
   );
 }

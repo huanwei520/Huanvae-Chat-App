@@ -13,7 +13,6 @@ import { resolveForSecureHttp } from '../services/discovery';
 import type {
   HgClientConfig,
   DeviceRegisterResponse,
-  DeviceTopology,
   HgDevice,
   HgDeviceLink,
   CreateLinkInviteResponse,
@@ -103,16 +102,6 @@ export function getDeviceConfig(
   deviceId: string,
 ): Promise<HgClientConfig> {
   return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/config`, token);
-}
-
-export function getTopology(
-  serverUrl: string,
-  token: string,
-  deviceId: string,
-  since?: number,
-): Promise<DeviceTopology> {
-  const qs = since !== undefined && since !== null ? `?since=${since}` : '';
-  return serverFetch(serverUrl, `/api/hg/devices/${deviceId}/topology${qs}`, token);
 }
 
 export function lockDevice(

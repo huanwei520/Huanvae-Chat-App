@@ -52,9 +52,12 @@ import {
   updateFriendUnread,
   updateGroupUnread,
   createInitialUnreadSummary,
+  clearUnreadEntry,
 } from './wsHandlers';
+import { seedReadPositions, resetReadPositions } from './readPositions';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
+import { setSyncedConversationListener } from '../services/syncService';
 
 import type {
   UnreadSummary,
@@ -102,7 +105,12 @@ interface WebSocketContextType {
   pendingNotifications: PendingNotifications;
   clearPendingNotification: (type: keyof PendingNotifications) => void;
   initPendingNotifications: (counts: Partial<PendingNotifications>) => void;
-  markRead: (targetType: 'friend' | 'group', targetId: string) => void;
+  /**
+   * 标记会话已读：发 WS mark_read 帧（离线/假活时暂存，connected 后补发）+ 本地 summary 清零
+   * + 推进本地读位。seq 可选：收到新消息当帧标读时传该消息 seq，消除 advance 与
+   * updateConversationLastSeq 两条 invoke 链的顺序竞态（读位恒落后 1 条堵死自愈判据）。
+   */
+  markRead: (targetType: 'friend' | 'group', targetId: string, seq?: number) => void;
   connect: () => void;
   disconnect: () => void;
   setActiveChat: (targetType: 'friend' | 'group' | null, targetId: string | null) => void;
@@ -172,6 +180,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   /** 服务端建议的重连抖动上限（毫秒） */
   const reconnectJitterMsRef = useRef(3000);
 
+  /** 离线/假活期间未能发出的 mark_read（按 type:id 去重），connected 后补发（服务端 GREATEST 幂等） */
+  const pendingMarkReadsRef = useRef<Map<string, { targetType: 'friend' | 'group'; targetId: string }>>(new Map());
+  /** markReadRef 解决 handleMessage（ctx 回调）→ markRead 的声明顺序问题（同 connectRef 模式） */
+  const markReadRef = useRef<(targetType: 'friend' | 'group', targetId: string, seq?: number) => void>(() => {});
+
   const newMessageListeners = useRef<Set<(msg: WsNewMessage) => void>>(new Set());
   const recalledListeners = useRef<Set<(msg: WsMessageRecalled) => void>>(new Set());
   const notificationListeners = useRef<Set<(msg: WsSystemNotification) => void>>(new Set());
@@ -234,6 +247,30 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       recalledListeners,
       notificationListeners,
       readSyncListeners,
+      sendResyncReadPositions: (positions) => {
+        if (positions.length > 0 && wsRef.current?.readyState === RustWebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resync_read_positions', positions }));
+        }
+      },
+      flushPendingMarkReads: () => {
+        if (pendingMarkReadsRef.current.size === 0 || wsRef.current?.readyState !== RustWebSocket.OPEN) {
+          return;
+        }
+        for (const { targetType, targetId } of pendingMarkReadsRef.current.values()) {
+          wsRef.current.send(JSON.stringify({
+            type: 'mark_read',
+            target_type: targetType,
+            target_id: targetId,
+          }));
+        }
+        pendingMarkReadsRef.current.clear();
+      },
+      markActiveChatRead: () => {
+        const active = activeChatRef.current;
+        if (active) {
+          markReadRef.current(active.type, active.id);
+        }
+      },
     });
 
     if (!result) {
@@ -486,43 +523,67 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     setConnected(false);
     setConnecting(false);
     setUnreadSummary(null);
+    // 登出/账号切换：读位内存 Map 与离线暂存的 mark_read 同 unreadSummary 一起清，防跨账号串数据
+    resetReadPositions();
+    pendingMarkReadsRef.current.clear();
   }, []);
 
   // ============================================
   // 标记已读
   // ============================================
 
-  const markRead = useCallback((targetType: 'friend' | 'group', targetId: string) => {
+  const markRead = useCallback((targetType: 'friend' | 'group', targetId: string, seq?: number) => {
     if (wsRef.current?.readyState === RustWebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'mark_read',
         target_type: targetType,
         target_id: targetId,
       }));
+    } else {
+      // 离线/假活（真机熄屏、切网 socket 假活）：暂存而非静默丢弃，connected 后补发。
+      // 服务端读位 GREATEST 单调合并，重发幂等无害。本地清零/advance 照旧立即做。
+      pendingMarkReadsRef.current.set(`${targetType}:${targetId}`, { targetType, targetId });
     }
 
-    setUnreadSummary(prev => {
-      if (!prev) { return prev; }
+    // 持久化本地已读位置（带 seq 时推进到显式读位，消除与 updateConversationLastSeq 的顺序竞态），
+    // 供重连时回传 resync_read_positions 修复抖断丢失的 mark_read。fire-and-forget，失败不影响已读流程。
+    let convId: string | null = targetId; // group: 会话 id 即 group_id
+    if (targetType === 'friend') {
+      convId = userIdRef.current ? getFriendConversationId(userIdRef.current, targetId) : null;
+    }
+    if (convId) {
+      void db.advanceConversationRead(convId, seq).catch(err =>
+        console.error('[WS] 持久化本地已读位置失败:', err),
+      );
+    }
 
-      const newSummary = { ...prev };
-
-      if (targetType === 'friend') {
-        newSummary.friend_unreads = newSummary.friend_unreads.map(u =>
-          u.friend_id === targetId ? { ...u, unread_count: 0 } : u,
-        );
-      } else {
-        newSummary.group_unreads = newSummary.group_unreads.map(u =>
-          u.group_id === targetId ? { ...u, unread_count: 0 } : u,
-        );
-      }
-
-      newSummary.total_count =
-        newSummary.friend_unreads.reduce((sum, u) => sum + u.unread_count, 0) +
-        newSummary.group_unreads.reduce((sum, u) => sum + u.unread_count, 0);
-
-      return newSummary;
-    });
+    setUnreadSummary(prev => (prev ? clearUnreadEntry(prev, targetType, targetId) : prev));
   }, []);
+
+  // 保持 markReadRef 与最新 markRead 同步（供 handleMessage ctx 的 markActiveChatRead 使用）
+  markReadRef.current = markRead;
+
+  // sync 补刀：HTTP 增量同步给【当前打开的会话】落了新消息时，补一次 markRead（含 WS 帧 +
+  // 本地清零 + advance 带最终 seq）。人停在会话里时 sync 上屏的消息不再"可见但红点挂死"。
+  // 仅 activeChat，绝不全局标读；service 层经 setSyncedConversationListener 注入，不依赖 React。
+  useEffect(() => {
+    setSyncedConversationListener((conversationId, conversationType, latestSeq) => {
+      const active = activeChatRef.current;
+      if (!active || active.type !== conversationType) {
+        return;
+      }
+      let activeConvId: string | null = active.id; // group: 会话 id 即 group_id
+      if (active.type === 'friend') {
+        activeConvId = userIdRef.current
+          ? getFriendConversationId(userIdRef.current, active.id)
+          : null;
+      }
+      if (activeConvId === conversationId) {
+        markRead(active.type, active.id, latestSeq);
+      }
+    });
+    return () => { setSyncedConversationListener(null); };
+  }, [markRead]);
 
   // ============================================
   // 更新消息预览
@@ -631,6 +692,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   // 登录/退出时连接/断开
   useEffect(() => {
     if (session) {
+      // 预载读位内存 Map（connected 同步纠正的判定源）。此刻本地 db 可能尚未初始化：
+      // 失败静默跳过，首个 connected 的两段式兜底路径（applyConnectedReadCorrection）会再灌入。
+      void db.getConversations().then(seedReadPositions).catch(() => {});
       connect();
     } else {
       disconnect();

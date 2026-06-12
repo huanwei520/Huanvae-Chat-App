@@ -32,6 +32,18 @@
   cursor: grabbing;
 }
 
+/* 键盘聚焦可见焦点环：仅键盘聚焦显示（鼠标拖拽不显示），
+   仅用 outline（不含 transition），不与 framer-motion 控制的 opacity/y 抢帧 */
+.stack-selector:focus {
+  outline: none;
+}
+
+.stack-selector:focus-visible {
+  outline: 2px solid rgba(var(--color-primary-5-rgb, 96, 165, 250), 0.9);
+  outline-offset: 6px;
+  border-radius: var(--radius-xl);
+}
+
 /* ============================================
    堆叠容器
    ============================================ */

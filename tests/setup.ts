@@ -102,17 +102,6 @@ vi.mock('@tauri-apps/api/path', () => ({
   join: vi.fn().mockImplementation((...args: string[]) => args.join('/')),
 }));
 
-// Mock @tauri-apps/plugin-sql
-vi.mock('@tauri-apps/plugin-sql', () => ({
-  default: {
-    load: vi.fn().mockResolvedValue({
-      execute: vi.fn(),
-      select: vi.fn().mockResolvedValue([]),
-      close: vi.fn(),
-    }),
-  },
-}));
-
 // Mock @tauri-apps/plugin-dialog
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),

@@ -14,7 +14,6 @@
  *   getStatus            GET  /api/tunnel/status    获取隧道状态 + peer 明细
  *   startTunnel          POST /api/tunnel/start     建立 WireGuard 隧道
  *   stopTunnel           POST /api/tunnel/stop      关闭隧道
- *   updatePeers          POST /api/tunnel/peers     替换/增量修改 peers
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
@@ -59,12 +58,4 @@ export function startTunnel(params: {
 
 export function stopTunnel(): Promise<ApiResponse<void>> {
   return localFetch('/api/tunnel/stop', { method: 'POST' });
-}
-
-export function updatePeers(peers: PeerConfig[], replace = true): Promise<ApiResponse<void>> {
-  return localFetch('/api/tunnel/peers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ peers, replace_peers: replace }),
-  });
 }

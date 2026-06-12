@@ -333,6 +333,13 @@ fn db_clear_conversation_unread(id: String) -> Result<(), String> {
     db::clear_conversation_unread(&id)
 }
 
+/// 推进会话本地已读位置：不带 seq 推进到当前已收最新（MAX(last_read_seq, last_seq)），
+/// 带 seq 推进到显式读位（MAX(last_read_seq, seq)，不碰 last_seq 同步游标）
+#[tauri::command]
+fn db_advance_conversation_read(id: String, seq: Option<i64>) -> Result<(), String> {
+    db::advance_conversation_read(&id, seq)
+}
+
 /// 更新会话的最后消息预览
 #[tauri::command(rename_all = "camelCase")]
 fn db_update_conversation_last_message(
@@ -839,6 +846,7 @@ pub fn run() {
             db_get_conversation_previews,
             db_get_conversation,
             db_save_conversation,
+            db_advance_conversation_read,
             db_update_conversation_last_seq,
             db_update_conversation_unread,
             db_clear_conversation_unread,

@@ -76,6 +76,7 @@ const baseConv = (id: string, lastSeq: number): LocalConversation => ({
   last_message_time: null,
   last_seq: lastSeq,
   unread_count: 0,
+  last_read_seq: 0,
   is_muted: false,
   is_pinned: false,
   updated_at: '2026-01-01T00:00:00Z',

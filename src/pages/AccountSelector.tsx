@@ -246,6 +246,36 @@ export function AccountSelector({
     }
   }, [currentAccount, onDeleteAccount]);
 
+  // 键盘导航：方向键切换账号（与滚轮/拖拽语义一致：↓/→ 下一个、↑/← 上一个），
+  // 回车登录当前账号，Delete 触发删除确认（不直接删，保留二次确认）。
+  // 防抖复用 goToPrev/goToNext 内部的 animationLock，无需额外处理。
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'ArrowLeft':
+        e.preventDefault();
+        goToPrev();
+        break;
+      case 'ArrowDown':
+      case 'ArrowRight':
+        e.preventDefault();
+        goToNext();
+        break;
+      case 'Enter':
+        e.preventDefault();
+        handleSelect();
+        break;
+      case 'Delete':
+        e.preventDefault();
+        if (currentAccount && !showDeleteConfirm) {
+          setShowDeleteConfirm(true);
+        }
+        break;
+      default:
+        break;
+    }
+  }, [goToPrev, goToNext, handleSelect, currentAccount, showDeleteConfirm]);
+
   // 计算显示的索引
   const getDisplayMainIndex = (): number => {
     if (positionOffset === 0) { return mainIndex; }
@@ -276,6 +306,10 @@ export function AccountSelector({
         ref={stackSelectorRef}
         className="stack-selector"
         variants={itemVariants}
+        role="group"
+        aria-label="账号切换：方向键切换账号，回车登录，Delete 删除"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

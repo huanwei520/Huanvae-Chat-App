@@ -15,7 +15,6 @@ import {
   SEARCH_COMPONENTS,
   NFC_COMPONENTS,
   UPDATE_COMPONENTS,
-  CHAT_RESTORE_HOOKS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -54,9 +53,6 @@ import * as nfcTrustStore from '../../src/nfc/trustStore';
 
 // 更新模块 Hooks
 import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
-
-// 聊天滚动恢复 Hooks
-import * as useScrollAnchorRestore from '../../src/hooks/useScrollAnchorRestore';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -175,6 +171,7 @@ import * as useSearchPopup from '../../src/hooks/useSearchPopup';
 import * as useRegisterForm from '../../src/hooks/useRegisterForm';
 import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMessages';
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
+import * as useScrollKeyboardControls from '../../src/chat/shared/useScrollKeyboardControls';
 import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useUpdateToast from '../../src/update/components/UpdateToast';
@@ -268,8 +265,6 @@ const COMPONENT_MAP = {
   nfcTrustStore,
   // 更新模块 Hooks
   useStartupUpdateCheck,
-  // 聊天滚动恢复 Hooks
-  useScrollAnchorRestore,
   // 通用组件
   Avatar,
   AIAvatar,
@@ -417,6 +412,7 @@ const COMPONENT_MAP = {
   useRegisterForm,
   useLocalFriendMessages,
   useLocalGroupMessages,
+  useScrollKeyboardControls,
   useFriendReadReceipt,
   useGroupReadReceipt,
   useAIMessages,
@@ -481,15 +477,6 @@ describe('NFC 组件 (NFC Components)', () => {
 // ============== 更新模块 Hooks 测试 ==============
 describe('更新模块 Hooks (Update Components)', () => {
   it.each(UPDATE_COMPONENTS)('$name - $description', (entry) => {
-    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
-    expect(module).toBeDefined();
-    expect(Object.keys(module).length).toBeGreaterThan(0);
-  });
-});
-
-// ============== 聊天滚动恢复 Hooks 测试 ==============
-describe('聊天滚动恢复 Hooks (Chat Restore Hooks)', () => {
-  it.each(CHAT_RESTORE_HOOKS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

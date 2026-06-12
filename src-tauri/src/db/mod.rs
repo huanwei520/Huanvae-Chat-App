@@ -125,6 +125,13 @@ pub fn init_database() -> Result<(), String> {
     )
     .map_err(|e| format!("创建 conversations 表失败: {}", e))?;
 
+    // 迁移：添加 last_read_seq 列（本地已读位置，旧数据库兼容；幂等，列已存在则忽略）
+    conn.execute(
+        "ALTER TABLE conversations ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
+        [],
+    )
+    .ok();
+
     // 创建消息表
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (

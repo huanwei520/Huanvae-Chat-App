@@ -20,7 +20,10 @@ import {
   getMessagePreviewText,
   updateFriendUnread,
   updateGroupUnread,
+  computeConnectedReadCorrection,
+  mergeReadCorrectionIntoLatest,
 } from '../../src/contexts/wsHandlers';
+import { getFriendConversationId } from '../../src/utils/conversationId';
 
 // ============================================================================
 // 测试辅助
@@ -171,5 +174,238 @@ describe('updateGroupUnread - 更新群聊未读摘要', () => {
     const result = updateGroupUnread(summary, 'g1', '新', '', true);
 
     expect(result.total_count).toBe(11); // 3 + 7+1
+  });
+});
+
+// ============================================================================
+// computeConnectedReadCorrection - 用本地持久化已读位置纠正 connected 快照 + 算 resync
+// 真值口径迁移后(unread-count 计数器 → last-read-seq 派生)的客户端自愈：
+//   本地 last_read_seq >= last_seq(>0) ⇒ 该会话视为已读 ⇒ 清 0 + 回传 resync_read_positions
+// 取代旧 active-only 兜底 mergeConnectedSnapshotWithActiveRead(覆盖所有会话、不止 active)
+// ============================================================================
+
+describe('computeConnectedReadCorrection - 本地已读位置纠正 connected 快照', () => {
+  const ME = 'me';
+  function makeFriend(id: string, count: number) {
+    return {
+      friend_id: id,
+      unread_count: count,
+      last_message_preview: `friend-${id}`,
+      last_message_time: '2026-06-09T00:00:00Z',
+    };
+  }
+  function makeGroup(id: string, count: number) {
+    return {
+      group_id: id,
+      unread_count: count,
+      last_message_preview: `group-${id}`,
+      last_message_time: '2026-06-09T00:00:00Z',
+    };
+  }
+  // 本地会话记录(只取 compute 需要的三字段)
+  function conv(id: string, last_seq: number, last_read_seq: number) {
+    return { id, last_seq, last_read_seq };
+  }
+  const fconv = (friendId: string, last_seq: number, last_read_seq: number) =>
+    conv(getFriendConversationId(ME, friendId), last_seq, last_read_seq);
+
+  // 把"判定 + 应用"串起来：mergeReadCorrectionIntoLatest(snap, snap, ...) 即"无并发增量时"
+  // 应用纠正的结果（等价于旧 corrected）。这样既覆盖已读判定，又覆盖应用逻辑。
+  function applyCorrection(
+    snap: UnreadSummary,
+    conversations: { id: string; last_seq: number; last_read_seq: number }[],
+    userId: string | null,
+  ) {
+    const { resyncPositions, readFriendIds, readGroupIds } = computeConnectedReadCorrection(
+      snap,
+      conversations,
+      userId,
+    );
+    const corrected = mergeReadCorrectionIntoLatest(snap, snap, readFriendIds, readGroupIds);
+    return { corrected, resyncPositions, readFriendIds, readGroupIds };
+  }
+
+  it('好友本地已读到最新(last_read_seq>=last_seq>0) → 清 0 且回传 resync', () => {
+    const snap: UnreadSummary = {
+      total_count: 5,
+      friend_unreads: [makeFriend('A', 5)],
+      group_unreads: [],
+    };
+    const { corrected, resyncPositions, readFriendIds } = applyCorrection(snap, [fconv('A', 7, 7)], ME);
+    expect(corrected.friend_unreads[0].unread_count).toBe(0);
+    expect(corrected.total_count).toBe(0);
+    // 仅清 unread_count，preview 保留
+    expect(corrected.friend_unreads[0].last_message_preview).toBe('friend-A');
+    expect(readFriendIds.has('A')).toBe(true);
+    expect(resyncPositions).toEqual([{ target_type: 'friend', target_id: 'A', last_read_seq: 7 }]);
+  });
+
+  it('好友本地未读完(last_read_seq < last_seq) → 不动、不 resync', () => {
+    const snap: UnreadSummary = {
+      total_count: 3,
+      friend_unreads: [makeFriend('A', 3)],
+      group_unreads: [],
+    };
+    const { corrected, resyncPositions, readFriendIds } = applyCorrection(snap, [fconv('A', 9, 6)], ME);
+    expect(corrected.friend_unreads[0].unread_count).toBe(3);
+    expect(corrected.total_count).toBe(3);
+    expect(readFriendIds.has('A')).toBe(false);
+    expect(resyncPositions).toEqual([]);
+  });
+
+  it('last_seq=0(本地还没收到任何消息) → 不视为已读、不 resync(防把没收到的清掉)', () => {
+    const snap: UnreadSummary = {
+      total_count: 2,
+      friend_unreads: [makeFriend('A', 2)],
+      group_unreads: [],
+    };
+    const { corrected, resyncPositions } = applyCorrection(snap, [fconv('A', 0, 0)], ME);
+    expect(corrected.friend_unreads[0].unread_count).toBe(2);
+    expect(resyncPositions).toEqual([]);
+  });
+
+  it('群本地已读到最新 → 清 0 且回传 group resync', () => {
+    const snap: UnreadSummary = {
+      total_count: 6,
+      friend_unreads: [],
+      group_unreads: [makeGroup('G1', 6)],
+    };
+    const { corrected, resyncPositions, readGroupIds } = applyCorrection(snap, [conv('G1', 4, 4)], ME);
+    expect(corrected.group_unreads[0].unread_count).toBe(0);
+    expect(corrected.total_count).toBe(0);
+    expect(readGroupIds.has('G1')).toBe(true);
+    expect(resyncPositions).toEqual([{ target_type: 'group', target_id: 'G1', last_read_seq: 4 }]);
+  });
+
+  it('混合：A 已读 / B 未读 / G 已读 → 只清 A、G，resync 只含 A、G，total 重算', () => {
+    const snap: UnreadSummary = {
+      total_count: 10,
+      friend_unreads: [makeFriend('A', 5), makeFriend('B', 3)],
+      group_unreads: [makeGroup('G', 2)],
+    };
+    const { corrected, resyncPositions } = applyCorrection(
+      snap,
+      [fconv('A', 5, 5), fconv('B', 8, 2), conv('G', 2, 9)],
+      ME,
+    );
+    expect(corrected.friend_unreads.find(u => u.friend_id === 'A')?.unread_count).toBe(0);
+    expect(corrected.friend_unreads.find(u => u.friend_id === 'B')?.unread_count).toBe(3);
+    expect(corrected.group_unreads[0].unread_count).toBe(0);
+    expect(corrected.total_count).toBe(3); // 0 + 3 + 0
+    expect(resyncPositions).toEqual([
+      { target_type: 'friend', target_id: 'A', last_read_seq: 5 },
+      { target_type: 'group', target_id: 'G', last_read_seq: 9 },
+    ]);
+  });
+
+  it('无本地会话记录(currentUserId 为 null) → 好友条目不动、无 resync', () => {
+    const snap: UnreadSummary = {
+      total_count: 5,
+      friend_unreads: [makeFriend('A', 5)],
+      group_unreads: [],
+    };
+    const { corrected, resyncPositions, readFriendIds } = applyCorrection(snap, [fconv('A', 7, 7)], null);
+    expect(corrected.friend_unreads[0].unread_count).toBe(5);
+    expect(readFriendIds.size).toBe(0);
+    expect(resyncPositions).toEqual([]);
+  });
+
+  it('应用结果是新引用，不修改输入(避免 setState 引用相等绕过 React 渲染)', () => {
+    const snap: UnreadSummary = {
+      total_count: 5,
+      friend_unreads: [makeFriend('A', 5)],
+      group_unreads: [],
+    };
+    const originalFriendRef = snap.friend_unreads[0];
+    const { corrected } = applyCorrection(snap, [fconv('A', 5, 5)], ME);
+    expect(corrected).not.toBe(snap);
+    expect(corrected.friend_unreads).not.toBe(snap.friend_unreads);
+    expect(corrected.friend_unreads[0]).not.toBe(originalFriendRef);
+    expect(snap.friend_unreads[0].unread_count).toBe(5); // 输入未被改写
+  });
+});
+
+// ============================================================================
+// mergeReadCorrectionIntoLatest - 把已读纠正合并进【最新】state，杜绝陈旧快照覆盖
+// bug① 根因回归：connected 异步纠正 await db.getConversations() 间隙到达的 new_message
+// 增量，不能被基于快照算出的纠正覆盖（否则未读/排序倒退 → 列表"上下抽搐"）。
+// ============================================================================
+
+describe('mergeReadCorrectionIntoLatest - 已读纠正合并进最新 state（防 clobber）', () => {
+  const T0 = '2026-06-09T00:00:00Z';
+  const T1 = '2026-06-09T00:05:00Z'; // 间隙内新消息的较新时间
+  const f = (id: string, count: number, time: string) => ({
+    friend_id: id, unread_count: count, last_message_preview: `f-${id}`, last_message_time: time,
+  });
+  const g = (id: string, count: number, time: string) => ({
+    group_id: id, unread_count: count, last_message_preview: `g-${id}`, last_message_time: time,
+  });
+
+  it('【核心回归】已读会话在间隙内来了 new_message(unread/time 变了) → 保留最新值，不被清回', () => {
+    // 快照：A 被判定本地已读(server 5)；间隙内 A 又来一条 → latest 中 A=6 @ 更新时间
+    const snapshot: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    const latest: UnreadSummary = { total_count: 6, friend_unreads: [f('A', 6, T1)], group_unreads: [] };
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(['A']), new Set());
+    expect(merged.friend_unreads[0].unread_count).toBe(6); // 真实新未读被保留，未清回
+    expect(merged.friend_unreads[0].last_message_time).toBe(T1);
+    expect(merged.total_count).toBe(6);
+  });
+
+  it('已读会话间隙内无变化(与快照一致) → 正常清 0', () => {
+    const snapshot: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    const latest: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(['A']), new Set());
+    expect(merged.friend_unreads[0].unread_count).toBe(0);
+    expect(merged.total_count).toBe(0);
+  });
+
+  it('未被判定已读的会话 → 一律不动(即使有未读)', () => {
+    const snapshot: UnreadSummary = { total_count: 3, friend_unreads: [f('B', 3, T0)], group_unreads: [] };
+    const latest: UnreadSummary = { total_count: 3, friend_unreads: [f('B', 3, T0)], group_unreads: [] };
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(), new Set());
+    expect(merged.friend_unreads[0].unread_count).toBe(3);
+    expect(merged.total_count).toBe(3);
+  });
+
+  it('latest 多出快照里没有的会话(间隙内新建) → 不动', () => {
+    const snapshot: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    // A 已读且未变 → 清 0；C 是间隙内新建、不在 readIds → 保留
+    const latest: UnreadSummary = {
+      total_count: 6,
+      friend_unreads: [f('A', 5, T0), f('C', 1, T1)],
+      group_unreads: [],
+    };
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(['A']), new Set());
+    expect(merged.friend_unreads.find(u => u.friend_id === 'A')?.unread_count).toBe(0);
+    expect(merged.friend_unreads.find(u => u.friend_id === 'C')?.unread_count).toBe(1);
+    expect(merged.total_count).toBe(1);
+  });
+
+  it('群同样适用：已读未变清 0、间隙内变化保留', () => {
+    const snapshot: UnreadSummary = {
+      total_count: 8,
+      friend_unreads: [],
+      group_unreads: [g('G1', 5, T0), g('G2', 3, T0)],
+    };
+    const latest: UnreadSummary = {
+      total_count: 9,
+      friend_unreads: [],
+      group_unreads: [g('G1', 5, T0), g('G2', 4, T1)], // G2 间隙内 +1
+    };
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(), new Set(['G1', 'G2']));
+    expect(merged.group_unreads.find(u => u.group_id === 'G1')?.unread_count).toBe(0); // 未变 → 清
+    expect(merged.group_unreads.find(u => u.group_id === 'G2')?.unread_count).toBe(4); // 变了 → 保留
+    expect(merged.total_count).toBe(4);
+  });
+
+  it('返回新引用，不修改输入', () => {
+    const snapshot: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    const latest: UnreadSummary = { total_count: 5, friend_unreads: [f('A', 5, T0)], group_unreads: [] };
+    const latestRef = latest.friend_unreads[0];
+    const merged = mergeReadCorrectionIntoLatest(latest, snapshot, new Set(['A']), new Set());
+    expect(merged).not.toBe(latest);
+    expect(merged.friend_unreads).not.toBe(latest.friend_unreads);
+    expect(latest.friend_unreads[0]).toBe(latestRef); // 输入未被改写
+    expect(latest.friend_unreads[0].unread_count).toBe(5);
   });
 });

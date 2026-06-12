@@ -75,3 +75,41 @@ export const messageTransition = {
   // 布局动画（消息位置变化时）
   layout: { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const },
 };
+
+/**
+ * 会话消息区「整块淡入」过渡。
+ *
+ * 打开/切换会话时，整个消息列表容器作为一块内容 opacity 0→1 淡入，而非历史消息逐条滑入。
+ * 与以下两者合起来构成「打开会话无插入抖动、只有柔和整体出现」的完整效果：
+ * - column-reverse：首帧布局即稳定贴底（opacity=0 时排版与滚动定位已完成，淡入期间零布局变化）；
+ * - shouldPlayEnter：历史消息 initial=false 不逐条入场，实时新到的消息仍按 getMessageVariants 滑入。
+ *
+ * 时长/缓动对齐 messageTransition.opacity（200ms，ease-out [0,0,0.2,1]），与逐条入场动画体系一致。
+ */
+export const panelFadeTransition = {
+  duration: 0.2,
+  ease: [0.0, 0.0, 0.2, 1] as const,
+};
+
+/**
+ * 是否给该消息播放"入场滑入"动画。
+ *
+ * 仅"挂载后新增"且"自己发/WS 实时收到"的消息才演——即聊天中实时到达的新消息：
+ * - `mountedKeys` 是消息列表首帧非空时的 key 快照；在快照内 = 打开/切换会话时已有的历史 → 不演；
+ * - 不在快照内 = 挂载后新增（实时新消息）；
+ * - 再要求带 `clientId`（自己发的保留 clientId、WS 收到的为 ws_<uuid>），借此排除 loadMore
+ *   拉来的 DB 历史（`localMessageToMessage`/`localMessageToGroupMessage` 不带 clientId）。
+ *
+ * 于是：切换/打开 = 整体走面板渐变、无逐条并拢；聊天中新消息 = 自然滑入。
+ *
+ * @param clientId    消息的 clientId（自己发/WS 收到才有）
+ * @param stableKey   该消息的稳定 key（= clientId || message_uuid）
+ * @param mountedKeys 列表首帧非空时的 key 快照；尚未捕获时为 null（一律不演）
+ */
+export function shouldPlayEnter(
+  clientId: string | undefined,
+  stableKey: string,
+  mountedKeys: Set<string> | null,
+): boolean {
+  return !!clientId && mountedKeys !== null && !mountedKeys.has(stableKey);
+}

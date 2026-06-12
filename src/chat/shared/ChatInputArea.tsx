@@ -16,6 +16,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { FileAttachButton, type AttachmentType, getMimeType } from './FileAttachButton';
 import { UploadProgress } from './UploadProgress';
+import { panelFadeTransition } from './animations';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
@@ -316,15 +317,16 @@ export function ChatInputArea({
   }, [isMuted]);
 
   // 禁言状态下的输入区域
+  // ⚠️ 入场/退场禁止 y 位移（与下方正常态相同，原因见正常态注释）。
   if (isMuted) {
     return (
       <motion.div
         key="input-area-muted"
         className="chat-input-area muted"
-        initial={{ y: 40, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 40, opacity: 0 }}
-        transition={{ type: 'spring', damping: 28, stiffness: 350, mass: 0.8 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={panelFadeTransition}
       >
         <div className="mute-notice">
           <MuteIcon />
@@ -334,14 +336,19 @@ export function ChatInputArea({
     );
   }
 
+  // ⚠️ 入场/退场禁止 y 位移，只允许 opacity：
+  // 首帧 translateY 会把本元素的边界伸出 .chat-content（overflow:hidden 也是 scroll container），
+  // 扩出一段可滚动区；叠加 textarea 挂载 autofocus 的 focus 滚动 → .chat-content 被滚下露出
+  // 输入框（头部+消息区整体被顶上去），随动画回位时可滚区缩回、scrollTop 逐帧钳回 0 →
+  // 头部栏和整个消息框出现「从上向下滑入」的假入场。纯 opacity 无几何变化，与面板/消息区淡入一致。
   return (
     <motion.div
       key="input-area"
       className={`chat-input-area${isDragging ? ' dragging' : ''}`}
-      initial={{ y: 40, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 40, opacity: 0 }}
-      transition={{ type: 'spring', damping: 28, stiffness: 350, mass: 0.8 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={panelFadeTransition}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

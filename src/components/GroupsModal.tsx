@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../contexts/SessionContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
 import {
   getMyGroups,
   createGroup,
@@ -34,6 +35,8 @@ import {
 
 export function GroupsModal({ isOpen, onClose, onGroupSelect }: GroupsModalProps) {
   const api = useApi();
+  // 群未读显示只认 WS unreadSummary 派生口径（REST group.unread_count 是旧计数器列，不用于显示）
+  const { getGroupUnread } = useWebSocket();
 
   const [activeTab, setActiveTab] = useState<TabType>('list');
   const [loading, setLoading] = useState(false);
@@ -209,6 +212,7 @@ export function GroupsModal({ isOpen, onClose, onGroupSelect }: GroupsModalProps
             onGroupSelect={onGroupSelect}
             onClose={onClose}
             getRoleText={getRoleText}
+            getGroupUnread={getGroupUnread}
           />
         );
       case 'create':

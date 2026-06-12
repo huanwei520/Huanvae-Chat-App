@@ -65,20 +65,6 @@ export function getFiles(
 }
 
 /**
- * 获取文件预签名 URL
- */
-export function getPresignedUrl(
-  api: ApiClient,
-  fileUuid: string,
-  operation: 'download' | 'preview' = 'preview',
-): Promise<PresignedUrlResponse> {
-  return api.post<PresignedUrlResponse>(
-    `/api/storage/file/${fileUuid}/presigned_url`,
-    { operation },
-  );
-}
-
-/**
  * 获取文件类型分类
  */
 export function getFileCategory(contentType: string): 'image' | 'video' | 'file' {
