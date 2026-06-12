@@ -1915,6 +1915,21 @@
   font-size: 13px;
 }
 
+/* blacklist undelivered mark: red exclamation left of own bubble when message
+   was silently dropped (seq=0) because the recipient is blacklisted */
+.bubble-undelivered {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--status-error);
+}
+
+.bubble-undelivered svg {
+  width: 16px;
+  height: 16px;
+}
+
 .bubble-time {
   font-size: 11px;
   color: var(--text-light);

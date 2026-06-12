@@ -29,6 +29,7 @@ import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
+import { FailedIcon } from '../shared/ReadReceiptIcons';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { isMobile } from '../../utils/platform';
@@ -396,6 +397,15 @@ export function MessageBubble({
                   )}
                 </div>
               </div>
+              {/* 拉黑未送达标记：我发出且 seq=0（拉黑关系下被静默丢弃）→ 气泡左侧红叹号。
+                  own 消息行为 row-reverse，此处置于 bubble-content 之后即渲染在气泡左侧。 */}
+              {isOwn && message.seq === 0
+                && message.sendStatus !== 'sending'
+                && message.sendStatus !== 'failed' && (
+                <span className="bubble-undelivered" title="未送达：对方收不到此消息" aria-label="未送达">
+                  <FailedIcon size={16} />
+                </span>
+              )}
             </div>
           </motion.div>
         )}
