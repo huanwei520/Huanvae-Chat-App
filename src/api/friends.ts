@@ -174,6 +174,18 @@ export function getBlacklist(api: ApiClient): Promise<BlacklistResponse> {
 }
 
 /**
+ * 拉取黑名单并构建 user_id → 拉黑时间(服务器 created_at) 映射。
+ * 群消息「只折叠拉黑此刻之后发的」按服务器时间比较，必须用 created_at 而非客户端时钟，
+ * 否则时钟漂移会让折叠边界错判。useFriends 后台同步与 useChatMenu 拉黑动作共用此函数。
+ */
+export async function getBlacklistTimes(api: ApiClient): Promise<Record<string, string>> {
+  const blacklist = await getBlacklist(api);
+  const times: Record<string, string> = {};
+  (Array.isArray(blacklist) ? blacklist : []).forEach((u) => { times[u.user_id] = u.created_at; });
+  return times;
+}
+
+/**
  * 特别关心某好友（标星；仅限好友，单向私有）
  * @param targetUserId 被特别关心的好友用户 ID
  */

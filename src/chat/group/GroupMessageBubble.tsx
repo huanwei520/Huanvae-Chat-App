@@ -217,10 +217,12 @@ export function GroupMessageBubble({
   // 好友拉黑：发送者是我拉黑的好友、且该消息发送时间晚于拉黑时间点 → 在所有群折叠
   // （只折叠拉黑之后发的；拉黑前的历史消息保留原文。取消拉黑后随 store 自动恢复）。
   // 与 D6 群屏蔽相互独立：群屏蔽走 groupMessageBlocks（右键取消），拉黑走好友黑名单（私聊/设置取消）。
+  // friendBlacklistTimes 是单一真值源：拉黑时写入（服务器 created_at），取消拉黑时
+  // setFriendBlacklisted(false) 一并删除该条 → 存在即「当前已拉黑」。无需再叠加
+  // friends[].is_blacklisted 双源判定（两个异步源就绪时序不一致会让折叠静默失效）。
   const senderBlacklistTime = useChatStore((state) => state.friendBlacklistTimes[message.sender_id]);
   const isSenderBlacklisted = !isOwn
     && !!senderBlacklistTime
-    && friends.some((f) => f.friend_id === message.sender_id && f.is_blacklisted)
     && new Date(message.send_time).getTime() >= new Date(senderBlacklistTime).getTime();
   // 折叠占位的统一判定：群屏蔽 或 好友拉黑 任一命中
   const isSenderHidden = isSenderBlocked || isSenderBlacklisted;

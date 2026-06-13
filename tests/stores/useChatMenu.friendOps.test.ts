@@ -28,6 +28,7 @@ const friendsApi = vi.hoisted(() => ({
   setFriendRemark: vi.fn(),
   addBlacklist: vi.fn(),
   removeBlacklist: vi.fn(),
+  getBlacklistTimes: vi.fn(),
   addSpecialCare: vi.fn(),
   removeSpecialCare: vi.fn(),
 }));
@@ -58,6 +59,7 @@ const target = (f: Friend) => ({ type: 'friend' as const, data: f });
 describe('useChatMenu 好友关系操作', () => {
   beforeEach(() => {
     Object.values(friendsApi).forEach((m) => { m.mockReset(); m.mockResolvedValue(undefined); });
+    useChatStore.setState({ friendBlacklistTimes: {} });
   });
 
   it('isFriendSpecialCare / isFriendBlacklisted 反映 store 状态', () => {
@@ -96,12 +98,34 @@ describe('useChatMenu 好友关系操作', () => {
     });
   });
 
-  it('handleBlacklist：addBlacklist + store 置 true + 视图回 main', async () => {
+  it('handleBlacklist：addBlacklist + store 置 true + 写入服务器拉黑时间 + 视图回 main', async () => {
     const f = makeFriend({ is_blacklisted: false });
     setStoreFriend(f);
+    // U1：拉黑后用 getBlacklistTimes 的服务器 created_at 写 friendBlacklistTimes，
+    // 而非客户端 new Date()——避免时钟漂移让群折叠边界与 send_time 错配。
+    const SERVER_BL_TIME = '2026-02-02T08:00:00Z';
+    friendsApi.getBlacklistTimes.mockResolvedValue({ f1: SERVER_BL_TIME });
     const { result } = renderHook(() => useChatMenu({ target: target(f) }));
     act(() => { result.current.handleSetView('confirm-blacklist'); });
     expect(result.current.view).toBe('confirm-blacklist');
+
+    await act(async () => { await result.current.handleBlacklist(); });
+
+    expect(friendsApi.addBlacklist).toHaveBeenCalledWith(mockApi, 'f1');
+    expect(friendsApi.getBlacklistTimes).toHaveBeenCalledWith(mockApi);
+    await waitFor(() => {
+      expect(useChatStore.getState().friends.find((x) => x.friend_id === 'f1')?.is_blacklisted).toBe(true);
+    });
+    // 关键：写入的是服务器时间，而非客户端 now
+    expect(useChatStore.getState().friendBlacklistTimes.f1).toBe(SERVER_BL_TIME);
+    expect(result.current.view).toBe('main');
+  });
+
+  it('handleBlacklist：getBlacklistTimes 失败不阻断（拉黑仍成功，时间映射待后续同步补齐）', async () => {
+    const f = makeFriend({ is_blacklisted: false });
+    setStoreFriend(f);
+    friendsApi.getBlacklistTimes.mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useChatMenu({ target: target(f) }));
 
     await act(async () => { await result.current.handleBlacklist(); });
 

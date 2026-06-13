@@ -17,7 +17,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
-import { getFriends as getFriendsFromApi, getBlacklist } from '../api/friends';
+import { getFriends as getFriendsFromApi, getBlacklistTimes } from '../api/friends';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import * as db from '../db';
 import type { Friend } from '../types/chat';
@@ -109,12 +109,9 @@ export function useFriends(): UseFriendsReturn {
       console.warn('[Friends] 保存好友到本地失败:', err);
     }
 
-    // 拉黑时间映射（群消息「只折叠拉黑之后发的」需按发送时间比较拉黑时间点）
+    // 拉黑时间映射（群消息「只折叠拉黑之后发的」需按服务器拉黑时间比较发送时间）
     try {
-      const blacklist = await getBlacklist(api);
-      const times: Record<string, string> = {};
-      (Array.isArray(blacklist) ? blacklist : []).forEach((u) => { times[u.user_id] = u.created_at; });
-      setFriendBlacklistTimes(times);
+      setFriendBlacklistTimes(await getBlacklistTimes(api));
     } catch (err) {
       console.warn('[Friends] 加载拉黑时间失败:', err);
     }
