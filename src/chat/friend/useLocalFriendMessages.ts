@@ -831,7 +831,9 @@ export function useLocalFriendMessages(friendId: string | null) {
           updated[sendingIndex] = {
             ...updated[sendingIndex],
             message_uuid: wsMsg.message_uuid,
-            seq: wsMsg.seq || 0,
+            // WS 回显的自己的消息必然已送达（seq>=1）；拉黑丢弃不产生 WS 事件。
+            // 忠实写入 wsMsg.seq，不强制成 0——seq=0 是红叹号「未送达」的唯一信号。
+            seq: wsMsg.seq,
             send_time: wsMsg.timestamp,
             sendStatus: 'sent',
           };
@@ -855,7 +857,8 @@ export function useLocalFriendMessages(friendId: string | null) {
         image_width: wsMsg.image_width ?? null,
         image_height: wsMsg.image_height ?? null,
         send_time: wsMsg.timestamp,
-        seq: wsMsg.seq || 0,
+        // WS 推送的消息必然已送达（seq>=1）；忠实写入，不强制成 0（0=未送达信号）。
+        seq: wsMsg.seq,
         is_recalled: false,
         clientId: `ws_${wsMsg.message_uuid}`, // 用于触发入场动画
       };
