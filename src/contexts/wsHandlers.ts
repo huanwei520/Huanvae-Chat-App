@@ -98,6 +98,26 @@ export function getMessagePreviewText(
 }
 
 /**
+ * 群消息的发送者是否「对我已折叠」——即该消息在群里会被渲染成折叠占位、内容隐藏。
+ * 折叠有两个来源（与 GroupMessageBubble 的折叠判定一致）：
+ *  - D6 群内屏蔽：发送者在本群被我屏蔽（groupMessageBlocks）→ 始终折叠
+ *  - 好友拉黑：发送者是我拉黑的好友，且消息发送时间晚于拉黑时间点（friendBlacklistTimes）
+ * 折叠的消息既然在列表里隐藏成占位，就不应再弹系统通知（否则自相矛盾）。
+ * 拉黑判定以 friendBlacklistTimes 为单一真值源（拉黑写入、取消拉黑由 chatStore 删除该条，
+ * 与 is_blacklisted 保持同步），故无需再查 friends[].is_blacklisted。纯函数，便于单测。
+ */
+export function isGroupSenderFolded(
+  groupBlocks: string[] | undefined,
+  friendBlacklistTimes: Record<string, string>,
+  senderId: string,
+  sendTime: string,
+): boolean {
+  if ((groupBlocks ?? []).includes(senderId)) { return true; }
+  const blacklistTime = friendBlacklistTimes[senderId];
+  return !!blacklistTime && new Date(sendTime).getTime() >= new Date(blacklistTime).getTime();
+}
+
+/**
  * 更新好友未读摘要
  */
 export function updateFriendUnread(
@@ -597,39 +617,51 @@ export function handleWebSocketMessage(
 
         // 发送系统通知（非自己发送的消息）
         if (msg.sender_id !== ctx.currentUserId) {
-          // 群消息使用"群聊"作为标题，好友消息无群名
-          const groupName = msg.source_type === 'group' ? '群聊' : undefined;
+          // 折叠的发送者（D6 群内屏蔽 / 好友拉黑后发的）其群消息在列表里渲染成折叠占位、
+          // 内容隐藏，不应再弹系统通知，否则与「已折叠」自相矛盾。私聊拉黑由后端双向静默丢弃、
+          // 根本不产生 WS 事件，故无需在此判私聊（M2）。
+          const senderFolded = msg.source_type === 'group' && isGroupSenderFolded(
+            useChatStore.getState().groupMessageBlocks[msg.source_id],
+            useChatStore.getState().friendBlacklistTimes,
+            msg.sender_id,
+            msg.timestamp,
+          );
 
-          // 私聊新消息：用本地好友备注/昵称解析发送者名 + 取特别关心标记（强提醒）
-          let senderName = msg.sender_nickname || msg.sender_id;
-          let isSpecialCare = false;
-          if (msg.source_type === 'friend') {
-            const friend = useChatStore.getState().friends.find(
-              (f) => f.friend_id === msg.sender_id,
-            );
-            if (friend) {
-              senderName = friendDisplayName(friend);
-              isSpecialCare = friend.is_special_care;
+          if (!senderFolded) {
+            // 群消息使用"群聊"作为标题，好友消息无群名
+            const groupName = msg.source_type === 'group' ? '群聊' : undefined;
+
+            // 私聊新消息：用本地好友备注/昵称解析发送者名 + 取特别关心标记（强提醒）
+            let senderName = msg.sender_nickname || msg.sender_id;
+            let isSpecialCare = false;
+            if (msg.source_type === 'friend') {
+              const friend = useChatStore.getState().friends.find(
+                (f) => f.friend_id === msg.sender_id,
+              );
+              if (friend) {
+                senderName = friendDisplayName(friend);
+                isSpecialCare = friend.is_special_care;
+              }
+            } else if (msg.source_type === 'group') {
+              // 群消息：发送者若在本群被我特别关心，则强提醒（通知标题带 ⭐，M3）。
+              // 关心集进群时由 getGroupSpecialCares 加载进 store；未打开过的群无此信息则不强提醒。
+              const cared = useChatStore.getState().groupSpecialCares[msg.source_id] ?? [];
+              isSpecialCare = cared.includes(msg.sender_id);
             }
-          } else if (msg.source_type === 'group') {
-            // 群消息：发送者若在本群被我特别关心，则强提醒（通知标题带 ⭐，M3）。
-            // 关心集进群时由 getGroupSpecialCares 加载进 store；未打开过的群无此信息则不强提醒。
-            const cared = useChatStore.getState().groupSpecialCares[msg.source_id] ?? [];
-            isSpecialCare = cared.includes(msg.sender_id);
-          }
 
-          notifyNewMessage({
-            sourceType: msg.source_type,
-            sourceId: msg.source_id,
-            senderName,
-            groupName,
-            messageType: msg.message_type,
-            content: msg.content || msg.preview || '',
-            activeChat: ctx.activeChatRef.current,
-            isSpecialCare,
-          }).catch(err => {
-            console.warn('[WS] 发送通知失败:', err);
-          });
+            notifyNewMessage({
+              sourceType: msg.source_type,
+              sourceId: msg.source_id,
+              senderName,
+              groupName,
+              messageType: msg.message_type,
+              content: msg.content || msg.preview || '',
+              activeChat: ctx.activeChatRef.current,
+              isSpecialCare,
+            }).catch(err => {
+              console.warn('[WS] 发送通知失败:', err);
+            });
+          }
         }
 
         // 通知监听器
