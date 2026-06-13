@@ -11,6 +11,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatMenu } from '../group/useChatMenu';
+import { GroupRemarkInputModal } from '../group/GroupRemarkInputModal';
 import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import { MenuIcon } from '../../components/common/Icons';
@@ -135,8 +136,7 @@ export function ChatMenuButton({
           <MembersList
             members={menu.members}
             loadingMembers={menu.loadingMembers}
-            currentUserId={undefined}
-            isOwnerOrAdmin={menu.isGroupOwnerOrAdmin}
+            currentUserId={menu.currentUserId}
             remarks={groupRemarks}
             onBack={() => menu.handleSetView('main')}
             onMemberClick={menu.handleMemberClick}
@@ -149,7 +149,14 @@ export function ChatMenuButton({
             member={menu.selectedMember}
             isOwner={menu.isGroupOwner}
             loading={menu.loading}
+            canModerate={menu.canModerateSelectedMember}
+            isSpecialCared={menu.isSelectedMemberSpecialCared}
+            isBlocked={menu.isSelectedMemberBlocked}
             onBack={() => menu.handleSetView('members')}
+            onViewProfile={menu.handleViewMemberProfile}
+            onToggleSpecialCare={menu.handleToggleMemberSpecialCare}
+            onToggleBlock={menu.handleToggleMemberBlock}
+            onSetRemark={menu.openMemberRemarkModal}
             onToggleAdmin={menu.handleToggleAdmin}
             onMute={() => menu.handleSetView('mute-member')}
             onUnmute={menu.handleUnmuteMember}
@@ -347,6 +354,17 @@ export function ChatMenuButton({
 
       {/* 群头像裁剪弹窗 */}
       {menu.avatarCropModal}
+
+      {/* 成员私有备注输入弹窗（成员操作面板「设置备注」触发，D7） */}
+      {menu.selectedMember && (
+        <GroupRemarkInputModal
+          isOpen={menu.memberRemarkModalOpen}
+          memberName={menu.selectedMember.user_nickname}
+          currentRemark={menu.selectedMemberRemark}
+          onSave={menu.handleSaveMemberRemark}
+          onClose={menu.closeMemberRemarkModal}
+        />
+      )}
 
       <AnimatePresence>
         {menu.isOpen && (

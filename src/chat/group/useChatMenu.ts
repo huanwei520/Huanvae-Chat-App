@@ -21,7 +21,7 @@
 import { useState, useRef, useEffect, useCallback, type ChangeEvent, type ReactNode } from 'react';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useAvatarCrop } from '../../components/common/AvatarCropModal';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import {
   removeFriend,
   setFriendRemark as apiSetFriendRemark,
@@ -50,6 +50,12 @@ import {
   getInviteCodes,
   revokeInviteCode,
   updateGroupNickname,
+  addGroupMessageBlock,
+  removeGroupMessageBlock,
+  addGroupSpecialCare,
+  removeGroupSpecialCare,
+  setGroupMemberRemark as apiSetGroupMemberRemark,
+  removeGroupMemberRemark as apiRemoveGroupMemberRemark,
   type GroupMember,
   type GroupNotice,
   type InviteCode,
@@ -92,6 +98,15 @@ export interface UseChatMenuReturn {
   members: GroupMember[];
   loadingMembers: boolean;
   selectedMember: GroupMember | null;
+  /** 当前用户 ID（成员列表自我排除用） */
+  currentUserId: string | undefined;
+
+  // 成员操作面板：选中成员的群内私有状态 + 管理权限 + 备注弹窗开关
+  isSelectedMemberBlocked: boolean;
+  isSelectedMemberSpecialCared: boolean;
+  selectedMemberRemark: string;
+  canModerateSelectedMember: boolean;
+  memberRemarkModalOpen: boolean;
 
   // 禁言时长
   muteDuration: number;
@@ -161,6 +176,17 @@ export interface UseChatMenuReturn {
   handleRevokeCode: (codeId: string) => Promise<void>;
   handleCopyCode: (code: string) => Promise<void>;
   handleMemberClick: (member: GroupMember) => void;
+  /** 看选中成员的公开资料（只读资料页）并关闭菜单 */
+  handleViewMemberProfile: () => void;
+  /** D6 屏蔽/取消屏蔽选中成员在本群的消息（await-first） */
+  handleToggleMemberBlock: () => Promise<void>;
+  /** M3 特别关心/取消选中成员（await-first） */
+  handleToggleMemberSpecialCare: () => Promise<void>;
+  /** D7 保存/清除选中成员的私有备注（await-first；空串=清除） */
+  handleSaveMemberRemark: (value: string) => Promise<void>;
+  /** 打开/关闭成员备注输入弹窗 */
+  openMemberRemarkModal: () => void;
+  closeMemberRemarkModal: () => void;
   handleCloseMenu: () => void;
   handleUpdateGroupNickname: () => Promise<void>;
   handleClearGroupNickname: () => Promise<void>;
@@ -201,6 +227,8 @@ export function useChatMenu({
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [selectedMember, setSelectedMember] = useState<GroupMember | null>(null);
+  // 成员备注输入弹窗开关（成员操作面板「设置备注」触发）
+  const [memberRemarkModalOpen, setMemberRemarkModalOpen] = useState(false);
 
   // 禁言时长
   const [muteDuration, setMuteDuration] = useState<number>(60);
@@ -244,6 +272,25 @@ export function useChatMenu({
   const isGroupOwnerOrAdmin = target.type === 'group' &&
     (currentRole === 'owner' || currentRole === 'admin');
   const isGroupOwner = target.type === 'group' && currentRole === 'owner';
+
+  // 成员操作面板：选中成员的群内私有状态（D6 屏蔽 / M3 特别关心 / D7 备注），
+  // 订阅本群对应 map，按 selectedMember.user_id 派生
+  const openProfileView = useProfileViewStore((s) => s.open);
+  const groupBlocks = useChatStore((s) => (groupId ? s.groupMessageBlocks[groupId] : undefined));
+  const groupCares = useChatStore((s) => (groupId ? s.groupSpecialCares[groupId] : undefined));
+  const groupRemarksMap = useChatStore((s) => (groupId ? s.groupMemberRemarks[groupId] : undefined));
+  const setGroupMemberBlocked = useChatStore((s) => s.setGroupMemberBlocked);
+  const setGroupMemberSpecialCare = useChatStore((s) => s.setGroupMemberSpecialCare);
+  const setGroupMemberRemarkAction = useChatStore((s) => s.setGroupMemberRemark);
+  const selectedMemberId = selectedMember?.user_id;
+  const isSelectedMemberBlocked = !!selectedMemberId && (groupBlocks ?? []).includes(selectedMemberId);
+  const isSelectedMemberSpecialCared = !!selectedMemberId && (groupCares ?? []).includes(selectedMemberId);
+  const selectedMemberRemark = selectedMemberId ? (groupRemarksMap?.[selectedMemberId] ?? '') : '';
+  // 是否可对选中成员行使管理操作（设管理员/禁言/移出）：自己是群主/管理员，且对象非群主，
+  // 且非「管理员对管理员」。看资料/备注/特别关心/屏蔽是人人可用的私有操作，不受此限。
+  const canModerateSelectedMember = isGroupOwnerOrAdmin && !!selectedMember
+    && selectedMember.role !== 'owner'
+    && !(currentRole === 'admin' && selectedMember.role === 'admin');
 
   // 好友关系状态：订阅 store 中该好友的实时 is_special_care / is_blacklisted
   // （三条杠菜单据此显示「特别关心 / 取消特别关心」「拉黑 / 取消拉黑」文案）
@@ -732,13 +779,72 @@ export function useChatMenu({
 
   // 点击成员
   const handleMemberClick = useCallback((member: GroupMember) => {
+    // 任何成员（除自己）都可打开操作面板：面板含人人可用的看资料/备注/特别关心/屏蔽，
+    // 管理操作（设管理员/禁言/移出）在面板内按 canModerateSelectedMember 单独 gating。
     if (member.user_id === session?.userId) { return; }
-    if (member.role === 'owner') { return; }
-    if (target.type === 'group' && target.data.role === 'admin' && member.role === 'admin') { return; }
-
     setSelectedMember(member);
     setView('member-action');
-  }, [session?.userId, target]);
+  }, [session?.userId]);
+
+  // 看该成员的公开资料（只读资料页），并关闭菜单
+  const handleViewMemberProfile = useCallback(() => {
+    if (!selectedMember) { return; }
+    openProfileView(selectedMember.user_id);
+    handleCloseMenu();
+  }, [selectedMember, openProfileView, handleCloseMenu]);
+
+  // D6 群内屏蔽/取消屏蔽该成员：先 await API 成功再写 store（与好友关系操作 handleBlacklist
+  // 等一致：成功才写、失败仅提示不写入），消除「乐观写+回滚」在并发下落旧值的风险
+  const handleToggleMemberBlock = useCallback(async () => {
+    if (!groupId || !selectedMember) { return; }
+    const uid = selectedMember.user_id;
+    const next = !isSelectedMemberBlocked;
+    try {
+      if (next) {
+        await addGroupMessageBlock(api, groupId, uid);
+      } else {
+        await removeGroupMessageBlock(api, groupId, uid);
+      }
+      setGroupMemberBlocked(groupId, uid, next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    }
+  }, [api, groupId, selectedMember, isSelectedMemberBlocked, setGroupMemberBlocked]);
+
+  // M3 群内特别关心/取消该成员：先 await 再写 store
+  const handleToggleMemberSpecialCare = useCallback(async () => {
+    if (!groupId || !selectedMember) { return; }
+    const uid = selectedMember.user_id;
+    const next = !isSelectedMemberSpecialCared;
+    try {
+      if (next) {
+        await addGroupSpecialCare(api, groupId, uid);
+      } else {
+        await removeGroupSpecialCare(api, groupId, uid);
+      }
+      setGroupMemberSpecialCare(groupId, uid, next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    }
+  }, [api, groupId, selectedMember, isSelectedMemberSpecialCared, setGroupMemberSpecialCare]);
+
+  // D7 设置/清除该成员私有备注：先 await 再写 store。空串 = 清除。
+  // 弹窗的关闭由 GroupRemarkInputModal 在点击保存时自行 onClose，无需此处再关。
+  const handleSaveMemberRemark = useCallback(async (value: string) => {
+    if (!groupId || !selectedMember) { return; }
+    const uid = selectedMember.user_id;
+    const trimmed = value.trim();
+    try {
+      if (trimmed) {
+        await apiSetGroupMemberRemark(api, groupId, uid, trimmed);
+      } else {
+        await apiRemoveGroupMemberRemark(api, groupId, uid);
+      }
+      setGroupMemberRemarkAction(groupId, uid, trimmed || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败');
+    }
+  }, [api, groupId, selectedMember, setGroupMemberRemarkAction]);
 
   // 更新群内昵称
   const handleUpdateGroupNickname = useCallback(async () => {
@@ -879,6 +985,14 @@ export function useChatMenu({
     members,
     loadingMembers,
     selectedMember,
+    currentUserId: session?.userId,
+
+    // 成员操作面板：选中成员的群内私有状态 + 管理权限 + 备注弹窗
+    isSelectedMemberBlocked,
+    isSelectedMemberSpecialCared,
+    selectedMemberRemark,
+    canModerateSelectedMember,
+    memberRemarkModalOpen,
 
     // 禁言时长
     muteDuration,
@@ -947,6 +1061,12 @@ export function useChatMenu({
     handleRevokeCode,
     handleCopyCode,
     handleMemberClick,
+    handleViewMemberProfile,
+    handleToggleMemberBlock,
+    handleToggleMemberSpecialCare,
+    handleSaveMemberRemark,
+    openMemberRemarkModal: () => setMemberRemarkModalOpen(true),
+    closeMemberRemarkModal: () => setMemberRemarkModalOpen(false),
     handleCloseMenu,
     handleUpdateGroupNickname,
     handleClearGroupNickname,

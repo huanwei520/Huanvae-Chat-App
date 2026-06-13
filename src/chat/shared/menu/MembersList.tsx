@@ -12,7 +12,6 @@ interface MembersListProps {
   members: GroupMember[];
   loadingMembers: boolean;
   currentUserId: string | undefined;
-  isOwnerOrAdmin: boolean;
   /** D7 群内私有备注：本群「我设的备注」映射（user_id → 备注名）；展示名优先用备注 */
   remarks?: Record<string, string>;
   onBack: () => void;
@@ -23,7 +22,6 @@ export function MembersList({
   members,
   loadingMembers,
   currentUserId,
-  isOwnerOrAdmin,
   remarks,
   onBack,
   onMemberClick,
@@ -40,9 +38,9 @@ export function MembersList({
         )}
         {!loadingMembers && members.length > 0 && (
           members.map((member) => {
-            const canClick = isOwnerOrAdmin &&
-              member.user_id !== currentUserId &&
-              member.role !== 'owner';
+            // 任何成员（除自己）都可点开操作面板：看资料 + 备注/特别关心/屏蔽（人人可用），
+            // 管理操作在面板内单独 gating。
+            const canClick = member.user_id !== currentUserId;
             // 显示名：备注优先 → 群昵称 → 用户昵称（头像 alt/占位首字母同步）
             const displayName = groupMemberDisplayName(
               remarks?.[member.user_id],
