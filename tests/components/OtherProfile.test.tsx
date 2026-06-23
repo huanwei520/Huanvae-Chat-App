@@ -29,6 +29,12 @@ vi.mock('../../src/api/friends', () => ({
   sendFriendRequest: mockSendFriendRequest,
 }));
 
+// 头像收口点：用哨兵变换替代真实 resolveDisplayUrl（避开 secureProxy/tauri），
+// 便于断言"公开资料头像确实经过 resolveServerAvatarUrl 解析、而非裸后端 URL"。
+vi.mock('../../src/utils/avatar', () => ({
+  resolveServerAvatarUrl: (p: string | null | undefined) => (p ? `proxied://${p}` : null),
+}));
+
 import { OtherProfilePanel } from '../../src/chat/shared/OtherProfilePanel';
 
 function setFriends(ids: string[]) {
@@ -113,5 +119,19 @@ describe('OtherProfilePanel（只读公开资料）', () => {
     render(<OtherProfilePanel userId="me" onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText('这是你自己')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /添加好友/ })).toBeNull();
+  });
+
+  it('公开资料头像经 resolveServerAvatarUrl 收口（回归：不得直接用裸后端 URL）', async () => {
+    // 自己不在好友列表 → 走 profile.user_avatar_url 分支；该值是原始后端路径，
+    // 必须经收口点解析（webview 验不过私有 CA，裸 URL 加载失败显示 alt 文本）。
+    mockGetPublicProfile.mockResolvedValue({
+      user_id: 'me', user_nickname: 'Me', user_signature: null,
+      user_avatar_url: 'avatars/me.jpg?t=1',
+    });
+    render(<OtherProfilePanel userId="me" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText('这是你自己')).toBeInTheDocument());
+
+    const img = screen.getByRole('img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('proxied://avatars/me.jpg?t=1');
   });
 });

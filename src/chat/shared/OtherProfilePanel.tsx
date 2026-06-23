@@ -3,7 +3,8 @@
  *
  * @location src/chat/shared/OtherProfilePanel.tsx
  *
- * 由 OtherProfileView 在桌面右侧抽屉 / 移动整页内渲染。只读展示某用户的公开资料：
+ * 由 OtherProfileView 在桌面右侧抽屉 / 移动整页内渲染。QQ 风格只读版式：通栏封面 +
+ * 上叠圆角淡染卡 + 头像骑卡片左上角。展示某用户的公开资料：
  * - 头像、昵称（好友显示备注名）、@ID（可复制）、签名
  * - 关系状态（好友 / 陌生人 / 自己）
  * - 非好友可发起加好友请求（好友关系操作已统一移到私聊三条杠菜单）
@@ -12,12 +13,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileCoverPrototype } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
 import { sendFriendRequest } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon } from '../../components/common/Icons';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { qqHeroStyles } from '../../utils/profileCover';
 
 interface OtherProfilePanelProps {
   /** 被查看用户 id */
@@ -53,6 +56,14 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   const isFriend = !!friendData;
   const isSelf = session?.userId === userId;
 
+  // 封面背景（原型：仅自己视角从共享 store 预览；他人封面待后端 user-background-url 落库后接入，
+  // 当前留空不兜底 → 别人/未设封面用 QQ 默认底）。
+  const protoCover = useProfileCoverPrototype((s) => s.coverUrl);
+  const protoDominant = useProfileCoverPrototype((s) => s.dominant);
+  const heroCover = isSelf ? protoCover : null;
+  const heroDominant = isSelf ? protoDominant : null;
+  const hero = qqHeroStyles(heroDominant);
+
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
@@ -76,8 +87,20 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   const displayName = friendData
     ? friendDisplayName(friendData)
     : (profile?.user_nickname ?? '');
-  const avatarUrl = friendData?.friend_avatar_url ?? profile?.user_avatar_url ?? null;
+  // 头像必须经显示收口点解析（webview 验不过私有 CA 自签证书，裸后端 URL 加载失败）：
+  // 好友头像入 store 时已收口；公开资料头像是原始后端值，此处补一层 resolveServerAvatarUrl。
+  const avatarUrl = friendData?.friend_avatar_url
+    ?? resolveServerAvatarUrl(profile?.user_avatar_url)
+    ?? null;
   const signature = profile?.user_signature ?? null;
+
+  // 封面区底色：有封面图用图；无图但有主色用主色实底；否则回落 CSS 默认渐变
+  let coverStyle: React.CSSProperties = {};
+  if (heroCover) {
+    coverStyle = { backgroundImage: `url(${heroCover})` };
+  } else if (hero.coverFallback) {
+    coverStyle = { backgroundImage: 'none', backgroundColor: hero.coverFallback };
+  }
 
   const handleCopyId = () => {
     navigator.clipboard?.writeText(userId).catch(() => { /* 复制失败忽略 */ });
@@ -99,45 +122,68 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
 
   return (
     <div className="other-profile-panel">
-      <header className="other-profile-header">
-        <span className="other-profile-title">个人资料</span>
-        <button type="button" className="other-profile-close" onClick={onClose} aria-label="关闭">×</button>
-      </header>
-
-      <div className="other-profile-body">
-        <div className="other-profile-avatar">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} />
-          ) : (
-            <span className="other-profile-avatar-placeholder">{initialOf(displayName)}</span>
-          )}
-        </div>
-
-        <div className="other-profile-name">{displayName}</div>
-        <button type="button" className="other-profile-id" onClick={handleCopyId} title="点击复制 ID">
-          @{userId}
-        </button>
-
-        {loadError && <div className="other-profile-hint">资料加载失败</div>}
-        {signature && <div className="other-profile-signature">{signature}</div>}
-
-        <div className="other-profile-relation">{relationLabel(isSelf, isFriend)}</div>
-
-        {/* 非好友可加好友（好友的关系操作统一在私聊三条杠菜单） */}
-        {!isSelf && !isFriend && (
-          <div className="other-profile-actions">
-            {actionError && <div className="other-profile-error">{actionError}</div>}
+      <div className="qq-hero qq-hero--panel">
+        <div className="qq-hero-cover" style={coverStyle}>
+          <div className="qq-hero-actions">
             <button
               type="button"
-              className={`other-profile-action add ${sent ? 'sent' : ''}`}
-              onClick={handleAddFriend}
-              disabled={sending || sent}
+              className="qq-hero-btn qq-hero-btn--icon"
+              onClick={onClose}
+              aria-label="关闭"
             >
-              <AddUserIcon />
-              <span>{addButtonText(sent, sending)}</span>
+              ×
             </button>
           </div>
-        )}
+        </div>
+
+        <div
+          className="qq-hero-card"
+          style={hero.cardBackground ? { background: hero.cardBackground } : undefined}
+        >
+          <div className="qq-hero-headrow">
+            <div className="qq-hero-avatar">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName} />
+              ) : (
+                <span className="qq-hero-avatar-placeholder">{initialOf(displayName)}</span>
+              )}
+            </div>
+            <div className="qq-hero-namecol">
+              <span className="qq-hero-name">{displayName}</span>
+              <div>
+                <button
+                  type="button"
+                  className="qq-hero-id"
+                  onClick={handleCopyId}
+                  title="点击复制 ID"
+                >
+                  @{userId}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {loadError && <div className="other-profile-hint">资料加载失败</div>}
+          {signature && <div className="qq-hero-signature">{signature}</div>}
+
+          <div className="qq-hero-relation">{relationLabel(isSelf, isFriend)}</div>
+
+          {/* 非好友可加好友（好友的关系操作统一在私聊三条杠菜单） */}
+          {!isSelf && !isFriend && (
+            <div className="other-profile-actions">
+              {actionError && <div className="other-profile-error">{actionError}</div>}
+              <button
+                type="button"
+                className={`other-profile-action add ${sent ? 'sent' : ''}`}
+                onClick={handleAddFriend}
+                disabled={sending || sent}
+              >
+                <AddUserIcon />
+                <span>{addButtonText(sent, sending)}</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

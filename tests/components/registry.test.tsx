@@ -37,6 +37,7 @@ import * as MobileHeader from '../../src/pages/mobile/MobileHeader';
 import * as MobileMain from '../../src/pages/mobile/MobileMain';
 import * as MobileThemePage from '../../src/pages/mobile/MobileThemePage';
 import * as MobileMiniAppsPage from '../../src/pages/mobile/MobileMiniAppsPage';
+import * as MobileProfilePage from '../../src/pages/mobile/MobileProfilePage';
 
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
@@ -163,6 +164,7 @@ import * as useChatMenu from '../../src/chat/group/useChatMenu';
 import * as useMultiSelect from '../../src/hooks/useMultiSelect';
 import * as useMainPage from '../../src/hooks/useMainPage';
 import * as useAccounts from '../../src/hooks/useAccounts';
+import * as useProfileEditor from '../../src/hooks/useProfileEditor';
 import * as useInitialSync from '../../src/hooks/useInitialSync';
 import * as useLocalConversations from '../../src/hooks/useLocalConversations';
 import * as useResizablePanel from '../../src/hooks/useResizablePanel';
@@ -251,6 +253,7 @@ const COMPONENT_MAP = {
   MobileMain,
   MobileThemePage,
   MobileMiniAppsPage,
+  MobileProfilePage,
   // 全局搜索
   GlobalMessageSearchResults,
   useGlobalMessageSearch,
@@ -403,6 +406,7 @@ const COMPONENT_MAP = {
   useMultiSelect,
   useMainPage,
   useAccounts,
+  useProfileEditor,
   useInitialSync,
   useLocalConversations,
   useResizablePanel,
