@@ -72,6 +72,11 @@ describe('MessageBubble (好友) — 拉黑未送达红叹号', () => {
     expect(hasMark()).toBe(false);
   });
 
+  it('我发出 + seq=undefined（WS 缺序号/未回写）→ 不显示（undefined≠未送达，仅 seq===0 才标）', () => {
+    render(<MessageBubble message={makeMessage({ seq: undefined })} isOwn session={session} friend={friend} />);
+    expect(hasMark()).toBe(false);
+  });
+
   it('对方的消息 + seq=0 → 不显示（仅标自己发出的）', () => {
     render(<MessageBubble message={makeMessage({ seq: 0, sender_id: 'them', receiver_id: 'me' })} isOwn={false} session={session} friend={friend} />);
     expect(hasMark()).toBe(false);

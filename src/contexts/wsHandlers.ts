@@ -388,7 +388,7 @@ async function applyConnectedReadCorrection(
  * @param msg WebSocket 消息
  * @param currentUserId 当前用户 ID，用于生成正确的 conversation_id
  */
-async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | null): Promise<void> {
+export async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | null): Promise<void> {
   if (!currentUserId) {
     console.warn('[WS] 无法保存消息：currentUserId 未设置');
     return;
@@ -419,7 +419,10 @@ async function saveMessageToLocal(msg: WsNewMessage, currentUserId: string | nul
       file_hash: msg.file_hash || null,
       image_width: msg.image_width ?? null,
       image_height: msg.image_height ?? null,
-      seq: msg.seq || 0,
+      // WS 推送的消息必然是已送达的（后端契约：已送达 seq>=1，拉黑静默丢弃只走 HTTP 响应
+      // 且不产生 WS 事件）。忠实写入 msg.seq，绝不把缺失/异常值强制成 0——seq=0 是「未送达」
+      // 的唯一信号（MessageBubble 红叹号），伪造 0 会让已送达消息误显「未送达」。
+      seq: msg.seq,
       reply_to: null,
       is_recalled: false,
       is_deleted: false,
