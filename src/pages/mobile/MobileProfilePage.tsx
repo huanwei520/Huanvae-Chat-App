@@ -1,16 +1,16 @@
 /**
  * 移动端个人资料页面（QQ 风格）
  *
- * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
- * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像、自定义封面背景。
+ * 头像/封面/昵称等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
  *
- * 版式：通栏封面区（返回浮于其上）+ 上叠圆角卡，头像骑在封面下沿；
- * 下接 tab + 表单（profile-hero.css 骨架）。
+ * 版式：通栏封面（返回/换封面/移除浮于其上）+ 上叠主色淡染卡，头像骑在封面下沿；
+ * 下接 tab + 表单。封面/淡染色由 [profileCover.ts] 从封面主色派生（profile-hero.css 骨架）。
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm } from '../../components/profile';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, CoverColorButton } from '../../components/profile';
 import { useProfileEditor } from '../../hooks/useProfileEditor';
 
 // 返回图标
@@ -49,6 +49,7 @@ type TabType = 'info' | 'privacy' | 'password';
 
 export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('info');
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const {
     session,
     error,
@@ -56,7 +57,14 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
+    hasBackground,
+    backgroundColor,
+    cardStyle,
+    coverStyle,
     handleAvatarSelect,
+    handleImageBackgroundSelect,
+    handleColorBackground,
+    handleBackgroundRemove,
     handleNicknameUpdate,
     handleSuccess,
     handleError,
@@ -77,16 +85,25 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
   return (
     <motion.div
       className="mobile-profile-page"
+      style={cardStyle}
       variants={pageVariants}
       initial="initial"
       animate="animate"
       exit="exit"
     >
-      {/* 内容区域（整块滚动，封面区在最顶通栏） */}
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        style={{ display: 'none' }}
+        onChange={handleImageBackgroundSelect}
+      />
+
+      {/* 内容区域（整块滚动，封面在最顶通栏） */}
       <div className="mobile-profile-content">
-        {/* QQ 通栏封面区 + 浮层（返回） */}
+        {/* QQ 通栏封面 + 浮层（返回 / 背景图 / 纯色 / 移除） */}
         <div className="qq-hero qq-hero--mobile">
-          <div className="qq-hero-cover">
+          <div className="qq-hero-cover" style={coverStyle}>
             <div className="qq-hero-back">
               <button
                 type="button"
@@ -96,6 +113,21 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
               >
                 <BackIcon />
               </button>
+            </div>
+            <div className="qq-hero-actions">
+              <button
+                type="button"
+                className="qq-hero-btn"
+                onClick={() => coverInputRef.current?.click()}
+              >
+                {hasBackground ? '换封面' : '添加封面'}
+              </button>
+              <CoverColorButton value={backgroundColor} onPick={handleColorBackground} />
+              {hasBackground && (
+                <button type="button" className="qq-hero-btn" onClick={handleBackgroundRemove}>
+                  移除
+                </button>
+              )}
             </div>
           </div>
         </div>

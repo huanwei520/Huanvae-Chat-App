@@ -4,18 +4,32 @@
  * @location src/hooks/useProfileEditor.ts
  *
  * 两个编辑载体的非 JSX 逻辑完全一致：头像上传（裁剪 + 上传 + 同步 session/本地账号缓存）、
- * 昵称更新、错误/成功提示。收口到本 hook，避免两份逐字重复漂移；各载体只保留自己的
- * JSX 与 activeTab 等纯 UI 状态。
+ * 个人资料背景（图片压缩后上传后端 / 纯色 / 清除，落后端 user-backgrounds 公开读桶，别人可见，
+ * 见 [profileBackground] store + api/profile + [imageBackground]）、昵称更新、错误/成功提示、
+ * 以及由背景主色派生的 QQ 卡底/封面样式（见 [profileCover]）。收口到本 hook 避免两份逐字重复；
+ * 各载体只保留自己的 JSX 与 activeTab。
  */
 
 import { useState } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useAccounts } from './useAccounts';
-import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
+import {
+  uploadAvatar,
+  getProfile,
+  updateProfile,
+  uploadBackground,
+  setBackgroundColor,
+  clearProfileBackground,
+} from '../api/profile';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import { resolveDisplayUrl } from '../services/secureProxy';
 import { useAvatarCrop } from '../components/common/AvatarCropModal';
+import { useProfileBackground } from '../stores';
+import { extractDominantColor, rgbToHex } from '../utils/imageColor';
+import { compressImageToFile } from '../utils/imageBackground';
+import { qqHeroStyles, backgroundCoverStyle } from '../utils/profileCover';
 
-// 头像本地校验
+// 头像/背景图本地校验（一致）
 const IMAGE_MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
@@ -30,6 +44,14 @@ export function useProfileEditor() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [updatingNickname, setUpdatingNickname] = useState(false);
+
+  // 个人资料背景（store 由后端数据驱动：图片相对路径 / 纯色 + 主色；改背景在 store 内联动主题色）
+  const bgKind = useProfileBackground((s) => s.kind);
+  const bgBackgroundUrl = useProfileBackground((s) => s.backgroundUrl);
+  const bgColor = useProfileBackground((s) => s.color);
+  const bgDominant = useProfileBackground((s) => s.dominant);
+  const setFromBackend = useProfileBackground((s) => s.setFromBackend);
+  const [updatingBackground, setUpdatingBackground] = useState(false);
 
   const handleAvatarSelect = async (file: File) => {
     if (!session) { return; }
@@ -90,6 +112,73 @@ export function useProfileEditor() {
     }
   };
 
+  // 背景图选择：本地 blob → 压缩成 File + 提主色 → 上传后端（公开读桶）→ 用响应刷新 store
+  const handleImageBackgroundSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 允许重复选同一文件
+    if (!file || !session) { return; }
+    // 进入背景操作即清掉上一次的成功/错误提示，避免校验失败时残留旧的成功态
+    setError(null);
+    setSuccess(null);
+    if (file.size > IMAGE_MAX_SIZE) {
+      setError('背景图太大，最大 10MB');
+      return;
+    }
+    if (!IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      setError('背景图格式不支持，仅支持 jpg、png、gif、webp');
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    setUpdatingBackground(true);
+    try {
+      const [compressed, dominant] = await Promise.all([
+        compressImageToFile(blobUrl),
+        extractDominantColor(blobUrl).catch(() => null),
+      ]);
+      const dominantHex = dominant ? rgbToHex(dominant) : '';
+      const res = await uploadBackground(session.serverUrl, session.accessToken, compressed, dominantHex);
+      setFromBackend(res.user_background_url, res.user_background_color);
+      setSuccess('背景已更新');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '背景图上传失败');
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+      setUpdatingBackground(false);
+    }
+  };
+
+  const handleColorBackground = async (hex: string) => {
+    if (!session) { return; }
+    setUpdatingBackground(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await setBackgroundColor(api, hex);
+      setFromBackend(res.user_background_url, res.user_background_color);
+      setSuccess('背景已更新');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '设置纯色背景失败');
+    } finally {
+      setUpdatingBackground(false);
+    }
+  };
+
+  const handleBackgroundRemove = async () => {
+    if (!session) { return; }
+    setUpdatingBackground(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await clearProfileBackground(api);
+      setFromBackend(res.user_background_url, res.user_background_color);
+      setSuccess('背景已清除');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '清除背景失败');
+    } finally {
+      setUpdatingBackground(false);
+    }
+  };
+
   // 昵称更新处理
   const handleNicknameUpdate = async (nickname: string) => {
     if (!session) { return; }
@@ -134,6 +223,13 @@ export function useProfileEditor() {
     setError(message);
   };
 
+  // QQ 淡染 + 封面样式（图片/纯色/无）；无背景回落 CSS 默认渐变。
+  // 背景图相对路径必须经 resolveDisplayUrl 收口（webview 验不过私有 CA，裸后端 URL 加载失败）。
+  const hero = qqHeroStyles(bgDominant);
+  const cardStyle: React.CSSProperties = hero.cardBackground ? { background: hero.cardBackground } : {};
+  const coverStyle = backgroundCoverStyle(bgKind, resolveDisplayUrl(bgBackgroundUrl), bgColor);
+  const hasBackground = bgKind !== 'none';
+
   return {
     session,
     error,
@@ -141,7 +237,15 @@ export function useProfileEditor() {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
+    updatingBackground,
+    hasBackground,
+    backgroundColor: bgColor,
+    cardStyle,
+    coverStyle,
     handleAvatarSelect,
+    handleImageBackgroundSelect,
+    handleColorBackground,
+    handleBackgroundRemove,
     handleNicknameUpdate,
     handleSuccess,
     handleError,

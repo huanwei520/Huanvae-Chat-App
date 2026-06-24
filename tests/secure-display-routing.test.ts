@@ -127,3 +127,29 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
     expect(src).toMatch(wrappedPattern);
   });
 });
+
+describe('个人资料背景封面 CSS background 经反代（背景图相对路径必经 resolveDisplayUrl）', () => {
+  // backgroundCoverStyle 只做 `url(${imageUrl})` 包装，故调用方必须传**已收口**的显示 URL；
+  // 漏接 → 把裸后端相对路径喂 CSS backgroundImage → webview 验不过私有 CA → 破图。
+  // [文件, 不允许的裸写法（删反代即复现）, 必须出现的收口写法]
+  const coverSites: Array<[string, RegExp, RegExp]> = [
+    [
+      // 自己的 3 个载体（桌面弹窗 / 移动页 / 本人只读面板）共用此 coverStyle
+      'src/hooks/useProfileEditor.ts',
+      /backgroundCoverStyle\(bgKind, bgBackgroundUrl\b/,
+      /backgroundCoverStyle\(bgKind, resolveDisplayUrl\(bgBackgroundUrl\), bgColor\)/,
+    ],
+    [
+      // 他人资料页：公开资料的背景图相对路径
+      'src/chat/shared/OtherProfilePanel.tsx',
+      /backgroundCoverStyle\(\s*bgKind,\s*bgUrl\b/,
+      /resolveDisplayUrl\(bgUrl\)/,
+    ],
+  ];
+
+  it.each(coverSites)('%s 背景封面走收口点而非裸相对路径', (file, rawPattern, wrappedPattern) => {
+    const src = read(file);
+    expect(src).not.toMatch(rawPattern);
+    expect(src).toMatch(wrappedPattern);
+  });
+});

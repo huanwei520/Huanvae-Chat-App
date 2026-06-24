@@ -73,6 +73,7 @@ import * as CardStack from '../../src/components/account/CardStack';
 import * as CardSlot from '../../src/components/account/CardSlot';
 import * as ProfileModal from '../../src/components/ProfileModal';
 import * as AvatarUploader from '../../src/components/profile/AvatarUploader';
+import * as CoverColorButton from '../../src/components/profile/CoverColorButton';
 import * as PasswordForm from '../../src/components/profile/PasswordForm';
 import * as ProfileInfoForm from '../../src/components/profile/ProfileInfoForm';
 import * as PrivacySettingsForm from '../../src/components/profile/PrivacySettingsForm';
@@ -165,6 +166,7 @@ import * as useMultiSelect from '../../src/hooks/useMultiSelect';
 import * as useMainPage from '../../src/hooks/useMainPage';
 import * as useAccounts from '../../src/hooks/useAccounts';
 import * as useProfileEditor from '../../src/hooks/useProfileEditor';
+import * as useFollowBackground from '../../src/hooks/useFollowBackground';
 import * as useInitialSync from '../../src/hooks/useInitialSync';
 import * as useLocalConversations from '../../src/hooks/useLocalConversations';
 import * as useResizablePanel from '../../src/hooks/useResizablePanel';
@@ -285,6 +287,7 @@ const COMPONENT_MAP = {
   CardSlot,
   ProfileModal,
   AvatarUploader,
+  CoverColorButton,
   PasswordForm,
   ProfileInfoForm,
   PrivacySettingsForm,
@@ -407,6 +410,7 @@ const COMPONENT_MAP = {
   useMainPage,
   useAccounts,
   useProfileEditor,
+  useFollowBackground,
   useInitialSync,
   useLocalConversations,
   useResizablePanel,

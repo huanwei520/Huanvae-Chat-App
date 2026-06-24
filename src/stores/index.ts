@@ -24,3 +24,9 @@ export {
 // ============================================
 
 export { useProfileViewStore } from './profileViewStore';
+
+// ============================================
+// 个人资料背景（后端持久化图片/纯色 + 主色；本地仅存「主题色跟随背景」开关）
+// ============================================
+
+export { useProfileBackground } from './profileBackground';

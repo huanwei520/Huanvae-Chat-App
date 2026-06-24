@@ -16,6 +16,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
 import { useThemeStore, DEFAULT_GLASS_CONFIG, DEFAULT_OPACITY_LEVELS } from '../../theme/store';
+import { useFollowBackground } from '../../hooks/useFollowBackground';
 import { getAllPresets } from '../../theme/presets';
 import type { OpacityLevels } from '../../theme/types';
 import '../../styles/mobile/theme-page.css';
@@ -181,12 +182,36 @@ function ColorPicker({ label, color, onChange }: ColorPickerProps) {
   );
 }
 
+/** 主题色跟随背景开关 */
+function FollowBackgroundToggle() {
+  const { follow, setFollow } = useFollowBackground();
+
+  return (
+    <div className="mobile-theme-section">
+      <div className="mobile-theme-section-title">主题色</div>
+      <label className="mobile-theme-follow-row">
+        <div className="mobile-theme-follow-text">
+          <span className="mobile-theme-follow-title">主题色跟随背景</span>
+          <span className="mobile-theme-follow-desc">开启后主题色自动取自个人资料背景主色</span>
+        </div>
+        <input
+          type="checkbox"
+          className="mobile-theme-switch"
+          checked={follow}
+          onChange={(e) => setFollow(e.target.checked)}
+        />
+      </label>
+    </div>
+  );
+}
+
 /** 自定义颜色区域 */
 function CustomColors() {
   const customColors = useThemeStore((s) => s.config.customColors);
   const preset = useThemeStore((s) => s.config.preset);
   const setPrimaryColor = useThemeStore((s) => s.setPrimaryColor);
   const setAccentColor = useThemeStore((s) => s.setAccentColor);
+  const { follow } = useFollowBackground();
 
   if (preset !== 'custom') {
     return null;
@@ -200,17 +225,23 @@ function CustomColors() {
       exit={{ opacity: 0, height: 0 }}
     >
       <div className="mobile-theme-section-title">自定义颜色</div>
-      <ColorPicker
-        label="主色"
-        color={customColors.primary}
-        onChange={setPrimaryColor}
-      />
-      {customColors.accent && (
-        <ColorPicker
-          label="强调色"
-          color={customColors.accent}
-          onChange={setAccentColor}
-        />
+      {follow ? (
+        <p className="mobile-theme-follow-hint">主题色正在跟随个人资料背景（关闭上方开关可手动设置）</p>
+      ) : (
+        <>
+          <ColorPicker
+            label="主色"
+            color={customColors.primary}
+            onChange={setPrimaryColor}
+          />
+          {customColors.accent && (
+            <ColorPicker
+              label="强调色"
+              color={customColors.accent}
+              onChange={setAccentColor}
+            />
+          )}
+        </>
       )}
     </motion.div>
   );
@@ -553,6 +584,9 @@ export function MobileThemePage({ onClose }: MobileThemePageProps): React.ReactE
           <div className="mobile-theme-section-title">主题选择</div>
           <PresetSelector />
         </div>
+
+        {/* 主题色跟随背景 */}
+        <FollowBackgroundToggle />
 
         {/* 自定义颜色 */}
         <AnimatePresence>

@@ -20,6 +20,9 @@ import { sendFriendRequest } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon } from '../../components/common/Icons';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { resolveDisplayUrl } from '../../services/secureProxy';
+import { hexToRgb } from '../../utils/imageColor';
+import { qqHeroStyles, backgroundCoverStyle, backgroundKindOf } from '../../utils/profileCover';
 
 interface OtherProfilePanelProps {
   /** 被查看用户 id */
@@ -85,6 +88,19 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
     ?? null;
   const signature = profile?.user_signature ?? null;
 
+  // 个人资料背景：从公开资料读（后端 user-background-url / user-background-color，别人也可见）。
+  // 背景图相对路径必须经 resolveDisplayUrl 收口（webview 验不过私有 CA，裸后端 URL 加载失败）。
+  const bgUrl = profile?.user_background_url?.trim() || null;
+  const bgColorHex = profile?.user_background_color?.trim() || null;
+  const bgKind = backgroundKindOf(bgUrl, bgColorHex);
+  // 主色用于卡底淡染：图片=后端提取的代表色 / 纯色=该色 / 无=null 回落 CSS 默认
+  const hero = qqHeroStyles(bgColorHex ? hexToRgb(bgColorHex) : null);
+  const coverStyle = backgroundCoverStyle(
+    bgKind,
+    resolveDisplayUrl(bgUrl),
+    bgKind === 'color' ? bgColorHex : null,
+  );
+
   const handleCopyId = () => {
     navigator.clipboard?.writeText(userId).catch(() => { /* 复制失败忽略 */ });
   };
@@ -106,7 +122,7 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   return (
     <div className="other-profile-panel">
       <div className="qq-hero qq-hero--panel">
-        <div className="qq-hero-cover">
+        <div className="qq-hero-cover" style={coverStyle}>
           <div className="qq-hero-actions">
             <button
               type="button"
@@ -119,7 +135,10 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
           </div>
         </div>
 
-        <div className="qq-hero-card">
+        <div
+          className="qq-hero-card"
+          style={hero.cardBackground ? { background: hero.cardBackground } : undefined}
+        >
           <div className="qq-hero-headrow">
             <div className="qq-hero-avatar">
               {avatarUrl ? (
