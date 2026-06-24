@@ -27,6 +27,7 @@ import {
   setFriendRemark as apiSetFriendRemark,
   addBlacklist,
   removeBlacklist,
+  getBlacklistTimes,
   addSpecialCare,
   removeSpecialCare,
 } from '../../api/friends';
@@ -418,8 +419,15 @@ export function useChatMenu({
       await addBlacklist(api, target.data.friend_id);
       const store = useChatStore.getState();
       store.setFriendBlacklisted(target.data.friend_id, true);
-      // 记录拉黑时间点：群消息只折叠此刻之后发的，拉黑前历史保留原文
-      store.setFriendBlacklistTime(target.data.friend_id, new Date().toISOString());
+      // 记录拉黑时间点：群消息只折叠此刻之后发的，拉黑前历史保留原文。
+      // 必须用服务器 created_at（getBlacklistTimes）而非客户端 new Date()——客户端时钟漂移
+      // 会让折叠边界与消息 send_time（服务器时间）错配。拉取失败不阻断（拉黑已成功），
+      // 下次 useFriends 后台同步会补齐时间映射。
+      try {
+        store.setFriendBlacklistTimes(await getBlacklistTimes(api));
+      } catch (err) {
+        console.warn('[ChatMenu] 拉黑后刷新拉黑时间失败，待下次好友同步补齐:', err);
+      }
       setSuccess('已拉黑');
       setView('main');
     } catch (err) {

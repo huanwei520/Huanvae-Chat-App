@@ -1,8 +1,11 @@
 /**
  * GroupMessageBubble 好友拉黑 → 群消息折叠测试
  *
- * 锁定契约：发送者是我拉黑的好友、且消息发送时间晚于拉黑时间点时，其群消息折叠成占位
- * 「已拉黑此人消息」（只折叠拉黑之后发的；拉黑前历史保留原文。取消拉黑后随 store 恢复）。
+ * 锁定契约：发送者在 friendBlacklistTimes 中有记录、且消息发送时间晚于该拉黑时间点时，
+ * 其群消息折叠成占位「已拉黑此人消息」（只折叠拉黑之后发的；拉黑前历史保留原文。
+ * 取消拉黑后 store 删除该记录随之恢复）。
+ * U2：折叠以 friendBlacklistTimes 为单一真值源，不再叠加 friends[].is_blacklisted 双源判定
+ * （两个异步源就绪时序不一致会让折叠静默失效）。
  * 与 D6 群屏蔽独立：群屏蔽折叠为「已屏蔽此人消息」。own 消息永不折叠。
  */
 
@@ -54,11 +57,11 @@ function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {
   };
 }
 
-function blacklistedFriend(id: string): Friend {
+function friendWith(id: string, isBlacklisted: boolean): Friend {
   return {
     friend_id: id, friend_nickname: `nick_${id}`, friend_avatar_url: null,
     add_time: '', approve_reason: null, friend_remark: null,
-    is_blacklisted: true, is_special_care: false,
+    is_blacklisted: isBlacklisted, is_special_care: false,
   };
 }
 
@@ -74,8 +77,7 @@ describe('GroupMessageBubble — 好友拉黑折叠群消息', () => {
     mockChatState.friendBlacklistTimes = {};
   });
 
-  it('拉黑好友 + 消息发于拉黑之后 → 折叠为「已拉黑此人消息」，不渲染内容', () => {
-    mockChatState.friends = [blacklistedFriend('user-2')];
+  it('拉黑记录存在 + 消息发于拉黑之后 → 折叠为「已拉黑此人消息」，不渲染内容', () => {
     mockChatState.friendBlacklistTimes = { 'user-2': BL_TIME };
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', send_time: '2026-01-03T00:00:00Z' })} isOwn={false} />);
     expect(placeholder()).toBeInTheDocument();
@@ -83,16 +85,23 @@ describe('GroupMessageBubble — 好友拉黑折叠群消息', () => {
     expect(document.querySelector('[data-testid="md"]')).not.toBeInTheDocument();
   });
 
-  it('拉黑好友 + 消息发于拉黑之前 → 保留原文，不折叠', () => {
-    mockChatState.friends = [blacklistedFriend('user-2')];
+  it('拉黑记录存在 + 消息发于拉黑之前 → 保留原文，不折叠', () => {
     mockChatState.friendBlacklistTimes = { 'user-2': BL_TIME };
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', send_time: '2026-01-01T00:00:00Z' })} isOwn={false} />);
     expect(placeholder()).toBeNull();
     expect(document.querySelector('[data-testid="md"]')!.textContent).toBe('hello');
   });
 
-  it('发送者非拉黑好友 → 正常渲染内容，不折叠', () => {
-    mockChatState.friends = [];
+  it('U2 单一真值源：friendBlacklistTimes 有记录但 friends 标 is_blacklisted=false（双源冲突/未就绪窗口）→ 仍按时间折叠', () => {
+    // 旧实现要求 friends.some(is_blacklisted) 同时为真，此用例会漏折叠；单一真值源后只看 friendBlacklistTimes。
+    mockChatState.friends = [friendWith('user-2', false)];
+    mockChatState.friendBlacklistTimes = { 'user-2': BL_TIME };
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', send_time: '2026-01-03T00:00:00Z' })} isOwn={false} />);
+    expect(placeholder()).toBeInTheDocument();
+    expect(placeholder()!.textContent).toContain('已拉黑此人消息');
+  });
+
+  it('无拉黑记录（friendBlacklistTimes 无该用户）→ 正常渲染内容，不折叠', () => {
     render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-9' })} isOwn={false} />);
     expect(placeholder()).toBeNull();
     expect(document.querySelector('[data-testid="md"]')!.textContent).toBe('hello');
@@ -104,9 +113,9 @@ describe('GroupMessageBubble — 好友拉黑折叠群消息', () => {
     expect(placeholder()!.textContent).toContain('已屏蔽此人消息');
   });
 
-  it('自己的消息即使在黑名单(异常态)也不折叠', () => {
-    mockChatState.friends = [blacklistedFriend('me')];
-    render(<GroupMessageBubble message={makeMessage({ sender_id: 'me' })} isOwn />);
+  it('自己的消息即使拉黑时间命中也不折叠（own 永不折叠）', () => {
+    mockChatState.friendBlacklistTimes = { 'me': BL_TIME };
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'me', send_time: '2026-01-03T00:00:00Z' })} isOwn />);
     expect(placeholder()).toBeNull();
   });
 });

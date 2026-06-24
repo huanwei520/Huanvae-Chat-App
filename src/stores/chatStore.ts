@@ -152,8 +152,8 @@ interface ChatState {
    * 我拉黑某好友的时间点（userId → ISO 时间）。
    *
    * 用途：群消息「只折叠拉黑之后发的消息」——发送时间晚于此时间才折叠，
-   * 拉黑前的历史消息保留原文。进入时由 getBlacklist 填充（含 created_at），
-   * 拉黑时记录客户端时间、取消拉黑时清除。
+   * 拉黑前的历史消息保留原文。值统一为服务器 created_at（经 getBlacklistTimes 填充）：
+   * 后台同步与拉黑动作均拉取服务器时间，取消拉黑时清除。是群折叠的单一真值源。
    */
   friendBlacklistTimes: Record<string, string>;
 }
@@ -172,10 +172,8 @@ interface ChatActions {
   removeFriend: (friendId: string) => void;
   /** 设置某好友的拉黑状态（拉黑/取消拉黑后乐观更新，列表与资料页即时反映）。取消拉黑时一并清除拉黑时间。 */
   setFriendBlacklisted: (friendId: string, blacklisted: boolean) => void;
-  /** 批量设置拉黑时间映射（进入时由 getBlacklist 的 created_at 填充） */
+  /** 批量设置拉黑时间映射（由 getBlacklistTimes 的服务器 created_at 填充：后台同步 + 拉黑动作） */
   setFriendBlacklistTimes: (times: Record<string, string>) => void;
-  /** 设置/清除单个好友的拉黑时间（拉黑时记录客户端 now；传 null 清除） */
-  setFriendBlacklistTime: (userId: string, time: string | null) => void;
   /** 设置某好友的特别关心状态（标星/取消后乐观更新，列表置顶/标星与资料页即时反映） */
   setFriendSpecialCare: (friendId: string, specialCare: boolean) => void;
 
@@ -333,16 +331,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   }),
 
   setFriendBlacklistTimes: (times) => set({ friendBlacklistTimes: times }),
-
-  setFriendBlacklistTime: (userId, time) => set((state) => {
-    const times = { ...state.friendBlacklistTimes };
-    if (time) {
-      times[userId] = time;
-    } else {
-      delete times[userId];
-    }
-    return { friendBlacklistTimes: times };
-  }),
 
   setFriendSpecialCare: (friendId, specialCare) => set((state) => ({
     friends: state.friends.map((f) =>
