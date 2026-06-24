@@ -13,14 +13,13 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useChatStore, useProfileCoverPrototype } from '../../stores';
+import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
 import { sendFriendRequest } from '../../api/friends';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon } from '../../components/common/Icons';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
-import { qqHeroStyles } from '../../utils/profileCover';
 
 interface OtherProfilePanelProps {
   /** 被查看用户 id */
@@ -56,14 +55,6 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   const isFriend = !!friendData;
   const isSelf = session?.userId === userId;
 
-  // 封面背景（原型：仅自己视角从共享 store 预览；他人封面待后端 user-background-url 落库后接入，
-  // 当前留空不兜底 → 别人/未设封面用 QQ 默认底）。
-  const protoCover = useProfileCoverPrototype((s) => s.coverUrl);
-  const protoDominant = useProfileCoverPrototype((s) => s.dominant);
-  const heroCover = isSelf ? protoCover : null;
-  const heroDominant = isSelf ? protoDominant : null;
-  const hero = qqHeroStyles(heroDominant);
-
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
@@ -94,14 +85,6 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
     ?? null;
   const signature = profile?.user_signature ?? null;
 
-  // 封面区底色：有封面图用图；无图但有主色用主色实底；否则回落 CSS 默认渐变
-  let coverStyle: React.CSSProperties = {};
-  if (heroCover) {
-    coverStyle = { backgroundImage: `url(${heroCover})` };
-  } else if (hero.coverFallback) {
-    coverStyle = { backgroundImage: 'none', backgroundColor: hero.coverFallback };
-  }
-
   const handleCopyId = () => {
     navigator.clipboard?.writeText(userId).catch(() => { /* 复制失败忽略 */ });
   };
@@ -123,7 +106,7 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
   return (
     <div className="other-profile-panel">
       <div className="qq-hero qq-hero--panel">
-        <div className="qq-hero-cover" style={coverStyle}>
+        <div className="qq-hero-cover">
           <div className="qq-hero-actions">
             <button
               type="button"
@@ -136,10 +119,7 @@ export function OtherProfilePanel({ userId, onClose }: OtherProfilePanelProps) {
           </div>
         </div>
 
-        <div
-          className="qq-hero-card"
-          style={hero.cardBackground ? { background: hero.cardBackground } : undefined}
-        >
+        <div className="qq-hero-card">
           <div className="qq-hero-headrow">
             <div className="qq-hero-avatar">
               {avatarUrl ? (

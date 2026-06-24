@@ -24,9 +24,3 @@ export {
 // ============================================
 
 export { useProfileViewStore } from './profileViewStore';
-
-// ============================================
-// 个人主页封面背景（原型，未落库）
-// ============================================
-
-export { useProfileCoverPrototype } from './profileCoverPrototype';

@@ -1,11 +1,11 @@
 /**
  * 个人资料弹窗组件（桌面，QQ 风格）
  *
- * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像、自定义封面背景。
- * 头像/封面/昵称等编辑逻辑收口到 [useProfileEditor]（与移动端 MobileProfilePage 共用）。
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
+ * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与移动端 MobileProfilePage 共用）。
  *
- * 版式：通栏封面 + 上叠主色淡染卡（QQ 风），头像骑在封面下沿；下接 tab + 表单。
- * 封面/淡染色由 [profileCover.ts] 从封面主色派生，三个资料载体共用骨架（profile-hero.css）。
+ * 版式：通栏封面区 + 上叠圆角卡（QQ 风），头像骑在封面下沿；下接 tab + 表单。
+ * 三个资料载体共用骨架（profile-hero.css）。
  */
 
 import { useState } from 'react';
@@ -37,13 +37,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
-    coverUrl,
-    coverInputRef,
-    cardStyle,
-    coverStyle,
     handleAvatarSelect,
-    handleCoverSelect,
-    handleCoverRemove,
     handleNicknameUpdate,
     handleSuccess,
     handleError,
@@ -96,37 +90,13 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           <motion.div
             className="modal-content profile-modal"
             variants={contentVariants}
-            style={cardStyle}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={handleContentMouseDown}
           >
-            {/* 封面背景（原型：本地预览） */}
-            <input
-              ref={coverInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              style={{ display: 'none' }}
-              onChange={handleCoverSelect}
-            />
-
-            {/* QQ 通栏封面 + 浮层操作按钮 */}
+            {/* QQ 通栏封面区 + 浮层关闭按钮 */}
             <div className="qq-hero qq-hero--modal">
-              <div className="qq-hero-cover" style={coverStyle}>
+              <div className="qq-hero-cover">
                 <div className="qq-hero-actions">
-                  {coverUrl && (
-                    <>
-                      <button
-                        type="button"
-                        className="qq-hero-btn"
-                        onClick={() => coverInputRef.current?.click()}
-                      >
-                        换封面
-                      </button>
-                      <button type="button" className="qq-hero-btn" onClick={handleCoverRemove}>
-                        移除
-                      </button>
-                    </>
-                  )}
                   <button
                     type="button"
                     className="qq-hero-btn qq-hero-btn--icon"
@@ -136,15 +106,6 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                     ×
                   </button>
                 </div>
-                {!coverUrl && (
-                  <button
-                    type="button"
-                    className="qq-hero-cover-hint"
-                    onClick={() => coverInputRef.current?.click()}
-                  >
-                    ＋ 添加封面背景
-                  </button>
-                )}
               </div>
             </div>
 

@@ -37,7 +37,7 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
   { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
   { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
   { name: 'MobileMiniAppsPage', path: 'pages/mobile/MobileMiniAppsPage', category: 'pages', description: '移动端小程序页面（公开列表 + iframe 启动）' },
-  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（QQ 风格：通栏封面 + 淡染卡 + 头像骑边，编辑头像/昵称/邮箱/签名/密码）' },
+  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（QQ 风格：通栏封面区 + 圆角卡 + 头像骑边，编辑头像/昵称/邮箱/签名/密码）' },
 ];
 
 // ============== 全局搜索组件 ==============
@@ -252,7 +252,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useMultiSelect', path: 'hooks/useMultiSelect', category: 'hooks', description: '多选 Hook' },
   { name: 'useMainPage', path: 'hooks/useMainPage', category: 'hooks', description: '主页面 Hook' },
   { name: 'useAccounts', path: 'hooks/useAccounts', category: 'hooks', description: '账号管理 Hook' },
-  { name: 'useProfileEditor', path: 'hooks/useProfileEditor', category: 'hooks', description: '个人资料编辑共享 Hook（桌面 ProfileModal + 移动 MobileProfilePage 共用：头像/封面/昵称编辑 + QQ 淡染样式派生）' },
+  { name: 'useProfileEditor', path: 'hooks/useProfileEditor', category: 'hooks', description: '个人资料编辑共享 Hook（桌面 ProfileModal + 移动 MobileProfilePage 共用：头像/昵称编辑）' },
   { name: 'useInitialSync', path: 'hooks/useInitialSync', category: 'hooks', description: '初始同步 Hook' },
   { name: 'useLocalConversations', path: 'hooks/useLocalConversations', category: 'hooks', description: '本地会话 Hook' },
   { name: 'useResizablePanel', path: 'hooks/useResizablePanel', category: 'hooks', description: '可调整面板 Hook' },

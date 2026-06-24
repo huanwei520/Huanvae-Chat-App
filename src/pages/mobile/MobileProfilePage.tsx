@@ -1,11 +1,11 @@
 /**
  * 移动端个人资料页面（QQ 风格）
  *
- * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像、自定义封面背景。
- * 头像/封面/昵称等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
+ * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
  *
- * 版式：通栏封面（返回/换封面/移除浮于其上）+ 上叠主色淡染卡，头像骑在封面下沿；
- * 下接 tab + 表单。封面/淡染色由 [profileCover.ts] 从封面主色派生（profile-hero.css 骨架）。
+ * 版式：通栏封面区（返回浮于其上）+ 上叠圆角卡，头像骑在封面下沿；
+ * 下接 tab + 表单（profile-hero.css 骨架）。
  */
 
 import { useState } from 'react';
@@ -56,13 +56,7 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
-    coverUrl,
-    coverInputRef,
-    cardStyle,
-    coverStyle,
     handleAvatarSelect,
-    handleCoverSelect,
-    handleCoverRemove,
     handleNicknameUpdate,
     handleSuccess,
     handleError,
@@ -83,25 +77,16 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
   return (
     <motion.div
       className="mobile-profile-page"
-      style={cardStyle}
       variants={pageVariants}
       initial="initial"
       animate="animate"
       exit="exit"
     >
-      <input
-        ref={coverInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
-        style={{ display: 'none' }}
-        onChange={handleCoverSelect}
-      />
-
-      {/* 内容区域（整块滚动，封面在最顶通栏） */}
+      {/* 内容区域（整块滚动，封面区在最顶通栏） */}
       <div className="mobile-profile-content">
-        {/* QQ 通栏封面 + 浮层（返回 / 换封面 / 移除） */}
+        {/* QQ 通栏封面区 + 浮层（返回） */}
         <div className="qq-hero qq-hero--mobile">
-          <div className="qq-hero-cover" style={coverStyle}>
+          <div className="qq-hero-cover">
             <div className="qq-hero-back">
               <button
                 type="button"
@@ -112,31 +97,6 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
                 <BackIcon />
               </button>
             </div>
-            <div className="qq-hero-actions">
-              {coverUrl && (
-                <>
-                  <button
-                    type="button"
-                    className="qq-hero-btn"
-                    onClick={() => coverInputRef.current?.click()}
-                  >
-                    换封面
-                  </button>
-                  <button type="button" className="qq-hero-btn" onClick={handleCoverRemove}>
-                    移除
-                  </button>
-                </>
-              )}
-            </div>
-            {!coverUrl && (
-              <button
-                type="button"
-                className="qq-hero-cover-hint"
-                onClick={() => coverInputRef.current?.click()}
-              >
-                ＋ 添加封面背景
-              </button>
-            )}
           </div>
         </div>
 
