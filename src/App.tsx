@@ -15,6 +15,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccounts } from './hooks/useAccounts';
+import { useHydrateProfileBackground } from './hooks/useHydrateProfileBackground';
 import { useSession } from './contexts/SessionContext';
 import { AccountSelector } from './pages/AccountSelector';
 import { Login } from './pages/Login';
@@ -58,6 +59,9 @@ function App() {
 
   // 启动时更新检查（mount 后 5s 触发一次检测；登录后 Main 的 3s 检测仍照旧，由 store 双锁兜底保证只一次有效检测）
   useStartupUpdateCheck();
+
+  // 登录后从后端拉取个人资料背景（图/纯色 + 主色）灌入 store，驱动 QQ 卡底 + 主题色跟随
+  useHydrateProfileBackground();
 
   const [currentPage, setCurrentPage] = useState<AppPage>('loading');
   const [authForm, setAuthForm] = useState<AuthFormType>('login');

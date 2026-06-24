@@ -1,16 +1,16 @@
 /**
  * 个人资料弹窗组件（桌面，QQ 风格）
  *
- * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
- * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与移动端 MobileProfilePage 共用）。
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像、自定义封面背景。
+ * 头像/封面/昵称等编辑逻辑收口到 [useProfileEditor]（与移动端 MobileProfilePage 共用）。
  *
- * 版式：通栏封面区 + 上叠圆角卡（QQ 风），头像骑在封面下沿；下接 tab + 表单。
- * 三个资料载体共用骨架（profile-hero.css）。
+ * 版式：通栏封面 + 上叠主色淡染卡（QQ 风），头像骑在封面下沿；下接 tab + 表单。
+ * 封面/淡染色由 [profileCover.ts] 从封面主色派生，三个资料载体共用骨架（profile-hero.css）。
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm } from './profile';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, CoverColorButton } from './profile';
 import { useProfileEditor } from '../hooks/useProfileEditor';
 
 // ============================================
@@ -30,6 +30,7 @@ type TabType = 'info' | 'privacy' | 'password';
 
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('info');
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const {
     session,
     error,
@@ -37,7 +38,14 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
+    hasBackground,
+    backgroundColor,
+    cardStyle,
+    coverStyle,
     handleAvatarSelect,
+    handleImageBackgroundSelect,
+    handleColorBackground,
+    handleBackgroundRemove,
     handleNicknameUpdate,
     handleSuccess,
     handleError,
@@ -90,13 +98,36 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           <motion.div
             className="modal-content profile-modal"
             variants={contentVariants}
+            style={cardStyle}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={handleContentMouseDown}
           >
-            {/* QQ 通栏封面区 + 浮层关闭按钮 */}
+            {/* 背景图文件选择（隐藏 input） */}
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleImageBackgroundSelect}
+            />
+
+            {/* QQ 通栏封面 + 浮层操作按钮（背景图 / 纯色 / 移除 / 关闭） */}
             <div className="qq-hero qq-hero--modal">
-              <div className="qq-hero-cover">
+              <div className="qq-hero-cover" style={coverStyle}>
                 <div className="qq-hero-actions">
+                  <button
+                    type="button"
+                    className="qq-hero-btn"
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    {hasBackground ? '换封面' : '添加封面'}
+                  </button>
+                  <CoverColorButton value={backgroundColor} onPick={handleColorBackground} />
+                  {hasBackground && (
+                    <button type="button" className="qq-hero-btn" onClick={handleBackgroundRemove}>
+                      移除
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="qq-hero-btn qq-hero-btn--icon"

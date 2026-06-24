@@ -37,6 +37,7 @@ import { proxyRequestUrl } from '../services/secureProxy';
  * @param file - 要上传的文件
  * @param fieldName - 表单字段名（如 'avatar', 'file' 等）
  * @param onProgress - 可选的进度回调函数
+ * @param extraFields - 可选的额外文本表单字段（如背景图上传附带的 dominant 主色 hex）
  * @returns Promise，解析为服务器响应的 JSON 数据
  *
  * @throws Error 网络错误或服务器返回非 2xx 状态码时抛出
@@ -63,10 +64,17 @@ export function uploadWithProgress<T = unknown>(
   file: File,
   fieldName: string,
   onProgress?: ProgressCallback,
+  extraFields?: Record<string, string>,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append(fieldName, file);
+    // 额外文本字段（如背景图上传的 dominant 主色 hex），与文件同表单提交
+    if (extraFields) {
+      for (const [key, value] of Object.entries(extraFields)) {
+        formData.append(key, value);
+      }
+    }
 
     const xhr = new XMLHttpRequest();
 

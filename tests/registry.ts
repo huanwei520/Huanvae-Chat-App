@@ -37,7 +37,7 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
   { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
   { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
   { name: 'MobileMiniAppsPage', path: 'pages/mobile/MobileMiniAppsPage', category: 'pages', description: '移动端小程序页面（公开列表 + iframe 启动）' },
-  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（QQ 风格：通栏封面区 + 圆角卡 + 头像骑边，编辑头像/昵称/邮箱/签名/密码）' },
+  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（QQ 风格：通栏封面 + 淡染卡 + 头像骑边，编辑头像/昵称/邮箱/签名/密码）' },
 ];
 
 // ============== 全局搜索组件 ==============
@@ -92,6 +92,7 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 个人资料相关
   { name: 'ProfileModal', path: 'components/ProfileModal', category: 'components', description: '个人资料模态框' },
   { name: 'AvatarUploader', path: 'components/profile/AvatarUploader', category: 'components', description: '头像上传组件' },
+  { name: 'CoverColorButton', path: 'components/profile/CoverColorButton', category: 'components', description: '个人资料纯色背景选择按钮（封面浮层，原生取色器）' },
   { name: 'PasswordForm', path: 'components/profile/PasswordForm', category: 'components', description: '密码表单' },
   { name: 'ProfileInfoForm', path: 'components/profile/ProfileInfoForm', category: 'components', description: '个人信息表单' },
   { name: 'PrivacySettingsForm', path: 'components/profile/PrivacySettingsForm', category: 'components', description: '隐私/申请处理设置表单（搜索可见性 + 好友/群申请默认策略）' },
@@ -252,7 +253,8 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useMultiSelect', path: 'hooks/useMultiSelect', category: 'hooks', description: '多选 Hook' },
   { name: 'useMainPage', path: 'hooks/useMainPage', category: 'hooks', description: '主页面 Hook' },
   { name: 'useAccounts', path: 'hooks/useAccounts', category: 'hooks', description: '账号管理 Hook' },
-  { name: 'useProfileEditor', path: 'hooks/useProfileEditor', category: 'hooks', description: '个人资料编辑共享 Hook（桌面 ProfileModal + 移动 MobileProfilePage 共用：头像/昵称编辑）' },
+  { name: 'useProfileEditor', path: 'hooks/useProfileEditor', category: 'hooks', description: '个人资料编辑共享 Hook（桌面 ProfileModal + 移动 MobileProfilePage 共用：头像/背景编辑 + QQ 淡染样式派生）' },
+  { name: 'useFollowBackground', path: 'hooks/useFollowBackground', category: 'hooks', description: '「主题色跟随背景」开关共享读写（桌面 ThemeEditor + 移动 MobileThemePage 共用）' },
   { name: 'useInitialSync', path: 'hooks/useInitialSync', category: 'hooks', description: '初始同步 Hook' },
   { name: 'useLocalConversations', path: 'hooks/useLocalConversations', category: 'hooks', description: '本地会话 Hook' },
   { name: 'useResizablePanel', path: 'hooks/useResizablePanel', category: 'hooks', description: '可调整面板 Hook' },

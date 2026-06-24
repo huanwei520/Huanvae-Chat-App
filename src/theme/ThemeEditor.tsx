@@ -11,6 +11,7 @@ import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
 import { useThemeStore } from './store';
+import { useFollowBackground } from '../hooks/useFollowBackground';
 import { getAllPresets } from './presets';
 import type { ThemeMode } from './types';
 import './ThemeEditor.css';
@@ -178,12 +179,33 @@ function ColorPicker({ label, color, onChange }: ColorPickerProps) {
   );
 }
 
+/** 主题色跟随背景开关 */
+function FollowBackgroundToggle() {
+  const { follow, setFollow } = useFollowBackground();
+
+  return (
+    <label className="theme-follow-row">
+      <div className="theme-follow-text">
+        <span className="theme-follow-title">主题色跟随背景</span>
+        <span className="theme-follow-desc">开启后主题色自动取自个人资料背景主色</span>
+      </div>
+      <input
+        type="checkbox"
+        className="theme-switch"
+        checked={follow}
+        onChange={(e) => setFollow(e.target.checked)}
+      />
+    </label>
+  );
+}
+
 /** 自定义颜色区域 */
 function CustomColors() {
   const customColors = useThemeStore((s) => s.config.customColors);
   const preset = useThemeStore((s) => s.config.preset);
   const setPrimaryColor = useThemeStore((s) => s.setPrimaryColor);
   const setAccentColor = useThemeStore((s) => s.setAccentColor);
+  const { follow } = useFollowBackground();
 
   // 仅在自定义预设时显示
   if (preset !== 'custom') {
@@ -192,17 +214,23 @@ function CustomColors() {
 
   return (
     <div className="theme-custom-colors">
-      <ColorPicker
-        label="主色"
-        color={customColors.primary}
-        onChange={setPrimaryColor}
-      />
-      {customColors.accent && (
-        <ColorPicker
-          label="强调色"
-          color={customColors.accent}
-          onChange={setAccentColor}
-        />
+      {follow ? (
+        <p className="theme-follow-hint">主题色正在跟随个人资料背景（关闭上方开关可手动设置）</p>
+      ) : (
+        <>
+          <ColorPicker
+            label="主色"
+            color={customColors.primary}
+            onChange={setPrimaryColor}
+          />
+          {customColors.accent && (
+            <ColorPicker
+              label="强调色"
+              color={customColors.accent}
+              onChange={setAccentColor}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -233,6 +261,12 @@ export function ThemeEditor(): React.ReactElement {
       <div className="theme-section">
         <div className="theme-section-title">主题配色</div>
         <PresetSelector />
+      </div>
+
+      {/* 主题色跟随背景 */}
+      <div className="theme-section">
+        <div className="theme-section-title">主题色</div>
+        <FollowBackgroundToggle />
       </div>
 
       {/* 自定义颜色 */}
