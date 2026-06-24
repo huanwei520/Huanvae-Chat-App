@@ -1,8 +1,8 @@
 /**
- * 移动端个人资料页面样式
+ * 移动端个人资料页面样式（QQ 风格）
  *
- * 使用与抽屉一致的毛玻璃效果变量
- * 颜色通过 CSS 变量统一管理，支持主题切换
+ * 通栏封面（返回/换封面/移除浮于其上）+ 上叠主色淡染卡，头像骑封面下沿。
+ * 封面骨架共用 profile-hero.css 的 .qq-hero* 类；本文件只做移动端特化与表单卡样式。
  */
 
 .mobile-profile-page {
@@ -11,7 +11,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  /* 毛玻璃背景 - 与抽屉一致的 95-97% 不透明度 */
+  /* 默认毛玻璃背景（有封面主色时由内联 style 覆盖为淡染色） */
   background: linear-gradient(
     180deg,
     var(--white-alpha-97) 0%,
@@ -25,75 +25,33 @@
   overflow: hidden;
 }
 
-/* 顶部栏 */
-.mobile-profile-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: calc(12px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 16px 12px;
-  /* 毛玻璃效果 */
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-90) 0%,
-    var(--white-alpha-85) 100%
-  );
-  backdrop-filter: var(--blur-sm);
-  -webkit-backdrop-filter: var(--blur-sm);
-  border-bottom: 1px solid var(--glass-border-subtle);
-}
-
-.mobile-profile-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: transparent;
-  border: none;
-  border-radius: 10px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.mobile-profile-back:active {
-  background: var(--white-alpha-50);
-}
-
-.mobile-profile-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.mobile-profile-placeholder {
-  width: 40px;
-  height: 40px;
-}
-
-/* 内容区域 */
+/* 内容区域（整块滚动，封面在最顶通栏，故无左右/顶部留白） */
 .mobile-profile-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 16px;
-  padding-bottom: calc(20px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
   -webkit-overflow-scrolling: touch;
 }
 
-/* 头像区域 */
+/* 封面浮层按钮避让状态栏安全区 */
+.qq-hero--mobile .qq-hero-back,
+.qq-hero--mobile .qq-hero-actions {
+  top: calc(12px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px)));
+}
+
+/* 内层：承载头像 / tab / 表单，左右留白 + 底部安全区 */
+.mobile-profile-body {
+  padding: 0 16px;
+  padding-bottom: calc(20px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
+}
+
+/* 头像区域：透明，骑在封面下沿（AvatarUploader 自带居中列布局） */
 .mobile-profile-avatar-section {
-  /* 毛玻璃卡片效果 */
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-90) 0%,
-    var(--white-alpha-85) 100%
-  );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+}
+
+.mobile-profile-avatar-section .profile-avatar-section {
+  margin-top: -36px;
+  padding-top: 0;
 }
 
 /* 标签切换 */

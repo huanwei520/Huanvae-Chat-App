@@ -1,22 +1,17 @@
 /**
- * 个人资料弹窗组件
+ * 个人资料弹窗组件（桌面，QQ 风格）
  *
- * 功能：
- * - 显示当前用户信息
- * - 修改昵称（点击昵称即可编辑）
- * - 修改邮箱/签名
- * - 修改密码
- * - 上传头像（同时更新本地账号缓存，确保退出后账户选择页面显示最新头像）
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
+ * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与移动端 MobileProfilePage 共用）。
+ *
+ * 版式：通栏封面区 + 上叠圆角卡（QQ 风），头像骑在封面下沿；下接 tab + 表单。
+ * 三个资料载体共用骨架（profile-hero.css）。
  */
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSession, useApi } from '../contexts/SessionContext';
-import { useAccounts } from '../hooks/useAccounts';
-import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
-import { resolveServerAvatarUrl } from '../utils/avatar';
-import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, CloseIcon } from './profile';
-import { useAvatarCrop } from './common/AvatarCropModal';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm } from './profile';
+import { useProfileEditor } from '../hooks/useProfileEditor';
 
 // ============================================
 // 类型定义
@@ -34,129 +29,22 @@ type TabType = 'info' | 'privacy' | 'password';
 // ============================================
 
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
-  const { session, setSession } = useSession();
-  const api = useApi();
-  const { updateAvatar, updateNickname } = useAccounts();
-
   const [activeTab, setActiveTab] = useState<TabType>('info');
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // 头像上传状态
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const { requestCrop, cropModal } = useAvatarCrop();
-
-  // 昵称更新状态
-  const [updatingNickname, setUpdatingNickname] = useState(false);
+  const {
+    session,
+    error,
+    success,
+    uploadingAvatar,
+    uploadProgress,
+    updatingNickname,
+    handleAvatarSelect,
+    handleNicknameUpdate,
+    handleSuccess,
+    handleError,
+    cropModal,
+  } = useProfileEditor();
 
   if (!session) { return null; }
-
-  const handleAvatarSelect = async (file: File) => {
-    // 验证文件大小
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      setError('文件太大，最大 10MB');
-      return;
-    }
-
-    // 验证文件类型
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      setError('不支持的文件格式，仅支持 jpg、png、gif、webp');
-      return;
-    }
-
-    // 选图后先裁剪（1:1）；取消则不上传
-    const cropped = await requestCrop(file);
-    if (!cropped) { return; }
-
-    setUploadingAvatar(true);
-    setUploadProgress(0);
-    setError(null);
-
-    try {
-      await uploadAvatar(
-        session.serverUrl,
-        session.accessToken,
-        cropped,
-        (progress) => setUploadProgress(progress),
-      );
-
-      // 从服务器重新获取最新资料
-      const profileResult = await getProfile(api);
-      const newAvatarUrl = resolveServerAvatarUrl(profileResult.user_avatar_url);
-
-      // 更新 session 中的头像 URL
-      setSession({
-        ...session,
-        profile: {
-          ...session.profile,
-          user_avatar_url: newAvatarUrl,
-        },
-      });
-
-      // 更新本地账号缓存（确保退出后账户选择页面显示最新头像）：传后端原始路径，
-      // updateAvatar 内部解析为逻辑域名 URL + directIp 下载（非显示用的回环代理 URL）。
-      if (profileResult.user_avatar_url) {
-        try {
-          await updateAvatar(session.serverUrl, session.userId, profileResult.user_avatar_url);
-        } catch {
-          // 本地缓存更新失败不影响使用
-        }
-      }
-
-      setSuccess('头像已更新');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '上传头像失败');
-    } finally {
-      setUploadingAvatar(false);
-      setUploadProgress(0);
-    }
-  };
-
-  // 昵称更新处理
-  const handleNicknameUpdate = async (nickname: string) => {
-    setUpdatingNickname(true);
-    setError(null);
-
-    try {
-      await updateProfile(api, { nickname });
-
-      // 更新 session 中的昵称
-      setSession({
-        ...session,
-        profile: {
-          ...session.profile,
-          user_nickname: nickname,
-        },
-      });
-
-      // 更新本地账号缓存
-      try {
-        await updateNickname(session.serverUrl, session.userId, nickname);
-      } catch {
-        // 本地缓存更新失败不影响使用
-      }
-
-      setSuccess('昵称已更新');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '更新昵称失败');
-      throw err; // 重新抛出让 AvatarUploader 知道失败了
-    } finally {
-      setUpdatingNickname(false);
-    }
-  };
-
-  const handleSuccess = (message: string) => {
-    setError(null);
-    setSuccess(message);
-  };
-
-  const handleError = (message: string) => {
-    setSuccess(null);
-    setError(message);
-  };
 
   const modalVariants = {
     hidden: { opacity: 0 },
@@ -205,20 +93,23 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={handleContentMouseDown}
           >
-            {/* 头部 */}
-            <div className="modal-header">
-              <h2>个人资料</h2>
-              <motion.button
-                className="close-btn"
-                onClick={onClose}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-              >
-                <CloseIcon />
-              </motion.button>
+            {/* QQ 通栏封面区 + 浮层关闭按钮 */}
+            <div className="qq-hero qq-hero--modal">
+              <div className="qq-hero-cover">
+                <div className="qq-hero-actions">
+                  <button
+                    type="button"
+                    className="qq-hero-btn qq-hero-btn--icon"
+                    onClick={onClose}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* 头像区域（含昵称编辑） */}
+            {/* 头像区域（含昵称编辑）—— 骑在封面下沿 */}
             <AvatarUploader
               session={session}
               uploading={uploadingAvatar}
