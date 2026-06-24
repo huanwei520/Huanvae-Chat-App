@@ -195,15 +195,15 @@ interface ChatActions {
   updateGroup: (groupId: string, updates: Partial<Group>) => void;
   /** 设置某群「我屏蔽的成员」集合（进群时由 getGroupMessageBlocks 加载，D6） */
   setGroupMessageBlocks: (groupId: string, userIds: string[]) => void;
-  /** 群内屏蔽/取消屏蔽某成员（乐观更新，群消息列表即时过滤/恢复，D6） */
+  /** 群内屏蔽/取消屏蔽某成员（右键操作 await API 成功后写入，群消息列表随之过滤/恢复，D6） */
   setGroupMemberBlocked: (groupId: string, userId: string, blocked: boolean) => void;
   /** 设置某群「我特别关心的成员」集合（进群时由 getGroupSpecialCares 加载，M3） */
   setGroupSpecialCares: (groupId: string, userIds: string[]) => void;
-  /** 群内特别关心/取消某成员（乐观更新，影响该成员发言的通知强提醒 ⭐，M3） */
+  /** 群内特别关心/取消某成员（右键操作 await API 成功后写入，影响该成员发言的通知强提醒 ⭐，M3） */
   setGroupMemberSpecialCare: (groupId: string, userId: string, cared: boolean) => void;
   /** 设置某群「我给成员设的备注」映射（进群时由 getGroupMemberRemarks 加载，D7） */
   setGroupMemberRemarks: (groupId: string, remarks: { user_id: string; remark: string }[]) => void;
-  /** 设置/清除群内对某成员的备注（乐观更新；remark 为空串/null 表示清除，D7） */
+  /** 设置/清除群内对某成员的备注（右键操作 await API 成功后写入；remark 为空串/null 表示清除，D7） */
   setGroupMemberRemark: (groupId: string, userId: string, remark: string | null) => void;
 
   // ==================== 聊天目标操作 ====================

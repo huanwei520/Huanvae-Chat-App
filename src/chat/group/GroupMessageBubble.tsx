@@ -227,21 +227,22 @@ export function GroupMessageBubble({
   // 折叠占位的统一判定：群屏蔽 或 好友拉黑 任一命中
   const isSenderHidden = isSenderBlocked || isSenderBlacklisted;
 
-  // 切换屏蔽/取消屏蔽该发送者（乐观更新 store，失败回滚）。被屏蔽者消息渲染成折叠占位，
-  // 但仍可右键此项取消屏蔽——这是取消屏蔽的唯一入口。
+  // 切换屏蔽/取消屏蔽该发送者：先 await API 成功再写 store（与好友关系操作 useChatMenu 一致，
+  // 失败不写入），避免「乐观写 + 失败回滚」在并发/快速切换下落到旧值。右键菜单点击后即关闭，
+  // 无法在 API 返回前重复点，next 始终基于已结算状态计算。被屏蔽者消息渲染成折叠占位，
+  // 仍可右键此项取消屏蔽——这是取消屏蔽的唯一入口。
   const handleToggleBlockSender = useCallback(async () => {
     if (!groupId || isOwn) { return; }
     const senderId = message.sender_id;
     const next = !isSenderBlocked;
-    setGroupMemberBlocked(groupId, senderId, next);
     try {
       if (next) {
         await addGroupMessageBlock(api, groupId, senderId);
       } else {
         await removeGroupMessageBlock(api, groupId, senderId);
       }
+      setGroupMemberBlocked(groupId, senderId, next);
     } catch (err) {
-      setGroupMemberBlocked(groupId, senderId, !next);
       console.error('[GroupMessageBubble] 切换屏蔽失败:', err);
     }
   }, [api, groupId, isOwn, isSenderBlocked, message.sender_id, setGroupMemberBlocked]);
@@ -252,20 +253,20 @@ export function GroupMessageBubble({
   );
   const setGroupMemberSpecialCare = useChatStore((state) => state.setGroupMemberSpecialCare);
 
-  // 切换特别关心/取消（乐观更新 store，失败回滚）。效果仅作用于该成员发言时的通知强提醒（⭐）。
+  // 切换特别关心/取消：先 await API 成功再写 store（与好友关系操作一致，失败不写入）。
+  // 效果仅作用于该成员发言时的通知强提醒（⭐）。
   const handleToggleSpecialCare = useCallback(async () => {
     if (!groupId || isOwn) { return; }
     const senderId = message.sender_id;
     const next = !isSenderSpecialCared;
-    setGroupMemberSpecialCare(groupId, senderId, next);
     try {
       if (next) {
         await addGroupSpecialCare(api, groupId, senderId);
       } else {
         await removeGroupSpecialCare(api, groupId, senderId);
       }
+      setGroupMemberSpecialCare(groupId, senderId, next);
     } catch (err) {
-      setGroupMemberSpecialCare(groupId, senderId, !next);
       console.error('[GroupMessageBubble] 切换特别关心失败:', err);
     }
   }, [api, groupId, isOwn, isSenderSpecialCared, message.sender_id, setGroupMemberSpecialCare]);
@@ -277,24 +278,22 @@ export function GroupMessageBubble({
   const setGroupMemberRemarkLocal = useChatStore((state) => state.setGroupMemberRemark);
   const [remarkModalOpen, setRemarkModalOpen] = useState(false);
 
-  // 保存/清除备注（乐观更新 store，失败回滚到旧值）。空串 = 清除。
+  // 保存/清除备注：先 await API 成功再写 store（与好友关系操作一致，失败不写入）。空串 = 清除。
   const handleSaveRemark = useCallback(async (value: string) => {
     if (!groupId || isOwn) { return; }
     const senderId = message.sender_id;
     const trimmed = value.trim();
-    const prev = senderRemark;
-    setGroupMemberRemarkLocal(groupId, senderId, trimmed || null);
     try {
       if (trimmed) {
         await apiSetGroupMemberRemark(api, groupId, senderId, trimmed);
       } else {
         await apiRemoveGroupMemberRemark(api, groupId, senderId);
       }
+      setGroupMemberRemarkLocal(groupId, senderId, trimmed || null);
     } catch (err) {
-      setGroupMemberRemarkLocal(groupId, senderId, prev ?? null);
       console.error('[GroupMessageBubble] 保存备注失败:', err);
     }
-  }, [api, groupId, isOwn, message.sender_id, senderRemark, setGroupMemberRemarkLocal]);
+  }, [api, groupId, isOwn, message.sender_id, setGroupMemberRemarkLocal]);
 
   // 发送者在本群对我显示的名字：备注优先，否则用消息携带的发送者名（群昵称/用户昵称）
   const senderDisplayName = groupMemberDisplayName(senderRemark, message.sender_nickname);
