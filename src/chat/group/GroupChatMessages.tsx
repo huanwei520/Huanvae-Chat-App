@@ -183,7 +183,7 @@ export function GroupChatMessages({
   }, [messages.length]);
 
   // 键盘滚动控制：容器可 Tab 聚焦，End 到最新 / Home 到顶 / PageUp·PageDown 翻页
-  const { kbdFocused, containerProps } = useScrollKeyboardControls(containerRef);
+  const { containerProps } = useScrollKeyboardControls(containerRef);
 
   // 是否显示消息列表
   const isEmpty = messages.length === 0;
@@ -193,7 +193,7 @@ export function GroupChatMessages({
   return (
     <motion.div
       ref={containerRef}
-      className={`chat-messages-container chat-messages-container--reverse${kbdFocused ? ' chat-messages-container--kbd-focused' : ''}`}
+      className="chat-messages-container chat-messages-container--reverse"
       // 打开/切换会话时整块淡入（容器按会话 key 重挂 → 每次挂载播一次）；
       // opacity 不影响 column-reverse 布局/滚动，首帧已贴底，淡入期间零布局变化。
       initial={{ opacity: 0 }}

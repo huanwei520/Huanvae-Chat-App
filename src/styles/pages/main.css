@@ -590,16 +590,10 @@
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
 }
 
-/* 键盘导航焦点环 ------------------------------------------------- */
-/* 容器：仅键盘 Tab 聚焦时显示外环。kbd-focused 类由 JS 判定挂上——WKWebView 对
-   <div> 的 :focus-visible 支持不稳定，会出现「聚焦却无外环」；鼠标点击聚焦不点亮。
-   有键盘光标时改由激活项体现外环，故该类仅在「无光标」时挂上，天然避免双环 */
+/* 键盘导航高亮 --------------------------------------------------- */
+/* 容器聚焦本身不显示任何外环（移除原生 outline）；键盘导航的视觉反馈仅由
+   方向键移动产生的「激活项」高亮（conversation-item--kbd-active）体现 */
 .conversation-list:focus { outline: none; }
-.conversation-list--kbd-focused {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
 
 /* 键盘光标激活项：box-shadow 高亮环（box-shadow 已在 .conversation-item 的 transition 内，
    且非 framer-motion 控制属性，不与 cardVariants 的 transform/opacity 抢帧）。
@@ -1771,13 +1765,6 @@
 .chat-messages-container--reverse {
   flex-direction: column-reverse;
   overflow-anchor: none;
-}
-
-/* 仅键盘 Tab 聚焦时显示外环（kbd-focused 由 JS 判定，理由同会话列表容器），
-   让用户知道焦点已落在消息区，可用 End/Home/PageUp/PageDown 滚动 */
-.chat-messages-container--kbd-focused {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
 }
 
 .message-placeholder {

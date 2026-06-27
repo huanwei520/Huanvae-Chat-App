@@ -1,16 +1,15 @@
 /**
  * useScrollKeyboardControls 单元测试
  *
- * 覆盖消息容器的键盘滚动控制 + 「仅键盘聚焦」判定：
+ * 覆盖消息容器的键盘滚动控制：
  * 容器是 flex-direction: column-reverse，滚动原点在底部：scrollTop=0 即最新（底部），
  * 向上（更旧）为负，顶部为 -(scrollHeight - clientHeight)。
  * - End → 滚到底（最新，scrollTop=0）  Home → 滚到顶（最负）
  * - PageDown → 向底（趋向 0，+）  PageUp → 向顶（趋向负，−）
  * - 处理的键调用 preventDefault；未处理的键不调用
- * - kbdFocused：键盘聚焦点亮、鼠标按下聚焦不点亮、失焦清除
  */
 import { describe, it, expect, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import type { KeyboardEvent } from 'react';
 import { useScrollKeyboardControls } from '../../src/chat/shared/useScrollKeyboardControls';
 
@@ -87,39 +86,5 @@ describe('useScrollKeyboardControls', () => {
     const ref = { current: null };
     const { result } = renderHook(() => useScrollKeyboardControls(ref));
     expect(() => result.current.containerProps.onKeyDown(keyEvent('End'))).not.toThrow();
-  });
-
-  it('键盘聚焦点亮 kbdFocused，失焦清除', () => {
-    const ref = { current: makeContainer() };
-    const { result } = renderHook(() => useScrollKeyboardControls(ref));
-    expect(result.current.kbdFocused).toBe(false);
-    act(() => { result.current.containerProps.onFocus(); });
-    expect(result.current.kbdFocused).toBe(true);
-    act(() => { result.current.containerProps.onBlur(); });
-    expect(result.current.kbdFocused).toBe(false);
-  });
-
-  it('鼠标按下后聚焦不点亮 kbdFocused（仅键盘）', () => {
-    const ref = { current: makeContainer() };
-    const { result } = renderHook(() => useScrollKeyboardControls(ref));
-    act(() => {
-      result.current.containerProps.onPointerDown();
-      result.current.containerProps.onFocus();
-    });
-    expect(result.current.kbdFocused).toBe(false);
-  });
-
-  it('鼠标聚焦后再次键盘聚焦能正常点亮（pointer 标志被消费）', () => {
-    const ref = { current: makeContainer() };
-    const { result } = renderHook(() => useScrollKeyboardControls(ref));
-    // 第一次：鼠标按下 + 聚焦 → 不点亮
-    act(() => {
-      result.current.containerProps.onPointerDown();
-      result.current.containerProps.onFocus();
-      result.current.containerProps.onBlur();
-    });
-    // 第二次：纯键盘聚焦 → 点亮（pointerDown 标志已在上次 focus 中复位）
-    act(() => { result.current.containerProps.onFocus(); });
-    expect(result.current.kbdFocused).toBe(true);
   });
 });

@@ -358,10 +358,6 @@ export function UnifiedList({
   const listRef = useRef<HTMLDivElement>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [isListFocused, setIsListFocused] = useState(false);
-  // 仅键盘聚焦标志：用于可靠点亮容器焦点环（WKWebView 对 <div> 的 :focus-visible
-  // 支持不稳定，故用 JS 自行判定，鼠标按下导致的聚焦不点亮）
-  const [kbdFocused, setKbdFocused] = useState(false);
-  const pointerDownRef = useRef(false);
 
   // 可导航项的有序 key 列表（与渲染顺序一致：AI 卡片置顶仅 chat tab，其后为筛选后的卡片）
   const navKeys = useMemo((): string[] => {
@@ -439,21 +435,13 @@ export function UnifiedList({
     }
   };
 
-  const handleListPointerDown = () => { pointerDownRef.current = true; };
   const handleListFocus = () => {
     setIsListFocused(true);
-    // 经键盘 Tab 聚焦（非鼠标按下）时点亮焦点环，给出可见反馈
-    setKbdFocused(!pointerDownRef.current);
-    pointerDownRef.current = false;
   };
   const handleListBlur = () => {
     setIsListFocused(false);
     setActiveKey(null);
-    setKbdFocused(false);
   };
-
-  // 当前是否有有效键盘光标（用于容器/激活项焦点环的二选一显示）
-  const hasCursor = isListFocused && activeKey !== null && navKeys.includes(activeKey);
 
   // 获取搜索框占位符
   const getPlaceholder = (): string => {
@@ -679,12 +667,11 @@ export function UnifiedList({
       <LayoutGroup>
         <motion.div
           ref={listRef}
-          className={`conversation-list${kbdFocused && !hasCursor ? ' conversation-list--kbd-focused' : ''}`}
+          className="conversation-list"
           role="group"
           aria-label="会话列表：上下方向键选择会话，回车打开"
           tabIndex={0}
           onKeyDown={handleListKeyDown}
-          onPointerDown={handleListPointerDown}
           onFocus={handleListFocus}
           onBlur={handleListBlur}
           layoutScroll  // 关键：让 Motion 正确计算滚动偏移
