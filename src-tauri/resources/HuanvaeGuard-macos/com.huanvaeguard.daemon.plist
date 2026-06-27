@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.huanvaeguard.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/hg-macos</string>
+    </array>
+
+    <!-- Start at boot and keep the daemon alive across crashes. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Throttle respawns so a daemon that fails immediately on startup
+         doesn't burn CPU restarting in a tight loop. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- launchd will SIGTERM the process on stop / shutdown; the daemon's
+         signal handler tears down the active tunnel before exit. -->
+    <key>UserName</key>
+    <string>root</string>
+
+    <!-- Log paths. tracing-appender also writes to /var/log/huanvaeguard
+         directly; these are launchd's own stdout/stderr captures. -->
+    <key>StandardOutPath</key>
+    <string>/var/log/huanvaeguard/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/huanvaeguard/launchd-stderr.log</string>
+
+    <!-- Avoid Background Items prompt confusion by giving a nice description. -->
+    <key>ServiceDescription</key>
+    <string>HuanvaeGuard macOS VPN daemon</string>
+</dict>
+</plist>
