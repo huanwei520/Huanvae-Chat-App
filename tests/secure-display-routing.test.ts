@@ -23,6 +23,9 @@ const FILE_CACHE = read('src/services/fileCache.ts');
 const MEDIA_PREVIEW = read('src/media/MediaPreviewPage.tsx');
 const SECURE_PROXY = read('src/services/secureProxy.ts');
 const AVATAR = read('src/utils/avatar.ts');
+const USE_GROUP_READ_RECEIPT = read('src/chat/group/useGroupReadReceipt.ts');
+const READER_AVATAR_STACK = read('src/chat/shared/ReaderAvatarStack.tsx');
+const GROUP_READ_LIST_MODAL = read('src/chat/group/GroupReadListModal.tsx');
 
 describe('收口点 resolveDisplayUrl 存在且语义正确', () => {
   it('secureProxy 导出 resolveDisplayUrl', () => {
@@ -82,6 +85,39 @@ describe('avatar 收口到 resolveDisplayUrl（统一出口）', () => {
   it('resolveServerAvatarUrl 委托 resolveDisplayUrl，不再裸调 proxyResourceUrl', () => {
     expect(AVATAR).toMatch(/return resolveDisplayUrl\(path\)/);
     expect(AVATAR).not.toMatch(/return proxyResourceUrl\(path\)/);
+  });
+});
+
+describe('群已读者头像：数据边界解析 + 两个显示点消费已解析值', () => {
+  // 模式同 useFriends/useGroups：在数据边界(快照构建 GroupReaderInfo 处)把后端裸 avatar_url
+  // 经 resolveServerAvatarUrl 解析；下游 ReaderAvatarStack / GroupReadListModal 直接消费已解析的
+  // reader.avatarUrl，不再碰后端字段。漏接反代会让群已读者头像被系统信任库验私有 CA 失败而不显示。
+
+  it('useGroupReadReceipt 数据边界把 avatar_url 经 resolveServerAvatarUrl 解析（快照 + WS 补拉两处）', () => {
+    expect(USE_GROUP_READ_RECEIPT).toMatch(
+      /import \{ resolveServerAvatarUrl \} from '\.\.\/\.\.\/utils\/avatar'/,
+    );
+    // 两处都必须 wrapped（applySnapshot 补拉 + 初始快照）；只回退一处也 FAIL
+    // ——补掉旧 toMatch(≥1) 对单点回归的盲区（一处退成裸 p.avatar_url 时 toMatch 仍 PASS）。
+    const wrappedHits = USE_GROUP_READ_RECEIPT.match(
+      /avatarUrl:\s*resolveServerAvatarUrl\(p\.avatar_url\)/g,
+    );
+    expect(wrappedHits?.length).toBe(2);
+  });
+
+  it('不得把后端裸 avatar_url 直接当展示值（回归守卫：还原成裸 URL 即复现头像不显示 bug → FAIL）', () => {
+    // 若快照/补拉分支回退成 `avatarUrl: p.avatar_url,`（裸后端字段）→ 此断言翻 FAIL
+    expect(USE_GROUP_READ_RECEIPT).not.toMatch(/avatarUrl:\s*p\.avatar_url\s*,/);
+  });
+
+  it('ReaderAvatarStack 显示点消费已解析的 reader.avatarUrl，不直接拼后端字段', () => {
+    expect(READER_AVATAR_STACK).toMatch(/<img src=\{reader\.avatarUrl\}/);
+    expect(READER_AVATAR_STACK).not.toMatch(/avatar_url/); // 不出现任何后端 snake_case 裸字段
+  });
+
+  it('GroupReadListModal 显示点消费已解析的 reader.avatarUrl，不直接拼后端字段', () => {
+    expect(GROUP_READ_LIST_MODAL).toMatch(/<img src=\{reader\.avatarUrl\}/);
+    expect(GROUP_READ_LIST_MODAL).not.toMatch(/avatar_url/);
   });
 });
 

@@ -41,8 +41,14 @@ export interface LoginResponse {
   refresh_token: string;
 }
 
-/** 用户资料响应 */
-export interface ProfileResponse {
+/**
+ * 用户资料响应（登录前 raw fetch 层的原始信封）。
+ *
+ * auth.ts 的 getProfile 经 `api<T>` 直返 `response.json<T>()`（不解包 ApiResponse），
+ * 故此处保留 `{ data: {...} }` 外层，App.tsx 登录路径消费 `.data`。
+ * 注意：与 api/profile.ts 的扁平 `ProfileResponse`（登录后 ApiClient 已解包层）是两个类型，勿混。
+ */
+export interface RawProfileResponse {
   data: {
     user_id: string;
     user_nickname: string;

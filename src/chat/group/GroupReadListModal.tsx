@@ -7,15 +7,27 @@
  * 展示某条群消息的已读者名单：头像 + 展示名（群昵称优先）+ 精确已读时间。
  * 桌面端为居中 modal，移动端为底部 sheet（由 isMobile() 决定）。
  * 通过 Portal 挂载到 document.body，支持点击遮罩 / ESC 关闭。
+ *
+ * 动画分工（单一所有权，避免同元素同属性双控）：
+ * - 容器层（.group-read-list-overlay 遮罩淡入 + .group-read-list-panel 面板进出场）→ framer-motion。
+ * - 列表项（.group-read-list-row）错峰滑入（opacity + translateY，stagger）→ GSAP。
+ *   两者作用于**不同 DOM 节点**，互不抢同一元素的 transform/opacity。
+ * - GSAP 仅动 transform/opacity；.group-read-list-row 在 CSS 中无 transform/opacity 的 transition。
+ * - useGSAP 单 scope（面板）自动 revert；revertOnUpdate 防止 matchMedia 累积；tween 用 overwrite:'auto'。
+ * - prefers-reduced-motion 经 gsap.matchMedia() 兜底为瞬时无动。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { gsap } from 'gsap';
+import { useGSAP } from '@gsap/react';
 import { isMobile } from '../../utils/platform';
 import { formatMessageTime } from '../../utils/time';
 import { avatarInitial } from '../shared/ReaderAvatarStack';
 import type { GroupReader } from './useGroupReadReceipt';
+
+gsap.registerPlugin(useGSAP);
 
 interface GroupReadListModalProps {
   isOpen: boolean;
@@ -44,6 +56,8 @@ const panelVariantsMobile = {
 
 export function GroupReadListModal({ isOpen, onClose, readers }: GroupReadListModalProps) {
   const mobile = isMobile();
+  /** 面板根节点（GSAP scope）；列表项错峰滑入限定在此范围内 */
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // ESC 关闭
   useEffect(() => {
@@ -59,6 +73,44 @@ export function GroupReadListModal({ isOpen, onClose, readers }: GroupReadListMo
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // 列表项错峰滑入（GSAP）。容器层动画仍由 framer-motion 负责，二者作用于不同节点。
+  useGSAP(
+    () => {
+      const scope = panelRef.current;
+      if (!scope) {
+        return;
+      }
+      // 关闭时(isOpen=false)只走 useGSAP 的 revert 清理,不再对行重放进场动画——
+      // 否则退场期间 .group-read-list-row 会重新淡入+上滑(移动端 sheet 下滑时可见)。
+      if (!isOpen) {
+        return;
+      }
+      const rows = gsap.utils.toArray<HTMLElement>(scope.querySelectorAll('.group-read-list-row'));
+      if (rows.length === 0) {
+        return;
+      }
+
+      const mm = gsap.matchMedia();
+
+      mm.add('(prefers-reduced-motion: no-preference)', () => {
+        gsap.from(rows, {
+          opacity: 0,
+          y: 8,
+          duration: 0.3,
+          ease: 'power2.out',
+          stagger: 0.04,
+          overwrite: 'auto',
+          clearProps: 'opacity,y',
+        });
+      });
+
+      mm.add('(prefers-reduced-motion: reduce)', () => {
+        gsap.set(rows, { opacity: 1, y: 0, clearProps: 'opacity,y' });
+      });
+    },
+    { scope: panelRef, dependencies: [isOpen, readers], revertOnUpdate: true },
+  );
+
   const content = (
     <AnimatePresence>
       {isOpen && (
@@ -71,6 +123,7 @@ export function GroupReadListModal({ isOpen, onClose, readers }: GroupReadListMo
           onClick={onClose}
         >
           <motion.div
+            ref={panelRef}
             className={`group-read-list-panel ${mobile ? 'mobile' : 'desktop'}`}
             variants={mobile ? panelVariantsMobile : panelVariantsDesktop}
             initial="initial"

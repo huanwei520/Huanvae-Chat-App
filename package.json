@@ -33,6 +33,7 @@
     "hg:diag": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/hg-tunnel-diag.ps1"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@kingsword/tauri-plugin-android-package-install": "jsr:^2.0.2",
     "@kingsword/tauri-plugin-mobile-onbackpressed-listener": "jsr:^2.0.1",
     "@tauri-apps/api": "^2.11.0",
@@ -52,6 +53,7 @@
     "culori": "^4.0.2",
     "dagre": "^0.8.5",
     "framer-motion": "^12.38.0",
+    "gsap": "^3.15.0",
     "highlight.js": "^11.11.1",
     "mermaid": "^11.15.0",
     "react": "^19.2.6",

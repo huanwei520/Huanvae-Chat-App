@@ -41,34 +41,34 @@ allowed-tools: Read, Grep, Glob, Bash
 
 | 类型 | 文件 | 改动说明 |
 |------|------|----------|
-| 新增 | src/xxx/handlers/yyy.rs | 新增 xxx API 端点 |
-| 修改 | src/xxx/services/mod.rs | 增加 xxx 业务逻辑 |
-| 新增 | tests/integration/t99_xxx.rs | xxx 模块集成测试 |
-| 修改 | PostgreSQL/init/xxx.sql | 新增 xxx 表 |
+| 新增 | src/chat/xxx/XxxModal.tsx | 新增 xxx 弹窗组件 |
+| 修改 | src/hooks/useXxx.ts | 增加 xxx 业务逻辑 |
+| 修改 | src/api/xxx.ts | 新增 xxx API 封装 |
+| 新增 | tests/components/XxxModal.test.tsx | xxx 组件渲染 + 交互测试 |
 
-### 新增/修改的 API
+### 新增/修改的 API 封装
 
-| 方法 | 路径 | 说明 | 认证 |
-|------|------|------|------|
-| POST | /api/xxx | 创建 xxx | 需要 |
-| GET | /api/xxx/:id | 获取 xxx 详情 | 需要 |
+| 函数 | 文件 | 后端端点 | 说明 |
+|------|------|----------|------|
+| createXxx() | src/api/xxx.ts | POST /api/xxx | 创建 xxx（经 secureFetch） |
+| getXxx() | src/api/xxx.ts | GET /api/xxx/:id | 获取 xxx 详情 |
 
-（如无 API 变更，省略此节）
+（如无 API 封装变更，省略此节）
 
-### 数据库变更
+### 本地数据（SQLite）变更
 
-| 操作 | 表名 | 说明 |
-|------|------|------|
-| 新建表 | "xxx-table" | 存储 xxx 数据 |
-| 新增列 | "yyy-table"."new-col" | 支持 xxx 功能 |
+| 操作 | 表 / 字段 | 说明 |
+|------|-----------|------|
+| 新建表 | xxx（src/db/） | 存储 xxx 本地数据 |
+| 新增列 | yyy.new_col | 支持 xxx 功能 |
 
-（如无数据库变更，省略此节）
+（如无本地数据变更，省略此节）
 
 ### 测试覆盖
 
 | 测试文件 | 用例数 | 覆盖内容 |
 |----------|--------|----------|
-| t99_xxx.rs | 6 | 正常 CRUD + 权限校验 + 边界条件 |
+| tests/components/XxxModal.test.tsx | 6 | 渲染 + 交互 + 边界条件 + 错误路径 |
 
 运行结果：全部通过 / N 个通过, M 个已知失败
 

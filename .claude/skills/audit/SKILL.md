@@ -66,16 +66,16 @@ effort: high
 请完成以下分析工作：
 
 1. **阅读相关代码** — 根据需求描述，找到并阅读所有相关的源文件。重点关注：
-   - 直接涉及的 handler / service / model 文件
-   - `src/common/` 中的公共类型（AppError、ApiResponse）
-   - `src/app_state.rs` 中相关的 State 工厂方法
-   - 相关模块的 `mod.rs` 和 `routes.rs`
+   - 直接涉及的 React 组件 / Hook / Zustand store / Context（`src/chat/`、`src/components/`、`src/hooks/`、`src/stores/`、`src/pages/`）
+   - 相关的 API 封装（`src/api/*.ts`）与 services 层（`src/services/*.ts`）
+   - 公共类型定义（`src/types/`）与工具（`src/utils/`、`src/constants/`）
+   - 如涉及本地能力：`src-tauri/src/**/*.rs`（Tauri 本地层，仅文件/剪贴板/安全网/凭据等）与 `src/db/index.ts`（SQLite 经 `invoke('db_*')`）
 
 2. **绘制依赖关系** — 列出：
-   - 受影响的模块列表
-   - 模块间的调用关系
-   - 涉及的数据库表
-   - 涉及的外部服务（Redis、MinIO、WebSocket 等）
+   - 受影响的模块列表（React 组件树 / Hook 依赖）
+   - 模块间的调用关系（组件 → Hook → store / API 封装）
+   - 涉及的本地 SQLite 表（`src/db/`）
+   - 涉及的后端 API 端点（经 `secureFetch` / `invoke('secure_http')`）与 WS 消息类型
 
 3. **确定影响范围** — 明确列出所有需要修改或新增的文件路径
 
@@ -90,11 +90,11 @@ effort: high
 - ...
 
 **依赖关系**:
-- [模块A] → [模块B]（调用方式）
+- [组件/Hook A] → [store/API B]（调用方式）
 - ...
 
-**涉及数据库表**: [表名列表]
-**涉及外部服务**: [服务列表]
+**涉及本地 SQLite 表**: [表名列表 / 无]
+**涉及后端 API / WS**: [端点或消息类型列表 / 无]
 ```
 
 ---
@@ -202,28 +202,29 @@ effort: high
 启动两个并行 Agent，分别负责外部调研和内部代码搜索：
 
 ```
-# Agent 1：外部调研（社区方案 + crate 搜索）
+# Agent 1：外部调研（社区方案 + npm 包搜索）
 Agent(subagent_type="Explore", model="sonnet", prompt="
 针对需求「[需求描述]」进行技术调研，搜索并归纳以下内容：
 
 1. 社区/商业主流方案
-   - 该需求在 Rust/Axum 生态中的主流实现方式
-   - 业界（不限语言）对此类功能的最佳实践和设计模式
-   - 已知的坑和注意事项
+   - 该需求在 React / Tauri 生态中的主流实现方式
+   - 业界（不限框架）对此类功能的最佳实践和设计模式
+   - 已知的坑和注意事项（尤其 Tauri webview 限制、移动端差异）
 
-2. crates.io 可用库
-   - 与该需求直接相关的成熟 crate
-   - 对每个候选 crate 记录：名称、版本、下载量、最近更新时间、功能说明
-   - 评估其成熟度、维护状态
+2. npm 可用库
+   - 与该需求直接相关的成熟包
+   - 对每个候选包记录：名称、版本、周下载量、最近更新时间、功能说明
+   - 评估其成熟度、维护状态、bundle 体积
 
-3. 当前项目依赖版本约束（必须兼容）：
-   - axum 0.8, tokio 1.x, sqlx 0.8, reqwest 0.12, serde 1.0
-   - 全项目使用 rustls-tls，禁止 native-tls/openssl
-   - Rust edition 2024
+3. 当前项目依赖版本约束（必须兼容，见 package.json）：
+   - React 19, TypeScript ~5.9, Vite 7, TailwindCSS 4
+   - Tauri @tauri-apps/api ^2.11（新增 Tauri 插件版本须与之兼容）
+   - framer-motion ^12, gsap ^3.15, zustand ^5
+   - 包管理器 pnpm；新增依赖用 pnpm add，须与现有同系列包版本一致
 
 输出格式：
 **社区方案**: 编号列表，每项含方案名、简述、来源 URL
-**推荐 crate**: 表格（crate 名 | 版本 | 下载量 | 最近更新 | 说明 | 与项目兼容性）
+**推荐 npm 包**: 表格（包名 | 版本 | 周下载量 | 最近更新 | 说明 | 与项目兼容性）
 **注意事项**: 调研中发现的坑和风险
 ")
 
@@ -231,26 +232,26 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 Agent(subagent_type="Explore", model="sonnet", prompt="
 在项目中搜索与需求「[需求描述]」相关的已有代码：
 
-1. 是否已有类似功能的实现可以复用或参考
-2. 是否已有相关的工具函数、中间件、类型定义
-3. 检查 Cargo.toml 中是否已包含可用的依赖
+1. 是否已有类似功能的组件 / Hook / 工具函数可以复用或参考
+2. 是否已有相关的 store / Context / 类型定义 / API 封装
+3. 检查 package.json 中是否已包含可用的依赖
 
 重点搜索位置：
-- src/ 下的 handlers、services、models
-- src/common/ 公共工具
-- Cargo.toml 依赖列表
+- src/ 下的 components、chat、hooks、stores、services、api、utils
+- src/types/ 公共类型、src/constants/ 常量（动画 variants 等）
+- package.json 依赖列表
 
 输出格式：
 **项目已有可复用代码**: 文件路径 + 可复用内容说明
-**已有相关依赖**: Cargo.toml 中已包含的相关 crate
+**已有相关依赖**: package.json 中已包含的相关包
 ")
 ```
 
 ### 审阅调研结果
 
 两个 Agent 返回后，opus 审阅调研结论：
-- 验证推荐 crate 与项目依赖版本基准的兼容性
-- 排除不满足 rustls-tls / edition 2024 约束的候选
+- 验证推荐 npm 包与项目依赖版本基准（package.json）的兼容性
+- 排除与 React 19 / Tauri 2 / pnpm 不兼容或体积过大的候选
 - 综合外部调研和内部搜索，形成最终调研结论
 
 将最终结论以如下格式输出：
@@ -262,10 +263,10 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 1. [方案名] — [简述]（来源：[URL]）
 2. ...
 
-**推荐 crate**:
-| crate 名 | 版本 | 下载量 | 最近更新 | 说明 |
-|-----------|------|--------|----------|------|
-| ...       | ...  | ...    | ...      | ...  |
+**推荐 npm 包**:
+| 包名 | 版本 | 周下载量 | 最近更新 | 说明 |
+|------|------|----------|----------|------|
+| ...  | ...  | ...      | ...      | ...  |
 
 **项目已有可复用代码**:
 - `src/xxx/...` — [可复用内容说明]
@@ -296,17 +297,18 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
    - 从复杂度、性能、可维护性、与现有架构一致性等维度对比
    - 给出推荐方案及理由
 
-4. **第三方依赖建议** — 是否需要新增 crate，需要的话列出要添加到 `Cargo.toml` 的具体内容
+4. **第三方依赖建议** — 是否需要新增 npm 包，需要的话列出 `pnpm add` 的具体包名与版本（须与 package.json 现有同系列包兼容）；如涉及 Tauri 本地层，`src-tauri/Cargo.toml` 的新增 crate
 
-5. **项目代码复用** — 明确指出哪些已有代码可以直接复用，避免重复造轮子
+5. **项目代码复用** — 明确指出哪些已有组件 / Hook / 工具可以直接复用，避免重复造轮子
 
 6. **测试计划** — 列出需要编写的测试文件和测试用例：
-   - 测试文件名（按 `t{序号}_{模块名}.rs` 命名）
+   - 测试文件名（vitest 单元/组件测试放 `tests/`，按 `tests/{unit,components,hooks}/xxx.test.ts(x)` 命名；E2E 放 `e2e/*.spec.ts`）
    - 每个测试用例的名称和验证目标
-   - 对每个新增 API 端点：至少 1 个正常流程 + 1 个错误处理
-   - 对每个核心 service 方法：至少 1 个测试
+   - 对每个新增组件：至少 1 个渲染测试 + 1 个交互测试
+   - 对每个核心 Hook / 工具函数 / API 封装：至少 1 个正常 + 1 个异常路径测试
+   - **新增组件的注册项**：在 `tests/registry.ts` + `tests/components/registry.test.tsx` 两处注册（见 frontend-test.md）
    - **动画类变更的强制项**：如果方案涉及新增 / 修改 `motion.* + variants` 组件、给已有 motion 组件加 variant 属性、改 motion 组件 CSS 的 `transition` 字段、或改其 className，**测试计划必须包含一条「在 [tests/animation-conflict.test.ts](tests/animation-conflict.test.ts) 的 `MOTION_CONTROLLED_SELECTORS` 注册表中新增/更新 selector」**，并指明 selector、对应 CSS 文件、controlledProps（transform / opacity / 等）、来源组件 — 与代码实现并行落地，不可事后补。理由：vitest 默认 skipAnimations，唯独这个静态扫描测试能拦 CSS vs framer-motion 冲突
-   - 如果某功能因外部依赖（如需要真实 SSH 服务器、第三方 API）无法编写自动化测试，必须明确标注并给出手动验证步骤
+   - 如果某功能因外部依赖（如需要真实设备、后端服务、第三方 API）无法编写自动化测试，必须明确标注并给出手动验证步骤
 
 输出格式：
 
@@ -331,8 +333,9 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 **测试计划**:
 | 测试文件 | 测试用例 | 验证目标 | 可自动化 | 执行 |
 |----------|----------|----------|----------|------|
-| `tests/integration/t{N}_{module}.rs` | `test_xxx` | ... | 是/否（原因） | 编写: opus / 运行: test-runner (haiku) |
-| `*.sh`（E2E/benchmark） | 脚本验证 | ... | 是 | 编写: opus / 运行: test-runner (haiku) |
+| `tests/unit/xxx.test.ts` | `it('...')` | ... | 是/否（原因） | 编写: opus / 运行: test-runner (haiku) |
+| `tests/components/Xxx.test.tsx` | 渲染 + 交互 | ... | 是 | 编写: opus / 运行: test-runner (haiku) |
+| `e2e/xxx.spec.ts`（登录前可达页） | Playwright 场景 | ... | 是 | 编写: opus / 运行: test-runner (haiku) |
 
 **方案对比**（如适用）:
 | 维度 | 方案A | 方案B |
@@ -340,7 +343,7 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 | ...  | ...   | ...   |
 
 **新增依赖**:
-[列出 Cargo.toml 新增内容，或注明"无"]
+[列出 `pnpm add` 的 npm 包（或 src-tauri/Cargo.toml crate），或注明"无"]
 
 **复用已有代码**:
 - [说明]
@@ -352,16 +355,17 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 
 对修改方案进行全面风险评估：
 
-1. **破坏性变更** — 是否修改了公共接口、数据结构、数据库 schema？是否影响 API 向后兼容性？
+1. **破坏性变更** — 是否修改了组件 props / Hook 签名 / store 结构 / 公共类型？是否影响调用方？（个人开发验证期不留兼容层，但要确保所有调用方同步改）
 2. **功能影响** — 是否可能导致现有功能回归？列出需要回归测试的功能点
-3. **性能影响** — 是否引入新的数据库查询、网络调用、大内存分配？是否影响热路径？
-4. **安全风险** — 是否涉及认证/授权逻辑变更？是否有注入/越权风险？
-5. **数据库/迁移风险** — 是否需要新的 migration？是否会锁表？是否可回滚？
-6. **并发风险** — 是否涉及共享状态修改？是否有竞态条件？
+3. **性能影响** — 是否引入不必要的 re-render、缺失的 memo/依赖数组、大列表无虚拟化、频繁 invoke？是否影响热路径（消息列表 / 滚动）？
+4. **安全风险** — 是否涉及认证 / 凭据处理变更？webview 显示是否经安全反代收口点（见 frontend-test.md「所有 X 必经 Y」）？NFC / 外链是否有信任确认？
+5. **本地数据 / SQLite 风险** — 是否改动 `src/db/` schema？缓存与 DB 的增量合并是否正确（见 common.md，禁止用窗口数据覆盖全量缓存）？
+6. **并发 / 竞态风险** — 是否涉及多 Hook 共享 store？异步 setState 是否有 stale closure / 竞态？
 7. **测试兼容性** — 修改是否会导致现有测试失败？特别关注：
-   - 新增输入验证规则时，检查测试中使用的边界值是否在验证范围内
-   - 修改函数签名/返回值时，检查测试中的断言是否需要同步更新
-   - 修改错误类型/错误消息时，检查测试中是否有对错误消息的精确匹配
+   - 新增输入校验规则时，检查测试中使用的边界值是否在校验范围内
+   - 修改组件 props / Hook 返回值时，检查测试中的断言是否需要同步更新
+   - 修改错误提示文案时，检查测试中是否有对文案的精确匹配
+   - 改动 src 源码时，检查静态扫描测试（animation-conflict / secure-display-routing 等）的 regex 是否仍匹配（见 frontend-test.md）
 
 输出格式：
 
@@ -374,8 +378,8 @@ Agent(subagent_type="Explore", model="sonnet", prompt="
 | 功能影响   | 高/中/低/无 | ... | ... |
 | 性能影响   | 高/中/低/无 | ... | ... |
 | 安全风险   | 高/中/低/无 | ... | ... |
-| 数据库风险 | 高/中/低/无 | ... | ... |
-| 并发风险   | 高/中/低/无 | ... | ... |
+| 本地数据/SQLite | 高/中/低/无 | ... | ... |
+| 并发/竞态   | 高/中/低/无 | ... | ... |
 | 测试兼容性 | 高/中/低/无 | ... | ... |
 
 **综合风险等级**: [高/中/低]

@@ -575,7 +575,7 @@ const tag = await scan({ type: 'tag' });
 
 ### 反例（2026-05-14）
 
-- 第一版 [MobileNfcScanPage.tsx](src/pages/mobile/MobileNfcScanPage.tsx) 用 `scan({ type: 'ndef' })`
+- 第一版 `MobileNfcScanPage.tsx`（v2 已移除，扫卡改由全局 hook `src/hooks/useNfcGlobalScan.ts` 承担，见下一节）用 `scan({ type: 'ndef' })`
 - ColorOS Realme 真机贴卡：系统弹 chooser，App 完全无响应，logcat plugin 端无输出
 - 排查耗时 6 轮（adb logcat / manifest 检查 / Cargo.toml 验证 / 全面文档调研）
 - 根因定位后改 `scan({ type: 'tag' })` 立即生效

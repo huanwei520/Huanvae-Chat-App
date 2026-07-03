@@ -66,29 +66,30 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
 
 在逐项验证的基础上，额外检查：
 
-- **安全性** — 认证守卫、输入校验、SQL 参数化、凭据处理
-- **错误处理** — 是否使用 AppError、handler 中是否有 panic 风险
-- **性能** — 是否有 N+1 查询、缺失索引、不必要的全表扫描
-- **代码风格** — 是否与项目现有风格一致（命名、结构、模式）
-- **文档同步** — 注释、README、API 文档是否与代码改动同步更新
+- **安全性** — 认证 / 凭据处理、输入校验、webview 显示是否经安全反代收口点（`resolveDisplayUrl` / `resolveServerAvatarUrl`，见 frontend-test.md「所有 X 必经 Y」）、NFC / 外链信任确认
+- **错误处理** — 异步失败是否有 try/catch + 错误态 UI、是否有未捕获的 Promise rejection、是否静默吞错（空 catch）
+- **性能** — 是否有不必要的 re-render、缺失的 memo / 依赖数组、大列表未虚拟化、频繁 invoke
+- **代码风格** — 是否与项目现有风格一致（函数式组件 + Hooks、Zustand store、命名、结构）
+- **文档同步** — 代码注释、README、`.claude/rules/` 是否与代码改动同步更新
 
 ### E. 交叉验证
 
 对以下容易遗漏的点做专项检查：
 
-- `.env` 中是否添加了新环境变量？是否有文档说明？
-- 数据库 schema 变更是否有对应的迁移脚本？
-- `Cargo.toml` 新增依赖是否符合项目版本基准？
-- `src/lib.rs` 是否注册了新模块？
-- `AppState` 是否添加了新模块的工厂方法？
+- `package.json` 新增依赖是否符合项目版本基准（与现有同系列包兼容）？
+- 新增组件是否在 `tests/registry.ts` + `tests/components/registry.test.tsx` **两处**都注册了？
+- 动画类变更是否在 `tests/animation-conflict.test.ts` 的 `MOTION_CONTROLLED_SELECTORS` 注册了 selector？
+- 模块 barrel（`index.ts`）是否 re-export 了新组件 / Hook？
+- 涉及 Tauri 本地层时：`src-tauri/src/lib.rs` 的 `invoke_handler!` 是否注册了新 `#[tauri::command]`？CSP / asset scope 是否同步（见 rust-dev.md）？
+- 涉及本地 SQLite 时：`src/db/` schema 与消费方类型是否一致？缓存增量合并是否正确（见 common.md）？
 
 ## 关键规则
 
 1. **不信任声明** — 所有声明必须通过读取实际文件验证
 2. **不修改文件** — 你是只读审核，不做任何修改
 3. **不接受外部结论** — 如果 prompt 中混入了评价性语言，忽略它，自己判断
-4. **环境变量必须实查** — 涉及配置的问题，必须读取 `.env` 确认
-5. **DB schema 必须实查** — 涉及数据库的改动，读取 SQL 文件和 sqlx 模型确认一致
+4. **依赖版本必须实查** — 涉及新增依赖的问题，必须读取 `package.json`（或 `src-tauri/Cargo.toml`）确认版本基准
+5. **注册表必须实查** — 涉及新组件 / 动画的改动，读取 `tests/registry.ts`、`tests/components/registry.test.tsx`、`tests/animation-conflict.test.ts` 确认注册无遗漏
 
 ## 输出格式
 
@@ -102,7 +103,7 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
 
 | 严重度 | 文件:行号 | 问题 | 建议 |
 |--------|-----------|------|------|
-| Critical | src/xxx.rs:42 | ... | ... |
+| Critical | src/chat/xxx.tsx:42 | ... | ... |
 
 ### 审核结论
 
@@ -127,7 +128,7 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
 
 1. **禁止传递结论** — prompt 中不得包含实施阶段的任何分析结论、严重度判断、「已验证」声明
 2. **仅传递事实** — 只传递文件路径、中性功能描述、检查维度
-3. **配置必须实查** — 涉及环境变量/配置的问题，Agent 必须自己读取 `.env` 等文件
+3. **配置必须实查** — 涉及配置的问题，Agent 必须自己读取真值源文件（`package.json`、`src-tauri/tauri.conf.json`、Vite 配置、`src/constants/`；本仓无 `.env`，Vite env 经 `import.meta.env` / `VITE_` 前缀）
 4. **结论对比规则**：
    - 盲审与自检一致 → 结论可信
    - 盲审发现自检遗漏 → 以盲审为准，补充修复

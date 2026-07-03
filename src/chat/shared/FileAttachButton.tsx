@@ -30,13 +30,6 @@ import { selectFilesForTransfer } from '../../utils/androidFileHandler';
 
 export type AttachmentType = 'image' | 'video' | 'file';
 
-export interface SelectedFileWithPath {
-  /** File 对象用于上传 */
-  file: File;
-  /** 本地完整路径（用于本地映射） */
-  localPath: string;
-}
-
 export interface FileAttachButtonProps {
   /** 是否禁用 */
   disabled?: boolean;

@@ -7,7 +7,7 @@
 
 import { secureHttp } from '../services/secureFetch';
 import { resolveForSecureHttp } from '../services/discovery';
-import type { LoginResponse, ProfileResponse, RegisterData } from '../types/account';
+import type { LoginResponse, RawProfileResponse, RegisterData } from '../types/account';
 
 /**
  * 通用 API 请求封装（使用 Tauri HTTP 插件）
@@ -111,8 +111,8 @@ export async function register(
 export function getProfile(
   serverUrl: string,
   token: string,
-): Promise<ProfileResponse> {
-  return api<ProfileResponse>(serverUrl, '/api/profile', {
+): Promise<RawProfileResponse> {
+  return api<RawProfileResponse>(serverUrl, '/api/profile', {
     token,
   });
 }

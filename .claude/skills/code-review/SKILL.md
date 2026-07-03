@@ -34,40 +34,52 @@ effort: high
 
 ## 审查范围
 
-运行 `git diff --name-only` 获取本次变更的 .rs 文件列表（排除 tests/ 目录），逐一读取变更内容。
+运行 `git diff --name-only` 获取本次变更的文件列表，**逐一读取变更内容**。本仓是 Tauri + React + TypeScript 客户端，审查对象覆盖：
+
+- **前端源码（主体）**：`src/**/*.tsx` / `src/**/*.ts` / `src/**/*.css`（React 组件、Hook、Zustand store、Context、API 封装、services、utils）
+- **Tauri 本地层**：`src-tauri/src/**/*.rs`（App 里唯一合法的 Rust，只做本地操作 —— 文件/剪贴板/安全网/凭据存储，不消费后端 API）
+
+排除 `tests/` 目录（测试代码由第二次调用审核）。
+
+> ⚠️ **不要只读 `.rs`**：本仓业务逻辑 99% 在 `.tsx` / `.ts`（React 层），Rust 侧仅本地能力。审查必须覆盖全部变更的 `.tsx` / `.ts` / `.css`，只看 `.rs` 会漏审绝大部分改动。下面「无用兜底 / 过度防御」维度以 TypeScript/React 惯用法为主，`src-tauri/` 的 Rust 文件用括注中的 Rust 等价物判断。
 
 ## 审查维度
 
 ### 1. 无用兜底代码
 
-检查是否存在以下模式：
-- `unwrap_or_default()` / `unwrap_or(fallback)` 掩盖了本该暴露的错误 — 如果上游保证非空，直接 unwrap 或用 expect 说明理由；如果可能为空，应该返回明确错误而不是静默吞掉
-- `match` / `if let` 中的兜底分支处理了不可能出现的情况（例如 enum 已经穷尽了有意义的变体，但还有一个 `_ => {}` 什么都不做）
-- 错误被 `log::warn` 后静默继续，而该错误实际上应该中断流程并返回给调用方
-- `Option::map` / `and_then` 链中的 `.unwrap_or(vec![])` 类兜底，实际数据不可能为 None
-- 防御性 clone() 或 to_owned()，在所有权已明确的场景下多余
+检查是否存在以下模式（TypeScript / React）：
+- `x ?? fallback` / `x || fallback` 掩盖了本该暴露的错误 — 如果上游（store / API 解包 / props）已保证非空，直接用；如果可能为空且业务需要感知，应显式返回错误 / 显示错误态，而不是静默给默认值
+- 空 `catch {}` 或 `catch (e) { console.warn(e) }` 后静默继续，而该错误实际上应中断流程 / 显示错误 UI / 上抛给调用方
+- 多余的可选链 `obj?.field`，其中 `obj` 在当前路径已由类型或上游保证存在
+- `Array.isArray(x) ? x : []` / `x ?? []` 类兜底，实际数据结构不可能为 undefined / 非数组
+- `switch` 的 `default:` 分支处理了联合类型已穷尽的不可能情况（什么都不做）
+- 防御性 `structuredClone(x)` / `{ ...x }` 拷贝，在数据流已明确、无共享可变风险时多余
+- （`src-tauri/*.rs` 等价物：`unwrap_or_default()` / `unwrap_or(fallback)` 掩盖错误、`match` 无意义兜底分支、错误被 `log::warn` 后静默继续、防御性 `clone()` / `to_owned()`）
 
 **判断标准**：兜底是否有现实的触发路径？如果没有，就是无用兜底。如果有但被静默处理了，就是错误吞没。
 
 ### 2. 过度防御
 
-检查是否存在以下模式：
+检查是否存在以下模式（TypeScript / React）：
 - 对内部函数的返回值做重复校验（上游已保证格式/范围，下游又 validate 一遍）
-- 对框架已保证的行为做额外检查（如 Axum 的 Json extractor 已做反序列化，handler 里又手动检查字段是否存在）
-- 对数据库 NOT NULL 约束已保护的字段做 `Option` 包装
-- 在 service 层和 handler 层对同一个参数做相同的校验
-- `if condition { return Err(...) }` 但 condition 在当前调用链中不可能为 true
+- 对 TypeScript 类型已保证的字段做运行时 `typeof` / `instanceof` 检查（如参数类型已是 `string`，还 `if (typeof x !== 'string')`）
+- 对 Zustand store / Context 已保证初始化的值做多余的 null 检查
+- 在 Hook 和消费组件两处对同一个 prop / 参数做相同校验
+- `if (!x) return null` / `if (!x) return;` 但 `x` 在当前渲染 / 调用路径中不可能为 falsy
+- （`src-tauri/*.rs` 等价物：对 SQLite NOT NULL 字段做多余 `Option` 包装、`if cond { return Err(..) }` 但 cond 不可能为 true）
 
-**判断标准**：该校验是否在保护一个实际可能发生的场景？是否有其他层已经保证了同样的约束？
+**判断标准**：该校验是否在保护一个实际可能发生的场景？是否有其他层（类型系统 / store / 上游校验）已经保证了同样的约束？
 
 ### 3. 死代码 / 未使用代码
 
-检查是否存在以下模式：
-- 新增了函数/结构体但没有被任何地方调用
-- `pub` 可见性但实际只在模块内使用（应为 `pub(crate)` 或私有）
-- 导入了但未使用的 trait / 类型
+检查是否存在以下模式（TypeScript / React）：
+- 新增了组件 / Hook / 工具函数 / 类型但没有被任何地方 import 或使用
+- `export` 了但实际只在本模块使用（应改为模块内私有，减少 barrel 噪音）
+- import 了但未使用的组件 / 类型 / 工具函数
 - 注释掉的代码块（应删除而非注释）
 - 预留的 TODO 占位代码没有实际实现
+- 违反 CLAUDE.md「个人开发验证期」约束的残留：`@deprecated` 标注但代码仍可被调用、向后兼容 stub、`_` 前缀"保留兼容"参数（应删字段 + 清调用方）
+- （`src-tauri/*.rs` 等价物：0 调用方的 `pub fn`、应收窄为 `pub(crate)` 或私有的可见性、未使用的 `use`）
 
 ## 输出格式
 
@@ -78,7 +90,7 @@ effort: high
 
 | # | 类型 | 文件:行号 | 问题描述 | 严重度 |
 |---|------|-----------|----------|--------|
-| 1 | 无用兜底 | src/xxx.rs:42 | unwrap_or_default() 掩盖了... | Warning |
+| 1 | 无用兜底 | src/chat/xxx.tsx:42 | `data ?? []` 掩盖了本该显示错误态的加载失败... | Warning |
 
 ### 审核结论
 
@@ -94,7 +106,7 @@ effort: high
 - 不修改任何文件，仅读取和分析
 - 必须读取实际文件内容，不凭文字描述判断
 - 对每个疑似问题，必须说明为什么认为它是问题（有什么现实路径可以触发？或者为什么不可能触发？）
-- 严重度标准：Critical = 错误被吞没可能导致数据不一致；Warning = 代码冗余增加维护负担；Info = 风格建议
+- 严重度标准：Critical = 错误被吞没可能导致状态不一致 / 数据丢失（如缓存被窗口数据覆盖、消息丢失）；Warning = 代码冗余增加维护负担；Info = 风格建议
 ```
 
 ---
@@ -128,10 +140,10 @@ effort: high
 ### 覆盖缺失（test-quality-check 之外的额外检查）
 
 对照业务代码检查：
-- 新增的 API 端点是否有对应测试？（至少 1 正常 + 1 异常）
-- 核心 service 方法是否有对应测试？
-- 错误路径是否被测试覆盖？（权限不足、参数非法、资源不存在）
-- 边界条件是否被测试？（空列表、超长字符串、并发操作）
+- 新增的组件是否有渲染测试 + 交互测试？（CLAUDE.md 最低覆盖要求）
+- 核心 Hook / 工具函数 / API 封装是否有对应测试？（至少 1 正常 + 1 异常）
+- 错误路径是否被测试覆盖？（请求失败、参数非法、资源不存在、权限不足）
+- 边界条件是否被测试？（空列表、超长字符串、并发 / 竞态、undefined props）
 
 ### 3.5 动画冲突覆盖（前端 motion 组件专用）
 
@@ -151,9 +163,10 @@ vitest 默认 `MotionGlobalConfig.skipAnimations = true`，渲染测试**测不�
 
 ### 4. 测试隔离问题
 
-- 测试是否依赖其他测试的执行顺序或副作用？
-- 测试数据是否通过 `generate_email` 等工具生成，而非硬编码？
-- 测试创建的资源是否通过 `TestContext` 追踪并自动清理？
+- 测试是否依赖其他测试的执行顺序或副作用？（`beforeEach` 是否 reset mock / store）
+- mock 是否在 `beforeEach` / `afterEach` 正确清理（`vi.clearAllMocks()` / `mockReset()`），避免跨用例污染？
+- 测试是否复用 `tests/setup.ts` 的全局 mock 与 `tests/utils/test-utils.tsx` 的工具，而非各自硬搓？
+- 新增组件是否已按 CLAUDE.md「注册新组件必须同时改两处」在 `tests/registry.ts` + `tests/components/registry.test.tsx` 注册？
 
 ## 输出格式
 
@@ -164,14 +177,14 @@ vitest 默认 `MotionGlobalConfig.skipAnimations = true`，渲染测试**测不�
 
 | # | 类型 | 文件:行号 | 问题描述 | 严重度 |
 |---|------|-----------|----------|--------|
-| 1 | 假测试 | tests/t99_xxx.rs:55 | 只断言了 200 未验证数据变更 | Warning |
+| 1 | 假测试 | tests/components/Xxx.test.tsx:55 | 只 render 写死 className，未引用真组件 | Warning |
 
 ### 覆盖率检查
 
-| API/方法 | 正常路径 | 异常路径 | 状态 |
+| 组件/Hook/封装 | 正常路径 | 异常路径 | 状态 |
 |----------|----------|----------|------|
-| POST /api/xxx | test_create_xxx | test_create_xxx_unauthorized | OK |
-| DELETE /api/xxx | - | - | 缺失 |
+| useXxx（Hook） | test 加载成功 | test 加载失败降级 | OK |
+| <XxxModal>（组件） | 渲染测试 | - | 缺失交互测试 |
 
 ### 审核结论
 

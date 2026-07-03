@@ -52,52 +52,6 @@ export function isConsentRequired(resp: AuthorizeResponse): resp is AuthorizeCon
 }
 
 // ============================================
-// Token
-// ============================================
-
-export interface TokenRequest {
-  grant_type: 'authorization_code' | 'refresh_token';
-  code?: string;
-  redirect_uri?: string;
-  client_id: string;
-  client_secret?: string;
-  code_verifier?: string;
-  refresh_token?: string;
-}
-
-export interface TokenResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  refresh_token: string | null;
-  scope: string;
-  openid: string;
-}
-
-// ============================================
-// UserInfo
-// ============================================
-
-export interface UserInfoResponse {
-  sub: string;
-  nickname?: string;
-  avatar_url?: string;
-  email?: string;
-  friend_count?: number;
-  group_count?: number;
-}
-
-// ============================================
-// Revoke
-// ============================================
-
-export interface RevokeRequest {
-  token: string;
-  client_id: string;
-  client_secret: string;
-}
-
-// ============================================
 // Client
 // ============================================
 

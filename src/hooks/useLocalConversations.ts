@@ -15,14 +15,6 @@ import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
 
-/**
- * 手动触发预览刷新（备用）。
- * 常规场景已由 db/index.ts 的写入防抖自动触发，无需手动调用。
- */
-export function notifyPreviewsChanged(): void {
-  window.dispatchEvent(new CustomEvent(PREVIEW_CHANGED_EVENT));
-}
-
 /** 会话预览信息 */
 export interface ConversationPreview {
   conversationId: string;

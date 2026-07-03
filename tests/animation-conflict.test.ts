@@ -1,13 +1,14 @@
 /**
  * 动画冲突静态回归测试
  *
- * 检查项目中所有「同时由 framer-motion variants 控制 + 在 CSS 中也声明了 transition」
- * 的元素，确保它们的 CSS transition 字段 **不包含** framer-motion 接管的属性。
+ * 检查项目中所有「同时由 JS 动画（framer-motion variants 或 GSAP tween）控制 +
+ * 在 CSS 中也声明了 transition」的元素，确保它们的 CSS transition 字段
+ * **不包含** JS 动画接管的属性（transform / opacity）。
  *
  * 背景：
- * framer-motion 的 motion.* 组件通过 inline style 逐帧更新 transform / opacity 等属性。
- * 如果同一元素的 CSS 也声明了 `transition: all` 或 `transition: transform/opacity`，
- * 浏览器会对 framer-motion 的每一次帧更新启动一次 CSS 过渡，
+ * framer-motion 的 motion.* 组件、GSAP 的 tween 都通过 inline style 逐帧更新
+ * transform / opacity 等属性。如果同一元素的 CSS 也声明了 `transition: all`
+ * 或 `transition: transform/opacity`，浏览器会对每一次帧更新启动一次 CSS 过渡，
  * 导致进入/退出动画抖动、拉慢、行为不可预期（具体取决于浏览器实现）。
  *
  * 项目规则（见 .claude/rules/frontend-test.md「动画相关变更必须补冲突回归测试」）：
@@ -47,7 +48,7 @@ interface MotionControlledEntry {
   selector: string;
   /** 对应的 CSS 文件相对路径（项目根） */
   cssFile: string;
-  /** framer-motion 通过 variants/animate 控制的 CSS 属性集合 */
+  /** JS 动画（framer-motion variants/animate 或 GSAP tween）控制的 CSS 属性集合 */
   controlledProps: ('transform' | 'opacity')[];
   /** 控制方组件位置（仅注释，便于追溯） */
   motionLocation: string;
@@ -133,6 +134,18 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/chat/group/GroupReadListModal.tsx (桌面 scale/y + 移动 translateY，panelVariantsDesktop/Mobile)',
   },
   {
+    selector: '.group-read-list-row',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/group/GroupReadListModal.tsx (列表项错峰滑入：GSAP gsap.from opacity + y，useGSAP)',
+  },
+  {
+    selector: '.reader-avatar-stack-item',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/ReaderAvatarStack.tsx (头像 stagger 淡入+微缩放 / 新头像滑入：GSAP gsap.from opacity+scale+x，useGSAP)',
+  },
+  {
     selector: '.other-profile-overlay',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['opacity'],
@@ -174,9 +187,9 @@ function extractBaseTransition(css: string, selector: string): string | null {
   return tMatch ? tMatch[1].trim() : null;
 }
 
-describe('动画冲突静态检查（CSS transition vs framer-motion variants）', () => {
+describe('动画冲突静态检查（CSS transition vs JS 动画 framer-motion/GSAP）', () => {
   it.each(MOTION_CONTROLLED_SELECTORS)(
-    '$selector ($cssFile) 不能 transition $controlledProps（避免与 motion variants 冲突）',
+    '$selector ($cssFile) 不能 transition $controlledProps（避免与 JS 动画 framer-motion/GSAP 冲突）',
     ({ selector, cssFile, controlledProps, motionLocation }) => {
       const cssPath = resolve(PROJECT_ROOT, cssFile);
       const css = readFileSync(cssPath, 'utf-8');
@@ -188,14 +201,14 @@ describe('动画冲突静态检查（CSS transition vs framer-motion variants）
       // 不允许 transition: all（覆盖所有属性，必含 transform/opacity）
       expect(
         transition,
-        `${selector} 的 transition 含 \`all\`，会与 ${motionLocation} 的 framer-motion variants 冲突。`,
+        `${selector} 的 transition 含 \`all\`，会与 ${motionLocation} 的 JS 动画（framer-motion/GSAP）冲突。`,
       ).not.toMatch(/\ball\b/);
 
       // 不允许显式 transition motion 控制的属性
       for (const prop of controlledProps) {
         expect(
           transition,
-          `${selector} 的 transition 显式包含 \`${prop}\`，会与 ${motionLocation} 的 framer-motion variants 冲突。`,
+          `${selector} 的 transition 显式包含 \`${prop}\`，会与 ${motionLocation} 的 JS 动画（framer-motion/GSAP）冲突。`,
         ).not.toMatch(new RegExp(`\\b${prop}\\b`));
       }
     },

@@ -35,16 +35,6 @@ export interface FilesQueryParams {
   sort_order?: 'asc' | 'desc';
 }
 
-/** 预签名 URL 响应 */
-export interface PresignedUrlResponse {
-  presigned_url: string;
-  expires_at: string;
-  file_uuid: string;
-  file_size: number;
-  content_type: string;
-  warning: string | null;
-}
-
 /**
  * 获取用户文件列表
  */

@@ -84,6 +84,12 @@ export function resolveDisplayUrl(input: string | null | undefined): string | nu
   if (input.startsWith('http://') || input.startsWith('https://')) {
     try {
       const u = new URL(input);
+      // 已是回环反代 URL(127.0.0.1/localhost)——端口可能过期:反代端口优先 PREFERRED_PORT,被占则
+      // ephemeral(每会话可变),而 DB 可能存了旧会话解析出的 loopback URL(旧端口)。剥掉旧端口,用当前
+      // 端口重新反代,避免打死端口裂图(否则会走下面"外部"分支被原样返回旧端口)。
+      if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') {
+        return proxyResourceUrl(u.pathname + u.search);
+      }
       // 已知反代逻辑域名,且 host 不是它 → 外部资源,原样(真 CA 直连,别反代到后端)
       if (proxyHostValue && u.hostname !== proxyHostValue) {
         return input;

@@ -172,6 +172,9 @@ async function getPresignedUrl(
       endpoint = `${serverUrl}/api/storage/friends_file/${fileUuid}/presigned_url`;
       break;
     case 'group':
+      // 群文件专用端点：实时校验活跃群成员（退群/新入群即时生效），不走通用静态授权端点。
+      endpoint = `${serverUrl}/api/storage/group_file/${fileUuid}/presigned_url`;
+      break;
     case 'user':
     default:
       endpoint = `${serverUrl}/api/storage/file/${fileUuid}/presigned_url`;

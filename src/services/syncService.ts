@@ -7,7 +7,6 @@
 import type { ApiClient } from '../api/client';
 import * as db from '../db';
 import type { ConversationType, LocalConversation, LocalMessage } from '../db';
-import { resolveServerAvatarUrl } from '../utils/avatar';
 
 // ============================================================================
 // 类型定义
@@ -232,7 +231,7 @@ export class SyncService {
               conversation_type: convResult.conversation_type,
               sender_id: msg.sender_id,
               sender_name: msg.sender_nickname || null,
-              sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
+              sender_avatar: msg.sender_avatar_url || null,
               content: msg.message_content,
               content_type: msg.message_type,
               file_uuid: msg.file_uuid || null,
@@ -351,7 +350,7 @@ export class SyncService {
           conversation_type: conversationType,
           sender_id: msg.sender_id,
           sender_name: msg.sender_nickname || null,
-          sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
+          sender_avatar: msg.sender_avatar_url || null,
           content: msg.message_content,
           content_type: msg.message_type,
           file_uuid: msg.file_uuid || null,
@@ -423,7 +422,7 @@ export class SyncService {
       conversation_type: message.source_type,
       sender_id: message.sender_id,
       sender_name: message.sender_nickname || null,
-      sender_avatar: resolveServerAvatarUrl(message.sender_avatar_url) || null,
+      sender_avatar: message.sender_avatar_url || null,
       content: message.preview,
       content_type: message.message_type,
       file_uuid: message.file_uuid || null,

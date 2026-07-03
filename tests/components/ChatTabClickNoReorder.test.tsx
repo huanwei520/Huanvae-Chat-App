@@ -29,7 +29,6 @@ vi.mock('../../src/hooks/useLocalConversations', () => ({
     getGroupPreview: () => undefined,
     initialized: true,
   }),
-  notifyPreviewsChanged: vi.fn(),
 }));
 
 // 必须在 vi.mock 之后导入被测组件

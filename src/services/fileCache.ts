@@ -232,7 +232,9 @@ export async function getPresignedUrl(
       endpoint = `/api/storage/friends_file/${fileUuid}/presigned_url`;
       break;
     case 'group':
-      endpoint = `/api/storage/file/${fileUuid}/presigned_url`; // 群文件也用这个
+      // 群文件专用端点：每次取件实时校验请求者仍是活跃群成员（verify_active_member）。
+      // 不能用通用 /file/ 端点——后者只查上传当刻的静态授权快照，退群不撤销 + 新成员无授权行(403)。
+      endpoint = `/api/storage/group_file/${fileUuid}/presigned_url`;
       break;
     default:
       endpoint = `/api/storage/file/${fileUuid}/presigned_url`;

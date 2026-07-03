@@ -19,11 +19,13 @@
  * 应读人数 = member_count − 1（排除发送者）。
  */
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getGroupReadPositions } from '../../api/groups';
+import type { GroupReadPositionsResponse } from '../../api/groups';
 import type { GroupMessage } from '../../api/groupMessages';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 
 /** 已读者展示信息 */
 export interface GroupReaderInfo {
@@ -144,6 +146,56 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
   const [readerInfo, setReaderInfo] = useState<Record<string, GroupReaderInfo>>({});
   const [memberCount, setMemberCount] = useState(0);
 
+  // latest-ref:让 WS onReadSync 回调(deps 稳定、不含 readerInfo)能读到最新 readerInfo,
+  // 据此判断某 reader_id 是否为"快照里没有的新读者"(需补拉头像/昵称)。
+  const readerInfoRef = useRef(readerInfo);
+  readerInfoRef.current = readerInfo;
+  // 去抖补拉计时器:WS 收到未知读者时合并触发一次快照补全(含 avatar_url),只增不减语义不回退。
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 数据边界:把一次快照合并进 state——positions 只增不减(max),readerInfo 用解析后头像覆盖填充。
+  const applySnapshot = useCallback((resp: GroupReadPositionsResponse) => {
+    setPositions((prev) => {
+      const next = { ...prev };
+      resp.positions.forEach((p) => {
+        if (p.last_read_seq > (next[p.user_id] ?? 0)) {
+          next[p.user_id] = p.last_read_seq; // 只增不减,不把 WS/乐观推进过的位置打回
+        }
+      });
+      return next;
+    });
+    setReaderInfo((prev) => {
+      const next = { ...prev };
+      resp.positions.forEach((p) => {
+        next[p.user_id] = {
+          displayName: p.display_name,
+          avatarUrl: resolveServerAvatarUrl(p.avatar_url), // 同上数据边界解析,补全裸 WS 读者的头像
+          lastReadAt: p.last_read_at,
+        };
+      });
+      return next;
+    });
+    setMemberCount(resp.member_count);
+  }, []);
+
+  // 去抖:多个新读者短时间内只补拉一次快照(每次新读者重置 800ms,burst 结束后才打一次)。
+  const scheduleSnapshotRefetch = useCallback(() => {
+    if (refetchTimerRef.current) {
+      clearTimeout(refetchTimerRef.current);
+    }
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      if (!groupId) {
+        return;
+      }
+      getGroupReadPositions(api, groupId)
+        .then(applySnapshot)
+        .catch((err) => {
+          console.warn('[ReadReceipt] 补拉群已读快照失败:', err);
+        });
+    }, 800);
+  }, [api, groupId, applySnapshot]);
+
   // 拉取初始已读位置快照
   useEffect(() => {
     setPositions({});
@@ -164,7 +216,10 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
           posMap[p.user_id] = p.last_read_seq;
           infoMap[p.user_id] = {
             displayName: p.display_name,
-            avatarUrl: p.avatar_url,
+            // 数据边界解析:后端裸 avatar_url 经唯一显示收口点反代,webview 才验得过私有 CA
+            // (下游 ReaderAvatarStack / GroupReadListModal 直接消费此已解析值);
+            // 由 tests/secure-display-routing.test.ts 静态契约强制,与 useFriends/useGroups 同模式。
+            avatarUrl: resolveServerAvatarUrl(p.avatar_url),
             lastReadAt: p.last_read_at,
           };
         });
@@ -191,6 +246,8 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
       }
       const seq = msg.seq;
       const readerId = msg.reader_id;
+      // 快照里没有这个 reader_id → 我们只有占位昵称、没有头像 → 去抖补拉一次快照填充
+      const isNewReader = !readerInfoRef.current[readerId];
       setPositions((prev) => {
         if ((prev[readerId] ?? 0) >= seq) {
           return prev;
@@ -208,9 +265,18 @@ export function useGroupReadReceipt(groupId: string | null, messages: GroupMessa
           },
         };
       });
+      if (isNewReader) {
+        scheduleSnapshotRefetch();
+      }
     });
-    return unsubscribe;
-  }, [ws, groupId]);
+    return () => {
+      unsubscribe();
+      if (refetchTimerRef.current) {
+        clearTimeout(refetchTimerRef.current);
+        refetchTimerRef.current = null;
+      }
+    };
+  }, [ws, groupId, scheduleSnapshotRefetch]);
 
   // 我在群内即视为已读到最新（App 打开/收到消息会 markRead），使我对别人消息的已读也被统计
   const maxLoadedSeq = useMemo(() => maxGroupSeqOf(messages), [messages]);

@@ -22,7 +22,8 @@ export interface IceServer {
   urls: string[];
   username?: string;
   credential?: string;
-  credentialType?: string;
+  /** 后端 turn::IceServer.credential_type（snake_case）；WebRTC 该字段已废弃默认 password */
+  credential_type?: string;
 }
 
 /** ICE 配置响应 */

@@ -31,7 +31,6 @@ vi.mock('../../src/hooks/useLocalConversations', () => ({
     getGroupPreview: () => undefined,
     initialized: true,
   }),
-  notifyPreviewsChanged: vi.fn(),
 }));
 
 vi.mock('../../src/contexts/SessionContext', () => ({

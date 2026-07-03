@@ -54,7 +54,7 @@ git commit -m "chore: 清理前快照 — 保存当前状态以便回滚"
 **委托 test-runner Agent（haiku）执行，主对话禁止直接运行 cargo test：**
 
 ```
-Agent(subagent_type="test-runner", prompt="运行全量回归测试 cargo test --test test_runner -- --test-threads=1，报告通过/失败汇总")
+Agent(subagent_type="test-runner", prompt="运行全量回归测试 cargo nextest run，报告通过/失败汇总")
 ```
 
 ## 6. 测试失败处理
