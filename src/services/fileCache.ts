@@ -232,8 +232,8 @@ export async function getPresignedUrl(
       endpoint = `/api/storage/friends_file/${fileUuid}/presigned_url`;
       break;
     case 'group':
-      // 群文件专用端点：每次取件实时校验请求者仍是活跃群成员（verify_active_member）。
-      // 不能用通用 /file/ 端点——后者只查上传当刻的静态授权快照，退群不撤销 + 新成员无授权行(403)。
+      // 群文件专用端点：退群后即失去取件权限、新入群成员可取历史群图。
+      // 通用 /file/ 端点做不到这两点（退群成员仍能取件、新成员看不到入群前的历史群图 403）。
       endpoint = `/api/storage/group_file/${fileUuid}/presigned_url`;
       break;
     default:
