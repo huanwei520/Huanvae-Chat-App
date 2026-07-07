@@ -1,0 +1,802 @@
+/**
+ * 股票研究页面样式（独立窗口）
+ *
+ * 设计原则：
+ * - 完全使用主题系统 CSS 变量（variables.css + ThemeProvider 注入）；毛玻璃 + 主题色 + 统一圆角/间距。
+ * - 涨跌语义色用 --stock-up（红涨）/ --stock-down（绿跌），A 股惯例，浅深两态由 variables.css 联动。
+ * - 数字面板用等宽数字（.stock-num / .stock-num-col：font-variant-numeric: tabular-nums）。
+ *
+ * 动画约定（关键）：被 GSAP 逐帧接管 transform/opacity 的元素，基础规则里禁止写这些属性的
+ * transition（见 tests/animation-conflict.test.ts 登记）：
+ *   .stocks-panel .stock-rank-card .stock-score-bar .stock-price .stock-flash
+ *   .stock-depth-bar .stocks-view .stock-policy-item
+ * hover/交互反馈只过渡 box-shadow / border-color / background（非动画化属性）。
+ */
+
+/* ============================================
+   页面根 + 头部
+   ============================================ */
+.stock-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--gradient-bg-page);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.stock-page *,
+.stock-page *::before,
+.stock-page *::after {
+  box-sizing: border-box;
+}
+
+.stock-page-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--white-alpha-60);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.stock-page-title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--primary);
+}
+
+.stock-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+}
+
+/* ============================================
+   视图容器（A5：.stocks-view 淡入 —— opacity 由 GSAP 接管，禁写 transition:opacity）
+   ============================================ */
+.stocks-view {
+  display: block;
+}
+
+/* ============================================
+   通用面板（A1：.stocks-panel stagger —— transform/opacity 由 GSAP 接管）
+   ============================================ */
+.stocks-panel {
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--white-alpha-50);
+  backdrop-filter: var(--blur-sm) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-sm) var(--saturate-normal);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  /* 只过渡非动画化属性 */
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.stock-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.stock-panel-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stock-panel-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ⟳ 手动排序按钮推到右侧 */
+.stock-ranking-panel .stock-panel-head .app-btn {
+  margin-left: auto;
+}
+
+.stock-subhead {
+  display: block;
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   等宽数字 + 涨跌语义色
+   ============================================ */
+.stock-num,
+.stock-num-col {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.stock-num-col {
+  text-align: right;
+}
+
+.stock-dir--up { color: var(--stock-up); }
+.stock-dir--down { color: var(--stock-down); }
+.stock-dir--flat { color: var(--stock-flat); }
+
+.stock-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: var(--text-xs);
+  color: var(--primary-text);
+  background: var(--primary-subtle);
+  border-radius: var(--radius-full);
+}
+
+/* ============================================
+   总览布局
+   ============================================ */
+.stock-overview-search {
+  margin-bottom: var(--space-4);
+}
+
+.stock-overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.stock-overview-col {
+  min-width: 0;
+}
+
+@media (max-width: 1080px) {
+  .stock-overview-grid { grid-template-columns: 1fr; }
+}
+
+/* 搜索结果下拉 */
+.stock-search {
+  position: relative;
+}
+
+.stock-search-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  background: var(--bg-surface);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.stock-search-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.stock-search-item:hover {
+  background: var(--primary-subtle);
+}
+
+/* 键盘高亮项：background + inset 环（非 transform/opacity，无 GSAP 抢帧；下拉不受 GSAP 接管） */
+.stock-search-item--active {
+  background: var(--primary-subtle);
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+.stock-search-name { flex: 1 1 auto; font-weight: 500; }
+.stock-search-symbol { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.stock-search-market {
+  font-size: var(--text-xs);
+  color: var(--text-light);
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================
+   排行榜（A2：.stock-rank-card fade+y / .stock-score-bar scaleX）
+   ============================================ */
+.stock-rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stock-rank-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  background: var(--card-bg-start);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  /* transform/opacity 归 GSAP；仅过渡非动画化属性 */
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.stock-rank-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  background: var(--card-bg-hover-start);
+}
+
+/* 键盘焦点环：仅 box-shadow（transform/opacity 归 GSAP，不在此触碰）。
+   .stock-rank-card 是原生 <button>，:focus-visible 在 WebKit/Chromium 可靠 */
+.stock-rank-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary), var(--shadow-md);
+}
+
+.stock-rank-no {
+  flex: 0 0 auto;
+  width: 28px;
+  text-align: center;
+  font-weight: 700;
+  font-size: var(--text-lg);
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-rank-main { flex: 1 1 auto; min-width: 0; }
+
+.stock-rank-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.stock-rank-title { font-weight: 600; }
+.stock-rank-symbol { font-size: var(--text-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.stock-score-track {
+  position: relative;
+  height: 6px;
+  margin: 6px 0;
+  background: var(--bg-muted);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.stock-score-bar {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  /* 初始满宽，实际显示宽度由 GSAP scaleX 控制；禁写 transition:transform */
+  background: var(--gradient-primary);
+  border-radius: var(--radius-full);
+}
+
+.stock-rank-reason {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-rank-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.stock-score-value { font-weight: 700; color: var(--primary); }
+.stock-rank-price { font-size: var(--text-sm); color: var(--text-muted); }
+
+/* ============================================
+   政策 / 新闻（A6：.stock-policy-item fade+y）
+   ============================================ */
+.stock-policy-summary,
+.stock-intel-summary {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.stock-policy-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stock-policy-item {
+  padding: var(--space-3);
+  background: var(--card-bg-start);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  /* transform/opacity 归 GSAP */
+  transition: border-color var(--transition-fast);
+}
+
+.stock-policy-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.stock-policy-item-point {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.stock-policy-source-block { margin-top: var(--space-2); }
+
+.stock-policy-toggle {
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-link);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.stock-policy-sources,
+.stock-intel-sources ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stock-policy-sources li,
+.stock-intel-sources li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.stock-policy-sources a,
+.stock-intel-sources a { color: var(--text-link); text-decoration: none; }
+.stock-policy-source-date,
+.stock-intel-source-date { color: var(--text-muted); font-size: var(--text-xs); }
+
+.stock-news-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stock-news-row { display: flex; flex-direction: column; gap: 4px; }
+.stock-news-title { color: var(--text-primary); text-decoration: none; font-weight: 500; }
+.stock-news-title:hover { color: var(--primary); }
+.stock-news-meta { display: flex; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ============================================
+   表格（准确率 / 历史 / 财报 / ETF）
+   ============================================ */
+.stock-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.stock-table th,
+.stock-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.stock-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.stock-table-scroll { overflow-x: auto; }
+
+.stock-backfill-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: var(--text-xs);
+  color: var(--status-warning);
+  background: var(--status-warning-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.stock-etf-row { cursor: pointer; transition: background var(--transition-fast); }
+.stock-etf-row:hover { background: var(--primary-subtle); }
+/* 键盘焦点环：<tr> 非原生按钮，:focus-visible 在 WKWebView 不稳，故用 JS 判定的
+   --kbd-active（onFocus/onBlur 切换）驱动；<tr> 上 box-shadow 在 collapse 表格不可靠，
+   改用 outline（inset）+ 背景，仅动 background/outline，不碰 transform/opacity */
+.stock-etf-row:focus { outline: none; }
+.stock-etf-row--kbd-active {
+  background: var(--primary-subtle);
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.stock-etf-symbol { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.stock-etf-category { margin-bottom: var(--space-3); }
+
+.stock-financials-highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.stock-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  background: var(--card-bg-start);
+  border-radius: var(--radius-sm);
+}
+
+.stock-highlight-label { font-size: var(--text-xs); color: var(--text-muted); }
+.stock-highlight-value { font-weight: 600; }
+.stock-financials-statement { margin-top: var(--space-3); }
+
+/* ============================================
+   个股 / ETF 详情
+   ============================================ */
+.stock-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--white-alpha-50);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  flex-wrap: wrap;
+}
+
+.stock-detail-title { display: flex; flex-direction: column; }
+.stock-detail-name { font-size: var(--text-lg); font-weight: 700; }
+.stock-detail-symbol { font-size: var(--text-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.stock-detail-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.stock-kline-panel { grid-column: 1 / 2; }
+.stock-depth-wrap { grid-column: 2 / 3; }
+
+@media (max-width: 1080px) {
+  .stock-detail-grid { grid-template-columns: 1fr; }
+  .stock-kline-panel, .stock-depth-wrap { grid-column: auto; }
+}
+
+.stock-period-toggle { margin-left: auto; display: flex; gap: 4px; }
+.stock-period-btn {
+  padding: 3px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.stock-period-btn.active {
+  color: var(--text-inverse);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+/* 键盘焦点环（原生 <button>，:focus-visible 可靠） */
+.stock-period-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* K 线容器 */
+.stock-kline { position: relative; }
+.stock-kline-badge {
+  position: absolute;
+  z-index: 5;
+  top: 6px;
+  right: 6px;
+  padding: 1px 8px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--white-alpha-60);
+  border-radius: var(--radius-sm);
+}
+.stock-kline-canvas { width: 100%; }
+
+/* ============================================
+   价格 Ticker（A3：.stock-price scale / .stock-flash opacity）
+   ============================================ */
+.stock-ticker {
+  position: relative;
+  margin-left: auto;
+  min-width: 200px;
+}
+
+.stock-flash {
+  position: absolute;
+  inset: -6px -10px;
+  z-index: 0;
+  border-radius: var(--radius-md);
+  opacity: 0;
+  pointer-events: none;
+  /* opacity 归 GSAP，禁写 transition:opacity */
+}
+.stock-flash[data-dir='up'] { background: var(--stock-up-subtle); }
+.stock-flash[data-dir='down'] { background: var(--stock-down-subtle); }
+
+.stock-ticker-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.stock-price {
+  /* transform 归 GSAP（scale 脉冲），禁写 transition:transform；文本由 GSAP 写入 */
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  transform-origin: left center;
+}
+
+.stock-change {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.stock-ticker-stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+  margin: 6px 0 0;
+}
+.stock-ticker-stats div { display: flex; flex-direction: column; }
+.stock-ticker-stats dt { font-size: var(--text-xs); color: var(--text-muted); }
+.stock-ticker-stats dd { margin: 0; font-size: var(--text-sm); }
+
+/* ============================================
+   盘口五档（B4：.stock-depth-bar scaleX）
+   ============================================ */
+.stock-depth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.stock-depth-side { display: flex; flex-direction: column; gap: 2px; }
+
+.stock-depth-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px 1fr auto 60px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 0;
+}
+
+.stock-depth-label { font-size: var(--text-xs); color: var(--text-muted); }
+.stock-depth-price { font-weight: 600; }
+.stock-depth-vol { color: var(--text-secondary); }
+
+.stock-depth-track {
+  position: relative;
+  height: 6px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.stock-depth-bar {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  border-radius: var(--radius-full);
+  /* scaleX 归 GSAP，禁写 transition:transform */
+}
+.stock-depth-bar--ask { background: var(--stock-up-subtle); }
+.stock-depth-bar--bid { background: var(--stock-down-subtle); }
+
+.stock-depth--empty { align-items: center; padding: var(--space-4) 0; }
+.stock-depth-note { font-size: var(--text-sm); color: var(--text-muted); }
+
+/* ETF 信息卡 */
+.stock-info-card { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin: 0; }
+.stock-info-card div { display: flex; flex-direction: column; gap: 2px; }
+.stock-info-card dt { font-size: var(--text-xs); color: var(--text-muted); }
+.stock-info-card dd { margin: 0; font-weight: 500; }
+
+/* 情报 */
+.stock-intel-section { margin-top: var(--space-2); }
+.stock-intel-points {
+  list-style: disc;
+  margin: 4px 0 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stock-intel-point { font-size: var(--text-sm); line-height: 1.55; color: var(--text-secondary); }
+
+/* 准确率无满窗样本提示 */
+.stock-accuracy-hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ============================================
+   市场天气（进场 stagger：.market-weather-row 的 transform/opacity 归 GSAP，
+   本块内禁写这些属性的 transition —— 见 tests/animation-conflict.test.ts 登记）
+   ============================================ */
+/* ① 天气标签大字 + ② 置信度（按 regime 配色：bull 暖 / range 中性 / bear 冷，复用股票语义色） */
+.market-weather-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg-start);
+}
+
+.market-weather-label {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--stock-flat);
+}
+
+.market-weather-hero[data-regime='bull'] {
+  border-color: var(--stock-up-subtle);
+  background: var(--stock-up-subtle);
+}
+.market-weather-hero[data-regime='bear'] {
+  border-color: var(--stock-down-subtle);
+  background: var(--stock-down-subtle);
+}
+.market-weather-hero[data-regime='bull'] .market-weather-label { color: var(--stock-up); }
+.market-weather-hero[data-regime='range'] .market-weather-label { color: var(--stock-flat); }
+.market-weather-hero[data-regime='bear'] .market-weather-label { color: var(--stock-down); }
+
+.market-weather-hero-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.market-weather-asof {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.market-weather-confidence {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ③ 情绪 + ④ 广度：label / value 两栏行 */
+.market-weather-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.market-weather-metric-label {
+  flex: 0 0 auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.market-weather-metric-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.market-weather-sentiment-tag {
+  padding: 1px 8px;
+  font-size: var(--text-xs);
+  color: var(--primary-text);
+  background: var(--primary-subtle);
+  border-radius: var(--radius-full);
+}
+
+/* ⑤ 提示标 chips */
+.market-weather-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.market-weather-chip {
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  color: var(--status-warning);
+  background: var(--status-warning-subtle);
+  border-radius: var(--radius-full);
+}
+
+/* ⑥ 近 N 日 regime 色带（每日一格，纯 div 着色） */
+.market-weather-band-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.market-weather-band {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.market-weather-band-cell {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--stock-flat);
+}
+.market-weather-band-cell[data-regime='bull'] { background: var(--stock-up); }
+.market-weather-band-cell[data-regime='range'] { background: var(--stock-flat); }
+.market-weather-band-cell[data-regime='bear'] { background: var(--stock-down); }
+
+/* ⑦ 免责声明（恒展示，小字，原样透传 API 文案） */
+.market-weather-disclaimer {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--text-muted);
+}

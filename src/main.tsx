@@ -25,6 +25,7 @@ import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { LowcodePage } from './lowcode';
 import { HuanvaeGuardPage } from './huanvaeGuard';
+import { StockPage } from './stocks';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
 import { initSafeAreaFallback } from './utils/safeAreaFallback';
@@ -68,6 +69,15 @@ function RootApp() {
     );
   }
 
+  // 股票研究页面（独立窗口，仅桌面端，包裹 ThemeProvider 以继承主题）
+  if (pathname === '/stocks') {
+    return (
+      <ThemeProvider>
+        <StockPage />
+      </ThemeProvider>
+    );
+  }
+
   // 主应用
   return (
     <ThemeProvider>
@@ -92,7 +102,7 @@ function renderApp() {
 // 做后端数据面调用的子窗口必须先从共享磁盘缓存(discovery.json,父窗口登录时已落盘)载入 active,
 // 否则 resolveForSecureHttp() 返回 null → URL 主机不被改写为 IP → 连逻辑域名(发 SNI)→ 被阿里云 ICP 拦。
 // 缓存新鲜时仅一次磁盘读(无网络),阻塞渲染极短;主窗口由 App.tsx 登录/恢复链路自行发现,不在此列。
-const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/lowcode']);
+const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/lowcode', '/stocks']);
 
 async function bootstrap(): Promise<void> {
   // 安全区兜底:老旧移动端 WebView 的 env(safe-area-inset-*) 失效时(上下同时为 0)注入固定高度

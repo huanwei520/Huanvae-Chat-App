@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "stocks-research-events",
+  "description": "股票研究独立窗口（stocks-research）的最小权限集，按静态追踪的实际调用面授权：① core:event —— StockPage 跨窗 token 同步（emit session:request-tokens / listen session:tokens-updated，与 huanvae-guard 同款事件集）；② notification:allow-is-permission-granted —— tauri-plugin-notification 的 init 注入脚本在每个 webview 加载时急切调用 is_permission_granted 播种 window.Notification.permission，无此权限必现 Unhandled Promise Rejection（与 App 代码无关）；③ opener:allow-default-urls —— opener init 脚本全局拦截 target=_blank 锚点点击转 open_url，stocks 新闻/政策/情报面板渲染外链，无此权限外链点击报错打不开。不含 fs / http 插件 / dialog / window / clipboard 等其它权限面——数据面走 invoke('secure_http') 等应用命令（不经 ACL），静态追踪无其它插件调用。local 默认 true 覆盖生产 tauri:// 本地源；remote 覆盖 macOS 调试期 http://localhost（Vite dev server），生产构建 remote.urls 不匹配故惰性无效果。",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["stocks-research"],
+  "remote": {
+    "urls": ["http://localhost:*", "http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "core:event:default",
+    "notification:allow-is-permission-granted",
+    "opener:allow-default-urls"
+  ]
+}

@@ -74,6 +74,9 @@ importers:
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
+      klinecharts:
+        specifier: 9.8.12
+        version: 9.8.12
       mermaid:
         specifier: ^11.15.0
         version: 11.15.0
@@ -2296,6 +2299,10 @@ packages:
 
   khroma@2.1.0:
     resolution: {integrity: sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==}
+
+  klinecharts@9.8.12:
+    resolution: {integrity: sha512-yKLWMliwwIsiQsAI8geNOkE8P6SFsvaa0leX2isgB4Y1SvM3tS6Y9pe7ZbKkiLtOE0P0W9W9wb0M2wH0xAPG7w==}
+    engines: {node: '>=0.10.0'}
 
   layout-base@1.0.2:
     resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
@@ -5615,6 +5622,8 @@ snapshots:
       json-buffer: 3.0.1
 
   khroma@2.1.0: {}
+
+  klinecharts@9.8.12: {}
 
   layout-base@1.0.2: {}
 

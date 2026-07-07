@@ -48,6 +48,7 @@ import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
 import { openHuanvaeGuardWindow } from '../huanvaeGuard';
+import { openStocksWindow } from '../stocks';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
 import { ShareMeetingModal } from '../meeting/components/ShareMeetingModal';
 import '../styles/miniapps.css';
@@ -113,6 +114,18 @@ export function Main() {
     }
   };
 
+  // 打开股票研究窗口
+  const handleStocksClick = () => {
+    if (page.session) {
+      void openStocksWindow(
+        page.session.userId,
+        page.session.serverUrl,
+        page.session.accessToken,
+        page.session.refreshToken,
+      );
+    }
+  };
+
   // 登录后全量增量同步（等待好友和群聊列表加载完成）
   const { notification: syncNotification, clearNotification, triggerSync } = useInitialSync({
     friendsLoaded: !page.friendsLoading && page.friends.length >= 0,
@@ -150,6 +163,7 @@ export function Main() {
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onLowcodeClick={handleLowcodeClick}
         onHuanvaeGuardClick={handleHuanvaeGuardClick}
+        onStocksClick={handleStocksClick}
         onSettingsClick={() => setShowSettingsPanel(true)}
         onLogout={page.handleLogout}
       />

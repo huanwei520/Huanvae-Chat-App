@@ -15,6 +15,7 @@ import {
   SEARCH_COMPONENTS,
   NFC_COMPONENTS,
   UPDATE_COMPONENTS,
+  STOCK_COMPONENTS,
   COMMON_COMPONENTS,
   MODAL_COMPONENTS,
   CHAT_COMPONENTS,
@@ -42,6 +43,34 @@ import * as MobileProfilePage from '../../src/pages/mobile/MobileProfilePage';
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
+// 股票研究窗口
+import * as StockPage from '../../src/stocks/StockPage';
+import * as stocksApi from '../../src/api/stocks';
+import * as stocksFormat from '../../src/stocks/format';
+import * as stocksWindow from '../../src/stocks/window';
+import * as useStockNav from '../../src/stocks/store';
+import * as useDebouncedValue from '../../src/stocks/hooks/useDebouncedValue';
+import * as useAsyncData from '../../src/stocks/hooks/useAsyncData';
+import * as useQuotePolling from '../../src/stocks/hooks/useQuotePolling';
+import * as useEscapeKey from '../../src/stocks/hooks/useEscapeKey';
+import * as stocksSearchNav from '../../src/stocks/components/searchNav';
+import * as stocksClassify from '../../src/stocks/classify';
+import * as OverviewView from '../../src/stocks/views/OverviewView';
+import * as StockDetailView from '../../src/stocks/views/StockDetailView';
+import * as EtfDetailView from '../../src/stocks/views/EtfDetailView';
+import * as KLineChart from '../../src/stocks/components/KLineChart';
+import * as PanelBody from '../../src/stocks/components/PanelBody';
+import * as MarketWeatherPanel from '../../src/stocks/components/MarketWeatherPanel';
+import * as RankingPanel from '../../src/stocks/components/RankingPanel';
+import * as PolicyPanel from '../../src/stocks/components/PolicyPanel';
+import * as NewsPanel from '../../src/stocks/components/NewsPanel';
+import * as AccuracyPanel from '../../src/stocks/components/AccuracyPanel';
+import * as EtfListPanel from '../../src/stocks/components/EtfListPanel';
+import * as IntelPanel from '../../src/stocks/components/IntelPanel';
+import * as FinancialsPanel from '../../src/stocks/components/FinancialsPanel';
+import * as DepthPanel from '../../src/stocks/components/DepthPanel';
+import * as PriceTicker from '../../src/stocks/components/PriceTicker';
+import * as StockSearchBox from '../../src/stocks/components/StockSearchBox';
 
 // NFC 指令执行器
 import * as NfcTrustConfirmModal from '../../src/nfc/NfcTrustConfirmModal';
@@ -228,6 +257,8 @@ import * as formatUtils from '../../src/utils/format';
 // 聊天共享模块
 import * as chatAnimations from '../../src/chat/shared/animations';
 import * as aiApi from '../../src/api/ai';
+// 会议 WebRTC 纯函数核心
+import * as webrtcCore from '../../src/meeting/webrtcCore';
 
 // 主题系统
 import * as themeIndex from '../../src/theme/index';
@@ -257,6 +288,34 @@ const COMPONENT_MAP = {
   // 全局搜索
   GlobalMessageSearchResults,
   useGlobalMessageSearch,
+  // 股票研究窗口
+  StockPage,
+  stocksApi,
+  stocksFormat,
+  stocksWindow,
+  useStockNav,
+  useDebouncedValue,
+  useAsyncData,
+  useQuotePolling,
+  useEscapeKey,
+  stocksSearchNav,
+  stocksClassify,
+  OverviewView,
+  StockDetailView,
+  EtfDetailView,
+  KLineChart,
+  PanelBody,
+  MarketWeatherPanel,
+  RankingPanel,
+  PolicyPanel,
+  NewsPanel,
+  AccuracyPanel,
+  EtfListPanel,
+  IntelPanel,
+  FinancialsPanel,
+  DepthPanel,
+  PriceTicker,
+  StockSearchBox,
   // NFC
   NfcTrustConfirmModal,
   NfcFeedbackToast,
@@ -438,6 +497,8 @@ const COMPONENT_MAP = {
   // 聊天共享模块
   chatAnimations,
   aiApi,
+  // 会议 WebRTC 纯函数核心
+  webrtcCore,
 };
 
 // ============== 页面组件测试 ==============
@@ -461,6 +522,15 @@ describe('移动端组件 (Mobile Components)', () => {
 // ============== 全局搜索组件测试 ==============
 describe('全局搜索组件 (Search Components)', () => {
   it.each(SEARCH_COMPONENTS)('$name - $description', (entry) => {
+    const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
+    expect(module).toBeDefined();
+    expect(Object.keys(module).length).toBeGreaterThan(0);
+  });
+});
+
+// ============== 股票研究组件测试 ==============
+describe('股票研究组件 (Stock Components)', () => {
+  it.each(STOCK_COMPONENTS)('$name - $description', (entry) => {
     const module = COMPONENT_MAP[entry.name as keyof typeof COMPONENT_MAP];
     expect(module).toBeDefined();
     expect(Object.keys(module).length).toBeGreaterThan(0);

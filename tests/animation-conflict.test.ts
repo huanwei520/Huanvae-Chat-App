@@ -163,6 +163,90 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/settings/BlacklistPanel.tsx (设置内黑名单页滑入：initial/animate/exit 的 x + opacity)',
   },
+  // ===== 股票研究窗口（GSAP useGSAP，见 src/stocks/animations.ts） =====
+  {
+    selector: '.stocks-panel',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/views/*.tsx (A1：视图级 useStockIntro 面板 stagger 进场 fade+y)',
+  },
+  {
+    selector: '.stocks-view',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/stocks/views/*.tsx (A5：视图淡入/切换 crossfade opacity)',
+  },
+  {
+    selector: '.stock-rank-card',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/RankingPanel.tsx (A2：卡片进场 stagger fade+y)',
+  },
+  {
+    selector: '.stock-score-bar',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/stocks/components/RankingPanel.tsx (A2：分数条 scaleX 展开)',
+  },
+  {
+    selector: '.stock-price',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/stocks/components/PriceTicker.tsx (A3：价格 scale 脉冲；文本由 GSAP 写 textContent)',
+  },
+  {
+    selector: '.stock-flash',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/stocks/components/PriceTicker.tsx (A3：涨跌底色闪烁覆盖层 opacity 脉冲)',
+  },
+  {
+    selector: '.stock-depth-bar',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/stocks/components/DepthPanel.tsx (B4：盘口深度条 scaleX tween)',
+  },
+  {
+    selector: '.stock-policy-item',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/PolicyPanel.tsx + NewsPanel.tsx (A6：条目/新闻行进场 stagger fade+y)',
+  },
+  // 市场天气进场 stagger：GSAP 对 `.market-weather-row` 逐帧写 opacity + y(transform)。
+  // `.market-weather-row` 本身是纯 marker（无 CSS 规则）→ 登记它对门禁空转；真正承载
+  // transform/opacity 的是各行同时挂的 styled 类（hero/情绪·广度 metric/flags/band-wrap/
+  // disclaimer，均有 CSS 规则）。登记这些 styled 类，任何人给它们加 transition:transform/
+  // opacity 会被静态门禁拦下（见 src/stocks/components/MarketWeatherPanel.tsx 各行 className）。
+  {
+    selector: '.market-weather-hero',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：天气标签行 .market-weather-row.market-weather-hero)',
+  },
+  {
+    selector: '.market-weather-metric',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：情绪/广度行 .market-weather-row.market-weather-metric)',
+  },
+  {
+    selector: '.market-weather-flags',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：提示标 chips 行 .market-weather-row.market-weather-flags)',
+  },
+  {
+    selector: '.market-weather-band-wrap',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：regime 色带行 .market-weather-row.market-weather-band-wrap)',
+  },
+  {
+    selector: '.market-weather-disclaimer',
+    cssFile: 'src/styles/pages/stocks.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：免责声明行 .market-weather-row.market-weather-disclaimer)',
+  },
 ];
 
 /**

@@ -93,7 +93,15 @@
   --status-error-subtle: rgba(239, 68, 68, 0.15);
   --status-info: #3b82f6;
   --status-info-subtle: rgba(59, 130, 246, 0.15);
-  
+
+  /* 股票涨跌语义色（A 股惯例：涨=红 up / 跌=绿 down；默认映射现有 error/success 色阶，
+     深色在 [data-theme="dark"] 覆盖为更亮的 iOS 风，与 --read-receipt-green 同款处理） */
+  --stock-up: #ef4444;
+  --stock-up-subtle: rgba(239, 68, 68, 0.15);
+  --stock-down: #22c55e;
+  --stock-down-subtle: rgba(34, 197, 94, 0.15);
+  --stock-flat: #64748b;
+
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(59, 130, 246, 0.05);
   --shadow-md: 0 4px 12px rgba(59, 130, 246, 0.1);
@@ -307,4 +315,10 @@
 [data-theme='dark'] {
   /* 已读回执绿在深色下更亮，提升对比度 */
   --read-receipt-green: #30d158;
+  /* 股票涨跌色深色下用更亮的 iOS 风（红 #ff453a / 绿 #30d158），提升对比度 */
+  --stock-up: #ff453a;
+  --stock-up-subtle: rgba(255, 69, 58, 0.18);
+  --stock-down: #30d158;
+  --stock-down-subtle: rgba(48, 209, 88, 0.18);
+  --stock-flat: #98a2b3;
 }

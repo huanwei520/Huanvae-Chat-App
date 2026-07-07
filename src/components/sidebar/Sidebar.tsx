@@ -68,6 +68,14 @@ const MiniAppsIcon = () => (
   </svg>
 );
 
+// 股票研究图标（K 线柱状 + 趋势线风格）
+const StockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7 15l3-4 3 3 4-6" />
+  </svg>
+);
+
 // "更多"按钮图标（三个圆点 · · ·）
 const MoreIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -89,6 +97,7 @@ interface SidebarProps {
     onMiniAppsClick: () => void;
     onLowcodeClick: () => void;
     onHuanvaeGuardClick: () => void;
+    onStocksClick: () => void;
     onSettingsClick: () => void;
     onLogout: () => void;
 }
@@ -112,6 +121,7 @@ export function Sidebar({
   onMiniAppsClick,
   onLowcodeClick,
   onHuanvaeGuardClick,
+  onStocksClick,
   onSettingsClick,
   onLogout,
 }: SidebarProps) {
@@ -177,6 +187,7 @@ export function Sidebar({
     { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
     { icon: <LowcodeIcon />, label: '低代码编辑器', onClick: onLowcodeClick },
     { icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick },
+    { icon: <StockIcon />, label: '股票研究', onClick: onStocksClick },
   ];
 
   return (

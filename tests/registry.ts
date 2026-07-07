@@ -64,6 +64,37 @@ export const UPDATE_COMPONENTS: ComponentEntry[] = [
   { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
 ];
 
+// ============== 股票研究窗口 ==============
+export const STOCK_COMPONENTS: ComponentEntry[] = [
+  { name: 'StockPage', path: 'stocks/StockPage', category: 'pages', isDefault: true, description: '股票研究页面（独立 WebviewWindow，三视图切换）' },
+  { name: 'stocksApi', path: 'api/stocks', category: 'services', description: '股票研究域 API 封装（/api/stocks/*，薄封装）' },
+  { name: 'stocksFormat', path: 'stocks/format', category: 'services', description: '股票格式化纯函数（涨跌方向/百分比/金额/时点）' },
+  { name: 'stocksWindow', path: 'stocks/window', category: 'services', description: '股票窗口开窗器 + URL 编解码纯函数' },
+  { name: 'useStockNav', path: 'stocks/store', category: 'hooks', description: '股票窗口视图导航 store（overview/stock/etf）' },
+  { name: 'useDebouncedValue', path: 'stocks/hooks/useDebouncedValue', category: 'hooks', description: '通用防抖值 Hook（股票搜索用，默认 220ms）' },
+  { name: 'useAsyncData', path: 'stocks/hooks/useAsyncData', category: 'hooks', description: '逐面板异步数据 Hook（loading/error/reload）' },
+  { name: 'useQuotePolling', path: 'stocks/hooks/useQuotePolling', category: 'hooks', description: '盘口行情轮询 Hook（6s，离开即停）' },
+  { name: 'useEscapeKey', path: 'stocks/hooks/useEscapeKey', category: 'hooks', description: 'Escape 全局监听 Hook（详情页 Esc=返回总览）' },
+  { name: 'stocksSearchNav', path: 'stocks/components/searchNav', category: 'services', description: '搜索下拉键盘导航纯逻辑（moveActiveIndex + option id）' },
+  { name: 'stocksClassify', path: 'stocks/classify', category: 'services', description: '标的/错误分类纯函数（指数判定 + 404快照缺失判定）' },
+  { name: 'OverviewView', path: 'stocks/views/OverviewView', category: 'components', description: '总览视图（政策/排行榜/准确率/ETF/新闻）' },
+  { name: 'StockDetailView', path: 'stocks/views/StockDetailView', category: 'components', description: '个股详情视图（K线/盘口/情报/财报）' },
+  { name: 'EtfDetailView', path: 'stocks/views/EtfDetailView', category: 'components', description: 'ETF 详情视图（K线不复权/信息卡/盘口）' },
+  { name: 'KLineChart', path: 'stocks/components/KLineChart', category: 'components', description: 'K 线图（klinecharts 封装）' },
+  { name: 'PanelBody', path: 'stocks/components/PanelBody', category: 'components', description: '面板 loading/error/empty/内容 四态收口' },
+  { name: 'MarketWeatherPanel', path: 'stocks/components/MarketWeatherPanel', category: 'components', description: '市场天气面板（regime 天气标签 + 置信度 + 情绪 + 广度 + flags + 30 日色带 + 免责，进场 stagger）' },
+  { name: 'RankingPanel', path: 'stocks/components/RankingPanel', category: 'components', description: 'AI 选股排行榜面板（A2 动画）' },
+  { name: 'PolicyPanel', path: 'stocks/components/PolicyPanel', category: 'components', description: '政策风向面板（A6 动画）' },
+  { name: 'NewsPanel', path: 'stocks/components/NewsPanel', category: 'components', description: '新闻列表面板（A6 动画）' },
+  { name: 'AccuracyPanel', path: 'stocks/components/AccuracyPanel', category: 'components', description: '准确率面板（窗口表+历史榜）' },
+  { name: 'EtfListPanel', path: 'stocks/components/EtfListPanel', category: 'components', description: 'ETF 两品类列表面板' },
+  { name: 'IntelPanel', path: 'stocks/components/IntelPanel', category: 'components', description: 'AI 情报面板' },
+  { name: 'FinancialsPanel', path: 'stocks/components/FinancialsPanel', category: 'components', description: '财报摘要面板' },
+  { name: 'DepthPanel', path: 'stocks/components/DepthPanel', category: 'components', description: '盘口五档面板（B4 动画）' },
+  { name: 'PriceTicker', path: 'stocks/components/PriceTicker', category: 'components', description: '价格/涨跌显示（A3 动画）' },
+  { name: 'StockSearchBox', path: 'stocks/components/StockSearchBox', category: 'components', description: '股票搜索框（SearchBox 外壳 + 防抖 + 结果）' },
+];
+
 // ============== 通用组件 ==============
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
@@ -287,6 +318,8 @@ export const SERVICES: ComponentEntry[] = [
   // 聊天共享模块
   { name: 'chatAnimations', path: 'chat/shared/animations', category: 'services', description: '消息动画配置' },
   { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },
+  // 会议 WebRTC 纯函数核心
+  { name: 'webrtcCore', path: 'meeting/webrtcCore', category: 'services', description: 'WebRTC perfect-negotiation 纯函数（极性/忽略判定/媒体分类/退避/候选缓冲）' },
 ];
 
 // ============== 所有组件汇总 ==============

@@ -102,6 +102,9 @@
 /* 主页面 - 登录后的主界面 */
 @import './pages/main.css';
 
+/* 股票研究页面 - 独立窗口 */
+@import './pages/stocks.css';
+
 /* 会议页面 - 视频会议 */
 @import '../meeting/styles.css';
 
