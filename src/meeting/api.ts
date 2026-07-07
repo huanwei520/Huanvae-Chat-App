@@ -99,6 +99,16 @@ export interface JoinRoomResponse {
   user_info: UserInfo;
 }
 
+/** 粗粒度媒体开关快照（mic/camera/screen 是否开启） */
+export interface MediaState {
+  mic: boolean;
+  camera: boolean;
+  screen: boolean;
+}
+
+/** 媒体轨道分类（摄像头 / 屏幕共享） */
+export type MediaKind = 'camera' | 'screen';
+
 /** 参与者信息 */
 export interface Participant {
   id: string;
@@ -106,6 +116,8 @@ export interface Participant {
   is_creator: boolean;
   /** 用户详细信息（包含头像等） */
   user_info?: UserInfo;
+  /** 粗粒度媒体开关快照（服务器带默认值，旧消息可能缺失 → 可选） */
+  media_state?: MediaState;
 }
 
 // ============================================
@@ -175,6 +187,21 @@ export interface PongMessage {
   timestamp: string;
 }
 
+/** 媒体类型消息（服务器→客户端，定向转发：告知某 transceiver mid 的媒体类型） */
+export interface MediaTypeServerMessage {
+  type: 'media_type';
+  from: string;
+  mid: string;
+  media_kind: MediaKind;
+}
+
+/** 媒体态变化消息（服务器→客户端，房间广播：某参与者媒体开关变化） */
+export interface MediaStateChangedMessage {
+  type: 'media_state_changed';
+  participant_id: string;
+  media_state: MediaState;
+}
+
 /** 所有服务器→客户端消息类型 */
 export type ServerMessage =
   | JoinedMessage
@@ -185,40 +212,9 @@ export type ServerMessage =
   | CandidateMessage
   | RoomClosedMessage
   | ErrorMessage
-  | PongMessage;
-
-/** 客户端发送的 Offer 消息 */
-export interface ClientOfferMessage {
-  type: 'offer';
-  to: string;
-  sdp: string;
-}
-
-/** 客户端发送的 Answer 消息 */
-export interface ClientAnswerMessage {
-  type: 'answer';
-  to: string;
-  sdp: string;
-}
-
-/** 客户端发送的 Candidate 消息 */
-export interface ClientCandidateMessage {
-  type: 'candidate';
-  to: string;
-  candidate: RTCIceCandidate;
-}
-
-/** 离开房间消息 */
-export interface LeaveMessage {
-  type: 'leave';
-}
-
-/** 所有客户端→服务器消息类型 */
-export type ClientMessage =
-  | ClientOfferMessage
-  | ClientAnswerMessage
-  | ClientCandidateMessage
-  | LeaveMessage;
+  | PongMessage
+  | MediaTypeServerMessage
+  | MediaStateChangedMessage;
 
 // ============================================
 // API 响应包装类型
@@ -287,7 +283,7 @@ export function joinRoom(
  * 获取 WebSocket 信令 URL
  * @param roomId - 房间号
  * @param token - access_token 或 ws_token
- * @param serverUrl - 当前登录的服务器地址（如 http://192.168.5.153）
+ * @param serverUrl - 当前登录的服务器地址（http(s) origin）
  */
 export function getSignalingUrl(roomId: string, token: string, serverUrl: string): string {
   // 将 http(s):// 替换为 ws(s)://

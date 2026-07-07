@@ -1,40 +1,36 @@
 /**
- * WebRTC 视频会议 Hook
+ * WebRTC 视频会议 Hook（mesh，Perfect Negotiation）
  *
- * 独立 Transceiver 架构：
- * - 每种媒体类型（麦克风、摄像头、屏幕共享）都有独立的 transceiver
- * - 发送端：使用 addTransceiver 动态添加，触发安全重协商
- * - 接收端：通过 ontrack 自动接收，完全不动
+ * 协商模型（MDN "Perfect Negotiation" 官方样式）：
+ * - 每对 peer 用 participant id 字典序定极性：id 大者 polite、小者 impolite（发起方）。
+ *   极性确定、每对恰一极，无需协调往返。
+ * - 所有重协商经 `onnegotiationneeded → makeOffer`；offer/answer 走 perfect-negotiation
+ *   守卫（polite 隐式 rollback，impolite 冲突时无视对端 offer）。
+ * - ICE candidate 经 pending 队列缓冲：remoteDescription 未就绪时入队，就绪后一次性 flush。
+ * - pc 创建即把当前已开启的媒体一次性加入（不再在 offer/answer 处理里重复加媒体）。
  *
- * Transceiver 结构（每个 PeerConnection）：
- * | 媒体类型 | Transceiver | 方向 |
- * |---------|-------------|------|
- * | 麦克风   | mic         | sendrecv |
- * | 摄像头   | camera      | sendrecv |
- * | 屏幕共享 | screen      | sendrecv |
+ * 媒体轨道分类（区分摄像头/屏幕共享）：
+ * - `mid` 是 per-pc、per-transceiver 标识，mesh 下每条 pc 各自协商 → mid 不跨 pc 通用。
+ *   故用**定向**信令 `media_type{to,mid,media_kind}`（与 offer/answer 同形），接收端在
+ *   自己那条 pc 的语境里解释 mid。发送时机：本 pc setLocalDescription 后 mid 就绪即发一次，
+ *   按 mid 去重。
+ * - 接收端无条件入表 `mediaTypeMaps[peerId][mid]=kind`，收到 media_type 时 + ontrack 到达时
+ *   双触发重分类，保证早到不丢。
  *
- * 安全重协商原则：
- * 1. 使用 addTransceiver() 创建独立通道，不复用现有 transceiver
- * 2. 只在 signalingState === 'stable' 时进行协商
- * 3. 新 transceiver 不影响现有的麦克风/摄像头/屏幕共享通道
+ * 粗粒度媒体态（UI 与 track 解耦）：
+ * - 进房即从 `joined.participants[*].media_state` 知道各对端开着什么，先渲染徽章/占位。
+ * - 本端开关变化经 `media_state` 上报，服务器广播 `media_state_changed`，对端 UI 更新。
  *
  * 发言状态检测：
- * - 使用 AudioContext + AnalyserNode 分析麦克风音量
- * - 音量阈值 30，超过则判定为正在说话
- * - 通过 DataChannel 广播 { type: 'speaking', speaking: boolean }
- * - 远程参与者接收后更新 participant.isSpeaking
- * - UI 根据 isSpeaking 显示绿色边框脉冲动画
+ * - AudioContext + AnalyserNode 分析本地音量，阈值 30 判定说话。
+ * - 经**单侧** DataChannel（仅 impolite 侧 createDataChannel，消除 m-line 不对称）广播
+ *   `{type:'speaking',speaking}`，远端更新 participant.isSpeaking。
  *
- * 媒体类型同步机制（区分摄像头/屏幕共享）：
- * - 发送端：创建 transceiver 后，通过 DataChannel 广播 { type: 'media-type', mid, mediaType }
- * - 接收端：维护 mediaTypeMapsRef (Map<peerId, Map<mid, 'camera' | 'screen'>>)
- * - 收到 media-type 消息后，根据 mid 映射更新 participant.cameraStream/screenStream
- * - UI 优先显示 screenStream，其次 cameraStream，最后是未区分的 stream
- *
- * 协商发起策略（解决后加入者听不到声音问题）：
- * - 使用 participant ID 比较决定谁发起协商（ID 小的一方发起）
- * - 先加入的成员检测到后加入的成员时，主动发起协商
- * - 使用 mediaStateRef 避免闭包问题，确保协商时使用最新的媒体状态
+ * 断线重连：
+ * - WS 异常关闭 → 指数退避重连；退避耗尽置 error。
+ * - 重连经 rejoin 回调重新加入房间拿新 token + ICE，清 pc/dc（保留 localStream/mediaState）
+ *   后重建全部 pc，joined 后上报 media_state。
+ * - 心跳 ping 后若长时间无 pong，主动关闭触发重连。
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -42,8 +38,19 @@ import {
   getSignalingUrl,
   type IceServer,
   type Participant,
+  type MediaKind,
   type ServerMessage,
 } from './api';
+import {
+  computePolarity,
+  shouldIgnoreOffer,
+  classifyMediaTracks,
+  nextBackoffDelay,
+  isPongExpired,
+  shouldReconnectOnClose,
+  PendingCandidates,
+  type TransceiverView,
+} from './webrtcCore';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp } from '../services/discovery';
 
@@ -88,18 +95,6 @@ export interface RemoteParticipant extends Participant {
   isSpeaking?: boolean;
 }
 
-/**
- * DataChannel 媒体类型消息
- * 用于通知接收端 transceiver mid 对应的媒体类型（摄像头/屏幕共享）
- */
-interface MediaTypeMessage {
-  type: 'media-type';
-  /** transceiver 的 mid */
-  mid: string;
-  /** 媒体类型：camera 或 screen */
-  mediaType: 'camera' | 'screen';
-}
-
 /** 每个 PeerConnection 的 Transceiver 引用 */
 interface TransceiverRefs {
   mic: RTCRtpTransceiver | null;
@@ -125,6 +120,22 @@ export const RESOLUTION_MAP: Record<ScreenShareResolution, { width: number; heig
   '2k': { width: 2560, height: 1440 },
   '4k': { width: 3840, height: 2160 },
 };
+
+/** 重连回调：重新加入房间，返回新的 ws token + ICE 服务器 */
+export type RejoinFn = () => Promise<{ token: string; iceServers: IceServer[] } | null>;
+
+// ============================================
+// 常量
+// ============================================
+
+/** 心跳发送间隔 */
+const HEARTBEAT_INTERVAL_MS = 25_000;
+/** 无 pong 判定为断连的阈值（约 2 个心跳周期） */
+const PONG_TIMEOUT_MS = 60_000;
+/** 重连最大尝试次数 */
+const MAX_RECONNECT_ATTEMPTS = 6;
+/** ICE 持续 disconnected 多久后触发 restartIce */
+const ICE_DISCONNECT_RESTART_MS = 3_000;
 
 /**
  * 获取可用的屏幕共享分辨率选项
@@ -152,7 +163,13 @@ export interface UseWebRTCReturn {
   mediaError: MediaError | null;
   mediaState: MediaDeviceState;
   isSpeaking: boolean;
-  connect: (roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => void;
+  connect: (
+    roomId: string,
+    token: string,
+    iceServers: IceServer[],
+    serverUrl: string,
+    rejoin?: RejoinFn,
+  ) => void;
   disconnect: () => void;
   toggleMic: () => Promise<void>;
   toggleCamera: () => Promise<void>;
@@ -266,18 +283,25 @@ export function useWebRTC(): UseWebRTCReturn {
   // Transceiver 引用（每个 PeerConnection 独立管理）
   const transceiverMapRef = useRef<Map<string, TransceiverRefs>>(new Map());
 
-  // 协商锁（防止并发协商）
-  const negotiatingRef = useRef<Set<string>>(new Set());
-
-  // DataChannel 引用（用于广播发言状态和媒体类型）
+  // DataChannel 引用（用于广播发言状态，单侧建）
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
 
-  // 媒体状态 Ref（解决 createInitialOffer 闭包问题）
+  // 媒体状态 Ref（避免回调闭包读到过期状态）
   const mediaStateRef = useRef<MediaDeviceState>(mediaState);
 
-  // 媒体类型映射（接收端用于区分摄像头/屏幕共享）
-  // Map<peerId, Map<mid, 'camera' | 'screen'>>
-  const mediaTypeMapsRef = useRef<Map<string, Map<string, 'camera' | 'screen'>>>(new Map());
+  // 媒体类型映射（接收端用于区分摄像头/屏幕共享）Map<peerId, Map<mid, MediaKind>>
+  const mediaTypeMapsRef = useRef<Map<string, Map<string, MediaKind>>>(new Map());
+
+  // ===== Perfect Negotiation 每对 peer 状态 =====
+  const politeRef = useRef<Map<string, boolean>>(new Map());
+  const makingOfferRef = useRef<Map<string, boolean>>(new Map());
+  const ignoreOfferRef = useRef<Map<string, boolean>>(new Map());
+  const isSettingRemoteAnswerPendingRef = useRef<Map<string, boolean>>(new Map());
+  const pendingCandidatesRef = useRef<PendingCandidates>(new PendingCandidates());
+  // 每对 peer 已发过 media_type 的 mid（去重，mid 生命周期内稳定）
+  const sentMediaTypeMidsRef = useRef<Map<string, Set<string>>>(new Map());
+  // ICE 持续 disconnected 的 restartIce 定时器
+  const iceRestartTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // 音频分析相关（用于检测本地发言状态）
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -285,7 +309,19 @@ export function useWebRTC(): UseWebRTCReturn {
   const animationFrameRef = useRef<number | null>(null);
   const lastSpeakingRef = useRef<boolean>(false);
 
-  // 同步 mediaState 到 ref（用于 createInitialOffer 等回调）
+  // ===== 重连相关 =====
+  const connectParamsRef = useRef<{ roomId: string; serverUrl: string } | null>(null);
+  const rejoinRef = useRef<RejoinFn | null>(null);
+  const suppressReconnectRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPongAtRef = useRef(0);
+  // 长生命周期 WS 回调走 ref，始终调最新实现，避免闭包过期
+  const handleMessageRef = useRef<(msg: ServerMessage) => void>(() => {});
+  const openSignalingRef = useRef<(token: string) => void>(() => {});
+  const scheduleReconnectRef = useRef<() => void>(() => {});
+
+  // 同步 mediaState 到 ref
   useEffect(() => {
     mediaStateRef.current = mediaState;
   }, [mediaState]);
@@ -310,48 +346,7 @@ export function useWebRTC(): UseWebRTCReturn {
   }, []);
 
   /**
-   * 广播媒体类型到指定 peerId
-   * 告知接收端 transceiver mid 对应的媒体类型
-   */
-  const broadcastMediaType = useCallback((peerId: string, mid: string, mediaType: 'camera' | 'screen') => {
-    const channel = dataChannelsRef.current.get(peerId);
-    if (channel?.readyState === 'open') {
-      const message: MediaTypeMessage = { type: 'media-type', mid, mediaType };
-      channel.send(JSON.stringify(message));
-    }
-  }, []);
-
-  /**
-   * 等待 transceiver.mid 生成后广播媒体类型
-   * mid 在 setLocalDescription 后才会生成，使用轮询等待
-   */
-  const waitForMidAndBroadcast = useCallback((
-    transceiver: RTCRtpTransceiver,
-    peerId: string,
-    mediaType: 'camera' | 'screen',
-  ) => {
-    let attempts = 0;
-    const maxAttempts = 20; // 最多等待 2 秒
-
-    const checkMid = () => {
-      if (transceiver.mid) {
-        broadcastMediaType(peerId, transceiver.mid, mediaType);
-      } else if (attempts < maxAttempts) {
-        attempts++;
-        setTimeout(checkMid, 100);
-      } else {
-        console.warn('[WebRTC] 等待 mid 超时:', mediaType, peerId);
-      }
-    };
-
-    checkMid();
-  }, [broadcastMediaType]);
-
-  /**
-   * 处理接收到的 DataChannel 消息
-   * 支持的消息类型：
-   * - speaking: 发言状态变化
-   * - media-type: 媒体类型映射（用于区分摄像头/屏幕共享）
+   * 处理接收到的 DataChannel 消息（仅发言状态）
    */
   const handleDataChannelMessage = useCallback((peerId: string, data: string) => {
     try {
@@ -359,68 +354,6 @@ export function useWebRTC(): UseWebRTCReturn {
       if (msg.type === 'speaking') {
         setParticipants((prev) =>
           prev.map((p) => (p.id === peerId ? { ...p, isSpeaking: msg.speaking } : p)),
-        );
-      } else if (msg.type === 'media-type') {
-        // 保存 mid 到媒体类型的映射
-        const mediaTypeMsg = msg as MediaTypeMessage;
-        let peerMap = mediaTypeMapsRef.current.get(peerId);
-        if (!peerMap) {
-          peerMap = new Map();
-          mediaTypeMapsRef.current.set(peerId, peerMap);
-        }
-        peerMap.set(mediaTypeMsg.mid, mediaTypeMsg.mediaType);
-
-        // 更新参与者的视频流分类（避免频繁创建 MediaStream）
-        setParticipants((prev) =>
-          prev.map((p) => {
-            if (p.id !== peerId || !p.stream) {
-              return p;
-            }
-
-            // 根据 mid 映射重新分类视频流
-            const videoTracks = p.stream.getVideoTracks();
-            let cameraStream: MediaStream | undefined = p.cameraStream;
-            let screenStream: MediaStream | undefined = p.screenStream;
-            let needsUpdate = false;
-
-            // 遍历所有 transceiver 找到对应的 track
-            const pc = peerConnectionsRef.current.get(peerId);
-            if (pc) {
-              pc.getTransceivers().forEach((transceiver) => {
-                const mid = transceiver.mid;
-                if (!mid) {
-                  return;
-                }
-
-                const type = peerMap?.get(mid);
-                const receivedTrack = transceiver.receiver.track;
-
-                if (receivedTrack && receivedTrack.kind === 'video' && videoTracks.find((t) => t.id === receivedTrack.id)) {
-                  if (type === 'camera') {
-                    // 只有 track 变化时才创建新 MediaStream
-                    const existingTrack = cameraStream?.getVideoTracks()[0];
-                    if (!existingTrack || existingTrack.id !== receivedTrack.id) {
-                      cameraStream = new MediaStream([receivedTrack]);
-                      needsUpdate = true;
-                    }
-                  } else if (type === 'screen') {
-                    // 只有 track 变化时才创建新 MediaStream
-                    const existingTrack = screenStream?.getVideoTracks()[0];
-                    if (!existingTrack || existingTrack.id !== receivedTrack.id) {
-                      screenStream = new MediaStream([receivedTrack]);
-                      needsUpdate = true;
-                    }
-                  }
-                }
-              });
-            }
-
-            // 只有真正变化时才更新
-            if (needsUpdate) {
-              return { ...p, cameraStream, screenStream };
-            }
-            return p;
-          }),
         );
       }
     } catch {
@@ -511,50 +444,281 @@ export function useWebRTC(): UseWebRTCReturn {
     return refs;
   }, []);
 
-  // ========== 安全重协商 ==========
+  /**
+   * 按 mid→媒体类型映射，重新把某 peer 的接收视频轨分到 cameraStream/screenStream。
+   * 收到 media_type 时 + ontrack 到达时均调用，保证早到不丢、双触发一致。
+   */
+  const reclassifyStreams = useCallback((peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    const peerMap = mediaTypeMapsRef.current.get(peerId);
+    if (!pc || !peerMap) {
+      return;
+    }
+
+    const transceivers = pc.getTransceivers();
+    const views: TransceiverView[] = transceivers.map((t) => ({
+      mid: t.mid,
+      track: t.receiver.track ? { id: t.receiver.track.id, kind: t.receiver.track.kind } : null,
+    }));
+    const { cameraTrackId, screenTrackId } = classifyMediaTracks(views, peerMap);
+
+    const trackById = new Map<string, MediaStreamTrack>();
+    transceivers.forEach((t) => {
+      const tr = t.receiver.track;
+      if (tr) {
+        trackById.set(tr.id, tr);
+      }
+    });
+
+    setParticipants((prev) =>
+      prev.map((p) => {
+        if (p.id !== peerId) {
+          return p;
+        }
+
+        let cameraStream = p.cameraStream;
+        let screenStream = p.screenStream;
+        let needsUpdate = false;
+
+        // 摄像头
+        const camTrack = cameraTrackId ? trackById.get(cameraTrackId) : undefined;
+        const existingCam = cameraStream?.getVideoTracks()[0];
+        if (camTrack) {
+          if (!existingCam || existingCam.id !== camTrack.id) {
+            cameraStream = new MediaStream([camTrack]);
+            needsUpdate = true;
+          }
+        } else if (existingCam) {
+          cameraStream = undefined;
+          needsUpdate = true;
+        }
+
+        // 屏幕共享
+        const scrTrack = screenTrackId ? trackById.get(screenTrackId) : undefined;
+        const existingScr = screenStream?.getVideoTracks()[0];
+        if (scrTrack) {
+          if (!existingScr || existingScr.id !== scrTrack.id) {
+            screenStream = new MediaStream([scrTrack]);
+            needsUpdate = true;
+          }
+        } else if (existingScr) {
+          screenStream = undefined;
+          needsUpdate = true;
+        }
+
+        return needsUpdate ? { ...p, cameraStream, screenStream } : p;
+      }),
+    );
+  }, []);
+
+  /** 上报本端粗粒度媒体开关全量快照（默认读最新 ref，可显式传入切换后的快照） */
+  const sendMediaState = useCallback((snapshot?: MediaDeviceState) => {
+    const s = snapshot ?? mediaStateRef.current;
+    sendMessage({
+      type: 'media_state',
+      mic: s.micEnabled,
+      camera: s.cameraEnabled,
+      screen: s.screenSharing,
+    });
+  }, [sendMessage]);
+
+  /** remoteDescription 就绪后，flush 该 peer 缓冲的 candidate（一次性、按序） */
+  const flushPendingCandidates = useCallback(async (peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc) {
+      return;
+    }
+    const queued = pendingCandidatesRef.current.drain(peerId);
+    if (queued.length === 0) {
+      return;
+    }
+    await Promise.all(
+      queued.map(async (candidate) => {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          // 忽略期（impolite 冲突无视对端 offer）内的候选者报错是预期的
+          if (!ignoreOfferRef.current.get(peerId)) {
+            console.error('[WebRTC] addIceCandidate 失败:', err);
+          }
+        }
+      }),
+    );
+  }, []);
 
   /**
-   * 安全地进行重协商
-   * - 检查信令状态是否为 stable
-   * - 使用锁防止并发协商
-   * - 创建 Offer 并发送
+   * 本 pc setLocalDescription 后，mid 已就绪：对摄像头/屏幕共享 transceiver 各发一次
+   * 定向 media_type（按 mid 去重）。
    */
-  const safeNegotiate = useCallback(async (peerId: string, pc: RTCPeerConnection) => {
-    // 检查是否正在协商
-    if (negotiatingRef.current.has(peerId)) {
+  const sendPendingMediaTypes = useCallback((peerId: string) => {
+    const refs = transceiverMapRef.current.get(peerId);
+    if (!refs) {
       return;
     }
-
-    // 检查信令状态
-    if (pc.signalingState !== 'stable') {
-      return;
+    let sent = sentMediaTypeMidsRef.current.get(peerId);
+    if (!sent) {
+      sent = new Set();
+      sentMediaTypeMidsRef.current.set(peerId, sent);
     }
-
-    try {
-      negotiatingRef.current.add(peerId);
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      sendMessage({
-        type: 'offer',
-        to: peerId,
-        sdp: pc.localDescription?.sdp,
-      });
-    } finally {
-      negotiatingRef.current.delete(peerId);
+    const entries: Array<[RTCRtpTransceiver | null, MediaKind]> = [
+      [refs.camera, 'camera'],
+      [refs.screen, 'screen'],
+    ];
+    for (const [transceiver, kind] of entries) {
+      const mid = transceiver?.mid;
+      if (mid && !sent.has(mid)) {
+        sendMessage({ type: 'media_type', to: peerId, mid, media_kind: kind });
+        sent.add(mid);
+      }
     }
   }, [sendMessage]);
+
+  /**
+   * 发起 Offer（Perfect Negotiation）：无参 setLocalDescription 按状态自动生成 offer，
+   * makingOffer 防重入；setLocalDescription 后 mid 就绪，补发定向 media_type。
+   */
+  const makeOffer = useCallback(async (peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc) {
+      return;
+    }
+    try {
+      makingOfferRef.current.set(peerId, true);
+      await pc.setLocalDescription();
+      if (pc.localDescription) {
+        sendMessage({ type: 'offer', to: peerId, sdp: pc.localDescription.sdp });
+      }
+      sendPendingMediaTypes(peerId);
+    } catch (err) {
+      console.error('[WebRTC] makeOffer 失败:', err);
+    } finally {
+      makingOfferRef.current.set(peerId, false);
+    }
+  }, [sendMessage, sendPendingMediaTypes]);
+
+  // ========== Transceiver 管理 ==========
+
+  /**
+   * 添加或更新麦克风 Transceiver
+   * - 无 transceiver：addTransceiver 添加（触发 onnegotiationneeded）
+   * - 已有 transceiver：replaceTrack 更新（不触发重协商）
+   */
+  const addMicTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc) {
+      return;
+    }
+
+    const refs = getTransceiverRefs(peerId);
+
+    if (!refs.mic) {
+      const stream = micStreamRef.current;
+      refs.mic = pc.addTransceiver(track, {
+        direction: 'sendrecv',
+        streams: stream ? [stream] : [],
+      });
+    } else {
+      await refs.mic.sender.replaceTrack(track);
+      if (refs.mic.direction !== 'sendrecv') {
+        refs.mic.direction = 'sendrecv';
+      }
+    }
+  }, [getTransceiverRefs]);
+
+  /** 停止麦克风 Transceiver */
+  const stopMicTransceiver = useCallback(async (peerId: string) => {
+    const refs = getTransceiverRefs(peerId);
+    if (refs.mic) {
+      await refs.mic.sender.replaceTrack(null);
+      refs.mic.direction = 'inactive';
+    }
+  }, [getTransceiverRefs]);
+
+  /**
+   * 添加或更新摄像头 Transceiver
+   * media_type 由 makeOffer 在 setLocalDescription 后按 mid 补发，这里不再广播。
+   */
+  const addCameraTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc) {
+      return;
+    }
+
+    const refs = getTransceiverRefs(peerId);
+
+    if (!refs.camera) {
+      const stream = cameraStreamRef.current;
+      refs.camera = pc.addTransceiver(track, {
+        direction: 'sendrecv',
+        streams: stream ? [stream] : [],
+      });
+    } else {
+      await refs.camera.sender.replaceTrack(track);
+      if (refs.camera.direction !== 'sendrecv') {
+        refs.camera.direction = 'sendrecv';
+      }
+    }
+  }, [getTransceiverRefs]);
+
+  /** 停止摄像头 Transceiver */
+  const stopCameraTransceiver = useCallback(async (peerId: string) => {
+    const refs = getTransceiverRefs(peerId);
+    if (refs.camera) {
+      await refs.camera.sender.replaceTrack(null);
+      refs.camera.direction = 'inactive';
+    }
+  }, [getTransceiverRefs]);
+
+  /**
+   * 添加或更新屏幕共享 Transceiver
+   * media_type 由 makeOffer 在 setLocalDescription 后按 mid 补发，这里不再广播。
+   */
+  const addScreenTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc) {
+      return;
+    }
+
+    const refs = getTransceiverRefs(peerId);
+
+    if (!refs.screen) {
+      const stream = screenStreamRef.current;
+      refs.screen = pc.addTransceiver(track, {
+        direction: 'sendrecv',
+        streams: stream ? [stream] : [],
+      });
+    } else {
+      await refs.screen.sender.replaceTrack(track);
+      if (refs.screen.direction !== 'sendrecv') {
+        refs.screen.direction = 'sendrecv';
+      }
+    }
+  }, [getTransceiverRefs]);
+
+  /**
+   * 停止屏幕共享 Transceiver
+   * 保留 transceiver 引用（复用同一 mid），避免接收端无法识别流。
+   */
+  const stopScreenTransceiver = useCallback(async (peerId: string) => {
+    const refs = getTransceiverRefs(peerId);
+    if (refs.screen) {
+      await refs.screen.sender.replaceTrack(null);
+      refs.screen.direction = 'inactive';
+    }
+  }, [getTransceiverRefs]);
 
   // ========== PeerConnection 管理 ==========
 
   /**
    * 创建 PeerConnection
-   * - 不预先创建任何 transceiver
-   * - transceiver 在开始共享时动态添加
+   * @param polite 本端在该对 peer 中是否为 polite（id 大者）
+   * - impolite 侧建单条 DataChannel（保证至少一条 m-line 可协商）；polite 侧仅监听
+   * - pc 创建即把当前已开启的媒体一次性加入，触发 onnegotiationneeded → makeOffer
    */
-  const createPeerConnection = useCallback((peerId: string): RTCPeerConnection => {
+  const createPeerConnection = useCallback((peerId: string, polite: boolean): RTCPeerConnection => {
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+    peerConnectionsRef.current.set(peerId, pc);
+    politeRef.current.set(peerId, polite);
 
     // 初始化 transceiver 引用
     getTransceiverRefs(peerId);
@@ -574,27 +738,59 @@ export function useWebRTC(): UseWebRTCReturn {
       }
     };
 
-    // 连接状态变化
+    // 连接状态变化（更新 UI；failed 兜底 restartIce）
     pc.onconnectionstatechange = () => {
       setParticipants((prev) =>
         prev.map((p) =>
           p.id === peerId ? { ...p, connectionState: pc.connectionState as ConnectionState } : p,
         ),
       );
+      if (pc.connectionState === 'failed') {
+        pc.restartIce();
+      }
     };
 
-    /**
-     * 接收远程轨道
-     * 接收端逻辑完全不动，只需要将轨道添加到对应参与者的流中
-     */
+    // ICE 连接状态：failed 立即 restartIce；disconnected 持续超时后 restartIce
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === 'failed') {
+        pc.restartIce();
+        return;
+      }
+      if (state === 'disconnected') {
+        if (!iceRestartTimersRef.current.has(peerId)) {
+          const timer = setTimeout(() => {
+            iceRestartTimersRef.current.delete(peerId);
+            const current = peerConnectionsRef.current.get(peerId);
+            if (
+              current &&
+              (current.iceConnectionState === 'disconnected' ||
+                current.iceConnectionState === 'failed')
+            ) {
+              current.restartIce();
+            }
+          }, ICE_DISCONNECT_RESTART_MS);
+          iceRestartTimersRef.current.set(peerId, timer);
+        }
+        return;
+      }
+      // 恢复：清掉待触发的 restart 定时器
+      const timer = iceRestartTimersRef.current.get(peerId);
+      if (timer) {
+        clearTimeout(timer);
+        iceRestartTimersRef.current.delete(peerId);
+      }
+    };
+
+    // 接收远程轨道：加轨到 stream，然后按 mid 重分类
     pc.ontrack = (event) => {
+      const track = event.track;
       setParticipants((prev) => {
         const existing = prev.find((p) => p.id === peerId);
         if (!existing) {
           return prev;
         }
 
-        // 创建或更新远程流
         let remoteStream = existing.stream;
         if (!remoteStream) {
           remoteStream = new MediaStream();
@@ -603,13 +799,10 @@ export function useWebRTC(): UseWebRTCReturn {
           remoteStream = new MediaStream(remoteStream.getTracks());
         }
 
-        // 添加新轨道（如果不存在）
-        const track = event.track;
         if (!remoteStream.getTracks().find((t) => t.id === track.id)) {
           remoteStream.addTrack(track);
         }
 
-        // 监听轨道结束
         track.onended = () => {
           setParticipants((p) =>
             p.map((participant) => {
@@ -617,7 +810,10 @@ export function useWebRTC(): UseWebRTCReturn {
                 const newStream = new MediaStream(
                   participant.stream.getTracks().filter((t) => t.id !== track.id),
                 );
-                return { ...participant, stream: newStream.getTracks().length > 0 ? newStream : undefined };
+                return {
+                  ...participant,
+                  stream: newStream.getTracks().length > 0 ? newStream : undefined,
+                };
               }
               return participant;
             }),
@@ -626,56 +822,77 @@ export function useWebRTC(): UseWebRTCReturn {
 
         return prev.map((p) => (p.id === peerId ? { ...p, stream: remoteStream } : p));
       });
+      reclassifyStreams(peerId);
     };
 
-    /**
-     * onnegotiationneeded 事件
-     * 当添加 transceiver 时自动触发，执行安全重协商
-     */
+    // 重协商：统一经 makeOffer（Perfect Negotiation）
     pc.onnegotiationneeded = () => {
-      safeNegotiate(peerId, pc);
+      void makeOffer(peerId);
     };
 
-    /**
-     * 创建 DataChannel 用于传输发言状态
-     * 使用有序、可靠的通道确保状态同步
-     */
-    const dataChannel = pc.createDataChannel('speaking-status', {
-      ordered: true,
-    });
-    dataChannel.onopen = () => {
-      dataChannelsRef.current.set(peerId, dataChannel);
-    };
-    dataChannel.onclose = () => {
-      dataChannelsRef.current.delete(peerId);
-    };
-    dataChannel.onmessage = (event) => {
-      handleDataChannelMessage(peerId, event.data);
-    };
+    // DataChannel 单侧：仅 impolite 侧建，polite 侧监听
+    if (!polite) {
+      const dataChannel = pc.createDataChannel('speaking-status', { ordered: true });
+      dataChannel.onopen = () => {
+        dataChannelsRef.current.set(peerId, dataChannel);
+      };
+      dataChannel.onclose = () => {
+        dataChannelsRef.current.delete(peerId);
+      };
+      dataChannel.onmessage = (event) => {
+        handleDataChannelMessage(peerId, event.data);
+      };
+    } else {
+      pc.ondatachannel = (event) => {
+        const channel = event.channel;
+        if (channel.label === 'speaking-status') {
+          channel.onopen = () => {
+            dataChannelsRef.current.set(peerId, channel);
+          };
+          channel.onclose = () => {
+            dataChannelsRef.current.delete(peerId);
+          };
+          channel.onmessage = (e) => {
+            handleDataChannelMessage(peerId, e.data);
+          };
+        }
+      };
+    }
 
-    /**
-     * 处理远程创建的 DataChannel
-     */
-    pc.ondatachannel = (event) => {
-      const channel = event.channel;
-      if (channel.label === 'speaking-status') {
-        channel.onopen = () => {
-          dataChannelsRef.current.set(peerId, channel);
-        };
-        channel.onclose = () => {
-          dataChannelsRef.current.delete(peerId);
-        };
-        channel.onmessage = (e) => {
-          handleDataChannelMessage(peerId, e.data);
-        };
+    // pc 创建即加当前已开启的媒体（触发 onnegotiationneeded → makeOffer）
+    const ms = mediaStateRef.current;
+    if (ms.micEnabled && micStreamRef.current) {
+      const track = micStreamRef.current.getAudioTracks()[0];
+      if (track) {
+        void addMicTransceiver(peerId, track);
       }
-    };
+    }
+    if (ms.cameraEnabled && cameraStreamRef.current) {
+      const track = cameraStreamRef.current.getVideoTracks()[0];
+      if (track) {
+        void addCameraTransceiver(peerId, track);
+      }
+    }
+    if (ms.screenSharing && screenStreamRef.current) {
+      const track = screenStreamRef.current.getVideoTracks()[0];
+      if (track) {
+        void addScreenTransceiver(peerId, track);
+      }
+    }
 
-    peerConnectionsRef.current.set(peerId, pc);
     return pc;
-  }, [sendMessage, getTransceiverRefs, safeNegotiate, handleDataChannelMessage]);
+  }, [
+    sendMessage,
+    getTransceiverRefs,
+    makeOffer,
+    handleDataChannelMessage,
+    reclassifyStreams,
+    addMicTransceiver,
+    addCameraTransceiver,
+    addScreenTransceiver,
+  ]);
 
-  /** 关闭 PeerConnection */
+  /** 关闭 PeerConnection 并清理该 peer 的全部状态 */
   const closePeerConnection = useCallback((peerId: string) => {
     const pc = peerConnectionsRef.current.get(peerId);
     if (pc) {
@@ -683,278 +900,118 @@ export function useWebRTC(): UseWebRTCReturn {
       peerConnectionsRef.current.delete(peerId);
     }
     transceiverMapRef.current.delete(peerId);
-    negotiatingRef.current.delete(peerId);
     dataChannelsRef.current.delete(peerId);
     mediaTypeMapsRef.current.delete(peerId);
+    politeRef.current.delete(peerId);
+    makingOfferRef.current.delete(peerId);
+    ignoreOfferRef.current.delete(peerId);
+    isSettingRemoteAnswerPendingRef.current.delete(peerId);
+    pendingCandidatesRef.current.remove(peerId);
+    sentMediaTypeMidsRef.current.delete(peerId);
+    const timer = iceRestartTimersRef.current.get(peerId);
+    if (timer) {
+      clearTimeout(timer);
+      iceRestartTimersRef.current.delete(peerId);
+    }
     setParticipants((prev) => prev.filter((p) => p.id !== peerId));
   }, []);
 
-  // ========== Transceiver 管理 ==========
-
-  /**
-   * 添加或更新麦克风 Transceiver
-   * - 如果没有 transceiver，使用 addTransceiver 添加（触发重协商）
-   * - 如果已有 transceiver，使用 replaceTrack 更新（不触发重协商）
-   */
-  const addMicTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (!pc) {
-      return;
-    }
-
-    const refs = getTransceiverRefs(peerId);
-
-    if (!refs.mic) {
-      // 首次添加：创建新的 transceiver，触发 onnegotiationneeded
-      const stream = micStreamRef.current;
-      refs.mic = pc.addTransceiver(track, {
-        direction: 'sendrecv',
-        streams: stream ? [stream] : [],
-      });
-    } else {
-      // 已有 transceiver：只替换轨道，不触发重协商
-      await refs.mic.sender.replaceTrack(track);
-      // 确保方向正确
-      if (refs.mic.direction !== 'sendrecv') {
-        refs.mic.direction = 'sendrecv';
-      }
-    }
-  }, [getTransceiverRefs]);
-
-  /**
-   * 停止麦克风 Transceiver
-   * - 将轨道替换为 null
-   * - 将方向设为 inactive
-   */
-  const stopMicTransceiver = useCallback(async (peerId: string) => {
-    const refs = getTransceiverRefs(peerId);
-    if (refs.mic) {
-      await refs.mic.sender.replaceTrack(null);
-      refs.mic.direction = 'inactive';
-    }
-  }, [getTransceiverRefs]);
-
-  /**
-   * 添加或更新摄像头 Transceiver
-   * 创建后广播媒体类型给接收端
-   */
-  const addCameraTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (!pc) {
-      return;
-    }
-
-    const refs = getTransceiverRefs(peerId);
-
-    if (!refs.camera) {
-      const stream = cameraStreamRef.current;
-      refs.camera = pc.addTransceiver(track, {
-        direction: 'sendrecv',
-        streams: stream ? [stream] : [],
-      });
-      // 等待 mid 生成后广播媒体类型
-      waitForMidAndBroadcast(refs.camera, peerId, 'camera');
-    } else {
-      await refs.camera.sender.replaceTrack(track);
-      if (refs.camera.direction !== 'sendrecv') {
-        refs.camera.direction = 'sendrecv';
-      }
-      // 已有 transceiver，重新广播类型
-      if (refs.camera.mid) {
-        broadcastMediaType(peerId, refs.camera.mid, 'camera');
-      }
-    }
-  }, [getTransceiverRefs, broadcastMediaType, waitForMidAndBroadcast]);
-
-  /**
-   * 停止摄像头 Transceiver
-   */
-  const stopCameraTransceiver = useCallback(async (peerId: string) => {
-    const refs = getTransceiverRefs(peerId);
-    if (refs.camera) {
-      await refs.camera.sender.replaceTrack(null);
-      refs.camera.direction = 'inactive';
-    }
-  }, [getTransceiverRefs]);
-
-  /**
-   * 添加或更新屏幕共享 Transceiver
-   * 创建后广播媒体类型给接收端
-   */
-  const addScreenTransceiver = useCallback(async (peerId: string, track: MediaStreamTrack) => {
-    const pc = peerConnectionsRef.current.get(peerId);
-    if (!pc) {
-      return;
-    }
-
-    const refs = getTransceiverRefs(peerId);
-
-    if (!refs.screen) {
-      const stream = screenStreamRef.current;
-      refs.screen = pc.addTransceiver(track, {
-        direction: 'sendrecv',
-        streams: stream ? [stream] : [],
-      });
-      // 等待 mid 生成后广播媒体类型
-      waitForMidAndBroadcast(refs.screen, peerId, 'screen');
-    } else {
-      await refs.screen.sender.replaceTrack(track);
-      if (refs.screen.direction !== 'sendrecv') {
-        refs.screen.direction = 'sendrecv';
-      }
-      // 已有 transceiver，重新广播类型
-      if (refs.screen.mid) {
-        broadcastMediaType(peerId, refs.screen.mid, 'screen');
-      }
-    }
-  }, [getTransceiverRefs, broadcastMediaType, waitForMidAndBroadcast]);
-
-  /**
-   * 停止屏幕共享 Transceiver
-   * 保留 transceiver 引用，下次复用同一个 transceiver（与麦克风逻辑一致）
-   * 这样可以避免创建新 mid 导致接收端无法正确识别流
-   */
-  const stopScreenTransceiver = useCallback(async (peerId: string) => {
-    const refs = getTransceiverRefs(peerId);
-    if (refs.screen) {
-      await refs.screen.sender.replaceTrack(null);
-      refs.screen.direction = 'inactive';
-      // 不清除引用，复用 transceiver
-    }
-  }, [getTransceiverRefs]);
-
   // ========== 信令处理 ==========
 
-  /**
-   * 发起 Offer（用于新加入的参与者）
-   * 使用 mediaStateRef 获取最新的媒体状态，避免闭包问题
-   */
-  const createInitialOffer = useCallback(async (peerId: string) => {
-    let pc = peerConnectionsRef.current.get(peerId);
-    if (!pc) {
-      pc = createPeerConnection(peerId);
-    }
-
-    // 使用 ref 获取最新的媒体状态（避免闭包问题）
-    const currentMediaState = mediaStateRef.current;
-
-    // 添加当前已开启的媒体
-    if (currentMediaState.micEnabled && micStreamRef.current) {
-      const track = micStreamRef.current.getAudioTracks()[0];
-      if (track) {
-        await addMicTransceiver(peerId, track);
-      }
-    }
-
-    if (currentMediaState.cameraEnabled && cameraStreamRef.current) {
-      const track = cameraStreamRef.current.getVideoTracks()[0];
-      if (track) {
-        await addCameraTransceiver(peerId, track);
-      }
-    }
-
-    if (currentMediaState.screenSharing && screenStreamRef.current) {
-      const track = screenStreamRef.current.getVideoTracks()[0];
-      if (track) {
-        await addScreenTransceiver(peerId, track);
-      }
-    }
-
-    // 如果没有任何 transceiver，需要手动触发协商
-    // 否则 onnegotiationneeded 会自动触发
-    if (!peerConnectionsRef.current.get(peerId)?.getTransceivers().length) {
-      await safeNegotiate(peerId, pc);
-    }
-  }, [createPeerConnection, addMicTransceiver, addCameraTransceiver, addScreenTransceiver, safeNegotiate]);
-
-  /**
-   * 处理 Offer
-   * 使用 mediaStateRef 获取最新的媒体状态，避免闭包问题
-   */
+  /** 处理 Offer（Perfect Negotiation） */
   const handleOffer = useCallback(async (peerId: string, sdp: string) => {
     let pc = peerConnectionsRef.current.get(peerId);
     if (!pc) {
-      pc = createPeerConnection(peerId);
+      const { polite } = computePolarity(myIdRef.current ?? '', peerId);
+      pc = createPeerConnection(peerId, polite);
     }
 
-    await pc.setRemoteDescription({ type: 'offer', sdp });
+    const polite = politeRef.current.get(peerId) ?? false;
+    const makingOffer = makingOfferRef.current.get(peerId) ?? false;
+    const settingAnswerPending = isSettingRemoteAnswerPendingRef.current.get(peerId) ?? false;
+    const ignore = shouldIgnoreOffer(polite, makingOffer, pc.signalingState, settingAnswerPending);
+    ignoreOfferRef.current.set(peerId, ignore);
+    if (ignore) {
+      return;
+    }
 
-    // 使用 ref 获取最新的媒体状态（避免闭包问题）
-    const currentMediaState = mediaStateRef.current;
-
-    // 添加当前已开启的媒体到 transceiver
-    if (currentMediaState.micEnabled && micStreamRef.current) {
-      const track = micStreamRef.current.getAudioTracks()[0];
-      if (track) {
-        await addMicTransceiver(peerId, track);
+    try {
+      await pc.setRemoteDescription({ type: 'offer', sdp });
+      await flushPendingCandidates(peerId);
+      await pc.setLocalDescription();
+      if (pc.localDescription) {
+        sendMessage({ type: 'answer', to: peerId, sdp: pc.localDescription.sdp });
       }
+      sendPendingMediaTypes(peerId);
+    } catch (err) {
+      console.error('[WebRTC] handleOffer 失败:', err);
     }
+  }, [createPeerConnection, sendMessage, flushPendingCandidates, sendPendingMediaTypes]);
 
-    if (currentMediaState.cameraEnabled && cameraStreamRef.current) {
-      const track = cameraStreamRef.current.getVideoTracks()[0];
-      if (track) {
-        await addCameraTransceiver(peerId, track);
-      }
-    }
-
-    if (currentMediaState.screenSharing && screenStreamRef.current) {
-      const track = screenStreamRef.current.getVideoTracks()[0];
-      if (track) {
-        await addScreenTransceiver(peerId, track);
-      }
-    }
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    sendMessage({
-      type: 'answer',
-      to: peerId,
-      sdp: answer.sdp,
-    });
-  }, [createPeerConnection, sendMessage, addMicTransceiver, addCameraTransceiver, addScreenTransceiver]);
-
-  /** 处理 Answer */
+  /** 处理 Answer（Perfect Negotiation） */
   const handleAnswer = useCallback(async (peerId: string, sdp: string) => {
     const pc = peerConnectionsRef.current.get(peerId);
-    if (pc && pc.signalingState === 'have-local-offer') {
-      await pc.setRemoteDescription({ type: 'answer', sdp });
+    if (!pc) {
+      return;
     }
-  }, []);
+    isSettingRemoteAnswerPendingRef.current.set(peerId, true);
+    try {
+      await pc.setRemoteDescription({ type: 'answer', sdp });
+      await flushPendingCandidates(peerId);
+    } catch (err) {
+      console.error('[WebRTC] handleAnswer 失败:', err);
+    } finally {
+      isSettingRemoteAnswerPendingRef.current.set(peerId, false);
+    }
+  }, [flushPendingCandidates]);
 
-  /** 处理 ICE 候选者 */
+  /** 处理 ICE 候选者：remoteDescription 未就绪时入队，否则直接加 */
   const handleCandidate = useCallback(async (
     peerId: string,
     candidate: { candidate: string; sdpMLineIndex: number | null; sdpMid: string | null },
   ) => {
     const pc = peerConnectionsRef.current.get(peerId);
-    if (pc && pc.remoteDescription) {
+    if (!pc || !pc.remoteDescription) {
+      pendingCandidatesRef.current.add(peerId, candidate);
+      return;
+    }
+    try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      if (!ignoreOfferRef.current.get(peerId)) {
+        console.error('[WebRTC] addIceCandidate 失败:', err);
+      }
     }
   }, []);
 
   /** 处理服务器消息 */
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
-      case 'joined':
+      case 'joined': {
         myIdRef.current = msg.participant_id;
         setMyParticipantId(msg.participant_id);
         setParticipants(msg.participants.map((p) => ({ ...p, connectionState: 'new' as ConnectionState })));
         setMeetingState('connected');
-        // 向现有参与者发起连接（ID 小的一方发起）
+        reconnectAttemptsRef.current = 0;
+        // 双向为每个现有参与者建 pc（impolite 侧经 onnegotiationneeded 发起）
         msg.participants.forEach((p) => {
-          if (msg.participant_id < p.id) {
-            createInitialOffer(p.id);
-          }
+          const { polite } = computePolarity(msg.participant_id, p.id);
+          createPeerConnection(p.id, polite);
         });
+        // 上报当前媒体态（重连时让对端获知本端开关；首次进房为全 false，无害）
+        sendMediaState();
         break;
+      }
 
-      case 'peer_joined':
+      case 'peer_joined': {
         setParticipants((prev) => [...prev, { ...msg.participant, connectionState: 'new' as ConnectionState }]);
-        if (myIdRef.current && myIdRef.current < msg.participant.id) {
-          createInitialOffer(msg.participant.id);
+        const myId = myIdRef.current;
+        if (myId) {
+          const { polite } = computePolarity(myId, msg.participant.id);
+          createPeerConnection(msg.participant.id, polite);
         }
         break;
+      }
 
       case 'peer_left':
         closePeerConnection(msg.participant_id);
@@ -972,7 +1029,29 @@ export function useWebRTC(): UseWebRTCReturn {
         handleCandidate(msg.from, msg.candidate);
         break;
 
+      case 'media_type': {
+        let peerMap = mediaTypeMapsRef.current.get(msg.from);
+        if (!peerMap) {
+          peerMap = new Map();
+          mediaTypeMapsRef.current.set(msg.from, peerMap);
+        }
+        peerMap.set(msg.mid, msg.media_kind);
+        reclassifyStreams(msg.from);
+        break;
+      }
+
+      case 'media_state_changed':
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === msg.participant_id ? { ...p, media_state: msg.media_state } : p)),
+        );
+        break;
+
+      case 'pong':
+        lastPongAtRef.current = Date.now();
+        break;
+
       case 'room_closed':
+        suppressReconnectRef.current = true;
         setError(`房间已关闭: ${msg.reason}`);
         setMeetingState('error');
         break;
@@ -981,7 +1060,7 @@ export function useWebRTC(): UseWebRTCReturn {
         setError(msg.message);
         break;
     }
-  }, [createInitialOffer, handleOffer, handleAnswer, handleCandidate, closePeerConnection]);
+  }, [createPeerConnection, handleOffer, handleAnswer, handleCandidate, closePeerConnection, reclassifyStreams, sendMediaState]);
 
   // ========== 媒体控制 ==========
 
@@ -991,7 +1070,6 @@ export function useWebRTC(): UseWebRTCReturn {
    */
   const initLocalStream = useCallback(async (): Promise<boolean> => {
     try {
-      // 检查设备
       const devices = await navigator.mediaDevices.enumerateDevices();
       const hasAudio = devices.some((d) => d.kind === 'audioinput');
       const hasVideo = devices.some((d) => d.kind === 'videoinput');
@@ -1001,7 +1079,6 @@ export function useWebRTC(): UseWebRTCReturn {
         return false;
       }
 
-      // 清除之前的错误
       setMediaError(null);
       return true;
     } catch (err) {
@@ -1012,7 +1089,6 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 停止所有本地媒体流 */
   const stopLocalStream = useCallback(() => {
-    // 停止音量检测
     stopVolumeDetection();
 
     if (micStreamRef.current) {
@@ -1037,26 +1113,19 @@ export function useWebRTC(): UseWebRTCReturn {
    * - 关闭：停止麦克风流，停止所有 transceiver，停止音量检测
    */
   const toggleMic = useCallback(async () => {
-    console.warn('[WebRTC] toggleMic 调用, 当前状态:', mediaState.micEnabled);
-    console.warn('[WebRTC] 当前 PeerConnections 数量:', peerConnectionsRef.current.size);
     if (mediaState.micEnabled) {
-      // ========== 关闭麦克风 ==========
-      // 停止音量检测
       stopVolumeDetection();
 
-      // 停止所有 PeerConnection 的麦克风 transceiver
       const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
         stopMicTransceiver(peerId),
       );
       await Promise.all(stopPromises);
 
-      // 停止本地流
       if (micStreamRef.current) {
         micStreamRef.current.getTracks().forEach((t) => t.stop());
         micStreamRef.current = null;
       }
 
-      // 更新本地预览流
       setLocalStream((prev) => {
         if (!prev) {
           return null;
@@ -1065,34 +1134,32 @@ export function useWebRTC(): UseWebRTCReturn {
         return newStream.getTracks().length > 0 ? newStream : null;
       });
 
+      const next = { ...mediaStateRef.current, micEnabled: false };
       setMediaState((prev) => ({ ...prev, micEnabled: false }));
+      sendMediaState(next);
     } else {
-      // ========== 开启麦克风 ==========
       try {
-        console.warn('[WebRTC] 正在获取麦克风权限...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        console.warn('[WebRTC] 麦克风权限获取成功, track:', stream.getAudioTracks().length);
         micStreamRef.current = stream;
         const track = stream.getAudioTracks()[0];
 
-        // 启动音量检测
         startVolumeDetection(stream);
 
-        // 向所有 PeerConnection 添加麦克风 transceiver
         const addPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
           addMicTransceiver(peerId, track),
         );
         await Promise.all(addPromises);
 
-        // 更新本地预览流
         setLocalStream((prev) => {
           const newStream = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
           newStream.addTrack(track);
           return newStream;
         });
 
+        const next = { ...mediaStateRef.current, micEnabled: true };
         setMediaState((prev) => ({ ...prev, micEnabled: true }));
-        setMediaError(null); // 清除之前的错误
+        setMediaError(null);
+        sendMediaState(next);
       } catch (err) {
         const mediaErr = parseMediaError(err, 'mic');
         if (mediaErr.message) {
@@ -1100,7 +1167,7 @@ export function useWebRTC(): UseWebRTCReturn {
         }
       }
     }
-  }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver, startVolumeDetection, stopVolumeDetection]);
+  }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver, startVolumeDetection, stopVolumeDetection, sendMediaState]);
 
   /**
    * 切换摄像头
@@ -1108,10 +1175,7 @@ export function useWebRTC(): UseWebRTCReturn {
    * - 关闭：停止摄像头流，停止所有 transceiver
    */
   const toggleCamera = useCallback(async () => {
-    console.warn('[WebRTC] toggleCamera 调用, 当前状态:', mediaState.cameraEnabled);
-    console.warn('[WebRTC] 当前 PeerConnections 数量:', peerConnectionsRef.current.size);
     if (mediaState.cameraEnabled) {
-      // ========== 关闭摄像头 ==========
       const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
         stopCameraTransceiver(peerId),
       );
@@ -1134,9 +1198,10 @@ export function useWebRTC(): UseWebRTCReturn {
         return newStream.getTracks().length > 0 ? newStream : null;
       });
 
+      const next = { ...mediaStateRef.current, cameraEnabled: false };
       setMediaState((prev) => ({ ...prev, cameraEnabled: false }));
+      sendMediaState(next);
     } else {
-      // ========== 开启摄像头 ==========
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         cameraStreamRef.current = stream;
@@ -1153,8 +1218,10 @@ export function useWebRTC(): UseWebRTCReturn {
           return newStream;
         });
 
+        const next = { ...mediaStateRef.current, cameraEnabled: true };
         setMediaState((prev) => ({ ...prev, cameraEnabled: true }));
-        setMediaError(null); // 清除之前的错误
+        setMediaError(null);
+        sendMediaState(next);
       } catch (err) {
         const mediaErr = parseMediaError(err, 'camera');
         if (mediaErr.message) {
@@ -1162,49 +1229,50 @@ export function useWebRTC(): UseWebRTCReturn {
         }
       }
     }
-  }, [mediaState.cameraEnabled, addCameraTransceiver, stopCameraTransceiver]);
+  }, [mediaState.cameraEnabled, addCameraTransceiver, stopCameraTransceiver, sendMediaState]);
+
+  /** 停止屏幕共享（供切换与 track.onended 复用，非递归） */
+  const stopScreenShareInternal = useCallback(async () => {
+    const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
+      stopScreenTransceiver(peerId),
+    );
+    await Promise.all(stopPromises);
+
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+    }
+
+    setLocalStream((prev) => {
+      if (!prev) {
+        return null;
+      }
+      // 移除屏幕共享轨道，但保留摄像头轨道
+      const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
+      const newStream = new MediaStream(
+        prev.getTracks().filter((t) => t.kind !== 'video' || t.id === cameraTrack?.id),
+      );
+      return newStream.getTracks().length > 0 ? newStream : null;
+    });
+
+    const next = { ...mediaStateRef.current, screenSharing: false };
+    setMediaState((prev) => ({ ...prev, screenSharing: false }));
+    sendMediaState(next);
+  }, [stopScreenTransceiver, sendMediaState]);
 
   /**
    * 切换屏幕共享
-   * - 开启：获取屏幕流，向所有参与者添加 transceiver
-   * - 关闭：停止屏幕流，停止所有 transceiver
    * @param settings 屏幕共享设置（分辨率和帧率）
    */
   const toggleScreenShare = useCallback(async (settings?: ScreenShareSettings) => {
     if (mediaState.screenSharing) {
-      // ========== 停止屏幕共享 ==========
-      const stopPromises = Array.from(peerConnectionsRef.current.keys()).map((peerId) =>
-        stopScreenTransceiver(peerId),
-      );
-      await Promise.all(stopPromises);
-
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach((t) => t.stop());
-        screenStreamRef.current = null;
-      }
-
-      setLocalStream((prev) => {
-        if (!prev) {
-          return null;
-        }
-        // 移除屏幕共享轨道，但保留摄像头轨道
-        const cameraTrack = cameraStreamRef.current?.getVideoTracks()[0];
-        const newStream = new MediaStream(
-          prev.getTracks().filter((t) => t.kind !== 'video' || t.id === cameraTrack?.id),
-        );
-        return newStream.getTracks().length > 0 ? newStream : null;
-      });
-
-      setMediaState((prev) => ({ ...prev, screenSharing: false }));
+      await stopScreenShareInternal();
     } else {
-      // ========== 开始屏幕共享 ==========
       try {
-        // 获取用户选择的分辨率和帧率，默认 1080p@60fps
         const resolution = settings?.resolution ?? '1080p';
         const frameRate = settings?.frameRate ?? 60;
         const { width, height } = RESOLUTION_MAP[resolution];
 
-        // 优化：设置用户选择的帧率和分辨率约束
         const stream = await navigator.mediaDevices.getDisplayMedia({
           video: {
             frameRate: { ideal: frameRate, max: frameRate },
@@ -1216,7 +1284,7 @@ export function useWebRTC(): UseWebRTCReturn {
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
 
-        // 设置 contentHint 告知编码器这是动态内容，优先帧率
+        // 告知编码器这是动态内容，优先帧率
         if ('contentHint' in track) {
           (track as MediaStreamTrack & { contentHint: string }).contentHint = 'motion';
         }
@@ -1226,10 +1294,9 @@ export function useWebRTC(): UseWebRTCReturn {
         );
         await Promise.all(addPromises);
 
-        // 监听用户点击"停止共享"按钮
+        // 用户点击浏览器/系统"停止共享"时，走同一停止分支（非递归）
         track.onended = () => {
-          // 递归调用关闭逻辑
-          toggleScreenShare();
+          void stopScreenShareInternal();
         };
 
         setLocalStream((prev) => {
@@ -1238,8 +1305,10 @@ export function useWebRTC(): UseWebRTCReturn {
           return newStream;
         });
 
+        const next = { ...mediaStateRef.current, screenSharing: true };
         setMediaState((prev) => ({ ...prev, screenSharing: true }));
-        setMediaError(null); // 清除之前的错误
+        setMediaError(null);
+        sendMediaState(next);
       } catch (err) {
         const mediaErr = parseMediaError(err, 'screen');
         // AbortError 表示用户取消，不显示错误
@@ -1248,95 +1317,181 @@ export function useWebRTC(): UseWebRTCReturn {
         }
       }
     }
-  }, [mediaState.screenSharing, addScreenTransceiver, stopScreenTransceiver]);
+  }, [mediaState.screenSharing, addScreenTransceiver, stopScreenShareInternal, sendMediaState]);
 
   // ========== 连接管理 ==========
 
-  /** 清理所有资源 */
-  const cleanup = useCallback(() => {
-    console.warn('[WebRTC] cleanup 被调用');
-    // 停止音量检测
-    stopVolumeDetection();
-
-    // 关闭所有 DataChannel
+  /** 关闭并清理所有 PeerConnection / DataChannel（保留 localStream/mediaState，用于重连） */
+  const cleanupPeers = useCallback(() => {
     dataChannelsRef.current.forEach((channel) => channel.close());
     dataChannelsRef.current.clear();
 
-    // 关闭所有 PeerConnection
     peerConnectionsRef.current.forEach((pc) => pc.close());
     peerConnectionsRef.current.clear();
+
     transceiverMapRef.current.clear();
-    negotiatingRef.current.clear();
     mediaTypeMapsRef.current.clear();
+    politeRef.current.clear();
+    makingOfferRef.current.clear();
+    ignoreOfferRef.current.clear();
+    isSettingRemoteAnswerPendingRef.current.clear();
+    pendingCandidatesRef.current.clear();
+    sentMediaTypeMidsRef.current.clear();
+    iceRestartTimersRef.current.forEach((timer) => clearTimeout(timer));
+    iceRestartTimersRef.current.clear();
+  }, []);
 
-    // 关闭 WebSocket
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  /** 建立信令 WebSocket（含心跳 + pong 超时检测 + 异常关闭触发重连） */
+  const openSignaling = useCallback((token: string) => {
+    const params = connectParamsRef.current;
+    if (!params) {
+      return;
     }
-
-    // 重置状态
-    setMeetingState('idle');
-    setMyParticipantId(null);
-    setParticipants([]);
-    setError(null);
-    myIdRef.current = null;
-  }, [stopVolumeDetection]);
-
-  /** 连接信令服务器 */
-  const connect = useCallback((roomId: string, token: string, iceServers: IceServer[], serverUrl: string) => {
-    console.warn('[WebRTC] connect 开始, roomId:', roomId);
-    const url = getSignalingUrl(roomId, token, serverUrl);
-    console.warn('[WebRTC] 信令 URL:', url);
-    iceServersRef.current = iceServers;
-    setMeetingState('connecting');
-    setError(null);
-
+    const url = getSignalingUrl(params.roomId, token, params.serverUrl);
     const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
     wsRef.current = ws;
+    lastPongAtRef.current = Date.now();
 
-    // 心跳定时器
-    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    // 本端因 pong 超时主动关闭时，关闭帧的 code 是干净的 1000，需据此强制重连
+    // （否则 onclose 会把 1000 当作服务器正常关闭而不重连）。
+    let pongTimedOut = false;
 
     ws.onopen = () => {
-      console.warn('[WebRTC] WebSocket 已连接');
-      heartbeatInterval = setInterval(() => {
-        if (ws.readyState === RustWebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
+      lastPongAtRef.current = Date.now();
+      heartbeat = setInterval(() => {
+        if (ws.readyState !== RustWebSocket.OPEN) {
+          return;
         }
-      }, 25000);
+        if (isPongExpired(lastPongAtRef.current, Date.now(), PONG_TIMEOUT_MS)) {
+          pongTimedOut = true;
+          ws.close(); // 触发 onclose → 重连
+          return;
+        }
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }, HEARTBEAT_INTERVAL_MS);
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
-        console.warn('[WebRTC] 收到消息:', msg.type);
-        handleMessage(msg);
+        handleMessageRef.current(msg);
       } catch {
         // 忽略解析错误
       }
     };
 
-    ws.onerror = (err) => {
-      console.error('[WebRTC] WebSocket 错误:', err);
-      setError('信令连接失败');
-      setMeetingState('error');
+    ws.onerror = () => {
+      // onclose 紧随其后，重连逻辑集中在 onclose
     };
 
     ws.onclose = (event) => {
-      console.warn('[WebRTC] WebSocket 关闭, code:', event.code);
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
       }
-      if (event.code !== 1000 && event.code !== 1001) {
-        setError('信令连接已断开');
-        setMeetingState('error');
+      if (shouldReconnectOnClose(event.code, suppressReconnectRef.current, pongTimedOut)) {
+        scheduleReconnectRef.current();
       }
     };
-  }, [handleMessage]);
+  }, []);
+
+  /** 指数退避重连：rejoin 拿新 token/ICE → 清 pc → 重开 WS；耗尽则置 error */
+  const scheduleReconnect = useCallback(() => {
+    if (suppressReconnectRef.current) {
+      return;
+    }
+    const rejoin = rejoinRef.current;
+    if (!rejoin) {
+      setError('信令连接已断开');
+      setMeetingState('error');
+      return;
+    }
+    const attempt = reconnectAttemptsRef.current;
+    if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+      setError('信令连接已断开');
+      setMeetingState('error');
+      return;
+    }
+    reconnectAttemptsRef.current = attempt + 1;
+    setMeetingState('connecting');
+    const delay = nextBackoffDelay(attempt);
+
+    reconnectTimerRef.current = setTimeout(() => {
+      void (async () => {
+        if (suppressReconnectRef.current) {
+          return;
+        }
+        let result: { token: string; iceServers: IceServer[] } | null = null;
+        try {
+          result = await rejoin();
+        } catch {
+          result = null;
+        }
+        if (suppressReconnectRef.current) {
+          return;
+        }
+        if (!result) {
+          scheduleReconnectRef.current();
+          return;
+        }
+        iceServersRef.current = result.iceServers;
+        cleanupPeers();
+        openSignalingRef.current(result.token);
+      })();
+    }, delay);
+  }, [cleanupPeers]);
+
+  // 长生命周期回调走 ref，保证 WS/定时器始终调到最新实现
+  useEffect(() => {
+    handleMessageRef.current = handleMessage;
+    openSignalingRef.current = openSignaling;
+    scheduleReconnectRef.current = scheduleReconnect;
+  }, [handleMessage, openSignaling, scheduleReconnect]);
+
+  /** 连接信令服务器 */
+  const connect = useCallback((
+    roomId: string,
+    token: string,
+    iceServers: IceServer[],
+    serverUrl: string,
+    rejoin?: RejoinFn,
+  ) => {
+    iceServersRef.current = iceServers;
+    rejoinRef.current = rejoin ?? null;
+    connectParamsRef.current = { roomId, serverUrl };
+    suppressReconnectRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    setMeetingState('connecting');
+    setError(null);
+    openSignaling(token);
+  }, [openSignaling]);
+
+  /** 清理所有资源（完全断开） */
+  const cleanup = useCallback(() => {
+    suppressReconnectRef.current = true;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    stopVolumeDetection();
+    cleanupPeers();
+
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    setMeetingState('idle');
+    setMyParticipantId(null);
+    setParticipants([]);
+    setError(null);
+    myIdRef.current = null;
+  }, [stopVolumeDetection, cleanupPeers]);
 
   /** 断开连接 */
   const disconnect = useCallback(() => {
+    suppressReconnectRef.current = true;
     sendMessage({ type: 'leave' });
     stopLocalStream();
     cleanup();

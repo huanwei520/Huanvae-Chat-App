@@ -28,7 +28,8 @@ import {
   getAvailableResolutions,
   RESOLUTION_MAP,
 } from './useWebRTC';
-import { loadMeetingData, clearMeetingData, type MeetingWindowData, type IceServer } from './api';
+import { loadMeetingData, clearMeetingData, joinRoom, type MeetingWindowData, type IceServer } from './api';
+import { createApiClient } from '../api/client';
 import {
   MicOnIcon,
   MicOffIcon,
@@ -67,7 +68,6 @@ function ParticipantVideo({
 }: {
   participant?: RemoteParticipant;
   isLocal?: boolean;
-  stream?: MediaStream | null;
   roomName?: string;
   isSpeaking?: boolean;
   onClick?: () => void;
@@ -78,8 +78,9 @@ function ParticipantVideo({
   // 视频流优先级：屏幕共享 > 摄像头 > 混合流
   const stream = participant?.screenStream || participant?.cameraStream || participant?.stream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
-  // 是否正在共享屏幕（用于 UI 提示）
-  const isScreenSharing = !!participant?.screenStream;
+  // 是否正在共享屏幕（用于 UI 提示）：优先读粗粒度信令 media_state，
+  // 让徽章在屏幕轨到达前即正确显示；回退到实际收到的 screenStream。
+  const isScreenSharing = participant?.media_state?.screen ?? !!participant?.screenStream;
 
   // 检查视频轨道状态（事件监听 + 轮询兜底，与 LocalVideo 一致）
   useEffect(() => {
@@ -389,12 +390,35 @@ export default function MeetingPage() {
           { urls: ['stun:stun1.l.google.com:19302'] },
         ];
 
+      // 断线重连回调：用房间号 + 密码重新加入（join 无需登录），拿新 ws token + ICE。
+      // 会议窗口无会话上下文，故用 serverUrl 直接构造无鉴权 API 客户端调公开的 join 端点。
+      const rejoin = async () => {
+        try {
+          const api = createApiClient({
+            baseUrl: meetingData.serverUrl,
+            accessToken: '',
+            refreshToken: '',
+          });
+          const resp = await joinRoom(
+            api,
+            meetingData.roomId,
+            meetingData.password,
+            meetingData.displayName,
+            meetingData.userInfo?.avatar_url ?? undefined,
+          );
+          return { token: resp.ws_token, iceServers: resp.ice_servers };
+        } catch {
+          return null;
+        }
+      };
+
       // 连接信令服务器
       webrtc.connect(
         meetingData.roomId,
         meetingData.token,
         iceServers,
         meetingData.serverUrl,
+        rejoin,
       );
     };
 

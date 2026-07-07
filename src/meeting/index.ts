@@ -1,7 +1,7 @@
 /**
  * 会议模块入口
  *
- * 独立 Transceiver 架构的 WebRTC 视频会议实现
+ * 独立 Transceiver 架构 + Perfect Negotiation 的 WebRTC mesh 视频会议实现
  *
  * ## 架构说明
  *
@@ -12,18 +12,21 @@
  * | 摄像头   | camera      | sendrecv |
  * | 屏幕共享 | screen      | sendrecv |
  *
- * ## 安全重协商机制
+ * ## 协商机制（Perfect Negotiation）
  *
- * 1. 使用 addTransceiver() 创建独立通道，不复用现有 transceiver
- * 2. 只在 signalingState === 'stable' 时进行协商
- * 3. 新 transceiver 不影响现有的媒体通道
+ * 1. 用 participant id 字典序定极性：id 大者 polite、小者 impolite（发起方），每对恰一极
+ * 2. 所有重协商经 `onnegotiationneeded → makeOffer`；offer/answer 走 perfect-negotiation
+ *    守卫（polite 隐式 rollback）；ICE candidate 经 pending 队列缓冲
+ * 3. 媒体轨道分类经定向 `media_type` 信令（mid 是 per-pc 的）；粗粒度媒体态经 `media_state`
+ *    / `media_state_changed` 让 UI 与 track 解耦
+ * 4. WS 异常关闭指数退避重连（rejoin 拿新 token/ICE + 全量重建 pc）
  *
  * ## 发言状态检测
  *
  * 使用 Web Audio API 进行本地音量检测：
  * - AudioContext + AnalyserNode 分析麦克风音量
  * - 音量阈值 30，超过则判定为正在说话
- * - 通过 DataChannel 广播发言状态到所有参与者
+ * - 经单侧 DataChannel（impolite 侧建）广播发言状态到所有参与者
  * - UI 显示绿色边框脉冲动画指示发言者
  *
  * ## 模块导出
