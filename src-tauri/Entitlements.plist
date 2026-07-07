@@ -21,5 +21,13 @@
     <!-- 允许下载目录访问 -->
     <key>com.apple.security.files.downloads.read-write</key>
     <true/>
+
+    <!-- 摄像头设备访问 (视频通话 / 会议 WebRTC getUserMedia 必需) -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- 麦克风 / 音频输入访问 (语音 / 视频通话 WebRTC getUserMedia 必需) -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>
