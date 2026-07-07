@@ -6,8 +6,6 @@
  *      （由本仓 src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe 实现）
  *   2. Server API types — 对应远端 `/api/hg/*` 的结构
  *      （后端为独立仓库，本仓仅消费 JSON；字段以后端 OpenAPI/文档为准）
- *
- * 注：历史注释曾写"与后端 src/huanvaeguard/models/*.rs 对齐"，但该 Rust 路径不在本仓。
  */
 
 // ─── Local Windows Service types (localhost:19198) ───
@@ -58,7 +56,7 @@ export interface ApiResponse<T> {
 
 // ─── Server API types (backend /api/hg/*) ───
 
-/** models/config.rs — HgClientConfig */
+/** 客户端隧道配置（后端下发） */
 export interface HgClientConfig {
   address: string;
   dns: string | null;
@@ -68,7 +66,7 @@ export interface HgClientConfig {
   private_key?: string;
 }
 
-/** models/device.rs — HgDevice */
+/** 设备信息 */
 export interface HgDevice {
   device_id: string;
   user_id: string;
@@ -86,7 +84,7 @@ export interface HgDevice {
   updated_at: string;
 }
 
-/** models/device.rs — DeviceRegisterResponse */
+/** 设备注册响应 */
 export interface DeviceRegisterResponse {
   device_id: string;
   virtual_ip: string;
@@ -94,7 +92,7 @@ export interface DeviceRegisterResponse {
   topology: HgPeerInfo[];
 }
 
-/** models/device.rs — HgPeerInfo (shared across device/link/group queries) */
+/** 对端设备信息（设备/链接/群组查询共用） */
 export interface HgPeerInfo {
   device_id: string;
   public_key: string;
@@ -107,7 +105,7 @@ export interface HgPeerInfo {
   last_heartbeat: string | null;
 }
 
-/** models/device.rs — DeviceTopology (incremental sync) */
+/** 设备拓扑（增量同步） */
 export interface DeviceTopology {
   device_id: string;
   virtual_ip: string;
@@ -117,7 +115,7 @@ export interface DeviceTopology {
 
 // ─── Links ───
 
-/** models/link.rs — HgDeviceLink */
+/** 设备互联链接 */
 export interface HgDeviceLink {
   link_id: string;
   device_a: string;
@@ -128,14 +126,14 @@ export interface HgDeviceLink {
   updated_at: string;
 }
 
-/** models/link.rs — CreateLinkInviteResponse */
+/** 创建互联邀请响应 */
 export interface CreateLinkInviteResponse {
   invite_id: string;
   invite_token: string;
   expires_at: string;
 }
 
-/** models/link.rs — AcceptLinkInviteResponse */
+/** 接受互联邀请响应 */
 export interface AcceptLinkInviteResponse {
   link_id: string;
   peer: HgPeerInfo;
@@ -143,7 +141,7 @@ export interface AcceptLinkInviteResponse {
 
 // ─── Groups ───
 
-/** models/group.rs — HgGroup */
+/** VPN 组 */
 export interface HgGroup {
   group_id: string;
   name: string;
@@ -155,19 +153,19 @@ export interface HgGroup {
   updated_at: string;
 }
 
-/** models/group.rs — GroupDetail */
+/** 组详情（组 + 成员设备） */
 export interface GroupDetail {
   group: HgGroup;
   devices: HgPeerInfo[];
 }
 
-/** models/group.rs — CreateGroupResponse */
+/** 创建组响应 */
 export interface CreateGroupResponse {
   group_id: string;
   name: string;
 }
 
-/** models/group.rs — JoinGroupResponse */
+/** 加入组响应 */
 export interface JoinGroupResponse {
   group_id: string;
   status: string;

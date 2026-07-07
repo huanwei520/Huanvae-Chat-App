@@ -272,7 +272,7 @@ export default function HuanvaeGuardPage() {
         windowData.serverUrl, windowData.accessToken, selectedDeviceId,
       );
       if (!config.private_key) {
-        setError('服务器未返回私钥，请检查 HG_PSK_KEY 环境变量');
+        setError('服务器未返回私钥，请检查服务端配置');
         return;
       }
       addLog(`配置已获取：${config.peers.length} 个对端，地址=${config.address}`);
@@ -283,7 +283,7 @@ export default function HuanvaeGuardPage() {
         private_key: config.private_key,
         peers: config.peers,
         obfuscation: config.obfuscation,
-        // 注：macOS daemon 当前不应用 dns（IP-only，见 hg-macos network.rs 的 deferred 日志）；
+        // 注：macOS daemon 当前不应用 dns（IP-only）；
         // Windows daemon 生效。如需 macOS VPN 内域名解析需另做 networksetup/scutil（暂未实现）。
         dns: config.dns ?? undefined,
         mtu: config.mtu,
