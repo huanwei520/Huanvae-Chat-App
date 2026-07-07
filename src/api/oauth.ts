@@ -72,6 +72,7 @@ export interface CreateClientRequest {
   app_name: string;
   app_description?: string;
   app_homepage_url?: string;
+  app_logo_url?: string;
   redirect_uris: string[];
   scopes?: string[];
 }

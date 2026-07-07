@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOAuthClients } from '../../hooks/useOAuthClients';
 import type { OAuthClient, CreateClientRequest, CreateClientResponse } from '../../api/oauth';
+import { SecretDisplay } from '../common/SecretDisplay';
 import '../../styles/oauth.css';
 
 const AVAILABLE_SCOPES = [
@@ -36,62 +37,6 @@ const RefreshIcon: React.FC = () => (
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {});
 }
-
-// ============================================
-// Secret Display Dialog
-// ============================================
-
-interface SecretDisplayProps {
-  clientId: string;
-  clientSecret: string;
-  appName: string;
-  onClose: () => void;
-}
-
-const SecretDisplay: React.FC<SecretDisplayProps> = ({ clientId, clientSecret, appName, onClose }) => (
-  <motion.div
-    className="oauth-create-overlay"
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    onClick={onClose}
-  >
-    <motion.div
-      className="oauth-secret-dialog"
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h3 className="oauth-create-title">{appName} - 客户端凭据</h3>
-
-      <div className="oauth-secret-warning">
-        <span>&#9888;</span>
-        <span>客户端密钥仅显示一次，请妥善保存</span>
-      </div>
-
-      <div className="oauth-secret-field">
-        <div className="oauth-secret-label">Client ID</div>
-        <div className="oauth-secret-value">
-          <span style={{ flex: 1, wordBreak: 'break-all' }}>{clientId}</span>
-          <button className="copy-btn" onClick={() => copyToClipboard(clientId)}>复制</button>
-        </div>
-      </div>
-
-      <div className="oauth-secret-field">
-        <div className="oauth-secret-label">Client Secret</div>
-        <div className="oauth-secret-value">
-          <span style={{ flex: 1, wordBreak: 'break-all' }}>{clientSecret}</span>
-          <button className="copy-btn" onClick={() => copyToClipboard(clientSecret)}>复制</button>
-        </div>
-      </div>
-
-      <button className="oauth-secret-close-btn" onClick={onClose}>
-        已保存，关闭
-      </button>
-    </motion.div>
-  </motion.div>
-);
 
 // ============================================
 // Create Client Dialog
@@ -454,9 +399,12 @@ export const OAuthClientsPanel: React.FC<OAuthClientsPanelProps> = ({ onBack }) 
       <AnimatePresence>
         {secretInfo && (
           <SecretDisplay
-            clientId={secretInfo.client_id}
-            clientSecret={secretInfo.client_secret}
-            appName={secretInfo.app_name}
+            title={`${secretInfo.app_name} - 客户端凭据`}
+            warningText="客户端密钥仅显示一次，请妥善保存"
+            fields={[
+              { label: 'Client ID', value: secretInfo.client_id },
+              { label: 'Client Secret', value: secretInfo.client_secret },
+            ]}
             onClose={() => setSecretInfo(null)}
           />
         )}
@@ -465,9 +413,12 @@ export const OAuthClientsPanel: React.FC<OAuthClientsPanelProps> = ({ onBack }) 
       <AnimatePresence>
         {resetSecretValue && (
           <SecretDisplay
-            clientId={resetSecretValue.clientId}
-            clientSecret={resetSecretValue.secret}
-            appName={clients.find((c) => c.client_id === resetSecretValue.clientId)?.app_name || 'OAuth Client'}
+            title={`${clients.find((c) => c.client_id === resetSecretValue.clientId)?.app_name || 'OAuth Client'} - 客户端凭据`}
+            warningText="客户端密钥仅显示一次，请妥善保存"
+            fields={[
+              { label: 'Client ID', value: resetSecretValue.clientId },
+              { label: 'Client Secret', value: resetSecretValue.secret },
+            ]}
             onClose={() => setResetSecretValue(null)}
           />
         )}
