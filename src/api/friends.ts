@@ -57,22 +57,16 @@ export function getPendingRequests(api: ApiClient): Promise<PendingRequestsRespo
  * 同意好友请求
  * @param userId 当前用户 ID
  * @param applicantUserId 申请人用户 ID
- * @param approvedReason 同意原因（可选）
  */
 export function approveFriendRequest(
   api: ApiClient,
   userId: string,
   applicantUserId: string,
-  approvedReason?: string,
 ): Promise<void> {
-  const body: Record<string, string> = {
+  const body = {
     user_id: userId,
     applicant_user_id: applicantUserId,
-    approved_time: new Date().toISOString(),
   };
-  if (approvedReason) {
-    body.approved_reason = approvedReason;
-  }
   return api.post('/api/friends/requests/approve', body);
 }
 
