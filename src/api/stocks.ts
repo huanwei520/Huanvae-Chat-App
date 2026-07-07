@@ -67,33 +67,12 @@ export interface StockCandle {
   amount?: number;
 }
 
-/**
- * 指标序列：与 candles 等长对齐，warmup 期为 null。
- * ma 为多周期映射，键为周期标识（如 `ma5` / `ma10` / `ma20` / `ma60`）。
- * 注：当前 K 线图（klinecharts）使用图表内置指标做视觉叠加，未直接消费本字段；
- * 保留镜像以备后续改用后端指标真值（PLAN §6 口径）。
- */
-export interface StockIndicators {
-  ma: Record<string, (number | null)[]>;
-  macd: {
-    dif: (number | null)[];
-    dea: (number | null)[];
-    macd: (number | null)[];
-  };
-  kdj: {
-    k: (number | null)[];
-    d: (number | null)[];
-    j: (number | null)[];
-  };
-}
-
 export interface StockKlineData {
   symbol: string;
   market: StockMarket;
   name: string;
   currency: string;
   candles: StockCandle[];
-  indicators: StockIndicators;
   fetched_at: string | null;
   /** 业务日期（最新一根 bar 的交易日） */
   as_of?: string | null;
