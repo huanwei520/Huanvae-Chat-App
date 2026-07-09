@@ -159,16 +159,7 @@
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-}
-
-.share-meeting-avatar-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-color, #6c63ff);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  overflow: hidden;
 }
 
 .share-meeting-name {

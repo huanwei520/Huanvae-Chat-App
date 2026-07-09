@@ -38,6 +38,7 @@ import {
 } from '../../components/common/Icons';
 import { ShareMeetingModal } from '../../meeting/components/ShareMeetingModal';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 
 // 最小化图标（内联定义）
@@ -186,7 +187,9 @@ function ParticipantVideo({
           {displayAvatar ? (
             <img className="mobile-avatar-image" src={displayAvatar} alt={displayName} />
           ) : (
-            <div className="mobile-avatar-placeholder">{displayName.charAt(0)}</div>
+            <div className="mobile-avatar-placeholder">
+              <AvatarPlaceholder name={displayName} fontSize={32} />
+            </div>
           )}
         </div>
       )}
@@ -415,7 +418,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
                     />
                   ) : (
                     <div className="mobile-participant-avatar-placeholder">
-                      {meetingData.displayName.charAt(0)}
+                      <AvatarPlaceholder name={meetingData.displayName} fontSize={14} />
                     </div>
                   )}
                   <span>{meetingData.displayName}</span>
@@ -431,7 +434,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
                       />
                     ) : (
                       <div className="mobile-participant-avatar-placeholder">
-                        {p.name.charAt(0)}
+                        <AvatarPlaceholder name={p.name} fontSize={14} />
                       </div>
                     )}
                     <span>{p.name}</span>

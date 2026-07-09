@@ -8,14 +8,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useBlacklist } from '../../hooks/useBlacklist';
+import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
 import type { BlacklistedUser } from '../../api/friends';
 import './blacklist.css';
-
-/** 取展示名首字母（占位头像用） */
-function initialOf(name: string): string {
-  const trimmed = name.trim();
-  return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
-}
 
 const BackIcon: React.FC = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -47,7 +42,7 @@ const BlacklistRow: React.FC<BlacklistRowProps> = ({ user, onRemove, removing })
         {user.user_avatar_url ? (
           <img src={user.user_avatar_url} alt={name} />
         ) : (
-          <span>{initialOf(name)}</span>
+          <AvatarPlaceholder name={name} fontSize={16} />
         )}
       </div>
       <div className="blacklist-info">

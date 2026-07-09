@@ -22,6 +22,7 @@
 import { useRef } from 'react';
 import { gsap } from 'gsap';
 import { useGSAP } from '@gsap/react';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import type { GroupReader } from '../group/useGroupReadReceipt';
 
 gsap.registerPlugin(useGSAP);
@@ -30,12 +31,6 @@ interface ReaderAvatarStackProps {
   readers: GroupReader[];
   /** 最多展示的头像数，默认 5 */
   maxVisible?: number;
-}
-
-/** 取展示名首字母（占位头像用），供已读回执相关组件复用 */
-export function avatarInitial(name: string): string {
-  const trimmed = name.trim();
-  return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
 }
 
 export function ReaderAvatarStack({ readers, maxVisible = 5 }: ReaderAvatarStackProps) {
@@ -122,7 +117,7 @@ export function ReaderAvatarStack({ readers, maxVisible = 5 }: ReaderAvatarStack
           {reader.avatarUrl ? (
             <img src={reader.avatarUrl} alt={reader.displayName} />
           ) : (
-            <span className="reader-avatar-stack-placeholder">{avatarInitial(reader.displayName)}</span>
+            <AvatarPlaceholder name={reader.displayName} fontSize={9} />
           )}
         </span>
       ))}

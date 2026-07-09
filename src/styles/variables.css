@@ -157,6 +157,18 @@
   --color-neutral-12: #030712;
 
   /* ============================================
+     Default avatar placeholder tokens
+     Uniform "no avatar image" look: fixed blue, theme-independent. The initial
+     gradient uses literal blue hex (NOT var(--color-primary-*)) so every default
+     avatar stays the same blue regardless of the user's chosen theme color; the
+     light end stays readable on the white ground.
+     ============================================ */
+  --avatar-placeholder-bg: #ffffff;
+  --avatar-placeholder-ring: rgba(0, 0, 0, 0.08);
+  --avatar-placeholder-initial-start: #2563eb;  /* fixed blue, theme-independent (was var(--color-primary-7)) */
+  --avatar-placeholder-initial-end: #93c5fd;    /* fixed light blue (was var(--color-primary-4)) */
+
+  /* ============================================
      毛玻璃效果专用变量
      ============================================ */
   

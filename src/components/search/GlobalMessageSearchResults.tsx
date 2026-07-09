@@ -18,6 +18,7 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
+import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
@@ -301,9 +302,7 @@ export function GlobalMessageSearchResults({
             {friend && <FriendAvatar friend={friend} />}
             {groupData && <GroupAvatar group={groupData} />}
             {!friend && !groupData && (
-              <span className="global-msg-search-group-avatar-placeholder">
-                {group.conversationName.charAt(0).toUpperCase()}
-              </span>
+              <AvatarPlaceholder name={group.conversationName} fontSize={11} />
             )}
           </div>
           <span className="global-msg-search-group-name">{group.conversationName}</span>

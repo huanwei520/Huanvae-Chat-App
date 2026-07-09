@@ -99,6 +99,7 @@ export const STOCK_COMPONENTS: ComponentEntry[] = [
 export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
   { name: 'Avatar', path: 'components/common/Avatar', category: 'components', description: '头像组件' },
+  { name: 'AvatarPlaceholder', path: 'components/common/AvatarPlaceholder', category: 'components', description: '统一头像占位组件（首字母 + 确定性渐变，收敛全 App 占位）' },
   { name: 'AIAvatar', path: 'components/common/AIAvatar', category: 'components', description: 'AI 助手头像组件' },
   { name: 'AvatarCropModal', path: 'components/common/AvatarCropModal', category: 'components', description: '头像裁剪弹窗（1:1，个人/群头像共用，含 useAvatarCrop Hook）' },
   { name: 'MarkdownRenderer', path: 'components/common/MarkdownRenderer', category: 'components', description: 'Markdown 渲染组件（聊天气泡内容）' },
@@ -315,6 +316,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
+  { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },
   // 聊天共享模块
   { name: 'chatAnimations', path: 'chat/shared/animations', category: 'services', description: '消息动画配置' },
   { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },

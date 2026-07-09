@@ -27,6 +27,7 @@ import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useChatStore, useProfileViewStore } from '../../stores';
@@ -511,9 +512,7 @@ export function GroupMessageBubble({
                 {message.sender_avatar_url ? (
                   <img src={message.sender_avatar_url} alt={senderDisplayName} />
                 ) : (
-                  <div className="avatar-placeholder">
-                    {senderDisplayName.charAt(0).toUpperCase()}
-                  </div>
+                  <AvatarPlaceholder name={senderDisplayName} fontSize={14} />
                 )}
               </div>
               <div className="bubble-content">

@@ -1240,18 +1240,6 @@
   object-fit: cover;
 }
 
-.member-avatar .avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--color-primary-4), var(--color-primary-5));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .member-info {
   flex: 1;
   display: flex;
@@ -1968,19 +1956,6 @@
   margin-bottom: 2px;
 }
 
-/* 头像占位符 */
-.bubble-avatar .avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--color-primary-4), var(--color-primary-5));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-}
-
 /* ============================================
    已读回执统一状态槽（时间戳 + 状态图标，固定结构落点一致）
    ============================================ */
@@ -2078,18 +2053,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.reader-avatar-stack-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: 9px;
-  font-weight: 600;
-  color: white;
-  background: linear-gradient(135deg, var(--color-primary-4), var(--color-primary-5));
 }
 
 .reader-avatar-stack-more {
@@ -2292,18 +2255,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.group-read-list-avatar-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: 13px;
-  font-weight: 600;
-  color: white;
-  background: linear-gradient(135deg, var(--color-primary-4), var(--color-primary-5));
 }
 
 .group-read-list-name {

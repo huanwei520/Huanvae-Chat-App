@@ -6,6 +6,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { sendMessage } from '../../api/messages';
 import { sendGroupMessage } from '../../api/groupMessages';
 import { friendDisplayName } from '../../utils/friendName';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import type { Friend, Group } from '../../types/chat';
 import './ShareMeetingModal.css';
 
@@ -184,8 +185,8 @@ export function ShareMeetingModal({ isOpen, onClose, meetingData }: ShareMeeting
                     {f.friend_avatar_url ? (
                       <img className="share-meeting-avatar" src={f.friend_avatar_url} alt="" />
                     ) : (
-                      <div className="share-meeting-avatar share-meeting-avatar-placeholder">
-                        {friendDisplayName(f).charAt(0)}
+                      <div className="share-meeting-avatar">
+                        <AvatarPlaceholder name={friendDisplayName(f)} fontSize={14} />
                       </div>
                     )}
                     <span className="share-meeting-name">{friendDisplayName(f)}</span>

@@ -193,12 +193,6 @@
   display: none;
 }
 
-.stack-card-avatar .default-avatar-icon {
-  width: 26px;
-  height: 26px;
-  color: var(--text-light);
-}
-
 /* ============================================
    信息区域
    ============================================ */

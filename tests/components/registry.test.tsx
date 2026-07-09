@@ -86,6 +86,7 @@ import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
+import * as AvatarPlaceholder from '../../src/components/common/AvatarPlaceholder';
 import * as AIAvatar from '../../src/components/common/AIAvatar';
 import * as AvatarCropModal from '../../src/components/common/AvatarCropModal';
 import * as MarkdownRenderer from '../../src/components/common/MarkdownRenderer';
@@ -253,6 +254,7 @@ import * as useLanTransfer from '../../src/hooks/useLanTransfer';
 
 // 工具模块
 import * as formatUtils from '../../src/utils/format';
+import * as avatarColor from '../../src/utils/avatarColor';
 
 // 聊天共享模块
 import * as chatAnimations from '../../src/chat/shared/animations';
@@ -328,6 +330,7 @@ const COMPONENT_MAP = {
   useStartupUpdateCheck,
   // 通用组件
   Avatar,
+  AvatarPlaceholder,
   AIAvatar,
   AvatarCropModal,
   MarkdownRenderer,
@@ -494,6 +497,7 @@ const COMPONENT_MAP = {
   settingsStore,
   // 工具模块
   formatUtils,
+  avatarColor,
   // 聊天共享模块
   chatAnimations,
   aiApi,

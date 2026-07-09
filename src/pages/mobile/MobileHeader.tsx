@@ -12,6 +12,7 @@
 
 import type { Session } from '../../types/session';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 
 // 搜索图标
 const SearchIcon = () => (
@@ -90,28 +91,7 @@ export function MobileHeader({
             alt={session.profile.user_nickname || session.userId}
           />
         ) : (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              background: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '18px',
-              fontWeight: 700,
-            }}
-          >
-            <span
-              style={{
-                background: 'linear-gradient(135deg, #60a5fa, #e0e7ff)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
-            >
-              {(session.profile?.user_nickname || session.userId).charAt(0).toUpperCase()}
-            </span>
-          </div>
+          <AvatarPlaceholder name={session.profile?.user_nickname || session.userId} fontSize={18} />
         )}
         {/* 连接状态指示器 */}
         <span className={`connection-indicator ${statusClass}`} />

@@ -567,19 +567,12 @@
   box-shadow: var(--shadow-md);
 }
 
-/* 首字母占位头像（未登录用户） */
+/* Fallback avatar container (80px circle) — the unified AvatarPlaceholder fills it. */
 .avatar-placeholder {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  text-transform: uppercase;
+  overflow: hidden;
 }
 
 .participant-name {
@@ -791,19 +784,12 @@
   border: 2px solid var(--border-focus);
 }
 
-/* 参与者列表首字母头像（未登录用户） */
+/* Participant-list fallback avatar container (36px circle) — unified AvatarPlaceholder fills it. */
 .participant-item .participant-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-inverse);
-  text-transform: uppercase;
+  overflow: hidden;
   flex-shrink: 0;
 }
 

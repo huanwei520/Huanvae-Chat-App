@@ -7,7 +7,7 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { DefaultAvatarIcon } from '../common/Icons';
+import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
 import type { SavedAccount } from '../../types/account';
 
 // ============================================
@@ -103,7 +103,7 @@ export function CardSlot({ account, positionIndex, onClick }: CardSlotProps) {
               draggable={false}
             />
           ) : (
-            <DefaultAvatarIcon />
+            <AvatarPlaceholder name={account.nickname || account.user_id} fontSize={20} />
           )}
         </div>
         <div className="stack-card-info">

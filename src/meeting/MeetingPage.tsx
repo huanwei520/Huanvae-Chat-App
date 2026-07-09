@@ -44,6 +44,7 @@ import {
 } from '../components/common/Icons';
 import { MediaPermissionGuide } from './components/MediaPermissionGuide';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
 import './styles.css';
 
 /**
@@ -224,7 +225,7 @@ function ParticipantVideo({
             />
           ) : (
             <div className="avatar-placeholder">
-              {displayName.charAt(0)}
+              <AvatarPlaceholder name={displayName} fontSize={32} />
             </div>
           )}
         </div>
@@ -243,11 +244,14 @@ function LocalVideo({
   stream,
   isSpeaking,
   avatarUrl,
+  displayName,
   onClick,
 }: {
   stream: MediaStream | null;
   isSpeaking: boolean;
   avatarUrl?: string | null;
+  /** 当前用户展示名，用于无头像时的占位首字（缺省回退「我」） */
+  displayName?: string | null;
   onClick?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -324,7 +328,9 @@ function LocalVideo({
           {avatarUrl ? (
             <img className="avatar-image" src={avatarUrl} alt="我" />
           ) : (
-            <div className="avatar-placeholder">我</div>
+            <div className="avatar-placeholder">
+              <AvatarPlaceholder name={displayName || '我'} fontSize={32} />
+            </div>
           )}
         </div>
       )}
@@ -620,6 +626,7 @@ export default function MeetingPage() {
             stream={webrtc.localStream}
             isSpeaking={webrtc.isSpeaking}
             avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+            displayName={meetingData?.displayName}
             onClick={() => handleTileClick('local')}
           />
           <AnimatePresence>
@@ -655,7 +662,9 @@ export default function MeetingPage() {
                       alt={meetingData.displayName}
                     />
                   ) : (
-                    <div className="participant-avatar">{meetingData.displayName.charAt(0)}</div>
+                    <div className="participant-avatar">
+                      <AvatarPlaceholder name={meetingData.displayName} fontSize={14} />
+                    </div>
                   )}
                   <span className="participant-name">{meetingData.displayName}</span>
                   <span className="participant-badge self">我</span>
@@ -679,7 +688,9 @@ export default function MeetingPage() {
                           alt={displayName}
                         />
                       ) : (
-                        <div className="participant-avatar">{displayName.charAt(0)}</div>
+                        <div className="participant-avatar">
+                          <AvatarPlaceholder name={displayName} fontSize={14} />
+                        </div>
                       )}
                       <span className="participant-name">{displayName}</span>
                       {p.is_creator && <span className="participant-badge host">主持人</span>}
@@ -800,6 +811,7 @@ export default function MeetingPage() {
                     stream={webrtc.localStream}
                     isSpeaking={webrtc.isSpeaking}
                     avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                    displayName={meetingData?.displayName}
                   />
                 ) : (
                   (() => {
@@ -826,6 +838,7 @@ export default function MeetingPage() {
                     stream={webrtc.localStream}
                     isSpeaking={webrtc.isSpeaking}
                     avatarUrl={resolveServerAvatarUrl(meetingData?.userInfo?.avatar_url)}
+                    displayName={meetingData?.displayName}
                     onClick={() => setFocusedId('local')}
                   />
                 )}

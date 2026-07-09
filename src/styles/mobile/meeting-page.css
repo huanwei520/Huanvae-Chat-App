@@ -200,17 +200,12 @@
   object-fit: cover;
 }
 
+/* Fallback avatar container (80px circle) - the unified AvatarPlaceholder fills it. */
 .mobile-avatar-placeholder {
   width: 80px;
   height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary-color, #3b82f6);
   border-radius: 50%;
-  color: #fff;
-  font-size: 32px;
-  font-weight: 600;
+  overflow: hidden;
 }
 
 .mobile-participant-name {
@@ -287,17 +282,12 @@
   object-fit: cover;
 }
 
+/* Participant-list fallback avatar container (36px circle) - unified AvatarPlaceholder fills it. */
 .mobile-participant-avatar-placeholder {
   width: 36px;
   height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #4b5563;
   border-radius: 50%;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  overflow: hidden;
 }
 
 .mobile-badge {

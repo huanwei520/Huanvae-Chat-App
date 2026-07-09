@@ -83,7 +83,8 @@ describe('ReaderAvatarStack（已读者头像堆叠）', () => {
     ];
     const { container } = render(<ReaderAvatarStack readers={readers} />);
     expect(container.querySelector('img[src="http://x/a.png"]')).toBeTruthy();
-    const placeholder = container.querySelector('.reader-avatar-stack-placeholder');
+    // 无头像走统一 AvatarPlaceholder（.avatar-placeholder-unified），首字母大写
+    const placeholder = container.querySelector('.avatar-placeholder-unified');
     expect(placeholder?.textContent).toBe('B'); // bob 首字母大写
   });
 });

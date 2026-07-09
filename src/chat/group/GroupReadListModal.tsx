@@ -24,7 +24,7 @@ import { gsap } from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { isMobile } from '../../utils/platform';
 import { formatMessageTime } from '../../utils/time';
-import { avatarInitial } from '../shared/ReaderAvatarStack';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import type { GroupReader } from './useGroupReadReceipt';
 
 gsap.registerPlugin(useGSAP);
@@ -145,9 +145,7 @@ export function GroupReadListModal({ isOpen, onClose, readers }: GroupReadListMo
                     {reader.avatarUrl ? (
                       <img src={reader.avatarUrl} alt={reader.displayName} />
                     ) : (
-                      <span className="group-read-list-avatar-placeholder">
-                        {avatarInitial(reader.displayName)}
-                      </span>
+                      <AvatarPlaceholder name={reader.displayName} fontSize={13} />
                     )}
                   </span>
                   <span className="group-read-list-name">{reader.displayName}</span>

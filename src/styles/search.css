@@ -182,10 +182,6 @@
   flex-shrink: 0;
   border-radius: 50%;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #60a5fa, #818cf8);
 }
 
 .global-msg-search-conv-avatar img {
@@ -226,22 +222,12 @@
   flex-shrink: 0;
   border-radius: 50%;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #60a5fa, #818cf8);
 }
 
 .global-msg-search-group-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.global-msg-search-group-avatar-placeholder {
-  font-size: 11px;
-  font-weight: 700;
-  color: #ffffff;
 }
 
 .global-msg-search-group-name {

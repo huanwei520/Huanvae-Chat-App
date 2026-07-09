@@ -12,6 +12,7 @@
  */
 
 import type { Session } from '../../types/session';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 
 // 设置图标
 const SettingsIcon = () => (
@@ -173,28 +174,7 @@ export function MobileDrawer({
             {avatarUrl ? (
               <img src={avatarUrl} alt={nickname} />
             ) : (
-              <div
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  background: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '28px',
-                  fontWeight: 700,
-                }}
-              >
-                <span
-                  style={{
-                    background: 'linear-gradient(135deg, #60a5fa, #e0e7ff)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                  }}
-                >
-                  {nickname.charAt(0).toUpperCase()}
-                </span>
-              </div>
+              <AvatarPlaceholder name={nickname} fontSize={28} />
             )}
           </div>
           <div className="mobile-drawer-name">{nickname}</div>
