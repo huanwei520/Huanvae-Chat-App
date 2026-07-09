@@ -34,6 +34,18 @@
 import { create } from 'zustand';
 import type { Friend, Group, ChatTarget, Message } from '../types/chat';
 import type { GroupMessage } from '../api/groupMessages';
+import type { GroupReaderInfo } from '../chat/group/useGroupReadReceipt';
+
+/**
+ * 群已读位置内存镜像值（仿 cachedGroupMessages）：进群首帧从此秒取，消除两阶段弹入。
+ * positions: member_id → last_read_seq（计数用）；readerInfo: member_id → 展示信息
+ * （avatarUrl 为已解析的显示 URL）；memberCount: 群活跃成员总数。
+ */
+export interface GroupReadMirror {
+  positions: Record<string, number>;
+  readerInfo: Record<string, GroupReaderInfo>;
+  memberCount: number;
+}
 
 // ============================================
 // 类型定义
@@ -119,6 +131,23 @@ interface ChatState {
    * 同样不 slice(-50)，原因见上方注释。
    */
   cachedGroupMessages: Record<string, GroupMessage[]>;
+
+  /**
+   * 群已读位置内存镜像（key = groupId）——仿 cachedGroupMessages，进群二开首帧零异步。
+   *
+   * 写入：useGroupReadReceipt 的 unmount cleanup（保存当前已读态全量）。
+   * 读取：useGroupReadReceipt 的 useState 懒初始化（hook 挂在按会话 key 键控的组件内，切会话即重挂，
+   *   首帧懒初始化读镜像即够，无需 groupId 变更渲染期兜底）。
+   * 清理：退出登录 / 切换账号（clearMessageCache）。
+   * 与 db（group_read_positions 表）互补：镜像=会话内秒开，db=跨应用重启持久化。
+   */
+  cachedGroupReadPositions: Record<string, GroupReadMirror>;
+
+  /**
+   * 单聊对方已读位置内存镜像（key = conversationId，value = peerLastReadSeq）。
+   * 同上设计；与 db（conversations.peer_last_read_seq）互补。
+   */
+  cachedFriendReadPositions: Record<string, number>;
 
   /**
    * 每群「我屏蔽的成员 user_id」集合（D6）。
@@ -256,6 +285,12 @@ interface ChatActions {
    */
   cacheGroupMessages: (groupId: string, messages: GroupMessage[]) => void;
 
+  /** 缓存群已读位置镜像（useGroupReadReceipt unmount 时调用，供二开首帧秒取）。 */
+  cacheGroupReadPositions: (groupId: string, mirror: GroupReadMirror) => void;
+
+  /** 缓存单聊对方已读位置镜像（useFriendReadReceipt unmount 时调用）。 */
+  cacheFriendReadPositions: (conversationId: string, peerLastReadSeq: number) => void;
+
   /**
    * 清空所有消息缓存与群私有视图（退出登录 / 切换账号时调用）。
    */
@@ -289,6 +324,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   cachedFriendMessages: {},
 
   cachedGroupMessages: {},
+
+  cachedGroupReadPositions: {},
+
+  cachedFriendReadPositions: {},
 
   groupMessageBlocks: {},
 
@@ -475,8 +514,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
     })),
 
+  cacheGroupReadPositions: (groupId, mirror) =>
+    set((state) => ({
+      cachedGroupReadPositions: {
+        ...state.cachedGroupReadPositions,
+        [groupId]: mirror,
+      },
+    })),
+
+  cacheFriendReadPositions: (conversationId, peerLastReadSeq) =>
+    set((state) => ({
+      cachedFriendReadPositions: {
+        ...state.cachedFriendReadPositions,
+        [conversationId]: peerLastReadSeq,
+      },
+    })),
+
   clearMessageCache: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadPositions: {}, cachedFriendReadPositions: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

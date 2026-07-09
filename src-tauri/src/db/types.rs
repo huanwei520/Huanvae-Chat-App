@@ -130,6 +130,21 @@ pub struct LocalFriend {
     pub updated_at: Option<String>,
 }
 
+/// 群成员本地已读位置行（对应 group_read_positions 表）
+///
+/// 群已读回执首帧初值 + 二开校准的本地持久化载体。`avatar_url` 存后端**原始**值
+/// （相对路径 / 逻辑域名 URL），显示层经唯一收口点解析为回环反代 URL——不存已解析值，
+/// 因反代端口跨应用重启会变，持久化解析后的回环 URL 会失效。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupReadPositionRow {
+    pub group_id: String,
+    pub user_id: String,
+    pub last_read_seq: i64,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub last_read_at: Option<String>,
+}
+
 /// 本地群组记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalGroup {

@@ -360,7 +360,9 @@ export function useLocalFriendMessages(friendId: string | null) {
         lastSeq: conversation.last_seq,
       });
 
-      const result = await syncService.syncMessages([conversation]);
+      // 打开会话那次同步携带已读位置快照（with_read_positions:true）：响应 read_positions 经
+      // syncService 转发给 useFriendReadReceipt 校准，取代原独立 read-positions 端点首拉（已移除）。
+      const result = await syncService.syncMessages([conversation], { withReadPositions: true });
 
       // 过期校验：快速切换后丢弃旧结果
       if (currentFriendId.current !== targetFriendId) {

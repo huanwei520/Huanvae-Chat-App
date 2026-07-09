@@ -37,6 +37,7 @@ use crate::user_data;
 pub mod contacts;
 pub mod conversations;
 pub mod files;
+pub mod group_read_positions;
 pub mod messages;
 pub mod nfc;
 pub mod types;
@@ -44,6 +45,7 @@ pub mod types;
 // 重新导出类型和函数
 pub use contacts::*;
 pub use conversations::*;
+pub use group_read_positions::*;
 pub use files::{
     delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, save_file_mapping,
     save_file_uuid_hash, update_file_mapping_verified,
@@ -128,6 +130,15 @@ pub fn init_database() -> Result<(), String> {
     // 迁移：添加 last_read_seq 列（本地已读位置，旧数据库兼容；幂等，列已存在则忽略）
     conn.execute(
         "ALTER TABLE conversations ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
+        [],
+    )
+    .ok();
+
+    // 迁移：添加 peer_last_read_seq 列（单聊对方已读位置，已读回执首帧初值；幂等）。
+    // 与 last_read_seq 同款：save_conversation 的 UPSERT 不列此列，故服务端同步不覆盖它，
+    // 由 update_conversation_peer_read_seq 单调 MAX 维护。
+    conn.execute(
+        "ALTER TABLE conversations ADD COLUMN peer_last_read_seq INTEGER NOT NULL DEFAULT 0",
         [],
     )
     .ok();
@@ -356,6 +367,22 @@ pub fn init_database() -> Result<(), String> {
     )
     .map_err(|e| format!("创建 groups 表失败: {}", e))?;
 
+    // 创建群成员已读位置表（群已读回执首帧初值 + 二开校准的本地持久化载体）。
+    // avatar_url 存后端原始值，显示层经收口点解析（回环反代端口跨重启会变，不存已解析值）。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS group_read_positions (
+            group_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            last_read_seq INTEGER NOT NULL DEFAULT 0,
+            display_name TEXT,
+            avatar_url TEXT,
+            last_read_at TEXT,
+            PRIMARY KEY (group_id, user_id)
+        )",
+        [],
+    )
+    .map_err(|e| format!("创建 group_read_positions 表失败: {}", e))?;
+
     // 创建 NFC 信任卡表（联合主键防止 payload 改写后仍命中）
     conn.execute(
         "CREATE TABLE IF NOT EXISTS nfc_trusted_cards (
@@ -396,6 +423,7 @@ pub fn clear_all_data() -> Result<(), String> {
         db.execute_batch(
             "DELETE FROM messages;
              DELETE FROM conversations;
+             DELETE FROM group_read_positions;
              DELETE FROM file_mappings;
              DELETE FROM file_uuid_hash;
              DELETE FROM avatars;

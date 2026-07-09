@@ -116,6 +116,21 @@ export interface SearchMessageResult {
   context_after: string | null;
 }
 
+/**
+ * 群成员本地已读位置行（对应 Rust group_read_positions 表）。
+ *
+ * `avatar_url` 为后端**原始**值（相对路径 / 逻辑域名 URL）；显示层经唯一收口点
+ * resolveServerAvatarUrl 解析为回环反代 URL——不持久化已解析值，因反代端口跨应用重启会变。
+ */
+export interface GroupReadPositionRow {
+  group_id: string;
+  user_id: string;
+  last_read_seq: number;
+  display_name: string | null;
+  avatar_url: string | null;
+  last_read_at: string | null;
+}
+
 /** 本地文件映射 */
 export interface LocalFileMapping {
   file_hash: string;
@@ -222,6 +237,19 @@ export async function saveConversation(
 export async function advanceConversationRead(id: string, seq?: number): Promise<void> {
   noteRead(id, seq);
   await invoke('db_advance_conversation_read', { id, seq: seq ?? null });
+}
+
+/**
+ * 读取会话对方已读位置（单聊已读回执首帧初值；无记录返回 0）。
+ * 进入会话时读出建立 peerLastReadSeq 初值，配合 sync 快照 + WS read_sync 增量校准。
+ */
+export function getConversationPeerReadSeq(conversationId: string): Promise<number> {
+  return invoke<number>('db_get_conversation_peer_read_seq', { id: conversationId });
+}
+
+/** 单调推进会话对方已读位置（MAX，只升不降）。sync 快照 / WS read_sync（对方读）到达时写穿。 */
+export async function setConversationPeerReadSeq(conversationId: string, seq: number): Promise<void> {
+  await invoke('db_set_conversation_peer_read_seq', { id: conversationId, seq });
 }
 
 /** 更新会话的最后序列号（同步写穿读位内存 Map 后落库） */
@@ -554,4 +582,38 @@ export async function updateGroup(group: LocalGroup): Promise<void> {
 /** 删除群组 */
 export async function deleteGroup(groupId: string): Promise<void> {
   await invoke('db_delete_group', { groupId });
+}
+
+// ============================================================================
+// 群成员已读位置（群已读回执首帧初值 + 二开校准的本地持久化）
+// ============================================================================
+
+/**
+ * 读某群全部成员的本地已读位置（首帧初值 + 二开校准）。
+ * avatar_url 为后端原始值，显示层经 resolveServerAvatarUrl 解析（见 GroupReadPositionRow 注释）。
+ */
+export function getGroupReadPositions(groupId: string): Promise<GroupReadPositionRow[]> {
+  return invoke<GroupReadPositionRow[]>('db_get_group_read_positions', { groupId });
+}
+
+/**
+ * upsert 群成员已读位置（last_read_seq 单调 MAX；display_name/avatar_url/last_read_at 用
+ * COALESCE 保留非空旧值——快照行携带完整身份，WS 单读者行仅带 seq、其余传 null 不清空身份）。
+ */
+export async function upsertGroupReadPositions(
+  groupId: string,
+  rows: GroupReadPositionRow[],
+): Promise<void> {
+  await invoke('db_upsert_group_read_positions', { groupId, rows });
+}
+
+/**
+ * 用**全量权威快照**对齐某群成员集：删除快照里不再出现的成员（退群幽灵）+ upsert 快照成员。
+ * 仅"进入会话的 sync 快照"这类全量活跃成员权威快照调用；WS 单读者/去抖补拉用 upsert（只补不删）。
+ */
+export async function replaceGroupReadPositions(
+  groupId: string,
+  rows: GroupReadPositionRow[],
+): Promise<void> {
+  await invoke('db_replace_group_read_positions', { groupId, rows });
 }

@@ -11,26 +11,9 @@ import type {
   SendMessageResponse,
 } from '../types/chat';
 
-/**
- * 私聊会话已读位置（client.ts 已解包 ApiResponse.data）
- *
- * 已读回执改为 Telegram 风单向（只显示自己发出消息的已读态），故仅需对方位置。
- * 后端该端点仍会返回 my_last_read_seq（前端不再消费，可在后续后端清理中移除）。
- */
-export interface FriendReadPositionsResponse {
-  /** 对方在本会话已读到的序列号（用于"我发的消息对方是否已读"） */
-  peer_last_read_seq: number;
-}
-
-/**
- * 获取私聊会话双方的已读位置（已读回执初始快照）
- */
-export function getFriendReadPositions(
-  api: ApiClient,
-  friendId: string,
-): Promise<FriendReadPositionsResponse> {
-  return api.get<FriendReadPositionsResponse>(`/api/messages/${friendId}/read-positions`);
-}
+// 私聊已读位置初始快照已并入消息同步管线（POST /api/messages/sync 的 read_positions），
+// 原独立端点 GET /api/messages/{friend_id}/read-positions 已从后端移除。消费方
+// useFriendReadReceipt 改为读本地 conversations.peer_last_read_seq + 订阅 sync 快照转发。
 
 /**
  * 获取消息列表

@@ -350,6 +350,42 @@ fn db_update_conversation_last_message(
     db::update_conversation_last_message(&id, &last_message, &last_message_time)
 }
 
+/// 读取会话对方已读位置（单聊已读回执首帧初值；无记录返回 0）
+#[tauri::command(rename_all = "camelCase")]
+fn db_get_conversation_peer_read_seq(id: String) -> Result<i64, String> {
+    db::get_conversation_peer_read_seq(&id)
+}
+
+/// 单调推进会话对方已读位置（MAX，只升不降）
+#[tauri::command(rename_all = "camelCase")]
+fn db_set_conversation_peer_read_seq(id: String, seq: i64) -> Result<(), String> {
+    db::update_conversation_peer_read_seq(&id, seq)
+}
+
+/// 读某群全部成员的本地已读位置（群已读回执首帧初值 + 二开校准）
+#[tauri::command(rename_all = "camelCase")]
+fn db_get_group_read_positions(group_id: String) -> Result<Vec<db::GroupReadPositionRow>, String> {
+    db::get_group_read_positions(&group_id)
+}
+
+/// upsert 群成员已读位置（last_read_seq 单调 MAX，身份/时间 COALESCE 保留非空旧值）
+#[tauri::command(rename_all = "camelCase")]
+fn db_upsert_group_read_positions(
+    group_id: String,
+    rows: Vec<db::GroupReadPositionRow>,
+) -> Result<(), String> {
+    db::upsert_group_read_positions(&group_id, rows)
+}
+
+/// 用全量权威快照对齐群成员集（删退群幽灵 + upsert 快照成员）；仅进会话 sync 快照调用
+#[tauri::command(rename_all = "camelCase")]
+fn db_replace_group_read_positions(
+    group_id: String,
+    rows: Vec<db::GroupReadPositionRow>,
+) -> Result<(), String> {
+    db::replace_group_read_positions(&group_id, rows)
+}
+
 /// 获取消息列表
 #[tauri::command(rename_all = "camelCase")]
 fn db_get_messages(
@@ -851,6 +887,11 @@ pub fn run() {
             db_update_conversation_unread,
             db_clear_conversation_unread,
             db_update_conversation_last_message,
+            db_get_conversation_peer_read_seq,
+            db_set_conversation_peer_read_seq,
+            db_get_group_read_positions,
+            db_upsert_group_read_positions,
+            db_replace_group_read_positions,
             db_get_messages,
             db_save_message,
             db_save_messages,

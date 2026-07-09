@@ -165,6 +165,37 @@ pub fn advance_conversation_read(id: &str, seq: Option<i64>) -> Result<(), Strin
     })
 }
 
+/// 读取会话对方已读位置（peer_last_read_seq；无记录/列缺省返回 0）。
+///
+/// 单聊已读回执首帧初值：进入会话时读出，配合 WS read_sync 增量推进，判定"我发的消息对方是否已读"。
+pub fn get_conversation_peer_read_seq(id: &str) -> Result<i64, String> {
+    with_db!(db, {
+        let seq: i64 = db
+            .query_row(
+                "SELECT peer_last_read_seq FROM conversations WHERE id = ?",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(seq)
+    })
+}
+
+/// 单调推进会话对方已读位置（peer_last_read_seq = MAX(peer_last_read_seq, ?)）。
+///
+/// 同步快照 / WS read_sync（reader = 对方）到达时写穿，只升不降。会话不存在时无行更新（no-op）。
+pub fn update_conversation_peer_read_seq(id: &str, seq: i64) -> Result<(), String> {
+    with_db!(db, {
+        db.execute(
+            "UPDATE conversations SET peer_last_read_seq = MAX(peer_last_read_seq, ?1) WHERE id = ?2",
+            params![seq, id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })
+}
+
 /// 更新会话的最后序列号
 pub fn update_conversation_last_seq(id: &str, last_seq: i64) -> Result<(), String> {
     with_db!(db, {

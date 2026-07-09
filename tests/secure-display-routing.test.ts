@@ -92,21 +92,26 @@ describe('群已读者头像：数据边界解析 + 两个显示点消费已解�
   // 模式同 useFriends/useGroups：在数据边界(快照构建 GroupReaderInfo 处)把后端裸 avatar_url
   // 经 resolveServerAvatarUrl 解析；下游 ReaderAvatarStack / GroupReadListModal 直接消费已解析的
   // reader.avatarUrl，不再碰后端字段。漏接反代会让群已读者头像被系统信任库验私有 CA 失败而不显示。
+  //
+  // 已读管线重构后（sync 快照消费 + 本地持久化）：进群独立首拉已删除，全部快照输入
+  // （sync 转发 / 本地 db 校准 / WS 去抖补拉）收敛到**唯一** applySnapshot 收口——比原
+  // "两处各自解析" 更强（单一 choke point，无第二处可漏）。故断言恰好 1 处 wrapped。
 
-  it('useGroupReadReceipt 数据边界把 avatar_url 经 resolveServerAvatarUrl 解析（快照 + WS 补拉两处）', () => {
+  it('useGroupReadReceipt 唯一头像收口 applySnapshot 把 avatar_url 经 resolveServerAvatarUrl 解析（恰 1 处）', () => {
     expect(USE_GROUP_READ_RECEIPT).toMatch(
       /import \{ resolveServerAvatarUrl \} from '\.\.\/\.\.\/utils\/avatar'/,
     );
-    // 两处都必须 wrapped（applySnapshot 补拉 + 初始快照）；只回退一处也 FAIL
-    // ——补掉旧 toMatch(≥1) 对单点回归的盲区（一处退成裸 p.avatar_url 时 toMatch 仍 PASS）。
+    // 恰好 1 处 wrapped（applySnapshot 唯一收口）；删掉即从 1→0，回归守卫见下条负向断言。
     const wrappedHits = USE_GROUP_READ_RECEIPT.match(
       /avatarUrl:\s*resolveServerAvatarUrl\(p\.avatar_url\)/g,
     );
-    expect(wrappedHits?.length).toBe(2);
+    expect(wrappedHits?.length).toBe(1);
   });
 
   it('不得把后端裸 avatar_url 直接当展示值（回归守卫：还原成裸 URL 即复现头像不显示 bug → FAIL）', () => {
-    // 若快照/补拉分支回退成 `avatarUrl: p.avatar_url,`（裸后端字段）→ 此断言翻 FAIL
+    // 若 applySnapshot 回退成 `avatarUrl: p.avatar_url,`（裸后端字段）→ 此断言翻 FAIL。
+    // 本地 db 持久化存的是原始 avatar_url（snapshot.avatar_url，非展示值），故裸 `avatar_url:`
+    // 出现在 snapshotToRows 属正常（落库要原始值，端口跨重启会变）；此处只守 `avatarUrl:`（展示值）。
     expect(USE_GROUP_READ_RECEIPT).not.toMatch(/avatarUrl:\s*p\.avatar_url\s*,/);
   });
 

@@ -17,6 +17,32 @@ interface SyncRequestItem {
   conversation_id: string;
   conversation_type: ConversationType;
   last_seq: number;
+  /**
+   * 是否随本会话附带已读位置快照（默认 false）。**仅对"正在打开的那个会话"置 true**——
+   * 群快照含全员昵称/头像/时间，启动批量同步逐会话附带会导致带宽爆炸（见 backend-docs 契约）。
+   */
+  with_read_positions?: boolean;
+}
+
+/** 单聊已读位置快照（sync 响应 read_positions；缺省一方按 0） */
+export interface SyncFriendReadPositions {
+  my_last_read_seq: number;
+  peer_last_read_seq: number;
+}
+
+/** 群成员已读位置项（sync 响应 read_positions.positions[]；avatar_url 为后端原始值） */
+export interface SyncGroupReadPositionEntry {
+  user_id: string;
+  last_read_seq: number;
+  display_name: string;
+  avatar_url: string | null;
+  last_read_at: string | null;
+}
+
+/** 群聊已读位置快照（sync 响应 read_positions；与 GET /read-positions 同形） */
+export interface SyncGroupReadPositions {
+  positions: SyncGroupReadPositionEntry[];
+  member_count: number;
 }
 
 /** 服务器返回的同步消息 */
@@ -48,6 +74,11 @@ interface SyncConversationResult {
   messages: ServerMessage[];
   latest_seq: number;
   has_more: boolean;
+  /**
+   * 已读位置快照（仅当请求该会话置 with_read_positions:true 时出现）。
+   * 形状随 conversation_type 而异：friend → SyncFriendReadPositions；group → SyncGroupReadPositions。
+   */
+  read_positions?: SyncFriendReadPositions | SyncGroupReadPositions;
 }
 
 /** 同步响应 */
@@ -93,6 +124,41 @@ export function notifySyncedConversation(
   latestSeq: number,
 ): void {
   syncedConversationListener?.(conversationId, conversationType, latestSeq);
+}
+
+// ============================================================================
+// 已读位置快照转发通道（sync 快照 → 已读回执 hook）
+// ============================================================================
+
+/**
+ * 打开会话的增量同步（with_read_positions:true）随响应带回该会话已读位置快照时的通知。
+ *
+ * 用途：把"进入会话首拉已读快照"并入消息同步管线——原独立端点首拉（单聊已移除、群 GET 保留）
+ * 造成"清空 → 异步拉取 → 弹入"的两阶段闪。改由 syncService 收到 read_positions 后转发给
+ * 已读回执 hook（useGroup/FriendReadReceipt 订阅），hook 侧解析头像 + 落库 + setState 校准。
+ *
+ * service 层只转发原始快照、不落库、不解析头像（保持与消息处理一致的"服务端字段直转"）；
+ * 头像收口与本地持久化归 hook（唯一数据边界，见 secure-display-routing 契约）。
+ */
+export type ConversationReadPositions =
+  | { type: 'friend'; conversationId: string; data: SyncFriendReadPositions }
+  | { type: 'group'; conversationId: string; data: SyncGroupReadPositions };
+
+export type ReadPositionsListener = (payload: ConversationReadPositions) => void;
+
+const readPositionsListeners = new Set<ReadPositionsListener>();
+
+/** 订阅已读位置快照转发（已读回执 hook 用；返回退订函数） */
+export function subscribeReadPositions(listener: ReadPositionsListener): () => void {
+  readPositionsListeners.add(listener);
+  return () => {
+    readPositionsListeners.delete(listener);
+  };
+}
+
+/** 转发已读位置快照（syncMessages 内部调用；export 供 L2 测试直接驱动） */
+export function notifyReadPositions(payload: ConversationReadPositions): void {
+  readPositionsListeners.forEach((listener) => listener(payload));
 }
 
 // ============================================================================
@@ -154,10 +220,15 @@ export class SyncService {
   /**
    * 执行增量同步
    * @param conversations 需要同步的会话列表（来自本地数据库）
+   * @param opts.withReadPositions 是否让请求携带 with_read_positions:true 附带已读位置快照。
+   *        **仅"打开会话那次单会话同步"传 true**（携带的群快照随成员数增长，启动批量同步传
+   *        true 会带宽爆炸）；批量同步（useInitialSync）不传。响应 read_positions 经
+   *        notifyReadPositions 转发给已读回执 hook。
    * @returns 有新消息的会话 ID 列表
    */
   async syncMessages(
     conversations: LocalConversation[],
+    opts?: { withReadPositions?: boolean },
   ): Promise<{ updatedConversations: string[]; newMessagesCount: number }> {
     if (this.state.isSyncing) {
       return { updatedConversations: [], newMessagesCount: 0 };
@@ -165,12 +236,15 @@ export class SyncService {
 
     this.updateState({ isSyncing: true, error: null });
 
+    const withReadPositions = opts?.withReadPositions === true;
+
     try {
       // 构建同步请求
       const syncRequest: SyncRequestItem[] = conversations.map(conv => ({
         conversation_id: conv.id,
         conversation_type: conv.type,
         last_seq: conv.last_seq,
+        ...(withReadPositions ? { with_read_positions: true } : {}),
       }));
 
       if (syncRequest.length === 0) {
@@ -292,6 +366,24 @@ export class SyncService {
             convResult.conversation_type,
             finalSeq,
           );
+        }
+
+        // 该会话带回已读位置快照（with_read_positions 请求）→ 转发给已读回执 hook 校准。
+        // 与"有无新消息"无关：即便无新消息，已读位置仍可能推进，需照常转发。
+        if (convResult.read_positions) {
+          if (convResult.conversation_type === 'group') {
+            notifyReadPositions({
+              type: 'group',
+              conversationId: convResult.conversation_id,
+              data: convResult.read_positions as SyncGroupReadPositions,
+            });
+          } else {
+            notifyReadPositions({
+              type: 'friend',
+              conversationId: convResult.conversation_id,
+              data: convResult.read_positions as SyncFriendReadPositions,
+            });
+          }
         }
       }
 
