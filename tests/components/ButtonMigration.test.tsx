@@ -13,7 +13,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { AddFriendTab } from '../../src/components/modals/add/AddFriendTab';
 import { CreateGroupTab } from '../../src/components/modals/add/CreateGroupTab';
 import { JoinGroupTab } from '../../src/components/modals/add/JoinGroupTab';
 import { CreateGroupForm } from '../../src/components/modals/groups/CreateGroupForm';
@@ -23,66 +22,9 @@ beforeEach(() => {
   cleanup();
 });
 
-describe('AddFriendTab — MotionAppButton primary/lg/block', () => {
-  it('renders submit button with correct variant classes and text', () => {
-    render(
-      <AddFriendTab
-        friendId="alice"
-        friendReason=""
-        loading={false}
-        onFriendIdChange={() => {}}
-        onReasonChange={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-    const btn = screen.getByRole('button', { name: '发送好友请求' });
-    expect(btn).toHaveClass('app-btn--primary', 'app-btn--lg', 'app-btn--block');
-  });
-
-  it('triggers onSubmit on click', () => {
-    const onSubmit = vi.fn();
-    render(
-      <AddFriendTab
-        friendId="alice"
-        friendReason=""
-        loading={false}
-        onFriendIdChange={() => {}}
-        onReasonChange={() => {}}
-        onSubmit={onSubmit}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '发送好友请求' }));
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables button when friendId is empty', () => {
-    render(
-      <AddFriendTab
-        friendId=""
-        friendReason=""
-        loading={false}
-        onFriendIdChange={() => {}}
-        onReasonChange={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-    expect(screen.getByRole('button')).toBeDisabled();
-  });
-
-  it('shows loading text when loading=true', () => {
-    render(
-      <AddFriendTab
-        friendId="alice"
-        friendReason=""
-        loading
-        onFriendIdChange={() => {}}
-        onReasonChange={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-    expect(screen.getByRole('button', { name: '发送中...' })).toBeDisabled();
-  });
-});
+// 注：AddFriendTab 已改为自包含（内部用 useAddFriendFlow → SessionContext/useApi），
+// 且提交按钮改为「查找 → 确认发送」两段式条件渲染，不再是无 context 的 props-driven 组件。
+// 其按钮/流程回归改由 tests/components/AddFriendFlow.test.tsx 覆盖（带 context mock）。
 
 describe('CreateGroupTab — MotionAppButton primary/lg/block', () => {
   it('triggers onSubmit on click; disables on empty name', () => {

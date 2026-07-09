@@ -28,6 +28,9 @@ export function JoinGroupTab({
           onChange={(e) => onCodeChange(e.target.value)}
           placeholder="输入群邀请码"
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
         />
       </div>
       <MotionAppButton

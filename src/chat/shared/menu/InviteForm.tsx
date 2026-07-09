@@ -33,6 +33,9 @@ export function InviteForm({
           onChange={(e) => onUserIdChange(e.target.value)}
           placeholder="输入用户 ID"
           className="menu-input"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
         />
         <input
           type="text"

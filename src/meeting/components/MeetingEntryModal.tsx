@@ -430,6 +430,9 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
                       onChange={(e) => setJoinRoomId(e.target.value)}
                       placeholder="输入房间号"
                       className="meeting-input"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </div>
                   <div className="meeting-form-group">

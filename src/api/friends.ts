@@ -44,6 +44,10 @@ export interface PendingRequest {
   request_user_id: string;
   request_message: string | null;
   request_time: string;
+  /** 申请人昵称（users JOIN；未设/用户不存在为 null）。申请卡直接渲染，无需逐条补拉 public profile */
+  requester_nickname: string | null;
+  /** 申请人头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
+  requester_avatar_url: string | null;
 }
 
 /** client.ts 已解包 ApiResponse.data，直接是数组 */

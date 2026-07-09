@@ -3,7 +3,9 @@
  */
 
 import { motion } from 'framer-motion';
-import { UserIcon, CheckIcon, XIcon } from '../../common/Icons';
+import { CheckIcon, XIcon } from '../../common/Icons';
+import { AvatarPlaceholder } from '../../common/AvatarPlaceholder';
+import { resolveServerAvatarUrl } from '../../../utils/avatar';
 import type { PendingRequest } from '../../../api/friends';
 
 interface FriendRequestsTabProps {
@@ -41,45 +43,55 @@ export function FriendRequestsTab({
 
   return (
     <div className="pending-list">
-      {requests.map((request) => (
-        <motion.div
-          key={request.request_id}
-          className="pending-item"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <div className="pending-avatar">
-            <UserIcon />
-          </div>
-          <div className="pending-info">
-            <div className="pending-name">{request.request_user_id}</div>
-            <div className="pending-id">@{request.request_user_id}</div>
-            {request.request_message && (
-              <div className="pending-reason">{request.request_message}</div>
-            )}
-          </div>
-          <div className="pending-actions">
-            <motion.button
-              className="action-btn accept"
-              onClick={() => onApprove(request)}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              title="同意"
-            >
-              <CheckIcon />
-            </motion.button>
-            <motion.button
-              className="action-btn reject"
-              onClick={() => onReject(request)}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              title="拒绝"
-            >
-              <XIcon />
-            </motion.button>
-          </div>
-        </motion.div>
-      ))}
+      {requests.map((request) => {
+        // 申请人真身份：后端 JOIN 返回昵称/头像，直接渲染，无需逐条补拉 public profile。
+        const displayName = request.requester_nickname?.trim() || request.request_user_id;
+        // 头像走显示收口点（私有 CA）：requester_avatar_url 是原始后端相对路径。
+        const avatarUrl = resolveServerAvatarUrl(request.requester_avatar_url);
+        return (
+          <motion.div
+            key={request.request_id}
+            className="pending-item"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div className="pending-avatar">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName} />
+              ) : (
+                <AvatarPlaceholder name={displayName} fontSize={18} />
+              )}
+            </div>
+            <div className="pending-info">
+              <div className="pending-name">{displayName}</div>
+              <div className="pending-id">@{request.request_user_id}</div>
+              {request.request_message && (
+                <div className="pending-reason">{request.request_message}</div>
+              )}
+            </div>
+            <div className="pending-actions">
+              <motion.button
+                className="action-btn accept"
+                onClick={() => onApprove(request)}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                title="同意"
+              >
+                <CheckIcon />
+              </motion.button>
+              <motion.button
+                className="action-btn reject"
+                onClick={() => onReject(request)}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                title="拒绝"
+              >
+                <XIcon />
+              </motion.button>
+            </div>
+          </motion.div>
+        );
+      })}
     </div>
   );
 }

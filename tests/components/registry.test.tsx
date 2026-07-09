@@ -196,6 +196,7 @@ import * as useMultiSelect from '../../src/hooks/useMultiSelect';
 import * as useMainPage from '../../src/hooks/useMainPage';
 import * as useAccounts from '../../src/hooks/useAccounts';
 import * as useProfileEditor from '../../src/hooks/useProfileEditor';
+import * as useAddFriendFlow from '../../src/hooks/useAddFriendFlow';
 import * as useInitialSync from '../../src/hooks/useInitialSync';
 import * as useLocalConversations from '../../src/hooks/useLocalConversations';
 import * as useResizablePanel from '../../src/hooks/useResizablePanel';
@@ -471,6 +472,7 @@ const COMPONENT_MAP = {
   useMainPage,
   useAccounts,
   useProfileEditor,
+  useAddFriendFlow,
   useInitialSync,
   useLocalConversations,
   useResizablePanel,

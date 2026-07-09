@@ -177,6 +177,9 @@ export function Login({
             required
             disabled={isLoading || isReloginMode}
             readOnly={isReloginMode}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
         </motion.div>
 

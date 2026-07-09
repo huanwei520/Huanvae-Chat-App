@@ -21,7 +21,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import {
-  sendFriendRequest,
   getPendingRequests,
   approveFriendRequest,
   rejectFriendRequest,
@@ -36,6 +35,8 @@ import {
   type GroupInvitation,
 } from '../../api/groups';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
+import { useAddFriendFlow } from '../../hooks/useAddFriendFlow';
 import type { Group } from '../../types/chat';
 
 const BackIcon = () => (
@@ -100,9 +101,8 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // 添加好友
-  const [friendId, setFriendId] = useState('');
-  const [friendReason, setFriendReason] = useState('');
+  // 添加好友（预览确认流程，与桌面 AddFriendTab 共用逻辑）
+  const addFriendFlow = useAddFriendFlow(() => setSuccess('好友请求已发送'));
 
   // 好友申请
   const [friendRequests, setFriendRequests] = useState<PendingRequest[]>([]);
@@ -180,22 +180,6 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
       return () => clearTimeout(timer);
     }
   }, [error, success]);
-
-  const handleAddFriend = async () => {
-    if (!friendId.trim() || !session) { return; }
-    setLoading(true);
-    setError(null);
-    try {
-      await sendFriendRequest(api, session.userId, friendId.trim(), friendReason.trim() || undefined);
-      setSuccess('好友请求已发送');
-      setFriendId('');
-      setFriendReason('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '发送失败');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleApproveFriend = async (request: PendingRequest) => {
     if (!session) { return; }
@@ -309,6 +293,16 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
 
   const renderFriendContent = () => {
     if (friendSubTab === 'add') {
+      const f = addFriendFlow;
+      const previewName = f.preview?.user_nickname?.trim() || f.friendId.trim();
+      // 预览头像走显示收口点（私有 CA）：user_avatar_url 是原始后端相对路径。
+      const previewAvatar = resolveServerAvatarUrl(f.preview?.user_avatar_url);
+      let sendLabel = '发送好友请求';
+      if (f.sent) {
+        sendLabel = '已发送';
+      } else if (f.sending) {
+        sendLabel = '发送中...';
+      }
       return (
         <motion.div key="add-friend" variants={contentVariants} initial="initial" animate="animate" exit="exit" className="mobile-add-form-card">
           <div className="mobile-add-form-group">
@@ -316,30 +310,92 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
             <input
               type="text"
               className="mobile-add-input"
-              value={friendId}
-              onChange={(e) => setFriendId(e.target.value)}
+              value={f.friendId}
+              onChange={(e) => f.setFriendId(e.target.value)}
               placeholder="输入对方的用户 ID"
+              onKeyDown={(e) => e.key === 'Enter' && !f.preview && f.lookup()}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </div>
-          <div className="mobile-add-form-group">
-            <label className="mobile-add-label">验证消息（可选）</label>
-            <input
-              type="text"
-              className="mobile-add-input"
-              value={friendReason}
-              onChange={(e) => setFriendReason(e.target.value)}
-              placeholder="向对方介绍一下自己"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddFriend()}
-            />
-          </div>
-          <motion.button
-            className="mobile-add-submit"
-            onClick={handleAddFriend}
-            disabled={loading || !friendId.trim()}
-            whileTap={{ scale: 0.97 }}
-          >
-            {loading ? '发送中...' : '发送好友请求'}
-          </motion.button>
+
+          {!f.preview && (
+            <>
+              {f.notFound && (
+                <div className="mobile-add-empty">
+                  <p>查无此人，请检查用户 ID</p>
+                </div>
+              )}
+              {f.error && (
+                <div style={{ color: '#f87171', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
+              )}
+              <motion.button
+                className="mobile-add-submit"
+                onClick={f.lookup}
+                disabled={f.previewLoading || !f.friendId.trim()}
+                whileTap={{ scale: 0.97 }}
+              >
+                {f.previewLoading ? '查找中...' : '查找用户'}
+              </motion.button>
+            </>
+          )}
+
+          {f.preview && (
+            <>
+              <div className="mobile-add-item">
+                <div className="mobile-add-item-avatar">
+                  {previewAvatar ? (
+                    <img src={previewAvatar} alt={previewName} />
+                  ) : (
+                    <AvatarPlaceholder name={previewName} fontSize={18} />
+                  )}
+                </div>
+                <div className="mobile-add-item-info">
+                  <div className="mobile-add-item-name">{previewName}</div>
+                  <div className="mobile-add-item-reason">@{f.friendId.trim()}</div>
+                  {f.preview.user_signature && (
+                    <div className="mobile-add-item-reason">{f.preview.user_signature}</div>
+                  )}
+                  {f.isFriend && <div className="mobile-add-item-reason">已是好友</div>}
+                </div>
+              </div>
+              <div className="mobile-add-form-group">
+                <label className="mobile-add-label">验证消息（可选）</label>
+                <input
+                  type="text"
+                  className="mobile-add-input"
+                  value={f.reason}
+                  onChange={(e) => f.setReason(e.target.value)}
+                  placeholder="向对方介绍一下自己"
+                  onKeyDown={(e) => e.key === 'Enter' && f.send()}
+                />
+              </div>
+              {f.error && (
+                <div style={{ color: '#f87171', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
+              )}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <motion.button
+                  className="mobile-add-submit"
+                  style={{ flex: '0 0 auto', background: 'var(--white-alpha-10)' }}
+                  onClick={f.reset}
+                  disabled={f.sending}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  重新查找
+                </motion.button>
+                <motion.button
+                  className="mobile-add-submit"
+                  style={{ flex: 1 }}
+                  onClick={f.send}
+                  disabled={f.sending || f.sent || f.isFriend}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {f.isFriend ? '已是好友' : sendLabel}
+                </motion.button>
+              </div>
+            </>
+          )}
         </motion.div>
       );
     }
@@ -358,32 +414,42 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
       }
       return (
         <div className="mobile-add-list">
-          {friendRequests.map((request) => (
-            <motion.div
-              key={request.request_id}
-              className="mobile-add-item"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="mobile-add-item-avatar">
-                <UserIcon />
-              </div>
-              <div className="mobile-add-item-info">
-                <div className="mobile-add-item-name">{request.request_user_id}</div>
-                {request.request_message && (
-                  <div className="mobile-add-item-reason">{request.request_message}</div>
-                )}
-              </div>
-              <div className="mobile-add-item-actions">
-                <motion.button className="mobile-add-action-btn accept" onClick={() => handleApproveFriend(request)} whileTap={{ scale: 0.9 }} aria-label="同意">
-                  <CheckIcon />
-                </motion.button>
-                <motion.button className="mobile-add-action-btn reject" onClick={() => handleRejectFriend(request)} whileTap={{ scale: 0.9 }} aria-label="拒绝">
-                  <XIcon />
-                </motion.button>
-              </div>
-            </motion.div>
-          ))}
+          {friendRequests.map((request) => {
+            // 申请人真身份：后端 JOIN 返回昵称/头像。头像走显示收口点（私有 CA）。
+            const requesterName = request.requester_nickname?.trim() || request.request_user_id;
+            const requesterAvatar = resolveServerAvatarUrl(request.requester_avatar_url);
+            return (
+              <motion.div
+                key={request.request_id}
+                className="mobile-add-item"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <div className="mobile-add-item-avatar">
+                  {requesterAvatar ? (
+                    <img src={requesterAvatar} alt={requesterName} />
+                  ) : (
+                    <AvatarPlaceholder name={requesterName} fontSize={18} />
+                  )}
+                </div>
+                <div className="mobile-add-item-info">
+                  <div className="mobile-add-item-name">{requesterName}</div>
+                  <div className="mobile-add-item-reason">@{request.request_user_id}</div>
+                  {request.request_message && (
+                    <div className="mobile-add-item-reason">{request.request_message}</div>
+                  )}
+                </div>
+                <div className="mobile-add-item-actions">
+                  <motion.button className="mobile-add-action-btn accept" onClick={() => handleApproveFriend(request)} whileTap={{ scale: 0.9 }} aria-label="同意">
+                    <CheckIcon />
+                  </motion.button>
+                  <motion.button className="mobile-add-action-btn reject" onClick={() => handleRejectFriend(request)} whileTap={{ scale: 0.9 }} aria-label="拒绝">
+                    <XIcon />
+                  </motion.button>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       );
     };
@@ -445,6 +511,9 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
               onChange={(e) => setInviteCode(e.target.value)}
               placeholder="输入群邀请码"
               onKeyDown={(e) => e.key === 'Enter' && handleJoinGroup()}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </div>
           <motion.button
@@ -489,7 +558,20 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
               </div>
               <div className="mobile-add-item-info">
                 <div className="mobile-add-item-name">{invite.group_name}</div>
-                <div className="mobile-add-item-sub">邀请人: {invite.inviter_nickname}</div>
+                <div className="mobile-add-item-sub" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '16px', height: '16px', borderRadius: '50%', overflow: 'hidden', display: 'inline-flex', flexShrink: 0 }}>
+                    {resolveServerAvatarUrl(invite.inviter_avatar_url) ? (
+                      <img
+                        src={resolveServerAvatarUrl(invite.inviter_avatar_url) || ''}
+                        alt={invite.inviter_nickname || invite.inviter_id}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <AvatarPlaceholder name={invite.inviter_nickname || invite.inviter_id} fontSize={9} />
+                    )}
+                  </span>
+                  邀请人: {invite.inviter_nickname || invite.inviter_id}
+                </div>
                 {invite.message && (
                   <div className="mobile-add-item-reason">{invite.message}</div>
                 )}

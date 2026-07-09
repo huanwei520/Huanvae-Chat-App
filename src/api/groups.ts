@@ -84,6 +84,8 @@ export interface GroupInvitation {
   group_avatar_url: string;
   inviter_id: string;
   inviter_nickname: string;
+  /** 邀请人头像相对路径（users JOIN；需经 resolveServerAvatarUrl 收口；未设为 null） */
+  inviter_avatar_url: string | null;
   message: string | null;
   created_at: string;
   expires_at: string;

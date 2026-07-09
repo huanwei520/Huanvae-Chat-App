@@ -157,7 +157,7 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
             <motion.form key="step1" onSubmit={handleStep1Submit} custom={form.direction} variants={stepVariants} initial="enter" animate="center" exit="exit" transition={stepTransition}>
               <motion.div className="form-group" variants={itemVariants}>
                 <label className="form-label" htmlFor="reg-user-id">账号</label>
-                <motion.input type="text" id="reg-user-id" className="glass-input" placeholder="请输入账号（user_id）" value={form.userId} onChange={(e) => form.setUserId(e.target.value)} whileFocus={{ scale: 1.01 }} required autoFocus />
+                <motion.input type="text" id="reg-user-id" className="glass-input" placeholder="请输入账号（user_id）" value={form.userId} onChange={(e) => form.setUserId(e.target.value)} whileFocus={{ scale: 1.01 }} required autoFocus autoCapitalize="none" autoCorrect="off" spellCheck={false} />
               </motion.div>
               <motion.div className="form-group" variants={itemVariants}>
                 <label className="form-label" htmlFor="reg-nickname">昵称</label>

@@ -13,7 +13,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import {
-  sendFriendRequest,
   getPendingRequests,
   approveFriendRequest,
   rejectFriendRequest,
@@ -49,10 +48,6 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // 添加好友表单
-  const [friendId, setFriendId] = useState('');
-  const [friendReason, setFriendReason] = useState('');
 
   // 好友申请列表
   const [friendRequests, setFriendRequests] = useState<PendingRequest[]>([]);
@@ -145,25 +140,6 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
       return () => clearTimeout(timer);
     }
   }, [error, success]);
-
-  // 发送好友请求
-  const handleAddFriend = async () => {
-    if (!friendId.trim() || !session) { return; }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      await sendFriendRequest(api, session.userId, friendId.trim(), friendReason.trim() || undefined);
-      setSuccess('好友请求已发送');
-      setFriendId('');
-      setFriendReason('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '发送失败');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 同意好友申请
   const handleApproveFriend = async (request: PendingRequest) => {
@@ -298,16 +274,7 @@ export function AddModal({ isOpen, onClose, onFriendAdded, addGroup, refreshGrou
   const renderTabContent = () => {
     switch (activeTab) {
       case 'add-friend':
-        return (
-          <AddFriendTab
-            friendId={friendId}
-            friendReason={friendReason}
-            loading={loading}
-            onFriendIdChange={setFriendId}
-            onReasonChange={setFriendReason}
-            onSubmit={handleAddFriend}
-          />
-        );
+        return <AddFriendTab onSent={() => setSuccess('好友请求已发送')} />;
       case 'friend-requests':
         return (
           <FriendRequestsTab

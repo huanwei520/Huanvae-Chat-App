@@ -368,6 +368,9 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
                 value={joinRoomId}
                 onChange={(e) => setJoinRoomId(e.target.value)}
                 placeholder="输入房间号"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
             </div>
             <div className="mobile-meeting-field">

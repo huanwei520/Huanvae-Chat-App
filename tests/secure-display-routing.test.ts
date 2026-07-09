@@ -160,6 +160,67 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
       /src=\{payload\.creator_avatar\}/,
       /resolveServerAvatarUrl\(payload\.creator_avatar\)/,
     ],
+    // ---- profile 全面完善（0.8.0 新契约字段，resolve-at-render 显示点） ----
+    [
+      // 好友申请卡：申请人头像
+      'src/components/modals/add/FriendRequestsTab.tsx',
+      /src=\{request\.requester_avatar_url\}/,
+      /resolveServerAvatarUrl\(request\.requester_avatar_url\)/,
+    ],
+    [
+      // 加好友预览确认卡：对方头像
+      'src/components/modals/add/AddFriendTab.tsx',
+      /src=\{preview\?\.user_avatar_url\}/,
+      /resolveServerAvatarUrl\(preview\?\.user_avatar_url\)/,
+    ],
+    [
+      // 群邀请卡：邀请人头像
+      'src/components/modals/add/GroupInvitesTab.tsx',
+      /src=\{invite\.inviter_avatar_url\}/,
+      /resolveServerAvatarUrl\(invite\.inviter_avatar_url\)/,
+    ],
+    [
+      // 移动端好友申请卡：申请人头像
+      'src/pages/mobile/MobileAddPage.tsx',
+      /src=\{request\.requester_avatar_url\}/,
+      /resolveServerAvatarUrl\(request\.requester_avatar_url\)/,
+    ],
+    [
+      // 移动端群邀请卡：邀请人头像
+      'src/pages/mobile/MobileAddPage.tsx',
+      /src=\{invite\.inviter_avatar_url\}/,
+      /resolveServerAvatarUrl\(invite\.inviter_avatar_url\)/,
+    ],
+    [
+      // 移动端加好友预览确认卡：对方头像
+      'src/pages/mobile/MobileAddPage.tsx',
+      /src=\{f\.preview\?\.user_avatar_url\}/,
+      /resolveServerAvatarUrl\(f\.preview\?\.user_avatar_url\)/,
+    ],
+    [
+      // 他人资料页：对方头像
+      'src/chat/shared/OtherProfilePanel.tsx',
+      /src=\{profile\?\.user_avatar_url\}/,
+      /resolveServerAvatarUrl\(profile\?\.user_avatar_url\)/,
+    ],
+    [
+      // 他人资料页：资料背景封面（CSS background-image sink，禁止裸插值 ${...background_url}）
+      'src/chat/shared/OtherProfilePanel.tsx',
+      /\$\{[^}]*\.background_url\}/,
+      /resolveServerAvatarUrl\(profile\?\.background_url\)/,
+    ],
+    [
+      // 自己资料弹窗：背景封面
+      'src/components/ProfileModal.tsx',
+      /\$\{[^}]*\.background_url\}/,
+      /resolveServerAvatarUrl\(session\.profile\.background_url\)/,
+    ],
+    [
+      // 移动端自己资料页：背景封面
+      'src/pages/mobile/MobileProfilePage.tsx',
+      /\$\{[^}]*\.background_url\}/,
+      /resolveServerAvatarUrl\(session\?\.profile\.background_url\)/,
+    ],
   ];
 
   it.each(sites)('%s 走收口点而非裸 URL', (file, rawPattern, wrappedPattern) => {
