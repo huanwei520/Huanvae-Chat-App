@@ -28,6 +28,7 @@ import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
 import { useProfileViewStore } from '../../stores';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
 
@@ -223,6 +224,9 @@ export function MobileChatView({
   // 私聊顶栏点开对方资料（群/AI 不适用）
   const openProfile = useProfileViewStore((s) => s.open);
   const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+  // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const titleKbd = useKbdFocusRing();
+  const titleKbdHandlers = titleKbd.handlersFor('title');
 
   // 获取实际的 friend/group 对象
   const friend = chatTarget.type === 'friend' ? chatTarget.data : undefined;
@@ -250,8 +254,22 @@ export function MobileChatView({
           <BackIcon />
         </div>
         <div
-          className="mobile-chat-title"
+          className={`mobile-chat-title${friendIdForProfile && titleKbd.isKbdFocused('title') ? ' a11y-kbd-focus' : ''}`}
           onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+          onKeyDown={friendIdForProfile
+            ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openProfile(friendIdForProfile);
+              }
+            }
+            : undefined}
+          role={friendIdForProfile ? 'button' : undefined}
+          tabIndex={friendIdForProfile ? 0 : undefined}
+          aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+          onPointerDown={friendIdForProfile ? titleKbdHandlers.onPointerDown : undefined}
+          onFocus={friendIdForProfile ? titleKbdHandlers.onFocus : undefined}
+          onBlur={friendIdForProfile ? titleKbdHandlers.onBlur : undefined}
           style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
         >
           {getChatTitle(chatTarget)}

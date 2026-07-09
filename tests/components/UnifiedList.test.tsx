@@ -13,7 +13,7 @@
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, createEvent } from '@testing-library/react';
 import type { Friend, Group, ChatTarget } from '../../src/types/chat';
 import type { NavTab } from '../../src/components/sidebar/Sidebar';
@@ -28,6 +28,7 @@ vi.mock('../../src/hooks/useLocalConversations', () => ({
 
 // 必须在 vi.mock 之后导入被测组件
 import { UnifiedList } from '../../src/components/unified/UnifiedList';
+import { useProfileViewStore } from '../../src/stores/profileViewStore';
 
 // add_time 递减，使 friends tab 按时间倒序后顺序 = [f1, f2, f3]
 const f1: Friend = { friend_id: 'f1', friend_nickname: '好友一', friend_avatar_url: null, add_time: '2026-03-03T00:00:00Z', approve_reason: null, friend_remark: null, is_blacklisted: false, is_special_care: false };
@@ -169,5 +170,76 @@ describe('UnifiedList 会话列表键盘导航', () => {
     // 不 focus，直接按方向键：activeKey 会被设置，但 isListFocused=false 不应显示环
     fireEvent.keyDown(list, { key: 'ArrowDown' });
     expect(container.querySelector('.conversation-item--kbd-active')).toBeNull();
+  });
+});
+
+describe('UnifiedList 头像 a11y（点头像看资料，仅好友分支）', () => {
+  let openSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    useProfileViewStore.setState({ userId: null });
+    openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
+  });
+
+  function friendAvatar(container: HTMLElement, friendId: string): HTMLElement {
+    const el = container.querySelector(`[data-conv-key="friend-${friendId}"] .conv-avatar`);
+    expect(el).not.toBeNull();
+    return el as HTMLElement;
+  }
+
+  it('好友头像具备 role=button / tabIndex=0 / aria-label=查看${名字}资料', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    const avatar = friendAvatar(container, 'f1');
+    expect(avatar).toHaveAttribute('role', 'button');
+    expect(avatar).toHaveAttribute('tabindex', '0');
+    expect(avatar).toHaveAttribute('aria-label', '查看好友一资料');
+  });
+
+  it('群卡片头像无 role/tabIndex/aria-label（反向断言）', () => {
+    const { container } = renderList({ activeTab: 'group', groups: GROUPS });
+    const groupAvatar = container.querySelector('[data-conv-key="group-g1"] .conv-avatar') as HTMLElement;
+    expect(groupAvatar).not.toBeNull();
+    expect(groupAvatar).not.toHaveAttribute('role');
+    expect(groupAvatar).not.toHaveAttribute('tabindex');
+    expect(groupAvatar).not.toHaveAttribute('aria-label');
+  });
+
+  it('头像 Enter → openProfile(id)，stopPropagation 使会话「打开」回调未被调（冒泡断言）', () => {
+    const { container, list, onSelectTarget } = renderList({ activeTab: 'friends' });
+    // 先把列表键盘光标落到 friend-f1（否则列表 Enter 因 activeKey=null 天然 no-op，冒泡断言不成立）
+    fireEvent.focus(list);
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    const avatar = friendAvatar(container, 'f1');
+    fireEvent.keyDown(avatar, { key: 'Enter' });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('f1');
+    // stopPropagation 后，事件不冒泡到列表容器 → 不会 openByKey('friend-f1')
+    expect(onSelectTarget).not.toHaveBeenCalled();
+  });
+
+  it('头像 Space → openProfile(id)', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    const avatar = friendAvatar(container, 'f2');
+    fireEvent.keyDown(avatar, { key: ' ' });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('f2');
+  });
+
+  it('头像无关键（如 a）不触发看资料', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    fireEvent.keyDown(friendAvatar(container, 'f1'), { key: 'a' });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('好友头像键盘聚焦显示焦点环类；pointerdown 后聚焦不显示', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    const avatar = friendAvatar(container, 'f1');
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
+    fireEvent.blur(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    fireEvent.pointerDown(avatar);
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
   });
 });

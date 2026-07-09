@@ -4,6 +4,7 @@
 
 import { MenuHeader } from './MenuHeader';
 import { isMuted, formatMutedUntil } from './utils';
+import { useKbdFocusRing } from '../../../hooks/useKbdFocusRing';
 import { resolveServerAvatarUrl } from '../../../utils/avatar';
 import { AvatarPlaceholder } from '../../../components/common/AvatarPlaceholder';
 import { groupMemberDisplayName } from '../../../utils/groupRemark';
@@ -44,6 +45,8 @@ export function MembersList({
   onBack,
   onMemberClick,
 }: MembersListProps) {
+  // 成员头像键盘焦点环（keyed：可点成员用 user_id 作 key）
+  const memberKbd = useKbdFocusRing();
   return (
     <>
       <MenuHeader title={`群成员 (${members.length})`} onBack={onBack} />
@@ -69,11 +72,29 @@ export function MembersList({
             const joinWay = joinMethodLabel(member.join_method);
             const joinInfo = [joinDate, joinWay].filter(Boolean).join(' · ');
 
+            // 仅可点成员（非自己）挂载键盘可达 + 焦点环
+            const memberHandlers = canClick ? memberKbd.handlersFor(member.user_id) : null;
+            const memberKbdFocused = canClick && memberKbd.isKbdFocused(member.user_id);
+
             return (
               <div
                 key={member.user_id}
-                className={`member-item ${canClick ? 'clickable' : ''}`}
+                className={`member-item ${canClick ? 'clickable' : ''}${memberKbdFocused ? ' a11y-kbd-focus' : ''}`}
                 onClick={() => canClick && onMemberClick(member)}
+                onKeyDown={canClick
+                  ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onMemberClick(member);
+                    }
+                  }
+                  : undefined}
+                role={canClick ? 'button' : undefined}
+                tabIndex={canClick ? 0 : undefined}
+                aria-label={canClick ? `查看${displayName}资料` : undefined}
+                onPointerDown={memberHandlers?.onPointerDown}
+                onFocus={memberHandlers?.onFocus}
+                onBlur={memberHandlers?.onBlur}
               >
                 <div className="member-avatar">
                   {member.user_avatar_url ? (

@@ -30,6 +30,7 @@ import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useChatStore, useProfileViewStore } from '../../stores';
 import { useApi } from '../../contexts/SessionContext';
 import {
@@ -177,17 +178,30 @@ export function GroupMessageBubble({
   const friends = useChatStore((state) => state.friends);
   // 头像单击/双击区分计时器（单击=看资料，双击=进私聊）
   const avatarClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const avatarKbd = useKbdFocusRing();
+  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
 
   useEffect(() => () => {
     if (avatarClickTimerRef.current) { clearTimeout(avatarClickTimerRef.current); }
   }, []);
 
+  // 头像单击语义（鼠标单击计时器到期与键盘 Enter/Space 共用；键盘不走双击计时器）：
+  // 多选切换选中，否则看资料
+  const activateAvatar = useCallback(() => {
+    if (isMultiSelectMode) {
+      onToggleSelect?.();
+      return;
+    }
+    openProfileView(message.sender_id);
+  }, [isMultiSelectMode, onToggleSelect, openProfileView, message.sender_id]);
+
   // 单击成员头像 → 看公开资料；双击 → 进私聊（好友才有私聊，非好友/自己回退看资料）
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    // 多选模式下，点击头像也触发选中
+    // 多选模式下，点击头像也触发选中（走共享单击语义，不进双击计时）
     if (isMultiSelectMode) {
-      onToggleSelect?.();
+      activateAvatar();
       return;
     }
     // 第二次点击落在计时窗口内 → 双击：进私聊
@@ -202,12 +216,12 @@ export function GroupMessageBubble({
       }
       return;
     }
-    // 首次点击 → 延迟判定为单击：看资料
+    // 首次点击 → 延迟判定为单击：看资料（与键盘共用 activateAvatar）
     avatarClickTimerRef.current = setTimeout(() => {
       avatarClickTimerRef.current = null;
-      openProfileView(message.sender_id);
+      activateAvatar();
     }, 250);
-  }, [isMultiSelectMode, onToggleSelect, message.sender_id, friends, setChatTarget, openProfileView]);
+  }, [isMultiSelectMode, activateAvatar, message.sender_id, friends, setChatTarget, openProfileView]);
 
   // D6 群内屏蔽：该发送者是否已被我屏蔽（仅他人消息有意义）
   const isSenderBlocked = useChatStore((state) =>
@@ -506,8 +520,21 @@ export function GroupMessageBubble({
               onTouchMove={handleTouchMove}
             >
               <div
-                className="bubble-avatar clickable"
+                className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
                 onClick={handleAvatarClick}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                  // 键盘=单击语义（共用 activateAvatar），不走 250ms 双击计时器
+                  e.preventDefault();
+                  e.stopPropagation();
+                  activateAvatar();
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`查看${senderDisplayName}资料`}
+                onPointerDown={avatarKbdHandlers.onPointerDown}
+                onFocus={avatarKbdHandlers.onFocus}
+                onBlur={avatarKbdHandlers.onBlur}
               >
                 {message.sender_avatar_url ? (
                   <img src={message.sender_avatar_url} alt={senderDisplayName} />

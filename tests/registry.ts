@@ -295,6 +295,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useLocalFriendMessages', path: 'chat/friend/useLocalFriendMessages', category: 'hooks', description: '本地好友消息 Hook' },
   { name: 'useLocalGroupMessages', path: 'chat/group/useLocalGroupMessages', category: 'hooks', description: '本地群组消息 Hook' },
   { name: 'useScrollKeyboardControls', path: 'chat/shared/useScrollKeyboardControls', category: 'hooks', description: '消息容器键盘滚动控制 Hook（好友/群聊共用：End 到最新 / Home 到顶 / PageUp·PageDown 翻页 + 仅键盘聚焦判定）' },
+  { name: 'useKbdFocusRing', path: 'hooks/useKbdFocusRing', category: 'hooks', description: '键盘可见焦点环双轨 Hook（可点击头像/顶栏容器：pointerDown 区分键盘/鼠标聚焦，keyed 设计，键盘聚焦加 a11y-kbd-focus 类）' },
   { name: 'useFriendReadReceipt', path: 'chat/friend/useFriendReadReceipt', category: 'hooks', description: '私聊已读回执 Hook（仅自己消息：拉对方 last-read-seq 快照 + read_sync 实时推进，Telegram 风单向）' },
   { name: 'useGroupReadReceipt', path: 'chat/group/useGroupReadReceipt', category: 'hooks', description: '群聊已读回执 Hook（read-positions 快照含昵称/头像/已读时间 + read_sync 实时合并，N 人已读 + 已读名单）' },
   { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },

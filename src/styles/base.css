@@ -327,3 +327,34 @@
   }
 }
 
+/* ============================================
+   A11y: keyboard focus ring for clickable avatar / header containers
+   ============================================
+   These containers are plain div[role=button][tabindex=0] (view-profile / open-
+   drawer hit areas). WKWebView :focus-visible on non-button elements is unstable,
+   so a JS-driven class (a11y-kbd-focus, set by useKbdFocusRing only on keyboard
+   focus) is the reliable track; :focus-visible is the native fallback. Both tracks
+   share one outline. Outline only, no transition (keeps clear of the
+   transform/opacity animation gate). Covers desktop + mobile shared class names. */
+.conv-avatar.a11y-kbd-focus,
+.conv-avatar:focus-visible,
+.bubble-avatar.a11y-kbd-focus,
+.bubble-avatar:focus-visible,
+.member-item.a11y-kbd-focus,
+.member-item:focus-visible,
+.chat-header-info.a11y-kbd-focus,
+.chat-header-info:focus-visible,
+.mobile-chat-title.a11y-kbd-focus,
+.mobile-chat-title:focus-visible,
+.mobile-header-avatar.a11y-kbd-focus,
+.mobile-header-avatar:focus-visible,
+.mobile-contact-avatar.a11y-kbd-focus,
+.mobile-contact-avatar:focus-visible,
+.mobile-drawer-avatar.a11y-kbd-focus,
+.mobile-drawer-avatar:focus-visible,
+.avatar-wrapper.a11y-kbd-focus,
+.avatar-wrapper:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+

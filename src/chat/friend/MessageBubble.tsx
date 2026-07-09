@@ -32,6 +32,7 @@ import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { FailedIcon } from '../shared/ReadReceiptIcons';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { isMobile } from '../../utils/platform';
 import { useProfileViewStore } from '../../stores';
 import { saveToGallery } from '../../utils/saveToGallery';
@@ -149,17 +150,24 @@ export function MessageBubble({
 
   // 打开公开资料只读页（点头像统一走资料页，桌面/移动一致）
   const openProfileView = useProfileViewStore((s) => s.open);
+  // 头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const avatarKbd = useKbdFocusRing();
+  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
 
-  // 点击头像查看对方（或自己）的公开资料只读页
-  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    // 多选模式下，点击头像也触发选中
+  // 头像激活语义（鼠标单击与键盘 Enter/Space 共用）：多选切换选中，否则看资料
+  const activateAvatar = useCallback(() => {
     if (isMultiSelectMode) {
       onToggleSelect?.();
       return;
     }
     openProfileView(isOwn ? session.userId : friend.friend_id);
   }, [isMultiSelectMode, onToggleSelect, isOwn, session.userId, friend.friend_id, openProfileView]);
+
+  // 点击头像查看对方（或自己）的公开资料只读页
+  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    activateAvatar();
+  }, [activateAvatar]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -368,8 +376,21 @@ export function MessageBubble({
               onTouchMove={handleTouchMove}
             >
               <div
-                className="bubble-avatar clickable"
+                className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
                 onClick={handleAvatarClick}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                  // 键盘=单击语义，与 handleAvatarClick 共用 activateAvatar
+                  e.preventDefault();
+                  e.stopPropagation();
+                  activateAvatar();
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={isOwn ? '查看我的资料' : `查看${friendDisplayName(friend)}资料`}
+                onPointerDown={avatarKbdHandlers.onPointerDown}
+                onFocus={avatarKbdHandlers.onFocus}
+                onBlur={avatarKbdHandlers.onBlur}
               >
                 {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
               </div>

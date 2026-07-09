@@ -13,6 +13,7 @@
 import type { Session } from '../../types/session';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 
 // 搜索图标
 const SearchIcon = () => (
@@ -81,10 +82,29 @@ export function MobileHeader({
   };
   const statusClass = getStatusClass();
 
+  // 本人头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const avatarKbd = useKbdFocusRing();
+  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
+
   return (
     <header className="mobile-header">
       {/* 头像按钮 */}
-      <div className="mobile-header-avatar" onClick={onAvatarClick}>
+      <div
+        className={`mobile-header-avatar${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
+        onClick={onAvatarClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onAvatarClick();
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label="打开我的资料"
+        onPointerDown={avatarKbdHandlers.onPointerDown}
+        onFocus={avatarKbdHandlers.onFocus}
+        onBlur={avatarKbdHandlers.onBlur}
+      >
         {session.profile?.user_avatar_url ? (
           <img
             src={session.profile.user_avatar_url}

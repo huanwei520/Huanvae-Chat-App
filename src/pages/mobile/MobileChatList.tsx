@@ -18,6 +18,7 @@ import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
 import { useChatStore, useProfileViewStore } from '../../stores';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
 import { parseFriendIdFromConversationId } from '../../utils/conversationId';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
@@ -66,6 +67,8 @@ export function MobileChatList({
   // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
   const friendPresence = useChatStore((s) => s.friendPresence);
   const openProfile = useProfileViewStore((s) => s.open);
+  // 好友头像键盘焦点环（keyed：每张头像用 card.id 作 key）
+  const avatarKbd = useKbdFocusRing();
   const { session } = useSession();
 
   // 构建好友卡片
@@ -176,98 +179,120 @@ export function MobileChatList({
         </div>
 
         <AnimatePresence initial={false}>
-          {sortedCards.map((card) => (
-            <motion.div
-              key={card.uniqueKey}
-              className="mobile-contact-card"
-              onClick={() => handleCardClick(card)}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-            >
-              {/* 头像 */}
-              <div
-                className="mobile-contact-avatar"
-                style={{ width: 44, height: 44, position: 'relative' }}
-                onClick={card.type === 'friend'
-                  ? (e) => { e.stopPropagation(); openProfile(card.id); }
-                  : undefined}
+          {sortedCards.map((card) => {
+            const isFriend = card.type === 'friend';
+            // 仅好友头像可点看资料；键盘焦点态与 focus handlers 同 isFriend 条件挂载
+            const avatarHandlers = isFriend ? avatarKbd.handlersFor(card.id) : null;
+            const avatarKbdFocused = isFriend && avatarKbd.isKbdFocused(card.id);
+            return (
+              <motion.div
+                key={card.uniqueKey}
+                className="mobile-contact-card"
+                onClick={() => handleCardClick(card)}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
               >
-                {card.type === 'friend' ? (
-                  <FriendAvatar friend={card.data as Friend} />
-                ) : (
-                  <GroupAvatar group={card.data as Group} />
-                )}
-                {card.type === 'friend' && friendPresence[card.id]?.online && (
-                  <span
-                    title="在线"
-                    style={{
-                      position: 'absolute', right: 0, bottom: 0,
-                      width: 10, height: 10, borderRadius: '50%',
-                      background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
-                    }}
-                  />
-                )}
-              </div>
+                {/* 头像 */}
+                <div
+                  className={`mobile-contact-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
+                  style={{ width: 44, height: 44, position: 'relative' }}
+                  onClick={isFriend
+                    ? (e) => { e.stopPropagation(); openProfile(card.id); }
+                    : undefined}
+                  onKeyDown={isFriend
+                    ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        // 阻止冒泡到卡片（其 onClick=进聊天），头像键盘=看资料
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openProfile(card.id);
+                      }
+                    }
+                    : undefined}
+                  role={isFriend ? 'button' : undefined}
+                  tabIndex={isFriend ? 0 : undefined}
+                  aria-label={isFriend ? `查看${card.name}资料` : undefined}
+                  onPointerDown={avatarHandlers?.onPointerDown}
+                  onFocus={avatarHandlers?.onFocus}
+                  onBlur={avatarHandlers?.onBlur}
+                >
+                  {card.type === 'friend' ? (
+                    <FriendAvatar friend={card.data as Friend} />
+                  ) : (
+                    <GroupAvatar group={card.data as Group} />
+                  )}
+                  {card.type === 'friend' && friendPresence[card.id]?.online && (
+                    <span
+                      title="在线"
+                      style={{
+                        position: 'absolute', right: 0, bottom: 0,
+                        width: 10, height: 10, borderRadius: '50%',
+                        background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
+                      }}
+                    />
+                  )}
+                </div>
 
-              {/* 信息 */}
-              <div className="mobile-contact-info" style={{ flex: 1 }}>
-                <div className="mobile-contact-name">{card.name}</div>
-                {card.lastMessage && (
-                  <div
-                    className="mobile-contact-role"
-                    style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {card.lastMessage}
-                  </div>
-                )}
-              </div>
+                {/* 信息 */}
+                <div className="mobile-contact-info" style={{ flex: 1 }}>
+                  <div className="mobile-contact-name">{card.name}</div>
+                  {card.lastMessage && (
+                    <div
+                      className="mobile-contact-role"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {card.lastMessage}
+                    </div>
+                  )}
+                </div>
 
-              {/* 时间和未读 */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
-                  gap: 4,
-                }}
-              >
-                {card.lastMessageTime && (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text-tertiary)',
-                    }}
-                  >
-                    {formatMessageTime(card.lastMessageTime)}
-                  </span>
-                )}
-                {card.unreadCount > 0 && (
-                  <span
-                    style={{
-                      minWidth: 18,
-                      height: 18,
-                      padding: '0 5px',
-                      background: '#ff3b30',
-                      borderRadius: 9,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {card.unreadCount > 99 ? '99+' : card.unreadCount}
-                  </span>
-                )}
-              </div>
-            </motion.div>
-          ))}
+                {/* 时间和未读 */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 4,
+                  }}
+                >
+                  {card.lastMessageTime && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--text-tertiary)',
+                      }}
+                    >
+                      {formatMessageTime(card.lastMessageTime)}
+                    </span>
+                  )}
+                  {card.unreadCount > 0 && (
+                    <span
+                      style={{
+                        minWidth: 18,
+                        height: 18,
+                        padding: '0 5px',
+                        background: '#ff3b30',
+                        borderRadius: 9,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {card.unreadCount > 99 ? '99+' : card.unreadCount}
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
 

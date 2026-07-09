@@ -58,4 +58,20 @@ describe('AvatarPlaceholder', () => {
     expect(glyph.style.backgroundImage).toBe('');
     expect(glyph.style.color).toBe('');
   });
+
+  // a11y 保持性契约（配合「可点击头像容器 a11y 修复」）：
+  // 占位组件本身只画装饰性回退图形，绝不承担交互语义。可点击性由外层容器
+  // （role=button + tabIndex + aria-label）提供，占位容器必须保持 aria-hidden="true"
+  // 以免屏幕阅读器把首字母图形当成可读内容 / 重复朗读外层容器的 aria-label。
+  it('container stays aria-hidden="true" (decorative fallback, never announced)', () => {
+    cleanup();
+    const { container } = render(<AvatarPlaceholder name="bob" />);
+    const el = container.querySelector('.avatar-placeholder-unified') as HTMLElement;
+    expect(el).toBeTruthy();
+    expect(el).toHaveAttribute('aria-hidden', 'true');
+    // 装饰性回退不应自带任何交互语义属性
+    expect(el).not.toHaveAttribute('role');
+    expect(el).not.toHaveAttribute('tabindex');
+    expect(el).not.toHaveAttribute('aria-label');
+  });
 });

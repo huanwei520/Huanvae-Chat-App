@@ -86,3 +86,82 @@ describe('MessageBubble (好友) — 头像点击打开只读资料', () => {
     expect(openSpy).toHaveBeenCalledWith('me');
   });
 });
+
+describe('MessageBubble (好友) — 头像 a11y（键盘可达 + 焦点环）', () => {
+  let openSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    cleanup();
+    useProfileViewStore.setState({ userId: null });
+    openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
+  });
+
+  function avatarEl() {
+    const avatar = document.querySelector('.bubble-avatar')!;
+    expect(avatar).toBeInTheDocument();
+    return avatar as HTMLElement;
+  }
+
+  it('他人头像 aria-label=查看${好友名}资料 + role/tabIndex', () => {
+    render(<MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} />);
+    const avatar = avatarEl();
+    expect(avatar).toHaveAttribute('role', 'button');
+    expect(avatar).toHaveAttribute('tabindex', '0');
+    expect(avatar).toHaveAttribute('aria-label', '查看Them资料');
+  });
+
+  it('自己头像 aria-label=查看我的资料', () => {
+    render(<MessageBubble message={makeMessage({ sender_id: 'me', receiver_id: 'them' })} isOwn session={session} friend={friend} />);
+    expect(avatarEl()).toHaveAttribute('aria-label', '查看我的资料');
+  });
+
+  it('键盘 Enter → openProfileView(friend.friend_id)（与鼠标共用 activateAvatar）', () => {
+    render(<MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} />);
+    fireEvent.keyDown(avatarEl(), { key: 'Enter' });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('them');
+  });
+
+  it('键盘 Space → openProfileView(session.userId)（自己头像）', () => {
+    render(<MessageBubble message={makeMessage({ sender_id: 'me', receiver_id: 'them' })} isOwn session={session} friend={friend} />);
+    fireEvent.keyDown(avatarEl(), { key: ' ' });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('me');
+  });
+
+  it('无关键（如 a）不触发看资料', () => {
+    render(<MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} />);
+    fireEvent.keyDown(avatarEl(), { key: 'a' });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('键盘聚焦显示焦点环类；pointerdown 后聚焦不显示', () => {
+    render(<MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} />);
+    const avatar = avatarEl();
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
+    fireEvent.blur(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    fireEvent.pointerDown(avatar);
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+  });
+
+  it('多选模式下键盘 Enter → onToggleSelect（切换选中），不看资料', () => {
+    // activateAvatar 多选分支：键盘与鼠标共用，多选态头像激活=切换选中，不开资料页
+    const onToggleSelect = vi.fn();
+    render(
+      <MessageBubble
+        message={makeMessage()}
+        isOwn={false}
+        session={session}
+        friend={friend}
+        isMultiSelectMode
+        onToggleSelect={onToggleSelect}
+      />,
+    );
+    fireEvent.keyDown(avatarEl(), { key: 'Enter' });
+    expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+});

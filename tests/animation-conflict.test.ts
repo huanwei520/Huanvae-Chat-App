@@ -79,6 +79,14 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position" guarded by isTabSwitching window)',
   },
+  // .avatar-wrapper 的基础规则在 main.css（base.css 里只有 .avatar-wrapper.a11y-kbd-focus
+  // 复合焦点环选择器，不含基础规则），cssFile 必须指向 main.css 门禁才真正生效
+  {
+    selector: '.avatar-wrapper',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/components/sidebar/Sidebar.tsx (avatar-wrapper whileHover/whileTap scale)',
+  },
   {
     selector: '.recall-system-row',
     cssFile: 'src/styles/pages/main.css',

@@ -131,3 +131,79 @@ describe('GroupMessageBubble — 头像单击看资料 / 双击进私聊', () =>
     expect(setChatTargetSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('GroupMessageBubble — 头像 a11y（键盘可达 + 键盘=单击语义）', () => {
+  beforeEach(() => {
+    // 本组不用假计时器：键盘走单击语义直调 activateAvatar，不经 250ms 双击计时器
+    setChatTargetSpy.mockReset();
+    openProfileViewSpy.mockReset();
+    mockChatState.friends = [];
+  });
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('头像具备 role=button / tabIndex=0 / aria-label=查看${发送者名}资料', () => {
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2', sender_nickname: 'Alice' })} isOwn={false} />);
+    const avatar = avatarEl();
+    expect(avatar).toHaveAttribute('role', 'button');
+    expect(avatar).toHaveAttribute('tabindex', '0');
+    expect(avatar).toHaveAttribute('aria-label', '查看Alice资料');
+  });
+
+  it('键盘 Enter → 立即 openProfileView(sender_id)，不需推进 250ms 计时器，且不进私聊', () => {
+    // 即便发送者是好友，键盘 Enter 也走单击语义（看资料），绝不走双击进私聊
+    mockChatState.friends = [makeFriend('user-2')];
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    fireEvent.keyDown(avatarEl(), { key: 'Enter' });
+    // 不推进任何计时器
+    expect(openProfileViewSpy).toHaveBeenCalledTimes(1);
+    expect(openProfileViewSpy).toHaveBeenCalledWith('user-2');
+    expect(setChatTargetSpy).not.toHaveBeenCalled();
+  });
+
+  it('键盘 Space → openProfileView(sender_id)', () => {
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    fireEvent.keyDown(avatarEl(), { key: ' ' });
+    expect(openProfileViewSpy).toHaveBeenCalledTimes(1);
+    expect(openProfileViewSpy).toHaveBeenCalledWith('user-2');
+  });
+
+  it('无关键（如 a）不触发看资料', () => {
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    fireEvent.keyDown(avatarEl(), { key: 'a' });
+    expect(openProfileViewSpy).not.toHaveBeenCalled();
+    expect(setChatTargetSpy).not.toHaveBeenCalled();
+  });
+
+  it('键盘聚焦（无 pointerdown）显示焦点环类；pointerdown 后聚焦不显示', () => {
+    render(<GroupMessageBubble message={makeMessage({ sender_id: 'user-2' })} isOwn={false} />);
+    const avatar = avatarEl();
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
+    fireEvent.blur(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    // 鼠标：pointerdown 引发的聚焦不显示焦点环
+    fireEvent.pointerDown(avatar);
+    fireEvent.focus(avatar);
+    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+  });
+
+  it('多选模式下键盘 Enter → onToggleSelect（切换选中），不看资料、不进私聊', () => {
+    // activateAvatar 多选分支：键盘走单击语义，多选态头像激活=切换选中，
+    // 不开资料页、不走双击进私聊
+    const onToggleSelect = vi.fn();
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ sender_id: 'user-2' })}
+        isOwn={false}
+        isMultiSelectMode
+        onToggleSelect={onToggleSelect}
+      />,
+    );
+    fireEvent.keyDown(avatarEl(), { key: 'Enter' });
+    expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(openProfileViewSpy).not.toHaveBeenCalled();
+    expect(setChatTargetSpy).not.toHaveBeenCalled();
+  });
+});

@@ -33,6 +33,7 @@ import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
 import { useChatStore, useProfileViewStore } from '../../stores';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage, AIConversation } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
 
@@ -236,6 +237,9 @@ export function ChatPanel({
   // 私聊顶栏点开对方资料（群/AI 不适用）
   const openProfile = useProfileViewStore((s) => s.open);
   const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+  // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const headerKbd = useKbdFocusRing();
+  const headerKbdHandlers = headerKbd.handlersFor('header');
   // 好友在线态：在线时顶栏副标题显示「在线」，否则回退 @ID
   const friendOnline = useChatStore((s) =>
     (friendIdForProfile ? s.friendPresence[friendIdForProfile]?.online : false) ?? false,
@@ -266,8 +270,22 @@ export function ChatPanel({
       {/* 聊天头部 */}
       <div className="chat-header">
         <div
-          className="chat-header-info"
+          className={`chat-header-info${friendIdForProfile && headerKbd.isKbdFocused('header') ? ' a11y-kbd-focus' : ''}`}
           onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+          onKeyDown={friendIdForProfile
+            ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openProfile(friendIdForProfile);
+              }
+            }
+            : undefined}
+          role={friendIdForProfile ? 'button' : undefined}
+          tabIndex={friendIdForProfile ? 0 : undefined}
+          aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+          onPointerDown={friendIdForProfile ? headerKbdHandlers.onPointerDown : undefined}
+          onFocus={friendIdForProfile ? headerKbdHandlers.onFocus : undefined}
+          onBlur={friendIdForProfile ? headerKbdHandlers.onBlur : undefined}
           style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
           title={friendIdForProfile ? '查看资料' : undefined}
         >

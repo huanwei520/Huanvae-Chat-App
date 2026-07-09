@@ -13,6 +13,7 @@
 
 import type { Session } from '../../types/session';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 
 // 设置图标
 const SettingsIcon = () => (
@@ -157,6 +158,9 @@ export function MobileDrawer({
 }: MobileDrawerProps) {
   const nickname = session.profile?.user_nickname || session.userId;
   const avatarUrl = session.profile?.user_avatar_url;
+  // 本人头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const avatarKbd = useKbdFocusRing();
+  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
 
   return (
     <>
@@ -170,7 +174,22 @@ export function MobileDrawer({
       <aside className={`mobile-drawer ${isOpen ? 'open' : ''}`}>
         {/* 用户信息区域 */}
         <div className="mobile-drawer-profile">
-          <div className="mobile-drawer-avatar" onClick={onProfileClick}>
+          <div
+            className={`mobile-drawer-avatar${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
+            onClick={onProfileClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onProfileClick();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="打开我的资料"
+            onPointerDown={avatarKbdHandlers.onPointerDown}
+            onFocus={avatarKbdHandlers.onFocus}
+            onBlur={avatarKbdHandlers.onBlur}
+          >
             {avatarUrl ? (
               <img src={avatarUrl} alt={nickname} />
             ) : (

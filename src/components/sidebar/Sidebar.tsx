@@ -16,6 +16,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { UserAvatar, type SessionInfo } from '../common/Avatar';
 import {
   ChatIcon,
@@ -126,6 +127,9 @@ export function Sidebar({
   onLogout,
 }: SidebarProps) {
   const { connected, connecting } = useWebSocket();
+  // 本人头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
+  const avatarKbd = useKbdFocusRing();
+  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
   const [showMorePanel, setShowMorePanel] = useState(false);
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
   const morePanelRef = useRef<HTMLDivElement>(null);
@@ -199,10 +203,22 @@ export function Sidebar({
     >
       <div className="sidebar-avatar">
         <motion.div
-          className="avatar-wrapper"
+          className={`avatar-wrapper${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={onAvatarClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onAvatarClick();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="打开我的资料"
+          onPointerDown={avatarKbdHandlers.onPointerDown}
+          onFocus={avatarKbdHandlers.onFocus}
+          onBlur={avatarKbdHandlers.onBlur}
           style={{ cursor: 'pointer' }}
           title="个人资料"
         >

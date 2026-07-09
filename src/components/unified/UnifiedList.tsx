@@ -38,6 +38,7 @@ import { friendDisplayName } from '../../utils/friendName';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
 import { compareByTimeDesc } from './conversationSort';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
+import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
@@ -219,6 +220,8 @@ export function UnifiedList({
   const friendPresence = useChatStore((s) => s.friendPresence);
   // 点开好友资料（低侵入：点头像看资料，点卡片其余部分进会话）
   const openProfile = useProfileViewStore((s) => s.open);
+  // 好友头像键盘焦点环（keyed：每张头像用 card.id 作 key）
+  const avatarKbd = useKbdFocusRing();
 
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
@@ -477,17 +480,37 @@ export function UnifiedList({
     const isChatTab = activeTab === 'chat';
     const isGroupTab = activeTab === 'group';
 
-    const friendOnline = card.type === 'friend' && !!friendPresence[card.id]?.online;
+    const isFriend = card.type === 'friend';
+    const friendOnline = isFriend && !!friendPresence[card.id]?.online;
+    // 仅好友头像可点看资料；键盘焦点态与 focus handlers 同 isFriend 条件挂载
+    const avatarHandlers = isFriend ? avatarKbd.handlersFor(card.id) : null;
+    const avatarKbdFocused = isFriend && avatarKbd.isKbdFocused(card.id);
 
     return (
       <>
         <div
-          className="conv-avatar"
-          onClick={card.type === 'friend'
+          className={`conv-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
+          onClick={isFriend
             ? (e) => { e.stopPropagation(); openProfile(card.id); }
             : undefined}
-          style={card.type === 'friend' ? { cursor: 'pointer', position: 'relative' } : undefined}
-          title={card.type === 'friend' ? '查看资料' : undefined}
+          onKeyDown={isFriend
+            ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                // 阻止冒泡到会话列表容器（其 Enter=打开当前会话），头像键盘=看资料
+                e.preventDefault();
+                e.stopPropagation();
+                openProfile(card.id);
+              }
+            }
+            : undefined}
+          role={isFriend ? 'button' : undefined}
+          tabIndex={isFriend ? 0 : undefined}
+          aria-label={isFriend ? `查看${card.name}资料` : undefined}
+          onPointerDown={avatarHandlers?.onPointerDown}
+          onFocus={avatarHandlers?.onFocus}
+          onBlur={avatarHandlers?.onBlur}
+          style={isFriend ? { cursor: 'pointer', position: 'relative' } : undefined}
+          title={isFriend ? '查看资料' : undefined}
         >
           {card.type === 'friend' ? (
             <FriendAvatar friend={card.data as Friend} />
