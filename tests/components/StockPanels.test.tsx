@@ -93,12 +93,13 @@ const stat = (hit: number | null, ret: number | null, exc: number | null, n: num
 const accuracyFx: StockAccuracyData = {
   windows: ['1d', '5d', '20d'],
   overall: {
-    '1d': stat(0.6, 0.012, 0.005, 10),
+    // hit_rate 为 0-1 占比（0.6 → 60.00%）；avg_excess 为百分数值（7.482 → +7.48%），非小数
+    '1d': stat(0.6, 0.012, 7.482, 10),
     '5d': stat(null, null, null, 0),
     '20d': stat(null, null, null, 0),
   },
   top5_vs_all: {
-    '1d': { all: stat(0.5, 0.01, 0.003, 20), top5: stat(0.7, 0.02, 0.008, 5) },
+    '1d': { all: stat(0.5, 0.01, -4.06, 20), top5: stat(0.7, 0.02, 4.445, 5) },
     '5d': { all: stat(null, null, null, 0), top5: stat(null, null, null, 0) },
     '20d': { all: stat(null, null, null, 0), top5: stat(null, null, null, 0) },
   },
@@ -127,7 +128,8 @@ const accuracyEmptyFx: StockAccuracyData = {
 };
 
 const historyFx: StockTrackHistoryData = {
-  records: [{ as_of: '2026-07-03', rank: 1, symbol: '300750', name: '宁德时代', price_at_ranking: 380, ret_1d: null, ret_5d: null, ret_20d: null, excess_1d: 0.005, excess_5d: null, excess_20d: null, returns_updated_at: null, is_backfill: true }],
+  // excess_1d 为百分数值（-4.06 → -4.06%），非小数
+  records: [{ as_of: '2026-07-03', rank: 1, symbol: '300750', name: '宁德时代', price_at_ranking: 380, ret_1d: null, ret_5d: null, ret_20d: null, excess_1d: -4.06, excess_5d: null, excess_20d: null, returns_updated_at: null, is_backfill: true }],
   fetched_at: null,
   as_of: null,
 };
@@ -291,8 +293,14 @@ describe('AccuracyPanel', () => {
     render(<AccuracyPanel accuracy={accuracyFx} history={historyFx} loading={false} error={null} />);
     expect(screen.getByText(/沪深300/)).toBeInTheDocument();
     expect(screen.getByText('回填')).toBeInTheDocument();
-    // 1d 命中率 0.6 → 60.00%
+    // 1d 命中率 0.6（0-1 占比）→ 60.00%
     expect(screen.getByText('60.00%')).toBeInTheDocument();
+    // 1d 平均超额 avg_excess=7.482（百分数值）→ +7.48%，直显不 ×100
+    expect(screen.getByText('+7.48%')).toBeInTheDocument();
+    // 历史榜 1d 超额 excess_1d=-4.06（百分数值）→ -4.06%
+    expect(screen.getByText('-4.06%')).toBeInTheDocument();
+    // 防回归：avg_excess 是百分数值，绝不能再被 ×100 渲染成 +748.20%
+    expect(screen.queryByText('+748.20%')).toBeNull();
   });
   it('无满窗样本（records_evaluated=0）：显示 hint、不渲染窗口表', () => {
     render(<AccuracyPanel accuracy={accuracyEmptyFx} history={null} loading={false} error={null} />);

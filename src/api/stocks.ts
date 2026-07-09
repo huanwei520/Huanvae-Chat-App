@@ -333,9 +333,9 @@ export interface StockRankingRunResponse {
 export interface StockAccuracyStat {
   /** 超额收益为正的占比（ratio 0-1，无样本为 null） */
   hit_rate: number | null;
-  /** 平均收益（ratio，无样本为 null） */
+  /** 平均收益（百分数值，0.81 = +0.81%，无样本为 null） */
   avg_return: number | null;
-  /** 平均超额收益（ratio，无样本为 null） */
+  /** 平均超额收益（百分数值，7.48 = +7.48%，无样本为 null） */
   avg_excess: number | null;
   /** 样本数 */
   n: number;
@@ -377,11 +377,17 @@ export interface StockTrackHistoryItem {
   rank: number;
   /** 入选时价格 */
   price_at_ranking?: number | null;
+  /** 1d 收益（百分数值，0.81 = +0.81%，未满窗为 null） */
   ret_1d: number | null;
+  /** 5d 收益（百分数值，未满窗为 null） */
   ret_5d: number | null;
+  /** 20d 收益（百分数值，未满窗为 null） */
   ret_20d: number | null;
+  /** 1d 超额收益（百分数值，7.48 = +7.48%，未满窗为 null） */
   excess_1d: number | null;
+  /** 5d 超额收益（百分数值，未满窗为 null） */
   excess_5d: number | null;
+  /** 20d 超额收益（百分数值，未满窗为 null） */
   excess_20d: number | null;
   /** 前向涨幅更新时间（未满窗为 null） */
   returns_updated_at?: string | null;

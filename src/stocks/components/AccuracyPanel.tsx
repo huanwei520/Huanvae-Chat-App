@@ -18,16 +18,17 @@ interface AccuracyPanelProps {
 }
 
 /**
- * 命中率（占比 ratio 0-1）→ 百分比展示；null（无满窗样本）→ 占位。
- * 数值口径按设计文档（hit_rate=超额>0 占比）；生产当前无满窗样本，故数值路径尚未经真数据核实。
+ * 命中率（hit_rate 为 0-1 占比，如 0.6 = 60%）→ ×100 转百分比展示；null（无满窗样本）→ 占位。
  */
 function fmtHitRate(v: number | null): string {
   return v === null || v === undefined ? '—' : formatPercent(v * 100);
 }
 
-/** 平均超额（return ratio）→ 带符号百分比展示；null → 占位。口径同上，未经真数据核实。 */
+/**
+ * 平均超额（avg_excess / excess_Nd 为百分数值，7.48 表示 +7.48%）→ 直接带符号显示，不再 ×100；null → 占位。
+ */
 function fmtExcess(v: number | null): string {
-  return v === null || v === undefined ? '—' : `${formatSigned(v * 100)}%`;
+  return v === null || v === undefined ? '—' : `${formatSigned(v)}%`;
 }
 
 export function AccuracyPanel({ accuracy, history, loading, error }: AccuracyPanelProps) {
