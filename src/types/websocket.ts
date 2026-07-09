@@ -384,6 +384,19 @@ export interface WsHgDeviceStatusChanged {
 }
 
 /**
+ * 好友在线状态增量推送（顶层消息类型，字段平铺，不嵌套在 notification_type/data 里）。
+ *
+ * 好友上线（0→1 活跃连接）或下线（最后一条断开）时服务端隐式推送（无需订阅）。
+ * 上线时 last_seen_at 缺省；下线时附最后在线时刻。
+ */
+export interface WsPresenceUpdate {
+  type: 'presence_update';
+  user_id: string;
+  online: boolean;
+  last_seen_at?: string;
+}
+
+/**
  * 所有服务器消息类型
  *
  * 所有事件包含连接级递增 event_seq 字段（用于跳号检测）。
@@ -396,6 +409,7 @@ export type WsServerMessage = (
   | WsMessageDeleted
   | WsReadSync
   | WsSystemNotification
+  | WsPresenceUpdate
   | WsHeartbeat
   | WsError
   | WsHgTopologyChanged

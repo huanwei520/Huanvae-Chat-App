@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 
@@ -59,6 +60,9 @@ export function MobileContacts({
   onToggleFriends,
   onToggleGroups,
 }: MobileContactsProps) {
+  // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
+  const friendPresence = useChatStore((s) => s.friendPresence);
+  const openProfile = useProfileViewStore((s) => s.open);
 
   // 搜索过滤
   const filteredFriends = useMemo(() => {
@@ -140,8 +144,22 @@ export function MobileContacts({
                     className="mobile-contact-card"
                     onClick={() => handleFriendClick(friend)}
                   >
-                    <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+                    <div
+                      className="mobile-contact-avatar"
+                      style={{ width: 44, height: 44, position: 'relative' }}
+                      onClick={(e) => { e.stopPropagation(); openProfile(friend.friend_id); }}
+                    >
                       <FriendAvatar friend={friend} />
+                      {friendPresence[friend.friend_id]?.online && (
+                        <span
+                          title="在线"
+                          style={{
+                            position: 'absolute', right: 0, bottom: 0,
+                            width: 10, height: 10, borderRadius: '50%',
+                            background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
+                          }}
+                        />
+                      )}
                     </div>
                     <div className="mobile-contact-info">
                       <div className="mobile-contact-name">

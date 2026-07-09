@@ -217,7 +217,15 @@ export function AvatarUploader({
         )}
       </AnimatePresence>
 
-      <div className="profile-id">@{session.userId}</div>
+      <button
+        type="button"
+        className="profile-id"
+        onClick={() => navigator.clipboard?.writeText(session.userId).catch(() => { /* 复制失败忽略 */ })}
+        title="点击复制 ID"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', color: 'inherit' }}
+      >
+        @{session.userId}
+      </button>
     </div>
   );
 }

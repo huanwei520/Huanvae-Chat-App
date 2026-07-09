@@ -14,6 +14,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useProfileViewStore } from '../../stores';
 import { OtherProfilePanel } from './OtherProfilePanel';
+import type { ChatTarget, Friend } from '../../types/chat';
+
+interface OtherProfileViewProps {
+  /** 「发消息」直达会话（由 Main/MobileMain 注入 handleSelectTarget） */
+  onOpenChat?: (target: ChatTarget) => void;
+}
 
 const overlayVariants = {
   initial: { opacity: 0 },
@@ -27,10 +33,14 @@ const panelVariants = {
   exit: { x: '100%' },
 };
 
-export function OtherProfileView() {
+export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
   const userId = useProfileViewStore((s) => s.userId);
   const close = useProfileViewStore((s) => s.close);
   const mobile = isMobile();
+
+  const handleSendMessage = (friend: Friend) => {
+    onOpenChat?.({ type: 'friend', data: friend });
+  };
 
   useEffect(() => {
     if (!userId) { return undefined; }
@@ -61,7 +71,7 @@ export function OtherProfileView() {
             transition={{ type: 'spring', stiffness: 360, damping: 34 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <OtherProfilePanel userId={userId} onClose={close} />
+            <OtherProfilePanel userId={userId} onClose={close} onSendMessage={handleSendMessage} />
           </motion.div>
         </motion.div>
       )}

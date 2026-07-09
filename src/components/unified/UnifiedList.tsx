@@ -27,6 +27,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import { AIAvatar } from '../common/AIAvatar';
 import { SearchBox } from '../common/SearchBox';
 import { SyncStatusBanner } from '../common/SyncStatusBanner';
@@ -213,6 +214,11 @@ export function UnifiedList({
   // 获取本地会话预览（用于 fallback）
   // initialized 标记首次加载是否完成，用于避免卡片排序跳变
   const { getFriendPreview, getGroupPreview, initialized: localConversationsReady } = useLocalConversations();
+
+  // 好友在线状态（首屏快照 + WS 增量维护，见 chatStore.friendPresence）
+  const friendPresence = useChatStore((s) => s.friendPresence);
+  // 点开好友资料（低侵入：点头像看资料，点卡片其余部分进会话）
+  const openProfile = useProfileViewStore((s) => s.open);
 
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
@@ -471,13 +477,40 @@ export function UnifiedList({
     const isChatTab = activeTab === 'chat';
     const isGroupTab = activeTab === 'group';
 
+    const friendOnline = card.type === 'friend' && !!friendPresence[card.id]?.online;
+
     return (
       <>
-        <div className="conv-avatar">
+        <div
+          className="conv-avatar"
+          onClick={card.type === 'friend'
+            ? (e) => { e.stopPropagation(); openProfile(card.id); }
+            : undefined}
+          style={card.type === 'friend' ? { cursor: 'pointer', position: 'relative' } : undefined}
+          title={card.type === 'friend' ? '查看资料' : undefined}
+        >
           {card.type === 'friend' ? (
             <FriendAvatar friend={card.data as Friend} />
           ) : (
             <GroupAvatar group={card.data as Group} />
+          )}
+          {/* 好友在线绿点 */}
+          {friendOnline && (
+            <span
+              className="conv-online-dot"
+              title="在线"
+              style={{
+                position: 'absolute',
+                right: 0,
+                bottom: 0,
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                background: '#34d399',
+                border: '2px solid #fff',
+                boxSizing: 'border-box',
+              }}
+            />
           )}
         </div>
         <div className="conv-info">

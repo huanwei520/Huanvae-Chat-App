@@ -11,6 +11,14 @@ export interface UserProfile {
   user_email: string | null;
   user_signature: string | null;
   user_avatar_url: string | null;
+  /** 资料背景图相对路径（需经 resolveServerAvatarUrl 收口；null=默认封面）。旧会话缓存可能缺省 */
+  background_url?: string | null;
+  /** 性别：male/female/other（null=未设置）。旧会话缓存可能缺省 */
+  gender?: string | null;
+  /** 生日 ISO 日期 YYYY-MM-DD（null=未设置）。旧会话缓存可能缺省 */
+  birthday?: string | null;
+  /** 地区，自由文本（null=未设置）。旧会话缓存可能缺省 */
+  region?: string | null;
   admin: string;
   created_at: string;
   updated_at: string;

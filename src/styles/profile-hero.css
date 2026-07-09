@@ -42,8 +42,8 @@
   background-color: var(--color-neutral-3, #e5e7eb);
   background-image: linear-gradient(
     135deg,
-    var(--color-primary-4, #818cf8) 0%,
-    var(--color-primary-6, #6366f1) 100%
+    var(--color-primary-4, #93c5fd) 0%,
+    var(--color-primary-6, #3b82f6) 100%
   );
 }
 
@@ -139,22 +139,6 @@
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-.qq-hero-avatar-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: calc(var(--qq-avatar-size) * 0.4);
-  font-weight: 600;
-  color: #fff;
-  background: linear-gradient(
-    135deg,
-    var(--color-primary-4, #818cf8),
-    var(--color-primary-5, #6d77f0)
-  );
 }
 
 .qq-hero-namecol {

@@ -705,7 +705,7 @@ export function MobileMain() {
       </AnimatePresence>
 
       {/* 他人公开资料页（移动整页，点头像进入只读资料） */}
-      <OtherProfileView />
+      <OtherProfileView onOpenChat={handleSelectTarget} />
     </div>
   );
 }

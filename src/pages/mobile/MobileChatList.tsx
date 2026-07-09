@@ -17,7 +17,7 @@ import { compareByTimeDesc } from '../../components/unified/conversationSort';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import { useSession } from '../../contexts/SessionContext';
 import { parseFriendIdFromConversationId } from '../../utils/conversationId';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
@@ -63,6 +63,9 @@ export function MobileChatList({
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
+  const friendPresence = useChatStore((s) => s.friendPresence);
+  const openProfile = useProfileViewStore((s) => s.open);
   const { session } = useSession();
 
   // 构建好友卡片
@@ -183,11 +186,27 @@ export function MobileChatList({
               transition={{ duration: 0.15 }}
             >
               {/* 头像 */}
-              <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
+              <div
+                className="mobile-contact-avatar"
+                style={{ width: 44, height: 44, position: 'relative' }}
+                onClick={card.type === 'friend'
+                  ? (e) => { e.stopPropagation(); openProfile(card.id); }
+                  : undefined}
+              >
                 {card.type === 'friend' ? (
                   <FriendAvatar friend={card.data as Friend} />
                 ) : (
                   <GroupAvatar group={card.data as Group} />
+                )}
+                {card.type === 'friend' && friendPresence[card.id]?.online && (
+                  <span
+                    title="在线"
+                    style={{
+                      position: 'absolute', right: 0, bottom: 0,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
+                    }}
+                  />
                 )}
               </div>
 

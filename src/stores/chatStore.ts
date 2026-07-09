@@ -185,6 +185,15 @@ interface ChatState {
    * 后台同步与拉黑动作均拉取服务器时间，取消拉黑时清除。是群折叠的单一真值源。
    */
   friendBlacklistTimes: Record<string, string>;
+
+  /**
+   * 好友在线状态映射：userId → { online, last_seen_at? }。
+   *
+   * 首屏由 GET /api/friends/presence 快照 seed，之后靠 WS presence_update 顶层消息增量维护
+   * （上线/下线由服务端隐式推送）。单独一张表（不并入 friends 数组），避免每次状态心跳
+   * churn 整个 friends 列表触发大范围重渲染。好友列表绿点 / 资料页在线态 / 聊天顶栏副标题据此展示。
+   */
+  friendPresence: Record<string, { online: boolean; last_seen_at?: string }>;
 }
 
 interface ChatActions {
@@ -205,6 +214,10 @@ interface ChatActions {
   setFriendBlacklistTimes: (times: Record<string, string>) => void;
   /** 设置某好友的特别关心状态（标星/取消后乐观更新，列表置顶/标星与资料页即时反映） */
   setFriendSpecialCare: (friendId: string, specialCare: boolean) => void;
+  /** 批量 seed 好友在线状态（GET /api/friends/presence 首屏快照） */
+  setFriendPresences: (entries: Array<{ user_id: string; online: boolean; last_seen_at?: string }>) => void;
+  /** 增量更新单个好友在线状态（WS presence_update） */
+  setFriendPresence: (userId: string, presence: { online: boolean; last_seen_at?: string }) => void;
 
   // ==================== 群聊操作 ====================
   /** 设置群聊列表 */
@@ -337,6 +350,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   friendBlacklistTimes: {},
 
+  friendPresence: {},
+
   // ==================== 好友操作 ====================
   setFriends: (friends) => set({ friends }),
 
@@ -375,6 +390,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     friends: state.friends.map((f) =>
       f.friend_id === friendId ? { ...f, is_special_care: specialCare } : f,
     ),
+  })),
+
+  setFriendPresences: (entries) => set(() => {
+    const map: Record<string, { online: boolean; last_seen_at?: string }> = {};
+    entries.forEach((e) => {
+      map[e.user_id] = { online: e.online, last_seen_at: e.last_seen_at };
+    });
+    return { friendPresence: map };
+  }),
+
+  setFriendPresence: (userId, presence) => set((state) => ({
+    friendPresence: { ...state.friendPresence, [userId]: presence },
   })),
 
   // ==================== 群聊操作 ====================
@@ -531,7 +558,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearMessageCache: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadPositions: {}, cachedFriendReadPositions: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadPositions: {}, cachedFriendReadPositions: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {}, friendPresence: {} }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

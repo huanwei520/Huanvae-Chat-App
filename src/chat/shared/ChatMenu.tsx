@@ -280,6 +280,7 @@ export function ChatMenuButton({
             loading={menu.loading}
             loadingMembers={menu.loadingMembers}
             currentUserId={undefined}
+            remarks={groupRemarks}
             onBack={() => menu.handleSetView('main')}
             onTransfer={menu.handleTransferOwner}
           />

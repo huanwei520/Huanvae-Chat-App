@@ -10,8 +10,9 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm } from '../../components/profile';
+import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, ProfileCoverActions } from '../../components/profile';
 import { useProfileEditor } from '../../hooks/useProfileEditor';
+import { resolveServerAvatarUrl } from '../../utils/avatar';
 
 // 返回图标
 const BackIcon = () => (
@@ -56,12 +57,18 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
+    savingBackground,
     handleAvatarSelect,
     handleNicknameUpdate,
+    handleBackgroundSelect,
+    handleBackgroundReset,
     handleSuccess,
     handleError,
     cropModal,
   } = useProfileEditor();
+
+  // 封面图走显示收口点（私有 CA）：background_url 是后端原始相对路径。
+  const backgroundUrl = resolveServerAvatarUrl(session?.profile.background_url);
 
   if (!session) {
     return null;
@@ -84,9 +91,12 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     >
       {/* 内容区域（整块滚动，封面区在最顶通栏） */}
       <div className="mobile-profile-content">
-        {/* QQ 通栏封面区 + 浮层（返回） */}
+        {/* QQ 通栏封面区 + 浮层（返回 / 换封面） */}
         <div className="qq-hero qq-hero--mobile">
-          <div className="qq-hero-cover">
+          <div
+            className="qq-hero-cover"
+            style={backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined}
+          >
             <div className="qq-hero-back">
               <button
                 type="button"
@@ -96,6 +106,14 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
               >
                 <BackIcon />
               </button>
+            </div>
+            <div className="qq-hero-actions">
+              <ProfileCoverActions
+                hasBackground={!!session?.profile.background_url}
+                saving={savingBackground}
+                onSelect={handleBackgroundSelect}
+                onReset={handleBackgroundReset}
+              />
             </div>
           </div>
         </div>

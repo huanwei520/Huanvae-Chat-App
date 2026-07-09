@@ -371,7 +371,7 @@ export function Main() {
       </AnimatePresence>
 
       {/* 他人公开资料页（右侧抽屉，点头像打开只读资料） */}
-      <OtherProfileView />
+      <OtherProfileView onOpenChat={page.handleSelectTarget} />
 
       {/* 弹窗组件 */}
       <ProfileModal

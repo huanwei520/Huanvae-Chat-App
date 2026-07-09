@@ -9,6 +9,9 @@ import type { ApiClient } from './client';
 /** 申请默认处理策略 */
 export type RequestPolicy = 'manual' | 'auto_accept' | 'auto_reject';
 
+/** 性别（null=未设置） */
+export type Gender = 'male' | 'female' | 'other';
+
 /** 个人资料响应（createApiClient 已自动解包 ApiResponse.data，此处为解包后的扁平结构） */
 export interface ProfileResponse {
   user_id: string;
@@ -16,6 +19,14 @@ export interface ProfileResponse {
   user_email: string | null;
   user_signature: string | null;
   user_avatar_url: string | null;
+  /** 资料背景图相对路径（需经 resolveServerAvatarUrl 收口；null=默认封面） */
+  background_url: string | null;
+  /** 性别：male/female/other（null=未设置） */
+  gender: Gender | null;
+  /** 生日 ISO 日期 YYYY-MM-DD（null=未设置） */
+  birthday: string | null;
+  /** 地区，自由文本（null=未设置） */
+  region: string | null;
   admin: string;
   /** 搜索总开关：false=完全不可被搜索/添加 */
   allow_search: boolean;
@@ -35,6 +46,16 @@ export interface PublicProfileResponse {
   user_nickname: string;
   user_signature: string | null;
   user_avatar_url: string | null;
+  /** 资料背景图相对路径（需经 resolveServerAvatarUrl 收口；null=默认封面） */
+  background_url: string | null;
+  /** 性别：male/female/other（null=未设置） */
+  gender: Gender | null;
+  /** 生日 ISO 日期 YYYY-MM-DD（null=未设置） */
+  birthday: string | null;
+  /** 地区，自由文本（null=未设置） */
+  region: string | null;
+  /** 注册时间（ISO 8601；供他人资料页展示"注册时间"） */
+  created_at: string;
 }
 
 /** 更新资料请求（所有字段可选，仅传需要更新的） */
@@ -46,6 +67,12 @@ export interface UpdateProfileRequest {
   search_visible_by_id?: boolean;
   friend_request_policy?: RequestPolicy;
   group_invite_policy?: RequestPolicy;
+  /** 性别：male/female/other */
+  gender?: Gender;
+  /** 生日 ISO 日期 YYYY-MM-DD */
+  birthday?: string;
+  /** 地区，最长 100 字符 */
+  region?: string;
 }
 
 /** 修改密码请求 */
@@ -57,6 +84,12 @@ export interface ChangePasswordRequest {
 /** 上传头像响应 */
 export interface UploadAvatarResponse {
   avatar_url: string;
+  message: string;
+}
+
+/** 上传/重置资料背景图响应（重置时 background_url 恒为空串） */
+export interface BackgroundResponse {
+  background_url: string;
   message: string;
 }
 
@@ -115,4 +148,32 @@ export function uploadAvatar(
     'avatar',
     onProgress,
   );
+}
+
+/**
+ * 上传资料背景图（封面）
+ *
+ * 与 uploadAvatar 同结构：字段名 'background'，返回带时间戳的相对路径（需拼接 STORAGE_BASE_URL / 经收口解析）。
+ */
+export function uploadBackground(
+  serverUrl: string,
+  accessToken: string,
+  file: File,
+  onProgress?: ProgressCallback,
+): Promise<BackgroundResponse> {
+  return uploadWithProgress<BackgroundResponse>(
+    `${serverUrl}/api/profile/background`,
+    accessToken,
+    file,
+    'background',
+    onProgress,
+  );
+}
+
+/**
+ * 重置资料背景图为默认封面（后端将 background_url 置为 null）。
+ * 成功响应 background_url 恒为空串，前端应据此清空本地 background_url。
+ */
+export function resetBackground(api: ApiClient): Promise<BackgroundResponse> {
+  return api.delete<BackgroundResponse>('/api/profile/background');
 }

@@ -125,7 +125,8 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'ProfileModal', path: 'components/ProfileModal', category: 'components', description: '个人资料模态框' },
   { name: 'AvatarUploader', path: 'components/profile/AvatarUploader', category: 'components', description: '头像上传组件' },
   { name: 'PasswordForm', path: 'components/profile/PasswordForm', category: 'components', description: '密码表单' },
-  { name: 'ProfileInfoForm', path: 'components/profile/ProfileInfoForm', category: 'components', description: '个人信息表单' },
+  { name: 'ProfileInfoForm', path: 'components/profile/ProfileInfoForm', category: 'components', description: '个人信息表单（邮箱/签名/性别/生日/地区 + 注册时间）' },
+  { name: 'ProfileCoverActions', path: 'components/profile/ProfileCoverActions', category: 'components', description: '资料封面换/重置入口（桌面+移动共用）' },
   { name: 'PrivacySettingsForm', path: 'components/profile/PrivacySettingsForm', category: 'components', description: '隐私/申请处理设置表单（搜索可见性 + 好友/群申请默认策略）' },
 
   // 文件相关

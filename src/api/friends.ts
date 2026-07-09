@@ -180,6 +180,23 @@ export async function getBlacklistTimes(api: ApiClient): Promise<Record<string, 
 }
 
 /**
+ * 好友在线状态项（GET /api/friends/presence 与 WS presence_update 共用）。
+ * online=true 时 last_seen_at 缺省（后端 skip_serializing_if）；离线时为最后断开时刻。
+ */
+export interface PresenceEntry {
+  user_id: string;
+  online: boolean;
+  last_seen_at?: string;
+}
+
+/**
+ * 获取全部好友在线状态首屏快照（App 打开时拉一次，之后靠 WS presence_update 增量维护）。
+ */
+export function getPresence(api: ApiClient): Promise<PresenceEntry[]> {
+  return api.get<PresenceEntry[]>('/api/friends/presence');
+}
+
+/**
  * 特别关心某好友（标星；仅限好友，单向私有）
  * @param targetUserId 被特别关心的好友用户 ID
  */

@@ -11,7 +11,13 @@
 import { useState } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useAccounts } from './useAccounts';
-import { uploadAvatar, getProfile, updateProfile } from '../api/profile';
+import {
+  uploadAvatar,
+  uploadBackground,
+  resetBackground,
+  getProfile,
+  updateProfile,
+} from '../api/profile';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { useAvatarCrop } from '../components/common/AvatarCropModal';
 
@@ -30,6 +36,7 @@ export function useProfileEditor() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [updatingNickname, setUpdatingNickname] = useState(false);
+  const [savingBackground, setSavingBackground] = useState(false);
 
   const handleAvatarSelect = async (file: File) => {
     if (!session) { return; }
@@ -124,6 +131,53 @@ export function useProfileEditor() {
     }
   };
 
+  // 背景图（封面）上传：background_url 保持后端原始相对路径，展示时由资料卡片经
+  // resolveServerAvatarUrl 收口（私有 CA 红线，与 user_avatar_url 显示侧一致）。
+  const handleBackgroundSelect = async (file: File) => {
+    if (!session) { return; }
+    if (file.size > IMAGE_MAX_SIZE) {
+      setError('文件太大，最大 10MB');
+      return;
+    }
+    if (!IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      setError('不支持的文件格式，仅支持 jpg、png、gif、webp');
+      return;
+    }
+    setSavingBackground(true);
+    setError(null);
+    try {
+      const res = await uploadBackground(session.serverUrl, session.accessToken, file);
+      setSession({
+        ...session,
+        profile: { ...session.profile, background_url: res.background_url },
+      });
+      setSuccess('背景图已更新');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '上传背景图失败');
+    } finally {
+      setSavingBackground(false);
+    }
+  };
+
+  // 背景图重置为默认封面（后端置 null）
+  const handleBackgroundReset = async () => {
+    if (!session) { return; }
+    setSavingBackground(true);
+    setError(null);
+    try {
+      await resetBackground(api);
+      setSession({
+        ...session,
+        profile: { ...session.profile, background_url: null },
+      });
+      setSuccess('背景图已重置');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '重置背景图失败');
+    } finally {
+      setSavingBackground(false);
+    }
+  };
+
   const handleSuccess = (message: string) => {
     setError(null);
     setSuccess(message);
@@ -141,8 +195,11 @@ export function useProfileEditor() {
     uploadingAvatar,
     uploadProgress,
     updatingNickname,
+    savingBackground,
     handleAvatarSelect,
     handleNicknameUpdate,
+    handleBackgroundSelect,
+    handleBackgroundReset,
     handleSuccess,
     handleError,
     cropModal,

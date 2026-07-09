@@ -105,6 +105,7 @@ import * as ProfileModal from '../../src/components/ProfileModal';
 import * as AvatarUploader from '../../src/components/profile/AvatarUploader';
 import * as PasswordForm from '../../src/components/profile/PasswordForm';
 import * as ProfileInfoForm from '../../src/components/profile/ProfileInfoForm';
+import * as ProfileCoverActions from '../../src/components/profile/ProfileCoverActions';
 import * as PrivacySettingsForm from '../../src/components/profile/PrivacySettingsForm';
 import * as FilesModal from '../../src/components/files/FilesModal';
 import * as FileContextMenu from '../../src/components/files/FileContextMenu';
@@ -349,6 +350,7 @@ const COMPONENT_MAP = {
   AvatarUploader,
   PasswordForm,
   ProfileInfoForm,
+  ProfileCoverActions,
   PrivacySettingsForm,
   FilesModal,
   FileContextMenu,

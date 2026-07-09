@@ -32,7 +32,7 @@ import { ChatMenuButton } from './ChatMenu';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
-import { useChatStore } from '../../stores';
+import { useChatStore, useProfileViewStore } from '../../stores';
 import type { AIMessage, AIConversation } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
 
@@ -233,6 +233,15 @@ export function ChatPanel({
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
+  // 私聊顶栏点开对方资料（群/AI 不适用）
+  const openProfile = useProfileViewStore((s) => s.open);
+  const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+  // 好友在线态：在线时顶栏副标题显示「在线」，否则回退 @ID
+  const friendOnline = useChatStore((s) =>
+    (friendIdForProfile ? s.friendPresence[friendIdForProfile]?.online : false) ?? false,
+  );
+  const subtitle = friendOnline ? '在线' : getChatSubtitle(chatTarget);
+
   // 私聊拉黑提示：从 store 读实时拉黑态（资料页拉黑后即时反映，不依赖 chatTarget 快照）
   const friendBlacklisted = useChatStore((s) =>
     chatTarget.type === 'friend'
@@ -256,9 +265,14 @@ export function ChatPanel({
     >
       {/* 聊天头部 */}
       <div className="chat-header">
-        <div className="chat-header-info">
+        <div
+          className="chat-header-info"
+          onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+          style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
+          title={friendIdForProfile ? '查看资料' : undefined}
+        >
           <h2>{getChatTitle(chatTarget)}</h2>
-          <span className="chat-subtitle">{getChatSubtitle(chatTarget)}</span>
+          <span className="chat-subtitle">{subtitle}</span>
         </div>
         {chatTarget.type === 'ai' ? (
           <div className="chat-header-actions">
@@ -474,7 +488,10 @@ export function EmptyChat({ session, activeTab }: EmptyChatProps) {
       className="chat-empty"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      // 退场瞬时：选中会话时（AnimatePresence mode="wait"）欢迎页的「自己昵称」徽章
+      // 若慢速淡出会被 ChatPanel 等待、在顶部残留一瞬 →「切会话闪自己昵称」。
+      // 顶栏标题本身只取对方（getChatTitle 从不返回自己），故只需让空态即时退场。
+      exit={{ opacity: 0, transition: { duration: 0 } }}
     >
       <div className="empty-content">
         <div className="empty-icon">💬</div>

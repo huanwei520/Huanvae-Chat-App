@@ -759,6 +759,15 @@ export function handleWebSocketMessage(
         });
         break;
 
+      case 'presence_update':
+        // 好友上/下线增量（顶层消息，字段平铺）。直接写 store 的独立 presence 表，
+        // 好友列表绿点 / 资料页在线态 / 聊天顶栏副标题据此即时更新。
+        useChatStore.getState().setFriendPresence(msg.user_id, {
+          online: msg.online,
+          last_seen_at: msg.last_seen_at,
+        });
+        break;
+
       case 'hg_topology_changed':
       case 'hg_node_migrated':
       case 'hg_group_toggled':

@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { MenuHeader } from './MenuHeader';
 import { resolveServerAvatarUrl } from '../../../utils/avatar';
+import { groupMemberDisplayName } from '../../../utils/groupRemark';
+import { AvatarPlaceholder } from '../../../components/common/AvatarPlaceholder';
 import type { GroupMember } from '../../../api/groups';
 
 interface TransferOwnerProps {
@@ -12,8 +14,18 @@ interface TransferOwnerProps {
   loading: boolean;
   loadingMembers: boolean;
   currentUserId?: string;
+  /** D7 群内私有备注（user_id → 备注名）；展示名优先用备注，与成员列表一致 */
+  remarks?: Record<string, string>;
   onBack: () => void;
   onTransfer: (newOwnerId: string) => void;
+}
+
+/** 成员展示名：备注 → 群昵称 → 用户昵称 */
+function memberName(member: GroupMember, remarks?: Record<string, string>): string {
+  return groupMemberDisplayName(
+    remarks?.[member.user_id],
+    member.group_nickname || member.user_nickname,
+  );
 }
 
 export function TransferOwner({
@@ -21,6 +33,7 @@ export function TransferOwner({
   loading,
   loadingMembers,
   currentUserId,
+  remarks,
   onBack,
   onTransfer,
 }: TransferOwnerProps) {
@@ -46,7 +59,7 @@ export function TransferOwner({
         <MenuHeader title="确认转让" onBack={() => setConfirmStep(false)} />
         <div className="menu-confirm">
           <p>
-            确定要将群主转让给 <strong>{selectedMember.user_nickname}</strong> 吗？
+            确定要将群主转让给 <strong>{memberName(selectedMember, remarks)}</strong> 吗？
           </p>
           <p className="confirm-warning">
             转让后您将变为普通成员，此操作无法撤销
@@ -79,30 +92,33 @@ export function TransferOwner({
         {!loadingMembers && transferableMembers.length > 0 && (
           <>
             <p className="menu-hint">选择要转让群主的成员：</p>
-            {transferableMembers.map((member) => (
-              <div
-                key={member.user_id}
-                className={`transfer-member-item ${selectedId === member.user_id ? 'selected' : ''}`}
-                onClick={() => setSelectedId(member.user_id)}
-              >
-                <div className="member-avatar">
-                  {member.user_avatar_url ? (
-                    <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={member.user_nickname} />
-                  ) : (
-                    <div className="default-avatar" />
+            {transferableMembers.map((member) => {
+              const displayName = memberName(member, remarks);
+              return (
+                <div
+                  key={member.user_id}
+                  className={`transfer-member-item ${selectedId === member.user_id ? 'selected' : ''}`}
+                  onClick={() => setSelectedId(member.user_id)}
+                >
+                  <div className="member-avatar">
+                    {member.user_avatar_url ? (
+                      <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={displayName} />
+                    ) : (
+                      <AvatarPlaceholder name={displayName} fontSize={16} />
+                    )}
+                  </div>
+                  <div className="member-info">
+                    <span className="member-name">{displayName}</span>
+                    {member.role === 'admin' && (
+                      <span className="member-role admin">管理员</span>
+                    )}
+                  </div>
+                  {selectedId === member.user_id && (
+                    <span className="selected-mark">✓</span>
                   )}
                 </div>
-                <div className="member-info">
-                  <span className="member-name">{member.user_nickname}</span>
-                  {member.role === 'admin' && (
-                    <span className="member-role admin">管理员</span>
-                  )}
-                </div>
-                {selectedId === member.user_id && (
-                  <span className="selected-mark">✓</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
             <button
               className="submit-btn"
               onClick={() => setConfirmStep(true)}

@@ -15,9 +15,9 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { useApi } from '../contexts/SessionContext';
+import { useApi, useSession } from '../contexts/SessionContext';
 import { useChatStore } from '../stores';
-import { getFriends as getFriendsFromApi, getBlacklistTimes } from '../api/friends';
+import { getFriends as getFriendsFromApi, getBlacklistTimes, getPresence } from '../api/friends';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import * as db from '../db';
 import type { Friend } from '../types/chat';
@@ -69,6 +69,7 @@ function friendToLocalFriend(friend: Friend): db.LocalFriend {
 
 export function useFriends(): UseFriendsReturn {
   const api = useApi();
+  const { session } = useSession();
 
   // 从 store 获取状态和操作方法
   const friends = useChatStore((state) => state.friends);
@@ -78,8 +79,16 @@ export function useFriends(): UseFriendsReturn {
   const setLoading = useChatStore((state) => state.setFriendsLoading);
   const setError = useChatStore((state) => state.setFriendsError);
   const setFriendBlacklistTimes = useChatStore((state) => state.setFriendBlacklistTimes);
+  const setFriendPresences = useChatStore((state) => state.setFriendPresences);
   const addFriend = useChatStore((state) => state.addFriend);
   const removeFriend = useChatStore((state) => state.removeFriend);
+
+  // presence 首屏快照按【当前登录用户】seed 一次（见 loadServerFriends）。
+  // 记录已 seed 的 userId 而非布尔：换账号（userId 变）即重新 seed，切账号后不会沿用旧账号快照，
+  // 也不依赖组件是否 remount。用 latest-ref 持有最新 userId，避免进 loadServerFriends 依赖数组。
+  const seededForUserRef = useRef<string | null>(null);
+  const userIdRef = useRef<string | null>(session?.userId ?? null);
+  userIdRef.current = session?.userId ?? null;
 
   // 从本地数据库加载好友
   const loadLocalFriends = useCallback(async (): Promise<Friend[]> => {
@@ -116,8 +125,23 @@ export function useFriends(): UseFriendsReturn {
       console.warn('[Friends] 加载拉黑时间失败:', err);
     }
 
+    // 好友在线状态首屏快照——**每个登录用户只 seed 一次**。之后一律靠 WS presence_update 增量维护。
+    // 若每次后台同步都重灌整表（setFriendPresences 是全量替换），会把同步窗口内到达的
+    // WS 增量覆盖回旧值（好友刚上线的绿点被抹掉，下次 presence_update 才恢复）。
+    // 按 userId 门控：换账号后 seededForUserRef 不匹配即重新 seed（不沿用旧账号在线态）；
+    // seed 失败不更新 ref，下次同步会重试。
+    const uid = userIdRef.current;
+    if (uid && seededForUserRef.current !== uid) {
+      try {
+        setFriendPresences(await getPresence(api));
+        seededForUserRef.current = uid;
+      } catch (err) {
+        console.warn('[Friends] 加载好友在线状态失败:', err);
+      }
+    }
+
     return serverFriends;
-  }, [api, setFriendBlacklistTimes]);
+  }, [api, setFriendBlacklistTimes, setFriendPresences]);
 
   // 加载好友列表（本地优先 + 后台同步）
   const loadFriends = useCallback(async (): Promise<void> => {

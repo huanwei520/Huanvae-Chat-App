@@ -27,6 +27,7 @@ import { ChatMenuButton } from '../../chat/shared/ChatMenu';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
+import { useProfileViewStore } from '../../stores';
 import type { AIMessage } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
 
@@ -219,6 +220,10 @@ export function MobileChatView({
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
 
+  // 私聊顶栏点开对方资料（群/AI 不适用）
+  const openProfile = useProfileViewStore((s) => s.open);
+  const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+
   // 获取实际的 friend/group 对象
   const friend = chatTarget.type === 'friend' ? chatTarget.data : undefined;
   const group = chatTarget.type === 'group' ? chatTarget.data : undefined;
@@ -244,7 +249,13 @@ export function MobileChatView({
         <div className="mobile-chat-back" onClick={onBack}>
           <BackIcon />
         </div>
-        <div className="mobile-chat-title">{getChatTitle(chatTarget)}</div>
+        <div
+          className="mobile-chat-title"
+          onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+          style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
+        >
+          {getChatTitle(chatTarget)}
+        </div>
         {chatTarget.type === 'ai' ? (
           <div className="mobile-chat-menu ai-actions">
             <button className="header-action-btn" onClick={onAINewConversation} title="新对话">

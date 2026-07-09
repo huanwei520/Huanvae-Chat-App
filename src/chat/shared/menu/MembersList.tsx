@@ -5,8 +5,26 @@
 import { MenuHeader } from './MenuHeader';
 import { isMuted, formatMutedUntil } from './utils';
 import { resolveServerAvatarUrl } from '../../../utils/avatar';
+import { AvatarPlaceholder } from '../../../components/common/AvatarPlaceholder';
 import { groupMemberDisplayName } from '../../../utils/groupRemark';
+import { formatDate } from '../../../utils/time';
 import type { GroupMember } from '../../../api/groups';
+
+/** 入群方式中文文案 */
+const JOIN_METHOD_LABELS: Record<string, string> = {
+  create: '创建群聊',
+  search_direct: '搜索加入',
+  search_approved: '搜索申请通过',
+  owner_invite: '群主邀请',
+  admin_invite: '管理员邀请',
+  member_invite: '成员邀请',
+  direct_invite_code: '邀请码加入',
+  normal_invite_code: '邀请码申请通过',
+};
+
+function joinMethodLabel(method: string): string {
+  return JOIN_METHOD_LABELS[method] ?? '';
+}
 
 interface MembersListProps {
   members: GroupMember[];
@@ -46,6 +64,10 @@ export function MembersList({
               remarks?.[member.user_id],
               member.group_nickname || member.user_nickname,
             );
+            // 入群时间 + 方式（joined_at / join_method）
+            const joinDate = formatDate(member.joined_at);
+            const joinWay = joinMethodLabel(member.join_method);
+            const joinInfo = [joinDate, joinWay].filter(Boolean).join(' · ');
 
             return (
               <div
@@ -57,9 +79,7 @@ export function MembersList({
                   {member.user_avatar_url ? (
                     <img src={resolveServerAvatarUrl(member.user_avatar_url) || ''} alt={displayName} />
                   ) : (
-                    <div className="avatar-placeholder">
-                      {displayName.charAt(0).toUpperCase()}
-                    </div>
+                    <AvatarPlaceholder name={displayName} fontSize={14} />
                   )}
                 </div>
                 <div className="member-info">
@@ -79,6 +99,14 @@ export function MembersList({
                       </span>
                     )}
                   </div>
+                  {joinInfo && (
+                    <span
+                      className="member-join-info"
+                      style={{ fontSize: '11px', color: 'var(--text-secondary, rgba(255, 255, 255, 0.45))' }}
+                    >
+                      {joinInfo}
+                    </span>
+                  )}
                 </div>
               </div>
             );
