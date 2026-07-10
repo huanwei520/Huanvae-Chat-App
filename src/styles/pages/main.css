@@ -3050,11 +3050,13 @@
   color: var(--status-error);
 }
 
-/* 个人资料弹窗 */
+/* ============================================================================
+   个人资料弹窗（近正方形两区：左身份预览 + 右编辑）—— 视觉精修
+   ============================================================================ */
 .profile-modal {
-  max-width: 400px;
-  max-height: 95vh; /* 允许更大的高度，几乎占满屏幕 */
-  overflow-y: auto; /* 仅在极端情况下产生滚动 */
+  max-width: 720px;
+  max-height: 86vh;
+  overflow: hidden;
 }
 
 /* QQ 风格：隐藏玻璃高光/反射伪元素，避免盖在通栏封面上发白 */
@@ -3068,15 +3070,236 @@
   border-radius: 28px 28px 0 0;
 }
 
-/* 头像区骑在封面下沿（AvatarUploader 自带 .profile-avatar-section 居中列布局） */
-.profile-modal .profile-avatar-section {
-  margin-top: -40px;
-  padding-top: 0;
+/* ---- 两区网格 ---- */
+.profile-modal .profile-grid {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
-/* 个人资料弹窗内部表单区域 */
+/* ---- 左：身份预览侧卡（明确 frosted 面板 + 身份组垂直居中）---- */
+.profile-grid-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center; /* 身份组整体垂直居中 → 上下留白对称，读作"呼吸感"而非"死空" */
+  min-width: 0;
+  padding: 24px 18px;
+  overflow: visible;
+  text-align: center;
+  position: relative;
+  /* 明确的 frosted 侧卡底（均匀、不渐隐）：满高留白成为刻意的卡片留白 */
+  background: linear-gradient(180deg, var(--white-alpha-55) 0%, var(--white-alpha-45) 100%);
+}
+
+/* 侧卡与右编辑区的分隔线（实线细描边） */
+.profile-grid-identity::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  pointer-events: none;
+  background: var(--border-subtle);
+}
+
+/* 头像区（AvatarUploader）：不再骑封面，作为居中身份组的首项 */
+.profile-modal .profile-avatar-section {
+  padding: 0;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.profile-modal .avatar-container {
+  width: 84px;
+  height: 84px;
+  border: 4px solid var(--bg-primary);
+  box-shadow: 0 6px 18px rgba(30, 58, 95, 0.14);
+}
+
+.profile-modal .profile-name {
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.profile-modal .profile-id {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-light);
+}
+
+/* 签名预览（无签名走 is-empty 占位） */
+.profile-identity-signature {
+  margin: 10px 2px 0;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-align: center;
+  word-break: break-word;
+}
+.profile-identity-signature.is-empty {
+  color: var(--text-light);
+  font-style: italic;
+}
+
+/* 快览事实卡（地区/性别/注册于）—— 居中身份组末项，在 frosted 面板上微微浮起 */
+.profile-identity-facts {
+  width: 100%;
+  margin-top: 16px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--white-alpha-80);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.profile-identity-facts:empty {
+  display: none;
+}
+.profile-fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 6px;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+.profile-fact:hover {
+  background: var(--white-alpha-40);
+}
+.profile-fact-label {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  color: var(--text-light);
+}
+.profile-fact-value {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ---- 右：编辑栏 ---- */
+.profile-grid-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 精修 tab（仅本弹窗内，避免影响 add/groups 模态的共享 .tab-btn） */
+.profile-modal .profile-tabs {
+  padding: 6px 24px 0;
+  gap: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.profile-modal .tab-btn {
+  padding: 11px 6px 13px;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+.profile-modal .tab-btn:hover {
+  color: var(--text-secondary);
+}
+.profile-modal .tab-btn.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+.profile-modal .tab-btn.active::after {
+  left: 50%;
+  right: auto;
+  width: 28px;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  bottom: -1px;
+}
+
+/* 表单区 */
 .profile-modal .profile-form {
-  padding-bottom: 24px; /* 确保底部有足够间距 */
+  padding: 16px 24px 18px;
+}
+
+/* 弹窗内字段整体收一档（更紧凑、Linear 风）：压缩右栏总高，缩小左右高度差、减小左栏留白 */
+.profile-modal .profile-info-fields .glass-input {
+  padding: 11px 14px;
+  font-size: var(--text-md);
+}
+.profile-modal .profile-form textarea.glass-input {
+  min-height: 62px;
+}
+
+/* 字段网格：默认单列（移动端），桌面弹窗内两列；签名/注册跨两列 */
+.profile-info-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.profile-info-fields .form-group {
+  margin-bottom: 0;
+}
+.form-group--full {
+  grid-column: 1 / -1;
+}
+.profile-modal .profile-info-fields {
+  grid-template-columns: 1fr 1fr;
+  gap: 13px 16px;
+}
+
+/* 精修字段标签（仅本弹窗，全局 .form-group label 不动） */
+.profile-modal .profile-info-fields .form-group > label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  padding-left: 2px;
+}
+
+/* 保存按钮呼吸间距 */
+.profile-modal .profile-info-fields + .app-btn {
+  margin-top: 16px;
+}
+
+/* 窄屏回退单列 */
+@media (max-width: 760px) {
+  .profile-modal {
+    max-width: 400px;
+  }
+  .profile-modal .profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .profile-modal .profile-info-fields {
+    grid-template-columns: 1fr;
+  }
+  .profile-grid-editor {
+    border-top: 1px solid var(--border-subtle);
+  }
+  /* 单列堆叠：内容自然聚顶（不居中）、恢复头像骑封面、透明底（与精修前窄屏一致） */
+  .profile-grid-identity {
+    justify-content: flex-start;
+    padding: 0 18px 10px;
+    background: none;
+  }
+  .profile-modal .profile-avatar-section {
+    margin-top: -36px;
+  }
+  /* 单列堆叠时不显竖向分隔线 */
+  .profile-grid-identity::after {
+    display: none;
+  }
 }
 
 .profile-avatar-section {

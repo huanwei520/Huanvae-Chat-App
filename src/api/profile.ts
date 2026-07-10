@@ -155,19 +155,23 @@ export function uploadAvatar(
  *
  * 与 uploadAvatar 同结构：字段名 'background'，返回带时间戳的相对路径（需拼接 STORAGE_BASE_URL / 经收口解析）。
  */
-export function uploadBackground(
+export async function uploadBackground(
   serverUrl: string,
   accessToken: string,
   file: File,
   onProgress?: ProgressCallback,
 ): Promise<BackgroundResponse> {
-  return uploadWithProgress<BackgroundResponse>(
+  // uploadWithProgress 走裸 XHR，绕过 ApiClient 的自动解包，拿到的是完整 ApiResponse 包裹
+  // （{ success, code, data: BackgroundResponse, message }）。这里解包出 data 返回扁平结构，
+  // 与 resetBackground（经 ApiClient 已解包）保持一致，供调用方直接读 background_url。
+  const wrapped = await uploadWithProgress<{ data: BackgroundResponse }>(
     `${serverUrl}/api/profile/background`,
     accessToken,
     file,
     'background',
     onProgress,
   );
+  return wrapped.data;
 }
 
 /**

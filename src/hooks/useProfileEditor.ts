@@ -37,6 +37,8 @@ export function useProfileEditor() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [updatingNickname, setUpdatingNickname] = useState(false);
   const [savingBackground, setSavingBackground] = useState(false);
+  const [backgroundProgress, setBackgroundProgress] = useState(0);
+  const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
 
   const handleAvatarSelect = async (file: File) => {
     if (!session) { return; }
@@ -144,18 +146,26 @@ export function useProfileEditor() {
       return;
     }
     setSavingBackground(true);
+    setBackgroundProgress(0);
+    setBackgroundNotice(null);
     setError(null);
     try {
-      const res = await uploadBackground(session.serverUrl, session.accessToken, file);
+      const res = await uploadBackground(
+        session.serverUrl,
+        session.accessToken,
+        file,
+        (p) => setBackgroundProgress(p),
+      );
       setSession({
         ...session,
         profile: { ...session.profile, background_url: res.background_url },
       });
-      setSuccess('背景图已更新');
+      setBackgroundNotice('背景图已更新');
     } catch (err) {
       setError(err instanceof Error ? err.message : '上传背景图失败');
     } finally {
       setSavingBackground(false);
+      setBackgroundProgress(0);
     }
   };
 
@@ -170,13 +180,15 @@ export function useProfileEditor() {
         ...session,
         profile: { ...session.profile, background_url: null },
       });
-      setSuccess('背景图已重置');
+      setBackgroundNotice('背景图已重置');
     } catch (err) {
       setError(err instanceof Error ? err.message : '重置背景图失败');
     } finally {
       setSavingBackground(false);
     }
   };
+
+  const clearBackgroundNotice = () => setBackgroundNotice(null);
 
   const handleSuccess = (message: string) => {
     setError(null);
@@ -196,6 +208,9 @@ export function useProfileEditor() {
     uploadProgress,
     updatingNickname,
     savingBackground,
+    backgroundProgress,
+    backgroundNotice,
+    clearBackgroundNotice,
     handleAvatarSelect,
     handleNicknameUpdate,
     handleBackgroundSelect,

@@ -58,6 +58,9 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     uploadProgress,
     updatingNickname,
     savingBackground,
+    backgroundProgress,
+    backgroundNotice,
+    clearBackgroundNotice,
     handleAvatarSelect,
     handleNicknameUpdate,
     handleBackgroundSelect,
@@ -91,12 +94,21 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     >
       {/* 内容区域（整块滚动，封面区在最顶通栏） */}
       <div className="mobile-profile-content">
-        {/* QQ 通栏封面区 + 浮层（返回 / 换封面） */}
+        {/* QQ 通栏封面区 + 浮层（返回 / 封面交互层） */}
         <div className="qq-hero qq-hero--mobile">
           <div
             className="qq-hero-cover"
             style={backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined}
           >
+            <ProfileCoverActions
+              hasBackground={!!session?.profile.background_url}
+              saving={savingBackground}
+              progress={backgroundProgress}
+              notice={backgroundNotice}
+              onSelect={handleBackgroundSelect}
+              onReset={handleBackgroundReset}
+              onClearNotice={clearBackgroundNotice}
+            />
             <div className="qq-hero-back">
               <button
                 type="button"
@@ -106,14 +118,6 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
               >
                 <BackIcon />
               </button>
-            </div>
-            <div className="qq-hero-actions">
-              <ProfileCoverActions
-                hasBackground={!!session?.profile.background_url}
-                saving={savingBackground}
-                onSelect={handleBackgroundSelect}
-                onReset={handleBackgroundReset}
-              />
             </div>
           </div>
         </div>

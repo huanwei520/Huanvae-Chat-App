@@ -13,10 +13,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, ProfileCoverActions } from './profile';
 import { useProfileEditor } from '../hooks/useProfileEditor';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import { formatDate } from '../utils/time';
 
 // ============================================
 // 类型定义
 // ============================================
+
+const GENDER_LABELS: Record<string, string> = { male: '男', female: '女', other: '其他' };
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -39,6 +42,9 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     uploadProgress,
     updatingNickname,
     savingBackground,
+    backgroundProgress,
+    backgroundNotice,
+    clearBackgroundNotice,
     handleAvatarSelect,
     handleNicknameUpdate,
     handleBackgroundSelect,
@@ -52,6 +58,11 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
   // 封面图走显示收口点（私有 CA）：background_url 是后端原始相对路径。
   const backgroundUrl = resolveServerAvatarUrl(session.profile.background_url);
+
+  // 左侧身份栏的快览事实（只读展示；随保存后 session 更新）
+  const region = session.profile.region ?? '';
+  const genderLabel = session.profile.gender ? (GENDER_LABELS[session.profile.gender] ?? '') : '';
+  const registerTime = formatDate(session.profile.created_at);
 
   const modalVariants = {
     hidden: { opacity: 0 },
@@ -100,19 +111,23 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={handleContentMouseDown}
           >
-            {/* QQ 通栏封面区 + 浮层关闭/换封面按钮 */}
+            {/* QQ 通栏封面区 */}
             <div className="qq-hero qq-hero--modal">
               <div
                 className="qq-hero-cover"
                 style={backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined}
               >
+                {/* 封面交互层（更改/重置/进度/完成提示，覆盖整块封面） */}
+                <ProfileCoverActions
+                  hasBackground={!!session.profile.background_url}
+                  saving={savingBackground}
+                  progress={backgroundProgress}
+                  notice={backgroundNotice}
+                  onSelect={handleBackgroundSelect}
+                  onReset={handleBackgroundReset}
+                  onClearNotice={clearBackgroundNotice}
+                />
                 <div className="qq-hero-actions">
-                  <ProfileCoverActions
-                    hasBackground={!!session.profile.background_url}
-                    saving={savingBackground}
-                    onSelect={handleBackgroundSelect}
-                    onReset={handleBackgroundReset}
-                  />
                   <button
                     type="button"
                     className="qq-hero-btn qq-hero-btn--icon"
@@ -125,82 +140,113 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
               </div>
             </div>
 
-            {/* 头像区域（含昵称编辑）—— 骑在封面下沿 */}
-            <AvatarUploader
-              session={session}
-              uploading={uploadingAvatar}
-              uploadProgress={uploadProgress}
-              onFileSelect={handleAvatarSelect}
-              onNicknameUpdate={handleNicknameUpdate}
-              nicknameUpdating={updatingNickname}
-            />
-
-            {/* 标签切换 */}
-            <div className="profile-tabs">
-              <button
-                className={`tab-btn ${activeTab === 'info' ? 'active' : ''}`}
-                onClick={() => setActiveTab('info')}
-              >
-                基本信息
-              </button>
-              <button
-                className={`tab-btn ${activeTab === 'privacy' ? 'active' : ''}`}
-                onClick={() => setActiveTab('privacy')}
-              >
-                隐私设置
-              </button>
-              <button
-                className={`tab-btn ${activeTab === 'password' ? 'active' : ''}`}
-                onClick={() => setActiveTab('password')}
-              >
-                修改密码
-              </button>
-            </div>
-
-            {/* 表单内容 */}
-            <div className="profile-form">
-              {activeTab === 'info' && (
-                <ProfileInfoForm
-                  onSuccess={handleSuccess}
-                  onError={handleError}
+            {/* 两区布局：左身份列 + 右编辑列（近正方形） */}
+            <div className="profile-grid">
+              {/* 左：身份区（头像骑封面 + 昵称/@id + 签名预览） */}
+              <div className="profile-grid-identity">
+                <AvatarUploader
+                  session={session}
+                  uploading={uploadingAvatar}
+                  uploadProgress={uploadProgress}
+                  onFileSelect={handleAvatarSelect}
+                  onNicknameUpdate={handleNicknameUpdate}
+                  nicknameUpdating={updatingNickname}
                 />
-              )}
-              {activeTab === 'privacy' && (
-                <PrivacySettingsForm
-                  onSuccess={handleSuccess}
-                  onError={handleError}
-                />
-              )}
-              {activeTab === 'password' && (
-                <PasswordForm
-                  onSuccess={handleSuccess}
-                  onError={handleError}
-                />
-              )}
+                <p className={`profile-identity-signature${session.profile.user_signature ? '' : ' is-empty'}`}>
+                  {session.profile.user_signature || '这个人很懒，什么都没写下~'}
+                </p>
 
-              {/* 错误/成功提示 */}
-              <AnimatePresence>
-                {error && (
-                  <motion.div
-                    className="form-error"
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+                <div className="profile-identity-facts">
+                  {region && (
+                    <div className="profile-fact">
+                      <span className="profile-fact-label">地区</span>
+                      <span className="profile-fact-value">{region}</span>
+                    </div>
+                  )}
+                  {genderLabel && (
+                    <div className="profile-fact">
+                      <span className="profile-fact-label">性别</span>
+                      <span className="profile-fact-value">{genderLabel}</span>
+                    </div>
+                  )}
+                  {registerTime && (
+                    <div className="profile-fact">
+                      <span className="profile-fact-label">注册于</span>
+                      <span className="profile-fact-value">{registerTime}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 右：编辑区（tab + 表单） */}
+              <div className="profile-grid-editor">
+                <div className="profile-tabs">
+                  <button
+                    className={`tab-btn ${activeTab === 'info' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('info')}
                   >
-                    {error}
-                  </motion.div>
-                )}
-                {success && (
-                  <motion.div
-                    className="form-success"
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+                    基本信息
+                  </button>
+                  <button
+                    className={`tab-btn ${activeTab === 'privacy' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('privacy')}
                   >
-                    {success}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    隐私设置
+                  </button>
+                  <button
+                    className={`tab-btn ${activeTab === 'password' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('password')}
+                  >
+                    修改密码
+                  </button>
+                </div>
+
+                <div className="profile-form">
+                  {activeTab === 'info' && (
+                    <ProfileInfoForm
+                      onSuccess={handleSuccess}
+                      onError={handleError}
+                      showRegisterTime={false}
+                    />
+                  )}
+                  {activeTab === 'privacy' && (
+                    <PrivacySettingsForm
+                      onSuccess={handleSuccess}
+                      onError={handleError}
+                    />
+                  )}
+                  {activeTab === 'password' && (
+                    <PasswordForm
+                      onSuccess={handleSuccess}
+                      onError={handleError}
+                    />
+                  )}
+
+                  {/* 错误/成功提示 */}
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div
+                        className="form-error"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                      >
+                        {error}
+                      </motion.div>
+                    )}
+                    {success && (
+                      <motion.div
+                        className="form-success"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                      >
+                        {success}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </div>
           </motion.div>
         </motion.div>

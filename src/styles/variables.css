@@ -253,11 +253,18 @@
     var(--glass-white-20) 50%,
     var(--glass-white-30) 100%
   );
-  --gradient-glass-hover: linear-gradient(135deg, 
+  --gradient-glass-hover: linear-gradient(135deg,
     var(--glass-white-45) 0%,
     var(--glass-white-30) 50%,
     var(--glass-white-40) 100%
   );
+
+  /* 资料封面（浅蓝柔和渐变 + 向下渐隐融入面板）—— 统一调色 token。
+     profile-hero.css / 组件一律引用这些 token，勿硬写颜色；
+     引用主色阶 + 面板底色，随 ThemeProvider 主题与深浅色自动适配。 */
+  --profile-cover-gradient-from: var(--color-primary-2);
+  --profile-cover-gradient-to: var(--color-primary-4);
+  --profile-cover-fade: var(--bg-primary);
 
   /* 状态渐变 */
   --gradient-success: linear-gradient(135deg, #22c55e, #16a34a);

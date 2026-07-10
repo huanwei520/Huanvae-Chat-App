@@ -18,6 +18,8 @@ import { formatDate } from '../../utils/time';
 interface ProfileInfoFormProps {
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
+  /** 是否在表单内展示只读注册时间；桌面弹窗把它移到左侧身份栏，故传 false（移动端默认 true） */
+  showRegisterTime?: boolean;
 }
 
 // 校验合法 email 格式（与后端 zod email() 行为对齐）
@@ -36,7 +38,7 @@ function toGender(value: string): Gender | undefined {
   return undefined;
 }
 
-export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
+export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }: ProfileInfoFormProps) {
   const { session, setSession } = useSession();
   const api = useApi();
 
@@ -89,72 +91,74 @@ export function ProfileInfoForm({ onSuccess, onError }: ProfileInfoFormProps) {
 
   return (
     <>
-      <div className="form-group">
-        <label>邮箱</label>
-        <input
-          type="email"
-          className="glass-input"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="未填写邮箱"
-        />
-      </div>
-      <div className="form-group">
-        <label>个性签名</label>
-        <textarea
-          className="glass-input"
-          value={signature}
-          onChange={(e) => setSignature(e.target.value)}
-          placeholder="介绍一下自己吧..."
-          maxLength={200}
-          rows={3}
-        />
-        <span className="char-count">{signature.length}/200</span>
-      </div>
-      <div className="form-group">
-        <label>性别</label>
-        <select
-          className="glass-input"
-          value={gender}
-          onChange={(e) => setGender(e.target.value)}
-        >
-          <option value="">未设置</option>
-          <option value="male">男</option>
-          <option value="female">女</option>
-          <option value="other">其他</option>
-        </select>
-      </div>
-      <div className="form-group">
-        <label>生日</label>
-        <input
-          type="date"
-          className="glass-input"
-          value={birthday}
-          onChange={(e) => setBirthday(e.target.value)}
-        />
-      </div>
-      <div className="form-group">
-        <label>地区</label>
-        <input
-          type="text"
-          className="glass-input"
-          value={region}
-          onChange={(e) => setRegion(e.target.value)}
-          placeholder="如：上海"
-          maxLength={100}
-        />
-      </div>
-      {registerTime && (
+      <div className="profile-info-fields">
         <div className="form-group">
-          <label>注册时间</label>
-          <div style={{ padding: '8px 2px', color: 'var(--text-secondary, rgba(255, 255, 255, 0.6))', fontSize: '14px' }}>
-            {registerTime}
-          </div>
+          <label>性别</label>
+          <select
+            className="glass-input"
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+          >
+            <option value="">未设置</option>
+            <option value="male">男</option>
+            <option value="female">女</option>
+            <option value="other">其他</option>
+          </select>
         </div>
-      )}
+        <div className="form-group">
+          <label>生日</label>
+          <input
+            type="date"
+            className="glass-input"
+            value={birthday}
+            onChange={(e) => setBirthday(e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>地区</label>
+          <input
+            type="text"
+            className="glass-input"
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            placeholder="如：上海"
+            maxLength={100}
+          />
+        </div>
+        <div className="form-group">
+          <label>邮箱</label>
+          <input
+            type="email"
+            className="glass-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="未填写邮箱"
+          />
+        </div>
+        <div className="form-group form-group--full">
+          <label>个性签名</label>
+          <textarea
+            className="glass-input"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            placeholder="介绍一下自己吧..."
+            maxLength={200}
+            rows={3}
+          />
+          <span className="char-count">{signature.length}/200</span>
+        </div>
+        {showRegisterTime && registerTime && (
+          <div className="form-group form-group--full">
+            <label>注册时间</label>
+            <div style={{ padding: '8px 2px', color: 'var(--text-secondary, rgba(255, 255, 255, 0.6))', fontSize: '14px' }}>
+              {registerTime}
+            </div>
+          </div>
+        )}
+      </div>
       <MotionAppButton
         variant="primary"
-        size="lg"
+        size="md"
         block
         onClick={handleSubmit}
         disabled={loading}
