@@ -11,7 +11,7 @@
  * 进入时拉一次 getProfile 取当前值（session.profile 不含隐私字段）。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MotionAppButton } from '../common/AppButton';
 import { useApi } from '../../contexts/SessionContext';
 import { getProfile, updateProfile, type RequestPolicy } from '../../api/profile';
@@ -19,6 +19,10 @@ import { getProfile, updateProfile, type RequestPolicy } from '../../api/profile
 interface PrivacySettingsFormProps {
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
+  /** 隐藏内部提交按钮（移动端把保存动作提到页面顶部 header）。默认 false（桌面照旧展示按钮） */
+  hideSubmit?: boolean;
+  /** 上报提交态给外部（移动端顶部 header 保存键用）：canSave=有改动且可存，saving=提交中，submit=触发保存 */
+  onSubmitStateChange?: (s: { canSave: boolean; saving: boolean; submit: () => void }) => void;
 }
 
 const POLICY_OPTIONS: { value: RequestPolicy; label: string }[] = [
@@ -27,7 +31,7 @@ const POLICY_OPTIONS: { value: RequestPolicy; label: string }[] = [
   { value: 'auto_reject', label: '自动拒绝' },
 ];
 
-export function PrivacySettingsForm({ onSuccess, onError }: PrivacySettingsFormProps) {
+export function PrivacySettingsForm({ onSuccess, onError, hideSubmit = false, onSubmitStateChange }: PrivacySettingsFormProps) {
   const api = useApi();
 
   const [loaded, setLoaded] = useState(false);
@@ -36,6 +40,9 @@ export function PrivacySettingsForm({ onSuccess, onError }: PrivacySettingsFormP
   const [searchVisibleById, setSearchVisibleById] = useState(true);
   const [friendPolicy, setFriendPolicy] = useState<RequestPolicy>('manual');
   const [groupPolicy, setGroupPolicy] = useState<RequestPolicy>('manual');
+
+  // 有改动检测基线（加载完成后落定；保存成功后归位），供移动端 header 保存键置灰/高亮。
+  const baseline = useRef({ allowSearch: true, searchVisibleById: true, friendPolicy: 'manual' as RequestPolicy, groupPolicy: 'manual' as RequestPolicy });
 
   // 用 ref 持有最新 onError，避免把它放进 effect 依赖导致父级 re-render 时重复拉取
   const onErrorRef = useRef(onError);
@@ -50,6 +57,12 @@ export function PrivacySettingsForm({ onSuccess, onError }: PrivacySettingsFormP
         setSearchVisibleById(p.search_visible_by_id);
         setFriendPolicy(p.friend_request_policy);
         setGroupPolicy(p.group_invite_policy);
+        baseline.current = {
+          allowSearch: p.allow_search,
+          searchVisibleById: p.search_visible_by_id,
+          friendPolicy: p.friend_request_policy,
+          groupPolicy: p.group_invite_policy,
+        };
         setLoaded(true);
       })
       .catch((err) => {
@@ -71,12 +84,27 @@ export function PrivacySettingsForm({ onSuccess, onError }: PrivacySettingsFormP
         group_invite_policy: groupPolicy,
       });
       onSuccess('隐私设置已更新');
+      baseline.current = { allowSearch, searchVisibleById, friendPolicy, groupPolicy };
     } catch (err) {
       onError(err instanceof Error ? err.message : '更新失败');
     } finally {
       setSaving(false);
     }
   };
+
+  // 有改动检测 + 稳定 submit 包装（供移动端 header 保存键；桌面内部按钮 disabled 不受影响）
+  const isDirty = loaded && (
+    allowSearch !== baseline.current.allowSearch ||
+    searchVisibleById !== baseline.current.searchVisibleById ||
+    friendPolicy !== baseline.current.friendPolicy ||
+    groupPolicy !== baseline.current.groupPolicy
+  );
+  const submitRef = useRef(handleSubmit);
+  submitRef.current = handleSubmit;
+  const stableSubmit = useCallback(() => { void submitRef.current(); }, []);
+  useEffect(() => {
+    onSubmitStateChange?.({ canSave: isDirty && !saving, saving, submit: stableSubmit });
+  }, [onSubmitStateChange, isDirty, saving, stableSubmit]);
 
   if (!loaded) {
     return <div className="privacy-loading">加载中...</div>;
@@ -138,17 +166,19 @@ export function PrivacySettingsForm({ onSuccess, onError }: PrivacySettingsFormP
         </select>
       </div>
 
-      <MotionAppButton
-        variant="primary"
-        size="lg"
-        block
-        onClick={handleSubmit}
-        disabled={saving}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        {saving ? '保存中...' : '保存设置'}
-      </MotionAppButton>
+      {!hideSubmit && (
+        <MotionAppButton
+          variant="primary"
+          size="lg"
+          block
+          onClick={handleSubmit}
+          disabled={saving}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {saving ? '保存中...' : '保存设置'}
+        </MotionAppButton>
+      )}
     </div>
   );
 }

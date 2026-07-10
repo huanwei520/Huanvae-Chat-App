@@ -9,7 +9,7 @@
  * 桌面 ProfileModal 与移动 MobileProfilePage 共用。
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { MotionAppButton } from '../common/AppButton';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { updateProfile, type Gender, type UpdateProfileRequest } from '../../api/profile';
@@ -20,6 +20,10 @@ interface ProfileInfoFormProps {
   onError: (message: string) => void;
   /** 是否在表单内展示只读注册时间；桌面弹窗把它移到左侧身份栏，故传 false（移动端默认 true） */
   showRegisterTime?: boolean;
+  /** 隐藏内部提交按钮（移动端把保存动作提到页面顶部 header）。默认 false（桌面照旧展示按钮） */
+  hideSubmit?: boolean;
+  /** 上报提交态给外部（移动端顶部 header 保存键用）：canSave=有改动且可存，saving=提交中，submit=触发保存 */
+  onSubmitStateChange?: (s: { canSave: boolean; saving: boolean; submit: () => void }) => void;
 }
 
 // 校验合法 email 格式（与后端 zod email() 行为对齐）
@@ -38,7 +42,7 @@ function toGender(value: string): Gender | undefined {
   return undefined;
 }
 
-export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }: ProfileInfoFormProps) {
+export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true, hideSubmit = false, onSubmitStateChange }: ProfileInfoFormProps) {
   const { session, setSession } = useSession();
   const api = useApi();
 
@@ -52,6 +56,22 @@ export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }:
   const [loading, setLoading] = useState(false);
 
   const registerTime = formatDate(session?.profile.created_at);
+
+  // 有改动检测（供移动端 header 保存键置灰/高亮）：与进入时的初值快照比对；保存成功后基线归位。
+  // 桌面内部按钮 disabled 逻辑不受此影响（仍只按 loading），故既有测试"未改动即可保存"不变。
+  const baseline = useRef({
+    email: isValidEmail(storedEmail) ? storedEmail : '',
+    signature: session?.profile.user_signature || '',
+    gender: session?.profile.gender ?? '',
+    birthday: session?.profile.birthday ?? '',
+    region: session?.profile.region ?? '',
+  });
+  const isDirty =
+    email !== baseline.current.email ||
+    signature !== baseline.current.signature ||
+    gender !== baseline.current.gender ||
+    birthday !== baseline.current.birthday ||
+    region !== baseline.current.region;
 
   const handleSubmit = async () => {
     if (!session) { return; }
@@ -70,6 +90,8 @@ export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }:
       };
       await updateProfile(api, payload);
       onSuccess('个人信息已更新');
+      // 保存成功：基线归位为当前值，isDirty 复位（header 保存键回到置灰态）
+      baseline.current = { email, signature, gender, birthday, region };
 
       setSession({
         ...session,
@@ -88,6 +110,14 @@ export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }:
       setLoading(false);
     }
   };
+
+  // 稳定的 submit 包装（内部 ref 取最新闭包），供外部 header 保存键调用，避免函数身份每帧变导致的上报抖动
+  const submitRef = useRef(handleSubmit);
+  submitRef.current = handleSubmit;
+  const stableSubmit = useCallback(() => { void submitRef.current(); }, []);
+  useEffect(() => {
+    onSubmitStateChange?.({ canSave: isDirty && !loading, saving: loading, submit: stableSubmit });
+  }, [onSubmitStateChange, isDirty, loading, stableSubmit]);
 
   return (
     <>
@@ -156,17 +186,19 @@ export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true }:
           </div>
         )}
       </div>
-      <MotionAppButton
-        variant="primary"
-        size="md"
-        block
-        onClick={handleSubmit}
-        disabled={loading}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        {loading ? '保存中...' : '保存修改'}
-      </MotionAppButton>
+      {!hideSubmit && (
+        <MotionAppButton
+          variant="primary"
+          size="md"
+          block
+          onClick={handleSubmit}
+          disabled={loading}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {loading ? '保存中...' : '保存修改'}
+        </MotionAppButton>
+      )}
     </>
   );
 }

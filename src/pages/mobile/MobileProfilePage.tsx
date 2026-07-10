@@ -1,11 +1,18 @@
 /**
- * 移动端个人资料页面（QQ 风格）
+ * 移动端个人资料页面（独立整屏页，QQ / IM 风）
  *
- * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像。
- * 头像/昵称等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
+ * 功能：显示当前用户信息、改昵称/邮箱/签名/密码、上传头像/封面。
+ * 头像/昵称/封面等编辑逻辑收口到 [useProfileEditor]（与桌面 ProfileModal 共用）。
  *
- * 版式：通栏封面区（返回浮于其上）+ 上叠圆角卡，头像骑在封面下沿；
- * 下接 tab + 表单（profile-hero.css 骨架）。
+ * 版式（独立整屏页，从右滑入）：
+ *   固定 topbar（左返回 · 右保存，随滚动常驻；保存驱动当前 tab 表单的原保存逻辑，
+ *     无改动置灰、有改动高亮，态由表单经 onSubmitStateChange 上报）
+ *   通栏封面 banner（换封面浮层）
+ *   → 身份 hero 卡（头像骑封面下沿 + 昵称/@id/签名预览）
+ *   → 快览事实卡（地区/性别/注册于，分组信息卡；复用桌面 .profile-identity-facts）
+ *   → 分段控件（基本信息/隐私/密码，iOS 风滑块）
+ *   → 表单卡（复用共享表单；各表单 hideSubmit 隐藏内部按钮，保存统一走 topbar）
+ * 骨架/身份类共用 profile-hero.css + pages/main.css，特化落 styles/mobile/profile-page.css。
  */
 
 import { useState } from 'react';
@@ -13,6 +20,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AvatarUploader, ProfileInfoForm, PrivacySettingsForm, PasswordForm, ProfileCoverActions } from '../../components/profile';
 import { useProfileEditor } from '../../hooks/useProfileEditor';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
+import { formatDate } from '../../utils/time';
 
 // 返回图标
 const BackIcon = () => (
@@ -42,7 +50,12 @@ interface MobileProfilePageProps {
   onClose: () => void;
 }
 
+const GENDER_LABELS: Record<string, string> = { male: '男', female: '女', other: '其他' };
+
 type TabType = 'info' | 'privacy' | 'password';
+
+// 分段控件顺序（滑块位移用其索引）
+const TAB_ORDER: TabType[] = ['info', 'privacy', 'password'];
 
 // ============================================
 // 主组件
@@ -50,6 +63,10 @@ type TabType = 'info' | 'privacy' | 'password';
 
 export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('info');
+  // 顶部 header 保存键的提交态：由当前 tab 的表单经 onSubmitStateChange 上报（canSave/saving/submit）。
+  const [saveCtl, setSaveCtl] = useState<{ canSave: boolean; saving: boolean; submit: () => void } | null>(null);
+  // 滚过封面后，固定 topbar 浮现磨砂底（iOS 大标题式：封面上透明、内容上磨砂）。
+  const [navSolid, setNavSolid] = useState(false);
   const {
     session,
     error,
@@ -77,6 +94,26 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
     return null;
   }
 
+  // 身份快览事实（只读展示；随保存后 session 更新，与桌面身份栏一致）
+  const region = session.profile.region ?? '';
+  const genderLabel = session.profile.gender ? (GENDER_LABELS[session.profile.gender] ?? '') : '';
+  const registerTime = formatDate(session.profile.created_at);
+  const signature = session.profile.user_signature;
+
+  const activeIndex = TAB_ORDER.indexOf(activeTab);
+
+  // 切 tab 时先清空保存态（旧表单卸载、新表单挂载后会重新上报），避免 header 指向已卸载表单的 submit。
+  const switchTab = (t: TabType) => {
+    setSaveCtl(null);
+    setActiveTab(t);
+  };
+  const canSaveNow = !!saveCtl?.canSave && !saveCtl.saving;
+
+  const handleContentScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const solid = e.currentTarget.scrollTop > 140;
+    setNavSolid((prev) => (prev === solid ? prev : solid));
+  };
+
   // 页面动画
   const pageVariants = {
     initial: { x: '100%', opacity: 0 },
@@ -93,15 +130,15 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
       exit="exit"
     >
       {/* 内容区域（整块滚动，封面区在最顶通栏） */}
-      <div className="mobile-profile-content">
-        {/* QQ 通栏封面区 + 浮层（返回 / 封面交互层） */}
+      <div className="mobile-profile-content" onScroll={handleContentScroll}>
+        {/* 通栏封面 banner + 封面交互层（返回/保存已上移到固定 topbar） */}
         <div className="qq-hero qq-hero--mobile">
           <div
             className="qq-hero-cover"
             style={backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined}
           >
             <ProfileCoverActions
-              hasBackground={!!session?.profile.background_url}
+              hasBackground={!!session.profile.background_url}
               saving={savingBackground}
               progress={backgroundProgress}
               notice={backgroundNotice}
@@ -109,65 +146,96 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
               onReset={handleBackgroundReset}
               onClearNotice={clearBackgroundNotice}
             />
-            <div className="qq-hero-back">
-              <button
-                type="button"
-                className="qq-hero-btn qq-hero-btn--icon"
-                onClick={onClose}
-                aria-label="返回"
-              >
-                <BackIcon />
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* 内层（左右留白），承载头像 / tab / 表单 */}
+        {/* 内层（左右留白），承载 hero / 事实 / 分段 / 表单 */}
         <div className="mobile-profile-body">
-          {/* 头像区域（含昵称编辑）—— 骑在封面下沿 */}
-          <div className="mobile-profile-avatar-section">
-            <AvatarUploader
-              session={session}
-              uploading={uploadingAvatar}
-              uploadProgress={uploadProgress}
-              onFileSelect={handleAvatarSelect}
-              onNicknameUpdate={handleNicknameUpdate}
-              nicknameUpdating={updatingNickname}
-            />
+          {/* 身份 hero 卡：头像骑封面下沿 + 昵称/@id + 签名预览 */}
+          <section className="mobile-profile-hero">
+            <div className="mobile-profile-avatar-section">
+              <AvatarUploader
+                session={session}
+                uploading={uploadingAvatar}
+                uploadProgress={uploadProgress}
+                onFileSelect={handleAvatarSelect}
+                onNicknameUpdate={handleNicknameUpdate}
+                nicknameUpdating={updatingNickname}
+              />
+            </div>
+            <p className={`profile-identity-signature${signature ? '' : ' is-empty'}`}>
+              {signature || '这个人很懒，什么都没写下~'}
+            </p>
+          </section>
+
+          {/* 快览事实卡（分组信息卡；全空则 :empty 自动隐藏） */}
+          <div className="profile-identity-facts mobile-profile-facts">
+            {region && (
+              <div className="profile-fact">
+                <span className="profile-fact-label">地区</span>
+                <span className="profile-fact-value">{region}</span>
+              </div>
+            )}
+            {genderLabel && (
+              <div className="profile-fact">
+                <span className="profile-fact-label">性别</span>
+                <span className="profile-fact-value">{genderLabel}</span>
+              </div>
+            )}
+            {registerTime && (
+              <div className="profile-fact">
+                <span className="profile-fact-label">注册于</span>
+                <span className="profile-fact-value">{registerTime}</span>
+              </div>
+            )}
           </div>
 
-          {/* 标签切换 */}
-          <div className="mobile-profile-tabs">
+          {/* 分段控件（iOS 风滑块） */}
+          <div className="mobile-profile-seg" role="tablist" aria-label="资料分区">
+            <span
+              className="mobile-profile-seg-thumb"
+              aria-hidden="true"
+              style={{ transform: `translateX(${activeIndex * 100}%)` }}
+            />
             <button
-              className={`mobile-profile-tab ${activeTab === 'info' ? 'active' : ''}`}
-              onClick={() => setActiveTab('info')}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'info'}
+              className={`mobile-profile-seg-btn ${activeTab === 'info' ? 'active' : ''}`}
+              onClick={() => switchTab('info')}
             >
               基本信息
             </button>
             <button
-              className={`mobile-profile-tab ${activeTab === 'privacy' ? 'active' : ''}`}
-              onClick={() => setActiveTab('privacy')}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'privacy'}
+              className={`mobile-profile-seg-btn ${activeTab === 'privacy' ? 'active' : ''}`}
+              onClick={() => switchTab('privacy')}
             >
               隐私设置
             </button>
             <button
-              className={`mobile-profile-tab ${activeTab === 'password' ? 'active' : ''}`}
-              onClick={() => setActiveTab('password')}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'password'}
+              className={`mobile-profile-seg-btn ${activeTab === 'password' ? 'active' : ''}`}
+              onClick={() => switchTab('password')}
             >
               修改密码
             </button>
           </div>
 
-          {/* 表单内容 */}
+          {/* 表单卡（保存键上移到顶部 header，故各表单 hideSubmit 隐藏内部按钮） */}
           <div className="mobile-profile-form">
             {activeTab === 'info' && (
-              <ProfileInfoForm onSuccess={handleSuccess} onError={handleError} />
+              <ProfileInfoForm onSuccess={handleSuccess} onError={handleError} showRegisterTime={false} hideSubmit onSubmitStateChange={setSaveCtl} />
             )}
             {activeTab === 'privacy' && (
-              <PrivacySettingsForm onSuccess={handleSuccess} onError={handleError} />
+              <PrivacySettingsForm onSuccess={handleSuccess} onError={handleError} hideSubmit onSubmitStateChange={setSaveCtl} />
             )}
             {activeTab === 'password' && (
-              <PasswordForm onSuccess={handleSuccess} onError={handleError} />
+              <PasswordForm onSuccess={handleSuccess} onError={handleError} hideSubmit onSubmitStateChange={setSaveCtl} />
             )}
 
             {/* 错误/成功提示 */}
@@ -195,6 +263,27 @@ export function MobileProfilePage({ onClose }: MobileProfilePageProps) {
             </AnimatePresence>
           </div>
         </div>
+      </div>
+
+      {/* 固定顶部导航条（覆盖在滚动内容之上，随滚动常驻）：左返回 · 右保存。
+          bar 本身不拦截点击（pointer-events:none），仅两个按钮可点，故封面换图区仍可点。 */}
+      <div className={`mobile-profile-topbar ${navSolid ? 'is-solid' : ''}`}>
+        <button
+          type="button"
+          className="qq-hero-btn qq-hero-btn--icon mobile-profile-topbtn"
+          onClick={onClose}
+          aria-label="返回"
+        >
+          <BackIcon />
+        </button>
+        <button
+          type="button"
+          className={`mobile-profile-save ${canSaveNow ? 'is-active' : ''}`}
+          onClick={() => saveCtl?.submit()}
+          disabled={!canSaveNow}
+        >
+          {saveCtl?.saving ? '保存中' : '保存'}
+        </button>
       </div>
       {cropModal}
     </motion.div>

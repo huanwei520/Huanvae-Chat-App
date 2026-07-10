@@ -204,3 +204,49 @@ describe('ProfileInfoForm 加载初值过滤（DB 脏数据）', () => {
     expect(input.value).toBe('');
   });
 });
+
+// 移动端保存键上移到页面顶部 header 的契约：hideSubmit 隐藏内部按钮，onSubmitStateChange
+// 上报有改动态（canSave）+ 稳定 submit()，供 MobileProfilePage 顶部「保存」键置灰/高亮/触发。
+describe('ProfileInfoForm 移动端 header 保存契约（hideSubmit / onSubmitStateChange）', () => {
+  beforeEach(() => {
+    cleanup();
+    mockUpdateProfile.mockReset();
+    mockUpdateProfile.mockResolvedValue({ message: 'ok' });
+    sessionState.session.profile.user_email = null;
+    sessionState.session.profile.user_signature = null;
+  });
+
+  it('hideSubmit 时不渲染内部「保存修改」按钮', () => {
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} hideSubmit />);
+    expect(screen.queryByRole('button', { name: /保存修改/ })).toBeNull();
+  });
+
+  it('不传 hideSubmit（桌面默认）时仍渲染内部按钮', () => {
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} />);
+    expect(screen.getByRole('button', { name: /保存修改/ })).toBeInTheDocument();
+  });
+
+  it('onSubmitStateChange：初始无改动 canSave=false，改字段后 canSave=true', () => {
+    const onState = vi.fn();
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} hideSubmit onSubmitStateChange={onState} />);
+    // 挂载即上报一次，初始未改动
+    expect(onState).toHaveBeenCalled();
+    expect(onState.mock.calls[onState.mock.calls.length - 1]![0].canSave).toBe(false);
+    // 改「地区」→ 有改动
+    fireEvent.change(screen.getByPlaceholderText('如：上海'), { target: { value: '北京' } });
+    expect(onState.mock.calls[onState.mock.calls.length - 1]![0].canSave).toBe(true);
+  });
+
+  it('onSubmitStateChange 暴露的 submit() 触发 updateProfile 并带改后字段', async () => {
+    const onState = vi.fn();
+    render(<ProfileInfoForm onSuccess={() => {}} onError={() => {}} hideSubmit onSubmitStateChange={onState} />);
+    fireEvent.change(screen.getByPlaceholderText('如：上海'), { target: { value: '北京' } });
+
+    const { submit } = onState.mock.calls[onState.mock.calls.length - 1]![0];
+    await act(async () => { submit(); });
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+    const [, body] = mockUpdateProfile.mock.calls[0]!;
+    expect(body.region).toBe('北京');
+  });
+});

@@ -2,7 +2,7 @@
  * 密码修改表单组件
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { MotionAppButton } from '../common/AppButton';
 import { useApi } from '../../contexts/SessionContext';
 import { changePassword } from '../../api/profile';
@@ -10,9 +10,13 @@ import { changePassword } from '../../api/profile';
 interface PasswordFormProps {
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
+  /** 隐藏内部提交按钮（移动端把保存动作提到页面顶部 header）。默认 false（桌面照旧展示按钮） */
+  hideSubmit?: boolean;
+  /** 上报提交态给外部（移动端顶部 header 保存键用）：canSave=三项已填且可存，saving=提交中，submit=触发保存 */
+  onSubmitStateChange?: (s: { canSave: boolean; saving: boolean; submit: () => void }) => void;
 }
 
-export function PasswordForm({ onSuccess, onError }: PasswordFormProps) {
+export function PasswordForm({ onSuccess, onError, hideSubmit = false, onSubmitStateChange }: PasswordFormProps) {
   const api = useApi();
 
   const [oldPassword, setOldPassword] = useState('');
@@ -49,6 +53,15 @@ export function PasswordForm({ onSuccess, onError }: PasswordFormProps) {
     }
   };
 
+  // 稳定 submit 包装 + 提交态上报（供移动端 header 保存键；桌面内部按钮 disabled 不受影响）
+  const canSave = !loading && !!oldPassword && !!newPassword && !!confirmPassword;
+  const submitRef = useRef(handleSubmit);
+  submitRef.current = handleSubmit;
+  const stableSubmit = useCallback(() => { void submitRef.current(); }, []);
+  useEffect(() => {
+    onSubmitStateChange?.({ canSave, saving: loading, submit: stableSubmit });
+  }, [onSubmitStateChange, canSave, loading, stableSubmit]);
+
   return (
     <>
       <div className="form-group">
@@ -81,17 +94,19 @@ export function PasswordForm({ onSuccess, onError }: PasswordFormProps) {
           placeholder="请再次输入新密码"
         />
       </div>
-      <MotionAppButton
-        variant="primary"
-        size="lg"
-        block
-        onClick={handleSubmit}
-        disabled={loading || !oldPassword || !newPassword || !confirmPassword}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        {loading ? '修改中...' : '修改密码'}
-      </MotionAppButton>
+      {!hideSubmit && (
+        <MotionAppButton
+          variant="primary"
+          size="lg"
+          block
+          onClick={handleSubmit}
+          disabled={loading || !oldPassword || !newPassword || !confirmPassword}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {loading ? '修改中...' : '修改密码'}
+        </MotionAppButton>
+      )}
     </>
   );
 }

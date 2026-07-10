@@ -1,134 +1,300 @@
 /**
- * 移动端个人资料页面样式（QQ 风格）
+ * 移动端个人资料页面样式（独立整屏页，QQ / IM 风）
  *
- * 通栏封面（返回/换封面/移除浮于其上）+ 上叠主色淡染卡，头像骑封面下沿。
- * 封面骨架共用 profile-hero.css 的 .qq-hero* 类；本文件只做移动端特化与表单卡样式。
+ * 结构：整屏页（从右滑入）
+ *   通栏封面 banner（返回浮左上，换封面浮层覆盖）
+ *   → 身份 hero 卡（头像骑封面下沿 + 昵称/@id/签名，玻璃卡浮起）
+ *   → 快览事实卡（地区/性别/注册于，分组信息卡）
+ *   → 分段控件（基本信息/隐私/密码，iOS 风滑块）
+ *   → 表单卡（复用 ProfileInfoForm / PrivacySettingsForm / PasswordForm）
+ *
+ * 封面骨架共用 profile-hero.css 的 .qq-hero* 类；身份/事实类复用 pages/main.css 的
+ * .profile-identity-* / .profile-fact* / .profile-avatar-section；本文件只做移动端整屏页
+ * 特化与分段控件/卡片。封面浅蓝渐变走 variables.css 的 --profile-cover-* token。
+ *
+ * 动画约束：根 .mobile-profile-page 是 framer-motion 组件（pageVariants 控 x/opacity），
+ * 故本文件对它 **不声明** transform/opacity/all 的 CSS transition，避免与 motion 抢帧
+ * （见 .claude/rules/animation.md 规则一；无需登记 animation-conflict 注册表）。
+ * 分段滑块 .mobile-profile-seg-thumb 是普通 span（受控 inline transform + CSS transition
+ * 单一所有权），非 motion 组件，同样无需登记。
  */
 
+/* ============================================================================
+   整屏页容器（从右滑入的独立页面）
+   ============================================================================ */
 .mobile-profile-page {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* 默认毛玻璃背景（有封面主色时由内联 style 覆盖为淡染色） */
-  background: linear-gradient(
-    180deg,
-    var(--white-alpha-97) 0%,
-    var(--white-alpha-95) 100%
-  );
-  backdrop-filter: var(--glass-backdrop);
-  -webkit-backdrop-filter: var(--glass-backdrop);
+  inset: 0;
   z-index: 200;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 柔和蓝调页底：顶部极浅蓝渐入面板底色，白色玻璃卡在其上浮起（层次感） */
+  background: linear-gradient(
+    180deg,
+    var(--color-primary-1) 0%,
+    var(--bg-secondary) 30%,
+    var(--bg-secondary) 100%
+  );
 }
 
-/* 内容区域（整块滚动，封面在最顶通栏，故无左右/顶部留白） */
+/* 内容区：整块纵向滚动，封面在最顶通栏（无顶部/左右留白） */
 .mobile-profile-content {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
-/* 封面浮层按钮避让状态栏安全区 */
-.qq-hero--mobile .qq-hero-back,
-.qq-hero--mobile .qq-hero-actions {
-  top: calc(12px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px)));
+/* ============================================================================
+   固定顶部导航条（左返回 · 右保存）
+   覆盖在滚动内容之上、随滚动常驻（.mobile-profile-page 是 fixed，本条 absolute 贴其顶）。
+   bar 本身 pointer-events:none 不拦点击，仅两个按钮可点 → 封面换图区在 bar 透明处仍可点。
+   ============================================================================ */
+.mobile-profile-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(10px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 14px 10px;
+  pointer-events: none;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+  border-bottom: 1px solid transparent;
+}
+.mobile-profile-topbar > * {
+  pointer-events: auto;
 }
 
-/* 内层：承载头像 / tab / 表单，左右留白 + 底部安全区 */
+/* 滚过封面后浮现的磨砂底（内容不再贴边穿过；封面上仍透明） */
+.mobile-profile-topbar.is-solid {
+  background: linear-gradient(180deg, var(--white-alpha-90) 0%, var(--white-alpha-80) 100%);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
+  border-bottom-color: var(--glass-border-subtle);
+  box-shadow: 0 2px 10px rgba(30, 58, 95, 0.06);
+}
+/* 磨砂底出现后，返回钮改为浅色描边风（深色圆钮在白底上过重）；封面上仍深色玻璃 */
+.mobile-profile-topbar.is-solid .mobile-profile-topbtn.qq-hero-btn--icon {
+  background: var(--white-alpha-70);
+  color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--glass-border-subtle);
+}
+
+/* 返回按钮：深色玻璃圆钮（复用 .qq-hero-btn 底样式），移动端放大触点、加深底在浅封面上也读得清 */
+.mobile-profile-topbtn.qq-hero-btn--icon {
+  width: 36px;
+  height: 36px;
+  background: rgba(0, 0, 0, 0.34);
+}
+
+/* 保存键（右上，iOS「保存」感）：无改动/提交中 = 深色半透明置灰药丸；有改动 = 主色高亮药丸。
+   普通 button（非 framer-motion），故 background/color/shadow 的 CSS transition 无抢帧顾虑。 */
+.mobile-profile-save {
+  min-width: 62px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 999px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--white-alpha-60);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: default;
+  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.mobile-profile-save.is-active {
+  color: #fff;
+  background: var(--gradient-primary-subtle);
+  box-shadow: 0 3px 12px rgba(59, 130, 246, 0.4);
+  cursor: pointer;
+}
+.mobile-profile-save:active.is-active {
+  transform: scale(0.97);
+}
+
+/* 移动端默认封面（无自定义图时）加一层柔和顶部微光，让空封面也有层次；
+   线性底仍复用桌面同款 --profile-cover-* token（浅蓝渐变）。设了自定义封面时，
+   ProfileCoverActions 经内联 style background-image:url(...) 覆盖整组，微光自动隐去。 */
+.qq-hero--mobile .qq-hero-cover {
+  background-image:
+    radial-gradient(130% 82% at 50% -12%, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(165deg, var(--profile-cover-gradient-from) 0%, var(--profile-cover-gradient-to) 100%);
+}
+
+/* ============================================================================
+   身体：承载 hero / 事实 / 分段 / 表单，左右留白 + 底部安全区
+   ============================================================================ */
 .mobile-profile-body {
   padding: 0 16px;
-  padding-bottom: calc(20px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
+  padding-bottom: calc(24px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
 }
 
-/* 头像区域：透明，骑在封面下沿（AvatarUploader 自带居中列布局） */
-.mobile-profile-avatar-section {
-  margin-bottom: 16px;
-}
-
-.mobile-profile-avatar-section .profile-avatar-section {
-  margin-top: -36px;
-  padding-top: 0;
-}
-
-/* 标签切换 */
-.mobile-profile-tabs {
+/* ---- 身份 hero 卡（头像骑封面下沿 + 昵称/@id/签名） ---------------------- */
+.mobile-profile-hero {
+  position: relative;
+  z-index: 1;
+  margin-top: -14px; /* 轻微上提，圆角顶边贴住封面下沿 */
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.mobile-profile-tab {
-  flex: 1;
-  padding: 12px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-80) 0%,
-    var(--white-alpha-70) 100%
-  );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.mobile-profile-tab.active {
-  color: var(--primary);
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-95) 0%,
-    var(--white-alpha-90) 100%
-  );
-  border-color: var(--primary);
-}
-
-.mobile-profile-tab:active {
-  transform: scale(0.98);
-}
-
-/* 表单区域 */
-.mobile-profile-form {
-  /* 毛玻璃卡片效果 */
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-90) 0%,
-    var(--white-alpha-85) 100%
-  );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 16px;
-  padding: 20px;
-}
-
-/* 错误提示 */
-.mobile-profile-error {
-  margin-top: 16px;
-  padding: 12px 16px;
-  background: rgba(255, 59, 48, 0.1);
-  border: 1px solid rgba(255, 59, 48, 0.3);
-  border-radius: 12px;
-  color: #ff3b30;
-  font-size: 14px;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 18px 20px;
   text-align: center;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--white-alpha-95) 0%, var(--white-alpha-85) 100%);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border: 1px solid var(--glass-border-subtle);
+  /* 落影 + 顶缘内高光（玻璃卡精致感） */
+  box-shadow: 0 10px 30px rgba(30, 58, 95, 0.10), inset 0 1px 0 var(--white-alpha-90);
 }
 
-/* 成功提示 */
+/* 头像区（AvatarUploader 自带居中列）：骑在卡片顶边 → 升入封面 */
+.mobile-profile-hero .mobile-profile-avatar-section {
+  margin: 0;
+}
+.mobile-profile-hero .profile-avatar-section {
+  margin-top: -46px;
+  padding: 0;
+  gap: 8px;
+}
+
+/* 头像更大、白描边 + 柔和落影，成为整页视觉焦点 */
+.mobile-profile-hero .avatar-container {
+  width: 92px;
+  height: 92px;
+  border: 4px solid var(--bg-primary);
+  box-shadow: 0 8px 22px rgba(30, 58, 95, 0.20);
+}
+
+/* 昵称：主标题级 */
+.mobile-profile-hero .profile-name {
+  font-size: 1.3125rem; /* 21px */
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* @id：昵称下的次级信息（点击复制）。AvatarUploader 的 .profile-id 按钮带内联
+   style（font:inherit / color:inherit 以复位按钮外观），普通选择器压不过内联，
+   故用 !important 精确覆盖颜色/字号——仅限移动 hero 作用域，不影响桌面。 */
+.mobile-profile-hero .profile-id {
+  margin-top: 3px;
+  color: var(--text-muted) !important;
+  font-size: var(--text-sm) !important;
+  letter-spacing: 0.01em;
+}
+
+/* 签名预览（复用 .profile-identity-signature；无签名走 is-empty 斜体占位） */
+.mobile-profile-hero .profile-identity-signature {
+  margin: 14px 4px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  width: 100%;
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+/* ---- 快览事实卡（复用 .profile-identity-facts；移动端触点放大） ----------- */
+.mobile-profile-facts {
+  margin-top: 14px;
+}
+.mobile-profile-facts .profile-fact {
+  padding: 12px 10px;
+}
+.mobile-profile-facts .profile-fact-label {
+  font-size: var(--text-md);
+}
+.mobile-profile-facts .profile-fact-value {
+  font-size: var(--text-md);
+}
+
+/* ---- 分段控件（iOS 风滑块：track + 滑动 thumb） ------------------------- */
+.mobile-profile-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 18px;
+  padding: 4px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--white-alpha-70) 0%, var(--white-alpha-60) 100%);
+  backdrop-filter: var(--blur-xs);
+  -webkit-backdrop-filter: var(--blur-xs);
+  border: 1px solid var(--glass-border-subtle);
+  box-shadow: inset 0 1px 2px rgba(30, 58, 95, 0.05);
+}
+
+/* 滑块：宽 = 1/3 轨道（去两侧 4px padding），inline transform 平移 index 段 */
+.mobile-profile-seg-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / 3);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--white-alpha-95) 100%);
+  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.14);
+  transition: transform var(--transition-smooth);
+  pointer-events: none;
+}
+
+.mobile-profile-seg-btn {
+  position: relative;
+  z-index: 1;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.mobile-profile-seg-btn.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ---- 表单卡（复用共享表单，玻璃卡承载） -------------------------------- */
+.mobile-profile-form {
+  margin-top: 16px;
+  padding: 20px 18px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--white-alpha-92, rgba(255, 255, 255, 0.92)) 0%, var(--white-alpha-85) 100%);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border: 1px solid var(--glass-border-subtle);
+  box-shadow: 0 6px 22px rgba(30, 58, 95, 0.07);
+}
+
+/* 表单字段标签在移动端加重可读性 */
+.mobile-profile-form .profile-info-fields .form-group > label {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+  padding-left: 2px;
+}
+
+/* ---- 错误 / 成功提示 ---------------------------------------------------- */
+.mobile-profile-error,
 .mobile-profile-success {
   margin-top: 16px;
   padding: 12px 16px;
-  background: rgba(52, 199, 89, 0.1);
-  border: 1px solid rgba(52, 199, 89, 0.3);
   border-radius: 12px;
-  color: #34c759;
-  font-size: 14px;
+  font-size: var(--text-md);
   text-align: center;
+}
+.mobile-profile-error {
+  background: var(--status-error-subtle);
+  border: 1px solid var(--status-error-subtle);
+  color: var(--status-error);
+}
+.mobile-profile-success {
+  background: var(--status-success-subtle);
+  border: 1px solid var(--status-success-subtle);
+  color: var(--status-success);
 }
