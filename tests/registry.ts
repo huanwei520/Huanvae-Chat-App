@@ -37,7 +37,7 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
   { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
   { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
   { name: 'MobileMiniAppsPage', path: 'pages/mobile/MobileMiniAppsPage', category: 'pages', description: '移动端小程序页面（公开列表 + iframe 启动）' },
-  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（QQ 风格：通栏封面区 + 圆角卡 + 头像骑边，编辑头像/昵称/邮箱/签名/密码）' },
+  { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（独立整屏页：顶部返回 + 右上保存 / 封面 banner + 身份 hero 卡 + 快览事实卡 + 分段 tab + 字段卡，编辑头像/昵称/邮箱/签名/密码/封面）' },
 ];
 
 // ============== 全局搜索组件 ==============

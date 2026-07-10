@@ -112,3 +112,72 @@ describe('PrivacySettingsForm', () => {
     expect(body.group_invite_policy).toBe('auto_reject');
   });
 });
+
+// 移动端保存键上移到页面顶部 header 的契约（2026-07-10 手机资料页重设计新增）：
+// hideSubmit 隐藏内部按钮，onSubmitStateChange 上报有改动态（isDirty）+ 稳定 submit()。
+// isDirty 基线逻辑非平凡：加载完成后落基线、保存成功后基线归位，故重点覆盖"改了→高亮、存完→回置灰"。
+describe('PrivacySettingsForm 移动端 header 保存契约（hideSubmit / onSubmitStateChange / isDirty）', () => {
+  beforeEach(() => {
+    cleanup();
+    mockGetProfile.mockReset();
+    mockUpdateProfile.mockReset();
+    mockUpdateProfile.mockResolvedValue({ message: 'ok' });
+  });
+
+  function lastState(spy: ReturnType<typeof vi.fn>) {
+    const calls = spy.mock.calls;
+    return calls[calls.length - 1]![0] as { canSave: boolean; saving: boolean; submit: () => void };
+  }
+
+  it('hideSubmit 时不渲染内部「保存设置」按钮', async () => {
+    mockGetProfile.mockResolvedValue(profileWith());
+    render(<PrivacySettingsForm onSuccess={() => {}} onError={() => {}} hideSubmit />);
+    await waitFor(() => expect(screen.getByText('搜索可见性')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /保存设置/ })).toBeNull();
+  });
+
+  it('不传 hideSubmit（桌面默认）时仍渲染内部按钮', async () => {
+    mockGetProfile.mockResolvedValue(profileWith());
+    render(<PrivacySettingsForm onSuccess={() => {}} onError={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /保存设置/ })).toBeInTheDocument());
+  });
+
+  it('isDirty：加载后未改动 canSave=false，改策略后 true，保存成功后基线归位回 false', async () => {
+    const onState = vi.fn();
+    mockGetProfile.mockResolvedValue(profileWith());
+    // 用带一跳延迟的 updateProfile 模拟真实网络：保证「保存中」(saving=true) 先落一次真实渲染，
+    // 再到 saving=false + 基线归位那一帧重算 isDirty。若用即时 resolve，setSaving(true→false)
+    // 会被 React 批处理成 saving 无净变化 → 组件不重渲染 → 仅 ref 的 baseline 变更观察不到（测试假象）。
+    mockUpdateProfile.mockImplementation(() => new Promise((res) => { setTimeout(() => res({ message: 'ok' }), 0); }));
+    render(<PrivacySettingsForm onSuccess={() => {}} onError={() => {}} hideSubmit onSubmitStateChange={onState} />);
+
+    // 加载完成、基线落定后：未改动 → canSave=false
+    await waitFor(() => expect(screen.getByText('申请默认处理')).toBeInTheDocument());
+    await waitFor(() => expect(lastState(onState).canSave).toBe(false));
+
+    // 改群邀请策略 → 与基线不一致 → canSave=true
+    const selects = screen.getAllByRole('combobox') as HTMLSelectElement[];
+    fireEvent.change(selects[1]!, { target: { value: 'auto_reject' } });
+    expect(lastState(onState).canSave).toBe(true);
+
+    // 经 header 保存键触发 submit → updateProfile → 成功后基线归位 → canSave 回 false
+    await act(async () => { lastState(onState).submit(); });
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(lastState(onState).canSave).toBe(false));
+  });
+
+  it('submit() 提交体反映改后的策略值', async () => {
+    const onState = vi.fn();
+    mockGetProfile.mockResolvedValue(profileWith());
+    render(<PrivacySettingsForm onSuccess={() => {}} onError={() => {}} hideSubmit onSubmitStateChange={onState} />);
+    await waitFor(() => expect(screen.getByText('申请默认处理')).toBeInTheDocument());
+
+    const selects = screen.getAllByRole('combobox') as HTMLSelectElement[];
+    fireEvent.change(selects[0]!, { target: { value: 'auto_accept' } });
+
+    await act(async () => { lastState(onState).submit(); });
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+    const [, body] = mockUpdateProfile.mock.calls[0]!;
+    expect(body.friend_request_policy).toBe('auto_accept');
+  });
+});
