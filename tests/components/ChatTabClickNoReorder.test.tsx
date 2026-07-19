@@ -31,6 +31,12 @@ vi.mock('../../src/hooks/useLocalConversations', () => ({
   }),
 }));
 
+// UnifiedList 直接消费 useSession（置顶菜单需 userId 生成好友会话 ID），无 Provider 会 throw
+vi.mock('../../src/contexts/SessionContext', () => ({
+  useSession: () => ({ session: { userId: 'me' } }),
+  useApi: () => ({}),
+}));
+
 // 必须在 vi.mock 之后导入被测组件
 import { UnifiedList } from '../../src/components/unified/UnifiedList';
 

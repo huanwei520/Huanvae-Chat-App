@@ -15,6 +15,14 @@ import {
   getMiniApp,
   startContainer,
   deleteMiniApp,
+  listPublishedMiniApps,
+  listMyMiniApps,
+  updateMiniApp,
+  publishMiniApp,
+  unpublishMiniApp,
+  stopContainer,
+  restartContainer,
+  getContainerInfo,
 } from '../../src/api/miniapps';
 
 /** 最小 mock ApiClient：只实现被测函数用到的方法,记录调用参数 */
@@ -56,5 +64,107 @@ describe('miniapps API 请求路径', () => {
     const { api, del } = mockApi();
     deleteMiniApp(api, 'app-4');
     expect(del).toHaveBeenCalledWith('/api/miniapps/app-4');
+  });
+});
+
+// ============================================
+// 以下为补充覆盖：列表 / 更新 / 发布 / 容器操作
+// （updateMiniApp 走 api.put，上方 mockApi 未实现 put，故这里用补全版 makeApi）
+// ============================================
+
+/** 补全版 mock ApiClient：含 put，覆盖本节全部被测函数 */
+function makeApi() {
+  const get = vi.fn().mockResolvedValue({});
+  const post = vi.fn().mockResolvedValue({});
+  const put = vi.fn().mockResolvedValue({});
+  const del = vi.fn().mockResolvedValue({});
+  const api = { get, post, put, delete: del } as unknown as ApiClient;
+  return { api, get, post, put, del };
+}
+
+describe('miniapps API 请求路径（列表/更新/发布/容器）', () => {
+  it('listPublishedMiniApps 走 GET /api/miniapps，返回值透传', async () => {
+    const { api, get } = makeApi();
+    const apps = [{ miniapp_id: 'app-1', name: 'demo', status: 'published' }];
+    get.mockResolvedValue(apps);
+    const out = await listPublishedMiniApps(api);
+    expect(get).toHaveBeenCalledWith('/api/miniapps');
+    expect(out).toEqual(apps);
+  });
+
+  it('listMyMiniApps 走 GET /api/miniapps/my', async () => {
+    const { api, get } = makeApi();
+    await listMyMiniApps(api);
+    expect(get).toHaveBeenCalledWith('/api/miniapps/my');
+  });
+
+  it('updateMiniApp 走 PUT /api/miniapps/{id}，body 原样透传', async () => {
+    const { api, put } = makeApi();
+    put.mockResolvedValue({ message: '更新成功' });
+    const data = { display_name: '新名字', description: '新描述', icon_url: 'https://x/i.png' };
+    const out = await updateMiniApp(api, 'app-5', data);
+    expect(put).toHaveBeenCalledWith('/api/miniapps/app-5', data);
+    expect(out).toEqual({ message: '更新成功' });
+  });
+
+  it('publishMiniApp 走 POST /api/miniapps/{id}/publish，body 为空对象', async () => {
+    const { api, post } = makeApi();
+    await publishMiniApp(api, 'app-6');
+    expect(post).toHaveBeenCalledWith('/api/miniapps/app-6/publish', {});
+  });
+
+  it('unpublishMiniApp 走 POST /api/miniapps/{id}/unpublish，body 为空对象', async () => {
+    const { api, post } = makeApi();
+    await unpublishMiniApp(api, 'app-7');
+    expect(post).toHaveBeenCalledWith('/api/miniapps/app-7/unpublish', {});
+  });
+
+  it('stopContainer 走 POST /api/miniapps/{id}/stop，body 为空对象', async () => {
+    const { api, post } = makeApi();
+    await stopContainer(api, 'app-8');
+    expect(post).toHaveBeenCalledWith('/api/miniapps/app-8/stop', {});
+  });
+
+  it('restartContainer 走 POST /api/miniapps/{id}/restart，body 为空对象', async () => {
+    const { api, post } = makeApi();
+    await restartContainer(api, 'app-9');
+    expect(post).toHaveBeenCalledWith('/api/miniapps/app-9/restart', {});
+  });
+
+  it('getContainerInfo 走 GET /api/miniapps/{id}/container，返回值透传', async () => {
+    const { api, get } = makeApi();
+    const container = {
+      miniapp_id: 'app-10',
+      name: 'demo',
+      status: 'running',
+      container_id: 'c-1',
+      ssh: { ssh_port: 2222, ssh_user: 'dev', ssh_password: 'pw' },
+    };
+    get.mockResolvedValue(container);
+    const out = await getContainerInfo(api, 'app-10');
+    expect(get).toHaveBeenCalledWith('/api/miniapps/app-10/container');
+    expect(out).toEqual(container);
+  });
+
+  // ---- 异常路径：薄封装不 try/catch，api 抛错原样向上抛 ----
+
+  const ERROR_CASES: Array<{ name: string; call: (api: ApiClient) => Promise<unknown> }> = [
+    { name: 'listPublishedMiniApps', call: (api) => listPublishedMiniApps(api) },
+    { name: 'listMyMiniApps', call: (api) => listMyMiniApps(api) },
+    { name: 'updateMiniApp', call: (api) => updateMiniApp(api, 'app-e', { display_name: 'x' }) },
+    { name: 'publishMiniApp', call: (api) => publishMiniApp(api, 'app-e') },
+    { name: 'unpublishMiniApp', call: (api) => unpublishMiniApp(api, 'app-e') },
+    { name: 'stopContainer', call: (api) => stopContainer(api, 'app-e') },
+    { name: 'restartContainer', call: (api) => restartContainer(api, 'app-e') },
+    { name: 'getContainerInfo', call: (api) => getContainerInfo(api, 'app-e') },
+  ];
+
+  it.each(ERROR_CASES)('$name 异常：api 抛错时原样向上抛', async ({ name, call }) => {
+    const { api, get, post, put } = makeApi();
+    const err = new Error(`${name}-fail`);
+    get.mockRejectedValue(err);
+    post.mockRejectedValue(err);
+    put.mockRejectedValue(err);
+    await expect(call(api)).rejects.toThrow(`${name}-fail`);
   });
 });

@@ -6,13 +6,16 @@
  *    无 tie-break 时并列项顺序 = 输入数组序，会随上游数组整体替换翻动）
  * 2. 同时间并列 → 按 uniqueKey localeCompare 稳定排序
  * 3. 非法时间串（NaN）/ null 时间 → 不抛、按 0 处理确定落底
- * 4. chat/friends/group 三 tab 共用 compareByTimeDesc：纯时间降序，完全忽略未读
+ * 4. compareByTimeDesc（friends tab 内层等）：纯时间降序，完全忽略未读
  * 5. 缺陷②回归：清未读（unread N→0）不改变排序序列（红点仅徽标，不参与排序）
+ * 6. comparePinnedThenTime（chat/group tab）：置顶分层在前，同层内时间降序；
+ *    全员未置顶时与 compareByTimeDesc 完全等价
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   compareByTimeDesc,
+  comparePinnedThenTime,
   type SortableCard,
 } from '../../src/components/unified/conversationSort';
 
@@ -20,8 +23,9 @@ function card(
   uniqueKey: string,
   lastMessageTime: string | null,
   unreadCount = 0,
+  isPinned = false,
 ): SortableCard {
-  return { uniqueKey, lastMessageTime, unreadCount };
+  return { uniqueKey, lastMessageTime, unreadCount, isPinned };
 }
 
 /** 确定性 Fisher-Yates（LCG 种子），避免随机种子导致测试不可复现 */
@@ -136,5 +140,66 @@ describe('清未读不改变排序（缺陷②回归）', () => {
     // 清未读前后顺序完全一致，且就是纯时间降序
     expect(orderB).toEqual(orderA);
     expect(orderA).toEqual(['friend-a', 'group-b', 'friend-c']);
+  });
+});
+
+describe('comparePinnedThenTime 置顶分层', () => {
+  it('置顶卡排在所有未置顶卡之前（即使时间更旧）', () => {
+    const pinnedOld = card('group-pinned', '2026-01-01T00:00:00Z', 0, true);
+    const unpinnedNew = card('friend-new', '2026-03-05T10:00:00Z');
+    const sorted = [unpinnedNew, pinnedOld].sort(comparePinnedThenTime).map((c) => c.uniqueKey);
+    expect(sorted).toEqual(['group-pinned', 'friend-new']);
+  });
+
+  it('同层内时间降序，同层同时间按 uniqueKey tie-break', () => {
+    const cards = [
+      card('friend-p-old', '2026-01-01T00:00:00Z', 0, true),
+      card('friend-p-new', '2026-03-01T00:00:00Z', 0, true),
+      card('group-u-new', '2026-03-05T00:00:00Z'),
+      card('friend-u-old', '2026-02-01T00:00:00Z'),
+      // 未置顶层同时间并列 → uniqueKey tie-break
+      card('friend-tie-b', '2026-02-01T00:00:00Z'),
+    ];
+    const sorted = [...cards].sort(comparePinnedThenTime).map((c) => c.uniqueKey);
+    expect(sorted).toEqual([
+      'friend-p-new',   // 置顶层：时间降序
+      'friend-p-old',
+      'group-u-new',    // 未置顶层：时间降序
+      'friend-tie-b',   // 与 friend-u-old 同时间 → localeCompare 升序
+      'friend-u-old',
+    ]);
+  });
+
+  it('比较器满足反对称性（置顶 vs 未置顶）', () => {
+    const pinned = card('friend-p', '2026-01-01T00:00:00Z', 0, true);
+    const unpinned = card('friend-u', '2026-03-01T00:00:00Z');
+    expect(comparePinnedThenTime(pinned, unpinned)).toBeLessThan(0);
+    expect(comparePinnedThenTime(unpinned, pinned)).toBeGreaterThan(0);
+    expect(comparePinnedThenTime(pinned, pinned)).toBe(0);
+  });
+
+  it('全员未置顶时与 compareByTimeDesc 完全等价', () => {
+    const byPinned = [...CARDS].sort(comparePinnedThenTime).map((c) => c.uniqueKey);
+    const byTime = [...CARDS].sort(compareByTimeDesc).map((c) => c.uniqueKey);
+    expect(byPinned).toEqual(byTime);
+  });
+
+  it('任意输入序输出序唯一（shuffle 不变性，含置顶混排）', () => {
+    const mixed = [
+      ...CARDS,
+      card('group-pin-1', '2026-01-15T00:00:00Z', 0, true),
+      card('friend-pin-2', null, 0, true), // 置顶但无时间 → 置顶层落底
+    ];
+    const baseline = [...mixed].sort(comparePinnedThenTime).map((c) => c.uniqueKey);
+    const permutations = [
+      [...mixed].reverse(),
+      deterministicShuffle(mixed, 7),
+      deterministicShuffle(mixed, 99),
+    ];
+    for (const perm of permutations) {
+      expect(perm.sort(comparePinnedThenTime).map((c) => c.uniqueKey)).toEqual(baseline);
+    }
+    // 置顶两张恒在最前
+    expect(baseline.slice(0, 2)).toEqual(['group-pin-1', 'friend-pin-2']);
   });
 });

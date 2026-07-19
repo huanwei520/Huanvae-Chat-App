@@ -6,8 +6,7 @@
  * 与派生口径分叉。卡片未读取值必须为 `unread?.unread_count ?? 0`，
  * 不得回退 group.unread_count —— 否则群红点显示陈旧值且点击清不掉。
  *
- * 覆盖桌面 UnifiedList、移动端 MobileChatList 与群聊管理弹窗 GroupsModal
- * （经 useWebSocket().getGroupUnread 接线到 GroupListContent）三个消费方。
+ * 覆盖桌面 UnifiedList 与移动端 MobileChatList 两个消费方。
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -62,7 +61,6 @@ vi.mock('../../src/components/search/GlobalMessageSearchResults', () => ({
 // 必须在 vi.mock 之后导入被测组件
 import { UnifiedList } from '../../src/components/unified/UnifiedList';
 import { MobileChatList } from '../../src/pages/mobile/MobileChatList';
-import { GroupsModal } from '../../src/components/GroupsModal';
 
 // REST 字段 unread_count=5（陈旧计数器值），用于验证显示层不消费它
 const staleGroup: Group = {
@@ -162,29 +160,5 @@ describe('MobileChatList 群未读只认 unreadSummary', () => {
     const card = getByText('测试群').closest('.mobile-contact-card')!;
     expect(within(card as HTMLElement).getByText('3')).toBeDefined();
     expect(within(card as HTMLElement).queryByText('5')).toBeNull();
-  });
-});
-
-describe('GroupsModal 群列表未读接入 WS（getGroupUnread），不再消费 REST unread_count', () => {
-  function renderGroupsModal() {
-    groupsApiMocks.getMyGroups.mockResolvedValue([staleGroup]);
-    groupsApiMocks.getGroupInvitations.mockResolvedValue({ invitations: [] });
-    return render(<GroupsModal isOpen onClose={vi.fn()} />);
-  }
-
-  it('getGroupUnread 返回 0（summary 无该群条目）+ REST unread_count=5 → 不渲染徽标', async () => {
-    wsMocks.getGroupUnread.mockReturnValue(0);
-    const { findByText, container } = renderGroupsModal();
-    await findByText('测试群');
-    expect(wsMocks.getGroupUnread).toHaveBeenCalledWith('g1');
-    expect(container.querySelector('.unread-badge')).toBeNull();
-  });
-
-  it('getGroupUnread 返回 3 → 徽标显示 3（非 REST 的 5）', async () => {
-    wsMocks.getGroupUnread.mockImplementation((groupId) => (groupId === 'g1' ? 3 : 0));
-    const { findByText, container } = renderGroupsModal();
-    await findByText('测试群');
-    const badge = container.querySelector('.unread-badge')!;
-    expect(badge.textContent).toBe('3');
   });
 });

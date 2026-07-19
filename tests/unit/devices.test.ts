@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import type { Device } from '../../src/types/device';
 
 // Mock ApiClient - 包含所有需要的方法
@@ -30,7 +31,16 @@ vi.mock('../../src/api/client', () => ({
   createApiClient: () => mockApiClient,
 }));
 
+// useDevices 经 useSession() 拿 api。按 frontend-test.md「mock context hook 的返回值必须
+// 引用稳定」规则，用 vi.hoisted 稳定单例（vi.mock 工厂被提升，直接引用顶层 const 会抛错；
+// 每次 render 造新对象则会虚假触发依赖 effect）
+const sessionCtx = vi.hoisted(() => ({ api: null as unknown }));
+vi.mock('../../src/contexts/SessionContext', () => ({
+  useSession: () => sessionCtx,
+}));
+
 import { getDevices, deleteDevice } from '../../src/api/devices';
+import { useDevices } from '../../src/hooks/useDevices';
 
 describe('设备管理 API', () => {
   beforeEach(() => {
@@ -137,21 +147,62 @@ describe('批量删除设备', () => {
   });
 
   it('应正确统计成功和失败数量', async () => {
-    // 模拟部分失败
+    // 驱动真实实现 useDevices().removeAllOthers（而非在测试里自造 allSettled 统计）
+    const current: Device = {
+      device_id: 'current',
+      device_info: 'This device',
+      is_current: true,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const d1: Device = {
+      device_id: 'device-1',
+      device_info: 'Chrome on Windows',
+      is_current: false,
+      created_at: '2026-01-02T00:00:00Z',
+    };
+    const d2: Device = {
+      device_id: 'device-2',
+      device_info: 'Safari on macOS',
+      is_current: false,
+      created_at: '2026-01-03T00:00:00Z',
+    };
+    const d3: Device = {
+      device_id: 'device-3',
+      device_info: 'Firefox on Linux',
+      is_current: false,
+      created_at: '2026-01-04T00:00:00Z',
+    };
+
+    sessionCtx.api = mockApiClient;
+    mockApiClient.get
+      // 初始加载：1 当前设备 + 3 其他设备
+      .mockResolvedValueOnce({ devices: [current, d1, d2, d3] })
+      // 部分失败后 removeAllOthers 会 refetch：服务端仍留着删除失败的 d2
+      .mockResolvedValueOnce({ devices: [current, d2] });
+
+    const { result } = renderHook(() => useDevices());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.devices).toHaveLength(4);
+
+    // 3 个删除请求：成功 / 失败 / 成功
     mockApiClient.delete
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('Network error'))
       .mockResolvedValueOnce(undefined);
 
-    const deviceIds = ['device-1', 'device-2', 'device-3'];
-    const results = await Promise.allSettled(
-      deviceIds.map((id) => deleteDevice(mockApiClient, id)),
-    );
+    let out: { success: number; failed: number } | undefined;
+    await act(async () => {
+      out = await result.current.removeAllOthers();
+    });
 
-    const success = results.filter((r) => r.status === 'fulfilled').length;
-    const failed = results.filter((r) => r.status === 'rejected').length;
-
-    expect(success).toBe(2);
-    expect(failed).toBe(1);
+    expect(out).toEqual({ success: 2, failed: 1 });
+    expect(mockApiClient.delete).toHaveBeenCalledTimes(3);
+    expect(mockApiClient.delete).toHaveBeenCalledWith('/api/auth/devices/device-1');
+    expect(mockApiClient.delete).toHaveBeenCalledWith('/api/auth/devices/device-2');
+    expect(mockApiClient.delete).toHaveBeenCalledWith('/api/auth/devices/device-3');
+    // 有失败时：refetch 结果落地 + 汇总错误提示 + removingAll 复位
+    expect(result.current.devices).toEqual([current, d2]);
+    expect(result.current.error).toBe('删除完成：成功 2 个，失败 1 个');
+    expect(result.current.removingAll).toBe(false);
   });
 });

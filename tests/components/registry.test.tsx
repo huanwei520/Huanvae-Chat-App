@@ -38,6 +38,7 @@ import * as MobileHeader from '../../src/pages/mobile/MobileHeader';
 import * as MobileMain from '../../src/pages/mobile/MobileMain';
 import * as MobileThemePage from '../../src/pages/mobile/MobileThemePage';
 import * as MobileMiniAppsPage from '../../src/pages/mobile/MobileMiniAppsPage';
+import * as MobileBotsPage from '../../src/pages/mobile/MobileBotsPage';
 import * as MobileProfilePage from '../../src/pages/mobile/MobileProfilePage';
 
 // 全局搜索组件
@@ -87,6 +88,7 @@ import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
 import * as AvatarPlaceholder from '../../src/components/common/AvatarPlaceholder';
+import * as BotBadge from '../../src/components/common/BotBadge';
 import * as AIAvatar from '../../src/components/common/AIAvatar';
 import * as AvatarCropModal from '../../src/components/common/AvatarCropModal';
 import * as MarkdownRenderer from '../../src/components/common/MarkdownRenderer';
@@ -98,7 +100,9 @@ import * as SearchBox from '../../src/components/common/SearchBox';
 import * as ListStates from '../../src/components/common/ListStates';
 import * as SyncStatusBanner from '../../src/components/common/SyncStatusBanner';
 import * as Sidebar from '../../src/components/sidebar/Sidebar';
+import * as SidebarMorePanel from '../../src/components/sidebar/SidebarMorePanel';
 import * as UnifiedList from '../../src/components/unified/UnifiedList';
+import * as ConversationContextMenu from '../../src/components/unified/ConversationContextMenu';
 import * as CardStack from '../../src/components/account/CardStack';
 import * as CardSlot from '../../src/components/account/CardSlot';
 import * as ProfileModal from '../../src/components/ProfileModal';
@@ -110,7 +114,7 @@ import * as PrivacySettingsForm from '../../src/components/profile/PrivacySettin
 import * as FilesModal from '../../src/components/files/FilesModal';
 import * as FileContextMenu from '../../src/components/files/FileContextMenu';
 import * as FileMenuController from '../../src/components/files/FileMenuController';
-import * as GroupsModal from '../../src/components/GroupsModal';
+import * as BotsModal from '../../src/components/bots/BotsModal';
 import * as AddModal from '../../src/components/AddModal';
 import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
 import * as SettingsSection from '../../src/components/settings/SettingsSection';
@@ -129,11 +133,6 @@ import * as FriendRequestsTab from '../../src/components/modals/add/FriendReques
 import * as GroupInvitesTab from '../../src/components/modals/add/GroupInvitesTab';
 import * as JoinGroupTab from '../../src/components/modals/add/JoinGroupTab';
 import * as TabNavigation from '../../src/components/modals/add/TabNavigation';
-import * as CreateGroupForm from '../../src/components/modals/groups/CreateGroupForm';
-import * as GroupListContent from '../../src/components/modals/groups/GroupListContent';
-import * as GroupsTabNavigation from '../../src/components/modals/groups/GroupsTabNavigation';
-import * as InvitationsListContent from '../../src/components/modals/groups/InvitationsListContent';
-import * as JoinGroupForm from '../../src/components/modals/groups/JoinGroupForm';
 
 // 聊天组件
 import * as ChatPanel from '../../src/chat/shared/ChatPanel';
@@ -160,6 +159,8 @@ import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
 import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
 import * as useFriendReadReceipt from '../../src/chat/friend/useFriendReadReceipt';
 import * as useGroupReadReceipt from '../../src/chat/group/useGroupReadReceipt';
+import * as OpsConsolePanel from '../../src/chat/ops/OpsConsolePanel';
+import * as useOpsConsole from '../../src/chat/ops/useOpsConsole';
 import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
 import * as AIMessageBubble from '../../src/chat/ai/AIMessageBubble';
 import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
@@ -210,6 +211,7 @@ import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
+import * as useBots from '../../src/hooks/useBots';
 
 // 服务
 import * as deviceInfo from '../../src/services/deviceInfo';
@@ -222,6 +224,8 @@ import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
 import * as settingsStore from '../../src/stores/settingsStore';
+import * as opsApi from '../../src/api/ops';
+import * as opsStore from '../../src/stores/opsStore';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -289,6 +293,7 @@ const COMPONENT_MAP = {
   MobileMain,
   MobileThemePage,
   MobileMiniAppsPage,
+  MobileBotsPage,
   MobileProfilePage,
   // 全局搜索
   GlobalMessageSearchResults,
@@ -334,6 +339,7 @@ const COMPONENT_MAP = {
   // 通用组件
   Avatar,
   AvatarPlaceholder,
+  BotBadge,
   AIAvatar,
   AvatarCropModal,
   MarkdownRenderer,
@@ -345,7 +351,9 @@ const COMPONENT_MAP = {
   ListStates,
   SyncStatusBanner,
   Sidebar,
+  SidebarMorePanel,
   UnifiedList,
+  ConversationContextMenu,
   CardStack,
   CardSlot,
   ProfileModal,
@@ -357,7 +365,7 @@ const COMPONENT_MAP = {
   FilesModal,
   FileContextMenu,
   FileMenuController,
-  GroupsModal,
+  BotsModal,
   AddModal,
   SettingsPanel,
   SettingsSection,
@@ -412,11 +420,6 @@ const COMPONENT_MAP = {
   GroupInvitesTab,
   JoinGroupTab,
   TabNavigation,
-  CreateGroupForm,
-  GroupListContent,
-  GroupsTabNavigation,
-  InvitationsListContent,
-  JoinGroupForm,
   // 聊天组件
   ChatPanel,
   ChatInputArea,
@@ -440,6 +443,7 @@ const COMPONENT_MAP = {
   ReaderAvatarStack,
   GroupReadReceipt,
   GroupReadListModal,
+  OpsConsolePanel,
   AIChatMessages,
   AIMessageBubble,
   AIHistoryPanel,
@@ -490,6 +494,8 @@ const COMPONENT_MAP = {
   useUpdateToast,
   useNotificationSounds,
   useLanTransfer,
+  useBots,
+  useOpsConsole,
   // 服务
   deviceInfo,
   diagnosticService,
@@ -501,6 +507,8 @@ const COMPONENT_MAP = {
   syncService,
   updateService,
   settingsStore,
+  opsApi,
+  opsStore,
   // 工具模块
   formatUtils,
   avatarColor,

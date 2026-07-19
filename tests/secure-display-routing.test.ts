@@ -150,11 +150,6 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
       /resolveDisplayUrl\(grant\.app_logo_url\)/,
     ],
     [
-      'src/components/modals/groups/GroupListContent.tsx',
-      /<img\s+src=\{group\.group_avatar_url\}/,
-      /resolveServerAvatarUrl\(group\.group_avatar_url\)/,
-    ],
-    [
       // 会议邀请卡发起人头像（消息 JSON 派生字段，盲审发现的遗漏点）
       'src/chat/shared/MeetingInviteCard.tsx',
       /src=\{payload\.creator_avatar\}/,

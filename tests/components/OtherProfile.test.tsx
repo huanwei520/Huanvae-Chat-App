@@ -7,6 +7,8 @@
  *   非好友显示"添加好友"并调用 sendFriendRequest；
  *   好友显示"发消息"直达 + 备注编辑 + 在线状态；查看自己不显示任何操作按钮；
  *   头像/背景经 resolveServerAvatarUrl 收口。
+ * - bot 身份（bot_ 前缀 userId）：BotBadge 徽章 + "机器人"关系文案 +
+ *   getBot 成功展示 description / 404（owner-only 契约）不渲染简介区；普通用户无徽章。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -29,6 +31,13 @@ const mockSetFriendRemark = vi.hoisted(() => vi.fn());
 vi.mock('../../src/api/friends', () => ({
   sendFriendRequest: mockSendFriendRequest,
   setFriendRemark: mockSetFriendRemark,
+}));
+
+// bot API：getBot 用 mock 控制 owner/非 owner 两种契约结果；isBotUserId 保持真实语义（bot_ 前缀判别）
+const mockGetBot = vi.hoisted(() => vi.fn());
+vi.mock('../../src/api/bots', () => ({
+  getBot: mockGetBot,
+  isBotUserId: (userId: string) => userId.startsWith('bot_'),
 }));
 
 // 头像收口点：用哨兵变换替代真实 resolveDisplayUrl（避开 secureProxy/tauri），
@@ -88,6 +97,9 @@ describe('OtherProfilePanel', () => {
     mockSendFriendRequest.mockResolvedValue(undefined);
     mockSetFriendRemark.mockReset();
     mockSetFriendRemark.mockResolvedValue(undefined);
+    // 默认按非 owner 契约：GET /api/bots/{id} 返回 404（与不存在同形），组件静默回落
+    mockGetBot.mockReset();
+    mockGetBot.mockRejectedValue(new Error('404'));
     setFriends([]);
     useChatStore.getState().setFriendPresences([]);
   });
@@ -180,6 +192,61 @@ describe('OtherProfilePanel', () => {
     await waitFor(() => expect(screen.getByText('这是你自己')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /添加好友/ })).toBeNull();
     expect(screen.queryByRole('button', { name: '发消息' })).toBeNull();
+  });
+
+  it('bot（非好友）：渲染 BotBadge 与"机器人"关系文案，不显示"未填写"提示', async () => {
+    mockGetPublicProfile.mockResolvedValue(fullProfile({
+      user_id: 'bot_echo1', user_nickname: 'EchoBot',
+    }));
+    render(<OtherProfilePanel userId="bot_echo1" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('机器人')).toBeInTheDocument());
+    expect(screen.getByText('Bot')).toHaveClass('bot-badge');
+    // bot 无性别/生日/地区字段，"未填写"提示对 bot 是噪音
+    expect(screen.queryByText('该用户未填写性别 / 生日 / 地区')).toBeNull();
+  });
+
+  it('bot（好友 + owner）：getBot 成功时简介区展示 description，关系为"机器人 · 已添加"', async () => {
+    setFriends(['bot_helper']);
+    mockGetPublicProfile.mockResolvedValue(fullProfile({
+      user_id: 'bot_helper', user_nickname: 'Helper',
+    }));
+    mockGetBot.mockResolvedValue({
+      bot_user_id: 'bot_helper', username: 'helper_bot', nickname: 'Helper',
+      description: '我是一个自动应答机器人', commands: [], webhook_url: null,
+      can_join_groups: false, is_active: true,
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    });
+    render(<OtherProfilePanel userId="bot_helper" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('我是一个自动应答机器人')).toBeInTheDocument());
+    expect(mockGetBot).toHaveBeenCalledWith(mockApi, 'bot_helper');
+    expect(screen.getByText('机器人 · 已添加')).toBeInTheDocument();
+  });
+
+  it('bot（非 owner）：getBot 404 时不渲染简介区且不报错', async () => {
+    mockGetBot.mockRejectedValue(new Error('404'));
+    mockGetPublicProfile.mockResolvedValue(fullProfile({
+      user_id: 'bot_other', user_nickname: 'OtherBot', user_signature: null,
+    }));
+    const { container } = render(<OtherProfilePanel userId="bot_other" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('机器人')).toBeInTheDocument());
+    expect(mockGetBot).toHaveBeenCalledWith(mockApi, 'bot_other');
+    // description 拿不到、签名为空 → 简介区不渲染（且组件不因 404 崩溃/报错）
+    expect(container.querySelector('.qq-hero-signature')).toBeNull();
+    expect(screen.queryByText('资料加载失败')).toBeNull();
+  });
+
+  it('普通用户不渲染 Bot 徽章，也不调用 getBot（反向断言）', async () => {
+    mockGetPublicProfile.mockResolvedValue(fullProfile({
+      user_id: 'alice', user_nickname: 'Alice',
+    }));
+    const { container } = render(<OtherProfilePanel userId="alice" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    expect(container.querySelector('.bot-badge')).toBeNull();
+    expect(mockGetBot).not.toHaveBeenCalled();
   });
 
   it('公开资料头像经 resolveServerAvatarUrl 收口（回归：不得直接用裸后端 URL）', async () => {

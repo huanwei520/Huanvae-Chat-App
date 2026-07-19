@@ -33,6 +33,7 @@ import {
   fetchConfig,
   pickFastest,
   discoverEndpoints,
+  rediscoverOnFailure,
   getActiveEndpoint,
   resolveForSecureHttp,
   __resetForTest,
@@ -58,6 +59,21 @@ function routeOnlyIp1Reachable(_cmd: string, args: { req: { url: string } }) {
   }
   if (url.includes('/health')) {
     if (url.includes(IP1)) {
+      return Promise.resolve({ status: 200, headers: {}, body: 'OK' });
+    }
+    return Promise.reject(new Error('unreachable'));
+  }
+  return Promise.reject(new Error(`unexpected url ${url}`));
+}
+
+/** invoke 路由: /endpoints → 配置; https://<ip>:443/health → 仅 IP2 可达(IP1 下线) */
+function routeOnlyIp2Reachable(_cmd: string, args: { req: { url: string } }) {
+  const url = args.req.url;
+  if (url.includes('/endpoints')) {
+    return Promise.resolve({ status: 200, headers: {}, body: CFG_BODY });
+  }
+  if (url.includes('/health')) {
+    if (url.includes(IP2)) {
       return Promise.resolve({ status: 200, headers: {}, body: 'OK' });
     }
     return Promise.reject(new Error('unreachable'));
@@ -193,6 +209,66 @@ describe('discovery', () => {
       await expect(discoverEndpoints()).rejects.toThrow(/fail-loud|不可达/);
       // 未落 active → resolveForSecureHttp 仍为 null
       expect(resolveForSecureHttp()).toBeNull();
+    });
+  });
+
+  describe('失败轮换 / 自愈 (rediscoverOnFailure + discoverEndpoints force/excludeIp)', () => {
+    it('rediscoverOnFailure: 当前 active(IP2) 判死 → 排除 IP2 强制重发现 → 轮换到可达 IP1', async () => {
+      mocks.invoke.mockImplementation(routeOnlyIp2Reachable);
+      const first = await discoverEndpoints();
+      expect(first.ip).toBe(IP2); // 先择优到仅可达的 IP2
+
+      // IP2 下线, IP1 恢复
+      mocks.invoke.mockImplementation(routeOnlyIp1Reachable);
+      const rotated = await rediscoverOnFailure(IP2);
+      expect(rotated?.ip).toBe(IP1); // 轮换到 IP1
+      expect(getActiveEndpoint()?.ip).toBe(IP1); // 全局 active 已更新
+      expect(resolveForSecureHttp()?.direct_ip).toBe(IP1); // 数据面注入随之切到 IP1
+    });
+
+    it('rediscoverOnFailure: failedIp 非当前 active → 直接返回现值, 不触发重探(幂等去重)', async () => {
+      mocks.invoke.mockImplementation(routeOnlyIp1Reachable);
+      await discoverEndpoints(); // active=IP1
+      const callsBefore = mocks.invoke.mock.calls.length;
+
+      const r = await rediscoverOnFailure(IP2); // IP2 不是当前 active(IP1)
+      expect(r?.ip).toBe(IP1); // 返回当前 active
+      expect(mocks.invoke.mock.calls.length).toBe(callsBefore); // 无任何新 invoke(未重探)
+    });
+
+    it('rediscoverOnFailure: 全部候选不可达 → 返回 null 不抛错, active 保持不变', async () => {
+      mocks.invoke.mockImplementation(routeOnlyIp1Reachable);
+      await discoverEndpoints(); // active=IP1
+      mocks.invoke.mockRejectedValue(new Error('all down')); // 全网不可达
+
+      const r = await rediscoverOnFailure(IP1);
+      expect(r).toBeNull();
+      expect(getActiveEndpoint()?.ip).toBe(IP1); // active 未被清掉(下次失败再试)
+    });
+
+    it('discoverEndpoints({force:true}) 绕过新鲜缓存重探(缓存冻结修复); 无 force 命中缓存返回陈旧 active', async () => {
+      mocks.invoke.mockImplementation(routeOnlyIp2Reachable);
+      await discoverEndpoints(); // active=IP2, 缓存新鲜(ttl 3600)
+
+      // IP2 下线, IP1 恢复
+      mocks.invoke.mockImplementation(routeOnlyIp1Reachable);
+      const stale = await discoverEndpoints(); // 无 force → 命中新鲜缓存 → 仍返回死的 IP2(冻结)
+      expect(stale.ip).toBe(IP2);
+      const fresh = await discoverEndpoints({ force: true }); // force → 绕过缓存重探 → 轮换到 IP1
+      expect(fresh.ip).toBe(IP1);
+    });
+
+    it('rediscoverOnFailure: 并发同一失败 IP → 共享同一次在途重发现(single-flight, 仅一轮探测)', async () => {
+      mocks.invoke.mockImplementation(routeOnlyIp2Reachable);
+      await discoverEndpoints(); // active=IP2
+      mocks.invoke.mockImplementation(routeOnlyIp1Reachable);
+      const callsBefore = mocks.invoke.mock.calls.length;
+
+      const [a, b] = await Promise.all([rediscoverOnFailure(IP2), rediscoverOnFailure(IP2)]);
+      expect(a?.ip).toBe(IP1);
+      expect(b?.ip).toBe(IP1);
+      // 一轮重发现 = 1 次 /endpoints + 2 次 /health = 3 次 invoke(而非两轮的 6 次)
+      expect(mocks.invoke.mock.calls.length - callsBefore).toBe(3);
     });
   });
 });

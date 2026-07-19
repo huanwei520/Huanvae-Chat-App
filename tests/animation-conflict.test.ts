@@ -79,6 +79,14 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/unified/UnifiedList.tsx (cardVariants + layout="position" guarded by isTabSwitching window)',
   },
+  // .message-context-menu 当前无 CSS transition（门禁空转），登记防止将来有人加
+  // transition:transform/opacity 与 motion 入出场（opacity+scale+y）抢帧
+  {
+    selector: '.message-context-menu',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/MessageContextMenu.tsx + src/components/unified/ConversationContextMenu.tsx (motion.div 入出场 opacity+scale+y)',
+  },
   // .avatar-wrapper 的基础规则在 main.css（base.css 里只有 .avatar-wrapper.a11y-kbd-focus
   // 复合焦点环选择器，不含基础规则），cssFile 必须指向 main.css 门禁才真正生效
   {
@@ -86,6 +94,24 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['transform'],
     motionLocation: 'src/components/sidebar/Sidebar.tsx (avatar-wrapper whileHover/whileTap scale)',
+  },
+  {
+    selector: '.sidebar-more-panel',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/sidebar/SidebarMorePanel.tsx (panel variants: opacity/x/scale 入出场)',
+  },
+  {
+    selector: '.more-panel-row',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/components/sidebar/SidebarMorePanel.tsx (dnd-kit useSortable 拖拽 transform)',
+  },
+  {
+    selector: '.sidebar-pinned-btn',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/components/sidebar/Sidebar.tsx (dnd-kit useSortable 钉住项拖拽 transform)',
   },
   {
     selector: '.recall-system-row',
@@ -254,6 +280,134 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/pages/stocks.css',
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/stocks/components/MarketWeatherPanel.tsx (进场 stagger fade+y：免责声明行 .market-weather-row.market-weather-disclaimer)',
+  },
+  // ===== 移动端交互动效（2026-07-14 手机端动效优化批次） =====
+  {
+    selector: '.mobile-tab-item',
+    cssFile: 'src/styles/mobile/tab-bar.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileTabBar.tsx (motion.button whileTap scale)',
+  },
+  {
+    selector: '.mobile-tab-indicator',
+    cssFile: 'src/styles/mobile/tab-bar.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileTabBar.tsx (layoutId="mobile-tab-indicator" 共享布局滑块)',
+  },
+  {
+    selector: '.mobile-contact-card',
+    cssFile: 'src/styles/mobile/contacts.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileChatList.tsx + MobileContacts.tsx (stagger 入场 opacity+y、exit + whileTap scale)',
+  },
+  {
+    selector: '.mobile-contacts-list',
+    cssFile: 'src/styles/mobile/contacts.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/pages/mobile/MobileContacts.tsx (listVariants: height/opacity 展开收起 + stagger 编排)',
+  },
+  {
+    selector: '.mobile-header-avatar',
+    cssFile: 'src/styles/mobile/header.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileHeader.tsx (头像 motion.div whileTap scale)',
+  },
+  {
+    selector: '.mobile-contacts-add-btn',
+    cssFile: 'src/styles/mobile/add-page.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileHeader.tsx (加号 motion.button whileTap scale)',
+  },
+  {
+    selector: '.mobile-nfc-trusted-item',
+    cssFile: 'src/styles/mobile/nfc-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileNfcTrustedCardsPage.tsx (rowVariants: stagger 入场 opacity+y + exit 左滑淡出)',
+  },
+  {
+    selector: '.mobile-nfc-trusted-list',
+    cssFile: 'src/styles/mobile/nfc-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileNfcTrustedCardsPage.tsx (motion.ul listVariants: 仅 stagger 编排，防御性登记)',
+  },
+  {
+    selector: '.mobile-nfc-trust-modal-overlay',
+    cssFile: 'src/styles/mobile/nfc-page.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/nfc/NfcTrustConfirmModal.tsx (overlayVariants: opacity 进出场)',
+  },
+  {
+    selector: '.mobile-nfc-trust-modal',
+    cssFile: 'src/styles/mobile/nfc-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/nfc/NfcTrustConfirmModal.tsx (panelVariants: 上滑 sheet y+opacity)',
+  },
+  // ===== 守门债补登记：既有整页 motion 容器（pageVariants / 整页滑入） =====
+  {
+    selector: '.mobile-profile-page',
+    cssFile: 'src/styles/mobile/profile-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileProfilePage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-settings-page',
+    cssFile: 'src/styles/mobile/settings-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileSettingsPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-chat-view',
+    cssFile: 'src/styles/mobile/chat-view.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileChatView.tsx (整页 x 滑入滑出 tween)',
+  },
+  {
+    selector: '.mobile-lan-transfer-page',
+    cssFile: 'src/styles/mobile/lan-transfer-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileLanTransferPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-theme-page',
+    cssFile: 'src/styles/mobile/theme-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileThemePage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-add-page',
+    cssFile: 'src/styles/mobile/add-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileAddPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-miniapps-page',
+    cssFile: 'src/styles/mobile/miniapps-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileMiniAppsPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-files-page',
+    cssFile: 'src/styles/mobile/files-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileFilesPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-bots-page',
+    cssFile: 'src/styles/mobile/bots-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileBotsPage.tsx (pageVariants: x+opacity spring)',
+  },
+  {
+    selector: '.mobile-bot-card',
+    cssFile: 'src/styles/mobile/bots-page.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/pages/mobile/MobileBotsPage.tsx (cardVariants: opacity+y stagger + whileTap scale)',
+  },
+  {
+    selector: '.mobile-meeting-entry-page',
+    cssFile: 'src/styles/mobile/meeting-page.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileMeetingEntryPage.tsx (整页 x 滑入滑出 tween)',
   },
 ];
 

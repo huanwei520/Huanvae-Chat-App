@@ -37,6 +37,7 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
   { name: 'MobileMain', path: 'pages/mobile/MobileMain', category: 'pages', description: '移动端主页面' },
   { name: 'MobileThemePage', path: 'pages/mobile/MobileThemePage', category: 'pages', description: '移动端主题设置页面' },
   { name: 'MobileMiniAppsPage', path: 'pages/mobile/MobileMiniAppsPage', category: 'pages', description: '移动端小程序页面（公开列表 + iframe 启动）' },
+  { name: 'MobileBotsPage', path: 'pages/mobile/MobileBotsPage', category: 'pages', description: '移动端机器人管理页（创建/加好友/重置token/删除 + SecretDisplay 一次性 token）' },
   { name: 'MobileProfilePage', path: 'pages/mobile/MobileProfilePage', category: 'pages', description: '移动端个人资料页（独立整屏页：顶部返回 + 右上保存 / 封面 banner + 身份 hero 卡 + 快览事实卡 + 分段 tab + 字段卡，编辑头像/昵称/邮箱/签名/密码/封面）' },
 ];
 
@@ -100,6 +101,7 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 通用 UI 组件
   { name: 'Avatar', path: 'components/common/Avatar', category: 'components', description: '头像组件' },
   { name: 'AvatarPlaceholder', path: 'components/common/AvatarPlaceholder', category: 'components', description: '统一头像占位组件（首字母 + 确定性渐变，收敛全 App 占位）' },
+  { name: 'BotBadge', path: 'components/common/BotBadge', category: 'components', description: '统一 Bot 徽章（列表/资料页/聊天顶栏 bot 身份标识，颜色引用 --bot-badge-* token）' },
   { name: 'AIAvatar', path: 'components/common/AIAvatar', category: 'components', description: 'AI 助手头像组件' },
   { name: 'AvatarCropModal', path: 'components/common/AvatarCropModal', category: 'components', description: '头像裁剪弹窗（1:1，个人/群头像共用，含 useAvatarCrop Hook）' },
   { name: 'MarkdownRenderer', path: 'components/common/MarkdownRenderer', category: 'components', description: 'Markdown 渲染组件（聊天气泡内容）' },
@@ -113,9 +115,11 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
 
   // 侧边栏
   { name: 'Sidebar', path: 'components/sidebar/Sidebar', category: 'components', description: '侧边栏' },
+  { name: 'SidebarMorePanel', path: 'components/sidebar/SidebarMorePanel', category: 'components', description: '侧边栏"更多"浮层面板(dnd-kit 双区拖放:面板内排序 + 拖到侧边栏钉住,布局持久化 localStorage)' },
 
   // 统一列表
   { name: 'UnifiedList', path: 'components/unified/UnifiedList', category: 'components', description: '统一列表组件' },
+  { name: 'ConversationContextMenu', path: 'components/unified/ConversationContextMenu', category: 'components', description: '会话置顶右键/长按菜单（桌面右键 + 移动长按，单项置顶/取消置顶）' },
 
   // 账号相关
   { name: 'CardStack', path: 'components/account/CardStack', category: 'components', description: '卡片堆叠组件' },
@@ -134,8 +138,10 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   { name: 'FileContextMenu', path: 'components/files/FileContextMenu', category: 'components', description: '我的文件右键/长按菜单（纯展示组件）' },
   { name: 'FileMenuController', path: 'components/files/FileMenuController', category: 'components', description: '我的文件菜单状态解析器（订阅 useFileCache + selectDownloadTask 决定菜单项）' },
 
+  // 机器人管理
+  { name: 'BotsModal', path: 'components/bots/BotsModal', category: 'components', description: '机器人管理模态框（BotFather 式：创建/加好友/重置token/删除）' },
+
   // 群组模态框
-  { name: 'GroupsModal', path: 'components/GroupsModal', category: 'components', description: '群组管理模态框' },
   { name: 'AddModal', path: 'components/AddModal', category: 'components', description: '添加好友/群组模态框' },
 
   // 设置相关
@@ -202,13 +208,6 @@ export const MODAL_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupInvitesTab', path: 'components/modals/add/GroupInvitesTab', category: 'modals', description: '群组邀请标签页' },
   { name: 'JoinGroupTab', path: 'components/modals/add/JoinGroupTab', category: 'modals', description: '加入群组标签页' },
   { name: 'TabNavigation', path: 'components/modals/add/TabNavigation', category: 'modals', description: '标签导航' },
-
-  // 群组相关模态框
-  { name: 'CreateGroupForm', path: 'components/modals/groups/CreateGroupForm', category: 'modals', description: '创建群组表单' },
-  { name: 'GroupListContent', path: 'components/modals/groups/GroupListContent', category: 'modals', description: '群组列表内容' },
-  { name: 'GroupsTabNavigation', path: 'components/modals/groups/GroupsTabNavigation', category: 'modals', description: '群组标签导航' },
-  { name: 'InvitationsListContent', path: 'components/modals/groups/InvitationsListContent', category: 'modals', description: '邀请列表内容' },
-  { name: 'JoinGroupForm', path: 'components/modals/groups/JoinGroupForm', category: 'modals', description: '加入群组表单' },
 ];
 
 // ============== 聊天组件 ==============
@@ -240,6 +239,9 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
   { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
+
+  // 运维全景（ops-bot 聊天页）
+  { name: 'OpsConsolePanel', path: 'chat/ops/OpsConsolePanel', category: 'chat', description: '运维全景折叠区（仅 ops-bot owner 可见，任务/worker/事件流实时面板）' },
 
   // AI 聊天组件
   { name: 'AIChatMessages', path: 'chat/ai/AIChatMessages', category: 'chat', description: 'AI 聊天消息列表' },
@@ -303,6 +305,8 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
+  { name: 'useBots', path: 'hooks/useBots', category: 'hooks', description: '机器人管理 Hook（列表/创建/删除/重置token/按 username 加好友）' },
+  { name: 'useOpsConsole', path: 'chat/ops/useOpsConsole', category: 'hooks', description: '运维全景数据 Hook（getBot gate → REST 快照 → opsStore 派生 + 断线补拉）' },
 ];
 
 // ============== 服务 ==============
@@ -317,6 +321,8 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
+  { name: 'opsApi', path: 'api/ops', category: 'services', description: '运维任务 API 封装（/api/ops/tasks 列表/详情/事件增量）' },
+  { name: 'opsStore', path: 'stores/opsStore', category: 'services', description: '运维任务状态管理（REST seed + WS ops_update 增量，事件每任务上限 200）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },

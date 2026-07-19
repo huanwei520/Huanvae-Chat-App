@@ -15,8 +15,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { CreateGroupTab } from '../../src/components/modals/add/CreateGroupTab';
 import { JoinGroupTab } from '../../src/components/modals/add/JoinGroupTab';
-import { CreateGroupForm } from '../../src/components/modals/groups/CreateGroupForm';
-import { JoinGroupForm } from '../../src/components/modals/groups/JoinGroupForm';
 
 beforeEach(() => {
   cleanup();
@@ -69,43 +67,5 @@ describe('JoinGroupTab — MotionAppButton primary/lg/block', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: '加入群聊' }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('CreateGroupForm — MotionAppButton primary/lg/block', () => {
-  it('renders button with primary lg block; click triggers onSubmit', () => {
-    const onSubmit = vi.fn();
-    render(
-      <CreateGroupForm
-        groupName="MyGroup"
-        groupDesc=""
-        loading={false}
-        onNameChange={() => {}}
-        onDescChange={() => {}}
-        onSubmit={onSubmit}
-      />,
-    );
-    const btn = screen.getByRole('button', { name: '创建群聊' });
-    expect(btn).toHaveClass('app-btn--primary', 'app-btn--lg', 'app-btn--block');
-    fireEvent.click(btn);
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('JoinGroupForm — MotionAppButton primary/lg/block', () => {
-  it('renders button with primary lg block; loading disables click', () => {
-    const onSubmit = vi.fn();
-    const { rerender } = render(
-      <JoinGroupForm inviteCode="ABC" loading={false} onCodeChange={() => {}} onSubmit={onSubmit} />,
-    );
-    const btn = screen.getByRole('button', { name: '加入群聊' });
-    expect(btn).toHaveClass('app-btn--primary', 'app-btn--lg', 'app-btn--block');
-
-    rerender(
-      <JoinGroupForm inviteCode="ABC" loading onCodeChange={() => {}} onSubmit={onSubmit} />,
-    );
-    expect(screen.getByRole('button', { name: '加入中...' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button'));
-    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

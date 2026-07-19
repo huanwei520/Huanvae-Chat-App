@@ -14,6 +14,10 @@
  *   - send 文本/二进制走对应命令;未 OPEN 时 send 被 guard
  *   - close() 走 ws_close;建连前 close() → 不触发 onopen 且回收连接
  *   - ws_connect 拒绝 → onerror + onclose(1006)
+ *   - ping 事件 → 仅刷新 lastActivityAt,不派发 onmessage;text 等入站事件同样刷新
+ *   - terminate(code) → 同步 onclose(code) + readyState=CLOSED + ws_close 清理;
+ *     终态后事件忽略,重复 terminate 幂等(不重复派发)
+ *   - localOpts.idleTimeoutSecs → ws_connect opts 携带 idle_timeout_secs;不传则无该键
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -249,5 +253,98 @@ describe('RustWebSocket 建连失败', () => {
     expect(onerror).toHaveBeenCalledTimes(1);
     expect(onclose).toHaveBeenCalledWith({ code: 1006 });
     expect(ws.readyState).toBe(RustWebSocket.CLOSED);
+  });
+});
+
+describe('RustWebSocket 活性追踪与 terminate（半开看门狗支撑）', () => {
+  it('ping 事件 → 刷新 lastActivityAt 且不派发 onmessage', async () => {
+    defaultInvoke();
+    const ws = new RustWebSocket('wss://x/ws');
+    const onmessage = vi.fn();
+    ws.onmessage = onmessage;
+    await tick();
+
+    ws.lastActivityAt = 0; // 人为置旧,便于观察刷新
+    channelOf().onmessage?.({ event: 'ping' });
+    expect(ws.lastActivityAt).toBeGreaterThan(0); // 已刷新为当前时刻
+    expect(onmessage).not.toHaveBeenCalled(); // 协议 ping 不进业务 onmessage
+  });
+
+  it('text 事件同样刷新 lastActivityAt(且照常派发 onmessage)', async () => {
+    defaultInvoke();
+    const ws = new RustWebSocket('wss://x/ws');
+    const onmessage = vi.fn();
+    ws.onmessage = onmessage;
+    await tick();
+
+    ws.lastActivityAt = 0;
+    channelOf().onmessage?.({ event: 'text', data: '{"type":"connected"}' });
+    expect(ws.lastActivityAt).toBeGreaterThan(0);
+    expect(onmessage).toHaveBeenCalledWith({ data: '{"type":"connected"}' });
+  });
+
+  it('terminate() → 同步 onclose(4008) + readyState=CLOSED + ws_close 清理;终态后事件忽略、重复调用幂等', async () => {
+    defaultInvoke(21);
+    const ws = new RustWebSocket('wss://x/ws');
+    const onclose = vi.fn();
+    const onmessage = vi.fn();
+    ws.onclose = onclose;
+    ws.onmessage = onmessage;
+    await tick();
+    const ch = channelOf(); // mockClear 前捕获 Channel(calls[0] 会被清)
+    mocks.invoke.mockClear();
+
+    ws.terminate();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledWith({ code: 4008 });
+    expect(ws.readyState).toBe(RustWebSocket.CLOSED);
+    expect(mocks.invoke).toHaveBeenCalledWith('ws_close', {
+      connId: 21,
+      code: 4008,
+      reason: 'liveness timeout',
+    });
+
+    // 终态后 Channel 再推事件 → 全部忽略
+    ch.onmessage?.({ event: 'text', data: 'late' });
+    expect(onmessage).not.toHaveBeenCalled();
+
+    // 幂等:重复 terminate 不重复派发 onclose
+    ws.terminate();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(ws.readyState).toBe(RustWebSocket.CLOSED);
+  });
+
+  it('terminate(自定义 code) → onclose 与 ws_close 均透传该 code', async () => {
+    defaultInvoke(5);
+    const ws = new RustWebSocket('wss://x/ws');
+    const onclose = vi.fn();
+    ws.onclose = onclose;
+    await tick();
+    mocks.invoke.mockClear();
+
+    ws.terminate(4999);
+    expect(onclose).toHaveBeenCalledWith({ code: 4999 });
+    expect(mocks.invoke).toHaveBeenCalledWith('ws_close', {
+      connId: 5,
+      code: 4999,
+      reason: 'liveness timeout',
+    });
+  });
+
+  it('localOpts.idleTimeoutSecs → ws_connect opts 携带 idle_timeout_secs', async () => {
+    defaultInvoke();
+    new RustWebSocket('wss://x/ws', { pin_ca: true }, { idleTimeoutSecs: 90 });
+    expect(callOf(0)[0]).toBe('ws_connect');
+    expect(callOf(0)[1].opts).toEqual({ pin_ca: true, idle_timeout_secs: 90 });
+    await tick();
+  });
+
+  it('不传 localOpts → opts 不含 idle_timeout_secs 键', async () => {
+    defaultInvoke();
+    new RustWebSocket('wss://x/ws', { pin_ca: true });
+    const opts = callOf(0)[1].opts as Record<string, unknown>;
+    expect(opts).toEqual({ pin_ca: true });
+    expect(Object.prototype.hasOwnProperty.call(opts, 'idle_timeout_secs')).toBe(false);
+    await tick();
   });
 });

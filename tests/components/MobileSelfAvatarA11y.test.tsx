@@ -103,6 +103,7 @@ describe('MobileDrawer — 本人头像 a11y', () => {
         onFilesClick={vi.fn()}
         onLanTransferClick={vi.fn()}
         onMiniAppsClick={vi.fn()}
+        onBotsClick={vi.fn()}
         onMeetingClick={vi.fn()}
         onSettingsClick={vi.fn()}
         onLogout={vi.fn()}

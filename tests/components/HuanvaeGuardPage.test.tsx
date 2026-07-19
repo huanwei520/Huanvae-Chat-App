@@ -10,6 +10,7 @@
  *   6. 删除群组使用中文确认对话框
  *   7. Header 状态文案中文
  *   8. acceptGroupInvite 成功后表单清空 + 列表重载
+ *   9. 群组邀请码 SecretDisplay portal 到 body fixed 高层容器（防遮挡回归）
  *
  * 注：`formatHandshake` 作为纯函数在 huanvaeGuard.formatHandshake.test.ts 中单测覆盖
  */
@@ -424,5 +425,27 @@ describe('HuanvaeGuardPage', () => {
       expect(screen.getByText(/已加载 \d+ 个设备/)).toBeInTheDocument();
     });
     expect(screen.getByText(/本地服务未运行/)).toBeInTheDocument();
+  });
+
+  it('群组邀请码 SecretDisplay portal 到 body 的 fixed 高层容器（回归：防 backdrop-filter/滚动遮挡）', async () => {
+    mockServerApi.createGroupInvite.mockResolvedValue({
+      invite_token: 'group-invite-token-xyz',
+      expires_at: '2026-08-01T00:00:00Z',
+    });
+
+    await renderAndOpenGroupsTab();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('邀请'));
+    });
+
+    const tokenEl = await screen.findByText('group-invite-token-xyz');
+    const overlay = tokenEl.closest('.oauth-create-overlay');
+    expect(overlay).not.toBeNull();
+    // 遮罩层必须被一个 fixed + z-index>1000 的包裹层承载，且该包裹层直接挂在 body（portal 化）
+    const wrapper = overlay?.parentElement as HTMLElement;
+    expect(wrapper.style.position).toBe('fixed');
+    expect(Number(wrapper.style.zIndex)).toBeGreaterThan(1000);
+    expect(wrapper.parentElement).toBe(document.body);
   });
 });

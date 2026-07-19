@@ -62,7 +62,6 @@ const CASES: Case[] = [
   { file: 'src/pages/Register.tsx', placeholder: '请输入账号（user_id）', label: '注册 账号' },
   { file: 'src/pages/mobile/MobileAddPage.tsx', placeholder: '输入群邀请码', label: '移动加入群聊 邀请码' },
   { file: 'src/components/modals/add/JoinGroupTab.tsx', placeholder: '输入群邀请码', label: '桌面加入群聊 邀请码 (JoinGroupTab)' },
-  { file: 'src/components/modals/groups/JoinGroupForm.tsx', placeholder: '输入群邀请码', label: '桌面加入群聊 邀请码 (JoinGroupForm)' },
   { file: 'src/chat/shared/menu/InviteForm.tsx', placeholder: '输入用户 ID', label: '群邀请成员 用户ID' },
   { file: 'src/meeting/components/MeetingEntryModal.tsx', placeholder: '输入房间号', label: '桌面加入会议 房间号' },
   { file: 'src/pages/mobile/MobileMeetingEntryPage.tsx', placeholder: '输入房间号', label: '移动加入会议 房间号' },
