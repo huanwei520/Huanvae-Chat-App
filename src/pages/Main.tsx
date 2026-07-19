@@ -36,6 +36,7 @@ import { UnifiedList } from '../components/unified/UnifiedList';
 import { GlobalMessageSearchResults } from '../components/search/GlobalMessageSearchResults';
 import { useChatStore } from '../stores';
 import { parseFriendIdFromConversationId } from '../utils/conversationId';
+import { friendChatTarget } from '../utils/chatTarget';
 import type { Friend, Group } from '../types/chat';
 import { ChatPanel, EmptyChat } from '../chat';
 import { OtherProfileView } from '../chat/shared/OtherProfileView';
@@ -44,6 +45,7 @@ import { ProfileModal } from '../components/ProfileModal';
 import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
 import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
+import { BotsModal } from '../components/bots/BotsModal';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
 import { openLowcodeWindow } from '../lowcode';
@@ -60,6 +62,7 @@ export function Main() {
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [showMiniAppsModal, setShowMiniAppsModal] = useState(false);
+  const [showBotsModal, setShowBotsModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [shareMeetingData, setShareMeetingData] = useState<ShareMeetingEvent | null>(null);
 
@@ -161,6 +164,7 @@ export function Main() {
         onLanTransferClick={handleLanTransferClick}
         onMeetingClick={() => setShowMeetingModal(true)}
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
+        onBotsClick={() => setShowBotsModal(true)}
         onLowcodeClick={handleLowcodeClick}
         onHuanvaeGuardClick={handleHuanvaeGuardClick}
         onStocksClick={handleStocksClick}
@@ -323,7 +327,7 @@ export function Main() {
             layout="desktop"
             onSelectConversation={(type, data) => {
               if (type === 'friend') {
-                page.handleSelectTarget({ type: 'friend', data: data as Friend });
+                page.handleSelectTarget(friendChatTarget(data as Friend));
               } else {
                 page.handleSelectTarget({ type: 'group', data: data as Group });
               }
@@ -339,7 +343,7 @@ export function Main() {
                   ? page.friends.find((f) => f.friend_id === friendId)
                   : undefined;
                 if (friendData) {
-                  page.handleSelectTarget({ type: 'friend', data: friendData });
+                  page.handleSelectTarget(friendChatTarget(friendData));
                   setPendingScrollToMessageId(hit.message.message_uuid);
                 }
               } else if (grp.conversationType === 'group') {
@@ -396,6 +400,11 @@ export function Main() {
       <MiniAppsModal
         isOpen={showMiniAppsModal}
         onClose={() => setShowMiniAppsModal(false)}
+      />
+      <BotsModal
+        isOpen={showBotsModal}
+        onClose={() => setShowBotsModal(false)}
+        onBotAdded={page.refreshFriends}
       />
       {shareMeetingData && (
         <ShareMeetingModal

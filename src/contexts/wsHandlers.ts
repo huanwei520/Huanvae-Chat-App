@@ -24,6 +24,8 @@ import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { friendDisplayName } from '../utils/friendName';
 import { useChatStore } from '../stores/chatStore';
+import { useOpsStore } from '../stores/opsStore';
+import { useCardLiveStore } from '../stores/cardLiveStore';
 import {
   isReadPositionsLoaded,
   getReadPositionsSnapshot,
@@ -80,7 +82,7 @@ export interface MessageHandlerResult {
  * 生成消息预览文本
  */
 export function getMessagePreviewText(
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card',
   preview: string,
 ): string {
   switch (messageType) {
@@ -92,6 +94,8 @@ export function getMessagePreviewText(
       return '[视频]';
     case 'meeting_invite':
       return '[会议邀请]';
+    case 'card':
+      return '[卡片]';
     default:
       return '[文件]';
   }
@@ -766,6 +770,18 @@ export function handleWebSocketMessage(
           online: msg.online,
           last_seen_at: msg.last_seen_at,
         });
+        break;
+
+      case 'ops_update':
+        // 运维任务进度增量（仅 ops-bot owner 链路收到）。写独立 ops store，
+        // bot 聊天页运维全景折叠区据此实时更新。
+        useOpsStore.getState().applyOpsUpdate(msg.kind, msg.data);
+        break;
+
+      case 'message_updated':
+        // 已发卡片 live 刷新：写独立 cardLiveStore（单调 rev 去重乱序/重放），
+        // CardRenderer 经 store 订阅即时重渲（镜像 ops_update 纯写 store 模式）。
+        useCardLiveStore.getState().applyUpdate(msg.message_uuid, msg.content, msg.rev);
         break;
 
       case 'hg_topology_changed':

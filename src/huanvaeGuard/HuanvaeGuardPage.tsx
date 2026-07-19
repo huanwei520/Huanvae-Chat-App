@@ -28,6 +28,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { platform } from '@tauri-apps/plugin-os';
 import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -736,15 +737,21 @@ export default function HuanvaeGuardPage() {
             </AppButton>
           </div>
 
-          {pendingInvite && (
-            <SecretDisplay
-              title="链接邀请码"
-              warningText={`过期时间：${new Date(pendingInvite.expires_at).toLocaleString()}`}
-              fields={[{ label: '邀请令牌', value: pendingInvite.invite_token }]}
-              onClose={() => setPendingInvite(null)}
-              closeLabel="关闭"
-            />
-          )}
+          {/* 链接邀请码一次性展示：portal 到 body + fixed z-10001（.hg-card 的 backdrop-filter
+              会把 absolute overlay 困在卡片内，必须脱离卡片 DOM） */}
+          {pendingInvite &&
+            createPortal(
+              <div style={{ position: 'fixed', inset: 0, zIndex: 10001 }}>
+                <SecretDisplay
+                  title="链接邀请码"
+                  warningText={`过期时间：${new Date(pendingInvite.expires_at).toLocaleString()}`}
+                  fields={[{ label: '邀请令牌', value: pendingInvite.invite_token }]}
+                  onClose={() => setPendingInvite(null)}
+                  closeLabel="关闭"
+                />
+              </div>,
+              document.body,
+            )}
 
           <div className="hg-invite-section">
             <label className="hg-label">接受邀请</label>
@@ -863,19 +870,24 @@ export default function HuanvaeGuardPage() {
             )}
           </section>
 
-          {/* 群组邀请码展示（创建邀请后弹出，含复制按钮） */}
-          {groupInvite && (
-            <SecretDisplay
-              title="群组邀请码"
-              warningText={`过期时间：${new Date(groupInvite.expiresAt).toLocaleString()}`}
-              fields={[
-                { label: '群组 ID', value: groupInvite.groupId },
-                { label: '邀请令牌', value: groupInvite.token },
-              ]}
-              onClose={() => setGroupInvite(null)}
-              closeLabel="关闭"
-            />
-          )}
+          {/* 群组邀请码一次性展示：portal 到 body + fixed z-10001（父级无定位时 absolute
+              overlay 锚到文档顶部，页面滚动后会看不见） */}
+          {groupInvite &&
+            createPortal(
+              <div style={{ position: 'fixed', inset: 0, zIndex: 10001 }}>
+                <SecretDisplay
+                  title="群组邀请码"
+                  warningText={`过期时间：${new Date(groupInvite.expiresAt).toLocaleString()}`}
+                  fields={[
+                    { label: '群组 ID', value: groupInvite.groupId },
+                    { label: '邀请令牌', value: groupInvite.token },
+                  ]}
+                  onClose={() => setGroupInvite(null)}
+                  closeLabel="关闭"
+                />
+              </div>,
+              document.body,
+            )}
 
           {/* Group detail */}
           {groupDetail && (

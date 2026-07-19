@@ -13,6 +13,7 @@
  */
 
 import { createContext, useContext, useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { Session, SessionContextType } from '../types/session';
 import { createApiClient, type ApiClient } from '../api/client';
@@ -21,6 +22,8 @@ import { persistSession, clearPersistedSession } from '../services/sessionPersis
 import { destroySyncService } from '../services/syncService';
 import { getTokenExpiresAt } from '../utils/jwt';
 import { useChatStore } from '../stores/chatStore';
+import { useOpsStore } from '../stores/opsStore';
+import { useCardLiveStore } from '../stores/cardLiveStore';
 
 /** 扩展的会话上下文类型（包含 API 客户端） */
 interface ExtendedSessionContextType extends SessionContextType {
@@ -61,9 +64,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // 清除会话（同时移除会话锁和持久化数据）
   const clearSession = useCallback(async () => {
+    // 登出联动：关闭所有子窗口（股票/小程序/HG/会议等），避免残留窗口带着旧会话
+    void invoke('close_child_windows');
+
     // 清空会话级内存缓存（消息缓存/群内屏蔽·特别关心·备注私有视图），避免切换账号后串数据。
     // 收敛到这里统一处理，覆盖所有登出路径：主动登出 / session 过期 / WS token 刷新失败。
     useChatStore.getState().clearMessageCache();
+    useOpsStore.getState().clear();
+    useCardLiveStore.getState().clear();
 
     // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
     destroySyncService();

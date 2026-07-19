@@ -164,21 +164,6 @@ export async function clearCurrentUser(): Promise<void> {
   await invoke('clear_current_user');
 }
 
-/** 获取当前用户的文件下载目录 */
-export function getUserFileDir(): Promise<string> {
-  return invoke<string>('get_user_file_dir');
-}
-
-/** 根据文件类型获取下载目录 */
-export function getDownloadDir(fileType: 'video' | 'image' | 'document'): Promise<string> {
-  return invoke<string>('get_download_dir', { fileType });
-}
-
-/** 列出当前用户的所有下载文件 */
-export function listUserFiles(): Promise<string[]> {
-  return invoke<string[]>('list_user_files');
-}
-
 // ============================================================================
 // 数据库初始化
 // ============================================================================
@@ -211,9 +196,10 @@ export function getConversation(
 
 /** 保存或更新会话 */
 export async function saveConversation(
-  // last_read_seq 是本地已读位置，由 advanceConversationRead 单独维护；保存会话（服务端同步）
-  // 不携带它，Rust 侧 UPSERT 也不覆盖该列（serde default + ON CONFLICT 不更新 last_read_seq）。
-  conversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'>,
+  // last_read_seq（本地已读位置，由 advanceConversationRead 维护）与 is_pinned（本地置顶，
+  // 由 setConversationPinned 维护）都不由保存路径携带：Rust 侧 UPSERT 不覆盖这两列
+  // （serde default + ON CONFLICT 不更新），服务端同步不会冲掉本地 UI 状态。
+  conversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq' | 'is_pinned'>,
 ): Promise<void> {
   _pendingWrites++;
   try {
@@ -222,6 +208,25 @@ export async function saveConversation(
       synced_at: null,
     };
     await invoke('db_save_conversation', { conversation: conv });
+  } finally {
+    _pendingWrites--;
+    schedulePreviewNotify();
+  }
+}
+
+/**
+ * 设置会话置顶（本地 UI 状态，与服务端无关）。
+ * 会话行可能尚不存在（还没有消息的好友/群），Rust 侧 UPSERT：插入最小行或仅更新 is_pinned。
+ */
+export async function setConversationPinned(
+  id: string,
+  type: ConversationType,
+  name: string,
+  pinned: boolean,
+): Promise<void> {
+  _pendingWrites++;
+  try {
+    await invoke('db_set_conversation_pinned', { id, convType: type, name, pinned });
   } finally {
     _pendingWrites--;
     schedulePreviewNotify();
@@ -261,31 +266,6 @@ export async function updateConversationLastSeq(
   await invoke('db_update_conversation_last_seq', { id, lastSeq });
 }
 
-/** 更新会话未读数 */
-export async function updateConversationUnread(
-  id: string,
-  unreadCount: number,
-): Promise<void> {
-  _pendingWrites++;
-  try {
-    await invoke('db_update_conversation_unread', { id, unreadCount });
-  } finally {
-    _pendingWrites--;
-    schedulePreviewNotify();
-  }
-}
-
-/** 清零会话未读数 */
-export async function clearConversationUnread(id: string): Promise<void> {
-  _pendingWrites++;
-  try {
-    await invoke('db_clear_conversation_unread', { id });
-  } finally {
-    _pendingWrites--;
-    schedulePreviewNotify();
-  }
-}
-
 /** 更新会话的最后消息预览 */
 export async function updateConversationLastMessage(
   id: string,
@@ -298,15 +278,6 @@ export async function updateConversationLastMessage(
   } finally {
     _pendingWrites--;
     schedulePreviewNotify();
-  }
-}
-
-/** 增加会话未读数 */
-export async function incrementConversationUnread(id: string): Promise<void> {
-  // 先获取当前未读数，再 +1
-  const conv = await getConversation(id);
-  if (conv) {
-    await updateConversationUnread(id, conv.unread_count + 1);
   }
 }
 
@@ -457,13 +428,6 @@ export async function refreshConversationPreview(
 // 文件映射操作
 // ============================================================================
 
-/** 获取文件的本地映射 */
-export function getFileMapping(
-  fileHash: string,
-): Promise<LocalFileMapping | null> {
-  return invoke<LocalFileMapping | null>('db_get_file_mapping', { fileHash });
-}
-
 /** 保存文件映射 */
 export async function saveFileMapping(
   mapping: Omit<LocalFileMapping, 'created_at'>,
@@ -475,16 +439,6 @@ export async function saveFileMapping(
   await invoke('db_save_file_mapping', { mapping: m });
 }
 
-/** 删除文件映射 */
-export async function deleteFileMapping(fileHash: string): Promise<void> {
-  await invoke('db_delete_file_mapping', { fileHash });
-}
-
-/** 更新文件最后验证时间 */
-export async function updateFileMappingVerified(fileHash: string): Promise<void> {
-  await invoke('db_update_file_mapping_verified', { fileHash });
-}
-
 // ============================================================================
 // file_uuid 到 file_hash 映射
 // ============================================================================
@@ -492,20 +446,6 @@ export async function updateFileMappingVerified(fileHash: string): Promise<void>
 /** 保存 file_uuid 到 file_hash 的映射 */
 export async function saveFileUuidHash(fileUuid: string, fileHash: string): Promise<void> {
   await invoke('db_save_file_uuid_hash', { fileUuid, fileHash });
-}
-
-/** 通过 file_uuid 获取 file_hash */
-export function getFileHashByUuid(fileUuid: string): Promise<string | null> {
-  return invoke<string | null>('db_get_file_hash_by_uuid', { fileUuid });
-}
-
-// ============================================================================
-// 清理操作
-// ============================================================================
-
-/** 清空所有本地数据（登出时调用） */
-export async function clearAllData(): Promise<void> {
-  await invoke('db_clear_all_data');
 }
 
 // ============================================================================
@@ -533,16 +473,6 @@ export async function saveFriends(friends: LocalFriend[]): Promise<void> {
   await invoke('db_save_friends', { friends });
 }
 
-/** 保存单个好友 */
-export async function saveFriend(friend: LocalFriend): Promise<void> {
-  await invoke('db_save_friend', { friend });
-}
-
-/** 删除好友 */
-export async function deleteFriend(friendId: string): Promise<void> {
-  await invoke('db_delete_friend', { friendId });
-}
-
 // ============================================================================
 // 群组操作
 // ============================================================================
@@ -567,11 +497,6 @@ export function getGroups(): Promise<LocalGroup[]> {
 /** 批量保存群组（全量替换） */
 export async function saveGroups(groups: LocalGroup[]): Promise<void> {
   await invoke('db_save_groups', { groups });
-}
-
-/** 保存单个群组 */
-export async function saveGroup(group: LocalGroup): Promise<void> {
-  await invoke('db_save_group', { group });
 }
 
 /** 更新群组信息 */

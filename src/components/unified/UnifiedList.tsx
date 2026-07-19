@@ -35,10 +35,17 @@ import type { SyncNotification } from '../../hooks/useInitialSync';
 import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
+import { friendChatTarget } from '../../utils/chatTarget';
+import { isBotUserId } from '../../api/bots';
+import { BotBadge } from '../common/BotBadge';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
-import { compareByTimeDesc } from './conversationSort';
+import { compareByTimeDesc, comparePinnedThenTime } from './conversationSort';
+import { ConversationContextMenu, PinFlagIcon } from './ConversationContextMenu';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
+import { useSession } from '../../contexts/SessionContext';
+import { getFriendConversationId } from '../../utils/conversationId';
+import { setConversationPinned } from '../../db';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
@@ -60,8 +67,8 @@ interface UnifiedCard {
   uniqueKey: string;
   /** 原始 ID */
   id: string;
-  /** 类型：好友或群聊 */
-  type: 'friend' | 'group';
+  /** 类型：好友、bot 好友或群聊（bot 的 data 仍是 Friend，仅 UI 呈现区分） */
+  type: 'friend' | 'bot' | 'group';
   /** 显示名称 */
   name: string;
   /** 头像 URL */
@@ -72,6 +79,8 @@ interface UnifiedCard {
   lastMessageTime: string | null;
   /** 未读消息数 */
   unreadCount: number;
+  /** 本地置顶状态（无本地会话行 = 未置顶） */
+  isPinned: boolean;
   /** 原始数据对象 */
   data: Friend | Group;
   /** 群聊角色（仅群聊有效） */
@@ -132,8 +141,8 @@ function formatUnreadCount(count: number): string {
 
 /** 角色标签配置 */
 const ROLE_CONFIG = {
-  owner: { text: '群主', bg: 'rgba(234, 179, 8, 0.2)', color: '#ca8a04' },
-  admin: { text: '管理', bg: 'rgba(59, 130, 246, 0.2)', color: '#2563eb' },
+  owner: { text: '群主', bg: 'var(--role-owner-bg)', color: 'var(--role-owner-text)' },
+  admin: { text: '管理', bg: 'var(--role-admin-bg)', color: 'var(--role-admin-text)' },
 } as const;
 
 /** 角色标签动画变体 */
@@ -216,6 +225,9 @@ export function UnifiedList({
   // initialized 标记首次加载是否完成，用于避免卡片排序跳变
   const { getFriendPreview, getGroupPreview, initialized: localConversationsReady } = useLocalConversations();
 
+  // 置顶菜单需要 session.userId 生成好友会话 ID（conv-{smaller}-{larger}）
+  const { session } = useSession();
+
   // 好友在线状态（首屏快照 + WS 增量维护，见 chatStore.friendPresence）
   const friendPresence = useChatStore((s) => s.friendPresence);
   // 点开好友资料（低侵入：点头像看资料，点卡片其余部分进会话）
@@ -230,15 +242,18 @@ export function UnifiedList({
         u => u.friend_id === friend.friend_id,
       );
       const localPreview = getFriendPreview(friend.friend_id);
+      const isBot = isBotUserId(friend.friend_id);
       return {
-        uniqueKey: `friend-${friend.friend_id}`,
+        uniqueKey: `${isBot ? 'bot' : 'friend'}-${friend.friend_id}`,
         id: friend.friend_id,
-        type: 'friend',
+        type: isBot ? 'bot' : 'friend',
         name: friendDisplayName(friend),
         avatarUrl: friend.friend_avatar_url,
         lastMessage: localPreview?.lastMessage ?? null,
         lastMessageTime: localPreview?.lastMessageTime ?? friend.add_time,
         unreadCount: unread?.unread_count ?? 0,
+        // 语义映射：本地无会话行（还没聊过）= 未置顶，非兜底
+        isPinned: localPreview?.isPinned ?? false,
         data: friend,
       };
     });
@@ -262,6 +277,8 @@ export function UnifiedList({
         // 未读数只认 WS unreadSummary（按 last-read-seq 派生口径）；派生为 0 的群在快照里
         // 没有条目，不能兜底 REST 的 group.unread_count（旧计数器列，口径分叉且点击清不掉）
         unreadCount: unread?.unread_count ?? 0,
+        // 语义映射：本地无会话行（还没聊过）= 未置顶，非兜底
+        isPinned: localPreview?.isPinned ?? false,
         data: group,
         role: group.role,
       };
@@ -274,11 +291,11 @@ export function UnifiedList({
 
     switch (activeTab) {
       case 'chat':
-        // 消息页：混合好友和群聊，纯时间降序（新→旧），未读不再优先分层。
-        // 点击带红点的卡片清未读时不会让它跌出未读层而下移重排（与微信一致：
-        // 红点仅作徽标，不参与排序）。共享比较器含 NaN 硬化与 uniqueKey tie-break。
+        // 消息页：混合好友和群聊，置顶分层（置顶在前）+ 同层内纯时间降序（新→旧），
+        // 未读不参与排序（红点仅作徽标，与微信一致：清未读不会让卡片下移重排）。
+        // 共享比较器含 NaN 硬化与 uniqueKey tie-break。
         result = [...friendCards, ...groupCards];
-        result.sort(compareByTimeDesc);
+        result.sort(comparePinnedThenTime);
         break;
 
       case 'friends':
@@ -294,9 +311,9 @@ export function UnifiedList({
         break;
 
       case 'group':
-        // 群聊页：仅群聊，按最后消息时间排序
+        // 群聊页：仅群聊，置顶分层 + 同层内按最后消息时间排序（与消息页同样尊重置顶）
         result = [...groupCards];
-        result.sort(compareByTimeDesc);
+        result.sort(comparePinnedThenTime);
         break;
 
       default:
@@ -345,18 +362,42 @@ export function UnifiedList({
   const selectedKey = useMemo((): string | null => {
     if (!selectedTarget) { return null; }
     if (selectedTarget.type === 'ai') { return 'ai-assistant'; }
+    if (selectedTarget.type === 'bot') { return `bot-${selectedTarget.data.friend_id}`; }
     return selectedTarget.type === 'friend'
       ? `friend-${selectedTarget.data.friend_id}`
       : `group-${selectedTarget.data.group_id}`;
   }, [selectedTarget]);
 
-  // 处理卡片点击
+  // 处理卡片点击：group 直出；friend/bot 卡的 data 都是 Friend，
+  // 由 friendChatTarget 按 bot_ 前缀分派目标类型
   const handleCardClick = (card: UnifiedCard) => {
-    if (card.type === 'friend') {
-      onSelectTarget({ type: 'friend', data: card.data as Friend });
-    } else {
+    if (card.type === 'group') {
       onSelectTarget({ type: 'group', data: card.data as Group });
+    } else {
+      onSelectTarget(friendChatTarget(card.data as Friend));
     }
+  };
+
+  // ============================================
+  // 会话置顶右键菜单（AI 卡片不参与：无本地会话行）
+  // ============================================
+  const [pinMenu, setPinMenu] = useState<{ card: UnifiedCard; x: number; y: number } | null>(null);
+
+  const handleCardContextMenu = (e: React.MouseEvent, card: UnifiedCard) => {
+    e.preventDefault();
+    setPinMenu({ card, x: e.clientX, y: e.clientY });
+  };
+
+  const handleTogglePin = async () => {
+    if (!pinMenu) { return; }
+    const { card } = pinMenu;
+    setPinMenu(null);
+    // 无 session 无法生成好友会话 ID（fail-fast，不用假 id 写库）
+    if (!session) { return; }
+    // bot 卡的 data 是 Friend，会话走 friend 链路
+    const isGroup = card.type === 'group';
+    const convId = isGroup ? card.id : getFriendConversationId(session.userId, card.id);
+    await setConversationPinned(convId, isGroup ? 'group' : 'friend', card.name, !card.isPinned);
   };
 
   // ============================================
@@ -480,20 +521,21 @@ export function UnifiedList({
     const isChatTab = activeTab === 'chat';
     const isGroupTab = activeTab === 'group';
 
-    const isFriend = card.type === 'friend';
-    const friendOnline = isFriend && !!friendPresence[card.id]?.online;
-    // 仅好友头像可点看资料；键盘焦点态与 focus handlers 同 isFriend 条件挂载
-    const avatarHandlers = isFriend ? avatarKbd.handlersFor(card.id) : null;
-    const avatarKbdFocused = isFriend && avatarKbd.isKbdFocused(card.id);
+    // friend / bot 卡共享 Friend 数据与私聊交互（头像看资料、在线点、拉黑/关心标记）
+    const isFriendLike = card.type === 'friend' || card.type === 'bot';
+    const friendOnline = isFriendLike && !!friendPresence[card.id]?.online;
+    // 仅好友（含 bot）头像可点看资料；键盘焦点态与 focus handlers 同条件挂载
+    const avatarHandlers = isFriendLike ? avatarKbd.handlersFor(card.id) : null;
+    const avatarKbdFocused = isFriendLike && avatarKbd.isKbdFocused(card.id);
 
     return (
       <>
         <div
           className={`conv-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
-          onClick={isFriend
+          onClick={isFriendLike
             ? (e) => { e.stopPropagation(); openProfile(card.id); }
             : undefined}
-          onKeyDown={isFriend
+          onKeyDown={isFriendLike
             ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 // 阻止冒泡到会话列表容器（其 Enter=打开当前会话），头像键盘=看资料
@@ -503,16 +545,16 @@ export function UnifiedList({
               }
             }
             : undefined}
-          role={isFriend ? 'button' : undefined}
-          tabIndex={isFriend ? 0 : undefined}
-          aria-label={isFriend ? `查看${card.name}资料` : undefined}
+          role={isFriendLike ? 'button' : undefined}
+          tabIndex={isFriendLike ? 0 : undefined}
+          aria-label={isFriendLike ? `查看${card.name}资料` : undefined}
           onPointerDown={avatarHandlers?.onPointerDown}
           onFocus={avatarHandlers?.onFocus}
           onBlur={avatarHandlers?.onBlur}
-          style={isFriend ? { cursor: 'pointer', position: 'relative' } : undefined}
-          title={isFriend ? '查看资料' : undefined}
+          style={isFriendLike ? { cursor: 'pointer', position: 'relative' } : undefined}
+          title={isFriendLike ? '查看资料' : undefined}
         >
-          {card.type === 'friend' ? (
+          {isFriendLike ? (
             <FriendAvatar friend={card.data as Friend} />
           ) : (
             <GroupAvatar group={card.data as Group} />
@@ -529,8 +571,8 @@ export function UnifiedList({
                 width: '10px',
                 height: '10px',
                 borderRadius: '50%',
-                background: '#34d399',
-                border: '2px solid #fff',
+                background: 'var(--presence-online)',
+                border: '2px solid var(--presence-dot-ring)',
                 boxSizing: 'border-box',
               }}
             />
@@ -544,15 +586,17 @@ export function UnifiedList({
                 <span className="conv-tag">[群聊]</span>
               )}
               {/* 特别关心好友：名字前 ⭐ 标记 */}
-              {card.type === 'friend' && (card.data as Friend).is_special_care && (
+              {isFriendLike && (card.data as Friend).is_special_care && (
                 <span className="conv-special-care-star" title="特别关心">⭐</span>
               )}
               {/* 名字文本：独立容器负责省略号，悬停显示完整名字 */}
               <span className="conv-name-text" title={card.name}>
                 {card.name}
               </span>
+              {/* Bot 徽标：静态呈现（无动画），统一走公共 BotBadge 组件 */}
+              {card.type === 'bot' && <BotBadge />}
               {/* 已拉黑标签 */}
-              {card.type === 'friend' && (card.data as Friend).is_blacklisted && (
+              {isFriendLike && (card.data as Friend).is_blacklisted && (
                 <span className="conv-blacklist-tag">已拉黑</span>
               )}
               {/* 群聊页显示角色标签 */}
@@ -570,17 +614,27 @@ export function UnifiedList({
             <span
               className="conv-preview"
               title={
-                activeTab === 'friends' && card.type === 'friend'
+                activeTab === 'friends' && isFriendLike
                   ? `@${card.id}`
                   : card.lastMessage || undefined
               }
             >
               {/* 好友页显示 ID，其他显示最后消息 */}
-              {activeTab === 'friends' && card.type === 'friend'
+              {activeTab === 'friends' && isFriendLike
                 ? `@${card.id}`
                 : card.lastMessage || '暂无消息'
               }
             </span>
+            {/* 置顶图钉标识 */}
+            {card.isPinned && (
+              <span
+                className="conv-pin-flag"
+                title="已置顶"
+                style={{ color: 'var(--text-muted)', display: 'inline-flex', flexShrink: 0 }}
+              >
+                <PinFlagIcon />
+              </span>
+            )}
             {/* 未读红点：始终渲染，通过 CSS 控制显示，避免 layout 动画抖动 */}
             <span className={`conv-unread ${card.unreadCount > 0 ? 'visible' : 'hidden'}`}>
               {formatUnreadCount(card.unreadCount)}
@@ -609,8 +663,9 @@ export function UnifiedList({
         <motion.div
           key={card.uniqueKey}
           data-conv-key={card.uniqueKey}
-          className={`conversation-item${card.type === 'friend' && (card.data as Friend).is_blacklisted ? ' blacklisted' : ''}${isListFocused && card.uniqueKey === activeKey ? ' conversation-item--kbd-active' : ''}`}
+          className={`conversation-item${(card.type === 'friend' || card.type === 'bot') && (card.data as Friend).is_blacklisted ? ' blacklisted' : ''}${isListFocused && card.uniqueKey === activeKey ? ' conversation-item--kbd-active' : ''}`}
           onClick={() => handleCardClick(card)}
+          onContextMenu={(e) => handleCardContextMenu(e, card)}
           variants={cardVariants}
           initial="initial"
           animate="animate"
@@ -786,6 +841,15 @@ export function UnifiedList({
           </AnimatePresence>
         </motion.div>
       </LayoutGroup>
+
+      {/* 会话置顶右键菜单（portal 到 body） */}
+      <ConversationContextMenu
+        isOpen={pinMenu !== null}
+        position={pinMenu ? { x: pinMenu.x, y: pinMenu.y } : { x: 0, y: 0 }}
+        isPinned={pinMenu?.card.isPinned ?? false}
+        onTogglePin={handleTogglePin}
+        onClose={() => setPinMenu(null)}
+      />
     </section>
   );
 }

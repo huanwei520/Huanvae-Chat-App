@@ -10,6 +10,7 @@
  * - 🔴 红色：断开连接
  */
 
+import { motion } from 'framer-motion';
 import type { Session } from '../../types/session';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
@@ -88,9 +89,10 @@ export function MobileHeader({
 
   return (
     <header className="mobile-header">
-      {/* 头像按钮 */}
-      <div
+      {/* 头像按钮（whileTap 按压反馈；role/tabIndex/aria 与 a11y 测试契约保持不变） */}
+      <motion.div
         className={`mobile-header-avatar${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
+        whileTap={{ scale: 0.92 }}
         onClick={onAvatarClick}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -115,7 +117,7 @@ export function MobileHeader({
         )}
         {/* 连接状态指示器 */}
         <span className={`connection-indicator ${statusClass}`} />
-      </div>
+      </motion.div>
 
       {/* 搜索框 */}
       <div className="mobile-header-search">
@@ -128,16 +130,20 @@ export function MobileHeader({
         />
       </div>
 
-      {/* 添加好友/群聊按钮 */}
+      {/* 添加好友/群聊按钮（whileTap 按压反馈，替代原 CSS :active transform） */}
       {onAddClick && (
-        <button className="mobile-contacts-add-btn" onClick={onAddClick}>
+        <motion.button
+          className="mobile-contacts-add-btn"
+          onClick={onAddClick}
+          whileTap={{ scale: 0.92 }}
+        >
           <PlusIcon />
           {pendingCount > 0 && (
             <span className="mobile-contacts-add-badge">
               {pendingCount > 99 ? '99+' : pendingCount}
             </span>
           )}
-        </button>
+        </motion.button>
       )}
     </header>
   );

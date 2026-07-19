@@ -65,7 +65,7 @@ import { isMobile } from '../utils/platform';
  *
  * 这导致 video/audio 元素报告 MEDIA_ERR_SRC_NOT_SUPPORTED 错误
  */
-export function fixAssetUrl(url: string): string {
+function fixAssetUrl(url: string): string {
   // 只在移动端处理
   if (!isMobile()) {
     return url;

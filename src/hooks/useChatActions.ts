@@ -22,6 +22,7 @@ import { useWebSocket } from '../contexts/WebSocketContext';
 import { deleteMessage } from '../api/messages';
 import { deleteGroupMessage } from '../api/groupMessages';
 import * as db from '../db';
+import { isFriendLikeTarget } from '../utils/chatTarget';
 import type { ChatTarget } from '../types/chat';
 
 interface UseChatActionsParams {
@@ -53,8 +54,8 @@ export function useChatActions({
     if (!chatTarget || chatTarget.type === 'ai') { return; }
 
     // 委托 hook 的 recall：服务器撤回 + 立即翻转 is_recalled + DB markMessageRecalled
-    // 失败时 hook 内部已 setError，无需再额外抛
-    const ok = chatTarget.type === 'friend'
+    // 失败时 hook 内部已 setError，无需再额外抛（bot 与好友共用私聊链路）
+    const ok = isFriendLikeTarget(chatTarget)
       ? await recallFriendMessage(messageUuid)
       : await recallGroupMessage(messageUuid);
 
@@ -62,17 +63,19 @@ export function useChatActions({
 
     // 撤回成功后刷新会话列表卡片的最新消息预览
     // （DB 里 is_deleted=0 + content='[消息已撤回]'，预览 JOIN 会带回该占位）
-    const targetId = chatTarget.type === 'friend'
+    // 预览通道 id 只认 'friend' | 'group'：bot 目标走 'friend'
+    const channel = isFriendLikeTarget(chatTarget) ? 'friend' : 'group';
+    const targetId = isFriendLikeTarget(chatTarget)
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
-    await refreshLastMessagePreview(chatTarget.type, targetId);
+    await refreshLastMessagePreview(channel, targetId);
   }, [chatTarget, recallFriendMessage, recallGroupMessage, refreshLastMessagePreview]);
 
   const handleDeleteMessage = useCallback(async (messageUuid: string) => {
     if (!chatTarget || chatTarget.type === 'ai') { return; }
 
     try {
-      if (chatTarget.type === 'friend') {
+      if (isFriendLikeTarget(chatTarget)) {
         await deleteMessage(api, messageUuid);
         removeFriendMessage(messageUuid);
       } else {
@@ -81,10 +84,11 @@ export function useChatActions({
       }
       await db.markMessageDeleted(messageUuid);
 
-      const targetId = chatTarget.type === 'friend'
+      const channel = isFriendLikeTarget(chatTarget) ? 'friend' : 'group';
+      const targetId = isFriendLikeTarget(chatTarget)
         ? chatTarget.data.friend_id
         : chatTarget.data.group_id;
-      await refreshLastMessagePreview(chatTarget.type, targetId);
+      await refreshLastMessagePreview(channel, targetId);
     } catch (err) {
       console.error('删除失败:', err);
     }

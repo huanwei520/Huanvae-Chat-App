@@ -843,6 +843,7 @@ export function MobileFilesPage({ onClose }: MobileFilesPageProps) {
                   initial="initial"
                   animate="animate"
                   exit="exit"
+                  whileTap={{ scale: 0.97 }}
                   transition={{ delay: index * 0.03 }}
                   onClick={wrapClick(() => handlePreview(file))}
                   onTouchStart={handleCardTouchStart(file)}

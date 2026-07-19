@@ -14,6 +14,7 @@ import { useChatMenu } from '../group/useChatMenu';
 import { GroupRemarkInputModal } from '../group/GroupRemarkInputModal';
 import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
+import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { MenuIcon } from '../../components/common/Icons';
 import {
   type ChatMenuProps,
@@ -183,7 +184,7 @@ export function ChatMenuButton({
             message={
               <>
                 确定要删除好友{' '}
-                <strong>{target.type === 'friend' ? friendDisplayName(target.data) : ''}</strong>{' '}
+                <strong>{isFriendLikeTarget(target) ? friendDisplayName(target.data) : ''}</strong>{' '}
                 吗？
               </>
             }
@@ -203,7 +204,7 @@ export function ChatMenuButton({
             message={
               <>
                 确定要拉黑好友{' '}
-                <strong>{target.type === 'friend' ? friendDisplayName(target.data) : ''}</strong>{' '}
+                <strong>{isFriendLikeTarget(target) ? friendDisplayName(target.data) : ''}</strong>{' '}
                 吗？
               </>
             }

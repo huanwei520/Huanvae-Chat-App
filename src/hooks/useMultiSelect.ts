@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { isFriendLikeTarget } from '../utils/chatTarget';
 import type { ChatTarget } from '../types/chat';
 import type { Message } from '../types/chat';
 import type { GroupMessage } from '../types/chat';
@@ -79,9 +80,9 @@ export function useMultiSelect({
     setSelectedMessages(new Set());
   }, []);
 
-  // 全选
+  // 全选（bot 与好友共用私聊消息列表）
   const handleSelectAll = useCallback(() => {
-    if (chatTarget?.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       setSelectedMessages(new Set(friendMessages.map((m) => m.message_uuid)));
     } else if (chatTarget?.type === 'group') {
       setSelectedMessages(new Set(groupMessages.map((m) => m.message_uuid)));

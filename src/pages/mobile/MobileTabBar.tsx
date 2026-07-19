@@ -2,8 +2,14 @@
  * 移动端底部Tab栏组件
  *
  * 包含两个Tab：消息和通讯录
+ *
+ * 动效（framer-motion 接管，CSS 不得过渡 transform/opacity，
+ * 见 tests/animation-conflict.test.ts 注册表）：
+ * - 激活指示器：layoutId="mobile-tab-indicator" 共享布局动画，切 tab 时滑块平滑滑动
+ * - 按压反馈：whileTap scale（替代原 CSS :active opacity 反馈）
  */
 
+import { motion } from 'framer-motion';
 import type { MobileTab } from '../../hooks/useMobileNavigation';
 
 // 消息图标
@@ -58,10 +64,19 @@ export function MobileTabBar({
     <nav className="mobile-tab-bar">
       <div className="mobile-tab-bar-pill">
         {/* 消息Tab */}
-        <div
+        <motion.button
+          type="button"
           className={`mobile-tab-item ${activeTab === 'chat' ? 'active' : ''}`}
           onClick={() => onTabChange('chat')}
+          whileTap={{ scale: 0.94 }}
         >
+          {activeTab === 'chat' && (
+            <motion.span
+              className="mobile-tab-indicator"
+              layoutId="mobile-tab-indicator"
+              transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+            />
+          )}
           <div className="mobile-tab-icon">
             <ChatIcon />
             {unreadCount > 0 && (
@@ -71,18 +86,27 @@ export function MobileTabBar({
             )}
           </div>
           <span className="mobile-tab-label">消息</span>
-        </div>
+        </motion.button>
 
         {/* 通讯录Tab */}
-        <div
+        <motion.button
+          type="button"
           className={`mobile-tab-item ${activeTab === 'contacts' ? 'active' : ''}`}
           onClick={() => onTabChange('contacts')}
+          whileTap={{ scale: 0.94 }}
         >
+          {activeTab === 'contacts' && (
+            <motion.span
+              className="mobile-tab-indicator"
+              layoutId="mobile-tab-indicator"
+              transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+            />
+          )}
           <div className="mobile-tab-icon">
             <ContactsIcon />
           </div>
           <span className="mobile-tab-label">通讯录</span>
-        </div>
+        </motion.button>
       </div>
     </nav>
   );

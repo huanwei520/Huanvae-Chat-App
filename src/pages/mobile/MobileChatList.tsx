@@ -7,20 +7,25 @@
  * 注意：同步状态横幅已移至 MobileMain.tsx 独立渲染，避免页面切换时重新挂载
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
-import { compareByTimeDesc } from '../../components/unified/conversationSort';
+import { friendChatTarget } from '../../utils/chatTarget';
+import { isBotUserId } from '../../api/bots';
+import { BotBadge } from '../../components/common/BotBadge';
+import { comparePinnedThenTime } from '../../components/unified/conversationSort';
+import { ConversationContextMenu, PinFlagIcon } from '../../components/unified/ConversationContextMenu';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
 import { useChatStore, useProfileViewStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
-import { parseFriendIdFromConversationId } from '../../utils/conversationId';
+import { parseFriendIdFromConversationId, getFriendConversationId } from '../../utils/conversationId';
+import { setConversationPinned } from '../../db';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
 
@@ -41,15 +46,32 @@ interface MobileChatListProps {
   aiConversationTitle?: string | null;
 }
 
+// 列表入场编排：容器只做 stagger 编排（无视觉属性），卡片 opacity+y 进场。
+// transform/opacity 由 framer-motion 接管，.mobile-contact-card 的 CSS 不得
+// 过渡这两个属性（见 tests/animation-conflict.test.ts 注册表）
+const listVariants = {
+  initial: {},
+  animate: { transition: { staggerChildren: 0.03, delayChildren: 0.05 } },
+};
+
+const cardVariants = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, transition: { duration: 0.15 } },
+};
+
 interface ConversationCard {
   uniqueKey: string;
   id: string;
-  type: 'friend' | 'group';
+  /** bot 的 data 仍是 Friend，仅 UI 呈现区分 */
+  type: 'friend' | 'bot' | 'group';
   name: string;
   avatarUrl: string | null;
   lastMessage: string | null;
   lastMessageTime: string | null;
   unreadCount: number;
+  /** 本地置顶状态（无本地会话行 = 未置顶） */
+  isPinned: boolean;
   data: Friend | Group;
 }
 
@@ -79,15 +101,18 @@ export function MobileChatList({
         (u) => u.friend_id === friend.friend_id,
       );
       const localPreview = getFriendPreview(friend.friend_id);
+      const isBot = isBotUserId(friend.friend_id);
       return {
-        uniqueKey: `friend-${friend.friend_id}`,
+        uniqueKey: `${isBot ? 'bot' : 'friend'}-${friend.friend_id}`,
         id: friend.friend_id,
-        type: 'friend' as const,
+        type: isBot ? ('bot' as const) : ('friend' as const),
         name: friendDisplayName(friend),
         avatarUrl: friend.friend_avatar_url,
         lastMessage: localPreview?.lastMessage ?? null,
         lastMessageTime: localPreview?.lastMessageTime ?? null,
         unreadCount: unread?.unread_count ?? 0,
+        // 语义映射：本地无会话行（还没聊过）= 未置顶，非兜底
+        isPinned: localPreview?.isPinned ?? false,
         data: friend,
       };
     });
@@ -112,6 +137,8 @@ export function MobileChatList({
         // 未读数只认 WS unreadSummary（按 last-read-seq 派生口径），不兜底 REST 的
         // group.unread_count（旧计数器列，口径分叉），与桌面端 UnifiedList 归一
         unreadCount: unread?.unread_count ?? 0,
+        // 语义映射：本地无会话行（还没聊过）= 未置顶，非兜底
+        isPinned: localPreview?.isPinned ?? false,
         data: group,
       };
     });
@@ -130,17 +157,62 @@ export function MobileChatList({
   }, [allCards]);
 
   // 卡片列表不再被 searchQuery 过滤（搜索结果在独立下框中渲染）
-  // 纯时间降序（新→旧），未读不再优先分层：点击带红点的卡片清未读不会让它下移重排，
-  // 与微信一致（红点仅作徽标）。共享比较器含 NaN 硬化与 uniqueKey tie-break
+  // 置顶分层（置顶在前）+ 同层内纯时间降序（新→旧），未读不参与排序：点击带红点的
+  // 卡片清未读不会让它下移重排，与微信一致（红点仅作徽标）。
+  // 共享比较器含 NaN 硬化与 uniqueKey tie-break
   const sortedCards = useMemo(() => {
-    return [...activeCards].sort(compareByTimeDesc);
+    return [...activeCards].sort(comparePinnedThenTime);
   }, [activeCards]);
 
+  // ============================================
+  // 长按（500ms）触发会话置顶菜单（参照 GroupMessageBubble 的 longPressTimerRef 模式），
+  // 长按触发后抑制本次点击进聊天
+  // ============================================
+  const [pinMenu, setPinMenu] = useState<{ card: ConversationCard; x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+
+  const handleCardTouchStart = (card: ConversationCard) => (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    const position = { x: touch.clientX, y: touch.clientY };
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setPinMenu({ card, ...position });
+    }, 500);
+  };
+
+  // 手指移动/抬起时取消长按计时（已触发的菜单不受影响）
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleTogglePin = async () => {
+    if (!pinMenu) { return; }
+    const { card } = pinMenu;
+    setPinMenu(null);
+    // 无 session 无法生成好友会话 ID（fail-fast，不用假 id 写库）
+    if (!session) { return; }
+    // bot 卡的 data 是 Friend，会话走 friend 链路
+    const isGroup = card.type === 'group';
+    const convId = isGroup ? card.id : getFriendConversationId(session.userId, card.id);
+    await setConversationPinned(convId, isGroup ? 'group' : 'friend', card.name, !card.isPinned);
+  };
+
+  // group 直出；friend/bot 卡的 data 都是 Friend，由 friendChatTarget 按 bot_ 前缀分派
   const handleCardClick = (card: ConversationCard) => {
-    if (card.type === 'friend') {
-      onSelectTarget({ type: 'friend', data: card.data as Friend });
-    } else {
+    // 长按已触发菜单：本次 touchend 派生的 click 不进聊天
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    if (card.type === 'group') {
       onSelectTarget({ type: 'group', data: card.data as Group });
+    } else {
+      onSelectTarget(friendChatTarget(card.data as Friend));
     }
   };
 
@@ -155,7 +227,12 @@ export function MobileChatList({
 
   return (
     <div className="mobile-chat-list-wrapper">
-      <div className="mobile-contacts">
+      <motion.div
+        className="mobile-contacts"
+        variants={listVariants}
+        initial="initial"
+        animate="animate"
+      >
         {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
         <MobileDownloadCard />
 
@@ -178,29 +255,33 @@ export function MobileChatList({
           </div>
         </div>
 
-        <AnimatePresence initial={false}>
+        <AnimatePresence>
           {sortedCards.map((card) => {
-            const isFriend = card.type === 'friend';
-            // 仅好友头像可点看资料；键盘焦点态与 focus handlers 同 isFriend 条件挂载
-            const avatarHandlers = isFriend ? avatarKbd.handlersFor(card.id) : null;
-            const avatarKbdFocused = isFriend && avatarKbd.isKbdFocused(card.id);
+            // friend / bot 卡共享 Friend 数据与私聊交互（头像看资料、在线点）
+            const isFriendLike = card.type === 'friend' || card.type === 'bot';
+            // 仅好友（含 bot）头像可点看资料；键盘焦点态与 focus handlers 同条件挂载
+            const avatarHandlers = isFriendLike ? avatarKbd.handlersFor(card.id) : null;
+            const avatarKbdFocused = isFriendLike && avatarKbd.isKbdFocused(card.id);
             return (
               <motion.div
                 key={card.uniqueKey}
                 className="mobile-contact-card"
                 onClick={() => handleCardClick(card)}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
+                onTouchStart={handleCardTouchStart(card)}
+                onTouchMove={cancelLongPress}
+                onTouchEnd={cancelLongPress}
+                variants={cardVariants}
+                exit="exit"
+                whileTap={{ scale: 0.97 }}
               >
                 {/* 头像 */}
                 <div
                   className={`mobile-contact-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
                   style={{ width: 44, height: 44, position: 'relative' }}
-                  onClick={isFriend
+                  onClick={isFriendLike
                     ? (e) => { e.stopPropagation(); openProfile(card.id); }
                     : undefined}
-                  onKeyDown={isFriend
+                  onKeyDown={isFriendLike
                     ? (e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         // 阻止冒泡到卡片（其 onClick=进聊天），头像键盘=看资料
@@ -210,25 +291,25 @@ export function MobileChatList({
                       }
                     }
                     : undefined}
-                  role={isFriend ? 'button' : undefined}
-                  tabIndex={isFriend ? 0 : undefined}
-                  aria-label={isFriend ? `查看${card.name}资料` : undefined}
+                  role={isFriendLike ? 'button' : undefined}
+                  tabIndex={isFriendLike ? 0 : undefined}
+                  aria-label={isFriendLike ? `查看${card.name}资料` : undefined}
                   onPointerDown={avatarHandlers?.onPointerDown}
                   onFocus={avatarHandlers?.onFocus}
                   onBlur={avatarHandlers?.onBlur}
                 >
-                  {card.type === 'friend' ? (
+                  {isFriendLike ? (
                     <FriendAvatar friend={card.data as Friend} />
                   ) : (
                     <GroupAvatar group={card.data as Group} />
                   )}
-                  {card.type === 'friend' && friendPresence[card.id]?.online && (
+                  {isFriendLike && friendPresence[card.id]?.online && (
                     <span
                       title="在线"
                       style={{
                         position: 'absolute', right: 0, bottom: 0,
                         width: 10, height: 10, borderRadius: '50%',
-                        background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
+                        background: 'var(--presence-online)', border: '2px solid var(--presence-dot-ring)', boxSizing: 'border-box',
                       }}
                     />
                   )}
@@ -236,7 +317,11 @@ export function MobileChatList({
 
                 {/* 信息 */}
                 <div className="mobile-contact-info" style={{ flex: 1 }}>
-                  <div className="mobile-contact-name">{card.name}</div>
+                  <div className="mobile-contact-name">
+                    {card.name}
+                    {/* Bot 徽标：静态呈现（无动画），统一走公共 BotBadge 组件 */}
+                    {card.type === 'bot' && <BotBadge />}
+                  </div>
                   {card.lastMessage && (
                     <div
                       className="mobile-contact-role"
@@ -260,6 +345,16 @@ export function MobileChatList({
                     gap: 4,
                   }}
                 >
+                  {/* 置顶图钉标识（与桌面 UnifiedList 同款） */}
+                  {card.isPinned && (
+                    <span
+                      className="conv-pin-flag"
+                      title="已置顶"
+                      style={{ color: 'var(--text-muted)', display: 'inline-flex' }}
+                    >
+                      <PinFlagIcon />
+                    </span>
+                  )}
                   {card.lastMessageTime && (
                     <span
                       style={{
@@ -276,11 +371,11 @@ export function MobileChatList({
                         minWidth: 18,
                         height: 18,
                         padding: '0 5px',
-                        background: '#ff3b30',
+                        background: 'var(--unread-badge-bg)',
                         borderRadius: 9,
                         fontSize: 11,
                         fontWeight: 600,
-                        color: 'white',
+                        color: 'var(--unread-badge-text)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -294,7 +389,7 @@ export function MobileChatList({
             );
           })}
         </AnimatePresence>
-      </div>
+      </motion.div>
 
       {/* 全局搜索浮层 — 从上往下拉出动画；query 清空时反向收回 */}
       <AnimatePresence>
@@ -308,7 +403,7 @@ export function MobileChatList({
             layout="mobile"
             onSelectConversation={(type, data) => {
               if (type === 'friend') {
-                onSelectTarget({ type: 'friend', data: data as Friend });
+                onSelectTarget(friendChatTarget(data as Friend));
               } else {
                 onSelectTarget({ type: 'group', data: data as Group });
               }
@@ -319,7 +414,7 @@ export function MobileChatList({
                 const friendId = parseFriendIdFromConversationId(grp.conversationId, session.userId);
                 const friendData = friendId ? friends.find((f) => f.friend_id === friendId) : undefined;
                 if (friendData) {
-                  onSelectTarget({ type: 'friend', data: friendData });
+                  onSelectTarget(friendChatTarget(friendData));
                   setPendingScrollToMessageId(hit.message.message_uuid);
                 }
               } else if (grp.conversationType === 'group') {
@@ -333,6 +428,15 @@ export function MobileChatList({
           />
         )}
       </AnimatePresence>
+
+      {/* 会话置顶长按菜单（portal 到 body） */}
+      <ConversationContextMenu
+        isOpen={pinMenu !== null}
+        position={pinMenu ? { x: pinMenu.x, y: pinMenu.y } : { x: 0, y: 0 }}
+        isPinned={pinMenu?.card.isPinned ?? false}
+        onTogglePin={handleTogglePin}
+        onClose={() => setPinMenu(null)}
+      />
     </div>
   );
 }

@@ -6,7 +6,11 @@ import type { Friend, Group } from '../../../types/chat';
 import type { GroupMember } from '../../../api/groups';
 
 export interface ChatMenuProps {
-  target: { type: 'friend'; data: Friend } | { type: 'group'; data: Group };
+  target:
+    | { type: 'friend'; data: Friend }
+    // bot 好友：数据与菜单操作（备注/拉黑/删除）都作用于好友关系，与 friend 一致
+    | { type: 'bot'; data: Friend }
+    | { type: 'group'; data: Group };
   onFriendRemoved?: () => void;
   onGroupUpdated?: () => void;
   onGroupLeft?: () => void;

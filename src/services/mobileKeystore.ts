@@ -103,35 +103,6 @@ export async function removePassword(
 }
 
 /**
- * 清除所有存储的密码
- */
-export async function clearAllPasswords(): Promise<void> {
-  if (!isMobile()) {
-    throw new Error('此功能仅在移动端可用');
-  }
-
-  const store = await getStore();
-  await store.delete(PASSWORDS_KEY);
-  await store.save();
-}
-
-/**
- * 检查存储是否可用
- */
-export async function isStorageAvailable(): Promise<boolean> {
-  if (!isMobile()) {
-    return false;
-  }
-
-  try {
-    await getStore();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * 获取设备 UUID
  */
 export async function retrieveDeviceUuid(): Promise<string | null> {

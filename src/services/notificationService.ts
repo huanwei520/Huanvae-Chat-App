@@ -101,7 +101,7 @@ let currentAudio: HTMLAudioElement | null = null;
  * - 桌面端：使用 convertFileSrc + HTML Audio
  * - Android：使用本地 HTTP 服务器（127.0.0.1:9527）
  */
-export async function playNotificationSound(): Promise<void> {
+async function playNotificationSound(): Promise<void> {
   // 获取设置
   const settings = useSettingsStore.getState().notification;
 
@@ -202,7 +202,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 /**
  * 确保有通知权限（检查 + 请求）
  */
-export async function ensureNotificationPermission(): Promise<boolean> {
+async function ensureNotificationPermission(): Promise<boolean> {
   const granted = await checkNotificationPermission();
   if (granted) {
     return true;
@@ -266,7 +266,7 @@ export async function notify(options: NotificationOptions): Promise<void> {
  * 根据消息类型生成预览文本
  */
 function getMessagePreview(
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card',
   content: string,
 ): string {
   switch (messageType) {
@@ -281,6 +281,8 @@ function getMessagePreview(
       return '[文件]';
     case 'meeting_invite':
       return '[会议邀请]';
+    case 'card':
+      return '[卡片]';
     default:
       return content;
   }
@@ -300,7 +302,7 @@ export interface NewMessageNotificationParams {
   /** 群名称（仅群消息需要） */
   groupName?: string;
   /** 消息类型 */
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
   /** 消息内容 */
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */

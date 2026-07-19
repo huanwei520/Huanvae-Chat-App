@@ -6,7 +6,7 @@
  * - 顶部栏（头像+搜索）
  * - 抽屉侧边栏
  * - 聊天页面（右滑进入）
- * - 全屏页面（个人资料、我的文件、局域网传输、小程序、视频会议、设置）
+ * - 全屏页面（个人资料、我的文件、局域网传输、小程序、机器人、视频会议、设置）
  *
  * 移动端功能说明：
  * - 视频会议：使用全屏页面替代桌面端的多窗口，不支持屏幕共享
@@ -42,6 +42,7 @@ import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
 import { MobileMiniAppsPage } from './MobileMiniAppsPage';
+import { MobileBotsPage } from './MobileBotsPage';
 import { MobileThemePage } from './MobileThemePage';
 import { MobileAddPage } from './MobileAddPage';
 import { SyncStatusBanner } from '../../components/common/SyncStatusBanner';
@@ -77,6 +78,7 @@ export function MobileMain() {
   const [showLanTransferPage, setShowLanTransferPage] = useState(false);
   const [showMiniAppsPage, setShowMiniAppsPage] = useState(false);
   const [miniAppLaunching, setMiniAppLaunching] = useState<MiniApp | null>(null);
+  const [showBotsPage, setShowBotsPage] = useState(false);
   const [showMeetingEntryPage, setShowMeetingEntryPage] = useState(false);
   const [showMeetingPage, setShowMeetingPage] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -277,6 +279,12 @@ export function MobileMain() {
       return true;
     }
 
+    // 优先级 5c：机器人管理页打开 → 关闭页面
+    if (showBotsPage) {
+      setShowBotsPage(false);
+      return true;
+    }
+
     // 优先级 6：视频会议页面打开 → 最小化（而不是直接关闭）
     if (showMeetingPage && !meetingMinimized) {
       setMeetingMinimized(true);
@@ -318,7 +326,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showAddPage, showMeetingPage, showMeetingEntryPage, showNfcTrustedCards, meetingMinimized, nav, handleBack]);
+  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showBotsPage, showAddPage, showMeetingPage, showMeetingEntryPage, showNfcTrustedCards, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -356,6 +364,10 @@ export function MobileMain() {
         }}
         onMiniAppsClick={() => {
           setShowMiniAppsPage(true);
+          nav.closeDrawer();
+        }}
+        onBotsClick={() => {
+          setShowBotsPage(true);
           nav.closeDrawer();
         }}
         onMeetingClick={() => {
@@ -590,6 +602,15 @@ export function MobileMain() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showBotsPage && (
+          <MobileBotsPage
+            onClose={() => setShowBotsPage(false)}
+            onBotAdded={page.refreshFriends}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showAddPage && (
           <MobileAddPage
             onClose={() => setShowAddPage(false)}
@@ -674,16 +695,19 @@ export function MobileMain() {
         )}
       </AnimatePresence>
 
-      {/* 全局 NFC 信任确认 modal（任何页面贴陌生卡都会触发） */}
-      {nfc.pendingConfirm && (
-        <NfcTrustConfirmModal
-          uid={nfc.pendingConfirm.uid}
-          payloadHash={nfc.pendingConfirm.payloadHash}
-          actionSummary={summarizeAction(nfc.pendingConfirm.action)}
-          onConfirm={nfc.onConfirmTrust}
-          onCancel={nfc.onCancelTrust}
-        />
-      )}
+      {/* 全局 NFC 信任确认 modal（任何页面贴陌生卡都会触发）
+          AnimatePresence 触发 modal 内部 overlay/panel 的 exit 动画 */}
+      <AnimatePresence>
+        {nfc.pendingConfirm && (
+          <NfcTrustConfirmModal
+            uid={nfc.pendingConfirm.uid}
+            payloadHash={nfc.pendingConfirm.payloadHash}
+            actionSummary={summarizeAction(nfc.pendingConfirm.action)}
+            onConfirm={nfc.onConfirmTrust}
+            onCancel={nfc.onCancelTrust}
+          />
+        )}
+      </AnimatePresence>
 
       {/* 全局 NFC 反馈 toast（成功/失败） */}
       <AnimatePresence>

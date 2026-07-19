@@ -85,3 +85,19 @@ export function recallMessage(
     { message_uuid: messageUuid },
   );
 }
+
+/**
+ * 卡片交互回调：不透明 action_id + 可选 value 中继给发卡 bot（非取回执行 URL）。
+ * delivered=false 表示命中重复 nonce（幂等跳过，仍是成功）。
+ */
+export function interactWithCard(
+  api: ApiClient,
+  req: { message_uuid: string; action_id: string; value?: unknown; nonce?: string },
+): Promise<{ delivered: boolean }> {
+  return api.post<{ delivered: boolean }>('/api/messages/interact', {
+    message_uuid: req.message_uuid,
+    action_id: req.action_id,
+    value: req.value ?? null,
+    nonce: req.nonce ?? null,
+  });
+}

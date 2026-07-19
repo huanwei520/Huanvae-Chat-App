@@ -1,0 +1,269 @@
+/**
+ * 运维全景折叠区样式（OpsConsolePanel）
+ *
+ * 贴在聊天头部下方的块级折叠面板。
+ * 颜色一律引用主题 token（variables.css / ThemeProvider 注入），深浅主题自适配。
+ * 动画单一所有权：仅 chevron 的 transform 由本 CSS 过渡，无 JS 动画参与；
+ * transition 只列具体属性，不写 all。
+ */
+
+.ops-console {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+/* ============ 折叠条 ============ */
+
+.ops-console-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: background-color 0.15s ease;
+}
+
+.ops-console-toggle:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.ops-console-title {
+  font-weight: 600;
+}
+
+.ops-console-summary {
+  flex: 1;
+  text-align: right;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-console-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.ops-console-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+/* ============ 展开体 ============ */
+
+.ops-console-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.ops-console-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.ops-console-error button {
+  margin-left: auto;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--status-error);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--status-error);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.ops-console-loading,
+.ops-console-empty {
+  padding: var(--space-2);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ============ 任务列表 ============ */
+
+.ops-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ops-task-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.ops-task-row:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.ops-task-row.selected {
+  background-color: var(--primary-subtle);
+}
+
+.ops-task-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-task-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* ============ 状态徽章（running=绿 / completed=蓝灰 / failed=红 / cancelled=灰） ============ */
+
+.ops-status {
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ops-status--running {
+  background: var(--status-success-subtle);
+  color: var(--status-success);
+}
+
+.ops-status--completed {
+  background: var(--status-info-subtle);
+  color: var(--status-info);
+}
+
+.ops-status--failed {
+  background: var(--status-error-subtle);
+  color: var(--status-error);
+}
+
+.ops-status--cancelled {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+/* ============ 选中任务详情：worker 系列 + 事件流 ============ */
+
+.ops-task-detail {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ops-worker-list,
+.ops-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ops-event-list {
+  margin-top: var(--space-2);
+}
+
+.ops-worker-row,
+.ops-event-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.ops-layer-badge {
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ops-worker-title {
+  flex-shrink: 0;
+  max-width: 40%;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-worker-detail {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.ops-event-type {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.ops-event-payload {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.ops-event-time {
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-size: var(--text-xs);
+}
+
+/* ============ 窄屏适配 ============ */
+
+@media (max-width: 768px) {
+  .ops-console-toggle {
+    padding: 0 var(--space-2);
+  }
+
+  .ops-console-body {
+    padding: var(--space-1) var(--space-2) var(--space-2);
+  }
+
+  .ops-worker-title {
+    max-width: 30%;
+  }
+}

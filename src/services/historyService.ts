@@ -51,7 +51,6 @@ async function ensureConversationExists(
       last_seq: 0,
       unread_count: 0,
       is_muted: false,
-      is_pinned: false,
       updated_at: new Date().toISOString(),
     });
     console.warn('[HistoryService] 创建会话记录:', conversationId);

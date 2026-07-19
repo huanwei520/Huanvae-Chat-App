@@ -28,6 +28,7 @@ import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
+import { CardRenderer } from '../shared/CardRenderer';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { FailedIcon } from '../shared/ReadReceiptIcons';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
@@ -403,7 +404,15 @@ export function MessageBubble({
                 {message.message_type === 'meeting_invite' && (
                   <MeetingInviteCard messageContent={message.message_content} />
                 )}
-                {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && (
+                {message.message_type === 'card' && (
+                  <CardRenderer
+                    messageContent={message.message_content}
+                    messageUuid={message.message_uuid}
+                    messageRev={message.rev}
+                    sourceType="friend"
+                  />
+                )}
+                {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && message.message_type !== 'card' && (
                   <FileMessageContent
                     messageType={message.message_type}
                     messageContent={message.message_content}

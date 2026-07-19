@@ -26,6 +26,7 @@ import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
+import { CardRenderer } from '../shared/CardRenderer';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
@@ -43,6 +44,7 @@ import {
 } from '../../api/groups';
 import { isMobile } from '../../utils/platform';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
+import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -210,7 +212,7 @@ export function GroupMessageBubble({
       avatarClickTimerRef.current = null;
       const friend = friends.find((f) => f.friend_id === message.sender_id);
       if (friend) {
-        setChatTarget({ type: 'friend', data: friend });
+        setChatTarget(friendChatTarget(friend));
       } else {
         openProfileView(message.sender_id);
       }
@@ -561,9 +563,17 @@ export function GroupMessageBubble({
                     {message.message_type === 'meeting_invite' && (
                       <MeetingInviteCard messageContent={message.message_content} />
                     )}
+                    {message.message_type === 'card' && (
+                      <CardRenderer
+                        messageContent={message.message_content}
+                        messageUuid={message.message_uuid}
+                        sourceType="group"
+                      />
+                    )}
                     {message.message_type !== 'text'
                       && message.message_type !== 'system'
-                      && message.message_type !== 'meeting_invite' && (
+                      && message.message_type !== 'meeting_invite'
+                      && message.message_type !== 'card' && (
                       <FileMessageContent
                         messageType={message.message_type as 'image' | 'video' | 'file'}
                         messageContent={message.message_content}

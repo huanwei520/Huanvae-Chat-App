@@ -167,7 +167,8 @@ function AnimatedDivider({ visible }: AnimatedDividerProps) {
 // ============================================
 
 interface MainMenuProps {
-  targetType: 'friend' | 'group';
+  /** bot 与 friend 的菜单项完全一致（备注/特别关心/拉黑/删除均作用于好友关系） */
+  targetType: 'friend' | 'bot' | 'group';
   isOwnerOrAdmin: boolean;
   isOwner: boolean;
   isMultiSelectMode: boolean;
@@ -215,8 +216,10 @@ export function MainMenu({
   onToggleSpecialCare,
   onUnblacklist,
 }: MainMenuProps) {
-  const title = targetType === 'friend' ? '好友设置' : '群聊设置';
   const isGroup = targetType === 'group';
+  // friend / bot 共用好友菜单（好友关系操作对 bot 好友同样有效）
+  const isFriendLike = targetType === 'friend' || targetType === 'bot';
+  const title = isGroup ? '群聊设置' : '好友设置';
 
   return (
     <>
@@ -235,8 +238,8 @@ export function MainMenu({
                 progress={avatarUploadProgress}
                 size={64}
                 strokeWidth={3}
-                progressColor="#3b82f6"
-                backgroundColor="rgba(147, 197, 253, 0.3)"
+                progressColor="var(--upload-ring-fill)"
+                backgroundColor="var(--upload-ring-track)"
               >
                 <div className="menu-avatar-upload-content">
                   <GroupAvatar group={group} />
@@ -285,8 +288,8 @@ export function MainMenu({
 
       <div className="menu-divider" />
 
-      {/* 好友菜单 */}
-      {targetType === 'friend' && (
+      {/* 好友菜单（friend / bot 共用） */}
+      {isFriendLike && (
         <>
           <button
             className="menu-item"

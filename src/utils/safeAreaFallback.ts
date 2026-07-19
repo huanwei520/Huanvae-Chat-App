@@ -51,7 +51,7 @@ function probeEnvInsets(): { top: number; bottom: number } {
  * 探测并按需注入安全区兜底变量到 :root。可重复调用（旋转 / resize 时重算）。
  * 不支持安全区的移动端 WebView → 设 `--sai-top/--sai-bottom`；其余 → 移除（让 CSS 退回 env）。
  */
-export function applySafeAreaFallback(): void {
+function applySafeAreaFallback(): void {
   const { top, bottom } = probeEnvInsets();
   const fallback = resolveSafeAreaFallback(top, bottom, isMobile());
   const root = document.documentElement;

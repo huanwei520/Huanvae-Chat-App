@@ -43,7 +43,9 @@ const DeviceIcon: React.FC<{ isCurrent?: boolean }> = ({ isCurrent }) => (
     height="24"
     viewBox="0 0 24 24"
     fill="none"
-    stroke={isCurrent ? '#10b981' : 'currentColor'}
+    stroke="currentColor"
+    // 当前设备绿色走 style：SVG presentation attribute 不支持 var()，style 中 var 可正常解析
+    style={isCurrent ? { stroke: 'var(--device-current-icon)' } : undefined}
     strokeWidth="2"
     strokeLinecap="round"
     strokeLinejoin="round"

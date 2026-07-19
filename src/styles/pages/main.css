@@ -4052,20 +4052,85 @@
 }
 
 /* ============================================
-   侧边栏"更多"浮层（Portal 渲染到 body，使用 fixed 定位）
+   Sidebar "more" panel + dual-zone drag and drop
+   (dnd-kit: sort inside panel list, drag out to pin
+   into the sidebar pin zone, drag back to stow;
+   Sidebar.tsx + SidebarMorePanel.tsx)
+   JS-owned selectors - NEVER add CSS transitions on
+   transform/opacity/all for these (registered in
+   tests/animation-conflict.test.ts):
+   - .sidebar-more-panel  framer-motion enter/exit
+     (opacity/x/scale variants)
+   - .more-panel-row      dnd-kit useSortable inline
+     transform + transition
+   - .sidebar-pinned-btn  dnd-kit useSortable inline
+     transform + transition
    ============================================ */
 .sidebar-more-panel {
   position: fixed;
-  min-width: 160px;
-  padding: 6px;
+  min-width: 210px;
+  padding: 8px;
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(16px);
-  border-radius: 12px;
+  backdrop-filter: blur(20px);
+  border-radius: 14px;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 2px 8px rgba(0, 0, 0, 0.06);
+    0 16px 48px rgba(0, 0, 0, 0.14),
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 1px 4px rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.06);
   z-index: 10000;
+}
+
+.more-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.more-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.more-panel-hint {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+/* Droppable container for the "more" zone; background-only
+   transition is safe (not a JS-controlled property) */
+.more-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+
+/* Drop indicator while a pinned item hovers over the list */
+.more-panel-list--over {
+  background: rgba(96, 165, 250, 0.08);
+}
+
+/* Sortable row wrapper: transform/transition owned by
+   dnd-kit (inline style) - no transform/opacity/all transition */
+.more-panel-row {
+  position: relative;
+  cursor: grab;
+}
+
+.more-panel-row:active {
+  cursor: grabbing;
+}
+
+/* Source placeholder while dragging (static, no transition) */
+.more-panel-row--dragging {
+  opacity: 0.35;
 }
 
 .more-panel-item {
@@ -4073,9 +4138,9 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-primary, #1a1a2e);
   font-size: 13px;
@@ -4092,28 +4157,140 @@
   background: rgba(96, 165, 250, 0.2);
 }
 
+/* Icon tile: small rounded square with light accent tint */
 .more-panel-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(96, 165, 250, 0.12);
+  transition: background 0.15s;
 }
 
 .more-panel-icon svg {
-  width: 18px;
-  height: 18px;
-  stroke: var(--text-secondary, #64748b);
+  width: 16px;
+  height: 16px;
+  stroke: var(--accent-primary, #60a5fa);
 }
 
-.more-panel-item:hover .more-panel-icon svg {
-  stroke: var(--accent-primary, #60a5fa);
+.more-panel-item:hover .more-panel-icon {
+  background: rgba(96, 165, 250, 0.22);
 }
 
 .more-panel-label {
   font-weight: 500;
   letter-spacing: 0.01em;
+}
+
+/* Empty state when every tool is pinned (droppable list
+   stays mounted so items can be dragged back) */
+.more-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 12px;
+  border: 1.5px dashed rgba(96, 165, 250, 0.35);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.more-panel-empty-main {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.more-panel-empty-sub {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+/* Pin zone inside the sidebar nav (droppable id 'pinned');
+   only mounted while it has pinned items or a drag is active
+   (Sidebar.tsx conditional render) */
+.sidebar-pin-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 0;
+}
+
+/* Highlighted while any drag is active (visible drop target) */
+.sidebar-pin-zone--active {
+  min-height: 48px;
+  border: 1.5px dashed rgba(96, 165, 250, 0.4);
+  border-radius: 12px;
+  background: rgba(96, 165, 250, 0.06);
+}
+
+/* Stronger tint while the dragged item hovers the zone */
+.sidebar-pin-zone--over {
+  background: rgba(96, 165, 250, 0.14);
+}
+
+/* Pinned tool button: standalone style block - do NOT reuse
+   .nav-btn (it has `transition: all` which would fight the
+   dnd-kit inline transform). Only background-color/color
+   transitions allowed here. */
+.sidebar-pinned-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-pinned-btn:active {
+  cursor: grabbing;
+}
+
+.sidebar-pinned-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.sidebar-pinned-btn:hover {
+  background: rgba(147, 197, 253, 0.2);
+  color: var(--primary);
+}
+
+/* Source placeholder while dragging (static, no transition) */
+.sidebar-pinned-btn--dragging {
+  opacity: 0.35;
+}
+
+/* DragOverlay ghost card: dnd-kit transforms the overlay
+   wrapper, not this element - static scale is fine, but
+   never add a transition here */
+.sidebar-drag-ghost {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: scale(1.03);
+  font-size: 13px;
+  color: var(--text-primary, #1a1a2e);
+  white-space: nowrap;
 }
 
 /* ============================================

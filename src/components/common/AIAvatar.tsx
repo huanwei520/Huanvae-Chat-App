@@ -2,6 +2,7 @@
  * AI 助手头像
  *
  * 白色圆形底，"AI" 文字使用蓝白淡色渐变
+ * 颜色引用 variables.css 静态品牌 token（--ai-avatar-bg / --ai-avatar-ring / --ai-avatar-gradient）
  * 尺寸由外层容器控制
  */
 
@@ -14,11 +15,11 @@ export const AIAvatar = memo(function AIAvatar() {
         width: '100%',
         height: '100%',
         borderRadius: '50%',
-        background: '#ffffff',
+        background: 'var(--ai-avatar-bg)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '1.5px solid rgba(96, 165, 250, 0.3)',
+        border: '1.5px solid var(--ai-avatar-ring)',
       }}
     >
       <span
@@ -26,7 +27,7 @@ export const AIAvatar = memo(function AIAvatar() {
           fontSize: '0.85em',
           fontWeight: 800,
           letterSpacing: '0.5px',
-          background: 'linear-gradient(135deg, #60a5fa 0%, #93c5fd 50%, #3b82f6 100%)',
+          background: 'var(--ai-avatar-gradient)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
           backgroundClip: 'text',

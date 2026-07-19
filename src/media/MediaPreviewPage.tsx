@@ -32,7 +32,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { secureHttp } from '../services/secureFetch';
 import { resolveForSecureHttp } from '../services/discovery';
 import { resolveDisplayUrl } from '../services/secureProxy';
-import { loadMediaData, clearMediaData } from './api';
+import { loadMediaData } from './api';
 import {
   getCachedFilePath,
   downloadAndSaveFile,
@@ -82,12 +82,6 @@ interface MediaState {
 // 图标组件
 // ============================================================================
 
-const CloseIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M18 6L6 18M6 6l12 12" />
-  </svg>
-);
-
 const DownloadIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -106,7 +100,7 @@ const FolderIcon = () => (
  * 错误展示视图
  *
  * 区分两类失败：
- * - 服务器端 404（文件已删除）→ 友好提示 + 关闭按钮，主窗口已被通知刷新列表
+ * - 服务器端 404（文件已删除）→ 友好提示，主窗口已被通知刷新列表（用原生标题栏关闭窗口）
  * - 其他错误 → 原始错误信息
  */
 function MediaErrorView({ error }: { error: string }) {
@@ -119,20 +113,6 @@ function MediaErrorView({ error }: { error: string }) {
         <p style={{ margin: '8px 0 16px', fontSize: 13, opacity: 0.8 }}>
           主窗口的「我的文件」列表会自动刷新清理。
         </p>
-        <button
-          onClick={() => window.close()}
-          style={{
-            padding: '8px 24px',
-            borderRadius: 6,
-            border: '1px solid var(--border-color, #444)',
-            background: 'var(--primary, #3b82f6)',
-            color: '#fff',
-            cursor: 'pointer',
-            fontSize: 14,
-          }}
-        >
-          关闭窗口
-        </button>
       </div>
     );
   }
@@ -793,31 +773,15 @@ export default function MediaPreviewPage() {
   const [mediaState, setMediaState] = useState<MediaState | null>(null);
 
   // 初始化：读取媒体数据
+  // 数据缺失时停留在加载态（该窗口仅在主窗口写入数据后创建，此路径实际不可达；
+  // 窗口关闭一律走原生标题栏，DOM 层的 close 调用在 Tauri webview 里关不掉 OS 窗口）
   useEffect(() => {
     const data = loadMediaData();
     if (!data || !data.serverUrl || !data.accessToken) {
-      window.close();
       return;
     }
     setMediaState(data as MediaState);
   }, []);
-
-  // 关闭窗口
-  const handleClose = useCallback(() => {
-    clearMediaData();
-    window.close();
-  }, []);
-
-  // 键盘事件
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose]);
 
   if (!mediaState) {
     return (
@@ -837,11 +801,6 @@ export default function MediaPreviewPage() {
           {mediaState.fileSize && (
             <span className="media-filesize">{formatFileSize(mediaState.fileSize)}</span>
           )}
-        </div>
-        <div className="media-actions">
-          <button className="media-close-btn" onClick={handleClose} title="关闭 (Esc)">
-            <CloseIcon />
-          </button>
         </div>
       </header>
 

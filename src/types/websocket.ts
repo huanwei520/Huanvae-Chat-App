@@ -105,7 +105,7 @@ export interface WsNewMessage {
   content: string;
   /** 消息预览（兼容旧版本，可能为空） */
   preview?: string;
-  message_type: 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
+  message_type: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
   /** 会话内序列号（用于增量同步） */
   seq: number;
   timestamp: string;
@@ -397,6 +397,40 @@ export interface WsPresenceUpdate {
 }
 
 /**
+ * 运维任务进度增量推送（仅 ops-bot owner 的在线链路收到）。
+ *
+ * kind 区分增量粒度：task（任务快照）/ worker（worker 快照）/ event（单条事件）。
+ * data 与 REST 查询面（/api/ops/*）同源同形，前端按 kind 收窄后写入 ops store。
+ */
+export interface WsOpsUpdate {
+  type: 'ops_update';
+  kind: 'task' | 'worker' | 'event';
+  task_id: string;
+  worker_id?: string;
+  data: unknown;
+}
+
+/**
+ * 已发消息内容更新（可交互卡片 live 刷新）。镜像后端 ServerMessage::MessageUpdated。
+ * event_seq 由连接层统一注入（见 WsServerMessage 交叉类型），故本接口不声明。
+ */
+export interface WsMessageUpdated {
+  type: 'message_updated';
+  source_type: 'friend' | 'group';
+  source_id: string;
+  message_uuid: string;
+  /** 更新后的完整消息内容（卡片 schema JSON 串） */
+  content: string;
+  /** 消息类型（当前恒为 card） */
+  message_type: string;
+  /** 单调递增内容修订号（幂等/顺序游标） */
+  rev: number;
+  /** 会话内序列号（保持不变，供定位原消息） */
+  seq: number;
+  timestamp: string;
+}
+
+/**
  * 所有服务器消息类型
  *
  * 所有事件包含连接级递增 event_seq 字段（用于跳号检测）。
@@ -410,6 +444,8 @@ export type WsServerMessage = (
   | WsReadSync
   | WsSystemNotification
   | WsPresenceUpdate
+  | WsOpsUpdate
+  | WsMessageUpdated
   | WsHeartbeat
   | WsError
   | WsHgTopologyChanged

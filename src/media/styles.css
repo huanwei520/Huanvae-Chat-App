@@ -73,31 +73,6 @@
   flex-shrink: 0;
 }
 
-.media-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.media-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: var(--black-alpha-5);
-  border-radius: 8px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.media-close-btn:hover {
-  background: var(--status-error-subtle);
-  color: var(--status-error);
-}
-
 /* ============================================
    内容区域
    ============================================ */

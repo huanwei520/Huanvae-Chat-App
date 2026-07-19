@@ -492,18 +492,21 @@
   border-radius: 10px;
   color: var(--primary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  /* transform owned by framer-motion (whileTap in MobileHeader) - never
+     transition transform/all here. See tests/animation-conflict.test.ts */
+  transition: background var(--transition-fast), border-color var(--transition-fast);
   position: relative;
   flex-shrink: 0;
 }
 
+/* Press feedback: background stays CSS-owned; scale feedback moved to
+   framer-motion whileTap (single owner per property). */
 .mobile-contacts-add-btn:active {
   background: linear-gradient(
     135deg,
     var(--card-bg-hover-start) 0%,
     var(--card-bg-hover-end) 100%
   );
-  transform: scale(0.95);
 }
 
 .mobile-contacts-add-btn svg {

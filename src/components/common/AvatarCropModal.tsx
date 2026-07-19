@@ -69,7 +69,7 @@ export function AvatarCropModal({ imageSrc, onConfirm, onCancel }: AvatarCropMod
       onClick={() => { if (!processing) { onCancel(); } }}
       style={{
         position: 'fixed', inset: 0, zIndex: 10000,
-        background: 'rgba(0, 0, 0, 0.6)',
+        background: 'var(--black-alpha-60)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >

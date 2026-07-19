@@ -12,7 +12,7 @@ import type { MessageSendStatus } from '../types/chat';
 // ============================================
 
 /** 群消息类型 */
-export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite';
+export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card';
 
 /** 群消息 */
 export interface GroupMessage {

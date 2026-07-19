@@ -3,7 +3,7 @@
  *
  * 从左侧滑出，包含：
  * - 顶部：用户头像和信息
- * - 菜单：我的文件、局域网互传、小程序、视频会议、设置
+ * - 菜单：我的文件、局域网互传、小程序、机器人、视频会议、设置
  * - 底部：退出登录
  *
  * 注意：
@@ -88,6 +88,28 @@ const MiniAppsIcon = () => (
   </svg>
 );
 
+// 机器人图标
+const BotIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M12 3v3m0 0a6.75 6.75 0 016.75 6.75v3A3.25 3.25 0 0115.5 19h-7a3.25 3.25 0 01-3.25-3.25v-3A6.75 6.75 0 0112 6zm-9 6.75h1.5m15 0H21"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M9.5 12.5v1m5-1v1m-5.25 3h5.5"
+    />
+  </svg>
+);
+
 // 视频会议图标
 const MeetingIcon = () => (
   <svg
@@ -136,6 +158,8 @@ interface MobileDrawerProps {
   onLanTransferClick: () => void;
   /** 小程序点击回调 */
   onMiniAppsClick: () => void;
+  /** 机器人点击回调 */
+  onBotsClick: () => void;
   /** 视频会议点击回调 */
   onMeetingClick: () => void;
   /** 设置点击回调 */
@@ -152,6 +176,7 @@ export function MobileDrawer({
   onFilesClick,
   onLanTransferClick,
   onMiniAppsClick,
+  onBotsClick,
   onMeetingClick,
   onSettingsClick,
   onLogout,
@@ -236,6 +261,18 @@ export function MobileDrawer({
           >
             <MiniAppsIcon />
             <span>小程序</span>
+          </div>
+
+          {/* 机器人 */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onBotsClick();
+              onClose();
+            }}
+          >
+            <BotIcon />
+            <span>机器人</span>
           </div>
 
           {/* 视频会议 */}

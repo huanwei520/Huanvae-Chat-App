@@ -49,6 +49,7 @@ import { getGroupInvitations } from '../api/groups';
 import { invoke } from '@tauri-apps/api/core';
 import { saveFileUuidHash, saveMessage, clearCurrentUser } from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
+import { isFriendLikeTarget } from '../utils/chatTarget';
 import type { NavTab } from '../components/sidebar/Sidebar';
 import type { AttachmentType } from '../chat';
 import type { Friend, Group, ChatTarget } from '../types/chat';
@@ -237,8 +238,8 @@ export function useMainPage() {
     maxWidth: MAX_PANEL_WIDTH,
   });
 
-  // 私聊消息（本地优先）
-  const friendId = chatTarget?.type === 'friend' ? chatTarget.data.friend_id : null;
+  // 私聊消息（本地优先）；bot 目标与好友共用同一条私聊消息链路
+  const friendId = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
   const {
     messages: friendMessages,
     loading: friendMessagesLoading,
@@ -342,8 +343,9 @@ export function useMainPage() {
   // 加载消息并标记已读
   // ============================================
   useEffect(() => {
-    if (chatTarget?.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       loadFriendMessages();
+      // bot 未读同样挂在 friend_unreads 上，通道 id 固定 'friend'
       markRead('friend', chatTarget.data.friend_id);
     } else if (chatTarget?.type === 'group') {
       loadGroupMessages();
@@ -397,7 +399,7 @@ export function useMainPage() {
           const deletedData = msg.data as unknown as FriendDeletedData;
           if (deletedData.friend_id) {
             store.removeFriend(deletedData.friend_id);
-            if (currentTarget?.type === 'friend' && currentTarget.data.friend_id === deletedData.friend_id) {
+            if (isFriendLikeTarget(currentTarget) && currentTarget.data.friend_id === deletedData.friend_id) {
               store.setChatTarget(null);
               setActiveChat(null, null);
             }
@@ -565,7 +567,7 @@ export function useMainPage() {
 
     const timestamp = new Date().toISOString();
 
-    if (chatTarget.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       await sendFriendMessage(content);
       updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
@@ -599,7 +601,7 @@ export function useMainPage() {
     });
 
     try {
-      if (chatTarget.type === 'friend') {
+      if (isFriendLikeTarget(chatTarget)) {
         const result = await uploadFriendFile(file, chatTarget.data.friend_id);
         if (result.success) {
           // eslint-disable-next-line no-console
@@ -688,7 +690,8 @@ export function useMainPage() {
     setChatTarget(target);
     if (target.type === 'ai') {
       setActiveChat(null, null);
-    } else if (target.type === 'friend') {
+    } else if (isFriendLikeTarget(target)) {
+      // bot 与好友同走 'friend' 数据面通道（activeChat / markRead）
       setActiveChat('friend', target.data.friend_id);
       markRead('friend', target.data.friend_id);
     } else {
@@ -706,7 +709,7 @@ export function useMainPage() {
   // 聊天菜单回调
   // ============================================
   const handleFriendRemoved = useCallback(() => {
-    if (chatTarget?.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       removeFriend(chatTarget.data.friend_id);
     }
     setChatTarget(null);
@@ -748,7 +751,7 @@ export function useMainPage() {
 
   // 历史记录加载完成后刷新消息列表（卡片预览由 DB 层自动通知）
   const handleHistoryLoaded = useCallback(() => {
-    if (chatTarget?.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       loadFriendMessages();
     } else if (chatTarget?.type === 'group') {
       loadGroupMessages();
@@ -772,7 +775,7 @@ export function useMainPage() {
 
     const run = async () => {
       const ok =
-        chatTarget.type === 'friend'
+        isFriendLikeTarget(chatTarget)
           ? await loadUntilFriendMessage(targetId)
           : await loadUntilGroupMessage(targetId);
       if (cancelled) {
@@ -814,16 +817,16 @@ export function useMainPage() {
   // ============================================
   // 计算属性
   // ============================================
-  const isLoading = chatTarget?.type === 'friend' ? friendMessagesLoading : groupMessagesLoading;
-  const isSending = chatTarget?.type === 'friend' ? friendSending : groupSending;
-  const currentMessages = chatTarget?.type === 'friend' ? friendMessages : groupMessages;
+  const isLoading = isFriendLikeTarget(chatTarget) ? friendMessagesLoading : groupMessagesLoading;
+  const isSending = isFriendLikeTarget(chatTarget) ? friendSending : groupSending;
+  const currentMessages = isFriendLikeTarget(chatTarget) ? friendMessages : groupMessages;
   const totalMessageCount = currentMessages.length;
 
   // 加载更多历史消息
-  const hasMore = chatTarget?.type === 'friend' ? friendHasMore : groupHasMore;
-  const loadingMore = chatTarget?.type === 'friend' ? friendLoadingMore : groupLoadingMore;
+  const hasMore = isFriendLikeTarget(chatTarget) ? friendHasMore : groupHasMore;
+  const loadingMore = isFriendLikeTarget(chatTarget) ? friendLoadingMore : groupLoadingMore;
   const handleLoadMore = useCallback(() => {
-    if (chatTarget?.type === 'friend') {
+    if (isFriendLikeTarget(chatTarget)) {
       loadMoreFriendMessages();
     } else if (chatTarget?.type === 'group') {
       loadMoreGroupMessages();

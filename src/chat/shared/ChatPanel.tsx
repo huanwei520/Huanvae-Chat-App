@@ -29,9 +29,11 @@ import { VoiceProfileManager } from '../ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from './ChatMenu';
+import { OpsConsolePanel } from '../ops/OpsConsolePanel';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
+import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { useChatStore, useProfileViewStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage, AIConversation } from '../../types/chat';
@@ -135,13 +137,14 @@ interface ChatPanelProps {
 
 function getChatTitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'ai') { return 'AI 助手'; }
-  return chatTarget.type === 'friend'
+  return isFriendLikeTarget(chatTarget)
     ? friendDisplayName(chatTarget.data)
     : chatTarget.data.group_name;
 }
 
 function getChatSubtitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'ai') { return 'GLM-5 模型'; }
+  if (chatTarget.type === 'bot') { return 'Bot'; }
   if (chatTarget.type === 'friend') {
     return `@${chatTarget.data.friend_id}`;
   }
@@ -227,16 +230,16 @@ export function ChatPanel({
   // eslint-disable-next-line no-nested-ternary
   const chatKey = chatTarget.type === 'ai'
     ? 'ai-assistant'
-    : chatTarget.type === 'friend'
+    : isFriendLikeTarget(chatTarget)
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
 
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
-  // 私聊顶栏点开对方资料（群/AI 不适用）
+  // 私聊顶栏点开对方资料（群/AI 不适用；bot 同好友可看资料）
   const openProfile = useProfileViewStore((s) => s.open);
-  const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+  const friendIdForProfile = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
   const headerKbd = useKbdFocusRing();
   const headerKbdHandlers = headerKbd.handlersFor('header');
@@ -248,7 +251,7 @@ export function ChatPanel({
 
   // 私聊拉黑提示：从 store 读实时拉黑态（资料页拉黑后即时反映，不依赖 chatTarget 快照）
   const friendBlacklisted = useChatStore((s) =>
-    chatTarget.type === 'friend'
+    isFriendLikeTarget(chatTarget)
       ? (s.friends.find((f) => f.friend_id === chatTarget.data.friend_id)?.is_blacklisted
           ?? chatTarget.data.is_blacklisted)
       : false,
@@ -352,9 +355,14 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* 拉黑提示条（私聊且已拉黑对方） */}
-      {chatTarget.type === 'friend' && friendBlacklisted && (
+      {/* 拉黑提示条（私聊且已拉黑对方，friend/bot 同链路） */}
+      {isFriendLikeTarget(chatTarget) && friendBlacklisted && (
         <div className="chat-blacklist-banner">已拉黑，对方收不到你发送的消息</div>
+      )}
+
+      {/* bot 会话：运维全景折叠区（仅 ops-bot owner 可见，gate 由后端数据判定） */}
+      {chatTarget.type === 'bot' && (
+        <OpsConsolePanel botUserId={chatTarget.data.friend_id} />
       )}
 
       {/* AI 历史记录抽屉 */}
@@ -395,7 +403,7 @@ export function ChatPanel({
             onConfirmToolCall={onAIConfirmToolCall}
             onRejectToolCall={onAIRejectToolCall}
           />
-        ) : chatTarget.type === 'friend' ? (
+        ) : isFriendLikeTarget(chatTarget) ? (
           <ChatMessages
             key={`friend-${chatKey}`}
             loading={isLoading}

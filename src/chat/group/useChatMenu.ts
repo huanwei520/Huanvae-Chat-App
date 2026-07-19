@@ -62,6 +62,7 @@ import {
   type InviteCode,
 } from '../../api/groups';
 import { loadAllHistoryMessages } from '../../services/historyService';
+import { isFriendLikeTarget } from '../../utils/chatTarget';
 import type { MenuView } from '../shared/menu/types';
 import type { ChatTarget } from '../../types/chat';
 
@@ -295,7 +296,7 @@ export function useChatMenu({
 
   // 好友关系状态：订阅 store 中该好友的实时 is_special_care / is_blacklisted
   // （三条杠菜单据此显示「特别关心 / 取消特别关心」「拉黑 / 取消拉黑」文案）
-  const friendId = target.type === 'friend' ? target.data.friend_id : null;
+  const friendId = isFriendLikeTarget(target) ? target.data.friend_id : null;
   const friendState = useChatStore((state) =>
     friendId ? state.friends.find((f) => f.friend_id === friendId) : undefined,
   );
@@ -399,7 +400,7 @@ export function useChatMenu({
     if (v === 'edit-name' && target.type === 'group') {
       setNewGroupName(target.data.group_name);
     }
-    if (v === 'edit-remark' && target.type === 'friend') {
+    if (v === 'edit-remark' && isFriendLikeTarget(target)) {
       setFriendRemark(target.data.friend_remark ?? '');
     }
     if (v === 'notices') {
@@ -421,9 +422,9 @@ export function useChatMenu({
     setView(v);
   }, [target, handleLoadNotices, handleLoadMembers, handleLoadInviteCodes]);
 
-  // 删除好友
+  // 删除好友（friend / bot 共用：bot 是真实好友行）
   const handleRemoveFriend = useCallback(async () => {
-    if (target.type !== 'friend' || !session) { return; }
+    if (!isFriendLikeTarget(target) || !session) { return; }
 
     setLoading(true);
     try {
@@ -440,7 +441,7 @@ export function useChatMenu({
 
   // 特别关心切换（非破坏性，直接执行无需二次确认）
   const handleToggleSpecialCare = useCallback(async () => {
-    if (target.type !== 'friend' || loading) { return; }
+    if (!isFriendLikeTarget(target) || loading) { return; }
     const next = !isFriendSpecialCare;
     setLoading(true);
     try {
@@ -460,7 +461,7 @@ export function useChatMenu({
 
   // 拉黑（破坏性，经 confirm-blacklist 视图二次确认后调用）
   const handleBlacklist = useCallback(async () => {
-    if (target.type !== 'friend' || loading) { return; }
+    if (!isFriendLikeTarget(target) || loading) { return; }
     setLoading(true);
     try {
       await addBlacklist(api, target.data.friend_id);
@@ -486,7 +487,7 @@ export function useChatMenu({
 
   // 取消拉黑（直接执行）
   const handleUnblacklist = useCallback(async () => {
-    if (target.type !== 'friend' || loading) { return; }
+    if (!isFriendLikeTarget(target) || loading) { return; }
     setLoading(true);
     try {
       await removeBlacklist(api, target.data.friend_id);
@@ -890,7 +891,7 @@ export function useChatMenu({
 
   // 设置好友备注
   const handleUpdateFriendRemark = useCallback(async () => {
-    if (target.type !== 'friend' || !session || !friendRemark.trim()) { return; }
+    if (!isFriendLikeTarget(target) || !session || !friendRemark.trim()) { return; }
 
     const remark = friendRemark.trim();
     setLoading(true);
@@ -913,7 +914,7 @@ export function useChatMenu({
 
   // 清除好友备注
   const handleClearFriendRemark = useCallback(async () => {
-    if (target.type !== 'friend' || !session) { return; }
+    if (!isFriendLikeTarget(target) || !session) { return; }
 
     setLoading(true);
     try {
@@ -943,10 +944,11 @@ export function useChatMenu({
 
     try {
       if (target.type === 'ai') { return; }
-      const targetId = target.type === 'friend'
+      // bot 走 friend 数据面通道（历史记录服务只认 'friend' | 'group'）
+      const targetId = isFriendLikeTarget(target)
         ? target.data.friend_id
         : target.data.group_id;
-      const targetType = target.type;
+      const targetType = isFriendLikeTarget(target) ? 'friend' : 'group';
 
       await loadAllHistoryMessages(
         api,

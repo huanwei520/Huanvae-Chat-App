@@ -32,6 +32,13 @@
  * - 指数退避：1s → 2s → 4s → 8s → 16s → 最大 30s
  * - 抖动：叠加随机延迟防止雷群效应（服务重启后所有客户端同时重连）
  *
+ * 半开检测（假活防护）：
+ * - 服务端心跳 = WS 协议层 Ping（每 30s，ws_proxy 转发为活性信号）
+ * - 入站活性看门狗：超 LIVENESS_TIMEOUT 无任何入站帧 → 判半开 → terminate 本地
+ *   强制 onclose → 走既有指数退避重连
+ * - Rust 层 idle_timeout_secs 兜底回收半开 reader；ws_connect 带 15s 建连超时
+ * - 重连成功后强制补一次增量 sync（halfOpenSyncPendingRef），不依赖 resumed 重放
+ *
  * 消息处理逻辑已提取到 wsHandlers.ts
  */
 
@@ -67,7 +74,7 @@ import type {
   WsReadSync,
 } from '../types/websocket';
 import { RustWebSocket } from '../services/rustWebSocket';
-import { resolveForSecureHttp } from '../services/discovery';
+import { resolveForSecureHttp, rediscoverOnFailure, getActiveEndpoint } from '../services/discovery';
 
 // ============================================
 // 常量
@@ -75,12 +82,21 @@ import { resolveForSecureHttp } from '../services/discovery';
 
 /** 最大重连尝试次数（超过后尝试刷新 token） */
 const MAX_RECONNECT_ATTEMPTS = 5;
+/** 连续重连失败达到此次数后，重连前先轮换后端 IP（当前 active 节点疑似下线 → rediscoverOnFailure 排除死 IP 重发现）。
+ *  < MAX_RECONNECT_ATTEMPTS，使死节点在触发 token 刷新/登出前先尝试轮换到其他可达节点，自愈不依赖发现池摘死节点。 */
+const ROTATE_AFTER_ATTEMPTS = 2;
 /** 重连基础延迟（毫秒），实际延迟 = base * 2^attempts + jitter */
 const RECONNECT_BASE_DELAY = 1000;
 /** 重连最大延迟（毫秒） */
 const RECONNECT_MAX_DELAY = 30000;
 /** 客户端 Ping 间隔（毫秒） */
 const PING_INTERVAL = 25000;
+/** 入站活性超时（毫秒）。服务端心跳=WS 协议层 Ping 每 30s（经 ws_proxy 转发计入活性），
+ *  健康连接的入站静默不超过一个心跳周期；连续 2 个周期 + 余量无任何入站帧判半开。 */
+const LIVENESS_TIMEOUT = 70000;
+/** Rust 层入站空闲超时（秒）：3 个心跳周期，兜底回收半开连接的读任务并上抛 Error
+ *  （覆盖 JS 看门狗 terminate 后残留的 Rust reader，以及 webview 假死等 JS 层失能场景） */
+const WS_IDLE_TIMEOUT_SECS = 90;
 /** Token 刷新后被动重连延迟（毫秒），仅在热切换失败时使用 */
 const TOKEN_REFRESH_RECONNECT_DELAY = 100;
 
@@ -179,6 +195,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const lastEventSeqRef = useRef(0);
   /** 服务端建议的重连抖动上限（毫秒） */
   const reconnectJitterMsRef = useRef(3000);
+  /** 看门狗判半开断开后待补偿：重连成功（收到 connected 帧）后强制触发一次增量 sync */
+  const halfOpenSyncPendingRef = useRef(false);
 
   /** 离线/假活期间未能发出的 mark_read（按 type:id 去重），connected 后补发（服务端 GREATEST 幂等） */
   const pendingMarkReadsRef = useRef<Map<string, { targetType: 'friend' | 'group'; targetId: string }>>(new Map());
@@ -295,9 +313,20 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       lastEventSeqRef.current = result.eventSeq;
     }
 
-    // 处理 resumed 状态：resumed=false 且非首次连接 → 触发增量同步
-    if (result.resumed === false && !isFirstConnectRef.current) {
+    // 处理 resumed / 半开补偿：connected 帧（携带 session_id / resumed）= 重连落定
+    const isConnectedFrame = result.sessionId !== undefined || result.resumed !== undefined;
+    const resumeFailed = result.resumed === false && !isFirstConnectRef.current;
+    const halfOpenCompensate = isConnectedFrame && halfOpenSyncPendingRef.current;
+    if (isConnectedFrame) {
+      halfOpenSyncPendingRef.current = false;
+    }
+    if (resumeFailed) {
       console.warn('[WebSocket] 会话未恢复 (resumed=false)，触发消息增量同步');
+      reconnectedListeners.current.forEach(callback => callback());
+    } else if (halfOpenCompensate) {
+      // 半开期间入站帧黑洞时长未知，resumed=true 的重放只覆盖服务端事件缓冲窗口，
+      // 看门狗恢复后无条件补一次增量 sync（syncService 按 seq 增量拉取，幂等）
+      console.warn('[WebSocket] 半开恢复重连成功，补偿增量同步');
       reconnectedListeners.current.forEach(callback => callback());
     }
   }, []); // 使用 ref，不需要依赖
@@ -420,24 +449,52 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       const delay = getReconnectDelay();
       console.warn(`[WebSocket] 连接断开 (code=${event.code})，${(delay / 1000).toFixed(1)}s 后重连 (第 ${reconnectAttemptsRef.current} 次)`);
 
+      // 连续多次重连失败 → 疑似当前 active 节点已下线：重连前先轮换到其他可达 IP（rediscoverOnFailure
+      // 强制重发现并把死 IP 降级），让 App 在节点下线时自愈，不依赖发现池是否已摘掉死节点。轮换更新全局
+      // mem.active 后，connect() 里 resolveForSecureHttp() 自然读到新 IP（HTTP 等其他数据面下次请求同步受益）。
+      const shouldRotate = reconnectAttemptsRef.current >= ROTATE_AFTER_ATTEMPTS;
+
       if (!reconnectTimerRef.current) {
         reconnectTimerRef.current = setTimeout(() => {
           reconnectTimerRef.current = null;
-          connectRef.current();
+          void (async () => {
+            try {
+              if (shouldRotate) {
+                const activeIp = getActiveEndpoint()?.ip;
+                if (activeIp) {
+                  await rediscoverOnFailure(activeIp);
+                }
+              }
+            } finally {
+              // 无论轮换成功/失败都继续重连（轮换是尽力而为；连不上时靠既有退避继续重试）
+              connectRef.current();
+            }
+          })();
         }, delay);
       }
     };
   }, [handleMessage, refreshToken, clearSession, getReconnectDelay]);
 
-  /** 启动 Ping 定时器 */
+  /** 启动 Ping + 入站活性看门狗定时器 */
   const startPing = useCallback((ws: RustWebSocket) => {
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
     }
     pingIntervalRef.current = setInterval(() => {
-      if (ws.readyState === RustWebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping' }));
+      if (ws.readyState !== RustWebSocket.OPEN) {
+        return;
       }
+      // 入站活性看门狗：服务端协议层 Ping 每 30s（ws_proxy 转发计入 lastActivityAt），
+      // 超窗 = 半开连接（入站黑洞但 TCP 假活）。terminate 本地强制派发 onclose
+      // （半开时对端不会回应 Close 帧，常规 close 的 onclose 永不触发）→ 走既有
+      // 指数退避重连；置 halfOpenSyncPendingRef，重连成功后补一次增量 sync。
+      if (Date.now() - ws.lastActivityAt > LIVENESS_TIMEOUT) {
+        console.warn('[WebSocket] 入站活性超时（疑似半开连接），强制断开并重连');
+        halfOpenSyncPendingRef.current = true;
+        ws.terminate();
+        return;
+      }
+      ws.send(JSON.stringify({ type: 'ping' }));
     }, PING_INTERVAL);
   }, []);
 
@@ -460,7 +517,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const url = buildWsUrl(token, serverUrl);
 
     try {
-      const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
+      const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true }, { idleTimeoutSecs: WS_IDLE_TIMEOUT_SECS });
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -500,6 +557,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     isSwappingRef.current = false;
     connectingRef.current = false;
     reconnectAttemptsRef.current = 0;
+    halfOpenSyncPendingRef.current = false;
 
     // 清理 session recovery 状态（退出登录后不应恢复旧会话）
     sessionIdRef.current = null;
@@ -732,7 +790,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const url = buildWsUrl(token, serverUrl);
 
     try {
-      const newWs = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
+      const newWs = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true }, { idleTimeoutSecs: WS_IDLE_TIMEOUT_SECS });
 
       newWs.onopen = () => {
         // 1. 解除旧连接所有 handler（防止后续事件干扰）

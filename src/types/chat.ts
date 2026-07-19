@@ -23,7 +23,7 @@ export interface Friend {
 export type FriendsResponse = Friend[];
 
 /** 消息类型 */
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'meeting_invite';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
 
 /** 消息发送状态 */
 export type MessageSendStatus = 'sending' | 'sent' | 'failed';
@@ -46,6 +46,8 @@ export interface Message {
   send_time: string;
   /** 序列号（用于增量同步） */
   seq?: number;
+  /** 内容修订号（可交互卡片 patch 单调游标；REST DTO 返回，非卡片恒 0；本地 DB-first 路径不填） */
+  rev?: number;
   /** 是否已撤回 — 与 GroupMessage 镜像。true 时 MessageBubble 渲染「消息已撤回」占位，
    * 不再按 message_type 走文件/图片/视频/文本分支 */
   is_recalled: boolean;
@@ -102,7 +104,7 @@ export interface Group {
 }
 
 /** 群消息类型 */
-export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite';
+export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card';
 
 /** 群消息 */
 export interface GroupMessage {
@@ -129,6 +131,8 @@ export interface GroupMessage {
 /** 聊天目标类型 */
 export type ChatTarget =
   | { type: 'friend'; data: Friend }
+  // bot 好友（friend_id 带 bot_ 前缀）：数据形态与消息链路与好友一致，仅 UI 呈现区分
+  | { type: 'bot'; data: Friend }
   | { type: 'group'; data: Group }
   | { type: 'ai'; conversationId?: string };
 

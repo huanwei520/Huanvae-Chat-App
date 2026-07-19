@@ -24,3 +24,9 @@ export {
 // ============================================
 
 export { useProfileViewStore } from './profileViewStore';
+
+// ============================================
+// 运维任务 Store
+// ============================================
+
+export { useOpsStore, type OpsStore } from './opsStore';

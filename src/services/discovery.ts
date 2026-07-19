@@ -15,6 +15,7 @@
 import { Store } from '@tauri-apps/plugin-store';
 import { secureHttp, rewriteUrlHost } from './secureFetch';
 import { setProxyTarget } from './secureProxy';
+import { isE2E } from './e2eMode';
 import type {
   ActiveEndpoint,
   DiscoveryCache,
@@ -45,6 +46,8 @@ const CONFIG_TIMEOUT_SECS = 8;
 
 let mem: DiscoveryCache | null = null;
 let storeInstance: Store | null = null;
+/** 失败轮换的 single-flight:并发数据面失败共享同一次在途重发现,避免探测风暴 */
+let rediscoverInFlight: Promise<ActiveEndpoint | null> | null = null;
 
 async function getStore(): Promise<Store> {
   if (!storeInstance) {
@@ -204,7 +207,7 @@ export async function pickFastest(
  * 发现入口:缓存命中(未过期且有 active)直接返回,否则拉配置 + 择优 + 落缓存。
  * 拉配置失败时退化用上次缓存(过期也用);都没有则 fail-loud(去输入框后无手填兜底)。
  */
-export async function discoverEndpoints(opts?: { force?: boolean }): Promise<ActiveEndpoint> {
+export async function discoverEndpoints(opts?: { force?: boolean; excludeIp?: string }): Promise<ActiveEndpoint> {
   const cached = await loadCache();
   if (!opts?.force && isFresh(cached, Date.now()) && cached.active) {
     await syncProxyTarget(cached.active);
@@ -212,7 +215,7 @@ export async function discoverEndpoints(opts?: { force?: boolean }): Promise<Act
   }
 
   const cfg = await configOrFallback();
-  const { active, perIpLatency } = await pickFastest(cfg);
+  const { active, perIpLatency } = await pickFastest(cfg, opts?.excludeIp);
   await saveCache({
     ips: cfg.ips,
     port: cfg.port,
@@ -225,6 +228,33 @@ export async function discoverEndpoints(opts?: { force?: boolean }): Promise<Act
   });
   await syncProxyTarget(active);
   return active;
+}
+
+/**
+ * 数据面失败时的端点轮换(自愈):当前 active(=failedIp)判定不可用 → 强制重发现、把 failedIp 降级到候选末位,
+ * 选出新的可达 active 并更新缓存 + 反代目标。让 App 在节点下线时自愈,**不依赖发现池是否已摘掉死节点**
+ * (发现池仍列死 IP 也无碍:pickFastest 探测跳过不可达者)。由 WebSocketContext 重连路径在多次重连失败后触发。
+ *
+ * - **并发去重**:多个数据面失败(WS + HTTP)同时上报 → 共享同一次在途重发现(single-flight),避免探测风暴。
+ * - **幂等守卫**:failedIp 已不是当前 active(其他失败已把它轮换掉)→ 直接返回当前 active,不重复探测。
+ * - **全不可达**:pickFastest 抛错 → 返回 null(不抛;调用方靠既有指数退避继续重试),active 保持不变。
+ */
+export function rediscoverOnFailure(failedIp: string): Promise<ActiveEndpoint | null> {
+  const current = mem?.active ?? null;
+  // 当前 active 已非 failedIp(已被其他失败轮换掉)→ 无需重探,直接返回现值
+  if (!current || current.ip !== failedIp) {
+    return Promise.resolve(current);
+  }
+  if (rediscoverInFlight) {
+    return rediscoverInFlight;
+  }
+  // 强制重发现并把 failedIp 降级;全不可达 → null(不抛,调用方靠既有退避重试);无论成败重置在途标记
+  rediscoverInFlight = discoverEndpoints({ force: true, excludeIp: failedIp })
+    .catch(() => null)
+    .finally(() => {
+      rediscoverInFlight = null;
+    });
+  return rediscoverInFlight;
 }
 
 /**
@@ -249,6 +279,10 @@ export function getActiveEndpoint(): (ActiveEndpoint & { caPem: string }) | null
  * direct_ip/direct_port → 调用层把 URL 主机改写为该 IP(IP 字面量=不发 SNI),leaf SAN=IP 由内置 CA 验证。
  */
 export function resolveForSecureHttp(): SecureHttpResolve | null {
+  if (isE2E()) {
+    // e2e：无发现面/直连 IP 改写，serverUrl 即本地集群基址，原样直连
+    return null;
+  }
   const active = getActiveEndpoint();
   if (!active) {
     return null;
@@ -281,4 +315,5 @@ export function directIpUrl(url: string): string {
 export function __resetForTest(): void {
   mem = null;
   storeInstance = null;
+  rediscoverInFlight = null;
 }

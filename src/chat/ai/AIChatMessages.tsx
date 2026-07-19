@@ -226,7 +226,7 @@ export function AIChatMessages({
                       width: 6,
                       height: 6,
                       borderRadius: '50%',
-                      background: '#3b82f6',
+                      background: 'var(--status-info)',
                       animation: 'ai-blink 1.2s ease-in-out infinite',
                       flexShrink: 0,
                     }} />
@@ -234,7 +234,7 @@ export function AIChatMessages({
                   </>
                 ) : (
                   <>
-                    <span style={{ color: '#22c55e', flexShrink: 0 }}>✓</span>
+                    <span style={{ color: 'var(--status-success)', flexShrink: 0 }}>✓</span>
                     {getToolDisplayName(toolStatus.name)}查询完成
                   </>
                 )}
@@ -324,7 +324,8 @@ function PendingToolCallCard({
                 fontWeight: 600,
                 color: 'var(--text-primary)',
               }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {/* stroke 走 style：SVG presentation attribute 不支持 var()，style 中 var 可正常解析 */}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--status-warning)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" />
                   <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -383,8 +384,8 @@ function PendingToolCallCard({
                     padding: '5px 14px',
                     borderRadius: 6,
                     border: 'none',
-                    background: '#3b82f6',
-                    color: '#fff',
+                    background: 'var(--ai-confirm-btn-bg)',
+                    color: 'var(--text-on-color)',
                     fontSize: 12,
                     cursor: loading ? 'not-allowed' : 'pointer',
                     opacity: loading === 'reject' ? 0.5 : 1,

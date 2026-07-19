@@ -5,12 +5,13 @@
  *
  * 由 OtherProfileView 在桌面右侧抽屉 / 移动整页内渲染。QQ 风格：通栏封面（可为对方背景图）+
  * 上叠圆角淡染卡 + 头像骑卡片左上角。分组展示：
- * - 身份：头像、昵称（好友显示备注名）、@ID（可复制）、签名
- * - 资料：性别 / 生日 / 地区 / 注册时间
- * - 关系：好友/陌生人/自己、成为好友时间、在线状态、特别关心/拉黑徽章、好友备注（可编辑）
+ * - 身份：头像、昵称（好友显示备注名）、@ID（可复制）、签名；bot（bot_ 前缀 id）加 BotBadge 徽章
+ * - 资料：性别 / 生日 / 地区 / 注册时间（bot 无可选字段，不显示"未填写"提示）
+ * - 关系：好友/陌生人/自己/机器人、成为好友时间、在线状态、特别关心/拉黑徽章、好友备注（可编辑）
  * - 操作：好友「发消息」直达会话 / 非好友「添加好友」
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段）。在线状态读 store 的 presence 快照/增量。
+ * bot 额外拉 GET /api/bots/{id}（owner-only，非 owner 404）取 description 作简介，失败回落个性签名。
  */
 
 import { useEffect, useState } from 'react';
@@ -18,9 +19,11 @@ import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
 import { sendFriendRequest, setFriendRemark as apiSetFriendRemark } from '../../api/friends';
+import { getBot, isBotUserId, type BotInfo } from '../../api/bots';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon } from '../../components/common/Icons';
 import { AppButton } from '../../components/common/AppButton';
+import { BotBadge } from '../../components/common/BotBadge';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { formatDate, formatLastSeen } from '../../utils/time';
@@ -36,9 +39,10 @@ interface OtherProfilePanelProps {
   onSendMessage?: (friend: Friend) => void;
 }
 
-/** 关系状态文案 */
-function relationLabel(isSelf: boolean, isFriend: boolean): string {
+/** 关系状态文案（bot 与人分开表述） */
+function relationLabel(isSelf: boolean, isBot: boolean, isFriend: boolean): string {
   if (isSelf) { return '这是你自己'; }
+  if (isBot) { return isFriend ? '机器人 · 已添加' : '机器人'; }
   return isFriend ? '好友' : '非好友';
 }
 
@@ -77,8 +81,10 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
   const friendData = friends.find((f) => f.friend_id === userId);
   const isFriend = !!friendData;
   const isSelf = session?.userId === userId;
+  const isBot = isBotUserId(userId);
 
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
+  const [botInfo, setBotInfo] = useState<BotInfo | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -92,6 +98,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
   useEffect(() => {
     let cancelled = false;
     setProfile(null);
+    setBotInfo(null);
     setLoadError(false);
     // 切换查看对象时重置各态，避免串台到新用户。
     setSent(false);
@@ -100,8 +107,15 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
     getPublicProfile(api, userId)
       .then((p) => { if (!cancelled) { setProfile(p); } })
       .catch(() => { if (!cancelled) { setLoadError(true); } });
+    // bot 简介：GET /api/bots/{id} 是 owner-only 契约，非 owner 返回 404（与不存在同形）。
+    // catch 是契约语义分支而非吞错：非 owner 拿不到 description，简介区自然回落 user_signature。
+    if (isBot) {
+      getBot(api, userId)
+        .then((b) => { if (!cancelled) { setBotInfo(b); } })
+        .catch(() => { /* 非 owner 404：契约文档明确 owner-only，与不存在同形；无简介可展示 */ });
+    }
     return () => { cancelled = true; };
-  }, [api, userId]);
+  }, [api, userId, isBot]);
 
   // 显示名：是我好友则用备注/昵称；否则用公开资料昵称（加载/失败期间留空，避免短暂闪现原始 id）
   const displayName = friendData
@@ -114,6 +128,8 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
     ?? null;
   const backgroundUrl = resolveServerAvatarUrl(profile?.background_url);
   const signature = profile?.user_signature ?? null;
+  // 简介：bot 优先展示 bot description（TG 式简介，仅 owner 可拉到），否则回落个性签名
+  const intro = (isBot && botInfo?.description) || signature;
 
   // 在线状态
   const online = presence?.online ?? false;
@@ -213,6 +229,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
             </div>
             <div className="qq-hero-namecol">
               <span className="qq-hero-name">{displayName}</span>
+              {isBot && <BotBadge />}
               <div>
                 <button
                   type="button"
@@ -227,7 +244,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
           </div>
 
           {loadError && <div className="other-profile-hint">资料加载失败</div>}
-          {signature && <div className="qq-hero-signature">{signature}</div>}
+          {intro && <div className="qq-hero-signature">{intro}</div>}
 
           {/* 资料 */}
           <div className="profile-section">
@@ -236,7 +253,8 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
             <InfoRow label="生日" value={profile?.birthday ?? ''} />
             <InfoRow label="地区" value={profile?.region ?? ''} />
             <InfoRow label="注册时间" value={formatDate(profile?.created_at)} />
-            {profile && !hasOptionalProfileFields && (
+            {/* bot 无性别/生日/地区字段，"未填写"提示对 bot 是噪音，不显示 */}
+            {profile && !hasOptionalProfileFields && !isBot && (
               <div className="profile-info-empty">该用户未填写性别 / 生日 / 地区</div>
             )}
           </div>
@@ -244,7 +262,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
           {/* 关系 */}
           <div className="profile-section">
             <div className="profile-section-title">关系</div>
-            <InfoRow label="关系" value={relationLabel(isSelf, isFriend)} />
+            <InfoRow label="关系" value={relationLabel(isSelf, isBot, isFriend)} />
             {isFriend && friendData && (
               <InfoRow label="成为好友" value={formatDate(friendData.add_time)} />
             )}

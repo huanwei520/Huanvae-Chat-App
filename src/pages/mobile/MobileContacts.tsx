@@ -12,6 +12,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
 import { useChatStore, useProfileViewStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
+import { friendChatTarget } from '../../utils/chatTarget';
+import { isBotUserId } from '../../api/bots';
+import { BotBadge } from '../../components/common/BotBadge';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 
@@ -31,6 +34,24 @@ const ArrowIcon = () => (
     />
   </svg>
 );
+
+// 折叠列表展开编排：容器 height/opacity 展开 + 子行 stagger；行 opacity+y 进场。
+// transform/opacity 由 framer-motion 接管，.mobile-contact-card / .mobile-contacts-list
+// 的 CSS 不得过渡这两个属性（见 tests/animation-conflict.test.ts 注册表）
+const listVariants = {
+  initial: { height: 0, opacity: 0 },
+  animate: {
+    height: 'auto',
+    opacity: 1,
+    transition: { duration: 0.2, staggerChildren: 0.03, delayChildren: 0.05 },
+  },
+  exit: { height: 0, opacity: 0, transition: { duration: 0.2 } },
+};
+
+const rowVariants = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+};
 
 interface MobileContactsProps {
   /** 好友列表 */
@@ -99,7 +120,7 @@ export function MobileContacts({
   };
 
   const handleFriendClick = (friend: Friend) => {
-    onSelectTarget({ type: 'friend', data: friend });
+    onSelectTarget(friendChatTarget(friend));
   };
 
   const handleGroupClick = (group: Group) => {
@@ -131,10 +152,10 @@ export function MobileContacts({
           {friendsExpanded && (
             <motion.div
               className="mobile-contacts-list"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              variants={listVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
             >
               {filteredFriends.length === 0 ? (
                 <div className="mobile-contacts-empty" style={{ padding: '24px' }}>
@@ -145,10 +166,12 @@ export function MobileContacts({
                   const avatarHandlers = contactAvatarKbd.handlersFor(friend.friend_id);
                   const avatarKbdFocused = contactAvatarKbd.isKbdFocused(friend.friend_id);
                   return (
-                    <div
+                    <motion.div
                       key={friend.friend_id}
                       className="mobile-contact-card"
                       onClick={() => handleFriendClick(friend)}
+                      variants={rowVariants}
+                      whileTap={{ scale: 0.97 }}
                     >
                       <div
                         className={`mobile-contact-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
@@ -176,7 +199,7 @@ export function MobileContacts({
                             style={{
                               position: 'absolute', right: 0, bottom: 0,
                               width: 10, height: 10, borderRadius: '50%',
-                              background: '#34d399', border: '2px solid #fff', boxSizing: 'border-box',
+                              background: 'var(--presence-online)', border: '2px solid var(--presence-dot-ring)', boxSizing: 'border-box',
                             }}
                           />
                         )}
@@ -184,9 +207,10 @@ export function MobileContacts({
                       <div className="mobile-contact-info">
                         <div className="mobile-contact-name">
                           {friendDisplayName(friend)}
+                          {isBotUserId(friend.friend_id) && <BotBadge />}
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
@@ -218,10 +242,10 @@ export function MobileContacts({
           {groupsExpanded && (
             <motion.div
               className="mobile-contacts-list"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              variants={listVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
             >
               {filteredGroups.length === 0 ? (
                 <div className="mobile-contacts-empty" style={{ padding: '24px' }}>
@@ -229,10 +253,12 @@ export function MobileContacts({
                 </div>
               ) : (
                 filteredGroups.map((group) => (
-                  <div
+                  <motion.div
                     key={group.group_id}
                     className="mobile-contact-card"
                     onClick={() => handleGroupClick(group)}
+                    variants={rowVariants}
+                    whileTap={{ scale: 0.97 }}
                   >
                     <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
                       <GroupAvatar group={group} />
@@ -245,7 +271,7 @@ export function MobileContacts({
                         </div>
                       )}
                     </div>
-                  </div>
+                  </motion.div>
                 ))
               )}
             </motion.div>

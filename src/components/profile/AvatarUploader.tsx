@@ -136,8 +136,8 @@ export function AvatarUploader({
           progress={uploadProgress}
           size={86}
           strokeWidth={3}
-          progressColor="#3b82f6"
-          backgroundColor="rgba(147, 197, 253, 0.3)"
+          progressColor="var(--upload-ring-fill)"
+          backgroundColor="var(--upload-ring-track)"
         >
           <div className="avatar-upload-content">
             <UserAvatar session={session} />

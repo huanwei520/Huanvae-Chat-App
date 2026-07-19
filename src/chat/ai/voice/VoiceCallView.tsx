@@ -140,7 +140,7 @@ export function VoiceCallView({
               </>
             ) : (
               <>
-                <span style={{ color: state.toolStatus.status === 'done' ? '#22c55e' : '#ef4444' }}>
+                <span style={{ color: state.toolStatus.status === 'done' ? 'var(--status-success)' : 'var(--status-error)' }}>
                   {state.toolStatus.status === 'done' ? '✓' : '✗'}
                 </span>
                 {getToolDisplayName(state.toolStatus.name)}

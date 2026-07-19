@@ -334,7 +334,10 @@ export function useLocalFriendMessages(friendId: string | null) {
 
       let conversation = conversationRef.current;
       if (!conversation) {
-        conversation = {
+        // saveConversation 不携带 last_read_seq / is_pinned（分别由 advanceConversationRead /
+        // setConversationPinned 单独维护，DB 新行走列默认 0）；内存 ref 需完整 LocalConversation，
+        // 新会话必然未读 0 / 未置顶，spread 时补齐。
+        const newConversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq' | 'is_pinned'> = {
           id: conversationId,
           type: 'friend',
           name: '',
@@ -343,13 +346,11 @@ export function useLocalFriendMessages(friendId: string | null) {
           last_message_time: null,
           last_seq: 0,
           unread_count: 0,
-          last_read_seq: 0,
           is_muted: false,
-          is_pinned: false,
           updated_at: new Date().toISOString(),
-          synced_at: null,
         };
-        await db.saveConversation(conversation);
+        await db.saveConversation(newConversation);
+        conversation = { ...newConversation, synced_at: null, last_read_seq: 0, is_pinned: false };
         conversationRef.current = conversation;
         logSync('创建新会话记录', { conversationId });
       }

@@ -120,16 +120,20 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   
   cursor: pointer;
-  transition: all 0.2s ease;
+  /* transform/opacity owned by framer-motion (stagger entrance + whileTap in
+     MobileChatList/MobileContacts) - never transition them here.
+     See tests/animation-conflict.test.ts */
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+/* Press feedback: background stays CSS-owned; scale feedback moved to
+   framer-motion whileTap (single owner per property). */
 .mobile-contact-card:active {
   background: linear-gradient(
     135deg,
     var(--card-bg-hover-start) 0%,
     var(--card-bg-hover-end) 100%
   );
-  transform: scale(0.98);
 }
 
 .mobile-contact-avatar {

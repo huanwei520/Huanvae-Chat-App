@@ -112,9 +112,10 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     }
 
     // 创建新会话
-    // saveConversation 不携带 last_read_seq（本地已读位置由 advanceConversationRead 单独维护），
-    // 但返回值需是完整 LocalConversation，故 last_read_seq 在 return 时补 0（新会话尚未读）。
-    const newConversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq'> = {
+    // saveConversation 不携带 last_read_seq / is_pinned（分别由 advanceConversationRead /
+    // setConversationPinned 单独维护，DB 新行走列默认 0），但返回值需是完整 LocalConversation，
+    // 故 return 时补齐（新会话必然未读 0 / 未置顶）。
+    const newConversation: Omit<LocalConversation, 'synced_at' | 'last_read_seq' | 'is_pinned'> = {
       id: conversationId,
       type,
       name,
@@ -124,12 +125,11 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       last_seq: 0,
       unread_count: 0,
       is_muted: false,
-      is_pinned: false,
       updated_at: new Date().toISOString(),
     };
 
     await db.saveConversation(newConversation);
-    return { ...newConversation, synced_at: null, last_read_seq: 0 };
+    return { ...newConversation, synced_at: null, last_read_seq: 0, is_pinned: false };
   }, []);
 
   /**

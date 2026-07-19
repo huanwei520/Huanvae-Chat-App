@@ -24,9 +24,12 @@ import { VoiceProfileManager } from '../../chat/ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../../chat/ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
+import { OpsConsolePanel } from '../../chat/ops/OpsConsolePanel';
+import { BotBadge } from '../../components/common/BotBadge';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
+import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { useProfileViewStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage } from '../../types/chat';
@@ -141,7 +144,7 @@ interface MobileChatViewProps {
 
 function getChatTitle(chatTarget: ChatTarget): string {
   if (chatTarget.type === 'ai') { return 'AI 助手'; }
-  if (chatTarget.type === 'friend') {
+  if (isFriendLikeTarget(chatTarget)) {
     return friendDisplayName(chatTarget.data);
   }
   return chatTarget.data.group_name || '群聊';
@@ -217,19 +220,19 @@ export function MobileChatView({
   // eslint-disable-next-line no-nested-ternary
   const chatKey = chatTarget.type === 'ai'
     ? 'ai-assistant'
-    : chatTarget.type === 'friend'
+    : isFriendLikeTarget(chatTarget)
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
 
-  // 私聊顶栏点开对方资料（群/AI 不适用）
+  // 私聊顶栏点开对方资料（群/AI 不适用；bot 同好友可看资料）
   const openProfile = useProfileViewStore((s) => s.open);
-  const friendIdForProfile = chatTarget.type === 'friend' ? chatTarget.data.friend_id : null;
+  const friendIdForProfile = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
   const titleKbd = useKbdFocusRing();
   const titleKbdHandlers = titleKbd.handlersFor('title');
 
-  // 获取实际的 friend/group 对象
-  const friend = chatTarget.type === 'friend' ? chatTarget.data : undefined;
+  // 获取实际的 friend/group 对象（bot 的 data 也是 Friend，走 friend 消息链路）
+  const friend = isFriendLikeTarget(chatTarget) ? chatTarget.data : undefined;
   const group = chatTarget.type === 'group' ? chatTarget.data : undefined;
 
   const [showAIHistory, setShowAIHistory] = useState(false);
@@ -273,6 +276,8 @@ export function MobileChatView({
           style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
         >
           {getChatTitle(chatTarget)}
+          {/* bot 会话：标题旁 Bot 徽章（对齐桌面 ChatPanel 的 bot 标识） */}
+          {chatTarget.type === 'bot' && <BotBadge />}
         </div>
         {chatTarget.type === 'ai' ? (
           <div className="mobile-chat-menu ai-actions">
@@ -342,6 +347,11 @@ export function MobileChatView({
         />
       )}
 
+      {/* bot 会话：运维全景折叠区（仅 ops-bot owner 可见，gate 由后端数据判定） */}
+      {chatTarget.type === 'bot' && (
+        <OpsConsolePanel botUserId={chatTarget.data.friend_id} />
+      )}
+
       {/* 消息列表 */}
       <div className="mobile-chat-messages">
         {/* eslint-disable-next-line no-nested-ternary */}
@@ -367,7 +377,7 @@ export function MobileChatView({
             onRejectToolCall={onAIRejectToolCall}
           />
         ) : null}
-        {chatTarget.type === 'friend' && friend && (
+        {isFriendLikeTarget(chatTarget) && friend && (
           <ChatMessages
             key={`friend-${chatKey}`}
             loading={isLoading}
@@ -411,7 +421,7 @@ export function MobileChatView({
         {isMultiSelectMode ? (
           <MultiSelectActionBar
             selectedCount={selectedMessages.size}
-            totalCount={chatTarget.type === 'friend' ? friendMessages.length : groupMessages.length}
+            totalCount={isFriendLikeTarget(chatTarget) ? friendMessages.length : groupMessages.length}
             canBatchRecall={canBatchRecall}
             onSelectAll={onSelectAll}
             onDeselectAll={onDeselectAll}

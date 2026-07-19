@@ -45,25 +45,40 @@
   gap: 6px;
   cursor: pointer;
   color: var(--text-tertiary);
-  /* transform 留给 framer-motion 接管（whileTap），CSS 只过渡颜色和背景 */
-  transition: color 0.2s ease, background 0.2s ease;
+  /* motion.button reset: strip native button chrome */
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  /* transform/opacity owned by framer-motion (whileTap scale);
+     active background is carried by .mobile-tab-indicator (layoutId slider),
+     so CSS only transitions color here. See tests/animation-conflict.test.ts */
+  transition: color 0.2s ease;
   position: relative;
   border-radius: 9999px;
 }
 
 .mobile-tab-item.active {
   color: var(--primary);
-  background: var(--white-alpha-50);
 }
 
-.mobile-tab-item:active {
-  opacity: 0.7;
+/* Active-tab sliding pill. transform is owned by framer-motion layout
+   animation (layoutId="mobile-tab-indicator") - never add a transform/all
+   transition here. */
+.mobile-tab-indicator {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--white-alpha-50);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .mobile-tab-icon {
   width: 18px;
   height: 18px;
   position: relative;
+  z-index: 1;
 }
 
 .mobile-tab-icon svg {
@@ -74,6 +89,8 @@
 .mobile-tab-label {
   font-size: 13px;
   font-weight: 500;
+  position: relative;
+  z-index: 1;
 }
 
 /* 未读消息徽章 */

@@ -33,6 +33,7 @@ import type { Session, UserProfile } from './types/session';
 import { setCurrentUser, initDatabase } from './db';
 import { restoreSession } from './services/sessionPersist';
 import { discoverEndpoints } from './services/discovery';
+import { isE2E, e2eBaseUrl } from './services/e2eMode';
 import { resolveServerAvatarUrl } from './utils/avatar';
 import { UpdateToast, useStartupUpdateCheck, useUpdateToastProps } from './update';
 import './styles/index.css';
@@ -286,7 +287,10 @@ function App() {
     try {
       // serverUrl 不再由用户输入:重登录(密码丢失)沿用所选账号的逻辑域名;
       // 新登录由发现服务(ca.huanvae.cn → 内置 CA)择最快域名。物理直连 IP 由 secureHttp 注入层处理。
-      const serverUrl = selectedAccount?.server_url ?? `https://${(await discoverEndpoints()).domain}`;
+      // e2e(L2.5-web)：serverUrl 直取本地集群基址，跳过发现面
+      const serverUrl = isE2E()
+        ? e2eBaseUrl()
+        : selectedAccount?.server_url ?? `https://${(await discoverEndpoints()).domain}`;
 
       // 0. 检查是否有同账户实例已在运行
       const { canProceed, message } = await checkAndHandleSessionConflict(serverUrl, userId);
@@ -348,7 +352,7 @@ function App() {
 
     try {
       // serverUrl 由发现服务择最快域名(不再由用户输入)
-      const serverUrl = `https://${(await discoverEndpoints()).domain}`;
+      const serverUrl = isE2E() ? e2eBaseUrl() : `https://${(await discoverEndpoints()).domain}`;
 
       // 1. 调用注册 API
       await register(serverUrl, {

@@ -21,6 +21,8 @@ export interface ConversationPreview {
   lastMessage: string | null;
   lastMessageTime: string | null;
   lastSeq: number;
+  /** 本地置顶状态（conversations.is_pinned，由 setConversationPinned 维护） */
+  isPinned: boolean;
 }
 
 /** 按目标ID索引的预览信息 */
@@ -87,6 +89,7 @@ export function useLocalConversations(): UseLocalConversationsReturn {
           lastMessage: toPreviewText(row.msg_content_type, row.msg_content),
           lastMessageTime: row.msg_send_time,
           lastSeq: row.last_seq,
+          isPinned: row.is_pinned,
         };
 
         if (row.type === 'friend') {

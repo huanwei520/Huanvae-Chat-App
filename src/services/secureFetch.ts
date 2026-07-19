@@ -10,6 +10,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { isE2E } from './e2eMode';
 
 /** 对齐 src-tauri/src/secure_net.rs 的 SecureHttpReq(字段 snake_case) */
 export interface SecureHttpReq {
@@ -60,6 +61,30 @@ export function rewriteUrlHost(url: string, ip: string, port: number): string {
 }
 
 /**
+ * e2e(L2.5-web)分支：浏览器原生 fetch 适配回 SecureResponse 形状。
+ * 真 HTTP 帧直打本地明文 nginx（CORS 由 nginx 层提供），无 Tauri/TLS 面。
+ */
+async function nativeFetch(req: SecureHttpReq): Promise<SecureResponse> {
+  const resp = await fetch(req.url, {
+    method: req.method,
+    headers: req.headers,
+    body: req.body ?? undefined,
+    signal: req.timeout_secs ? AbortSignal.timeout(req.timeout_secs * 1000) : undefined,
+  });
+  const body = await resp.text();
+  const headers: Record<string, string> = {};
+  resp.headers.forEach((v, k) => { headers[k] = v; });
+  return {
+    status: resp.status,
+    ok: isOkStatus(resp.status),
+    headers,
+    body,
+    json: <T = unknown>() => JSON.parse(body) as T,
+    text: () => body,
+  };
+}
+
+/**
  * 经 Rust secure_http 命令发请求。
  *
  * `direct_ip`/`direct_port`(来自 discovery.resolveForSecureHttp):把 url 主机改写为该 IP 再发,
@@ -77,6 +102,9 @@ export async function secureHttp(
     direct_ip && direct_port
       ? { ...rest, url: rewriteUrlHost(rest.url, direct_ip, direct_port) }
       : rest;
+  if (isE2E()) {
+    return nativeFetch(finalReq);
+  }
   const resp = await invoke<SecureHttpResp>('secure_http', { req: finalReq });
   return {
     status: resp.status,

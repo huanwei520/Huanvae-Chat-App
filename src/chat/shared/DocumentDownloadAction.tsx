@@ -166,8 +166,8 @@ export function DocumentDownloadAction({
             size={28}
             strokeWidth={3}
             showText={false}
-            progressColor="rgba(255, 255, 255, 0.95)"
-            backgroundColor="rgba(255, 255, 255, 0.3)"
+            progressColor="var(--white-alpha-95)"
+            backgroundColor="var(--white-alpha-30)"
           />
           下载中 {Math.round(downloadTask?.percent ?? 0)}%
         </button>

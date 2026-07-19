@@ -94,6 +94,45 @@
   --status-info: #3b82f6;
   --status-info-subtle: rgba(59, 130, 246, 0.15);
 
+  /* Bot 徽章（bot 卡片/资料页标识；静态紫色系，不随主题注入） */
+  --bot-badge-bg: rgba(139, 92, 246, 0.15);
+  --bot-badge-text: #7c3aed;
+
+  /* 柔和错误红（red-400）：移动端添加页表单错误文案（静态，不随主题注入；
+     比 --status-error 浅一档） */
+  --status-error-soft: #f87171;
+
+  /* 群角色标签（UnifiedList RoleBadge；静态，不随主题注入） */
+  --role-owner-bg: rgba(234, 179, 8, 0.2);   /* 群主标签底色（琥珀黄透明） */
+  --role-owner-text: #ca8a04;                /* 群主标签文字（琥珀黄） */
+  --role-admin-bg: rgba(59, 130, 246, 0.2);  /* 管理员标签底色（蓝透明） */
+  --role-admin-text: #2563eb;                /* 管理员标签文字（蓝） */
+
+  /* 好友在线状态点（会话/联系人列表头像右下角；静态，不随主题注入） */
+  --presence-online: #34d399;    /* 在线绿点 */
+  --presence-dot-ring: #ffffff;  /* 在线点描边：叠在头像上的白色分隔环，恒白不随主题 */
+
+  /* 未读消息徽标（移动端会话列表；iOS 系统红，静态） */
+  --unread-badge-bg: #ff3b30;    /* 徽标底色 */
+  --unread-badge-text: #ffffff;  /* 徽标数字恒白 */
+
+  /* 彩色/深色底上的恒白文字（AI 工具确认按钮、深色提示气泡等）。
+     区别于 --text-inverse（深色主题下会被注入为深色）：本 token 恒白不随主题 */
+  --text-on-color: #ffffff;
+
+  /* AI 品牌色（AIAvatar 白底蓝渐变字 + AI 工具确认按钮；静态品牌色，不随主题注入） */
+  --ai-avatar-bg: #ffffff;                    /* AI 头像白色圆底 */
+  --ai-avatar-ring: rgba(96, 165, 250, 0.3);  /* AI 头像浅蓝描边 */
+  --ai-avatar-gradient: linear-gradient(135deg, #60a5fa 0%, #93c5fd 50%, #3b82f6 100%); /* "AI" 文字蓝渐变 */
+  --ai-confirm-btn-bg: #3b82f6;               /* AI 工具确认按钮固定蓝 */
+
+  /* 头像上传环形进度（AvatarUploader / 群头像上传 MainMenu；固定蓝，静态不随主题） */
+  --upload-ring-fill: #3b82f6;                    /* 进度环填充蓝 */
+  --upload-ring-track: rgba(147, 197, 253, 0.3);  /* 进度环底轨浅蓝 */
+
+  /* 设备列表"当前设备"图标绿（DeviceListPanel；静态，不随主题注入） */
+  --device-current-icon: #10b981;
+
   /* 股票涨跌语义色（A 股惯例：涨=红 up / 跌=绿 down；默认映射现有 error/success 色阶，
      深色在 [data-theme="dark"] 覆盖为更亮的 iOS 风，与 --read-receipt-green 同款处理） */
   --stock-up: #ef4444;
@@ -192,6 +231,7 @@
   --white-alpha-10: rgba(255, 255, 255, 0.1);
   
   /* 黑色透明度 - 用于遮罩和阴影 */
+  --black-alpha-70: rgba(0, 0, 0, 0.7); /* 深色提示气泡底（消息全文预览"已复制"） */
   --black-alpha-60: rgba(0, 0, 0, 0.6);
   --black-alpha-50: rgba(0, 0, 0, 0.5);
   --black-alpha-30: rgba(0, 0, 0, 0.3);

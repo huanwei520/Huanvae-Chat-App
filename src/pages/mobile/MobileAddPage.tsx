@@ -328,7 +328,7 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
                 </div>
               )}
               {f.error && (
-                <div style={{ color: '#f87171', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
+                <div style={{ color: 'var(--status-error-soft)', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
               )}
               <motion.button
                 className="mobile-add-submit"
@@ -372,7 +372,7 @@ export function MobileAddPage({ onClose, onFriendAdded, addGroup, refreshGroups 
                 />
               </div>
               {f.error && (
-                <div style={{ color: '#f87171', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
+                <div style={{ color: 'var(--status-error-soft)', fontSize: '13px', padding: '4px 2px' }}>{f.error}</div>
               )}
               <div style={{ display: 'flex', gap: '8px' }}>
                 <motion.button

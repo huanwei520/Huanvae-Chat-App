@@ -51,8 +51,8 @@ export const CircularProgress = memo(function CircularProgress({
   progress,
   size = 48,
   strokeWidth = 4,
-  progressColor = 'rgba(255, 255, 255, 0.95)',
-  backgroundColor = 'rgba(255, 255, 255, 0.3)',
+  progressColor = 'var(--white-alpha-95)',
+  backgroundColor = 'var(--white-alpha-30)',
   showText = true,
   className = '',
   children,
@@ -75,15 +75,15 @@ export const CircularProgress = memo(function CircularProgress({
         viewBox={`0 0 ${size} ${size}`}
         style={{ position: 'absolute', top: 0, left: 0 }}
       >
-        {/* 背景圆环 */}
+        {/* 背景圆环（stroke 走 style：SVG presentation attribute 不支持 var()，style 中 var 可正常解析） */}
         <circle
           className="circular-progress-bg"
           cx={center}
           cy={center}
           r={radius}
           fill="none"
-          stroke={backgroundColor}
           strokeWidth={strokeWidth}
+          style={{ stroke: backgroundColor }}
         />
         {/* 进度圆环 */}
         <circle
@@ -92,13 +92,13 @@ export const CircularProgress = memo(function CircularProgress({
           cy={center}
           r={radius}
           fill="none"
-          stroke={progressColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           transform={`rotate(-90 ${center} ${center})`}
           style={{
+            stroke: progressColor,
             transition: 'stroke-dashoffset 0.3s ease-out',
           }}
         />
@@ -132,7 +132,7 @@ export const CircularProgress = memo(function CircularProgress({
             fontSize: Math.max(10, size / 4),
             fontWeight: 600,
             color: progressColor,
-            textShadow: '0 1px 2px rgba(0, 0, 0, 0.5)',
+            textShadow: '0 1px 2px var(--black-alpha-50)',
           }}
         >
           {Math.round(progress)}%

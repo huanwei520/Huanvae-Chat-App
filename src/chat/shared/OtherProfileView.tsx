@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useProfileViewStore } from '../../stores';
 import { OtherProfilePanel } from './OtherProfilePanel';
+import { friendChatTarget } from '../../utils/chatTarget';
 import type { ChatTarget, Friend } from '../../types/chat';
 
 interface OtherProfileViewProps {
@@ -39,7 +40,7 @@ export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
   const mobile = isMobile();
 
   const handleSendMessage = (friend: Friend) => {
-    onOpenChat?.({ type: 'friend', data: friend });
+    onOpenChat?.(friendChatTarget(friend));
   };
 
   useEffect(() => {

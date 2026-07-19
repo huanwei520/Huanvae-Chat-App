@@ -11,6 +11,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { isE2E, e2eResourceUrl } from './e2eMode';
 
 let proxyPortValue = 0;
 /** 反代目标源站的逻辑域名(setProxyTarget 时缓存),用于 resolveDisplayUrl 判定"后端 vs 外部"。 */
@@ -62,6 +63,10 @@ function pathAndQueryOf(input: string): string | null {
  */
 export function proxyResourceUrl(path: string | null | undefined): string | null {
   if (!path) { return null; }
+  if (isE2E()) {
+    // e2e：无反代面,完整 URL 原样(presigned 保 Host 签名)、相对路径拼集群基址
+    return e2eResourceUrl(path);
+  }
   const pq = pathAndQueryOf(path);
   if (pq === null) { return path; }
   if (!proxyPortValue) {
@@ -81,6 +86,9 @@ export function proxyResourceUrl(path: string | null | undefined): string | null
  */
 export function resolveDisplayUrl(input: string | null | undefined): string | null {
   if (!input) { return null; }
+  if (isE2E()) {
+    return e2eResourceUrl(input);
+  }
   if (input.startsWith('http://') || input.startsWith('https://')) {
     try {
       const u = new URL(input);
@@ -108,6 +116,9 @@ export function resolveDisplayUrl(input: string | null | undefined): string | nu
  * URL 非法时退化为原 URL(失败诚实暴露,不静默掩盖)。
  */
 export function proxyRequestUrl(url: string): string {
+  if (isE2E()) {
+    return e2eResourceUrl(url);
+  }
   const pq = pathAndQueryOf(url);
   if (pq === null || !proxyPortValue) { return url; }
   return `http://127.0.0.1:${proxyPortValue}${pq}`;
