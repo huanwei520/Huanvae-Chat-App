@@ -22,6 +22,7 @@
     "test:animation": "playwright test --project=animation-health",
     "test:visual": "playwright test --project=chromium visual-regression",
     "e2e:public": "cargo test --manifest-path src-tauri/Cargo.toml --test public_e2e -- --nocapture --test-threads=1",
+    "e2e:real": "playwright test --config playwright.real-e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm lint && pnpm test:run",
     "hg:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/hg-service.ps1 -Action install",
@@ -33,6 +34,9 @@
     "hg:diag": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/hg-tunnel-diag.ps1"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@gsap/react": "^2.1.2",
     "@kingsword/tauri-plugin-android-package-install": "jsr:^2.0.2",
     "@kingsword/tauri-plugin-mobile-onbackpressed-listener": "jsr:^2.0.1",
