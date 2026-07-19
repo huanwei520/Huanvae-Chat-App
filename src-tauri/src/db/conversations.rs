@@ -4,9 +4,8 @@
 //! - `get_conversations`: 获取所有会话列表（按置顶和更新时间排序）
 //! - `get_conversation`: 获取单个会话详情
 //! - `save_conversation`: 保存或更新会话
+//! - `set_conversation_pinned`: 设置会话置顶（本地 UI 状态，UPSERT）
 //! - `update_conversation_last_seq`: 更新会话的最后同步序列号
-//! - `update_conversation_unread`: 更新会话未读数
-//! - `clear_conversation_unread`: 清零会话未读数
 
 use rusqlite::params;
 
@@ -93,14 +92,15 @@ pub fn get_conversation(id: &str) -> Result<Option<LocalConversation>, String> {
 /// 用 UPSERT（ON CONFLICT DO UPDATE）而非 INSERT OR REPLACE：① REPLACE 会删行重插，
 /// 与 messages 的外键冲突、且会把本地 last_read_seq 清回默认值；② 本函数承载的是
 /// 服务端同步字段，**不触碰 last_read_seq**（该列由 advance_conversation_read 单独维护），
-/// 故同步会话列表不会覆盖本地已读位置。首次插入时 last_read_seq 走列默认 0。
+/// 也**不触碰 is_pinned**（本地置顶状态，由 set_conversation_pinned 单独维护），
+/// 故同步会话列表不会覆盖本地已读位置/置顶。首次插入时两列均走列默认 0。
 pub fn save_conversation(conv: LocalConversation) -> Result<(), String> {
     with_db!(db, {
         db.execute(
             "INSERT INTO conversations
              (id, type, name, avatar_url, last_message, last_message_time, last_seq,
-              unread_count, is_muted, is_pinned, updated_at, synced_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+              unread_count, is_muted, updated_at, synced_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
              ON CONFLICT(id) DO UPDATE SET
                  type = excluded.type,
                  name = excluded.name,
@@ -110,7 +110,6 @@ pub fn save_conversation(conv: LocalConversation) -> Result<(), String> {
                  last_seq = excluded.last_seq,
                  unread_count = excluded.unread_count,
                  is_muted = excluded.is_muted,
-                 is_pinned = excluded.is_pinned,
                  updated_at = excluded.updated_at,
                  synced_at = excluded.synced_at",
             params![
@@ -123,9 +122,32 @@ pub fn save_conversation(conv: LocalConversation) -> Result<(), String> {
                 conv.last_seq,
                 conv.unread_count,
                 if conv.is_muted { 1 } else { 0 },
-                if conv.is_pinned { 1 } else { 0 },
                 conv.updated_at,
             ],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })
+}
+
+/// 设置会话置顶（本地 UI 状态，与服务端无关）。
+///
+/// 会话行可能尚不存在（还没有消息的好友/群），故 UPSERT：
+/// 插入最小行（其余列走列默认）或仅更新 is_pinned。
+/// type 列有 CHECK(type IN ('friend', 'group'))，调用方须传合法值。
+pub fn set_conversation_pinned(
+    id: &str,
+    conv_type: &str,
+    name: &str,
+    pinned: bool,
+) -> Result<(), String> {
+    with_db!(db, {
+        db.execute(
+            "INSERT INTO conversations (id, type, name, is_pinned, updated_at)
+             VALUES (?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET is_pinned = excluded.is_pinned",
+            params![id, conv_type, name, if pinned { 1 } else { 0 }],
         )
         .map_err(|e| e.to_string())?;
 
@@ -202,32 +224,6 @@ pub fn update_conversation_last_seq(id: &str, last_seq: i64) -> Result<(), Strin
         db.execute(
             "UPDATE conversations SET last_seq = ?, synced_at = datetime('now') WHERE id = ?",
             params![last_seq, id],
-        )
-        .map_err(|e| e.to_string())?;
-
-        Ok(())
-    })
-}
-
-/// 更新会话未读数
-pub fn update_conversation_unread(id: &str, unread_count: i64) -> Result<(), String> {
-    with_db!(db, {
-        db.execute(
-            "UPDATE conversations SET unread_count = ? WHERE id = ?",
-            params![unread_count, id],
-        )
-        .map_err(|e| e.to_string())?;
-
-        Ok(())
-    })
-}
-
-/// 清零会话未读数
-pub fn clear_conversation_unread(id: &str) -> Result<(), String> {
-    with_db!(db, {
-        db.execute(
-            "UPDATE conversations SET unread_count = 0 WHERE id = ?",
-            params![id],
         )
         .map_err(|e| e.to_string())?;
 

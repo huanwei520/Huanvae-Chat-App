@@ -83,13 +83,3 @@ pub fn get_media_permission_guide(permission_type: MediaPermissionType) -> Permi
         PermissionGuide::default()
     }
 }
-
-/// 检测当前系统是否支持一键打开设置
-#[tauri::command]
-pub fn can_open_permission_settings() -> bool {
-    cfg!(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux"
-    ))
-}

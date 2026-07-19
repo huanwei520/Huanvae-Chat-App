@@ -42,7 +42,6 @@
  */
 
 pub mod config;
-pub mod diagnostics;
 pub mod discovery;
 pub mod protocol;
 pub mod resume;
@@ -286,12 +285,6 @@ pub async fn send_files_to_peer(
 }
 
 
-/// 获取传输会话
-#[tauri::command]
-pub fn get_transfer_session(request_id: String) -> Option<TransferSession> {
-    transfer::get_transfer_session(&request_id)
-}
-
 /// 获取所有活跃会话
 #[tauri::command]
 pub fn get_all_transfer_sessions() -> Vec<TransferSession> {
@@ -309,12 +302,6 @@ pub async fn cancel_transfer_session(request_id: String) -> Result<(), String> {
 // ============================================================================
 // 配置管理命令
 // ============================================================================
-
-/// 获取保存目录
-#[tauri::command]
-pub fn get_lan_transfer_save_directory() -> String {
-    config::get_save_directory().to_string_lossy().to_string()
-}
 
 /// 设置保存目录
 #[tauri::command]
@@ -376,22 +363,10 @@ pub fn remove_trusted_device(device_id: String) -> Result<(), String> {
     config::remove_trusted_device(&device_id).map_err(|e| e.to_string())
 }
 
-/// 获取信任设备列表
-#[tauri::command]
-pub fn get_trusted_devices() -> Vec<config::TrustedDevice> {
-    config::get_trusted_devices()
-}
-
 /// 设置自动接受信任设备
 #[tauri::command]
 pub fn set_auto_accept_trusted(enabled: bool) -> Result<(), String> {
     config::set_auto_accept_trusted(enabled).map_err(|e| e.to_string())
-}
-
-/// 设置按日期分组
-#[tauri::command]
-pub fn set_group_by_date(enabled: bool) -> Result<(), String> {
-    config::set_group_by_date(enabled).map_err(|e| e.to_string())
 }
 
 // ============================================================================

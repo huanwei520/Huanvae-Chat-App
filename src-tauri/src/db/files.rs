@@ -17,7 +17,6 @@
 //! - `get_file_mapping`: 通过 hash 获取本地路径
 //! - `save_file_mapping`: 保存文件映射
 //! - `save_file_uuid_hash`: 保存 uuid->hash 映射
-//! - `get_file_hash_by_uuid`: 通过 uuid 查找 hash
 
 use rusqlite::params;
 
@@ -95,19 +94,6 @@ pub fn delete_file_mapping(file_hash: &str) -> Result<(), String> {
     })
 }
 
-/// 更新文件最后验证时间
-pub fn update_file_mapping_verified(file_hash: &str) -> Result<(), String> {
-    with_db!(db, {
-        db.execute(
-            "UPDATE file_mappings SET last_verified = datetime('now') WHERE file_hash = ?",
-            params![file_hash],
-        )
-        .map_err(|e| e.to_string())?;
-
-        Ok(())
-    })
-}
-
 /// 保存 file_uuid 到 file_hash 的映射
 pub fn save_file_uuid_hash(file_uuid: &str, file_hash: &str) -> Result<(), String> {
     with_db!(db, {
@@ -118,20 +104,5 @@ pub fn save_file_uuid_hash(file_uuid: &str, file_hash: &str) -> Result<(), Strin
         .map_err(|e| e.to_string())?;
 
         Ok(())
-    })
-}
-
-/// 通过 file_uuid 获取 file_hash
-pub fn get_file_hash_by_uuid(file_uuid: &str) -> Result<Option<String>, String> {
-    with_db!(db, {
-        let mut stmt = db
-            .prepare("SELECT file_hash FROM file_uuid_hash WHERE file_uuid = ?")
-            .map_err(|e| e.to_string())?;
-
-        let result = stmt
-            .query_row([file_uuid], |row| row.get(0))
-            .ok();
-
-        Ok(result)
     })
 }

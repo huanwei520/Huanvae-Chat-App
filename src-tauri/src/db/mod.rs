@@ -46,10 +46,7 @@ pub mod types;
 pub use contacts::*;
 pub use conversations::*;
 pub use group_read_positions::*;
-pub use files::{
-    delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, save_file_mapping,
-    save_file_uuid_hash, update_file_mapping_verified,
-};
+pub use files::{delete_file_mapping, get_file_mapping, save_file_mapping, save_file_uuid_hash};
 pub use messages::*;
 pub use nfc::*;
 pub use types::*;

@@ -17,6 +17,13 @@
 //! **CORS**:webview 源(`tauri://localhost` 等)≠ `127.0.0.1:<port>`,跨源 XHR/fetch(带 Authorization
 //! /Content-Type)会先发 OPTIONS 预检。反代本地直接放行预检(不打源站)+ 所有响应加
 //! `Access-Control-Allow-Origin: *`(回环明文、无 cookie 凭据,* 安全)。
+//!
+//! **展示资源本地优先 + 后台刷新**:头像/小程序图标等白名单路径(display_cache::is_cacheable_path)
+//! 的 GET 请求,磁盘缓存命中即直接回本地(带 `x-display-cache: hit` 头;后端/MinIO 不可达时看过的
+//! 头像仍能显示),同时每键每次运行后台回源刷新一次收敛内容;miss 则正常回源,200 落盘缓存。
+//! 命中检查在 target 检查**之前**且不依赖 target:离线冷启动(discovery 失败、target 从未设置)
+//! 也能回缓存,此时不登记、不后台刷新。
+//! 换头像时后端变更 `?t=` 时间戳 → URL 变 → 天然新键;presigned 聊天文件路径不在白名单,绝不缓存。
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -125,6 +132,31 @@ async fn forward(req: Request) -> Response {
         return preflight_response(&req);
     }
 
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+
+    // 展示资源(头像等)本地优先:命中即回缓存,**不依赖 target**——离线冷启动(discovery 失败、
+    // target 从未设置)时看过的头像仍能显示;故此检查必须在下面的 target 检查之前。
+    let display_cacheable = req.method() == Method::GET
+        && !req.headers().contains_key(header::RANGE)
+        && crate::display_cache::is_cacheable_path(&path_and_query);
+    if display_cacheable
+        && let Some(entry) = crate::display_cache::lookup(&path_and_query)
+    {
+        // 后台刷新仅在 target 已设时进行;未设时不登记、不 spawn,直接回缓存
+        let maybe_tgt = target().clone(); // clone 后立即释放锁,不持 guard 过 await
+        if let Some(t) = maybe_tgt
+            && crate::display_cache::should_revalidate(&path_and_query)
+        {
+            let pq = path_and_query.clone();
+            tokio::spawn(async move { revalidate_display_cache(t, pq).await });
+        }
+        return with_cors(cached_display_response(entry));
+    }
+
     let Some(tgt) = target().clone() else {
         return with_cors(
             (StatusCode::SERVICE_UNAVAILABLE, "secure_proxy target unset").into_response(),
@@ -139,11 +171,7 @@ async fn forward(req: Request) -> Response {
             return with_cors((StatusCode::BAD_REQUEST, format!("读请求体失败: {e}")).into_response());
         }
     };
-    let path_and_query = parts
-        .uri
-        .path_and_query()
-        .map(|p| p.as_str())
-        .unwrap_or("/");
+
     let url = format!("https://{}:{}{}", tgt.ip, tgt.port, path_and_query);
 
     // 强制 HTTP/1.1 client:配合下面显式 Host=逻辑域名(避免 h2 下 Host/:authority 冲突 400,见模块注释)
@@ -186,6 +214,15 @@ async fn forward(req: Request) -> Response {
         Err(e) => return with_cors((StatusCode::BAD_GATEWAY, format!("读上游响应失败: {e}")).into_response()),
     };
 
+    // 展示资源回源成功:落盘缓存,下次同 URL 本地优先
+    if display_cacheable && status == StatusCode::OK {
+        let content_type = resp_headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream");
+        crate::display_cache::store(&path_and_query, content_type, &bytes);
+    }
+
     let mut builder = Response::builder().status(status);
     for (k, v) in resp_headers.iter() {
         let kn = k.as_str().to_ascii_lowercase();
@@ -207,4 +244,60 @@ async fn forward(req: Request) -> Response {
     builder
         .body(Body::from(bytes))
         .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "构建响应失败").into_response())
+}
+
+/// 展示缓存命中响应:200 + Content-Type + `x-display-cache: hit`(排障/验收标记)。
+fn cached_display_response(entry: crate::display_cache::CachedEntry) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, entry.content_type)
+        .header("x-display-cache", "hit")
+        .body(Body::from(entry.body))
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "构建响应失败").into_response())
+}
+
+/// 展示缓存后台刷新:回源重取,200 且内容变化才覆写缓存。
+/// 任何失败(client 构建/网络/非 200/读 body)只记日志 + 撤销刷新登记(下次命中静默重试),
+/// **绝不删除缓存** — 后端不可达时旧内容照常可用。
+async fn revalidate_display_cache(tgt: ProxyTarget, pq: String) {
+    let client = match crate::secure_net::pinned_http1_client(300) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[display_cache] 后台刷新失败(保留缓存,下次命中重试): {pq}: {e}");
+            crate::display_cache::unmark_revalidated(&pq);
+            return;
+        }
+    };
+    let url = format!("https://{}:{}{}", tgt.ip, tgt.port, pq);
+    let resp = match client.get(&url).header(header::HOST, &tgt.host).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[display_cache] 后台刷新失败(保留缓存,下次命中重试): {pq}: {e}");
+            crate::display_cache::unmark_revalidated(&pq);
+            return;
+        }
+    };
+    if resp.status() != StatusCode::OK {
+        eprintln!(
+            "[display_cache] 后台刷新失败(保留缓存,下次命中重试): {pq}: 上游状态 {}",
+            resp.status().as_u16()
+        );
+        crate::display_cache::unmark_revalidated(&pq);
+        return;
+    }
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[display_cache] 后台刷新失败(保留缓存,下次命中重试): {pq}: 读 body 失败 {e}");
+            crate::display_cache::unmark_revalidated(&pq);
+            return;
+        }
+    };
+    crate::display_cache::store_if_changed(&pq, &content_type, &bytes);
 }

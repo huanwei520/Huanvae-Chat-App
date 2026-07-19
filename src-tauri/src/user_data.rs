@@ -300,15 +300,6 @@ pub fn get_current_user_db_path() -> Result<PathBuf, String> {
     }
 }
 
-/// 获取当前用户的文件下载目录
-pub fn get_current_user_file_dir() -> Result<PathBuf, String> {
-    let current = CURRENT_USER.read();
-    match current.as_ref() {
-        Some(ctx) => Ok(get_user_file_dir(&ctx.user_id, &ctx.server_url)),
-        None => Err("未设置当前用户".to_string()),
-    }
-}
-
 // ============================================================================
 // 目录创建
 // ============================================================================
@@ -384,29 +375,6 @@ pub fn make_download_path(
     dir.join(filename)
 }
 
-/// 列出用户的所有下载文件
-pub fn list_user_files(user_id: &str, server_url: &str) -> Result<Vec<PathBuf>, String> {
-    let file_dir = get_user_file_dir(user_id, server_url);
-
-    if !file_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut files = Vec::new();
-
-    for subdir in ["videos", "pictures", "documents"] {
-        let subdir_path = file_dir.join(subdir);
-        if subdir_path.exists() && let Ok(entries) = fs::read_dir(&subdir_path) {
-            for entry in entries.flatten() {
-                if entry.path().is_file() {
-                    files.push(entry.path());
-                }
-            }
-        }
-    }
-
-    Ok(files)
-}
 
 #[cfg(test)]
 mod tests {

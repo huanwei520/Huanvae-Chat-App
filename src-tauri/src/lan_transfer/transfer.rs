@@ -1740,13 +1740,6 @@ pub async fn cancel_session(request_id: &str) -> Result<(), TransferError> {
     Ok(())
 }
 
-/// 获取传输会话
-pub fn get_transfer_session(request_id: &str) -> Option<TransferSession> {
-    let sessions = get_active_sessions();
-    let sessions = sessions.read();
-    sessions.get(request_id).cloned()
-}
-
 /// 获取所有活跃会话
 pub fn get_all_sessions() -> Vec<TransferSession> {
     let sessions = get_active_sessions();

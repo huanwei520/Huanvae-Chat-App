@@ -41,27 +41,6 @@ pub fn get_friends() -> Result<Vec<LocalFriend>, String> {
     })
 }
 
-/// 保存单个好友
-pub fn save_friend(friend: &LocalFriend) -> Result<(), String> {
-    with_db!(db, {
-        db.execute(
-            "INSERT OR REPLACE INTO friends
-             (friend_id, username, nickname, avatar_url, status, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
-            params![
-                friend.friend_id,
-                friend.username,
-                friend.nickname,
-                friend.avatar_url,
-                friend.status,
-                friend.created_at,
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-}
-
 /// 批量保存好友（全量替换）
 pub fn save_friends(friends: &[LocalFriend]) -> Result<(), String> {
     with_db!(db, {
@@ -99,15 +78,6 @@ pub fn save_friends(friends: &[LocalFriend]) -> Result<(), String> {
     })
 }
 
-/// 删除好友
-pub fn delete_friend(friend_id: &str) -> Result<(), String> {
-    with_db!(db, {
-        db.execute("DELETE FROM friends WHERE friend_id = ?1", [friend_id])
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-}
-
 // ============================================================================
 // 群组操作
 // ============================================================================
@@ -141,28 +111,6 @@ pub fn get_groups() -> Result<Vec<LocalGroup>, String> {
             .map_err(|e| e.to_string())?;
 
         Ok(groups)
-    })
-}
-
-/// 保存单个群组
-pub fn save_group(group: &LocalGroup) -> Result<(), String> {
-    with_db!(db, {
-        db.execute(
-            "INSERT OR REPLACE INTO groups
-             (group_id, name, avatar_url, owner_id, member_count, my_role, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
-            params![
-                group.group_id,
-                group.name,
-                group.avatar_url,
-                group.owner_id,
-                group.member_count,
-                group.my_role,
-                group.created_at,
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
     })
 }
 

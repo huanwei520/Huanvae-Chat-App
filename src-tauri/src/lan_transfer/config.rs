@@ -417,13 +417,6 @@ pub fn remove_trusted_device(device_id: &str) -> Result<(), ConfigError> {
     config.remove_trusted_device(device_id)
 }
 
-/// 获取信任设备列表
-pub fn get_trusted_devices() -> Vec<TrustedDevice> {
-    let manager = get_config_manager();
-    let config = manager.read();
-    config.get_config().trusted_devices.clone()
-}
-
 /// 获取完整配置（用于前端）
 pub fn get_full_config() -> LanTransferConfig {
     let manager = get_config_manager();
@@ -436,13 +429,5 @@ pub fn set_auto_accept_trusted(enabled: bool) -> Result<(), ConfigError> {
     let manager = get_config_manager();
     let mut config = manager.write();
     config.get_config_mut().auto_accept_trusted = enabled;
-    config.save()
-}
-
-/// 设置按日期分组
-pub fn set_group_by_date(enabled: bool) -> Result<(), ConfigError> {
-    let manager = get_config_manager();
-    let mut config = manager.write();
-    config.get_config_mut().group_by_date = enabled;
     config.save()
 }

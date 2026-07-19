@@ -26,6 +26,9 @@ pub struct LocalConversation {
     #[serde(default)]
     pub last_read_seq: i64,
     pub is_muted: bool,
+    /// 本地置顶状态（纯本地 UI 状态，与服务端无关）。
+    /// 保存路径（save_conversation）不携带此字段——故 serde default，仅 set_conversation_pinned 维护。
+    #[serde(default)]
     pub is_pinned: bool,
     pub updated_at: String,
     pub synced_at: Option<String>,

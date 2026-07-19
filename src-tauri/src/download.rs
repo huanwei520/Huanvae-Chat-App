@@ -267,34 +267,6 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
-/// 检查文件是否已缓存
-///
-/// 支持两种路径：
-/// 1. local_path: 缓存目录中的路径
-/// 2. original_path: 大文件的原始路径（回退）
-#[tauri::command(rename_all = "camelCase")]
-pub fn is_file_cached(file_hash: String) -> Result<bool, String> {
-    match db::get_file_mapping(&file_hash) {
-        Ok(Some(mapping)) => {
-            // 优先检查缓存路径
-            if std::path::Path::new(&mapping.local_path).exists() {
-                return Ok(true);
-            }
-            // 回退检查原始路径（大文件）
-            if let Some(ref orig_path) = mapping.original_path
-                && std::path::Path::new(orig_path).exists()
-            {
-                return Ok(true);
-            }
-            // 两个路径都无效，删除映射
-            let _ = db::delete_file_mapping(&file_hash);
-            Ok(false)
-        }
-        Ok(None) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
 /// 获取已缓存文件的本地路径
 ///
 /// 返回有效的本地路径：

@@ -79,13 +79,21 @@ pub mod secure_net;
 // 数据面 WebSocket(走 Rust:tokio-tungstenite + rustls 内置私有 CA)
 // 浏览器 WebSocket 用系统信任,验不过自签 leaf,故 WS 同 secure_net 迁到 Rust
 // ============================================
-mod ws_proxy;
+// `pub`:供 src-tauri/tests/local_e2e.rs 直接 await ws_connect 打本地集群做 Rust 数据面
+// WS 互操作验证(与 secure_net 同为 pub mod;仅暴露测试面,行为不变)。
+pub mod ws_proxy;
 
 // ============================================
 // 回环安全反代(webview 原生 <img>/<video>/上传 XHR 验不过自签,经 127.0.0.1 反代由
 // secure_net 钉 CA 客户端转发到源站 IP)。见 secure_proxy.rs。
 // ============================================
 mod secure_proxy;
+
+// ============================================
+// 展示资源磁盘缓存(头像等本地优先 + 后台刷新;secure_proxy 命中即回本地,
+// 后端/MinIO 不可达时看过的头像仍能显示)。见 display_cache.rs。
+// ============================================
+mod display_cache;
 
 use db::{
     ConversationPreview, LocalConversation, LocalFileMapping, LocalFriend, LocalGroup,
@@ -315,22 +323,21 @@ fn db_save_conversation(conversation: LocalConversation) -> Result<(), String> {
     db::save_conversation(conversation)
 }
 
+/// 设置会话置顶（本地 UI 状态；会话行不存在时 UPSERT 插入最小行）
+#[tauri::command(rename_all = "camelCase")]
+fn db_set_conversation_pinned(
+    id: String,
+    conv_type: String,
+    name: String,
+    pinned: bool,
+) -> Result<(), String> {
+    db::set_conversation_pinned(&id, &conv_type, &name, pinned)
+}
+
 /// 更新会话的最后序列号
 #[tauri::command(rename_all = "camelCase")]
 fn db_update_conversation_last_seq(id: String, last_seq: i64) -> Result<(), String> {
     db::update_conversation_last_seq(&id, last_seq)
-}
-
-/// 更新会话未读数
-#[tauri::command(rename_all = "camelCase")]
-fn db_update_conversation_unread(id: String, unread_count: i64) -> Result<(), String> {
-    db::update_conversation_unread(&id, unread_count)
-}
-
-/// 清零会话未读数
-#[tauri::command]
-fn db_clear_conversation_unread(id: String) -> Result<(), String> {
-    db::clear_conversation_unread(&id)
 }
 
 /// 推进会话本地已读位置：不带 seq 推进到当前已收最新（MAX(last_read_seq, last_seq)），
@@ -438,28 +445,10 @@ fn db_mark_message_deleted(message_uuid: String) -> Result<(), String> {
     db::mark_message_deleted(&message_uuid)
 }
 
-/// 获取文件映射
-#[tauri::command(rename_all = "camelCase")]
-fn db_get_file_mapping(file_hash: String) -> Result<Option<LocalFileMapping>, String> {
-    db::get_file_mapping(&file_hash)
-}
-
 /// 保存文件映射
 #[tauri::command]
 fn db_save_file_mapping(mapping: LocalFileMapping) -> Result<(), String> {
     db::save_file_mapping(mapping)
-}
-
-/// 删除文件映射
-#[tauri::command(rename_all = "camelCase")]
-fn db_delete_file_mapping(file_hash: String) -> Result<(), String> {
-    db::delete_file_mapping(&file_hash)
-}
-
-/// 更新文件映射验证时间
-#[tauri::command(rename_all = "camelCase")]
-fn db_update_file_mapping_verified(file_hash: String) -> Result<(), String> {
-    db::update_file_mapping_verified(&file_hash)
 }
 
 /// 仅清空消息缓存
@@ -480,12 +469,6 @@ fn db_save_file_uuid_hash(file_uuid: String, file_hash: String) -> Result<(), St
     db::save_file_uuid_hash(&file_uuid, &file_hash)
 }
 
-/// 通过 file_uuid 获取 file_hash
-#[tauri::command(rename_all = "camelCase")]
-fn db_get_file_hash_by_uuid(file_uuid: String) -> Result<Option<String>, String> {
-    db::get_file_hash_by_uuid(&file_uuid)
-}
-
 // ============================================================================
 // 好友和群组操作 Commands
 // ============================================================================
@@ -502,18 +485,6 @@ fn db_save_friends(friends: Vec<LocalFriend>) -> Result<(), String> {
     db::save_friends(&friends)
 }
 
-/// 保存单个好友
-#[tauri::command]
-fn db_save_friend(friend: LocalFriend) -> Result<(), String> {
-    db::save_friend(&friend)
-}
-
-/// 删除好友
-#[tauri::command(rename_all = "camelCase")]
-fn db_delete_friend(friend_id: String) -> Result<(), String> {
-    db::delete_friend(&friend_id)
-}
-
 /// 获取所有本地群组
 #[tauri::command]
 fn db_get_groups() -> Result<Vec<LocalGroup>, String> {
@@ -524,12 +495,6 @@ fn db_get_groups() -> Result<Vec<LocalGroup>, String> {
 #[tauri::command]
 fn db_save_groups(groups: Vec<LocalGroup>) -> Result<(), String> {
     db::save_groups(&groups)
-}
-
-/// 保存单个群组
-#[tauri::command]
-fn db_save_group(group: LocalGroup) -> Result<(), String> {
-    db::save_group(&group)
 }
 
 /// 更新群组信息
@@ -600,62 +565,6 @@ fn clear_current_user() {
     user_data::clear_current_user()
 }
 
-/// 获取当前用户的文件下载目录
-#[tauri::command]
-fn get_user_file_dir() -> Result<String, String> {
-    user_data::get_current_user_file_dir()
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-/// 根据文件类型获取下载目录
-#[tauri::command(rename_all = "camelCase")]
-fn get_download_dir(file_type: String) -> Result<String, String> {
-    let ctx = user_data::get_current_user()
-        .ok_or_else(|| "未设置当前用户".to_string())?;
-    
-    let dir = user_data::get_download_dir_for_type(&ctx.user_id, &ctx.server_url, &file_type);
-    Ok(dir.to_string_lossy().to_string())
-}
-
-/// 列出当前用户的所有下载文件
-#[tauri::command]
-fn list_user_files() -> Result<Vec<String>, String> {
-    let ctx = user_data::get_current_user()
-        .ok_or_else(|| "未设置当前用户".to_string())?;
-    
-    let files = user_data::list_user_files(&ctx.user_id, &ctx.server_url)?;
-    Ok(files.iter().map(|p| p.to_string_lossy().to_string()).collect())
-}
-
-// ============================================================================
-// WebView 权限管理 Commands
-// ============================================================================
-
-/// 重置 WebView 权限缓存
-/// 用于解决用户误点拒绝麦克风/摄像头权限后无法再次请求的问题
-/// 通过删除 WebView2 的 Preferences 文件来清除权限缓存
-#[tauri::command]
-fn reset_webview_permissions(app: tauri::AppHandle) -> Result<String, String> {
-    use tauri::Manager;
-
-    let data_dir = app.path().app_local_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {}", e))?;
-
-    // WebView2 权限存储在 EBWebView/Default/Preferences 文件中
-    let prefs_file = data_dir
-        .join("EBWebView")
-        .join("Default")
-        .join("Preferences");
-
-    if prefs_file.exists() {
-        std::fs::remove_file(&prefs_file)
-            .map_err(|e| format!("删除权限文件失败: {}", e))?;
-        Ok("权限已重置，请重新请求".to_string())
-    } else {
-        Ok("没有需要重置的权限".to_string())
-    }
-}
-
 /// macOS：首次确保 HuanvaeGuard LaunchDaemon 已安装（已装瞬时返回；未装弹一次管理员授权安装）。
 #[cfg(target_os = "macos")]
 #[tauri::command]
@@ -702,6 +611,23 @@ fn biometric_authenticate(reason: String) -> Result<String, String> {
 #[tauri::command]
 fn biometric_authenticate(_reason: String) -> Result<String, String> {
     Ok("unavailable".to_string())
+}
+
+/// 关闭除主窗口外的所有子窗口（登出 / 主窗口关闭时联动，覆盖动态 label 如 miniapp-*）
+fn close_all_child_windows(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    for (label, window) in app.webview_windows() {
+        if label != "main" {
+            let _ = window.close();
+        }
+    }
+}
+
+/// 前端登出时调用：关闭所有子窗口
+#[tauri::command]
+fn close_child_windows(app: tauri::AppHandle) {
+    close_all_child_windows(&app);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -852,6 +778,10 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
                 && window.label() == "main"
             {
+                use tauri::Manager;
+
+                // 主窗口进托盘前先关闭所有子窗口，避免残留窗口脱离主窗口生命周期
+                close_all_child_windows(window.app_handle());
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -873,19 +803,15 @@ pub fn run() {
             // 用户数据目录管理
             set_current_user,
             clear_current_user,
-            get_user_file_dir,
-            get_download_dir,
-            list_user_files,
             // 数据库操作
             db_init,
             db_get_conversations,
             db_get_conversation_previews,
             db_get_conversation,
             db_save_conversation,
+            db_set_conversation_pinned,
             db_advance_conversation_read,
             db_update_conversation_last_seq,
-            db_update_conversation_unread,
-            db_clear_conversation_unread,
             db_update_conversation_last_message,
             db_get_conversation_peer_read_seq,
             db_set_conversation_peer_read_seq,
@@ -899,22 +825,15 @@ pub fn run() {
             db_search_messages,
             db_mark_message_recalled,
             db_mark_message_deleted,
-            db_get_file_mapping,
             db_save_file_mapping,
-            db_delete_file_mapping,
-            db_update_file_mapping_verified,
             db_clear_messages,
             db_clear_all_data,
             db_save_file_uuid_hash,
-            db_get_file_hash_by_uuid,
             // 好友和群组
             db_get_friends,
             db_save_friends,
-            db_save_friend,
-            db_delete_friend,
             db_get_groups,
             db_save_groups,
-            db_save_group,
             db_update_group,
             db_delete_group,
             // NFC 信任卡
@@ -924,7 +843,6 @@ pub fn run() {
             db_nfc_remove_trusted,
             // 文件下载和缓存
             download::download_and_save_file,
-            download::is_file_cached,
             download::get_cached_file_path,
             download::copy_file_to_cache,
             download::show_in_folder,
@@ -941,8 +859,8 @@ pub fn run() {
             // 回环安全反代(webview 原生加载/上传 走自签源站)
             secure_proxy::ensure_secure_proxy,
             secure_proxy::set_proxy_target,
-            // WebView 权限管理
-            reset_webview_permissions,
+            // 子窗口生命周期：登出时关闭所有子窗口
+            close_child_windows,
             // 提示音管理
             sounds::list_notification_sounds,
             sounds::save_notification_sound,
@@ -980,33 +898,24 @@ pub fn run() {
             lan_transfer::get_pending_peer_connection_requests,
             lan_transfer::send_files_to_peer,
             // 局域网传输（会话管理）
-            lan_transfer::get_transfer_session,
             lan_transfer::get_all_transfer_sessions,
             lan_transfer::cancel_transfer_session,
             lan_transfer::cancel_file_transfer,
             // 局域网传输配置
-            lan_transfer::get_lan_transfer_save_directory,
             lan_transfer::set_lan_transfer_save_directory,
             lan_transfer::open_lan_transfer_directory,
             lan_transfer::get_lan_transfer_config,
             lan_transfer::add_trusted_device,
             lan_transfer::remove_trusted_device,
-            lan_transfer::get_trusted_devices,
             lan_transfer::set_auto_accept_trusted,
-            lan_transfer::set_group_by_date,
-            // 局域网传输诊断
-            lan_transfer::diagnostics::diagnose_lan_transfer,
             // 媒体权限管理
             permissions::open_media_permission_settings,
             permissions::get_media_permission_guide,
-            permissions::can_open_permission_settings,
             // 移动端本地视频 URL
             get_local_video_url,
             // 剪贴板图片处理（桌面端专属）
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             clipboard::save_clipboard_image,
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            clipboard::cleanup_clipboard_temp_files,
             // Android 更新（版本检测、APK 下载）
             android_update::get_app_version,
             android_update::fetch_update_json,

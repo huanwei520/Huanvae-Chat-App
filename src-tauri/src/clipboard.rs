@@ -105,37 +105,3 @@ pub async fn save_clipboard_image(
     // 返回文件路径
     Ok(file_path.to_string_lossy().to_string())
 }
-
-/// 清理过期的剪贴板临时文件
-///
-/// 删除超过指定时间的临时文件，避免磁盘空间占用过大
-///
-/// # 参数
-/// - `max_age_hours`: 文件最大保留时间（小时），默认 24 小时
-#[tauri::command(rename_all = "camelCase")]
-pub async fn cleanup_clipboard_temp_files(max_age_hours: Option<u64>) -> Result<u32, String> {
-    let max_age = std::time::Duration::from_secs((max_age_hours.unwrap_or(24)) * 3600);
-    let temp_dir = get_clipboard_temp_dir()?;
-
-    let mut deleted_count = 0u32;
-
-    let entries = fs::read_dir(&temp_dir).map_err(|e| format!("读取目录失败: {}", e))?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // 检查是否为 PNG 文件且超过最大保留时间
-        let should_delete = path.extension().is_some_and(|ext| ext == "png")
-            && fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
-                .is_some_and(|age| age > max_age);
-
-        if should_delete && fs::remove_file(&path).is_ok() {
-            deleted_count += 1;
-        }
-    }
-
-    Ok(deleted_count)
-}
