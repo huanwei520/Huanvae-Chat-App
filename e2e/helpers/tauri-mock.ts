@@ -109,7 +109,6 @@ export function tauriMockScript(): string {
           'check_session_conflict': { canProceed: true, message: null },
           'create_session_lock': null,
           'remove_session_lock': null,
-          'is_file_cached': false,
           'get_cached_file_path': null,
           'get_local_video_url': null,
           'show_in_folder': undefined,
