@@ -741,3 +741,16 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 - macOS 上一次"已保存账号登录"弹 5 次系统密码框。根因：`handleLoginWithAccount` 的 `MAX_BIO_RETRIES=5` 重试循环未 isMobile 门控(桌面照跑)+ 登录后 `saveAccount` 重写密码 + 头像后 `.then(saveAccount)` 再重写。
 - 修复(纯前端)：重试循环 `if(isMobile())` 门控、桌面读失败转手动登录；已保存账号登录改 `updateNickname`(不碰钥匙串)、删两处头像后 `saveAccount` 冗余重写。降到 1 读 0 写。
 - 教训：写"认证重试循环"先想清桌面/移动语义差异；`save_account` 这种"既写元数据又写凭据"的命令，在"只想更新元数据"的调用点会偷偷多写一次钥匙串。
+
+## 三方 UI 库的浮层默认 z-index 必须对照项目 z-index 阶梯显式设置
+
+### 库默认值撞上项目高 z-index 浮层 = 只有真机可见的遮挡 bug
+
+三方 UI 库的浮层组件（拖拽 overlay / tooltip / dropdown）自带 z-index 默认值（如 dnd-kit `DragOverlay` 默认 **999**）。本项目既有浮层普遍在 **10000** 级（模态/面板）。默认值直接用 = 新浮层被既有面板遮挡。此类层叠 bug **vitest（jsdom 不渲染层叠）测不出**，只有真机/真浏览器可见。
+
+**规则**：引入任何带浮层的三方组件时：
+1. 查该组件的 z-index 默认值（文档或源码）
+2. grep 项目内相关容器的 z-index（如 `grep -n 'z-index: 10' src/styles/`），确认阶梯
+3. 显式传入高于共存浮层的值（如 `<DragOverlay zIndex={10001}>`），并注释说明相对哪个浮层
+
+**反例（2026-07-14）**：侧边栏双区拖放的 DragOverlay 未显式设 zIndex，拖拽幽灵卡被 z-index 10000 的「更多」面板遮住——vitest/typecheck/lint 全绿，VM 真机截图才暴露；修复 `<DragOverlay zIndex={10001}>`（Sidebar.tsx，注释说明面板 10000）。

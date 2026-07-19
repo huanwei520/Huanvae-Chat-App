@@ -50,6 +50,26 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
 - 改为抽 `buildMiniAppLaunchUrl` (URL 拼接) 和 `buildCredentialsFields` (凭据字段构建) 为 exported pure function
 - 9 个测试用例全部覆盖新增业务逻辑，零 mock 成本
 
+### 全局 DOM Observer mock 必须写成可构造 class（箭头 vi.fn 形式不可 `new`）
+
+三方库会在内部 `new ResizeObserver(...)` / `new IntersectionObserver(...)`（dnd-kit 的 DndContext 就这么做）。setup.ts 若用 `vi.fn().mockImplementation(() => ({...}))` 箭头形式 mock 这类全局 Observer，被 `new` 时行为不符合构造函数契约，依赖它的组件树整树渲染炸掉——且炸的往往是**看似无关的既有测试**（谁的渲染树里挂了用该库的组件谁遭殃）。
+
+**规则**：全局 Observer 类 mock 一律写成可构造 class：
+
+```ts
+// ✅ tests/setup.ts 现行写法（2026-07-14 起）
+class ResizeObserverMock {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+```
+
+⚠️ 截至 2026-07-14，setup.ts 的 `IntersectionObserver` mock 仍是箭头形式（同雷未爆）——将来任何库内部 `new IntersectionObserver` 时按本条改成 class。
+
+**反例（2026-07-14）**：侧边栏引入 @dnd-kit 后，DndContext 内 `new ResizeObserver` 撞上箭头 mock，既有 SidebarAvatarA11y 5 个用例连带失败；改可构造 class 后全部复活。
+
 ### 已 mock 的 Tauri 模块速查（tests/setup.ts 截至 2026-04-23）
 
 | 模块 | mock 程度 | 坑 |
@@ -588,6 +608,90 @@ const re=/.../; console.log('原:',re.test(s),'删后:',re.test(s.replace(/...re
 # 期望：原 true、删后 false
 ```
 
+**CRLF 源文件的变异要按行删除**：被扫描的目标文件可能是 CRLF 行尾（如 `src-tauri/src/lib.rs`），用 `s.replace('...token...\n', '')` 这类含 `\n` 的字符串替换会因行尾实为 `\r\n` 而静默不命中 → 变异"没删掉"却误判断言恒真/恒假。对 CRLF 文件做变异时改为按行操作：`s.split(/\r?\n/).filter(l => !l.includes('token')).join('\n')` 删掉目标行再跑正则；断言正则本身也应容忍 `\r`（用 `\s` 而非字面 `\n`）。（2026-07-14 审核层对 logout-closes-child-windows.test.ts 做独立变异验证时发现）
+
 **反例（2026-06-06）**：HuanvaeGuardConnectBiometric.test.tsx 初版用 `invoke('biometric_authenticate')[\s\S]*?catch[\s\S]*?return;` 断言"门禁失败即 return 中止"。code-review + 盲审都抓到：第二段 `[\s\S]*?return;` 会吞到下游 `if(!config.private_key){...return;}` 的 return，删掉 biometric catch 自己的 return 后仍 PASS → 对它唯一宣称要防的"catch 不 return"零防御。改成 `catch\s*\{[^}]*setError('专属文案')[^}]*return;[^}]*\}`（块内有界）后做 node 变异验证：原 true、删 return 后 false，确认有效。
 
 **反例（2026-06-04）**：给 App.tsx 写静态扫描测试时，子 Agent 谎称 `__dirname` 触发 lint:strict no-undef、擅自改成 `import.meta.url` → vitest 加载即抛错、3 用例全挂；另一 Agent 跑 `npx eslint tests/...`（门禁不跑的命令）报 FAIL 误导。核实 `lint:strict`=`eslint src`（不碰 tests/）+ 既有测试用 `__dirname` 后改回，test 3/3 + 门禁双过。教训：① 门禁 lint 范围 = `src/`；② vitest 静态扫描读文件用 `__dirname` 不用 `import.meta.url`；③ Agent 报 lint 错先核实是不是门禁命令（见 common.md「Agent 改动必须做反向验证」）。
+
+## mock context hook 的返回值必须引用稳定（每次 render 返回新对象会虚假触发依赖 effect）
+
+### `useXxx: () => ({ ... })` 形式的 mock 每次调用都造新对象/新 vi.fn()，下游依赖数组必然抖动
+
+典型错误：`vi.mock('.../SessionContext', () => ({ useSession: () => ({ session: {...}, clearSession: vi.fn() }) }))` —— 每次 render `useSession()` 返回新字面量、`clearSession` 是新 vi.fn()。被测组件里任何把该返回值（或其字段/回调）放进 useEffect/useCallback 依赖数组的逻辑，每次 render 都会重跑——真实 Context 的 value 是引用稳定的，mock 却不稳定 = 测的不是真实行为。表现为**与被测目标无关的 effect 被虚假触发**，用例"莫名失败"，或更糟——"碰巧通过"（假绿）。
+
+**规则**：mock hook 的返回值用 `vi.hoisted` 稳定单例，对齐真实 Context 的引用稳定性：
+
+```ts
+const sessionMock = vi.hoisted(() => ({
+  session: { accessToken: 't', userId: 1 },
+  clearSession: vi.fn(),
+}));
+vi.mock('.../SessionContext', () => ({ useSession: () => sessionMock }));
+```
+
+**反例（2026-07-16）**：tests/unit/wsLivenessWatchdog.test.ts 首版 useSession mock 每次 render 返回新对象 → WebSocketContext 的 token 热切换 effect（依赖 session 引用）被虚假触发 → isSwappingRef 卡 true 吞 onclose、多建假 WS 实例，6 用例中 2 失败、另 2 "碰巧通过"；改 vi.hoisted 稳定单例后 6/6 过且全部走真实路径。⚠️ 既有 tests/unit/webSocketMarkReadChain.test.ts 等仍沿用"每 render 新对象"模式（同雷未爆），后续触雷按本条修。
+
+## AnimatePresence 内组件的"消失"断言必须入 waitFor（退场卸载异步，同步断言在全量高负载下抢跑翻红）
+
+### `await waitFor(() => 另一元素出现)` 之后**同步**断言"表单已消失"，是竞态假红
+
+framer-motion `<AnimatePresence>` 的退场卸载是**异步**完成的——即便 `MotionGlobalConfig.skipAnimations = true` 让动画瞬时，被 `exit` 包裹的子树卸载仍走 React 的异步流程（下一 microtask/帧）。因此交互后"另一个元素出现"（如 SUT 成功后 `setSecretInfo(...)` 渲染 SecretDisplay）**不保证**同批 `setShowCreate(false)` 触发的 AnimatePresence 子树已卸载完毕。
+
+单文件 / 低负载下 CPU 空闲，卸载几乎立即完成，断言碰巧过；**全量 `pnpm test:run` 高并发负载下**卸载滞后于断言 → `expect(queryByText(...)).not.toBeInTheDocument()` 抢跑翻红。表现为"单文件跑绿、全量偶红"的 flaky，且会持续拖垮共享工作树上所有并行 worker 的门禁。
+
+**规则**：凡断言"某元素在交互后消失/卸载"，且该元素在 `<AnimatePresence>`（或任何异步卸载路径）内，**消失断言必须放进 `waitFor` 回调**，不能在 `await waitFor(出现)` 之后同步断言消失：
+
+```tsx
+// ❌ 竞态：waitFor 只等"出现"，消失是同步断言 → 高负载抢跑
+await waitFor(() => expect(screen.getByText('客户端凭据')).toBeInTheDocument());
+expect(screen.queryByText('创建 OAuth 客户端')).not.toBeInTheDocument(); // 抢跑翻红
+
+// ✅ 消失断言入 waitFor（可与出现断言并入同一回调）
+await waitFor(() => {
+  expect(screen.getByText('客户端凭据')).toBeInTheDocument();
+  expect(screen.queryByText('创建 OAuth 客户端')).not.toBeInTheDocument();
+});
+```
+
+修复后**全量至少连跑 2 次**确认稳定（flaky 是概率性，单次全绿不足以证明修好）。
+
+**反例（2026-07-17）**：`tests/components/OAuthClientsPanel.test.tsx:189` 用例"创建成功：关闭表单并以 SecretDisplay 展示 client_secret"，在 `await waitFor(SecretDisplay 出现)` 后同步断言 `queryByText('创建 OAuth 客户端').not.toBeInTheDocument()`。SUT `src/components/oauth/OAuthClientsPanel.tsx:389-397` 创建表单包在 `<AnimatePresence>` 内，`handleCreate` 成功（:307-313）同批 `setShowCreate(false)`+`setSecretInfo(result)`——SecretDisplay 出现不保证表单已卸载。全量 `pnpm test:run` 3 跑 2 红（run1/run3 同一用例，报错 `found <h3 class="oauth-create-title">创建 OAuth 客户端</h3>`），单文件跑绿。非产品 bug（`setShowCreate(false)` 确已调用），是测试竞态；修复=:189 断言移入 waitFor。（③补测前端批3 review 打回 V-1，org-review-1784277277 实测 2026-07-17）
+
+## 真后端 e2e（real-e2e，L2.5-web）—— `pnpm check` 之外的跨实例门
+
+`pnpm check`（= `pnpm typecheck && pnpm lint && pnpm test:run`）是 **L1/L2 快门**：vitest 是 jsdom + mock invoke，测不到真 HTTP/WS 帧与跨实例广播（真 webview/真 TLS 更测不到，见本文件顶部"所有 X 必经 Y"节）。**这一层保持不变**。涉及跨实例语义的改动，另过真后端 e2e 门。
+
+### 门 = `pnpm e2e:real`（需本地 e2e 集群在位）
+
+`pnpm e2e:real`（= `playwright test --config playwright.real-e2e.config.ts`）跑 `real-e2e` project：两个 browser context 各指向钉不同后端实例的 vite origin（`http://127.0.0.1:18801` / `18802`，config 自起双 vite dev），驱动真 React 逻辑 → 真 HTTP/WS 帧 → 真双实例后端（经前置 nginx）。集群（双后端实例 A/B + nginx + PG/Redis/MinIO）由**后端侧 e2e 集群脚本**起，App 的 `e2e:real` 是其**前端腿**。
+
+**产出层级 = e2e(L2.5-web)**：真前端 + 真跨实例后端；**无 Tauri 壳、无 secure_net TLS 面、本地 sqlite = 内存桩**。交付层级只能写 `e2e(L2.5-web)`，**禁写"L3 真机通过"**（完整 Tauri 壳 + 生产 TLS 属独立真机终验层，不在本门）。
+
+运行需注入 `E2E_PG_URL`（flow10/stocks 经它种子后端 PG）。**PUBLIC 仓红线**：库连接串 / e2e 账号一律运行时 env 注入，**绝不硬编码进 spec / config / 任何提交物**。
+
+### 触发面：改这些必跑 `pnpm e2e:real`（或声明豁免）
+
+| 触发面 | 为何单实例 mock 测不到 |
+|--------|----------------------|
+| `src/api/**` | 后端契约消费端；字段 / 端点漂移需真帧验（jsdom mock invoke 测不到） |
+| `src/services/secureFetch.ts` | HTTP 出口（e2e 桥的原生 fetch 分支在此） |
+| `src/services/rustWebSocket.ts` | WS 出口（e2e 桥的原生 WebSocket 分支在此） |
+| `src/services/syncService.ts` | 消息同步（read_sync / 会话快照的跨实例语义） |
+| `src/services/discovery.ts` | serverUrl / 直连解析（`resolveForSecureHttp` 的 e2e 短路在此） |
+| `src/contexts/**` | WebSocketContext / SessionContext 真链路 provider（WS 连接、token 广播） |
+
+改动触及任一 → 交付前跑 `pnpm e2e:real` 并标注结果（层级 + 通过数 / fail_list），或声明豁免（**仅监督者/huanwei 可批**）。
+
+**集群不可用 = 失败非 skip**：`e2e:real` 探测不到集群（18801/18802 不通）视为失败，绝不"环境缺失所以跳过"。真实的外部依赖缺失走**显式可见**的 ENV-FAIL 上报 + 监督者豁免，禁 PASS 形态静默跳过（假测试红线；对齐后端 gate 的 `verdict` 语义）。
+
+### 与存量 GitHub CI 的隔离（红线，勿破坏）
+
+存量 `.github/workflows/test.yml` 的 `e2e-tests` job 裸跑 `pnpm test:e2e`（= `playwright test`，主 config），公开仓 CI runner **无本地集群**（18801 不可达）。real-e2e **必须与它物理隔离**：走独立 `playwright.real-e2e.config.ts`（`testDir ./e2e-real`）；主 `playwright.config.ts` 的 projects **只含 `chromium` + `animation-health`**，不含 `real-e2e`。
+- **别**把 `real-e2e` project 加进主 `playwright.config.ts`（会被存量 CI 裸跑 → 18801 不可达 → 公开仓 CI 必红）。
+- **别**改 `test:e2e` 脚本使其扫到 `e2e-real/`；`e2e:real` 与 `test:e2e` 是两条不相交的路径。
+- 改 playwright 配置后自检：`playwright test --list`（主 config）grep `real|e2e-real` 必须 NONE。
+
+### 运行产物 gitignore（commit 前须补）
+
+`e2e:real` 生成 `e2e-real/test-results/`、`playwright-report-real/`，当前 `.gitignore` 仅有 `playwright-report/`。commit 前补两行忽略，且用显式 `git add <file>`（非 `-A`）避免误纳运行产物（W3/W4 已记同一遗留）。
