@@ -70,3 +70,6 @@ src-tauri/resources/app-client.key.pem
 # src-tauri/icons/ 下的派生图标才是真正参与构建的资源
 scripts/icons/app-icon-squircle.png
 
+# 构建产物安装包不入库（防手动测试构建的 .msi 误提交，2026-07 清理 test-build.msi 后加）
+/*.msi
+
