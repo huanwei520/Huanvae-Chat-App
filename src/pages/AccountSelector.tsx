@@ -61,6 +61,12 @@ const itemVariants = {
 const ANIMATION_DURATION = 400;
 const DRAG_THRESHOLD = 30;
 
+// 滚轮口径(手势级去抖 + 位移阈值,修"滑一下连跳多张"):
+// 一次连续手势(相邻事件间隔 ≤ WHEEL_GESTURE_GAP_MS)只切一张,手势结束后才可再切;
+// 手势内累计 |deltaY| 达 WHEEL_SWITCH_THRESHOLD(px)才算一次切换意图,与 DRAG_THRESHOLD 同口径
+const WHEEL_SWITCH_THRESHOLD = 30;
+const WHEEL_GESTURE_GAP_MS = 200;
+
 // ============================================
 // 状态管理
 // ============================================
@@ -131,6 +137,9 @@ export function AccountSelector({
   const animationLock = useRef(false);
   const dragStartY = useRef<number | null>(null);
   const stackSelectorRef = useRef<HTMLDivElement>(null);
+  const wheelAccumulatedDelta = useRef(0);
+  const wheelGestureFired = useRef(false);
+  const lastWheelEventAt = useRef(0);
 
   const accountCount = accounts.length;
   const { mainIndex, positionOffset, phase, resetCounter } = cardState;
@@ -179,9 +188,27 @@ export function AccountSelector({
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (e.deltaY > 0) {
+      const now = Date.now();
+      // 相邻事件间隔超阈 = 上一手势已结束:重置手势状态,允许本次新手势触发一次切换
+      if (now - lastWheelEventAt.current > WHEEL_GESTURE_GAP_MS) {
+        wheelGestureFired.current = false;
+        wheelAccumulatedDelta.current = 0;
+      }
+      lastWheelEventAt.current = now;
+
+      // 一个手势只切一张:已触发后,该手势的后续/惯性事件全部忽略
+      if (wheelGestureFired.current) { return; }
+      // 动画进行中忽略新输入:不累计、不消耗手势(动画结束后的滚动仍可按阈值触发)
+      if (animationLock.current) { return; }
+
+      // 手势内按净位移累计(方向由净值符号决定,过滤触控板抖动/方向噪声)
+      wheelAccumulatedDelta.current += e.deltaY;
+      if (Math.abs(wheelAccumulatedDelta.current) < WHEEL_SWITCH_THRESHOLD) { return; }
+
+      wheelGestureFired.current = true;
+      if (wheelAccumulatedDelta.current > 0) {
         goToNext();
-      } else if (e.deltaY < 0) {
+      } else {
         goToPrev();
       }
     };
