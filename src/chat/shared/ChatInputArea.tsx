@@ -10,7 +10,7 @@
  * - 剪贴板图片粘贴（桌面端，类似 QQ/微信）
  */
 
-import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { readFile } from '@tauri-apps/plugin-fs';
@@ -21,11 +21,18 @@ import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
 import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
 import { isMobile } from '../../utils/platform';
+import { useApi } from '../../contexts/SessionContext';
+import { useBotCommandsStore } from '../../stores/botCommandsStore';
+import type { BotCommand } from '../../api/bots';
+import { SlashCommandPanel } from './SlashCommandPanel';
+import { parseSlashQuery, filterCommands } from './slashCommands';
 
 /** 图片扩展名 */
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 /** 视频扩展名 */
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv'];
+/** 稳定空命令数组引用（避免面板依赖抖动） */
+const EMPTY_COMMANDS: BotCommand[] = [];
 
 /**
  * 根据文件名判断附件类型
@@ -100,6 +107,48 @@ export function ChatInputArea({
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
+  const api = useApi();
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
+
+  // 斜杠命令面板：仅 bot 会话有命令集（进会话拉取，切会话失效）
+  const botUserId = chatTarget?.type === 'bot' ? chatTarget.data.friend_id : null;
+  const rawCommands = useBotCommandsStore((s) => (botUserId ? s.commandsByBot[botUserId] : undefined));
+  const commands = rawCommands ?? EMPTY_COMMANDS;
+
+  useEffect(() => {
+    if (botUserId) {
+      void useBotCommandsStore.getState().fetch(api, botUserId);
+    }
+  }, [api, botUserId]);
+
+  const slashQuery = useMemo(() => parseSlashQuery(messageInput), [messageInput]);
+  const filteredCommands = useMemo(
+    () => (slashQuery === null ? EMPTY_COMMANDS : filterCommands(commands, slashQuery)),
+    [slashQuery, commands],
+  );
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [slashPos, setSlashPos] = useState({ left: 0, bottom: 0 });
+
+  // 用户继续打字（query 变化）→ 重置 dismissed 与选中项
+  useEffect(() => { setSlashDismissed(false); setSlashActiveIndex(0); }, [slashQuery]);
+
+  const slashPanelOpen = slashQuery !== null && filteredCommands.length > 0 && !slashDismissed && !uploading;
+
+  useLayoutEffect(() => {
+    if (slashPanelOpen && inputWrapperRef.current) {
+      const r = inputWrapperRef.current.getBoundingClientRect();
+      setSlashPos({ left: r.left, bottom: window.innerHeight - r.top + 8 });
+    }
+  }, [slashPanelOpen, messageInput]);
+
+  // 选中命令 = 填入输入框（可编辑，绝不直发）
+  const selectSlashCommand = useCallback((cmd: BotCommand) => {
+    onMessageChange(`/${cmd.command} `);
+    setSlashDismissed(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [onMessageChange]);
+
   // 判断是否在群聊中
   const isGroup = chatTarget?.type === 'group';
   const groupId = isGroup ? chatTarget.data.group_id : null;
@@ -161,13 +210,21 @@ export function ChatInputArea({
 
   // 处理键盘事件
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 命令面板打开时：方向键/Enter/Tab/ESC 归面板，Enter 绝不发送
+    if (slashPanelOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashActiveIndex((i) => (i + 1) % filteredCommands.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashActiveIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const c = filteredCommands[slashActiveIndex]; if (c) { selectSlashCommand(c); } return; }
+      if (e.key === 'Tab') { e.preventDefault(); const c = filteredCommands[slashActiveIndex]; if (c) { selectSlashCommand(c); } return; }
+      if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!isMuted) {
         onSendMessage();
       }
     }
-  }, [onSendMessage, isMuted]);
+  }, [onSendMessage, isMuted, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
 
   // ============================================
   // 拖拽文件处理
@@ -366,7 +423,7 @@ export function ChatInputArea({
         )}
       </AnimatePresence>
 
-      <div className="input-wrapper multiline">
+      <div className="input-wrapper multiline" ref={inputWrapperRef}>
         {/* 文件附件按钮 */}
         <FileAttachButton
           disabled={uploading}
@@ -400,6 +457,15 @@ export function ChatInputArea({
           <SendIcon />
         </motion.button>
       </div>
+
+      <SlashCommandPanel
+        open={slashPanelOpen}
+        commands={filteredCommands}
+        activeIndex={slashActiveIndex}
+        position={slashPos}
+        onSelect={selectSlashCommand}
+        onHoverIndex={setSlashActiveIndex}
+      />
     </motion.div>
   );
 }

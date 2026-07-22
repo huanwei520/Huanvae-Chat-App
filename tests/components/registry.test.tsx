@@ -159,8 +159,12 @@ import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
 import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
 import * as useFriendReadReceipt from '../../src/chat/friend/useFriendReadReceipt';
 import * as useGroupReadReceipt from '../../src/chat/group/useGroupReadReceipt';
-import * as OpsConsolePanel from '../../src/chat/ops/OpsConsolePanel';
-import * as useOpsConsole from '../../src/chat/ops/useOpsConsole';
+import * as SlashCommandPanel from '../../src/chat/shared/SlashCommandPanel';
+import * as ConversationShelf from '../../src/chat/shared/ConversationShelf';
+import * as ShelfCardOverlay from '../../src/chat/shared/ShelfCardOverlay';
+import * as CardRenderer from '../../src/chat/shared/CardRenderer';
+import * as ActionButton from '../../src/chat/shared/ActionButton';
+import * as CardChart from '../../src/chat/shared/CardChart';
 import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
 import * as AIMessageBubble from '../../src/chat/ai/AIMessageBubble';
 import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
@@ -224,8 +228,11 @@ import * as notificationService from '../../src/services/notificationService';
 import * as syncService from '../../src/services/syncService';
 import * as updateService from '../../src/update/service';
 import * as settingsStore from '../../src/stores/settingsStore';
-import * as opsApi from '../../src/api/ops';
-import * as opsStore from '../../src/stores/opsStore';
+import * as sandboxEscape from '../../src/chat/shared/sandboxEscape';
+import * as shelfApi from '../../src/api/shelf';
+import * as shelfStore from '../../src/stores/shelfStore';
+import * as botCommandsStore from '../../src/stores/botCommandsStore';
+import * as slashCommands from '../../src/chat/shared/slashCommands';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -443,7 +450,12 @@ const COMPONENT_MAP = {
   ReaderAvatarStack,
   GroupReadReceipt,
   GroupReadListModal,
-  OpsConsolePanel,
+  SlashCommandPanel,
+  ConversationShelf,
+  ShelfCardOverlay,
+  CardRenderer,
+  ActionButton,
+  CardChart,
   AIChatMessages,
   AIMessageBubble,
   AIHistoryPanel,
@@ -495,7 +507,6 @@ const COMPONENT_MAP = {
   useNotificationSounds,
   useLanTransfer,
   useBots,
-  useOpsConsole,
   // 服务
   deviceInfo,
   diagnosticService,
@@ -507,8 +518,11 @@ const COMPONENT_MAP = {
   syncService,
   updateService,
   settingsStore,
-  opsApi,
-  opsStore,
+  sandboxEscape,
+  shelfApi,
+  shelfStore,
+  botCommandsStore,
+  slashCommands,
   // 工具模块
   formatUtils,
   avatarColor,

@@ -24,8 +24,8 @@ import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { friendDisplayName } from '../utils/friendName';
 import { useChatStore } from '../stores/chatStore';
-import { useOpsStore } from '../stores/opsStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
+import { useShelfStore, isShelfItem } from '../stores/shelfStore';
 import {
   isReadPositionsLoaded,
   getReadPositionsSnapshot,
@@ -772,16 +772,21 @@ export function handleWebSocketMessage(
         });
         break;
 
-      case 'ops_update':
-        // 运维任务进度增量（仅 ops-bot owner 链路收到）。写独立 ops store，
-        // bot 聊天页运维全景折叠区据此实时更新。
-        useOpsStore.getState().applyOpsUpdate(msg.kind, msg.data);
-        break;
-
       case 'message_updated':
         // 已发卡片 live 刷新：写独立 cardLiveStore（单调 rev 去重乱序/重放），
-        // CardRenderer 经 store 订阅即时重渲（镜像 ops_update 纯写 store 模式）。
+        // CardRenderer 经 store 订阅即时重渲（纯写 store 模式）。
         useCardLiveStore.getState().applyUpdate(msg.message_uuid, msg.content, msg.rev);
+        break;
+
+      case 'shelf_updated':
+        // 顶置架引用增量：帧只含条目引用（无卡片内容，内容走 message/cardLiveStore）。
+        // 写独立 shelfStore（按 scope|scope_key 键），ConversationShelf 经订阅即时重渲。
+        // WS 为跨进程不可信输入，逐条 isShelfItem 校验后再入桶。
+        useShelfStore.getState().setItems(
+          msg.scope,
+          msg.scope_key,
+          (msg.items ?? []).filter(isShelfItem),
+        );
         break;
 
       case 'hg_topology_changed':

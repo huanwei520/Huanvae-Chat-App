@@ -6,7 +6,7 @@
  * - 创建 bot → SecretDisplay 一次性展示 token
  * - 按 username 添加 bot 好友
  * - 重置 token（确认 → SecretDisplay 展示新 token）、删除（确认）
- * - 隐私设置（消息策略 所有人/白名单/仅自己 + 可发现性；ops bot 服务端强制不可改）
+ * - 隐私设置（消息策略 所有人/白名单/仅自己 + 可发现性）
  *
  * 与 MobileMiniAppsPage 同款整屏页范式：pageVariants 右滑入场 + 顶部返回栏；
  * 子弹窗为静态渲染（无新 motion 组件）。motion 根 .mobile-bots-page 与卡片
@@ -22,7 +22,7 @@ import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { SecretDisplay, type SecretField } from '../../components/common/SecretDisplay';
 import { useBots } from '../../hooks/useBots';
 import type { BotInfo, CreateBotRequest, UpdateBotRequest } from '../../api/bots';
-// 共享隐私类（bots-radio-group / bots-ops-badge / bots-privacy-status 等）
+// 共享隐私类（bots-radio-group / bots-privacy-status 等）
 import '../../styles/bots.css';
 
 // 返回图标
@@ -66,8 +66,6 @@ type MessagePolicy = NonNullable<UpdateBotRequest['message_policy']>;
 
 /** 白名单上限（与后端一致，超出禁用提交） */
 const WHITELIST_MAX = 200;
-
-const OPS_LOCK_HINT = 'Ops 机器人由服务端强制"仅自己 + 不可被搜索"，不可修改';
 
 /** 白名单 textarea → 用户 ID 数组：按行 split、trim、去空、去重（保序） */
 function parseWhitelist(text: string): string[] {
@@ -178,9 +176,6 @@ function BotCard({
           >
             {bot.is_active ? '启用中' : '已停用'}
           </span>
-          {bot.is_ops && (
-            <span className="mobile-bot-card-badge bots-ops-badge">Ops</span>
-          )}
         </div>
         <div className="mobile-bot-card-username">@{bot.username}</div>
         {bot.description && (
@@ -253,8 +248,7 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
   const canAdd = addUsername.trim() !== '' && operatingId !== '__adding__';
   const confirmLabel = confirm?.kind === 'reset' ? '确认重置' : '确认删除';
 
-  // 隐私设置派生值（ops bot 服务端强制 owner_only + 不可发现，整体禁改）
-  const privacyLocked = privacyBot?.is_ops === true;
+  // 隐私设置派生值
   const privacySaving = privacyBot !== null && operatingId === privacyBot.bot_user_id;
   const parsedWhitelist = parseWhitelist(whitelistText);
   const whitelistTooLong = parsedWhitelist.length > WHITELIST_MAX;
@@ -263,7 +257,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
     : {};
   const canSavePrivacy =
     privacyBot !== null &&
-    !privacyLocked &&
     Object.keys(privacyChanges).length > 0 &&
     !(policy === 'whitelist' && whitelistTooLong) &&
     !privacySaving;
@@ -519,9 +512,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
       {/* 隐私设置弹窗（照创建表单的底部弹窗模式，静态渲染） */}
       {privacyBot && (
         <BotsDialogShell title="隐私设置" onClose={() => setPrivacyBot(null)}>
-          {privacyLocked && (
-            <p className="mobile-bots-hint bots-ops-lock-hint">{OPS_LOCK_HINT}</p>
-          )}
           <div className="mobile-bots-field">
             <span>谁可以发消息</span>
             <div className="bots-radio-group">
@@ -532,7 +522,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
                   value="everyone"
                   checked={policy === 'everyone'}
                   onChange={() => setPolicy('everyone')}
-                  disabled={privacyLocked}
                 />
                 所有人
               </label>
@@ -543,7 +532,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
                   value="whitelist"
                   checked={policy === 'whitelist'}
                   onChange={() => setPolicy('whitelist')}
-                  disabled={privacyLocked}
                 />
                 白名单
               </label>
@@ -554,7 +542,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
                   value="owner_only"
                   checked={policy === 'owner_only'}
                   onChange={() => setPolicy('owner_only')}
-                  disabled={privacyLocked}
                 />
                 仅自己
               </label>
@@ -568,7 +555,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
                 value={whitelistText}
                 onChange={(e) => setWhitelistText(e.target.value)}
                 rows={5}
-                disabled={privacyLocked}
               />
             </label>
           )}
@@ -582,7 +568,6 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
               type="checkbox"
               checked={discoverable}
               onChange={(e) => setDiscoverable(e.target.checked)}
-              disabled={privacyLocked}
             />
             允许被搜索添加
           </label>

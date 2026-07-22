@@ -70,6 +70,14 @@ globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserv
 
 **反例（2026-07-14）**：侧边栏引入 @dnd-kit 后，DndContext 内 `new ResizeObserver` 撞上箭头 mock，既有 SidebarAvatarA11y 5 个用例连带失败；改可构造 class 后全部复活。
 
+### 给"重型子树 mock 成 null"的结构/a11y 测试新增子组件时，必须同步补 mock 新子（尤其消费 context hook 的）
+
+结构/a11y 测试（如 ChatHeaderAvatarA11y、SidebarAvatarA11y）常把父组件（ChatPanel/MobileChatView）的重型子树整体 `vi.mock(..., () => null)`，只验顶栏结构、不挂 SessionProvider 等 context。**给这类父组件新增一个子组件时**，若新子在渲染期调用 context hook（`useApi()`/`useSession()` 等），而该测试没把新子也 mock 掉 → 新子在无 Provider 的测试里抛 `useSession must be used within a SessionProvider` → **该看似无关的既有 a11y 测试整片连带失败**。
+
+**规则**：给 ChatPanel/MobileChatView 等"被结构测试 mock 掉子树"的父组件挂新子组件时，plan/实现阶段就 grep 哪些测试把该父组件的子树 mock 成 null（或直接渲染父组件），对每个这类测试**同步加一行** `vi.mock('.../新子组件', () => ({ 新子组件: () => null }))`。新子自身逻辑由它自己的测试覆盖，这里只为让父组件结构测试不被新子的 context 依赖炸穿。
+
+**反例（2026-07-21 · req-06 顶置架）**：ChatPanel/MobileChatView 挂新子 `ConversationShelf`（`ConversationShelf.tsx:52 const api = useApi()`）→ 既有 `ChatHeaderAvatarA11y.test.tsx`（已把重型子树 mock 成 null 但没 mock 新子）13 用例全挂，报 `useSession must be used within a SessionProvider`；补 `vi.mock('../../src/chat/shared/ConversationShelf', () => ({ ConversationShelf: () => null }))` 后 13/13 复活、全量 2417/0。与上条 Observer-mock 同属"新增件连带炸看似无关既有测试"家族，但根因是"新子消费 context hook 而测试无 Provider"，非 Observer 构造契约。
+
 ### 已 mock 的 Tauri 模块速查（tests/setup.ts 截至 2026-04-23）
 
 | 模块 | mock 程度 | 坑 |

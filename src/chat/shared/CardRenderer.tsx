@@ -2,7 +2,7 @@
  * 可交互卡片(S2)渲染器。
  *
  * 安全不变量(红线,勿破坏):
- * - **声明式白名单**:卡片内容是数据不是代码。渲染 = `switch(node.type)` over 15 类封闭白名单,
+ * - **声明式白名单**:卡片内容是数据不是代码。渲染 = `switch(node.type)` over 18 类封闭白名单,
  *   未知 type → 惰性占位。绝不做运行时代码求值、动态函数构造、或 React 原始 HTML 注入。
  * - **Markdown raw-HTML 关闭**:markdown 节点复用 MarkdownRenderer(react-markdown 无 rehype-raw)。
  * - **action_id 不透明**:按钮携带的是不透明 action_id(中继给发卡 bot),**不是**可取回/执行的 URL;
@@ -10,6 +10,8 @@
  * - **图片必经收口**:image.url 一律经 `resolveDisplayUrl`(webview 私有 CA 反代收口)。
  * - **className 只取白名单常量**:heading level / button style 先收窄到白名单再映射到常量类名,
  *   绝不把卡片字段插值进 className。
+ * - **双受众**:product 受众不渲染任何交互/日志/沙箱节点(布局/内容/chart 照常)。
+ * - **sandbox 阀默认关闭**:sandbox 节点在逃逸阀关闭时一律惰性占位,绝不渲染卡片自带 url。
  * - CSP 宽松**不是**防线——真正的防线是这个白名单渲染器本身。
  *
  * live 刷新:已发卡片可被 bot 后续 patch(WS message_updated → cardLiveStore,单调 rev),
@@ -25,6 +27,9 @@ import { resolveDisplayUrl } from '../../services/secureProxy';
 import { useApi } from '../../contexts/SessionContext';
 import { interactWithCard } from '../../api/messages';
 import { useCardLiveStore } from '../../stores/cardLiveStore';
+import { ActionButton } from './ActionButton';
+import { CardChart } from './CardChart';
+import { SANDBOX_ESCAPE_ENABLED, openSandboxEscapeWindow } from './sandboxEscape';
 import {
   CARD_MAX_DEPTH,
   isCardSchema,
@@ -41,9 +46,13 @@ import {
   type CardStatNode,
   type CardTableNode,
   type CardChartNode,
+  type CardLogTailNode,
   type CardButtonNode,
+  type CardActionButtonItem,
+  type CardActionButtonsNode,
   type CardSelectNode,
   type CardInputNode,
+  type CardSandboxNode,
 } from '../../types/card';
 import './CardRenderer.css';
 
@@ -56,6 +65,8 @@ interface CardRendererProps {
   messageRev?: number;
   /** 消息来源(好友/群) */
   sourceType: 'friend' | 'group';
+  /** 受众:owner(默认,全量渲染) / product(产品演示视角,不渲染交互/日志/沙箱节点) */
+  audience?: 'owner' | 'product';
 }
 
 /** heading level → 白名单类名(不插值卡片字段) */
@@ -65,12 +76,23 @@ const HEADING_CLASS: Record<1 | 2 | 3, string> = {
   3: 'card-heading card-heading-3',
 };
 
-/** button style → 白名单类名 */
-const BUTTON_CLASS: Record<'primary' | 'secondary' | 'danger', string> = {
-  primary: 'card-button card-button-primary',
-  secondary: 'card-button card-button-secondary',
-  danger: 'card-button card-button-danger',
-};
+/** product 受众隐藏节点:一切交互 + 日志 + 沙箱(布局/内容/chart 照常渲染) */
+const PRODUCT_HIDDEN_TYPES: ReadonlySet<string> = new Set([
+  'button',
+  'action-buttons',
+  'select',
+  'input',
+  'log-tail',
+  'sandbox',
+]);
+
+/** 日志尾屏组件侧最大行数(超出取末尾,并渲染截断提示行) */
+export const CARD_LOG_TAIL_MAX_LINES = 200;
+
+/** button style 收窄:非白名单值一律按 secondary */
+function buttonStyleKey(style: unknown): 'primary' | 'secondary' | 'danger' {
+  return style === 'primary' || style === 'danger' ? style : 'secondary';
+}
 
 /** 纯解析:JSON.parse + schema 守卫,失败/非 schema → null */
 function tryParseSchema(content: string): CardSchema | null {
@@ -82,7 +104,7 @@ function tryParseSchema(content: string): CardSchema | null {
   }
 }
 
-export function CardRenderer({ messageContent, messageUuid, messageRev, sourceType }: CardRendererProps) {
+export function CardRenderer({ messageContent, messageUuid, messageRev, sourceType, audience = 'owner' }: CardRendererProps) {
   const api = useApi();
   // live 覆盖:仅当 patch 的 rev 不低于本地基线才采用(单调 store 已拒绝更旧的 rev)
   const live = useCardLiveStore((s) => s.cards[messageUuid]);
@@ -101,11 +123,11 @@ export function CardRenderer({ messageContent, messageUuid, messageRev, sourceTy
   }, [effectiveContent, messageContent]);
 
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleInteract = async (actionId: string, ownValue?: unknown) => {
-    setPendingAction(actionId);
+  // 失败时 rethrow:ActionButton 据 rejected promise 进入 failed 态;
+  // 卡片底部错误条(actionError)行为保持不变
+  const handleInteract = async (actionId: string, ownValue?: unknown): Promise<void> => {
     setActionError(null);
     try {
       const payload: Record<string, unknown> = {
@@ -122,14 +144,30 @@ export function CardRenderer({ messageContent, messageUuid, messageRev, sourceTy
     } catch (e) {
       setActionError('操作失败');
       console.warn('[CardRenderer] interact 失败', e);
-    } finally {
-      setPendingAction(null);
+      throw e;
     }
   };
+
+  // 卡片按钮与按钮组共用的 ActionButton 渲染(规则一致:style 收窄 + confirm 声明 + 失败回执)
+  const renderActionButton = (n: CardActionButtonItem, key: string): ReactNode => (
+    <ActionButton
+      key={key}
+      actionId={n.action_id}
+      label={n.text ?? ''}
+      style={buttonStyleKey(n.style)}
+      confirm={n.confirm === true}
+      onExecute={(id) => handleInteract(id, n.value)}
+      onError={() => setActionError('操作失败')}
+    />
+  );
 
   const renderNode = (node: CardNode, depth: number, key: string): ReactNode => {
     if (depth > CARD_MAX_DEPTH) {
       return <div key={key} className="card-node card-node-unknown">[不支持的组件]</div>;
+    }
+    // 双受众:product 视角不渲染任何交互/日志/沙箱节点
+    if (audience === 'product' && PRODUCT_HIDDEN_TYPES.has(node.type)) {
+      return null;
     }
     switch (node.type) {
       case 'container': {
@@ -225,28 +263,60 @@ export function CardRenderer({ messageContent, messageUuid, messageRev, sourceTy
         );
       }
       case 'chart': {
-        // S2 仅识别占位;完整 klinecharts 渲染按设计延后到 S4
         const n = node as CardChartNode;
+        return <CardChart key={key} node={n} />;
+      }
+      case 'log-tail': {
+        // 等宽只读日志尾屏:纯文本拼接为单个 React 文本子节点(自动转义),绝不做任何插值/eval
+        const n = node as CardLogTailNode;
+        const rawLines = Array.isArray(n.lines) ? n.lines.filter((l): l is string => typeof l === 'string') : [];
+        const clipped = rawLines.length > CARD_LOG_TAIL_MAX_LINES;
+        const lines = clipped ? rawLines.slice(-CARD_LOG_TAIL_MAX_LINES) : rawLines;
+        let body = '';
+        if (clipped) {
+          body += `…(仅显示最近 ${CARD_LOG_TAIL_MAX_LINES} 行)\n`;
+        } else if (n.truncated === true) {
+          body += '…(更早日志已省略)\n';
+        }
+        body += lines.map((l) => `${l}\n`).join('');
         return (
-          <div key={key} className="card-chart-placeholder">
-            {n.title ? `[图表: ${n.title}]` : '[图表]'}
+          <div key={key} className="card-log-tail">
+            {n.title !== undefined && <div className="card-log-tail-title">{n.title}</div>}
+            <pre className="card-log-tail-body">{body}</pre>
           </div>
         );
       }
       case 'button': {
         const n = node as CardButtonNode;
-        const styleKey = n.style === 'primary' || n.style === 'danger' ? n.style : 'secondary';
-        const pending = pendingAction === n.action_id;
+        return renderActionButton(n, key);
+      }
+      case 'action-buttons': {
+        const n = node as CardActionButtonsNode;
+        const buttons = (Array.isArray(n.buttons) ? n.buttons : []).filter(
+          (b): b is CardActionButtonItem => typeof b === 'object' && b !== null && typeof b.action_id === 'string',
+        );
         return (
-          <button
+          <div key={key} className="card-action-buttons">
+            {buttons.map((b, i) => renderActionButton(b, `${key}-${i}`))}
+          </div>
+        );
+      }
+      case 'sandbox': {
+        const n = node as CardSandboxNode;
+        if (SANDBOX_ESCAPE_ENABLED === false) {
+          // 逃逸阀默认关闭:一律惰性占位,绝不渲染卡片自带 url
+          return <div key={key} className="card-node card-node-unknown">[富交互卡片]</div>;
+        }
+        // 机制就位分支(开关开启才可达):鉴权 secret 由后续批次接入会话密钥,当前传空串
+        return (
+          <ActionButton
             key={key}
-            type="button"
-            className={BUTTON_CLASS[styleKey]}
-            onClick={() => handleInteract(n.action_id, n.value)}
-            disabled={pending}
-          >
-            {n.text ?? ''}
-          </button>
+            actionId="sandbox-open"
+            label={n.title ?? '打开'}
+            onExecute={async () => {
+              await openSandboxEscapeWindow({ url: n.url ?? '', title: n.title, secret: '' });
+            }}
+          />
         );
       }
       case 'select': {

@@ -29,7 +29,7 @@ import { VoiceProfileManager } from '../ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from './ChatMenu';
-import { OpsConsolePanel } from '../ops/OpsConsolePanel';
+import { ConversationShelf } from './ConversationShelf';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
@@ -360,10 +360,8 @@ export function ChatPanel({
         <div className="chat-blacklist-banner">已拉黑，对方收不到你发送的消息</div>
       )}
 
-      {/* bot 会话：运维全景折叠区（仅 ops-bot owner 可见，gate 由后端数据判定） */}
-      {chatTarget.type === 'bot' && (
-        <OpsConsolePanel botUserId={chatTarget.data.friend_id} />
-      )}
+      {/* 顶置功能区（bot 会话 / 群会话；好友 1:1 与 AI 天然无架，组件自 gate） */}
+      <ConversationShelf chatTarget={chatTarget} />
 
       {/* AI 历史记录抽屉 */}
       {chatTarget.type === 'ai' && (

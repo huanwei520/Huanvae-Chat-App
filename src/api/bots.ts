@@ -49,8 +49,6 @@ export interface BotInfo {
   message_whitelist: string[];
   /** false 时非 owner 搜索/添加一律 404（不泄露存在性） */
   is_discoverable: boolean;
-  /** 运维 bot 标记（仅平台 admin 可创建） */
-  is_ops: boolean;
   /** ISO 8601 */
   created_at: string;
   updated_at: string;
@@ -61,8 +59,6 @@ export interface CreateBotRequest {
   username: string;
   nickname: string;
   description?: string;
-  /** 默认 false；true 需平台 admin，服务端强制 owner_only + 不可发现 */
-  is_ops?: boolean;
 }
 
 /**
@@ -75,11 +71,10 @@ export interface CreateBotResponse {
   nickname: string;
   description: string;
   token: string;
-  /** 回显服务端生效值（ops bot 会被强制 owner_only） */
+  /** 回显服务端生效的消息策略值 */
   message_policy: string;
-  /** 回显服务端生效值（ops bot 会被强制 false） */
+  /** 回显服务端生效的可发现性值 */
   is_discoverable: boolean;
-  is_ops: boolean;
 }
 
 /** 更新 bot 请求（字段全部可选，只更新传入项） */
@@ -185,6 +180,20 @@ export function addBotByUsername(
     `/api/friends/add-bot?username=${encodeURIComponent(username)}`,
     {},
   );
+}
+
+/** GET /api/bots/{bot_user_id}/commands 响应（用户 JWT，能聊天即可见，404 同形） */
+export interface BotCommandsResponse {
+  commands: BotCommand[];
+}
+
+/**
+ * 查询某 bot 的指令列表（用户 JWT）。
+ * 授权在后端：能与该 bot 聊天即可见；bot 不存在 / 无权限一律 404 同形（不泄露存在性）。
+ * 前端只调用 + 渲染，不做任何过滤。
+ */
+export function getBotCommands(api: ApiClient, botUserId: string): Promise<BotCommandsResponse> {
+  return api.get<BotCommandsResponse>(`/api/bots/${encodeURIComponent(botUserId)}/commands`);
 }
 
 // ============================================

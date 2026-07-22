@@ -29,6 +29,9 @@ vi.mock('../../src/chat/ai/voice/VoiceProfileManager', () => ({ VoiceProfileMana
 vi.mock('../../src/chat/shared/ChatMenu', () => ({ ChatMenuButton: () => null }));
 vi.mock('../../src/chat/shared/MultiSelectActionBar', () => ({ MultiSelectActionBar: () => null }));
 vi.mock('../../src/chat/shared/ChatInputArea', () => ({ ChatInputArea: () => null }));
+// ConversationShelf 用 useApi()（会话上下文）；本测试只验顶栏结构、不挂 SessionProvider，
+// 与上方重型子树同样 mock 成 null（顶置架自身逻辑另有 ConversationShelf.test.tsx 覆盖）。
+vi.mock('../../src/chat/shared/ConversationShelf', () => ({ ConversationShelf: () => null }));
 
 import { ChatPanel } from '../../src/chat/shared/ChatPanel';
 import { MobileChatView } from '../../src/pages/mobile/MobileChatView';

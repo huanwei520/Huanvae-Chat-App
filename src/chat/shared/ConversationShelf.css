@@ -1,0 +1,222 @@
+/**
+ * 顶置功能区样式。
+ *
+ * 动画单一所有权（红线）：
+ * - .shelf-card-overlay 是 framer-motion 元素（逐帧写 opacity + transform y/scale），
+ *   本文件对它【绝不】声明 transition: transform / opacity / all；仅允许 box-shadow / border-color。
+ * - .conversation-shelf-bar / .conversation-shelf-chevron 是普通元素（非 framer-motion），
+ *   由 CSS 独占其 background / transform，可安全用 CSS transition（单一所有权，无抢帧）。
+ *
+ * 主题：颜色走 ThemeProvider 注入的 theme-aware token（浅/深自动适配）；
+ * 仅 .shelf-card-item 的硬编码半透明底色需要一条 [data-theme='dark'] 覆盖。
+ */
+
+/* ============ 常驻窄条（普通元素，CSS 独占动画） ============ */
+.conversation-shelf-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  background: rgba(59, 130, 246, 0.05);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.conversation-shelf-bar:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.conversation-shelf-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-neutral-8);
+}
+
+.conversation-shelf-count {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+}
+
+.conversation-shelf-chevron {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.conversation-shelf-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+/* ============ 浮层卡（framer-motion 元素：禁 transform/opacity/all 过渡） ============ */
+.shelf-card-overlay {
+  position: fixed;
+  z-index: 10000;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--white-alpha-95);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08);
+  /* 不声明 transition: transform / opacity / all —— 由 framer-motion 逐帧接管 */
+}
+
+.shelf-card-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.shelf-card-overlay-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-neutral-8);
+}
+
+.shelf-manage-btn {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+/* 无 manage-btn 时，close 承接右对齐 */
+.shelf-card-overlay-header .shelf-card-overlay-close {
+  margin-left: auto;
+}
+
+/* 有 manage-btn 时，close 紧随其后（manage-btn 已吃掉 auto） */
+.shelf-manage-btn ~ .shelf-card-overlay-close {
+  margin-left: 0;
+}
+
+.shelf-card-overlay-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.shelf-card-overlay-error {
+  font-size: 12px;
+  color: #dc2626;
+  margin-bottom: 8px;
+}
+
+.shelf-card-overlay-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px;
+}
+
+/* ============ 已上架条目 ============ */
+.shelf-card-item {
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.02);
+  margin-bottom: 8px;
+}
+
+.shelf-card-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.shelf-card-unavailable {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.shelf-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.shelf-card-actions button {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.shelf-card-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.shelf-unpin-btn {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.3) !important;
+}
+
+/* ============ 群主上架候选拾取器 ============ */
+.shelf-picker {
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px dashed var(--primary);
+  border-radius: 10px;
+}
+
+.shelf-picker-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.shelf-picker-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.shelf-picker-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--primary);
+}
+
+/* ============ 深色微调（token 已 theme-aware，仅硬编码半透明底色需覆盖） ============ */
+[data-theme='dark'] .shelf-card-item {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme='dark'] .shelf-card-actions button {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+[data-theme='dark'] .shelf-picker-item {
+  border-color: rgba(255, 255, 255, 0.12);
+}

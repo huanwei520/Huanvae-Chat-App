@@ -207,6 +207,76 @@
   box-sizing: border-box;
 }
 
+/* ---- action button group ---- */
+.card-action-buttons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- action button state modifiers ---- */
+/* confirm gate: danger tint warns the next click executes a destructive action */
+.card-button--confirming {
+  border-color: var(--error-color, #ff4757);
+  background: var(--error-color, #ff4757);
+  color: #fff;
+}
+
+/* pending: keep .card-button:disabled (opacity .5) as the base; this only dims slightly more contexts */
+.card-button--pending {
+  opacity: 0.6;
+}
+
+.card-button--success {
+  border-color: var(--success-color, #2ed573);
+  color: var(--success-color, #2ed573);
+}
+
+.card-button--failed {
+  border-color: var(--error-color, #ff4757);
+  color: var(--error-color, #ff4757);
+}
+
+/* ---- log tail (monospace read-only) ---- */
+.card-log-tail {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.card-log-tail-title {
+  font-size: 12px;
+  color: var(--text-secondary, #ccc);
+  margin-bottom: 4px;
+}
+
+.card-log-tail-body {
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  color: var(--text-secondary, #ccc);
+}
+
+/* ---- chart ---- */
+.card-chart {
+  width: 100%;
+}
+
+.card-chart-title {
+  font-size: 12px;
+  color: var(--text-secondary, #ccc);
+  margin-bottom: 4px;
+}
+
+.card-chart-canvas {
+  width: 100%;
+}
+
 .card-input-wrap {
   display: flex;
   flex-direction: column;

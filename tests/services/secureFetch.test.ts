@@ -3,12 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // invoke 走 Tauri 通道(plugin-http 同理), 真 fetch/page.route 拦不到 → mock invoke 单测
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
+// secureFetch 现 import rediscoverOnFailure(数据面失败轮换)—— mock discovery 避免拉起真 plugin-store,
+// 并可控轮换返回值验证 failover 分支
+const disc = vi.hoisted(() => ({ rediscoverOnFailure: vi.fn() }));
+vi.mock('../../src/services/discovery', () => ({ rediscoverOnFailure: disc.rediscoverOnFailure }));
 
 import { isOkStatus, secureHttp, rewriteUrlHost } from '../../src/services/secureFetch';
 
 describe('secureFetch', () => {
   beforeEach(() => {
     mocks.invoke.mockReset();
+    disc.rediscoverOnFailure.mockReset();
   });
 
   describe('isOkStatus', () => {
@@ -84,5 +89,58 @@ describe('secureFetch', () => {
     expect(sent.pin_ca).toBe(true);
     expect(sent).not.toHaveProperty('direct_ip');
     expect(sent).not.toHaveProperty('direct_port');
+  });
+
+  describe('secureHttp 数据面失败轮换 (failover)', () => {
+    const dataReq = {
+      method: 'GET',
+      url: 'https://api.huanvae.cn/api/x',
+      pin_ca: true,
+      direct_ip: '47.104.231.235',
+      direct_port: 443,
+    };
+
+    it('数据面连接失败 → rediscoverOnFailure(死IP) → 切到新 IP 原样重发一次并成功', async () => {
+      disc.rediscoverOnFailure.mockResolvedValue({ domain: 'api.huanvae.cn', ip: '47.105.101.42', port: 443 });
+      mocks.invoke
+        .mockRejectedValueOnce(new Error('请求失败: connection refused'))
+        .mockResolvedValueOnce({ status: 200, headers: {}, body: 'OK' });
+
+      const resp = await secureHttp(dataReq);
+
+      expect(disc.rediscoverOnFailure).toHaveBeenCalledWith('47.104.231.235');
+      expect((mocks.invoke.mock.calls[0]?.[1] as { req: { url: string } }).req.url).toBe('https://47.104.231.235/api/x');
+      expect((mocks.invoke.mock.calls[1]?.[1] as { req: { url: string } }).req.url).toBe('https://47.105.101.42/api/x');
+      expect(resp.ok).toBe(true);
+      expect(resp.status).toBe(200);
+    });
+
+    it('非数据面(无 direct_ip)连接失败 → 不触发轮换, 原样抛错', async () => {
+      mocks.invoke.mockRejectedValue(new Error('boom'));
+      await expect(secureHttp({ method: 'GET', url: 'https://ca.huanvae.cn/endpoints', pin_ca: false })).rejects.toThrow('boom');
+      expect(disc.rediscoverOnFailure).not.toHaveBeenCalled();
+    });
+
+    it('轮换返回 null(全网不可达) → 不重发, 上抛原始连接错误', async () => {
+      disc.rediscoverOnFailure.mockResolvedValue(null);
+      mocks.invoke.mockRejectedValue(new Error('请求失败: all down'));
+      await expect(secureHttp(dataReq)).rejects.toThrow('请求失败: all down');
+      expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('轮换返回同一 IP(未真正切换) → 不重发, 上抛原始错误', async () => {
+      disc.rediscoverOnFailure.mockResolvedValue({ domain: 'api.huanvae.cn', ip: '47.104.231.235', port: 443 });
+      mocks.invoke.mockRejectedValue(new Error('请求失败: same ip'));
+      await expect(secureHttp(dataReq)).rejects.toThrow('请求失败: same ip');
+      expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('HTTP 状态错误(500, invoke 不抛)不触发轮换', async () => {
+      mocks.invoke.mockResolvedValue({ status: 500, headers: {}, body: 'err' });
+      const resp = await secureHttp(dataReq);
+      expect(resp.ok).toBe(false);
+      expect(resp.status).toBe(500);
+      expect(disc.rediscoverOnFailure).not.toHaveBeenCalled();
+    });
   });
 });

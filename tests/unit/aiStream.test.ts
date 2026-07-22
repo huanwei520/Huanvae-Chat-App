@@ -26,12 +26,14 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: core.invoke, Channel: core.Fake
 
 const discovery = vi.hoisted(() => ({
   resolveForSecureHttp: vi.fn(),
+  rediscoverOnFailure: vi.fn(),
 }));
 vi.mock('../../src/services/discovery', () => ({
   resolveForSecureHttp: discovery.resolveForSecureHttp,
+  rediscoverOnFailure: discovery.rediscoverOnFailure,
 }));
 
-import { streamAIMessage, type AIStreamCallbacks } from '../../src/api/ai';
+import { streamAIMessage, isStreamConnectFailure, type AIStreamCallbacks } from '../../src/api/ai';
 
 /** 对齐 ai.ts 内部 SecureStreamEvent（未导出，测试侧镜像） */
 type SecureStreamEvent =
@@ -87,6 +89,7 @@ describe('streamAIMessage SSE 流式解析 (api/ai)', () => {
     core.invoke.mockResolvedValue(undefined);
     discovery.resolveForSecureHttp.mockReset();
     discovery.resolveForSecureHttp.mockReturnValue(null);
+    discovery.rediscoverOnFailure.mockReset();
   });
 
   it('invoke 契约：命令名/POST/URL/头/body，无 conversationId 时 body 不含 conversation_id，默认注入 pin_ca', async () => {
@@ -294,5 +297,50 @@ describe('streamAIMessage SSE 流式解析 (api/ai)', () => {
 
     ch.onmessage({ event: 'chunk', data: 'event: content\ndata: x\n\n' });
     expect(cb.onContent).not.toHaveBeenCalled();
+  });
+
+  describe('SSE 连接建立失败触发 IP 池轮换 (failover)', () => {
+    beforeEach(() => {
+      discovery.resolveForSecureHttp.mockReturnValue({ pin_ca: true, direct_ip: '47.104.231.235', direct_port: 443 });
+    });
+
+    it("连接建立阶段 error(未 open + '请求失败' 前缀) → rediscoverOnFailure(死IP)", async () => {
+      const p = streamAIMessage(makeApi(), 'hi', undefined, makeCallbacks());
+      const { ch } = capture();
+      ch.onmessage({ event: 'error', message: '请求失败: connection refused' });
+      await expect(p).rejects.toThrow();
+      expect(discovery.rediscoverOnFailure).toHaveBeenCalledWith('47.104.231.235');
+    });
+
+    it("HTTP 状态错误(非 '请求失败' 前缀) → 不触发轮换", async () => {
+      const p = streamAIMessage(makeApi(), 'hi', undefined, makeCallbacks());
+      const { ch } = capture();
+      ch.onmessage({ event: 'error', message: '{"error":"上游 500"}' });
+      await expect(p).rejects.toThrow('上游 500');
+      expect(discovery.rediscoverOnFailure).not.toHaveBeenCalled();
+    });
+
+    it('mid-stream error(已 open 后读错误) → 不触发轮换', async () => {
+      const p = streamAIMessage(makeApi(), 'hi', undefined, makeCallbacks());
+      const { ch } = capture();
+      ch.onmessage({ event: 'open', status: 200 });
+      ch.onmessage({ event: 'error', message: '流读取失败: broken pipe' });
+      await expect(p).rejects.toThrow();
+      expect(discovery.rediscoverOnFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isStreamConnectFailure (pure)', () => {
+    it("未 open + '请求失败' 前缀 → true", () => {
+      expect(isStreamConnectFailure(false, '请求失败: xxx')).toBe(true);
+    });
+    it('已 open → false(mid-stream 不切)', () => {
+      expect(isStreamConnectFailure(true, '请求失败: xxx')).toBe(false);
+    });
+    it("未 open 但非 '请求失败' 前缀(HTTP 状态/流读取失败) → false", () => {
+      expect(isStreamConnectFailure(false, 'HTTP 500')).toBe(false);
+      expect(isStreamConnectFailure(false, '流读取失败: x')).toBe(false);
+      expect(isStreamConnectFailure(false, '{"error":"上游 500"}')).toBe(false);
+    });
   });
 });

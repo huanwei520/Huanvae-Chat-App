@@ -24,7 +24,7 @@ import { VoiceProfileManager } from '../../chat/ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../../chat/ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
-import { OpsConsolePanel } from '../../chat/ops/OpsConsolePanel';
+import { ConversationShelf } from '../../chat/shared/ConversationShelf';
 import { BotBadge } from '../../components/common/BotBadge';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
@@ -347,10 +347,8 @@ export function MobileChatView({
         />
       )}
 
-      {/* bot 会话：运维全景折叠区（仅 ops-bot owner 可见，gate 由后端数据判定） */}
-      {chatTarget.type === 'bot' && (
-        <OpsConsolePanel botUserId={chatTarget.data.friend_id} />
-      )}
+      {/* 顶置功能区（bot 会话 / 群会话；好友 1:1 与 AI 天然无架，组件自 gate） */}
+      <ConversationShelf chatTarget={chatTarget} />
 
       {/* 消息列表 */}
       <div className="mobile-chat-messages">

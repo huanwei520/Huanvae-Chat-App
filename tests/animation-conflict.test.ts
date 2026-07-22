@@ -409,6 +409,19 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform'],
     motionLocation: 'src/pages/mobile/MobileMeetingEntryPage.tsx (整页 x 滑入滑出 tween)',
   },
+  // ===== bot 斜杠命令面板 + 会话顶置架浮层（framer-motion 入出场 opacity+y+scale） =====
+  {
+    selector: '.slash-command-panel',
+    cssFile: 'src/chat/shared/SlashCommandPanel.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/SlashCommandPanel.tsx (portal 命令面板 motion.div：opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
+  },
+  {
+    selector: '.shelf-card-overlay',
+    cssFile: 'src/chat/shared/ConversationShelf.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/ShelfCardOverlay.tsx (顶置浮层 motion.div：opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
+  },
 ];
 
 /**

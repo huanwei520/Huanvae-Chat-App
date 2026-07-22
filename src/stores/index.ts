@@ -26,7 +26,8 @@ export {
 export { useProfileViewStore } from './profileViewStore';
 
 // ============================================
-// 运维任务 Store
+// 顶置架 / Bot 指令 Store
 // ============================================
 
-export { useOpsStore, type OpsStore } from './opsStore';
+export { useShelfStore, shelfKey, isShelfItem, type ShelfStore } from './shelfStore';
+export { useBotCommandsStore, type BotCommandsStore } from './botCommandsStore';

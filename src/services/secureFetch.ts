@@ -11,6 +11,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { isE2E } from './e2eMode';
+import { rediscoverOnFailure } from './discovery';
 
 /** 对齐 src-tauri/src/secure_net.rs 的 SecureHttpReq(字段 snake_case) */
 export interface SecureHttpReq {
@@ -84,12 +85,31 @@ async function nativeFetch(req: SecureHttpReq): Promise<SecureResponse> {
   };
 }
 
+/** 把 Rust SecureHttpResp 适配成消费方用的 Response-like(失败轮换重发两处共用) */
+function toSecureResponse(resp: SecureHttpResp): SecureResponse {
+  return {
+    status: resp.status,
+    ok: isOkStatus(resp.status),
+    headers: resp.headers ?? {},
+    body: resp.body,
+    json: <T = unknown>() => JSON.parse(resp.body) as T,
+    text: () => resp.body,
+  };
+}
+
 /**
  * 经 Rust secure_http 命令发请求。
  *
  * `direct_ip`/`direct_port`(来自 discovery.resolveForSecureHttp):把 url 主机改写为该 IP 再发,
  * 即直连源站 IP、不发 SNI(数据面绕 ICP)。发现面(ca.huanvae.cn,pin_ca=false)与 probe(已是 IP URL)
  * 不带 direct_ip → 不改写。direct_* 为 JS 层消费,不下发 Rust。
+ *
+ * **数据面失败轮换(failover)**:带 direct_ip 的数据面请求若发生**连接级失败**(invoke 抛错=命令层
+ * 失败,含 reqwest 连接/TLS 握手错误;HTTP 状态错误 4xx/5xx 不抛 → 不进此分支 → 不对可达服务器误切),
+ * 触发 rediscoverOnFailure(死 IP)轮换 IP 池;若切到**不同**可达 IP 则原样重发一次(对上层透明、连接不断);
+ * 无新 IP(全网不可达/同 IP)则上抛原错误,交调用方/下次请求(读到新 active)自愈。
+ * 仅数据面(direct_ip 存在)触发 → 天然排除 rediscoverOnFailure→pickFastest→probe→secureHttp 递归
+ * (probe 的 secureHttp 无 direct_ip)。
  *
  * 注意:secure_http 一次性收完 body(无流式),故不适用 SSE / 大流式下载;
  * 二进制 body 暂未支持(见 secure_net.rs)。这些场景仍走各自专用通道。
@@ -105,13 +125,18 @@ export async function secureHttp(
   if (isE2E()) {
     return nativeFetch(finalReq);
   }
-  const resp = await invoke<SecureHttpResp>('secure_http', { req: finalReq });
-  return {
-    status: resp.status,
-    ok: isOkStatus(resp.status),
-    headers: resp.headers ?? {},
-    body: resp.body,
-    json: <T = unknown>() => JSON.parse(resp.body) as T,
-    text: () => resp.body,
-  };
+  try {
+    return toSecureResponse(await invoke<SecureHttpResp>('secure_http', { req: finalReq }));
+  } catch (e) {
+    // 仅数据面(direct_ip)的连接级失败触发轮换;发现面/probe(无 direct_ip)不触发 → 无递归
+    if (!direct_ip || !direct_port) {
+      throw e;
+    }
+    const rotated = await rediscoverOnFailure(direct_ip);
+    if (!rotated || rotated.ip === direct_ip) {
+      throw e; // 无可切换的新 IP(全网不可达/同 IP)→ 上抛原错误
+    }
+    const retryReq: SecureHttpReq = { ...rest, url: rewriteUrlHost(rest.url, rotated.ip, rotated.port) };
+    return toSecureResponse(await invoke<SecureHttpResp>('secure_http', { req: retryReq }));
+  }
 }

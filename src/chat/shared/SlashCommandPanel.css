@@ -1,0 +1,64 @@
+/* ============================================
+   斜杠命令面板（bot 会话 / 输入 / 时弹出）
+   ============================================
+   .slash-command-panel 的 opacity/transform 由 framer-motion 逐帧接管，
+   因此本文件禁止对该选择器声明 transition（transform/opacity/all 都不行），
+   否则与 framer-motion 抢帧。子项 .slash-command-item 是普通 button，
+   仅过渡 background/color 无冲突。
+   （静态门禁 tests/animation-conflict.test.ts 会复查此约束）
+*/
+.slash-command-panel {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  max-width: 340px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--white-alpha-95);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  box-shadow:
+    0 8px 32px rgba(59, 130, 246, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.slash-command-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.slash-command-item:hover,
+.slash-command-item--active {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.slash-command-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-neutral-8);
+}
+
+.slash-command-item:hover .slash-command-name,
+.slash-command-item--active .slash-command-name {
+  color: var(--primary);
+}
+
+.slash-command-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

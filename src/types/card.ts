@@ -8,12 +8,16 @@
  * **各节点内部字段形状由本文件(前端)定义**,后端不校验内部字段。因此渲染器对每个
  * 字段都当作"可能缺失/可能类型不符"处理(React children 自动转义,className 只取白名单常量)。
  *
- * 15 类封闭白名单:
+ * 18 类封闭白名单:
  * - 布局:container / row / column(各含可选 children)、divider
  * - 内容:text{text} / markdown{text} / heading{text,level:1|2|3} / image{url,alt}
- *         / progress{value,max,label} / stat{label,value} / table{columns,rows} / chart{title}
- * - 交互:button{action_id,text,value,style} / select{action_id,options,placeholder}
+ *         / progress{value,max,label} / stat{label,value} / table{columns,rows}
+ *         / chart{title,chart_type,data,height}(klinecharts 渲染,声明式 spec)
+ *         / log-tail{title,lines,truncated}(等宽只读日志尾屏,纯文本)
+ * - 交互:button{action_id,text,value,style,confirm} / select{action_id,options,placeholder}
  *         / input{action_id,placeholder,label}
+ *         / action-buttons{buttons}(按钮组,各带不透明 action_id)
+ * - 逃逸:sandbox{url,title}(声明式表达不了的富交互,独立窗口机制,默认关闭)
  */
 
 // ============================================
@@ -95,9 +99,40 @@ export interface CardTableNode {
   rows?: string[][];
 }
 
-/** 图表(S2 仅识别占位,完整 klinecharts 渲染延后到 S4) */
+/** K 线数据点(数值字段渲染时逐一校验,非法行丢弃) */
+export interface CardChartCandle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+  turnover?: number;
+}
+
+/** 图表(S4):声明式 spec 驱动,klinecharts 渲染;不接任意代码 */
 export interface CardChartNode {
   type: 'chart';
+  title?: string;
+  chart_type?: 'candlestick' | 'area';
+  data?: CardChartCandle[];
+  /** px,clamp 120..480,默认 240 */
+  height?: number;
+}
+
+/** 日志尾屏:等宽只读,截断展示,纯文本(React child 自动转义,绝不插值 className) */
+export interface CardLogTailNode {
+  type: 'log-tail';
+  title?: string;
+  lines?: string[];
+  /** 发卡方声明"更早日志已省略"时渲染省略提示行 */
+  truncated?: boolean;
+}
+
+/** 沙箱逃逸阀占位(R3):声明式表达不了的富交互卡片,独立窗口机制,默认关闭 */
+export interface CardSandboxNode {
+  type: 'sandbox';
+  url?: string;
   title?: string;
 }
 
@@ -112,6 +147,23 @@ export interface CardButtonNode {
   text?: string;
   value?: unknown;
   style?: 'primary' | 'secondary' | 'danger';
+  /** 破坏性动作需二次确认,由卡片声明 */
+  confirm?: boolean;
+}
+
+/** 动作按钮组中的单个按钮(与 CardButtonNode 同字段,不含 type) */
+export interface CardActionButtonItem {
+  action_id: string;
+  text?: string;
+  value?: unknown;
+  style?: 'primary' | 'secondary' | 'danger';
+  confirm?: boolean;
+}
+
+/** 动作按钮组:一行可操作按钮,各带不透明 action_id */
+export interface CardActionButtonsNode {
+  type: 'action-buttons';
+  buttons?: CardActionButtonItem[];
 }
 
 /** 下拉选择:写入表单态(键=action_id) */
@@ -134,7 +186,7 @@ export interface CardInputNode {
 // 联合类型 + 常量
 // ============================================
 
-/** 15 类已知节点 */
+/** 18 类已知节点 */
 export type KnownCardNode =
   | CardContainerNode
   | CardRowNode
@@ -148,9 +200,12 @@ export type KnownCardNode =
   | CardStatNode
   | CardTableNode
   | CardChartNode
+  | CardLogTailNode
   | CardButtonNode
+  | CardActionButtonsNode
   | CardSelectNode
-  | CardInputNode;
+  | CardInputNode
+  | CardSandboxNode;
 
 /**
  * 未知节点兜底形状——让任意 type 的节点在类型上"可表示",
@@ -161,7 +216,7 @@ export interface CardUnknownNode {
   [k: string]: unknown;
 }
 
-/** 卡片节点 = 15 类已知节点 + 未知兜底 */
+/** 卡片节点 = 18 类已知节点 + 未知兜底 */
 export type CardNode = KnownCardNode | CardUnknownNode;
 
 /** 卡片 schema(版本 + 节点数组) */
@@ -170,7 +225,7 @@ export interface CardSchema {
   nodes: CardNode[];
 }
 
-/** 15 类白名单节点 type(渲染器 switch 的封闭集合) */
+/** 18 类白名单节点 type(渲染器 switch 的封闭集合) */
 export const CARD_NODE_TYPES = [
   'container',
   'row',
@@ -184,9 +239,12 @@ export const CARD_NODE_TYPES = [
   'stat',
   'table',
   'chart',
+  'log-tail',
   'button',
+  'action-buttons',
   'select',
   'input',
+  'sandbox',
 ] as const;
 
 /** 节点树最大嵌套深度(与后端 S1 校验一致);超出即渲染惰性占位 */

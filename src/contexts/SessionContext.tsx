@@ -22,8 +22,9 @@ import { persistSession, clearPersistedSession } from '../services/sessionPersis
 import { destroySyncService } from '../services/syncService';
 import { getTokenExpiresAt } from '../utils/jwt';
 import { useChatStore } from '../stores/chatStore';
-import { useOpsStore } from '../stores/opsStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
+import { useShelfStore } from '../stores/shelfStore';
+import { useBotCommandsStore } from '../stores/botCommandsStore';
 
 /** 扩展的会话上下文类型（包含 API 客户端） */
 interface ExtendedSessionContextType extends SessionContextType {
@@ -70,8 +71,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // 清空会话级内存缓存（消息缓存/群内屏蔽·特别关心·备注私有视图），避免切换账号后串数据。
     // 收敛到这里统一处理，覆盖所有登出路径：主动登出 / session 过期 / WS token 刷新失败。
     useChatStore.getState().clearMessageCache();
-    useOpsStore.getState().clear();
     useCardLiveStore.getState().clear();
+    useShelfStore.getState().clear();
+    useBotCommandsStore.getState().clear();
 
     // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
     destroySyncService();

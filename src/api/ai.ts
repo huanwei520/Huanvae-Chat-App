@@ -5,7 +5,7 @@
  */
 
 import { invoke, Channel } from '@tauri-apps/api/core';
-import { resolveForSecureHttp } from '../services/discovery';
+import { resolveForSecureHttp, rediscoverOnFailure } from '../services/discovery';
 import { rewriteUrlHost } from '../services/secureFetch';
 import { proxyRequestUrl } from '../services/secureProxy';
 import type { ApiClient } from './client';
@@ -67,6 +67,18 @@ export interface AIStreamCallbacks {
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => void;
   onError?: (error: string) => void;
   onDone?: () => void;
+}
+
+/**
+ * 判定一次 SSE 流式 error 是否为"连接建立阶段失败"(→ 触发 IP 池轮换 failover)。纯函数,便于单测。
+ * - `opened=false`:尚未收到 open 事件 = 连接未建立;排除 mid-stream(open 后)读错误(此时切 IP 无意义)。
+ * - message 以 '请求失败' 开头:secure_net.rs 的 secure_http_stream **仅**在 `rb.send().await` 失败
+ *   (连接建立/TLS 握手/网络错误)时用该前缀;非 2xx 用 body/'HTTP <code>'、mid-stream 用 '流读取失败'
+ *   → 均不匹配 → 不对"可达但返错的服务器"(4xx/5xx)误切。
+ *   ⚠️ JS↔Rust 前缀约定:改 secure_net.rs 连接失败错误文案(`format!("请求失败: {e}")`)须同步此处。
+ */
+export function isStreamConnectFailure(opened: boolean, message: string): boolean {
+  return !opened && message.startsWith('请求失败');
 }
 
 /**
@@ -138,11 +150,23 @@ export async function streamAIMessage(
   // plugin-http 无法真流式、也不能信任私有 CA(见 SSE 研究结论),故走 Channel。
   await new Promise<void>((resolve, reject) => {
     let settled = false;
+    let opened = false;
+
+    // 注入直连参数:direct_ip/direct_port → 把 URL 主机改写为该 IP(不发 SNI 绕 ICP),
+    // 其余(pin_ca/extra_ca)透传给 secure_http_stream。(变量名避开外层 Promise 的 resolve。)
+    // 提前到 channel.onmessage 之前计算:error 分支需读 direct_ip 判定是否触发 IP 池轮换(failover)。
+    const inject = resolveForSecureHttp() ?? { pin_ca: true };
+    const { direct_ip, direct_port, ...injectRest } = inject;
+    const streamUrl = direct_ip && direct_port
+      ? rewriteUrlHost(`${baseUrl}/api/ai/chat/stream`, direct_ip, direct_port)
+      : `${baseUrl}/api/ai/chat/stream`;
+
     const channel = new Channel<SecureStreamEvent>();
     channel.onmessage = (msg) => {
       if (settled) { return; }
       switch (msg.event) {
         case 'open':
+          opened = true;
           break;
         case 'chunk':
           if (signal?.aborted) { settled = true; resolve(); return; }
@@ -156,6 +180,11 @@ export async function streamAIMessage(
           break;
         case 'error': {
           settled = true;
+          // 连接建立阶段失败(未 open + '请求失败' 前缀)→ 触发 IP 池轮换,让下次 AI 请求切到可达 IP。
+          // 判定见 isStreamConnectFailure;fire-and-forget,不阻塞 reject(单飞去重在 rediscoverOnFailure 内)。
+          if (direct_ip && isStreamConnectFailure(opened, msg.message)) {
+            void rediscoverOnFailure(direct_ip);
+          }
           let m = msg.message;
           try {
             m = (JSON.parse(msg.message) as { error?: string }).error ?? msg.message;
@@ -168,13 +197,6 @@ export async function streamAIMessage(
       }
     };
 
-    // 注入直连参数:direct_ip/direct_port → 把 URL 主机改写为该 IP(不发 SNI 绕 ICP),
-    // 其余(pin_ca/extra_ca)透传给 secure_http_stream。(变量名避开外层 Promise 的 resolve。)
-    const inject = resolveForSecureHttp() ?? { pin_ca: true };
-    const { direct_ip, direct_port, ...injectRest } = inject;
-    const streamUrl = direct_ip && direct_port
-      ? rewriteUrlHost(`${baseUrl}/api/ai/chat/stream`, direct_ip, direct_port)
-      : `${baseUrl}/api/ai/chat/stream`;
     invoke('secure_http_stream', {
       req: {
         method: 'POST',

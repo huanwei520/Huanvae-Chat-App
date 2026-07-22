@@ -29,6 +29,8 @@
  *        group_info_updated, group_avatar_updated, group_member_joined
  */
 
+import type { ShelfItem } from '../api/shelf';
+
 // ============================================
 // 服务器 → 客户端消息
 // ============================================
@@ -397,17 +399,14 @@ export interface WsPresenceUpdate {
 }
 
 /**
- * 运维任务进度增量推送（仅 ops-bot owner 的在线链路收到）。
- *
- * kind 区分增量粒度：task（任务快照）/ worker（worker 快照）/ event（单条事件）。
- * data 与 REST 查询面（/api/ops/*）同源同形，前端按 kind 收窄后写入 ops store。
+ * 顶置架引用增量推送。帧只含条目引用（无卡片内容；内容走 message/cardLiveStore 通道）。
+ * 镜像后端 ServerMessage::ShelfUpdated。event_seq 由连接层统一注入，本接口不声明。
  */
-export interface WsOpsUpdate {
-  type: 'ops_update';
-  kind: 'task' | 'worker' | 'event';
-  task_id: string;
-  worker_id?: string;
-  data: unknown;
+export interface WsShelfUpdated {
+  type: 'shelf_updated';
+  scope: 'bot' | 'group';
+  scope_key: string;
+  items: ShelfItem[];
 }
 
 /**
@@ -444,8 +443,8 @@ export type WsServerMessage = (
   | WsReadSync
   | WsSystemNotification
   | WsPresenceUpdate
-  | WsOpsUpdate
   | WsMessageUpdated
+  | WsShelfUpdated
   | WsHeartbeat
   | WsError
   | WsHgTopologyChanged

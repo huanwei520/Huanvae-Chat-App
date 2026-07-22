@@ -18,6 +18,7 @@ import {
   deleteBot,
   resetBotToken,
   addBotByUsername,
+  getBotCommands,
   isBotUserId,
 } from '../../src/api/bots';
 
@@ -93,6 +94,12 @@ describe('bots API 请求路径', () => {
     const { api, get } = mockApi();
     listMyBots(api);
     expect(get).toHaveBeenCalledWith('/api/bots');
+  });
+
+  it('getBotCommands 走 GET /api/bots/{id}/commands', () => {
+    const { api, get } = mockApi();
+    getBotCommands(api, 'bot_1');
+    expect(get).toHaveBeenCalledWith('/api/bots/bot_1/commands');
   });
 });
 

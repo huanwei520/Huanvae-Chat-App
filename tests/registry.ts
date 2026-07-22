@@ -240,8 +240,15 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
   { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
 
-  // 运维全景（ops-bot 聊天页）
-  { name: 'OpsConsolePanel', path: 'chat/ops/OpsConsolePanel', category: 'chat', description: '运维全景折叠区（仅 ops-bot owner 可见，任务/worker/事件流实时面板）' },
+  // bot 斜杠命令 + 会话顶置架
+  { name: 'SlashCommandPanel', path: 'chat/shared/SlashCommandPanel', category: 'chat', description: '斜杠命令面板（bot 会话输入 / 弹命令、填入不直发，portal 弹层）' },
+  { name: 'ConversationShelf', path: 'chat/shared/ConversationShelf', category: 'chat', description: '顶置功能区常驻窄条（bot/群会话，权限入口显隐，点弹浮层卡）' },
+  { name: 'ShelfCardOverlay', path: 'chat/shared/ShelfCardOverlay', category: 'chat', description: '顶置架浮层卡（复用 CardRenderer 渲染引用的卡片消息 + 群主管理）' },
+
+  // 可交互卡片
+  { name: 'CardRenderer', path: 'chat/shared/CardRenderer', category: 'chat', description: '可交互卡片渲染器(18 类声明式白名单 + live patch + 双受众)' },
+  { name: 'ActionButton', path: 'chat/shared/ActionButton', category: 'chat', description: '动作按钮(执行中/成功/失败/二次确认本地状态机,卡片与运维面板共用)' },
+  { name: 'CardChart', path: 'chat/shared/CardChart', category: 'chat', description: '卡片图表节点(klinecharts 封装,声明式 spec,canvas 自绘动画)' },
 
   // AI 聊天组件
   { name: 'AIChatMessages', path: 'chat/ai/AIChatMessages', category: 'chat', description: 'AI 聊天消息列表' },
@@ -306,7 +313,6 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
   { name: 'useBots', path: 'hooks/useBots', category: 'hooks', description: '机器人管理 Hook（列表/创建/删除/重置token/按 username 加好友）' },
-  { name: 'useOpsConsole', path: 'chat/ops/useOpsConsole', category: 'hooks', description: '运维全景数据 Hook（getBot gate → REST 快照 → opsStore 派生 + 断线补拉）' },
 ];
 
 // ============== 服务 ==============
@@ -321,8 +327,12 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'syncService', path: 'services/syncService', category: 'services', description: '同步服务' },
   { name: 'updateService', path: 'update/service', category: 'services', description: '更新服务' },
   { name: 'settingsStore', path: 'stores/settingsStore', category: 'services', description: '设置状态管理' },
-  { name: 'opsApi', path: 'api/ops', category: 'services', description: '运维任务 API 封装（/api/ops/tasks 列表/详情/事件增量）' },
-  { name: 'opsStore', path: 'stores/opsStore', category: 'services', description: '运维任务状态管理（REST seed + WS ops_update 增量，事件每任务上限 200）' },
+  { name: 'sandboxEscape', path: 'chat/shared/sandboxEscape', category: 'services', description: '沙箱逃逸阀(独立 WebviewWindow + 来源白名单 + initData HMAC,默认关闭)' },
+  // bot 斜杠命令 + 会话顶置架数据面
+  { name: 'shelfApi', path: 'api/shelf', category: 'services', description: '顶置架 API 封装（GET/POST/DELETE/PATCH order；/api/conversations/{scope}/{key}/shelf）' },
+  { name: 'shelfStore', path: 'stores/shelfStore', category: 'services', description: '顶置架状态管理（按 scope|scopeKey 分桶，REST + WS shelf_updated 整组替换）' },
+  { name: 'botCommandsStore', path: 'stores/botCommandsStore', category: 'services', description: 'Bot 指令缓存（按 bot_user_id 分桶，getBotCommands 拉取，失败存空）' },
+  { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },

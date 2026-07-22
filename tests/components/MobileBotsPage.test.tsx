@@ -30,7 +30,6 @@ const TEST_BOT: BotInfo = {
   message_policy: 'everyone',
   message_whitelist: [],
   is_discoverable: true,
-  is_ops: false,
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-01T00:00:00Z',
 };

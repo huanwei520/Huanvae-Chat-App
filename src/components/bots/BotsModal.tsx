@@ -6,7 +6,7 @@
  * - 创建 bot：表单提交成功后用 SecretDisplay 一次性展示 token
  * - 按 username 添加 bot 好友（恒 auto_accept，一次调用即成好友）
  * - 每个 bot：重置 token（确认 → SecretDisplay 展示新 token）、删除（确认）
- * - 每个 bot：隐私设置（消息策略 所有人/白名单/仅自己 + 可发现性；ops bot 服务端强制不可改）
+ * - 每个 bot：隐私设置（消息策略 所有人/白名单/仅自己 + 可发现性）
  *
  * 复用：
  * - modal-overlay / modal-content / modal-header / close-btn / files-count CSS 类
@@ -60,8 +60,6 @@ type MessagePolicy = NonNullable<UpdateBotRequest['message_policy']>;
 
 /** 白名单上限（与后端一致，超出禁用提交） */
 const WHITELIST_MAX = 200;
-
-const OPS_LOCK_HINT = 'Ops 机器人由服务端强制"仅自己 + 不可被搜索"，不可修改';
 
 /** 白名单 textarea → 用户 ID 数组：按行 split、trim、去空、去重（保序） */
 function parseWhitelist(text: string): string[] {
@@ -118,9 +116,6 @@ function PrivacyDialog({
   const [whitelistText, setWhitelistText] = useState(bot.message_whitelist.join('\n'));
   const [discoverable, setDiscoverable] = useState(bot.is_discoverable);
 
-  // ops bot：服务端强制 owner_only + 不可发现，控件整体禁用
-  const locked = bot.is_ops;
-
   const parsedWhitelist = parseWhitelist(whitelistText);
   const whitelistTooLong = parsedWhitelist.length > WHITELIST_MAX;
   const whitelistChanged =
@@ -141,7 +136,7 @@ function PrivacyDialog({
   const hasChanges = Object.keys(changes).length > 0;
 
   const canSubmit =
-    !locked && hasChanges && !(policy === 'whitelist' && whitelistTooLong) && !saving;
+    hasChanges && !(policy === 'whitelist' && whitelistTooLong) && !saving;
 
   const handleSubmit = () => {
     if (!canSubmit) {
@@ -160,7 +155,6 @@ function PrivacyDialog({
           </button>
         </div>
         <div className="miniapp-create-body">
-          {locked && <p className="miniapp-field-hint bots-ops-lock-hint">{OPS_LOCK_HINT}</p>}
           <div className="miniapp-field">
             <span className="miniapp-field-label">谁可以发消息</span>
             <div className="bots-radio-group">
@@ -171,7 +165,6 @@ function PrivacyDialog({
                   value="everyone"
                   checked={policy === 'everyone'}
                   onChange={() => setPolicy('everyone')}
-                  disabled={locked}
                 />
                 所有人
               </label>
@@ -182,7 +175,6 @@ function PrivacyDialog({
                   value="whitelist"
                   checked={policy === 'whitelist'}
                   onChange={() => setPolicy('whitelist')}
-                  disabled={locked}
                 />
                 白名单
               </label>
@@ -193,7 +185,6 @@ function PrivacyDialog({
                   value="owner_only"
                   checked={policy === 'owner_only'}
                   onChange={() => setPolicy('owner_only')}
-                  disabled={locked}
                 />
                 仅自己
               </label>
@@ -209,7 +200,6 @@ function PrivacyDialog({
                 value={whitelistText}
                 onChange={(e) => setWhitelistText(e.target.value)}
                 rows={5}
-                disabled={locked}
               />
             </label>
           )}
@@ -224,7 +214,6 @@ function PrivacyDialog({
                 type="checkbox"
                 checked={discoverable}
                 onChange={(e) => setDiscoverable(e.target.checked)}
-                disabled={locked}
               />
               允许被搜索添加
             </label>
@@ -476,7 +465,6 @@ function BotCard({
           >
             {bot.is_active ? '启用中' : '已停用'}
           </span>
-          {bot.is_ops && <span className="miniapp-status-badge bots-ops-badge">Ops</span>}
         </div>
       </div>
       <p className="miniapp-card-desc">@{bot.username}</p>

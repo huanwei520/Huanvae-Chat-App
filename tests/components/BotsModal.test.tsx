@@ -61,7 +61,6 @@ const BOT_ONE: BotInfo = {
   message_policy: 'everyone',
   message_whitelist: [],
   is_discoverable: true,
-  is_ops: false,
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-01T00:00:00Z',
 };
@@ -339,33 +338,6 @@ describe('BotsModal', () => {
       const saveBtn = screen.getByRole('button', { name: '保存' });
       expect(saveBtn).toBeDisabled();
       fireEvent.click(saveBtn);
-      expect(botsApiMock.updateBot).not.toHaveBeenCalled();
-    });
-
-    it('is_ops=true 的 bot → radio/checkbox/保存全 disabled + 锁定提示可见', async () => {
-      botsApiMock.listMyBots.mockResolvedValue([
-        {
-          ...BOT_ONE,
-          bot_user_id: 'bot_ops_1',
-          username: 'ops_bot',
-          nickname: '运维机器人',
-          message_policy: 'owner_only',
-          is_discoverable: false,
-          is_ops: true,
-        },
-      ]);
-      render(<BotsModal isOpen onClose={vi.fn()} />);
-      await screen.findByText('运维机器人');
-
-      fireEvent.click(screen.getByRole('button', { name: '隐私' }));
-      expect(
-        screen.getByText(/Ops 机器人由服务端强制.仅自己 \+ 不可被搜索.，不可修改/),
-      ).toBeInTheDocument();
-      expect(screen.getByRole('radio', { name: '所有人' })).toBeDisabled();
-      expect(screen.getByRole('radio', { name: '白名单' })).toBeDisabled();
-      expect(screen.getByRole('radio', { name: '仅自己' })).toBeDisabled();
-      expect(screen.getByRole('checkbox', { name: /允许被搜索添加/ })).toBeDisabled();
-      expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
       expect(botsApiMock.updateBot).not.toHaveBeenCalled();
     });
 
