@@ -51,9 +51,15 @@ export function createApiClient(config: ApiClientConfig) {
   const { baseUrl, refreshToken, onTokenRefresh, onSessionExpired } = config;
 
   /**
-   * 刷新 Token
+   * 单飞：主动刷新（SessionContext 过期前 5 分钟定时器）与 401 被动刷新可能并发触发
+   * （尤其后台节流导致主动刷新延迟到过期后，与后台请求的 401 撞车）。去重为一次在途请求：
+   * ① 避免重复 POST /api/auth/refresh；② 避免轮换型 refresh_token 被并发二次消费 → 第二次
+   *   请求收 401 → 误判会话过期而 onSessionExpired 登出。完成即清空句柄（含失败），不缓存结果，
+   *   下次刷新照常发起（否则失败结果会毒化后续所有刷新）。
    */
-  async function refreshAccessToken(): Promise<boolean> {
+  let refreshInFlight: Promise<boolean> | null = null;
+
+  async function doRefresh(): Promise<boolean> {
     try {
       const response = await secureHttp({
         method: 'POST',
@@ -79,6 +85,19 @@ export function createApiClient(config: ApiClientConfig) {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * 刷新 Token（单飞去重，见 refreshInFlight 注释）
+   */
+  function refreshAccessToken(): Promise<boolean> {
+    if (refreshInFlight) {
+      return refreshInFlight;
+    }
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+    return refreshInFlight;
   }
 
   /**

@@ -639,6 +639,7 @@ vi.mock('.../SessionContext', () => ({ useSession: () => sessionMock }));
 ```
 
 **反例（2026-07-16）**：tests/unit/wsLivenessWatchdog.test.ts 首版 useSession mock 每次 render 返回新对象 → WebSocketContext 的 token 热切换 effect（依赖 session 引用）被虚假触发 → isSwappingRef 卡 true 吞 onclose、多建假 WS 实例，6 用例中 2 失败、另 2 "碰巧通过"；改 vi.hoisted 稳定单例后 6/6 过且全部走真实路径。⚠️ 既有 tests/unit/webSocketMarkReadChain.test.ts 等仍沿用"每 render 新对象"模式（同雷未爆），后续触雷按本条修。
+> 注（2026-07-22 WS 闪断修复）：例中的「token 热切换 effect / isSwappingRef」已随 make-before-break 热切换一并**删除**（见 WebSocketContext.tsx，token 刷新不再重建主连）——该具体自毁 effect 不复存在，但本条通用规则（mock hook 返回值必须引用稳定，否则虚假触发**任何**依赖 session 引用的 effect）依旧成立，稳定单例仍是正解。
 
 ## AnimatePresence 内组件的"消失"断言必须入 waitFor（退场卸载异步，同步断言在全量高负载下抢跑翻红）
 

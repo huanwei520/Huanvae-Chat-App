@@ -3,7 +3,7 @@
  *
  * 提供 WebSocket 实时通信功能：
  * - 连接管理（自动连接、断线重连、会话恢复）
- * - Token 热切换（新 token 先建新连接，成功后断旧连接，零断连）
+ * - Token 刷新不重建主连（主连稳定保持；token 只在 WS 握手时校验，established 后不复验）
  * - 未读消息摘要
  * - 新消息通知（new_message）
  * - 消息撤回通知（message_recalled）
@@ -21,10 +21,14 @@
  * - 首次连接不触发 onReconnected
  *
  * Token 刷新机制：
- * - 主动刷新：SessionContext 在 JWT 过期前 5 分钟自动刷新
- * - 热切换：检测到 token 变化 → 用新 token 并行建立新 WS
- *   → 新 WS onopen 后关闭旧 WS，全程 connected 状态不变
- *   → 新连接失败时回退到旧连接（旧 token 仍有效）
+ * - 主动刷新：SessionContext 在 JWT 过期前 5 分钟自动刷新（只更新 tokenRef，供下次建连用）
+ * - 主连不因 token 刷新而重建：WS 只在握手 URL 里校验 token，established 后服务端不复验
+ *   （client_timeout=86400s 是入站空闲上限，不是 token 过期回收），故 token 刷新时**保持主连不动**。
+ *   —— 旧版「热切换 make-before-break」（token 变化即并行新开一条 WS、成功后 close 旧连）已删除：
+ *   它每次刷新都新建连接抢占主连 → 服务端反复 register→13ms 内 Client close 的闪断；且新连携旧
+ *   session_id resume 又必失败（旧 session 仍活，服务端拒绝 resume），实时推送落到 0 个活连接。
+ * - 断线重连用最新 tokenRef 建连；旧连已 unregister → resume 可真正复用（半开窗口内重放）
+ *   或退化为增量 sync（resumed=false → onReconnected）。
  * - 被动刷新：关闭码 1008 或重连失败 ≥ MAX_RECONNECT_ATTEMPTS 次时触发
  * - 刷新失败则退出登录，避免无限循环
  *
@@ -97,7 +101,7 @@ const LIVENESS_TIMEOUT = 70000;
 /** Rust 层入站空闲超时（秒）：3 个心跳周期，兜底回收半开连接的读任务并上抛 Error
  *  （覆盖 JS 看门狗 terminate 后残留的 Rust reader，以及 webview 假死等 JS 层失能场景） */
 const WS_IDLE_TIMEOUT_SECS = 90;
-/** Token 刷新后被动重连延迟（毫秒），仅在热切换失败时使用 */
+/** 被动刷新后重连延迟（毫秒）：onclose 遇 1008/重连超限 → refreshToken 成功后隔此延迟再建连 */
 const TOKEN_REFRESH_RECONNECT_DELAY = 100;
 
 // ============================================
@@ -175,8 +179,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const isFirstConnectRef = useRef(true);
   /** 是否正在刷新 token（防止重复刷新） */
   const isRefreshingTokenRef = useRef(false);
-  /** 是否正在进行 Token 热切换（防止重复触发） */
-  const isSwappingRef = useRef(false);
   /** 连接状态 guard（ref 版本，消除 useCallback 对 connecting state 的依赖） */
   const connectingRef = useRef(false);
   /** 重连尝试次数（连续失败次数） */
@@ -404,12 +406,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     ws.onclose = async (event) => {
-      // Token 热切换期间，旧连接被服务端踢下线时忽略此事件
-      // （由热切换流程统一管理连接状态）
-      if (isSwappingRef.current) {
-        return;
-      }
-
       setConnected(false);
       connectingRef.current = false;
       setConnecting(false);
@@ -554,7 +550,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const disconnect = useCallback(() => {
     isDisconnectingRef.current = true;
     isFirstConnectRef.current = true;
-    isSwappingRef.current = false;
     connectingRef.current = false;
     reconnectAttemptsRef.current = 0;
     halfOpenSyncPendingRef.current = false;
@@ -761,89 +756,18 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!session]); // 只依赖 session 是否存在，不依赖具体值
 
-  // Token 变化时执行热切换（make-before-break）
-  // 旧 token 在过期前 5 分钟刷新，此时旧 token 仍有效约 5 分钟，
-  // 利用这个重叠窗口用新 token 先建新连接，成功后再断旧连接，实现零断连。
-  useEffect(() => {
-    if (!session?.accessToken) {
-      return;
-    }
-
-    const oldWs = wsRef.current;
-    if (!oldWs || oldWs.readyState !== RustWebSocket.OPEN) {
-      return;
-    }
-
-    if (isSwappingRef.current) {
-      return;
-    }
-
-    const token = tokenRef.current;
-    const serverUrl = serverUrlRef.current;
-    if (!token || !serverUrl) {
-      return;
-    }
-
-    isSwappingRef.current = true;
-    console.warn('[WebSocket] Token 已刷新，执行热切换...');
-
-    const url = buildWsUrl(token, serverUrl);
-
-    try {
-      const newWs = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true }, { idleTimeoutSecs: WS_IDLE_TIMEOUT_SECS });
-
-      newWs.onopen = () => {
-        // 1. 解除旧连接所有 handler（防止后续事件干扰）
-        oldWs.onclose = null;
-        oldWs.onmessage = null;
-        oldWs.onerror = null;
-
-        // 2. 关闭旧连接 + 清理旧 ping
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current);
-        }
-        oldWs.close(1000, 'Token refreshed');
-
-        // 3. 安装新连接（标记为首次连接，跳过 resumed=false 触发的同步）
-        wsRef.current = newWs;
-        isFirstConnectRef.current = true;
-        installWsHandlers(newWs);
-        startPing(newWs);
-
-        // 4. 确保连接状态正确（防止竞态：旧 onclose 可能已触发 setConnected(false)）
-        setConnected(true);
-        connectingRef.current = false;
-        setConnecting(false);
-        reconnectAttemptsRef.current = 0;
-
-        // 5. 清除可能由竞态产生的重连定时器
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = null;
-        }
-
-        isSwappingRef.current = false;
-        console.warn('[WebSocket] Token 热切换完成');
-      };
-
-      newWs.onerror = () => {
-        isSwappingRef.current = false;
-        newWs.close();
-
-        // 如果旧连接已被服务端关闭（竞态），需要执行完整重连
-        if (oldWs.readyState !== RustWebSocket.OPEN) {
-          console.warn('[WebSocket] Token 热切换失败且旧连接已断开，执行重连');
-          wsRef.current = null;
-          setConnected(false);
-          connectRef.current();
-        } else {
-          console.warn('[WebSocket] Token 热切换失败，保持旧连接');
-        }
-      };
-    } catch {
-      isSwappingRef.current = false;
-    }
-  }, [session?.accessToken, buildWsUrl, installWsHandlers, startPing]);
+  // Token 刷新时【不】重建主连（旧「热切换 make-before-break」已删除）。
+  //
+  // 根因（0信任服务端日志实证）：旧热切换在每次 token 主动刷新（≈每 10min，JWT 15min 期 -5min）时
+  // 用新 token 并行新开一条 WS 抢占主连、成功后 close 旧连。真机上这条 make-before-break 反而让
+  // 主连长期不稳：服务端反复 register→13ms 内收到 Client close→unregister（闪断），且新连携带旧
+  // session_id 走 resume 又必失败（旧 session 仍活，服务端拒绝对活跃 session 的 resume），最终
+  // 任一时刻都没有活的 socket → bot 卡片/消息等实时推送落到 0 个活连接，只能手动切会话经 REST 拉。
+  //
+  // 修复：token 只在 WS 握手 URL 里校验，established 后服务端不复验 token 有效期
+  //（client_timeout=86400s 是入站空闲上限）。所以 token 刷新只需更新 tokenRef（见上「保持 Refs 与
+  // Session 同步」effect），主连保持不动即可持续收推送。真正断线时才由既有 onclose→重连路径用最新
+  // tokenRef 建连，此时旧连已 unregister → resume 能真正复用（半开窗口内重放）或退化增量 sync。
 
   const contextValue = useMemo<WebSocketContextType>(() => ({
     connected,

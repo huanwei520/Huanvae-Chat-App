@@ -212,5 +212,43 @@ describe('API 客户端 (api/client)', () => {
 
       expect(result).toBe(false);
     });
+
+    it('单飞：并发刷新去重为一次 POST /api/auth/refresh，仅回调一次', async () => {
+      let resolveRefresh: (v: unknown) => void = () => {};
+      mocks.invoke.mockImplementationOnce(() => new Promise((r) => { resolveRefresh = r; }));
+
+      const onTokenRefresh = vi.fn();
+      const client = createApiClient({ ...baseConfig, onTokenRefresh });
+
+      const p1 = client.refreshAccessToken();
+      const p2 = client.refreshAccessToken(); // 并发第二次：应复用在途请求，不再发 invoke
+
+      expect(mocks.invoke).toHaveBeenCalledTimes(1); // 单飞：只发一次刷新请求
+
+      resolveRefresh(mockResp({ data: { access_token: 'new-token', refresh_token: 'new-refresh' } }));
+      const [r1, r2] = await Promise.all([p1, p2]);
+
+      expect(r1).toBe(true);
+      expect(r2).toBe(true);
+      expect(mocks.invoke).toHaveBeenCalledTimes(1);       // 全程只一次刷新请求
+      expect(onTokenRefresh).toHaveBeenCalledTimes(1);     // 只回调一次（doRefresh 只跑一次）
+    });
+
+    it('单飞句柄完成后清空：后续刷新重新发起请求（失败不毒化）', async () => {
+      // 第一次失败（应返回 false 且清空句柄），第二次仍能重新发起
+      mocks.invoke
+        .mockResolvedValueOnce(mockResp({ status: 401 }))
+        .mockResolvedValueOnce(mockResp({ data: { access_token: 't2', refresh_token: 'r2' } }));
+
+      const client = createApiClient(baseConfig);
+
+      const first = await client.refreshAccessToken();
+      expect(first).toBe(false);
+      expect(mocks.invoke).toHaveBeenCalledTimes(1);
+
+      const second = await client.refreshAccessToken(); // 句柄已在 finally 清空 → 新请求
+      expect(second).toBe(true);
+      expect(mocks.invoke).toHaveBeenCalledTimes(2);
+    });
   });
 });
