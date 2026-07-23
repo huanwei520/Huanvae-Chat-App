@@ -133,3 +133,69 @@ describe('ChatInputArea 斜杠命令面板', () => {
     await waitFor(() => expect(screen.queryByText('/status')).toBeNull());
   });
 });
+
+// —— IME(输入法)组字 vs 普通回车发送 ——
+// 覆盖 Mac 中文输入法：组字确认候选词的 Enter 不发送；组字结束后的 Enter 才发送。
+// 用 friend 会话（非 bot）→ 斜杠面板恒关，Enter 直连发送主路径。
+describe('ChatInputArea 输入法组字回车不误发', () => {
+  beforeEach(() => {
+    // 覆盖顶层 beforeEach 的 bot 目标：friend 会话下斜杠面板恒关
+    useChatStore.getState().setChatTarget({ type: 'friend', data: BOT_FRIEND });
+  });
+
+  function typeAndGetTextarea(value: string) {
+    typeInput(value);
+    return screen.getByRole('textbox') as HTMLTextAreaElement;
+  }
+
+  it('普通回车（非组字）→ 发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('你好');
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('Shift+Enter → 换行，不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('你好');
+    fireEvent.keyDown(ta, { key: 'Enter', shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('isComposing=true 的回车（确认候选词）→ 不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('nihao');
+    fireEvent.keyDown(ta, { key: 'Enter', isComposing: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('keyCode=229 的回车（旧内核组字键码）→ 不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('nihao');
+    fireEvent.keyDown(ta, { key: 'Enter', keyCode: 229 });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('compositionstart 后回车（isComposing 未随 keydown 置位的内核）→ 不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('nihao');
+    fireEvent.compositionStart(ta);
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('compositionend 之后回车 → 发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    const ta = typeAndGetTextarea('你好');
+    fireEvent.compositionStart(ta);
+    fireEvent.compositionEnd(ta);
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});

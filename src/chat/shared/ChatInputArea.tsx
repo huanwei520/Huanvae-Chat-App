@@ -94,6 +94,9 @@ export function ChatInputArea({
   onCancelUpload,
 }: ChatInputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // IME 组字标志：compositionstart 置真、compositionend 置假。
+  // 兜住个别 WebView 内核在组字确认的 keydown 上未置 isComposing 的时序差（见 handleKeyDown）。
+  const isComposingRef = useRef(false);
 
   // 从 store 获取当前群的禁言状态
   const muteInfo = useChatStore(selectCurrentMuteStatus);
@@ -210,21 +213,33 @@ export function ChatInputArea({
 
   // 处理键盘事件
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // IME 组字进行中：Enter 只用于「确认候选词」，绝不触发发送 / 命令选择。
+    // 三重判据（任一为真即视为组字中）：
+    // - e.nativeEvent.isComposing：组字期 keydown 的根因信号（Blink/Gecko/现代 WebKit 均置 true，含确认候选词那一下）
+    // - e.keyCode === 229：旧内核在组字期 keydown 上报的 "process" 键码
+    // - isComposingRef：compositionstart→compositionend 间的手动标志，兜住个别内核 isComposing 未置位
+    const composing = e.nativeEvent.isComposing || e.keyCode === 229 || isComposingRef.current;
+
     // 命令面板打开时：方向键/Enter/Tab/ESC 归面板，Enter 绝不发送
     if (slashPanelOpen) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSlashActiveIndex((i) => (i + 1) % filteredCommands.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSlashActiveIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length); return; }
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const c = filteredCommands[slashActiveIndex]; if (c) { selectSlashCommand(c); } return; }
+      if (e.key === 'Enter' && !e.shiftKey) { if (composing) { return; } e.preventDefault(); const c = filteredCommands[slashActiveIndex]; if (c) { selectSlashCommand(c); } return; }
       if (e.key === 'Tab') { e.preventDefault(); const c = filteredCommands[slashActiveIndex]; if (c) { selectSlashCommand(c); } return; }
       if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (composing) { return; }
       e.preventDefault();
       if (!isMuted) {
         onSendMessage();
       }
     }
   }, [onSendMessage, isMuted, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
+
+  // IME 组字事件：维护 isComposingRef，供 handleKeyDown 判断「Enter 是否为确认候选词」。
+  const handleCompositionStart = useCallback(() => { isComposingRef.current = true; }, []);
+  const handleCompositionEnd = useCallback(() => { isComposingRef.current = false; }, []);
 
   // ============================================
   // 拖拽文件处理
@@ -439,6 +454,8 @@ export function ChatInputArea({
             adjustTextareaHeight();
           }}
           onKeyDown={handleKeyDown}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
           onPaste={handlePaste}
           disabled={uploading}
           rows={1}
