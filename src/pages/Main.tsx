@@ -34,15 +34,15 @@ interface ShareMeetingEvent {
 import { Sidebar } from '../components/sidebar/Sidebar';
 import { UnifiedList } from '../components/unified/UnifiedList';
 import { GlobalMessageSearchResults } from '../components/search/GlobalMessageSearchResults';
-import { useChatStore } from '../stores';
+import { useChatStore, useProfileViewStore, useGroupDetailStore } from '../stores';
 import { parseFriendIdFromConversationId } from '../utils/conversationId';
 import { friendChatTarget } from '../utils/chatTarget';
 import type { Friend, Group } from '../types/chat';
 import { ChatPanel, EmptyChat } from '../chat';
 import { OtherProfileView } from '../chat/shared/OtherProfileView';
+import { GroupDetailView } from '../chat/shared/GroupDetailView';
 import { FilesModal } from '../components/files/FilesModal';
 import { ProfileModal } from '../components/ProfileModal';
-import { AddModal } from '../components/AddModal';
 import { MeetingEntryModal } from '../meeting';
 import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
 import { BotsModal } from '../components/bots/BotsModal';
@@ -58,6 +58,8 @@ import '../styles/voice-call.css';
 
 export function Main() {
   const page = useMainPage();
+  const openProfile = useProfileViewStore((s) => s.open);
+  const openGroupDetail = useGroupDetailStore((s) => s.open);
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
@@ -203,7 +205,9 @@ export function Main() {
               syncNotification={syncNotification}
               onSyncDismiss={clearNotification}
               onSyncRetry={triggerSync}
-              onAddClick={() => page.setShowAddModal(true)}
+              addGroup={page.addGroup}
+              refreshGroups={page.refreshGroups}
+              refreshFriends={page.refreshFriends}
               pendingNotificationCount={page.pendingNotificationCount}
             />
           )}
@@ -325,6 +329,9 @@ export function Main() {
             groups={page.groups}
             currentUserId={page.session?.userId}
             layout="desktop"
+            onSelectDiscoveryPerson={(userId) => openProfile(userId)}
+            onSelectDiscoveryBot={(botUserId, username) => openProfile(botUserId, { botUsername: username })}
+            onSelectDiscoveryGroup={(groupId) => openGroupDetail(groupId)}
             onSelectConversation={(type, data) => {
               if (type === 'friend') {
                 page.handleSelectTarget(friendChatTarget(data as Friend));
@@ -377,17 +384,13 @@ export function Main() {
       {/* 他人公开资料页（右侧抽屉，点头像打开只读资料） */}
       <OtherProfileView onOpenChat={page.handleSelectTarget} />
 
+      {/* 群详情弹窗（点群名/群头像打开只读群详情） */}
+      <GroupDetailView onOpenChat={page.handleSelectTarget} onRefreshGroups={page.refreshGroups} />
+
       {/* 弹窗组件 */}
       <ProfileModal
         isOpen={page.showProfileModal}
         onClose={() => page.setShowProfileModal(false)}
-      />
-      <AddModal
-        isOpen={page.showAddModal}
-        onClose={() => page.setShowAddModal(false)}
-        onFriendAdded={page.refreshFriends}
-        addGroup={page.addGroup}
-        refreshGroups={page.refreshGroups}
       />
       <FilesModal
         isOpen={showFilesModal}

@@ -226,7 +226,6 @@ export function useMainPage() {
 
   // 弹窗状态
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
 
   // 文件上传
   const { uploading, progress, uploadFriendFile, uploadGroupFile, resetUpload } = useFileUpload();
@@ -856,8 +855,6 @@ export function useMainPage() {
     // 弹窗状态
     showProfileModal,
     setShowProfileModal,
-    showAddModal,
-    setShowAddModal,
 
     // 好友/群聊数据
     friends,

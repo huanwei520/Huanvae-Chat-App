@@ -21,7 +21,7 @@ import { ConversationContextMenu, PinFlagIcon } from '../../components/unified/C
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
-import { useChatStore, useProfileViewStore } from '../../stores';
+import { useChatStore, useProfileViewStore, useGroupDetailStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
 import { parseFriendIdFromConversationId, getFriendConversationId } from '../../utils/conversationId';
@@ -89,6 +89,7 @@ export function MobileChatList({
   // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
   const friendPresence = useChatStore((s) => s.friendPresence);
   const openProfile = useProfileViewStore((s) => s.open);
+  const openGroupDetail = useGroupDetailStore((s) => s.open);
   // 好友头像键盘焦点环（keyed：每张头像用 card.id 作 key）
   const avatarKbd = useKbdFocusRing();
   const { session } = useSession();
@@ -401,6 +402,9 @@ export function MobileChatList({
             groups={groups}
             currentUserId={session?.userId}
             layout="mobile"
+            onSelectDiscoveryPerson={(userId) => openProfile(userId)}
+            onSelectDiscoveryBot={(botUserId, username) => openProfile(botUserId, { botUsername: username })}
+            onSelectDiscoveryGroup={(groupId) => openGroupDetail(groupId)}
             onSelectConversation={(type, data) => {
               if (type === 'friend') {
                 onSelectTarget(friendChatTarget(data as Friend));

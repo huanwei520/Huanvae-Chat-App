@@ -24,6 +24,7 @@ export {
 // ============================================
 
 export { useProfileViewStore } from './profileViewStore';
+export { useGroupDetailStore } from './groupDetailStore';
 
 // ============================================
 // 顶置架 / Bot 指令 Store

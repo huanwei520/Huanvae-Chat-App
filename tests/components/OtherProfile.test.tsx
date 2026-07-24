@@ -28,15 +28,20 @@ vi.mock('../../src/api/profile', () => ({ getPublicProfile: mockGetPublicProfile
 
 const mockSendFriendRequest = vi.hoisted(() => vi.fn());
 const mockSetFriendRemark = vi.hoisted(() => vi.fn());
+const mockGetSentFriendRequests = vi.hoisted(() => vi.fn());
 vi.mock('../../src/api/friends', () => ({
   sendFriendRequest: mockSendFriendRequest,
   setFriendRemark: mockSetFriendRemark,
+  getSentFriendRequests: mockGetSentFriendRequests,
 }));
 
-// bot API：getBot 用 mock 控制 owner/非 owner 两种契约结果；isBotUserId 保持真实语义（bot_ 前缀判别）
+// bot API：getBot 用 mock 控制 owner/非 owner 两种契约结果；isBotUserId 保持真实语义（bot_ 前缀判别）；
+// addBotByUsername 断言 bot 加好友走正确路径（而非 sendFriendRequest）
 const mockGetBot = vi.hoisted(() => vi.fn());
+const mockAddBotByUsername = vi.hoisted(() => vi.fn());
 vi.mock('../../src/api/bots', () => ({
   getBot: mockGetBot,
+  addBotByUsername: mockAddBotByUsername,
   isBotUserId: (userId: string) => userId.startsWith('bot_'),
 }));
 
@@ -97,9 +102,14 @@ describe('OtherProfilePanel', () => {
     mockSendFriendRequest.mockResolvedValue(undefined);
     mockSetFriendRemark.mockReset();
     mockSetFriendRemark.mockResolvedValue(undefined);
+    // 默认「我发出的」pending 列表为空 → pendingSent=false → 陌生人默认显示「添加好友」
+    mockGetSentFriendRequests.mockReset();
+    mockGetSentFriendRequests.mockResolvedValue([]);
     // 默认按非 owner 契约：GET /api/bots/{id} 返回 404（与不存在同形），组件静默回落
     mockGetBot.mockReset();
     mockGetBot.mockRejectedValue(new Error('404'));
+    mockAddBotByUsername.mockReset();
+    mockAddBotByUsername.mockResolvedValue({});
     setFriends([]);
     useChatStore.getState().setFriendPresences([]);
   });
@@ -141,6 +151,39 @@ describe('OtherProfilePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /添加好友/ }));
     await waitFor(() => expect(mockSendFriendRequest).toHaveBeenCalledTimes(1));
     expect(mockSendFriendRequest).toHaveBeenCalledWith(mockApi, 'me', 'bob');
+  });
+
+  it('非好友且已发出申请（待通过）：显示禁用「待通过」，不显示「添加好友」', async () => {
+    mockGetPublicProfile.mockResolvedValue(fullProfile({ user_id: 'bob', user_nickname: 'Bob' }));
+    // 「我发出的」pending 列表含该用户 → 面板判为待通过态（持久，非本次点击 sent）
+    mockGetSentFriendRequests.mockResolvedValue([
+      {
+        request_id: 'r1',
+        sent_to_user_id: 'bob',
+        sent_message: null,
+        sent_time: '2025-01-01T00:00:00Z',
+        sent_to_nickname: null,
+        sent_to_avatar_url: null,
+      },
+    ]);
+    render(<OtherProfilePanel userId="bob" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '待通过' })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '待通过' })).toBeDisabled();
+    // 待通过态锁定，不再露出「添加好友」入口
+    expect(screen.queryByRole('button', { name: /添加好友/ })).toBeNull();
+  });
+
+  it('bot（非好友）+ botUsername：点击调用 addBotByUsername 而非 sendFriendRequest', async () => {
+    mockGetPublicProfile.mockResolvedValue(fullProfile({ user_id: 'bot_x', user_nickname: 'BotX' }));
+    mockGetBot.mockRejectedValue(new Error('404'));
+    render(<OtherProfilePanel userId="bot_x" botUsername="weatherbot" onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '添加机器人' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '添加机器人' }));
+    // bot 加好友走 addBotByUsername（auto_accept），绝不走 sendFriendRequest
+    await waitFor(() => expect(mockAddBotByUsername).toHaveBeenCalledWith(mockApi, 'weatherbot'));
+    expect(mockSendFriendRequest).not.toHaveBeenCalled();
   });
 
   it('好友：显示"好友"关系，有"发消息"直达 + 备注入口，无加好友按钮', async () => {

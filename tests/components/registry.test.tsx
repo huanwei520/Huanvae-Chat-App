@@ -115,7 +115,6 @@ import * as FilesModal from '../../src/components/files/FilesModal';
 import * as FileContextMenu from '../../src/components/files/FileContextMenu';
 import * as FileMenuController from '../../src/components/files/FileMenuController';
 import * as BotsModal from '../../src/components/bots/BotsModal';
-import * as AddModal from '../../src/components/AddModal';
 import * as SettingsPanel from '../../src/components/settings/SettingsPanel';
 import * as SettingsSection from '../../src/components/settings/SettingsSection';
 import * as SettingsGroup from '../../src/components/settings/SettingsGroup';
@@ -126,13 +125,13 @@ import * as DeviceListPanel from '../../src/components/settings/DeviceListPanel'
 // 更新组件
 import * as UpdateToast from '../../src/update/components/UpdateToast';
 
-// 模态框组件
-import * as AddFriendTab from '../../src/components/modals/add/AddFriendTab';
-import * as CreateGroupTab from '../../src/components/modals/add/CreateGroupTab';
-import * as FriendRequestsTab from '../../src/components/modals/add/FriendRequestsTab';
-import * as GroupInvitesTab from '../../src/components/modals/add/GroupInvitesTab';
-import * as JoinGroupTab from '../../src/components/modals/add/JoinGroupTab';
-import * as TabNavigation from '../../src/components/modals/add/TabNavigation';
+// req-23 新组件（取代旧 AddModal / modals/add tab 页）
+import * as useDiscoverySearch from '../../src/hooks/useDiscoverySearch';
+import * as GroupDetailPanel from '../../src/chat/shared/GroupDetailPanel';
+import * as GroupDetailView from '../../src/chat/shared/GroupDetailView';
+import * as AddMenu from '../../src/components/unified/AddMenu';
+import * as PendingRequestsPanel from '../../src/components/unified/PendingRequestsPanel';
+import * as CreateBotDialog from '../../src/components/bots/CreateBotDialog';
 
 // 聊天组件
 import * as ChatPanel from '../../src/chat/shared/ChatPanel';
@@ -373,7 +372,6 @@ const COMPONENT_MAP = {
   FileContextMenu,
   FileMenuController,
   BotsModal,
-  AddModal,
   SettingsPanel,
   SettingsSection,
   SettingsGroup,
@@ -420,13 +418,13 @@ const COMPONENT_MAP = {
   ThemeProvider,
   ThemeEditor,
   ThemeEditorPage,
-  // 模态框组件
-  AddFriendTab,
-  CreateGroupTab,
-  FriendRequestsTab,
-  GroupInvitesTab,
-  JoinGroupTab,
-  TabNavigation,
+  // req-23 新组件（AddMenu / 待通过申请 / 创建 bot / 群详情 / 发现搜索）
+  useDiscoverySearch,
+  GroupDetailPanel,
+  GroupDetailView,
+  AddMenu,
+  PendingRequestsPanel,
+  CreateBotDialog,
   // 聊天组件
   ChatPanel,
   ChatInputArea,

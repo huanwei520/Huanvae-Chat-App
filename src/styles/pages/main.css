@@ -3640,6 +3640,14 @@
   flex: 1;
 }
 
+/* req-23 群详情面板：root 同时挂 .other-profile-panel，复用全部 qq-hero / profile-section /
+   other-profile-* 视觉；此处仅作独立 hook（供未来群专属微调），布局与 other-profile-panel 对齐 */
+.group-detail-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .other-profile-hint {
   font-size: 12px;
   color: var(--status-error);

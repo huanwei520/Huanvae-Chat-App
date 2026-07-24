@@ -56,12 +56,14 @@ interface Case {
 
 // 每条 = 一个"用户输入的、后端大小写敏感的标识符"输入框。
 const CASES: Case[] = [
-  { file: 'src/components/modals/add/AddFriendTab.tsx', placeholder: '输入对方的用户 ID', label: '桌面加好友 用户ID' },
+  // 桌面加好友/加入群聊(邀请码) 旧 AddModal tab 页已随 req-23 删除（桌面改经搜索发现→详情申请）；
+  // 加好友用户ID 输入已无桌面 harness，移动端仍保留（下方 MobileAddPage 用例守门）。
   { file: 'src/pages/mobile/MobileAddPage.tsx', placeholder: '输入对方的用户 ID', label: '移动加好友 用户ID' },
   { file: 'src/pages/Login.tsx', placeholder: '请输入账号', label: '登录 账号' },
   { file: 'src/pages/Register.tsx', placeholder: '请输入账号（user_id）', label: '注册 账号' },
   { file: 'src/pages/mobile/MobileAddPage.tsx', placeholder: '输入群邀请码', label: '移动加入群聊 邀请码' },
-  { file: 'src/components/modals/add/JoinGroupTab.tsx', placeholder: '输入群邀请码', label: '桌面加入群聊 邀请码 (JoinGroupTab)' },
+  // req-23 新增：创建机器人用户名是大小写敏感标识符（存储/唯一性区分大小写），须防 WKWebView 首字母大写污染
+  { file: 'src/components/bots/CreateBotDialog.tsx', placeholder: '3-32 位字母 / 数字 / 下划线，且以 bot 结尾', label: '创建机器人 用户名（大小写敏感）' },
   { file: 'src/chat/shared/menu/InviteForm.tsx', placeholder: '输入用户 ID', label: '群邀请成员 用户ID' },
   { file: 'src/meeting/components/MeetingEntryModal.tsx', placeholder: '输入房间号', label: '桌面加入会议 房间号' },
   { file: 'src/pages/mobile/MobileMeetingEntryPage.tsx', placeholder: '输入房间号', label: '移动加入会议 房间号' },

@@ -57,6 +57,28 @@ export function getPendingRequests(api: ApiClient): Promise<PendingRequestsRespo
   return api.get<PendingRequestsResponse>('/api/friends/requests/pending');
 }
 
+/** 我发出的好友申请项（GET /api/friends/requests/sent，恒 pending，无撤回接口） */
+export interface SentFriendRequest {
+  request_id: string;
+  sent_to_user_id: string;
+  sent_message: string | null;
+  sent_time: string;
+  /** 目标用户昵称（users LEFT JOIN；不存在/未设为 null） */
+  sent_to_nickname: string | null;
+  /** 目标用户头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
+  sent_to_avatar_url: string | null;
+}
+
+/** client.ts 已解包 ApiResponse.data，直接是数组 */
+export type SentFriendRequestsResponse = SentFriendRequest[];
+
+/**
+ * 获取我主动发出、仍 pending 的好友申请（供"我发出的"待通过列表）。无撤回接口（by design）。
+ */
+export function getSentFriendRequests(api: ApiClient): Promise<SentFriendRequestsResponse> {
+  return api.get<SentFriendRequestsResponse>('/api/friends/requests/sent');
+}
+
 /**
  * 同意好友请求
  * @param userId 当前用户 ID

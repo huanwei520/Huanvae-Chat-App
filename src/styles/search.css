@@ -107,9 +107,7 @@
   background: rgba(147, 197, 253, 0.5);
 }
 
-.global-msg-search-loading,
-.global-msg-search-empty,
-.global-msg-search-error {
+.global-msg-search-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -118,10 +116,6 @@
   padding: 40px 16px;
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-.global-msg-search-error {
-  color: #ef4444;
 }
 
 /* 三段 section */
@@ -197,6 +191,37 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ============================================
+ * 服务端发现区（群聊 / 用户 / bot）复用上方 .global-msg-search-conv-* 行样式，
+ * 额外补两类元素：行右侧元信息 + 加载/出错内联状态行
+ * 注：不给这些类声明 transition transform/opacity——.global-msg-search 根由
+ *     framer-motion 接管，其余类保持纯静态即可（静态门禁只校验根选择器）
+ * ============================================ */
+
+/* 发现行右侧元信息（成员数 / 已加入 / 已是好友 / 已添加）：推到行尾、淡色小字 */
+.global-msg-search-disc-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* 本地区 / 发现区各自的加载 · 出错内联状态行（只占一行，不铺满整个浮层） */
+.global-msg-search-disc-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.global-msg-search-disc-status--error {
+  color: #ef4444;
 }
 
 /* 消息/文件分组（Section 2/3） */

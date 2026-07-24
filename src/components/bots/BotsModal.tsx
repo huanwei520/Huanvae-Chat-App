@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom';
 import { CloseIcon } from '../common/Icons';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { SecretDisplay, type SecretField } from '../common/SecretDisplay';
+import { CreateBotDialog } from './CreateBotDialog';
 import { useBots } from '../../hooks/useBots';
 import type { BotInfo, CreateBotRequest, UpdateBotRequest } from '../../api/bots';
 import '../../styles/bots.css';
@@ -49,9 +50,6 @@ interface ConfirmState {
   kind: 'reset' | 'delete';
   bot: BotInfo;
 }
-
-/** username 规则：3-32 位字母 / 数字 / 下划线（与后端一致） */
-const USERNAME_RE = /^[A-Za-z0-9_]{3,32}$/;
 
 const TOKEN_WARNING = 'Token 仅此一次明文展示，请立即妥善保存；关闭后无法再次查看，只能重置。';
 
@@ -229,98 +227,6 @@ function PrivacyDialog({
           </button>
           <button className="miniapp-btn primary" onClick={handleSubmit} disabled={!canSubmit}>
             {saving ? '保存中...' : '保存'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-/** 创建 bot 弹窗 */
-function CreateBotDialog({
-  onClose,
-  onCreate,
-  creating,
-  error,
-}: {
-  onClose: () => void;
-  onCreate: (data: CreateBotRequest) => void;
-  creating: boolean;
-  error: string | null;
-}) {
-  const [username, setUsername] = useState('');
-  const [nickname, setNickname] = useState('');
-  const [description, setDescription] = useState('');
-
-  const usernameValid = USERNAME_RE.test(username.trim());
-  const canSubmit = usernameValid && nickname.trim() !== '' && !creating;
-
-  const handleSubmit = () => {
-    if (!canSubmit) {
-      return;
-    }
-    onCreate({
-      username: username.trim(),
-      nickname: nickname.trim(),
-      description: description.trim() || undefined,
-    });
-  };
-
-  return createPortal(
-    <div className="modal-overlay miniapp-create-overlay" onClick={onClose}>
-      <div className="miniapp-create-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="miniapp-create-header">
-          <h3>创建机器人</h3>
-          <button className="close-btn" onClick={onClose}>
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="miniapp-create-body">
-          <label className="miniapp-field">
-            <span className="miniapp-field-label">
-              用户名 <span className="miniapp-required">*</span>
-            </span>
-            <input
-              type="text"
-              placeholder="3-32 位字母 / 数字 / 下划线，全局唯一"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              maxLength={32}
-            />
-          </label>
-          <label className="miniapp-field">
-            <span className="miniapp-field-label">
-              昵称 <span className="miniapp-required">*</span>
-            </span>
-            <input
-              type="text"
-              placeholder="机器人显示昵称"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              maxLength={100}
-            />
-          </label>
-          <label className="miniapp-field">
-            <span className="miniapp-field-label">描述</span>
-            <textarea
-              placeholder="可选，简要描述机器人用途"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-          </label>
-          <p className="miniapp-field-hint">
-            创建成功后 Token 仅明文展示一次；每人最多创建 10 个机器人。
-          </p>
-          {error && <p className="miniapp-card-reject-reason">{error}</p>}
-        </div>
-        <div className="miniapp-create-footer">
-          <button className="miniapp-btn secondary" onClick={onClose}>
-            取消
-          </button>
-          <button className="miniapp-btn primary" onClick={handleSubmit} disabled={!canSubmit}>
-            {creating ? '创建中...' : '创建'}
           </button>
         </div>
       </div>

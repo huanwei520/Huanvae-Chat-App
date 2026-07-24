@@ -1,25 +1,27 @@
 /**
- * 他人完整资料页容器（顶层挂载，订阅 profileViewStore）
+ * 群详情弹窗容器（顶层挂载，订阅 groupDetailStore）
  *
- * @location src/chat/shared/OtherProfileView.tsx
+ * @location src/chat/shared/GroupDetailView.tsx
  *
  * 按平台选择外壳：桌面=右侧抽屉（从右滑入）/ 移动=整页（从右滑入），内部渲染
- * 只读的 OtherProfilePanel。通过 Portal 挂到 document.body，点击遮罩 / ESC 关闭。
- * 在 Main（桌面）与 MobileMain（移动）各挂一个，由 isMobile() 决定外壳形态。
+ * GroupDetailPanel。复用 OtherProfileView 的通用抽屉外壳（.other-profile-overlay /
+ * .other-profile-shell，已在 animation-conflict 测试注册）。通过 Portal 挂到 document.body，
+ * 点击遮罩 / ESC 关闭。在 Main（桌面）与 MobileMain（移动）各挂一个，由 isMobile() 决定外壳形态。
  */
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
-import { useProfileViewStore } from '../../stores';
-import { OtherProfilePanel } from './OtherProfilePanel';
-import { friendChatTarget } from '../../utils/chatTarget';
-import type { ChatTarget, Friend } from '../../types/chat';
+import { useGroupDetailStore } from '../../stores';
+import { GroupDetailPanel } from './GroupDetailPanel';
+import type { ChatTarget, Group } from '../../types/chat';
 
-interface OtherProfileViewProps {
-  /** 「发消息」直达会话（由 Main/MobileMain 注入 handleSelectTarget） */
+interface GroupDetailViewProps {
+  /** 「进入群聊」直达会话（由 Main/MobileMain 注入 handleSelectTarget） */
   onOpenChat?: (target: ChatTarget) => void;
+  /** 加入/申请成功后刷新群列表（由 Main/MobileMain 注入 refreshGroups） */
+  onRefreshGroups?: () => void;
 }
 
 const overlayVariants = {
@@ -34,28 +36,27 @@ const panelVariants = {
   exit: { x: '100%' },
 };
 
-export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
-  const userId = useProfileViewStore((s) => s.userId);
-  const botUsername = useProfileViewStore((s) => s.botUsername);
-  const close = useProfileViewStore((s) => s.close);
+export function GroupDetailView({ onOpenChat, onRefreshGroups }: GroupDetailViewProps = {}) {
+  const groupId = useGroupDetailStore((s) => s.groupId);
+  const close = useGroupDetailStore((s) => s.close);
   const mobile = isMobile();
 
-  const handleSendMessage = (friend: Friend) => {
-    onOpenChat?.(friendChatTarget(friend));
+  const handleEnter = (group: Group) => {
+    onOpenChat?.({ type: 'group', data: group });
   };
 
   useEffect(() => {
-    if (!userId) { return undefined; }
+    if (!groupId) { return undefined; }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { close(); }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [userId, close]);
+  }, [groupId, close]);
 
   const content = (
     <AnimatePresence>
-      {userId && (
+      {groupId && (
         <motion.div
           className="other-profile-overlay"
           variants={overlayVariants}
@@ -73,11 +74,11 @@ export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
             transition={{ type: 'spring', stiffness: 360, damping: 34 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <OtherProfilePanel
-              userId={userId}
-              botUsername={botUsername ?? undefined}
+            <GroupDetailPanel
+              groupId={groupId}
               onClose={close}
-              onSendMessage={handleSendMessage}
+              onEnterGroup={handleEnter}
+              onRefreshGroups={onRefreshGroups}
             />
           </motion.div>
         </motion.div>

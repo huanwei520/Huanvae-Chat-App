@@ -110,7 +110,7 @@ describe('BotsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 创建' }));
 
     fireEvent.change(
-      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，全局唯一'),
+      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，且以 bot 结尾'),
       { target: { value: 'my_bot' } },
     );
     fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {
@@ -154,7 +154,7 @@ describe('BotsModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ 创建' }));
     fireEvent.change(
-      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，全局唯一'),
+      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，且以 bot 结尾'),
       { target: { value: 'portal_bot' } },
     );
     fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {
@@ -178,7 +178,7 @@ describe('BotsModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ 创建' }));
     fireEvent.change(
-      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，全局唯一'),
+      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，且以 bot 结尾'),
       { target: { value: 'a!' } },
     );
     fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {
@@ -268,7 +268,7 @@ describe('BotsModal', () => {
     // 走完创建流程，让 SecretDisplay 展示 token
     fireEvent.click(screen.getByRole('button', { name: '+ 创建' }));
     fireEvent.change(
-      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，全局唯一'),
+      screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线，且以 bot 结尾'),
       { target: { value: 'my_bot' } },
     );
     fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {

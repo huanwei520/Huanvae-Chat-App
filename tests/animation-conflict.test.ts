@@ -422,6 +422,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/chat/shared/ShelfCardOverlay.tsx (顶置浮层 motion.div：opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
   },
+  {
+    selector: '.add-menu-dropdown',
+    cssFile: 'src/styles/components/add-menu.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/unified/AddMenu.tsx (dropdownVariants: opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
+  },
 ];
 
 /**

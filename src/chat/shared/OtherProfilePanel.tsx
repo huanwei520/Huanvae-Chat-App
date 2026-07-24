@@ -8,18 +8,24 @@
  * - 身份：头像、昵称（好友显示备注名）、@ID（可复制）、签名；bot（bot_ 前缀 id）加 BotBadge 徽章
  * - 资料：性别 / 生日 / 地区 / 注册时间（bot 无可选字段，不显示"未填写"提示）
  * - 关系：好友/陌生人/自己/机器人、成为好友时间、在线状态、特别关心/拉黑徽章、好友备注（可编辑）
- * - 操作：好友「发消息」直达会话 / 非好友「添加好友」
+ * - 操作：好友「发消息」直达会话 / bot「添加机器人」（addBotByUsername 即时）/
+ *   人已发过申请未通过「待通过」（持久禁用）/ 人未申请「添加好友」
  *
  * 数据：进入时拉 GET /api/profile/{id}/public（仅公开字段）。在线状态读 store 的 presence 快照/增量。
+ * 非好友（非自己/非 bot）额外拉 GET /api/friends/requests/sent 判「待通过」持久态。
  * bot 额外拉 GET /api/bots/{id}（owner-only，非 owner 404）取 description 作简介，失败回落个性签名。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useChatStore } from '../../stores';
 import { useApi, useSession } from '../../contexts/SessionContext';
 import { getPublicProfile, type PublicProfileResponse } from '../../api/profile';
-import { sendFriendRequest, setFriendRemark as apiSetFriendRemark } from '../../api/friends';
-import { getBot, isBotUserId, type BotInfo } from '../../api/bots';
+import {
+  sendFriendRequest,
+  setFriendRemark as apiSetFriendRemark,
+  getSentFriendRequests,
+} from '../../api/friends';
+import { getBot, isBotUserId, addBotByUsername, type BotInfo } from '../../api/bots';
 import { friendDisplayName } from '../../utils/friendName';
 import { AddUserIcon } from '../../components/common/Icons';
 import { AppButton } from '../../components/common/AppButton';
@@ -33,6 +39,8 @@ import '../../styles/components/profile-sections.css';
 interface OtherProfilePanelProps {
   /** 被查看用户 id */
   userId: string;
+  /** 从 bot 发现结果打开时携带 bot username，加机器人走 addBotByUsername（人则不传） */
+  botUsername?: string;
   /** 关闭资料页 */
   onClose: () => void;
   /** 好友「发消息」直达会话（由容器注入 handleSelectTarget） */
@@ -71,7 +79,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfilePanelProps) {
+export function OtherProfilePanel({ userId, botUsername, onClose, onSendMessage }: OtherProfilePanelProps) {
   const api = useApi();
   const { session } = useSession();
   const friends = useChatStore((s) => s.friends);
@@ -88,6 +96,8 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
   const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  // 已发出好友申请但对方未通过（进入面板即拉「我发出的」列表判定，与本次点击的 sent 分开持久展示）
+  const [pendingSent, setPendingSent] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // 备注编辑
@@ -102,6 +112,7 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
     setLoadError(false);
     // 切换查看对象时重置各态，避免串台到新用户。
     setSent(false);
+    setPendingSent(false);
     setActionError(null);
     setEditingRemark(false);
     getPublicProfile(api, userId)
@@ -114,8 +125,20 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
         .then((b) => { if (!cancelled) { setBotInfo(b); } })
         .catch(() => { /* 非 owner 404：契约文档明确 owner-only，与不存在同形；无简介可展示 */ });
     }
+    // 「待通过」持久态：仅陌生人（非好友/非自己/非 bot）才有意义——bot 加好友即时通过、好友已通过。
+    // 拉「我发出的」pending 列表判定是否已向该用户发过申请。catch 吞错回落显示「添加好友」是安全的：
+    // 拉失败只是少显示待通过态，即便重复点，后端也会拒绝重复申请，不会产生副作用。
+    if (!isFriend && !isSelf && !isBot) {
+      getSentFriendRequests(api)
+        .then((requests) => {
+          if (!cancelled) {
+            setPendingSent(requests.some((r) => r.sent_to_user_id === userId));
+          }
+        })
+        .catch(() => { /* 拉失败回落显示「添加好友」；后端拒重复申请，安全 */ });
+    }
     return () => { cancelled = true; };
-  }, [api, userId, isBot]);
+  }, [api, userId, isBot, isFriend, isSelf]);
 
   // 显示名：是我好友则用备注/昵称；否则用公开资料昵称（加载/失败期间留空，避免短暂闪现原始 id）
   const displayName = friendData
@@ -158,7 +181,13 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
     setSending(true);
     setActionError(null);
     try {
-      await sendFriendRequest(api, session.userId, userId);
+      // bot 走 addBotByUsername（策略恒 auto_accept，一次调用即成好友，无待通过态）；
+      // 人走 sendFriendRequest（对方需确认，进入待通过）。
+      if (isBot && botUsername) {
+        await addBotByUsername(api, botUsername);
+      } else {
+        await sendFriendRequest(api, session.userId, userId);
+      }
       setSent(true);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : '发送失败');
@@ -197,6 +226,28 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
       setSavingRemark(false);
     }
   };
+
+  // 非好友「加好友」按钮的多态描述符（好友分支单独渲染「发消息」，不走这里）：
+  //  - bot：走 addBotByUsername，即时成好友（无待通过），点后「已添加」
+  //  - 人 · 已发过申请未通过（pendingSent）：锁定「待通过」（持久禁用，不再触发发送）
+  //  - 人 · 未申请：「添加好友」→ 点后「已发送」（sent）
+  let addBtn: { label: string; disabled: boolean; onClick?: () => void; leftIcon?: ReactNode };
+  if (isBot) {
+    addBtn = {
+      label: sent ? '已添加' : (sending ? '添加中...' : '添加机器人'),
+      disabled: sending || sent,
+      onClick: handleAddFriend,
+    };
+  } else if (pendingSent) {
+    addBtn = { label: '待通过', disabled: true };
+  } else {
+    addBtn = {
+      label: addButtonText(sent, sending),
+      disabled: sending || sent,
+      onClick: handleAddFriend,
+      leftIcon: <AddUserIcon />,
+    };
+  }
 
   return (
     <div className="other-profile-panel">
@@ -342,11 +393,11 @@ export function OtherProfilePanel({ userId, onClose, onSendMessage }: OtherProfi
                 <AppButton
                   variant="primary"
                   block
-                  leftIcon={<AddUserIcon />}
-                  onClick={handleAddFriend}
-                  disabled={sending || sent}
+                  leftIcon={addBtn.leftIcon}
+                  onClick={addBtn.onClick}
+                  disabled={addBtn.disabled}
                 >
-                  {addButtonText(sent, sending)}
+                  {addBtn.label}
                 </AppButton>
               )}
             </div>

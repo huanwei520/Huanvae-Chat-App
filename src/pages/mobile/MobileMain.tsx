@@ -38,6 +38,7 @@ import { MobileContacts } from './MobileContacts';
 import { MobileChatView } from './MobileChatView';
 import { MobileProfilePage } from './MobileProfilePage';
 import { OtherProfileView } from '../../chat/shared/OtherProfileView';
+import { GroupDetailView } from '../../chat/shared/GroupDetailView';
 import { MobileFilesPage } from './MobileFilesPage';
 import { MobileSettingsPage } from './MobileSettingsPage';
 import { MobileLanTransferPage } from './MobileLanTransferPage';
@@ -730,6 +731,9 @@ export function MobileMain() {
 
       {/* 他人公开资料页（移动整页，点头像进入只读资料） */}
       <OtherProfileView onOpenChat={handleSelectTarget} />
+
+      {/* 群详情弹窗（点群名/群头像打开只读群详情） */}
+      <GroupDetailView onOpenChat={handleSelectTarget} onRefreshGroups={page.refreshGroups} />
     </div>
   );
 }

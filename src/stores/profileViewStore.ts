@@ -13,14 +13,17 @@ import { create } from 'zustand';
 interface ProfileViewState {
   /** 当前查看的用户 id（null = 关闭） */
   userId: string | null;
-  /** 打开某用户的完整资料页 */
-  open: (userId: string) => void;
+  /** 从 bot 发现结果打开时携带 bot username，供面板走 addBotByUsername（人则为 null） */
+  botUsername: string | null;
+  /** 打开某用户的完整资料页；从 bot 发现结果打开时传 opts.botUsername */
+  open: (userId: string, opts?: { botUsername?: string }) => void;
   /** 关闭资料页 */
   close: () => void;
 }
 
 export const useProfileViewStore = create<ProfileViewState>((set) => ({
   userId: null,
-  open: (userId) => set({ userId }),
-  close: () => set({ userId: null }),
+  botUsername: null,
+  open: (userId, opts) => set({ userId, botUsername: opts?.botUsername ?? null }),
+  close: () => set({ userId: null, botUsername: null }),
 }));

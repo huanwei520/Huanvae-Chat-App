@@ -41,6 +41,7 @@ import { BotBadge } from '../common/BotBadge';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
 import { compareByTimeDesc, comparePinnedThenTime } from './conversationSort';
 import { ConversationContextMenu, PinFlagIcon } from './ConversationContextMenu';
+import { AddMenu } from './AddMenu';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
@@ -49,13 +50,6 @@ import { setConversationPinned } from '../../db';
 import type { NavTab } from '../sidebar/Sidebar';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 import type { UnreadSummary } from '../../types/websocket';
-
-// 添加按钮图标（+号）
-const PlusIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-  </svg>
-);
 
 // ============================================
 // 类型定义
@@ -122,8 +116,12 @@ interface UnifiedListProps {
   onSyncDismiss?: () => void;
   /** 同步重试回调（可选） */
   onSyncRetry?: () => void;
-  /** 添加好友/群聊回调 */
-  onAddClick?: () => void;
+  /** 创建群成功后增量添加（AddMenu 用） */
+  addGroup?: (group: Group) => void;
+  /** 刷新群列表（AddMenu 待通过面板 / 加群用） */
+  refreshGroups?: () => void;
+  /** 刷新好友列表（AddMenu 待通过面板 / 加好友用） */
+  refreshFriends?: () => void;
   /** 待处理通知数 */
   pendingNotificationCount?: number;
 }
@@ -217,7 +215,9 @@ export function UnifiedList({
   syncNotification,
   onSyncDismiss: _onSyncDismiss,
   onSyncRetry,
-  onAddClick,
+  addGroup,
+  refreshGroups,
+  refreshFriends,
   pendingNotificationCount = 0,
 }: UnifiedListProps) {
 
@@ -750,19 +750,13 @@ export function UnifiedList({
           panelWidth={panelWidth}
           placeholder={getPlaceholder()}
         />
-        {onAddClick && (
-          <button
-            className="header-add-btn"
-            onClick={onAddClick}
-            title="添加好友/群聊"
-          >
-            <PlusIcon />
-            {pendingNotificationCount > 0 && (
-              <span className="notification-badge">
-                {pendingNotificationCount > 99 ? '99+' : pendingNotificationCount}
-              </span>
-            )}
-          </button>
+        {addGroup && (
+          <AddMenu
+            pendingNotificationCount={pendingNotificationCount}
+            addGroup={addGroup}
+            refreshGroups={refreshGroups}
+            refreshFriends={refreshFriends}
+          />
         )}
       </div>
 

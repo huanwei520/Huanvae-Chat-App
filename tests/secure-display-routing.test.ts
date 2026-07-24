@@ -157,24 +157,6 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
     ],
     // ---- profile 全面完善（0.8.0 新契约字段，resolve-at-render 显示点） ----
     [
-      // 好友申请卡：申请人头像
-      'src/components/modals/add/FriendRequestsTab.tsx',
-      /src=\{request\.requester_avatar_url\}/,
-      /resolveServerAvatarUrl\(request\.requester_avatar_url\)/,
-    ],
-    [
-      // 加好友预览确认卡：对方头像
-      'src/components/modals/add/AddFriendTab.tsx',
-      /src=\{preview\?\.user_avatar_url\}/,
-      /resolveServerAvatarUrl\(preview\?\.user_avatar_url\)/,
-    ],
-    [
-      // 群邀请卡：邀请人头像
-      'src/components/modals/add/GroupInvitesTab.tsx',
-      /src=\{invite\.inviter_avatar_url\}/,
-      /resolveServerAvatarUrl\(invite\.inviter_avatar_url\)/,
-    ],
-    [
       // 移动端好友申请卡：申请人头像
       'src/pages/mobile/MobileAddPage.tsx',
       /src=\{request\.requester_avatar_url\}/,
@@ -216,11 +198,44 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
       /\$\{[^}]*\.background_url\}/,
       /resolveServerAvatarUrl\(session\?\.profile\.background_url\)/,
     ],
+    // ---- req-23 群详情弹窗 + 待通过申请面板（resolve-at-render 显示点） ----
+    [
+      // 群详情弹窗：群头像（resolve-at-render into avatarUrl var）
+      'src/chat/shared/GroupDetailPanel.tsx',
+      /src=\{info\?\.group_avatar_url\}/,
+      /resolveServerAvatarUrl\(info\?\.group_avatar_url\)/,
+    ],
+    [
+      // 待通过申请面板：申请人/群头像经 RequestAvatar → resolveServerAvatarUrl
+      'src/components/unified/PendingRequestsPanel.tsx',
+      /<img src=\{path\}/,
+      /resolveServerAvatarUrl\(path\)/,
+    ],
   ];
 
   it.each(sites)('%s 走收口点而非裸 URL', (file, rawPattern, wrappedPattern) => {
     const src = read(file);
     expect(src).not.toMatch(rawPattern);
     expect(src).toMatch(wrappedPattern);
+  });
+});
+
+describe('发现搜索头像：数据边界经 resolveServerAvatarUrl 解析，显示点消费已解析值', () => {
+  // 模式同 useFriends/useGroups：在数据边界（useDiscoverySearch 构建视图模型处）把后端裸
+  // avatar_url 经 resolveServerAvatarUrl 解析成可显示 URL；下游 GlobalMessageSearchResults
+  // 发现区直接消费已解析的 avatarUrl，不碰后端 snake_case 字段。漏接反代会让发现头像被系统
+  // 信任库验私有 CA 失败而不显示。
+  const DISCOVERY_HOOK = read('src/hooks/useDiscoverySearch.ts');
+  const SEARCH_RESULTS = read('src/components/search/GlobalMessageSearchResults.tsx');
+
+  it('useDiscoverySearch 在数据边界对 people/groups/bots 头像调 resolveServerAvatarUrl（恰 3 处）', () => {
+    const hits = DISCOVERY_HOOK.match(/resolveServerAvatarUrl\(card\.avatar_url\)/g) ?? [];
+    expect(hits.length).toBe(3);
+  });
+
+  it('GlobalMessageSearchResults 发现区显示点消费已解析的 avatarUrl，不碰后端裸 avatar_url', () => {
+    // 发现区 <img src={x.avatarUrl}>（已解析）；组件内不出现后端 snake_case avatar_url
+    expect(SEARCH_RESULTS).toMatch(/src=\{[a-z]\.avatarUrl\}/);
+    expect(SEARCH_RESULTS).not.toMatch(/\bavatar_url\b/);
   });
 });

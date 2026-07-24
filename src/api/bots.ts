@@ -204,3 +204,13 @@ export function getBotCommands(api: ApiClient, botUserId: string): Promise<BotCo
 export function isBotUserId(userId: string): boolean {
   return userId.startsWith('bot_');
 }
+
+/**
+ * bot username 前端体验层校验：3-32 位 [A-Za-z0-9_] 且必须以 "bot" 结尾（大小写不敏感）。
+ * 后端 POST /api/bots 是权威校验（不合规 400）；前端此函数仅用于即时校验/提示。
+ */
+export const BOT_USERNAME_RE = /^[A-Za-z0-9_]{3,32}$/;
+export function isValidBotUsername(username: string): boolean {
+  const u = username.trim();
+  return BOT_USERNAME_RE.test(u) && /bot$/i.test(u);
+}

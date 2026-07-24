@@ -1,24 +1,35 @@
 /**
- * 全局搜索下拉框（独立框 + 三分类）
+ * 全局搜索下拉框（独立框 + 本地三分类 + 服务端发现三分类）
  *
  * 移动端 MobileChatList 和桌面端 UnifiedList 共用。卡片列表**不再被搜索过滤**，
- * 搜索结果作为独立的下框出现，按以下三段顺序展示：
+ * 搜索结果作为独立的下框出现。分两个区，各自独立降级（一个 loading/出错不影响另一个）：
+ *
+ * 本地区（走 SQLite，useGlobalMessageSearch）：
  *   1. 会话（好友昵称 + 群名）
  *   2. 聊天记录（content_type='text' 的消息命中）
  *   3. 文件（content_type ∈ image/video/file/audio 的命中，content 即文件名）
  *
+ * 服务端发现区（走后端 /api/discovery/search，useDiscoverySearch），排在本地区之后：
+ *   4. 群聊（discGroups）
+ *   5. 用户（people）
+ *   6. 机器人（bots，独立成段，不并入用户）
+ *
  * 行为：
- * - 消息和文件命中复用 useGlobalMessageSearch（含 500ms 防抖）
+ * - 本地命中复用 useGlobalMessageSearch、发现命中复用 useDiscoverySearch（各含 500ms 防抖）
  * - 会话名匹配在前端 friends/groups 内同步过滤
  * - 关键词以 <mark> 高亮
  * - 点击会话项 → onSelectConversation(type, data)
  * - 点击消息/文件项 → onSelectMessage(group, hit)，调用方负责切会话 + 设置 pendingScrollToMessageId
+ * - 点击发现的用户/bot/群项 → onSelectDiscoveryPerson / onSelectDiscoveryBot / onSelectDiscoveryGroup
+ *   （均可选；调用方未传时该项点击无操作）
+ * - 发现头像已在 useDiscoverySearch 数据边界经 resolveServerAvatarUrl 解析，显示点直接 <img src>
  */
 
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
+import { BotBadge } from '../common/BotBadge';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
@@ -27,6 +38,7 @@ import {
   useGlobalMessageSearch,
   type MessageSearchGroup,
 } from '../../hooks/useGlobalMessageSearch';
+import { useDiscoverySearch } from '../../hooks/useDiscoverySearch';
 import type { SearchMessageResult } from '../../db';
 import type { Friend, Group } from '../../types/chat';
 
@@ -75,6 +87,12 @@ interface GlobalMessageSearchResultsProps {
   currentUserId?: string;
   /** 动画布局：桌面（左上角缩放）vs 移动（从上拉出）；默认 desktop */
   layout?: 'desktop' | 'mobile';
+  /** 点击发现的「用户」项 → 打开个人详情弹窗 */
+  onSelectDiscoveryPerson?: (userId: string) => void;
+  /** 点击发现的「bot」项 → 打开个人详情弹窗（带 bot username 供 addBotByUsername） */
+  onSelectDiscoveryBot?: (botUserId: string, username: string) => void;
+  /** 点击发现的「群聊」项 → 打开群详情弹窗 */
+  onSelectDiscoveryGroup?: (groupId: string) => void;
 }
 
 /** 把文本按 query 切片并高亮匹配子串（不区分大小写） */
@@ -132,9 +150,24 @@ export function GlobalMessageSearchResults({
   groups,
   currentUserId,
   layout = 'desktop',
+  onSelectDiscoveryPerson,
+  onSelectDiscoveryBot,
+  onSelectDiscoveryGroup,
 }: GlobalMessageSearchResultsProps) {
   const variants = layout === 'mobile' ? mobileVariants : desktopVariants;
-  const { groups: searchGroups, loading, error } = useGlobalMessageSearch(query);
+  const {
+    groups: searchGroups,
+    loading: localLoading,
+    error: localError,
+  } = useGlobalMessageSearch(query);
+  // 服务端发现搜索：与本地搜索独立降级（把 groups 重命名为 discGroups，避开 groups 这个 prop）
+  const {
+    people,
+    groups: discGroups,
+    bots,
+    loading: discoveryLoading,
+    error: discoveryError,
+  } = useDiscoverySearch(query);
 
   // 由会话 id 反查 Friend / Group 对象（仅用于消息/文件命中的头像）
   const friendMap = useMemo(() => {
@@ -186,7 +219,16 @@ export function GlobalMessageSearchResults({
   const totalConversations = matchedFriends.length + matchedGroups.length;
   const totalMessages = messageGroups.reduce((n, g) => n + g.hits.length, 0);
   const totalFiles = fileGroups.reduce((n, g) => n + g.hits.length, 0);
-  const totalAll = totalConversations + totalMessages + totalFiles;
+  const localTotal = totalConversations + totalMessages + totalFiles;
+  const discoveryTotal = people.length + discGroups.length + bots.length;
+  // 空态：本地 + 发现都无结果，且两区都不在加载/出错时才提示「未找到」
+  const isEmpty =
+    localTotal === 0 &&
+    discoveryTotal === 0 &&
+    !localLoading &&
+    !localError &&
+    !discoveryLoading &&
+    !discoveryError;
 
   const motionProps = {
     variants,
@@ -196,93 +238,201 @@ export function GlobalMessageSearchResults({
     style: layout === 'desktop' ? { transformOrigin: 'top left' as const } : undefined,
   };
 
-  if (loading) {
-    return (
-      <motion.div
-        className="global-msg-search global-msg-search-loading"
-        {...motionProps}
-      >
-        <LoadingSpinner />
-        <span>搜索中...</span>
-      </motion.div>
-    );
-  }
-
-  if (error) {
-    return (
-      <motion.div className="global-msg-search global-msg-search-error" {...motionProps}>
-        <span>{error}</span>
-      </motion.div>
-    );
-  }
-
-  if (totalAll === 0) {
-    return (
-      <motion.div className="global-msg-search global-msg-search-empty" {...motionProps}>
-        <span>未找到包含「{query}」的内容</span>
-      </motion.div>
-    );
-  }
-
   return (
     <motion.div className="global-msg-search" {...motionProps}>
-      {/* Section 1：会话名 */}
-      {totalConversations > 0 && (
-        <section className="global-msg-search-section">
-          <div className="global-msg-search-section-header">
-            会话 <span className="global-msg-search-section-count">{totalConversations}</span>
-          </div>
-          <ul className="global-msg-search-conv-list">
-            {matchedFriends.map((f) => (
-              <li
-                key={`friend-${f.friend_id}`}
-                className="global-msg-search-conv-item"
-                onClick={() => onSelectConversation('friend', f)}
-              >
-                <div className="global-msg-search-conv-avatar">
-                  <FriendAvatar friend={f} />
-                </div>
-                <span className="global-msg-search-conv-name">
-                  {highlightMatch(friendDisplayName(f), query)}
-                </span>
-              </li>
-            ))}
-            {matchedGroups.map((g) => (
-              <li
-                key={`group-${g.group_id}`}
-                className="global-msg-search-conv-item"
-                onClick={() => onSelectConversation('group', g)}
-              >
-                <div className="global-msg-search-conv-avatar">
-                  <GroupAvatar group={g} />
-                </div>
-                <span className="global-msg-search-conv-name">
-                  {highlightMatch(g.group_name, query)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {/* ===== 本地搜索区（会话 / 聊天记录 / 文件）——与发现区独立降级 ===== */}
+      {localLoading && (
+        <div className="global-msg-search-disc-status">
+          <LoadingSpinner />
+          <span>搜索会话中...</span>
+        </div>
+      )}
+      {!localLoading && localError && (
+        <div className="global-msg-search-disc-status global-msg-search-disc-status--error">
+          <span>{localError}</span>
+        </div>
+      )}
+      {!localLoading && !localError && (
+        <>
+          {/* Section 1：会话名 */}
+          {totalConversations > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                会话 <span className="global-msg-search-section-count">{totalConversations}</span>
+              </div>
+              <ul className="global-msg-search-conv-list">
+                {matchedFriends.map((f) => (
+                  <li
+                    key={`friend-${f.friend_id}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectConversation('friend', f)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      <FriendAvatar friend={f} />
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(friendDisplayName(f), query)}
+                    </span>
+                  </li>
+                ))}
+                {matchedGroups.map((g) => (
+                  <li
+                    key={`group-${g.group_id}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectConversation('group', g)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      <GroupAvatar group={g} />
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(g.group_name, query)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Section 2：聊天记录 */}
+          {totalMessages > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                聊天记录 <span className="global-msg-search-section-count">{totalMessages}</span>
+              </div>
+              {messageGroups.map((group) => renderHitGroup(group, false))}
+            </section>
+          )}
+
+          {/* Section 3：文件 */}
+          {totalFiles > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                文件 <span className="global-msg-search-section-count">{totalFiles}</span>
+              </div>
+              {fileGroups.map((group) => renderHitGroup(group, true))}
+            </section>
+          )}
+        </>
       )}
 
-      {/* Section 2：聊天记录 */}
-      {totalMessages > 0 && (
-        <section className="global-msg-search-section">
-          <div className="global-msg-search-section-header">
-            聊天记录 <span className="global-msg-search-section-count">{totalMessages}</span>
-          </div>
-          {messageGroups.map((group) => renderHitGroup(group, false))}
-        </section>
+      {/* ===== 服务端发现区（群聊 → 用户 → 机器人）——排在本地区之后，独立降级 ===== */}
+      {discoveryLoading && (
+        <div className="global-msg-search-disc-status">
+          <LoadingSpinner />
+          <span>搜索用户/群/机器人中...</span>
+        </div>
+      )}
+      {!discoveryLoading && discoveryError && (
+        <div className="global-msg-search-disc-status global-msg-search-disc-status--error">
+          <span>发现搜索失败：{discoveryError}</span>
+        </div>
+      )}
+      {!discoveryLoading && !discoveryError && (
+        <>
+          {/* 发现 Section 1：群聊 */}
+          {discGroups.length > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                群聊 <span className="global-msg-search-section-count">{discGroups.length}</span>
+              </div>
+              <ul className="global-msg-search-conv-list">
+                {discGroups.map((g) => (
+                  <li
+                    key={`disc-group-${g.groupId}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectDiscoveryGroup?.(g.groupId)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      {g.avatarUrl ? (
+                        <img src={g.avatarUrl} alt={g.groupName} />
+                      ) : (
+                        <AvatarPlaceholder name={g.groupName} fontSize={11} />
+                      )}
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(g.groupName, query)}
+                    </span>
+                    <span className="global-msg-search-disc-meta">
+                      {g.memberCount} 人{g.isMember ? ' · 已加入' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* 发现 Section 2：用户 */}
+          {people.length > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                用户 <span className="global-msg-search-section-count">{people.length}</span>
+              </div>
+              <ul className="global-msg-search-conv-list">
+                {people.map((p) => (
+                  <li
+                    key={`disc-person-${p.userId}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectDiscoveryPerson?.(p.userId)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      {p.avatarUrl ? (
+                        <img src={p.avatarUrl} alt={p.nickname} />
+                      ) : (
+                        <AvatarPlaceholder name={p.nickname} fontSize={11} />
+                      )}
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(p.nickname, query)}
+                    </span>
+                    {p.isFriend && (
+                      <span className="global-msg-search-disc-meta">已是好友</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* 发现 Section 3：机器人（独立成段，不并入用户） */}
+          {bots.length > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                机器人 <span className="global-msg-search-section-count">{bots.length}</span>
+              </div>
+              <ul className="global-msg-search-conv-list">
+                {bots.map((b) => (
+                  <li
+                    key={`disc-bot-${b.botUserId}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectDiscoveryBot?.(b.botUserId, b.username)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      {b.avatarUrl ? (
+                        <img src={b.avatarUrl} alt={b.nickname} />
+                      ) : (
+                        <AvatarPlaceholder name={b.nickname} fontSize={11} />
+                      )}
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(b.nickname, query)}
+                      <BotBadge />
+                    </span>
+                    {b.isFriend && (
+                      <span className="global-msg-search-disc-meta">已添加</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
 
-      {/* Section 3：文件 */}
-      {totalFiles > 0 && (
-        <section className="global-msg-search-section">
-          <div className="global-msg-search-section-header">
-            文件 <span className="global-msg-search-section-count">{totalFiles}</span>
-          </div>
-          {fileGroups.map((group) => renderHitGroup(group, true))}
-        </section>
+      {/* ===== 空态：本地 + 发现都无结果、且两区都不在加载/出错 ===== */}
+      {isEmpty && (
+        <div className="global-msg-search-empty">
+          <span>未找到包含「{query}」的内容</span>
+        </div>
       )}
     </motion.div>
   );

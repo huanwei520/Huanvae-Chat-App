@@ -96,6 +96,39 @@ export interface GroupInvitationsResponse {
   invitations: GroupInvitation[];
 }
 
+/** 群聊公开信息（GET /api/groups/{id}/public 与 /search 返回；未加入群的详情弹窗数据源） */
+export interface GroupInfo {
+  group_id: string;
+  group_name: string;
+  /** 群头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
+  group_avatar_url: string | null;
+  group_description: string | null;
+  creator_id: string;
+  created_at: string;
+  /** open/approval_required/invite_only/admin_invite_only/closed */
+  join_mode: string;
+  status: string;
+  member_count: number;
+}
+
+/** 我发出的加群申请项（GET /api/groups/requests/sent，恒 pending，无撤回接口） */
+export interface SentJoinRequestInfo {
+  request_id: string;
+  group_id: string;
+  group_name: string;
+  /** 群头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
+  group_avatar_url: string | null;
+  message: string | null;
+  /** 恒为 pending（本接口只返回待审核申请） */
+  status: string;
+  created_at: string;
+}
+
+/** 我发出的加群申请响应（client.ts 已解包 ApiResponse.data） */
+export interface SentJoinRequestsResponse {
+  requests: SentJoinRequestInfo[];
+}
+
 // ============================================
 // API 函数
 // ============================================
@@ -105,6 +138,14 @@ export interface GroupInvitationsResponse {
  */
 export function getMyGroups(api: ApiClient): Promise<MyGroupsResponse> {
   return api.get<MyGroupsResponse>('/api/groups/my');
+}
+
+/**
+ * 获取未加入群聊的公开信息（群详情弹窗数据源）。无成员门控，任意登录用户可查。
+ * 群不存在 / 已解散（status != active）→ 404（同形）。
+ */
+export function getPublicGroupInfo(api: ApiClient, groupId: string): Promise<GroupInfo> {
+  return api.get<GroupInfo>(`/api/groups/${encodeURIComponent(groupId)}/public`);
 }
 
 /**
@@ -216,6 +257,26 @@ export function joinGroupByCode(
   code: string,
 ): Promise<{ success: boolean; message: string }> {
   return api.post('/api/groups/join_by_code', { code });
+}
+
+/**
+ * 对可发现的群发起加入/加群申请（搜索方式）。按群 join_mode 分流：
+ * open→直接入群；approval_required→创建待审核申请；closed/invite_only/admin_invite_only→400。
+ * 已是成员 / 已有 pending 申请 → 400。返回 { message }。
+ */
+export function applyToJoinGroup(
+  api: ApiClient,
+  groupId: string,
+  message?: string,
+): Promise<{ message: string }> {
+  return api.post(`/api/groups/${encodeURIComponent(groupId)}/apply`, { message: message || '' });
+}
+
+/**
+ * 获取我主动发起、仍 pending 的加群申请（供"我发出的"待通过列表）。无撤回接口（by design）。
+ */
+export function getSentJoinRequests(api: ApiClient): Promise<SentJoinRequestsResponse> {
+  return api.get<SentJoinRequestsResponse>('/api/groups/requests/sent');
 }
 
 // ============================================

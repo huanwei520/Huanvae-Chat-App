@@ -45,6 +45,7 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
 export const SEARCH_COMPONENTS: ComponentEntry[] = [
   { name: 'GlobalMessageSearchResults', path: 'components/search/GlobalMessageSearchResults', category: 'components', description: '跨会话消息内容/文件名搜索结果（移动+桌面共用）' },
   { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
+  { name: 'useDiscoverySearch', path: 'hooks/useDiscoverySearch', category: 'hooks', description: '服务端发现搜索 Hook（500ms 防抖；人/群/bot；头像边界解析）' },
 ];
 
 // ============== NFC 指令执行器 ==============
@@ -141,9 +142,6 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
   // 机器人管理
   { name: 'BotsModal', path: 'components/bots/BotsModal', category: 'components', description: '机器人管理模态框（BotFather 式：创建/加好友/重置token/删除）' },
 
-  // 群组模态框
-  { name: 'AddModal', path: 'components/AddModal', category: 'components', description: '添加好友/群组模态框' },
-
   // 设置相关
   { name: 'SettingsPanel', path: 'components/settings/SettingsPanel', category: 'components', description: '设置面板' },
   { name: 'SettingsSection', path: 'components/settings/SettingsSection', category: 'components', description: '设置分组组件' },
@@ -201,13 +199,10 @@ export const COMMON_COMPONENTS: ComponentEntry[] = [
 
 // ============== 模态框组件 ==============
 export const MODAL_COMPONENTS: ComponentEntry[] = [
-  // 添加相关模态框
-  { name: 'AddFriendTab', path: 'components/modals/add/AddFriendTab', category: 'modals', description: '添加好友标签页' },
-  { name: 'CreateGroupTab', path: 'components/modals/add/CreateGroupTab', category: 'modals', description: '创建群组标签页' },
-  { name: 'FriendRequestsTab', path: 'components/modals/add/FriendRequestsTab', category: 'modals', description: '好友请求标签页' },
-  { name: 'GroupInvitesTab', path: 'components/modals/add/GroupInvitesTab', category: 'modals', description: '群组邀请标签页' },
-  { name: 'JoinGroupTab', path: 'components/modals/add/JoinGroupTab', category: 'modals', description: '加入群组标签页' },
-  { name: 'TabNavigation', path: 'components/modals/add/TabNavigation', category: 'modals', description: '标签导航' },
+  // 会话列表"+"轻量菜单 + 待通过申请 + 创建 bot（req-23，取代旧 AddModal/modals/add tab 页）
+  { name: 'AddMenu', path: 'components/unified/AddMenu', category: 'components', description: '会话列表"+"轻量下拉（创建群/创建bot/待通过申请）' },
+  { name: 'PendingRequestsPanel', path: 'components/unified/PendingRequestsPanel', category: 'components', description: '待通过申请面板（收到需处理 + 我发出的仅展示，无撤回）' },
+  { name: 'CreateBotDialog', path: 'components/bots/CreateBotDialog', category: 'components', description: '创建机器人表单（共享；bot 后缀校验 + 推荐 chip）' },
 ];
 
 // ============== 聊天组件 ==============
@@ -230,6 +225,8 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },
   { name: 'OtherProfilePanel', path: 'chat/shared/OtherProfilePanel', category: 'chat', description: '他人公开资料面板（只读公开字段 + 关系状态；非好友可加好友）' },
   { name: 'OtherProfileView', path: 'chat/shared/OtherProfileView', category: 'chat', description: '他人资料页容器（桌面右抽屉 / 移动整页，订阅 profileViewStore）' },
+  { name: 'GroupDetailPanel', path: 'chat/shared/GroupDetailPanel', category: 'chat', description: '群详情面板（未加入群公开信息 + 加入/申请多态按钮）' },
+  { name: 'GroupDetailView', path: 'chat/shared/GroupDetailView', category: 'chat', description: '群详情弹窗容器（桌面右抽屉/移动整页，订阅 groupDetailStore）' },
 
   // 好友聊天组件
   { name: 'ChatMessages', path: 'chat/friend/ChatMessages', category: 'chat', description: '好友聊天消息列表' },
