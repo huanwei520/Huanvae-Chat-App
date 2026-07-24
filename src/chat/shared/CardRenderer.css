@@ -62,6 +62,20 @@
   word-break: break-word;
 }
 
+/* Card is a compact read-only surface (see .card-renderer). A markdown fenced code
+   block defaults to `white-space: pre` + `overflow-x: auto` (markdown.css), which
+   horizontally scrolls and hides content inside the narrow card. Force wrapping so
+   every line is fully visible (stacked vertically; shelf overlay / bubble scroll
+   vertically). Scoped to .card-markdown so regular chat-bubble code blocks keep their
+   horizontal-scroll behavior. Higher specificity than `.markdown-body pre code` so it
+   wins regardless of stylesheet import order. */
+.card-markdown .markdown-body pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: visible;
+}
+
 .card-heading {
   font-weight: 600;
   color: var(--text-primary, #fff);

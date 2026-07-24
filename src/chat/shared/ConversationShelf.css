@@ -137,6 +137,16 @@
   margin-bottom: 8px;
 }
 
+/* Pinned + candidate cards fill the shelf overlay width (overlay is sized to the bar
+   width, min 320px) instead of the .card-renderer default compact 280px, so a card's
+   table/code content isn't squished into 280px inside a much wider overlay. Scoped to
+   the overlay so inline message-bubble cards keep their 280px width. Higher specificity
+   than `.card-renderer` so it overrides the 280px. */
+.shelf-card-overlay .card-renderer {
+  width: 100%;
+  max-width: 100%;
+}
+
 .shelf-card-note {
   font-size: 12px;
   color: var(--text-muted);
