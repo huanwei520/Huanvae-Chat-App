@@ -157,22 +157,11 @@ describe('其余 webview 远程图显示点（小程序图标 / OAuth logo / 群
     ],
     // ---- profile 全面完善（0.8.0 新契约字段，resolve-at-render 显示点） ----
     [
-      // 移动端好友申请卡：申请人头像
+      // 移动端「+」页待通过合并列表（req-24）：申请人/群头像经 resolveServerAvatarUrl(item.avatarPath) 收口
+      // （旧的按 ID 加好友预览卡 / 好友申请卡 / 群邀请卡显示点已随 req-24 MobileAddPage 重写删除）
       'src/pages/mobile/MobileAddPage.tsx',
-      /src=\{request\.requester_avatar_url\}/,
-      /resolveServerAvatarUrl\(request\.requester_avatar_url\)/,
-    ],
-    [
-      // 移动端群邀请卡：邀请人头像
-      'src/pages/mobile/MobileAddPage.tsx',
-      /src=\{invite\.inviter_avatar_url\}/,
-      /resolveServerAvatarUrl\(invite\.inviter_avatar_url\)/,
-    ],
-    [
-      // 移动端加好友预览确认卡：对方头像
-      'src/pages/mobile/MobileAddPage.tsx',
-      /src=\{f\.preview\?\.user_avatar_url\}/,
-      /resolveServerAvatarUrl\(f\.preview\?\.user_avatar_url\)/,
+      /<img src=\{item\.avatarPath\}/,
+      /resolveServerAvatarUrl\(item\.avatarPath\)/,
     ],
     [
       // 他人资料页：对方头像

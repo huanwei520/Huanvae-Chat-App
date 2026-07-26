@@ -42,7 +42,7 @@ export function CreateBotDialog({
   // 基础字符集/长度合规但只差 "bot" 后缀 → 给推荐 chip
   const baseOk = BOT_USERNAME_RE.test(trimmedU);
   const missingSuffix = baseOk && !/bot$/i.test(trimmedU);
-  const suggested = trimmedU + 'bot';
+  const suggested = `${trimmedU}bot`;
   // 仅当补全值本身也合规（如补全后长度 ≤32）才展示 chip
   const showSuggest = trimmedU !== '' && missingSuffix && isValidBotUsername(suggested);
 

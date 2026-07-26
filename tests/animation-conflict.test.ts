@@ -380,6 +380,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/pages/mobile/MobileAddPage.tsx (pageVariants: x+opacity spring)',
   },
   {
+    selector: '.mobile-add-action-btn',
+    cssFile: 'src/styles/mobile/add-page.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileAddPage.tsx (待通过合并列表 同意/拒绝 按钮 whileTap scale)',
+  },
+  {
     selector: '.mobile-miniapps-page',
     cssFile: 'src/styles/mobile/miniapps-page.css',
     controlledProps: ['transform', 'opacity'],

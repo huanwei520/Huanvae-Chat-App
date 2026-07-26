@@ -109,21 +109,15 @@
   color: var(--text-secondary, #888);
 }
 
-.pending-req-section {
-  padding: 8px 4px 12px;
-}
-
-.pending-req-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary, #888);
-  padding: 4px 6px;
-}
-
 .pending-req-empty {
   padding: 16px 6px;
   font-size: 13px;
   color: var(--text-secondary, #888);
+}
+
+.pending-req-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .pending-req-row {

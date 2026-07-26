@@ -88,72 +88,20 @@
 }
 
 /* ============================================
-   一级分段切换 (好友/群聊)
+   "+" 菜单入口（创建群聊 / 创建机器人 / 待通过申请）
    ============================================ */
-.mobile-add-segment {
+.mobile-add-menu {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-80) 0%,
-    var(--white-alpha-70) 100%
-  );
-  backdrop-filter: var(--blur-xs);
-  -webkit-backdrop-filter: var(--blur-xs);
-  border: 1px solid var(--glass-border-subtle);
-  border-radius: 14px;
-  padding: 4px;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.mobile-add-segment-btn {
-  flex: 1;
-  padding: 10px 16px;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  position: relative;
+.mobile-add-menu-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.mobile-add-segment-btn.active {
-  color: var(--primary);
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-95) 0%,
-    var(--white-alpha-90) 100%
-  );
-  box-shadow: var(--shadow-sm);
-  font-weight: 600;
-}
-
-.mobile-add-segment-btn:active {
-  transform: scale(0.97);
-}
-
-/* ============================================
-   二级子标签
-   ============================================ */
-.mobile-add-sub-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.mobile-add-sub-tab {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
   background: linear-gradient(
     135deg,
     var(--card-bg-start) 0%,
@@ -162,34 +110,43 @@
   backdrop-filter: var(--glass-backdrop);
   -webkit-backdrop-filter: var(--glass-backdrop);
   border: 1px solid var(--card-border);
-  border-radius: 10px;
+  border-radius: 14px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  color: var(--text-primary);
+  /* 单一所有权：仅过渡 background/border；transform 若需按压反馈交给 framer-motion */
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.mobile-add-menu-item:active {
+  background: linear-gradient(
+    135deg,
+    var(--card-bg-hover-start) 0%,
+    var(--card-bg-hover-end) 100%
+  );
+}
+
+.mobile-add-menu-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-}
-
-.mobile-add-sub-tab.active {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
   color: var(--primary);
-  background: linear-gradient(
-    135deg,
-    var(--white-alpha-95) 0%,
-    var(--white-alpha-90) 100%
-  );
-  border-color: var(--primary);
-  font-weight: 600;
 }
 
-.mobile-add-sub-tab:active {
-  transform: scale(0.97);
+.mobile-add-menu-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
 }
 
-/* ============================================
-   角标
-   ============================================ */
-.mobile-add-badge {
+.mobile-add-menu-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -202,6 +159,22 @@
   background: var(--gradient-primary);
   border-radius: 9px;
   line-height: 1;
+  flex-shrink: 0;
+}
+
+.mobile-add-menu-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* 「我发出的」待通过标签（合并列表内，无操作按钮的行右侧） */
+.mobile-add-sent-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* ============================================
@@ -283,7 +256,8 @@
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  /* 普通按钮，按压反馈仅改 opacity（:active）；不过渡 transform，避免与将来动画抢帧 */
+  transition: opacity var(--transition-fast);
 }
 
 .mobile-add-submit:disabled {
@@ -384,7 +358,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  /* transform 由 framer-motion whileTap 接管（单一所有权）；CSS 仅过渡 background/color。
+     见 tests/animation-conflict.test.ts 的 .mobile-add-action-btn 注册 */
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .mobile-add-action-btn.accept {

@@ -292,7 +292,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useMainPage', path: 'hooks/useMainPage', category: 'hooks', description: '主页面 Hook' },
   { name: 'useAccounts', path: 'hooks/useAccounts', category: 'hooks', description: '账号管理 Hook' },
   { name: 'useProfileEditor', path: 'hooks/useProfileEditor', category: 'hooks', description: '个人资料编辑共享 Hook（头像/昵称/背景封面编辑，桌面+移动共用）' },
-  { name: 'useAddFriendFlow', path: 'hooks/useAddFriendFlow', category: 'hooks', description: '加好友预览确认流程 Hook（查找→确认卡→发送，桌面+移动共用）' },
+  { name: 'usePendingRequests', path: 'hooks/usePendingRequests', category: 'hooks', description: '待通过申请管理 Hook（四类合并单列表 + 同意/拒绝/接受/拒绝，桌面+移动共用）' },
   { name: 'useInitialSync', path: 'hooks/useInitialSync', category: 'hooks', description: '初始同步 Hook' },
   { name: 'useLocalConversations', path: 'hooks/useLocalConversations', category: 'hooks', description: '本地会话 Hook' },
   { name: 'useResizablePanel', path: 'hooks/useResizablePanel', category: 'hooks', description: '可调整面板 Hook' },

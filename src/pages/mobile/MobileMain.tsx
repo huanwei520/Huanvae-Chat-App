@@ -617,7 +617,7 @@ export function MobileMain() {
             onClose={() => setShowAddPage(false)}
             onFriendAdded={page.refreshFriends}
             addGroup={page.addGroup}
-            refreshGroups={page.refreshGroups}
+            pendingNotificationCount={page.pendingNotificationCount}
           />
         )}
       </AnimatePresence>

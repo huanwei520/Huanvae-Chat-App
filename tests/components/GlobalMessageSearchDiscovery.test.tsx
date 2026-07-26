@@ -9,7 +9,7 @@
  * - useDiscoverySearch → vi.fn，每个用例用 mockReturnValue 注入固定发现结果（引用稳定）
  *
  * 覆盖：
- * - 三段头 群聊/用户/机器人 + 计数；bot 行带 BotBadge
+ * - 三段头 用户/群聊/机器人 + 计数 + DOM 顺序（req-24：用户 → 群聊 → bot 固定最后）；bot 行带 BotBadge
  * - 点击用户/机器人/群聊行 → onSelectDiscoveryPerson/Bot/Group 精确参数
  * - 发现出错 → 「发现搜索失败」提示
  * - 本地 + 发现都空且都不在加载/出错 → 「未找到」提示
@@ -52,7 +52,7 @@ describe('GlobalMessageSearchResults · 发现区', () => {
     mockUseDiscoverySearch.mockReturnValue({ people: [], groups: [], bots: [], loading: false, error: null });
   });
 
-  it('发现结果：渲染 群聊/用户/机器人 段头与计数，bot 行带 BotBadge', () => {
+  it('发现结果：渲染 用户/群聊/机器人 段头与计数，顺序为 用户→群聊→bot，bot 行带 BotBadge', () => {
     mockUseDiscoverySearch.mockReturnValue({
       people: [
         { userId: 'u1', nickname: 'Alice', avatarUrl: null, isFriend: false },
@@ -80,6 +80,11 @@ describe('GlobalMessageSearchResults · 发现区', () => {
     expect(within(userHeader).getByText('2')).toBeInTheDocument();
     expect(within(groupHeader).getByText('1')).toBeInTheDocument();
     expect(within(botHeader).getByText('1')).toBeInTheDocument();
+
+    // DOM 顺序（req-24）：用户 → 群聊 → 机器人（bot 固定最后）
+    // a.compareDocumentPosition(b) 含 FOLLOWING 位 → b 在 a 之后
+    expect(userHeader.compareDocumentPosition(groupHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(groupHeader.compareDocumentPosition(botHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // 行内容
     expect(screen.getByText('Alice')).toBeInTheDocument();

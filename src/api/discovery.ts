@@ -48,7 +48,8 @@ export interface DiscoverySearchResponse {
 }
 
 /**
- * 统一关键词发现搜索。keyword trim 后为空后端返回 400（前端应在调用前守空）。
+ * 统一关键词发现搜索（后端 R2 起为「完全匹配」：昵称/群名/username 完全匹配或 id 精确匹配，
+ * 不再子串联想）。keyword trim 后为空后端返回 400（前端应在调用前守空）。
  * @param limit 每类结果各自条数上限，默认后端 20，钳制 1..=50（服务端钳制）
  */
 export function searchDiscovery(

@@ -132,8 +132,8 @@ describe('AddMenu', () => {
     fireEvent.click(screen.getByText('待通过申请'));
 
     expect(await screen.findByRole('heading', { name: '待通过申请' })).toBeInTheDocument();
-    // 4 份列表全空 → 加载完成后两分区空态
-    expect(await screen.findByText('没有待处理的申请')).toBeInTheDocument();
+    // 4 份列表全空 → 合并单列表的单一空态文案（req-24）
+    expect(await screen.findByText('没有待通过的申请')).toBeInTheDocument();
   });
 
   it('点「创建机器人」打开 CreateBotDialog（含 bot 用户名输入框）', () => {

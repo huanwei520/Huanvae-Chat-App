@@ -4,8 +4,9 @@
  * 调后端统一发现接口，一次搜出「人 / 群 / bot」三类结果。
  *
  * 行为：
- * - 输入 query 经 500ms 防抖
+ * - 输入 query 经 500ms 防抖（仅避免狂发请求，非边打边扩的泛列表）
  * - 调 searchDiscovery(api, keyword)（不传 limit，服务端默认每类 20 条）
+ * - 结果为「完全匹配」：由后端 /api/discovery/search 完全匹配决定（R2，无本地子串过滤/联想）
  * - 头像在数据边界解析：webview 的 <img> 用系统信任验不过私有 CA 自签 leaf，
  *   故在此处经 resolveServerAvatarUrl 收口成可显示 URL，显示点只消费已解析值
  *   （与 useFriends / useGroups 构建对象时解析头像同理）

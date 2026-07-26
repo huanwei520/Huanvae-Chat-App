@@ -233,8 +233,14 @@ export function OtherProfilePanel({ userId, botUsername, onClose, onSendMessage 
   //  - 人 · 未申请：「添加好友」→ 点后「已发送」（sent）
   let addBtn: { label: string; disabled: boolean; onClick?: () => void; leftIcon?: ReactNode };
   if (isBot) {
+    let botLabel = '添加机器人';
+    if (sent) {
+      botLabel = '已添加';
+    } else if (sending) {
+      botLabel = '添加中...';
+    }
     addBtn = {
-      label: sent ? '已添加' : (sending ? '添加中...' : '添加机器人'),
+      label: botLabel,
       disabled: sending || sent,
       onClick: handleAddFriend,
     };

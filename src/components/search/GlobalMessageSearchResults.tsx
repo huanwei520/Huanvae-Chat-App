@@ -9,10 +9,10 @@
  *   2. 聊天记录（content_type='text' 的消息命中）
  *   3. 文件（content_type ∈ image/video/file/audio 的命中，content 即文件名）
  *
- * 服务端发现区（走后端 /api/discovery/search，useDiscoverySearch），排在本地区之后：
- *   4. 群聊（discGroups）
- *   5. 用户（people）
- *   6. 机器人（bots，独立成段，不并入用户）
+ * 服务端发现区（走后端 /api/discovery/search，useDiscoverySearch，完全匹配），排在本地区之后：
+ *   4. 用户（people）
+ *   5. 群聊（discGroups）
+ *   6. 机器人（bots，独立成段，不并入用户，固定最后）
  *
  * 行为：
  * - 本地命中复用 useGlobalMessageSearch、发现命中复用 useDiscoverySearch（各含 500ms 防抖）
@@ -315,7 +315,7 @@ export function GlobalMessageSearchResults({
         </>
       )}
 
-      {/* ===== 服务端发现区（群聊 → 用户 → 机器人）——排在本地区之后，独立降级 ===== */}
+      {/* ===== 服务端发现区（用户 → 群聊 → 机器人）——排在本地区之后，独立降级 ===== */}
       {discoveryLoading && (
         <div className="global-msg-search-disc-status">
           <LoadingSpinner />
@@ -329,39 +329,7 @@ export function GlobalMessageSearchResults({
       )}
       {!discoveryLoading && !discoveryError && (
         <>
-          {/* 发现 Section 1：群聊 */}
-          {discGroups.length > 0 && (
-            <section className="global-msg-search-section">
-              <div className="global-msg-search-section-header">
-                群聊 <span className="global-msg-search-section-count">{discGroups.length}</span>
-              </div>
-              <ul className="global-msg-search-conv-list">
-                {discGroups.map((g) => (
-                  <li
-                    key={`disc-group-${g.groupId}`}
-                    className="global-msg-search-conv-item"
-                    onClick={() => onSelectDiscoveryGroup?.(g.groupId)}
-                  >
-                    <div className="global-msg-search-conv-avatar">
-                      {g.avatarUrl ? (
-                        <img src={g.avatarUrl} alt={g.groupName} />
-                      ) : (
-                        <AvatarPlaceholder name={g.groupName} fontSize={11} />
-                      )}
-                    </div>
-                    <span className="global-msg-search-conv-name">
-                      {highlightMatch(g.groupName, query)}
-                    </span>
-                    <span className="global-msg-search-disc-meta">
-                      {g.memberCount} 人{g.isMember ? ' · 已加入' : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* 发现 Section 2：用户 */}
+          {/* 发现 Section 1：用户 */}
           {people.length > 0 && (
             <section className="global-msg-search-section">
               <div className="global-msg-search-section-header">
@@ -387,6 +355,38 @@ export function GlobalMessageSearchResults({
                     {p.isFriend && (
                       <span className="global-msg-search-disc-meta">已是好友</span>
                     )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* 发现 Section 2：群聊 */}
+          {discGroups.length > 0 && (
+            <section className="global-msg-search-section">
+              <div className="global-msg-search-section-header">
+                群聊 <span className="global-msg-search-section-count">{discGroups.length}</span>
+              </div>
+              <ul className="global-msg-search-conv-list">
+                {discGroups.map((g) => (
+                  <li
+                    key={`disc-group-${g.groupId}`}
+                    className="global-msg-search-conv-item"
+                    onClick={() => onSelectDiscoveryGroup?.(g.groupId)}
+                  >
+                    <div className="global-msg-search-conv-avatar">
+                      {g.avatarUrl ? (
+                        <img src={g.avatarUrl} alt={g.groupName} />
+                      ) : (
+                        <AvatarPlaceholder name={g.groupName} fontSize={11} />
+                      )}
+                    </div>
+                    <span className="global-msg-search-conv-name">
+                      {highlightMatch(g.groupName, query)}
+                    </span>
+                    <span className="global-msg-search-disc-meta">
+                      {g.memberCount} 人{g.isMember ? ' · 已加入' : ''}
+                    </span>
                   </li>
                 ))}
               </ul>
