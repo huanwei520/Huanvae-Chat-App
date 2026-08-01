@@ -126,6 +126,16 @@ jobs:
           HG_MACOS_TOKEN: ${{ secrets.HG_MACOS_TOKEN }}
         run: node scripts/dev/fetch-hg-macos.mjs
 
+      # Windows: 拉取并校验 VPN 服务二进制（不入仓；sha256 钉在
+      # src-tauri/resources/hg-windows.manifest.json，校验失败即硬失败）
+      - name: Fetch Windows VPN service binary
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          HG_WINDOWS_URL: ${{ secrets.HG_WINDOWS_URL }}
+          HG_WINDOWS_TOKEN: ${{ secrets.HG_WINDOWS_TOKEN }}
+        run: node scripts/dev/fetch-hg-windows.mjs
+
       # 构建 Tauri 应用
       - name: Build Tauri App
         id: tauri-build

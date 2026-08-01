@@ -26,8 +26,15 @@ dist-ssr
 
 # Submodule docs (separate repo)
 backend-docs/
-# HG service binary directories under src-tauri only (do NOT match src/huanvaeGuard/* — case-insensitive FS)
-src-tauri/resources/HuanvaeGuard/
+# huanvaeguard-svc.exe: Windows VPN service binary, built from the standalone
+# HuanvaeGuard workspace and fetched at build time by
+# scripts/dev/fetch-hg-windows.mjs (sha256 pinned in
+# src-tauri/resources/hg-windows.manifest.json). Never commit it.
+# Deliberately file-specific rather than directory-wide: the sibling wintun.dll
+# in the same directory IS tracked (third-party redistributable), and git cannot
+# re-include a file whose parent directory is excluded. Full path prefix is kept
+# so this never matches src/huanvaeGuard/* on a case-insensitive filesystem.
+src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe
 # hg-macos: macOS VPN daemon binary, built from the standalone HuanvaeGuard
 # workspace and fetched at build time by scripts/dev/fetch-hg-macos.mjs
 # (sha256 pinned in src-tauri/resources/hg-macos.manifest.json). Never commit it.
