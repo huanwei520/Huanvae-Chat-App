@@ -29,13 +29,13 @@ src/
 
 ## 后端 API 对应
 
-所有端点前缀 `/api/oauth/`，详见后端 `.claude/rules/oauth.md`。
+所有端点前缀 `/api/oauth/`，字段与语义以后端契约文档为准。
 
-前端类型必须与后端 Rust 结构体字段一一对应：
-- `OAuthClient` ↔ `ClientInfo`（`src/oauth/models/client.rs`）
-- `OAuthGrant` ↔ `GrantInfo`（`src/oauth/models/grant.rs`）
-- `TokenResponse` ↔ `OAuthTokenResponse`（`src/oauth/models/token.rs`）
-- `AuthorizeResponse` ↔ `AuthorizeResponse`（`src/oauth/handlers/authorize.rs`，`#[serde(untagged)]` 联合类型）
+前端类型必须与后端下发的 JSON 字段一一对应：
+- `OAuthClient` — 客户端信息
+- `OAuthGrant` — 已授权记录
+- `TokenResponse` — 令牌颁发响应
+- `AuthorizeResponse` — 授权响应（联合类型，用类型守卫区分「需用户同意」与「直接放行」两形态）
 
 ## 小程序静默 OAuth 登录
 
@@ -57,7 +57,7 @@ src/
 MiniAppsModal 的 `handleCreate` 成功后只关闭表单 + 切到「我的」tab(新申请以「待审批」徽章出现)。
 原 `buildCredentialsFields` + 创建即时 `SecretDisplay` 凭据弹窗**已删除**。
 
-凭据在 **Atlas 管理员审批通过**后由后端生成(注册 HG 设备 + 起容器 + 建 OAuth client);
+凭据在**管理员审批通过**后由后端生成(注册专属 HG 设备 + 起容器 + 建 OAuth client);
 开发者后续经「容器信息」/ `resetSSHPassword`(返回 `{new_password, password_synced}`)获取 SSH 凭据。
 OAuth 客户端凭据经 `OAuthClientsPanel`(仍用 `SecretDisplay`)查看。
 

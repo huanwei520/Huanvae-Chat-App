@@ -189,7 +189,7 @@ export async function sendTextMessage(
 
 /**
  * 从 access_token(JWT) 的 payload 解出用户 ID（sub claim）。
- * 后端 AccessTokenClaims.sub = user_id（见 Huanvae-Chat-Rust/src/auth/models/claims.rs）。
+ * 后端签发的访问令牌以 subject 声明（sub）承载 user_id。
  * createGroupWithMembers 只拿到成员的 {base, token}，借此推出 user_id 以调 inviteToGroup。
  */
 function userIdFromToken(token: string): string {

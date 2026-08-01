@@ -440,6 +440,14 @@ Windows build 时合并后 `bundle.resources` = `{"../Notification-Sounds/*": ..
 4. **launchd 常驻托管**：plist `RunAtLoad + KeepAlive + UserName root`，装一次后开机自起/崩溃自拉，App **不负责启停**（比 Windows Service 简单——无 `spawn_start_on_boot`/`stop_on_exit`）。`is_installed()`（二进制+plist 均存在）早返回避免重复弹密码。命令 `hg_ensure_installed` 用 cfg 双分支：macos 真实现 / 非 macos 占位 `Ok(false)` 一行。
 5. **前端**：仅 `platform()==='macos'` 时 `invoke('hg_ensure_installed')`，失败/取消授权 try/catch 后**仍打开窗口**降级（页面显示"服务未运行"）。
 
+### 失败可归因：`HGSTEP=` 标记 + `|| exit` 失败即中止 + 提权前端口预检
+
+提权 shell 不能用 `;` 一路串到底 —— 中途失败仍继续，会装出"二进制没拷成却照样 bootstrap"的必崩半成品，且失败步骤无从归因。约定：
+
+- **每步先打标记再执行**：`echo HGSTEP=<步骤> >&2; <命令> || exit <码>`，失败即中止整条链（步骤码：11 mkdir / 12 copybin / 13 copyplist / 14 bootstrap）。不参与中止判定的步骤（如 `xattr -dr com.apple.quarantine` 去隔离，失败不影响安装）保持 `;`，并在注释写明为何豁免。
+- **失败分类取最后一个标记**：`do shell script` 会把子命令 stderr 一并带进 AppleScript 错误，多条 `HGSTEP=` 同时出现 —— `classify_install_failure` 用 `rfind("HGSTEP=")` 取**最后一条**定位真实失败步骤（用 `find` 会永远归到第一步）。`-128` / `User canceled` 先于步骤判定，单独归为"授权被取消"，不许混进步骤失败文案。
+- **提权之前先做端口预检**：守护进程启动时无条件 bind 本地控制端口，端口被占则起不来（KeepAlive 下崩溃循环）→ 装上去也不可用，不该先白弹一次管理员密码再失败。所以在 `install()` 里、`osascript` 之前用一次 `TcpListener::bind` 试探。**判据必须是"端口此刻是否真被占"**，不能用"某个 plist 文件在不在"代替：文件在盘上但未加载时端口其实空闲 → 误报拒装；端口被别的程序占住时 → 漏报放行。预检文案只说端口被占 + 请退出占用该端口的程序，**不点名任何具体 daemon 标签**（PUBLIC 仓红线：不写内部组件命名与架构关系）。
+
 ### Shell 注入防护（root 执行，必须做对）
 
 osascript 以 **root** 执行拼接的 shell 命令时：

@@ -30,7 +30,7 @@ use std::collections::HashMap;
 
 use huanvae_chat_app_lib::secure_net::{secure_http, SecureHttpReq};
 
-/// 默认源站 IP（阿里云 qd 节点，可被 E2E_PUBLIC_IP 覆盖）。仅 IP 字面量，无任何凭据。
+/// 默认源站 IP（可被 E2E_PUBLIC_IP 覆盖）。仅 IP 字面量，无任何凭据。
 const DEFAULT_IP: &str = "47.105.101.42";
 /// presigned 按此 Host 签名；edge nginx 也按它路由。
 const DEFAULT_HOST: &str = "api.huanvae.cn";

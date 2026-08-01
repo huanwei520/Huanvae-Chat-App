@@ -27,29 +27,29 @@
 
 ## 2. 跨仓契约链(前端视角)⭐
 
-后端(`Huanvae-Chat-Rust`)是 API **字段唯一真值源**;**App 的 TS 类型镜像后端 snake_case 字段名**。
+后端(独立仓库,不在本仓)是 API **字段唯一真值源**;**App 的 TS 类型镜像后端 snake_case 字段名**。
 当后端某 API 字段变了,App 对应文件必须同步(否则解包错/类型漂移)。当你**需要新后端字段**时,要回到后端走完整契约链(后端 struct + `backend-docs/` + 本仓文件三处同步)。
 
-### App 文件 ↔ 后端域 映射(按业务域,**别按名字猜**)
+### App 文件 ↔ 路由 映射(按业务域,**别按名字猜**)
 
-| App 消费端文件 | 后端域 `src/` | 路由 |
-|---------------|--------------|------|
-| `src/api/auth.ts` | `auth` | `/api/auth` |
-| `src/api/friends.ts` | `friends` | `/api/friends` |
-| `src/api/messages.ts` | `friends_messages` | `/api/messages` ⚠️ |
-| `src/api/groups.ts` | `groups` | `/api/groups` |
-| `src/api/groupMessages.ts` | `group_messages` | `/api/group_messages` |
-| `src/api/profile.ts` | `profile` | `/api/profile` |
-| `src/api/storage.ts` + `src/api/upload.ts` | `storage` | `/api/storage` |
-| `src/services/syncService.ts` ⚠️ | `sync` | merge(无前缀) |
-| `src/meeting/api.ts` ⚠️ | `webrtc_room`+`turn` | `/api/webrtc` ⚠️ |
-| `src/api/ai.ts` | `ai` | `/api/ai` |
-| `src/lowcode/api.ts` ⚠️ | `lowcode` | `/api/lowcode` |
-| `src/api/miniapps.ts` | `miniapp` | `/api/miniapps` |
-| `src/api/oauth.ts` | `oauth` | `/api/oauth` |
-| `src/huanvaeGuard/` ⚠️(独立窗口,仅 Windows) | `huanvaeguard` | `/api/hg` |
+| App 消费端文件 | 路由 |
+|---------------|------|
+| `src/api/auth.ts` | `/api/auth` |
+| `src/api/friends.ts` | `/api/friends` |
+| `src/api/messages.ts` | `/api/messages` ⚠️ |
+| `src/api/groups.ts` | `/api/groups` |
+| `src/api/groupMessages.ts` | `/api/group_messages` |
+| `src/api/profile.ts` | `/api/profile` |
+| `src/api/storage.ts` + `src/api/upload.ts` | `/api/storage` |
+| `src/services/syncService.ts` ⚠️ | merge(无前缀) |
+| `src/meeting/api.ts` ⚠️ | `/api/webrtc` ⚠️ |
+| `src/api/ai.ts` | `/api/ai` |
+| `src/lowcode/api.ts` ⚠️ | `/api/lowcode` |
+| `src/api/miniapps.ts` | `/api/miniapps` |
+| `src/api/oauth.ts` | `/api/oauth` |
+| `src/huanvaeGuard/` ⚠️(独立窗口) | `/api/hg` |
 
-**⚠️ = 命名跨层不一致,最易找错文件。** 后端契约文档对照在 `Huanvae-Chat-Rust/backend-docs/<域>/`。
+**⚠️ = 命名跨层不一致,最易找错文件。** 后端契约文档由后端仓(独立仓库,不在本仓)按业务域维护。
 
 ### 前端契约约定
 - **响应解包**:后端响应统一被 `ApiResponse<T>` 包成 `{ success, code, data, ... }`;`src/api/client.ts` **自动解包 `data`**,业务代码拿到的是 `data` 内容。

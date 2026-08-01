@@ -2,7 +2,7 @@
  * Discovery（统一发现搜索）API 封装
  *
  * 一次调用同时返回「人 / 群 / bot」三类结果（bot 独立成段，不并入 people）。
- * 字段镜像后端 src/discovery/models/mod.rs，冲突以后端为准。
+ * 字段镜像后端发现接口的响应结构，冲突以后端契约为准。
  */
 import type { ApiClient } from './client';
 

@@ -1,7 +1,7 @@
 /**
  * 可交互卡片 live 内容管理 Store (Zustand)
  *
- * 数据来源:WS `message_updated` 增量(镜像后端 ServerMessage::MessageUpdated)。
+ * 数据来源:WS `message_updated` 增量帧。
  * 已发出的卡片消息内容可被发卡方(bot)后续 patch 刷新(如轮询进度、行情跳动),
  * 服务端每次 patch 携带**单调递增** rev,前端据此收敛到最新态、拒绝乱序/重放/回退。
  *

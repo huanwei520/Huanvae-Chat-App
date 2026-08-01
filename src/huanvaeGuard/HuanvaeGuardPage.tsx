@@ -56,6 +56,8 @@ interface WindowData {
   serverUrl: string;
   accessToken: string;
   refreshToken: string;
+  /** macOS 开窗前 hg_ensure_installed 的失败原因（明文，由 openHuanvaeGuardWindow 透传）；无失败为 null */
+  installError: string | null;
 }
 
 type Tab = 'devices' | 'links' | 'groups';
@@ -78,12 +80,31 @@ const LINK_SOURCE_LABELS: Record<string, string> = {
   group: '群组',
 };
 
+/** 常驻状态复查节拍（ms）：探活的唯一定时来源 */
+const POLL_INTERVAL_MS = 3000;
+
+// launchctl bootstrap 只是把 job **提交**给 launchd，返回时守护进程还没绑好端口 ——
+// 修复后零等待探活必然读到 false，故按 500/1000/2000/4000ms 退避重试。
+// 注意这张表只是**加速**表：它的作用仅仅是让用户点完「修复」后更快看到结论，正确性不依赖它。
+// 退避预算耗尽也没关系 —— 常驻单飞探活从不停摆，晚于预算才起来的守护进程最多一拍就被接上。
+const REPAIR_BACKOFF_MS = [500, 1000, 2000, 4000] as const;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+
 function localizeStatus(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
 function localizeLinkSource(source: string): string {
   return LINK_SOURCE_LABELS[source] ?? source;
+}
+
+// macOS 三态：未安装 / 已安装未运行 / 运行中。Windows 的服务由 Tauri 进程生命周期
+// 管理、没有"安装"这一步，仍沿用两态文案。
+function serviceStatusLabel(os: string, running: boolean, isInstalled: boolean): string {
+  if (running) { return '服务运行中'; }
+  if (os !== 'macos') { return '服务未运行'; }
+  return isInstalled ? '已安装未运行' : '未安装';
 }
 
 function parseWindowData(): WindowData | null {
@@ -99,6 +120,8 @@ function parseWindowData(): WindowData | null {
       serverUrl: atob(serverUrlB64),
       accessToken: atob(accessTokenB64),
       refreshToken: atob(refreshTokenB64),
+      // 可选：仅 macOS 安装失败时才带；缺失不影响窗口数据有效性，故不进上面的必填校验
+      installError: params.get('installError'),
     };
   } catch {
     return null;
@@ -109,6 +132,8 @@ export default function HuanvaeGuardPage() {
   const [windowData, setWindowData] = useState<WindowData | null>(null);
   const [osPlatform, setOsPlatform] = useState<string>('');
   const [serviceRunning, setServiceRunning] = useState(false);
+  // 「文件是否装好」与「守护进程是否在跑」是两件事：半装态 = installed && !serviceRunning
+  const [installed, setInstalled] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('devices');
 
@@ -135,7 +160,12 @@ export default function HuanvaeGuardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  /** 在途探活（单飞）：同一时刻最多一个 /api/tunnel/status 请求 */
+  const probeInFlightRef = useRef<Promise<boolean> | null>(null);
+  /** 上次已写进日志的服务状态；只在跃迁时记一行，避免每 3 秒刷屏 */
+  const lastLoggedRunningRef = useRef<boolean | null>(null);
+  /** handleRepair 退避耗尽时写下的提示原文；服务真起来后按原文比对精确收掉 */
+  const repairHintRef = useRef<string | null>(null);
   // 复用主应用的对话框（替代浏览器原生 confirm()/prompt()）
   const { confirm, dialogElement: confirmDialog } = useConfirmDialog();
   const { prompt: showPrompt, dialogElement: promptDialog } = usePromptDialog();
@@ -144,16 +174,92 @@ export default function HuanvaeGuardPage() {
     setLog(prev => [...prev.slice(-49), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   }, []);
 
+  // ── 探活唯一权威 ──────────────────────────────────────────────────────────
+  // serviceRunning / tunnelStatus 只能由这里写。之前有三个互不协调的写者（挂载 effect、
+  // 3s 轮询、handleRepair），彼此无序：慢响应回来时旧结果会盖掉新结果，一次令牌刷新也会
+  // 顺带重探一次。现在收敛成一个单飞探活：
+  //   - 单飞 → 同一时刻至多一个请求在途，后到的调用复用在途那个，天然不会乱序覆盖，
+  //     也不会在守护进程半死态下每 3 秒堆一个请求上去；
+  //   - 落地即清 in-flight ref → 下一拍照常发新请求，不会退化成"轮询停摆"。
+  // 注：handleRepair 退避表的第 1 次探活有可能复用一个「repair 之前就发出」的在途请求
+  // （即结论早于本次修复）。第 2 次起不会再读到这种陈旧结论：单飞保证同一时刻至多一个
+  // 请求在途，而第 1 次已经 await 到它落地（落地即清 in-flight ref），之后复用到的只可能
+  // 是 repair 之后发出的请求。即便退避期间一直读到 false，常驻探活最多一拍就会纠正。
+  const probeService = useCallback((): Promise<boolean> => {
+    const inFlight = probeInFlightRef.current;
+    if (inFlight) { return inFlight; }
+
+    const run = async (): Promise<boolean> => {
+      let running = false;
+      let status: TunnelStatus | null = null;
+      try {
+        const r = await localApi.getStatus();
+        if (r.success && r.data) {
+          running = true;
+          status = r.data;
+        }
+      } catch {
+        // 连接被拒 / 超时 —— 本地控制面此刻不可用，按未运行处理（localApi 已有超时上限兜住）
+      }
+      setServiceRunning(running);
+      setTunnelStatus(status);
+
+      if (lastLoggedRunningRef.current !== running) {
+        lastLoggedRunningRef.current = running;
+        addLog(running ? '已检测到本地服务（localhost:19198）' : '本地服务未运行');
+      }
+
+      // 服务确实起来了就收掉"修复超时"那条提示：否则 header 写着运行中、横幅还写着没起来，
+      // 两处自相矛盾且永不消失。按原文比对，只清这一条，绝不误伤用户遇到的其它错误。
+      const hint = repairHintRef.current;
+      if (running && hint !== null) {
+        repairHintRef.current = null;
+        setError((prev) => (prev === hint ? null : prev));
+      }
+      return running;
+    };
+
+    const p = run().finally(() => { probeInFlightRef.current = null; });
+    probeInFlightRef.current = p;
+    return p;
+  }, [addLog]);
+
+  // macOS 专用：查询 LaunchDaemon 是否已安装，返回最新值（调用方常需要立即用，不能等 state 落地）
+  const refreshInstalled = useCallback(async (): Promise<boolean> => {
+    if (osPlatform !== 'macos') { return false; }
+    try {
+      const ok = await invoke<boolean>('hg_is_installed');
+      setInstalled(ok);
+      return ok;
+    } catch (e) {
+      // 查询失败按"未安装"处理，但必须留痕（静默吞会让三态文案凭空退回"未安装"且无从解释）
+      setInstalled(false);
+      addLog(`查询服务安装状态失败：${e}`);
+      return false;
+    }
+  }, [osPlatform, addLog]);
+
   // Init
   useEffect(() => {
     const data = parseWindowData();
     setWindowData(data);
+    // 开窗前的安装失败原因（由 openHuanvaeGuardWindow 经 URL 透传）：挂载时一次性显示成
+    // 错误横幅 + 日志，用户才知道是"取消了授权"还是别的原因，而不是只看到"未安装"
+    if (data?.installError) {
+      setError(data.installError);
+      addLog(`服务安装未完成：${data.installError}`);
+    }
     try {
       setOsPlatform(platform());
     } catch {
       setOsPlatform('');
     }
-  }, []);
+  }, [addLog]);
+
+  // 安装状态首查（osPlatform 就绪后触发；非 macOS 直接短路）
+  useEffect(() => {
+    void refreshInstalled();
+  }, [refreshInstalled]);
 
   const loadDevices = useCallback(async () => {
     if (!windowData) { return; }
@@ -186,16 +292,12 @@ export default function HuanvaeGuardPage() {
     }
   }, [windowData, addLog]);
 
-  // Check service + load initial data
+  // 首屏数据加载（服务状态由上面的常驻单飞探活负责，此处不再另开一个写者：
+  // windowData 会随令牌刷新换引用，在这里探活等于每次刷新 token 都多一个不受控的状态写者）
   useEffect(() => {
     if (!windowData) { return; }
-    localApi.checkServiceRunning().then(running => {
-      setServiceRunning(running);
-      if (running) { addLog('已检测到本地服务（localhost:19198）'); }
-      else { addLog('本地服务未运行'); }
-    });
     void loadDevices();
-  }, [windowData, addLog, loadDevices]);
+  }, [windowData, loadDevices]);
 
   // Load tab data on switch
   useEffect(() => {
@@ -225,19 +327,14 @@ export default function HuanvaeGuardPage() {
     return () => { void unlistenPromise.then(fn => fn()); };
   }, [addLog]);
 
-  // Poll tunnel status
+  // 常驻状态复查：唯一的定时探活来源。故意不用 serviceRunning 做门控 —— 旧实现
+  // `if (!serviceRunning) { return; }` 会在 false 时直接关掉唯一的轮询，从此再也恢复不了
+  // （粘滞 false），哪怕守护进程随后已经起来。
   useEffect(() => {
-    if (!serviceRunning) { return; }
-    const poll = async () => {
-      try {
-        const r = await localApi.getStatus();
-        if (r.success && r.data) { setTunnelStatus(r.data); }
-      } catch { /* ignore */ }
-    };
-    void poll();
-    pollRef.current = setInterval(poll, 3000);
-    return () => clearInterval(pollRef.current);
-  }, [serviceRunning]);
+    void probeService();
+    const id = setInterval(() => { void probeService(); }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [probeService]);
 
   // Load group detail when selected
   useEffect(() => {
@@ -319,15 +416,41 @@ export default function HuanvaeGuardPage() {
   // macOS 专用：强制重装/修复 LaunchDaemon（恢复"文件在但服务没起"的半装态）
   // Windows 服务由 Tauri 进程生命周期管理，无需此入口（按钮仅 macOS + 服务未运行时显示）
   const handleRepair = async () => {
+    setError(null);
+    // 上一轮的"修复超时"提示已随 setError(null) 一起清掉，ref 也要跟着复位，
+    // 否则它会残留成一条永远等不到的待清原文
+    repairHintRef.current = null;
     setLoading(true);
     try {
       await invoke('hg_repair');
-      addLog('已请求重新安装服务');
-      const running = await localApi.checkServiceRunning();
-      setServiceRunning(running);
-      addLog(running ? '服务已就绪' : '服务仍未运行（请确认已授权安装）');
+      addLog('已提交安装/修复请求，正在等待服务启动...');
+      let running = false;
+      for (const delay of REPAIR_BACKOFF_MS) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(delay);
+        // eslint-disable-next-line no-await-in-loop
+        running = await probeService();
+        if (running) { break; }
+      }
+      // 这里不再 setServiceRunning —— probeService 已经写过了，再写一次就是第二个写者（本次要修的 bug）
+      const nowInstalled = await refreshInstalled();
+      if (running) {
+        addLog('服务已就绪');
+        return;
+      }
+      // 两种失败要给不同的下一步：装上了但没起来 → 看 daemon 日志；压根没装上 → 重试并授权
+      const hint = nowInstalled
+        ? '服务文件已安装，但守护进程未启动。请查看守护进程日志 /var/log/huanvaeguard/launchd-stderr.log'
+        : '服务安装未完成。请重试，并在系统弹出管理员授权时点击「允许」';
+      // 记下原文：守护进程晚于退避预算起来时，常驻探活按这份原文把这条提示收掉
+      repairHintRef.current = hint;
+      setError(hint);
+      addLog(`服务仍未运行：${hint}`);
     } catch (e) {
-      addLog(`修复失败：${e}`);
+      // Rust 侧 Err(String) 是给用户看的中文原因，必须进错误横幅（只写日志等于没说）
+      const reason = String(e);
+      setError(`修复失败：${reason}`);
+      addLog(`修复失败：${reason}`);
     } finally {
       setLoading(false);
     }
@@ -564,6 +687,9 @@ export default function HuanvaeGuardPage() {
 
   const isActive = tunnelStatus?.active ?? false;
   const isSupported = osPlatform === 'windows' || osPlatform === 'macos';
+  // macOS 三态：未安装 / 已安装未运行 / 运行中。Windows 的服务由 Tauri 进程生命周期
+  // 管理、没有"安装"这一步，仍沿用两态文案。
+  const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installed);
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
   // 本机当前隧道 IP（去掉 CIDR 前缀），用于覆盖 server 返回的 offline 状态
   // 服务端状态依赖 heartbeat（目前客户端未发送），但本机隧道在用就是确凿 online
@@ -588,12 +714,12 @@ export default function HuanvaeGuardPage() {
         <h2 className="hg-title">HuanvaeGuard</h2>
         <span className={`hg-status ${serviceRunning ? 'hg-status-running' : 'hg-status-stopped'}`}>
           <span className="hg-dot" />
-          {serviceRunning ? '服务运行中' : '服务未运行'}
+          {serviceLabel}
         </span>
         {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
         {osPlatform === 'macos' && !serviceRunning && (
           <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
-            安装/修复服务
+            {installed ? '修复服务' : '安装服务'}
           </AppButton>
         )}
       </header>

@@ -593,6 +593,21 @@ fn hg_repair() -> Result<bool, String> {
     Ok(false)
 }
 
+/// macOS：查询 LaunchDaemon 是否已安装（二进制 + plist 均就位）。
+/// 前端据此区分「未安装 / 已安装未运行 / 运行中」三态并给对应操作按钮。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn hg_is_installed() -> bool {
+    desktop::huanvaeguard_macos::is_installed()
+}
+
+/// 非 macOS：无 LaunchDaemon 安装路径，恒为 false（前端仅 macOS 消费此命令）。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn hg_is_installed() -> bool {
+    false
+}
+
 /// macOS：生物识别（Touch ID）门禁。前端打开 VPN 前调用以"有 Touch ID 则优先生物识别"。
 /// - 通过 → `Ok("authenticated")`；无 Touch ID 硬件 → `Ok("unavailable")`（前端照常放行）；
 /// - 取消/失败/超时 → `Err(原因)`（前端中止动作）。
@@ -877,6 +892,7 @@ pub fn run() {
             // HuanvaeGuard：macOS LaunchDaemon 首次安装 + 修复（其他平台占位返回 false）
             hg_ensure_installed,
             hg_repair,
+            hg_is_installed,
             biometric_authenticate,
             // 设备信息
             device_info::get_mac_address_cmd,

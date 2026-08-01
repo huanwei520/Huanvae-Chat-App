@@ -32,8 +32,9 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 // ============== Mock localApi ==============
+// 页面的常驻单飞探活只调 getStatus（localApi 已无 checkServiceRunning）：
+// 默认 {success:false} → 探活判定「本地服务未运行」
 vi.mock('../../src/huanvaeGuard/localApi', () => ({
-  checkServiceRunning: vi.fn().mockResolvedValue(false),
   getStatus: vi.fn().mockResolvedValue({ success: false }),
   startTunnel: vi.fn(),
   stopTunnel: vi.fn(),
@@ -181,7 +182,7 @@ describe('HuanvaeGuardPage', () => {
     render(<HuanvaeGuardPage />);
     await waitFor(() => expect(mockServerApi.getDevices).toHaveBeenCalled());
 
-    // checkServiceRunning 默认 false → "服务未运行"
+    // 常驻探活读到 getStatus 默认 {success:false} → serviceRunning=false → "服务未运行"
     expect(screen.getByText('服务未运行')).toBeInTheDocument();
   });
 
@@ -418,9 +419,9 @@ describe('HuanvaeGuardPage', () => {
   it('addLog writes Chinese messages on initial load (devices + service status)', async () => {
     render(<HuanvaeGuardPage />);
 
-    // 初始化时会 addLog 三条：
+    // 初始化时会 addLog 两条：
     //   - "已加载 N 个设备"（来自 loadDevices）
-    //   - "本地服务未运行"（来自 checkServiceRunning 默认 mock）
+    //   - "本地服务未运行"（来自常驻单飞探活：getStatus 默认 mock 返回 {success:false}）
     await waitFor(() => {
       expect(screen.getByText(/已加载 \d+ 个设备/)).toBeInTheDocument();
     });

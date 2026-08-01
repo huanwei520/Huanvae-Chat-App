@@ -116,7 +116,7 @@ export function getMiniApp(api: ApiClient, id: string): Promise<MiniApp> {
 
 /**
  * 提交小程序创建申请(审批制)。
- * 不再用户自助生成容器:写入 status='pending',待 Atlas 管理员审批通过后才注册
+ * 不再用户自助生成容器:写入 status='pending',待管理员审批通过后才注册
  * 小程序专属 HG 设备 + 起容器 + 建 OAuth 客户端。响应不含容器/凭据/OAuth。
  */
 export function submitMiniAppRequest(

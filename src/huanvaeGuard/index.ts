@@ -24,6 +24,13 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { platform } from '@tauri-apps/plugin-os';
 import { invoke } from '@tauri-apps/api/core';
 
+/** invoke 抛出的错误统一转成可展示文本（Tauri command 的 Err(String) 会以 string 抛出）。*/
+export function describeInvokeError(e: unknown): string {
+  if (typeof e === 'string') { return e; }
+  if (e instanceof Error) { return e.message; }
+  return String(e);
+}
+
 /**
  * 打开 HuanvaeGuard 窗口（Windows / macOS 桌面端）
  */
@@ -47,12 +54,15 @@ export async function openHuanvaeGuardWindow(
   }
 
   // macOS：仅在确实要新建窗口时确保 LaunchDaemon 已安装（已装瞬时返回；未装弹一次管理员授权）
+  // 安装失败 / 用户取消授权时仍然开窗（HG 页才是重试入口），但失败原因**不再被吞掉**：
+  // 随窗口 URL 带进去，由 HG 页显示成错误横幅 + 日志。此前只 console.warn，
+  // 普通用户看不到控制台，界面上只剩一句"服务未运行"，无从判断该重试授权还是查日志。
+  let installError = '';
   if (p === 'macos') {
     try {
       await invoke<boolean>('hg_ensure_installed');
     } catch (e) {
-      // 安装失败 / 用户取消授权：仍打开窗口，HG 页可点「安装/修复服务」重试
-      console.warn('[HuanvaeGuard] LaunchDaemon 安装未完成:', e);
+      installError = describeInvokeError(e);
     }
   }
 
@@ -62,6 +72,11 @@ export async function openHuanvaeGuardWindow(
     accessToken: btoa(accessToken),
     refreshToken: btoa(refreshToken),
   });
+  // 明文传递：报错含中文，btoa 会抛（非 Latin1）。URLSearchParams 自动百分号编码，
+  // 页面侧 params.get() 自动解码。无错误时不带该参数。
+  if (installError !== '') {
+    params.set('installError', installError);
+  }
 
   const win = new WebviewWindow('huanvae-guard', {
     url: `/huanvae-guard?${params.toString()}`,

@@ -277,7 +277,7 @@ export function clearUnreadEntry(
  * 真值口径迁移后：红点真值在服务端按 last-read-seq 派生；客户端把本地已读位置持久化，
  * 重连时①判定本地已读会话（覆盖**所有**会话，取代旧的 active-only 兜底
  * mergeConnectedSnapshotWithActiveRead）②回传 resync_read_positions 让服务端 GREATEST
- * 合并、修复抖断丢失的 mark_read（见后端 unread_service::merge_read_positions）。
+ * 合并、修复抖断丢失的 mark_read（服务端按会话取二者较大值合并）。
  *
  * 判定规则：某会话本地 last_read_seq >= last_seq（已读完本地已收的最新一条，且 last_seq>0）
  * → 视为已读，加入 readXxxIds（由 mergeReadCorrectionIntoLatest 清 0），并把该位置加入 resync。

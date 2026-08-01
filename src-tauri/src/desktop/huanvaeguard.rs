@@ -15,9 +15,8 @@
 //! ## 启动时自愈（防"半挂"死锁）
 //!
 //! 服务进程在某些路径上会进入"SCM 状态 Running 但 HTTP 19198 不响应"的死锁
-//! （详见 HuanvaeGuard 子仓 huanvaeguard-windows::api_server / tunnel — start_tunnel
-//! 持锁全程，handle_status 同步锁同 mutex，device 创建 hang 时 axum runtime worker
-//! 全部冻死）。死锁状态下 `sc.exe stop` 返回 1061（"服务无法接受控制消息"），
+//! （表现为：建立隧道的操作卡住后，状态查询一并不再应答，服务整体失去响应能力）。
+//! 死锁状态下 `sc.exe stop` 返回 1061（"服务无法接受控制消息"），
 //! 普通 `taskkill /F /PID` 因 svc 以 LocalSystem 权限运行也会 access denied。
 //!
 //! 应用启动时自动恢复流程：

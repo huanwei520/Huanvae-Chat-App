@@ -400,7 +400,7 @@ export interface WsPresenceUpdate {
 
 /**
  * 顶置架引用增量推送。帧只含条目引用（无卡片内容；内容走 message/cardLiveStore 通道）。
- * 镜像后端 ServerMessage::ShelfUpdated。event_seq 由连接层统一注入，本接口不声明。
+ * 镜像服务端 `shelf_updated` 帧。event_seq 由连接层统一注入，本接口不声明。
  */
 export interface WsShelfUpdated {
   type: 'shelf_updated';
@@ -410,7 +410,7 @@ export interface WsShelfUpdated {
 }
 
 /**
- * 已发消息内容更新（可交互卡片 live 刷新）。镜像后端 ServerMessage::MessageUpdated。
+ * 已发消息内容更新（可交互卡片 live 刷新）。镜像服务端 `message_updated` 帧。
  * event_seq 由连接层统一注入（见 WsServerMessage 交叉类型），故本接口不声明。
  */
 export interface WsMessageUpdated {
