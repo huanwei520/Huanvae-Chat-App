@@ -8,10 +8,15 @@
 //!   - **App 仅"首次确保已安装"**：前端打开 HG 窗口时 invoke `hg_ensure_installed`，
 //!     已装则瞬时返回；未装则用 `osascript ... with administrator privileges`
 //!     弹一次系统管理员密码完成安装（个人测试阶段；产品化改 .pkg postinstall + 公证）。
+//!   - **装的是"本 App 自己的那一路实例"**：同一台机器上可以并存多路守护进程实例，
+//!     安装时挑一个空闲的回环控制端口写进 plist（`--instance` / `--api-listen`），
+//!     之后一律只跟这个端口说话 —— 端口被别人占住时不再拒装，也不会把别人的隧道
+//!     当成自己的显示出来。端口真值以装好的 plist 为准，见 `control_port`。
 //!
 //! 二进制与 plist 由 `tauri.macos.conf.json` 打进 .app/Contents/Resources/HuanvaeGuard-macos/。
 
 use std::net::{Ipv4Addr, TcpListener};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,13 +24,33 @@ use std::process::Command;
 const DAEMON_BIN_DST: &str = "/usr/local/bin/hg-macos";
 /// 安装后的 LaunchDaemon plist 路径
 const PLIST_DST: &str = "/Library/LaunchDaemons/com.huanvaeguard.daemon.plist";
-/// 守护进程数据面的本地控制端口（回环）。前端 `src/huanvaeGuard/localApi.ts` 用同一端口。
-const LOCAL_CONTROL_PORT: u16 = 19198;
+/// 守护进程本地控制端口（回环）的默认值。
+///
+/// 守护进程自身不带参数时也是绑这个端口，所以在"本机没有别的实例"的普通用户机上，
+/// 装出来的仍然是 19198、零配置、与改造前完全一致；换端口只在真的撞车时才发生。
+const DEFAULT_CONTROL_PORT: u16 = 19198;
+/// 本地控制端口候选表（连续 10 个）：安装时**第一个空闲的**胜出。
+///
+/// 19198 排第一 → 常见情况（本机没有别的实例）选中的就是默认端口，行为不变；
+/// 只有它被别的实例占住时才顺延，从而与对方各用各的端口、互不串台。
+const CONTROL_PORT_CANDIDATES: [u16; 10] = [
+    19198, 19199, 19200, 19201, 19202, 19203, 19204, 19205, 19206, 19207,
+];
+/// 本 App 安装的守护进程实例名（`--instance` 的取值）。
+///
+/// 除了让守护进程知道自己是哪一路，独立实例名也让它自己的滚动日志文件与其他实例分开，
+/// 排查时不会把两路实例的日志混在一起。
+const APP_INSTANCE_NAME: &str = "app";
+/// 打包 plist 模板里的占位符：实例名 / 控制 API 监听地址，安装时由 `render_plist` 替换。
+const PLIST_INSTANCE_PLACEHOLDER: &str = "__HG_INSTANCE__";
+const PLIST_LISTEN_PLACEHOLDER: &str = "__HG_API_LISTEN__";
 /// 打包资源子目录名（与 tauri.macos.conf.json 的 resources 目标一致）
 const RESOURCE_SUBDIR: &str = "HuanvaeGuard-macos";
 /// 二进制 / plist 文件名（与打包进 .app 的守护进程产物一致）
 const BIN_NAME: &str = "hg-macos";
 const PLIST_NAME: &str = "com.huanvaeguard.daemon.plist";
+/// 渲染后 plist 的暂存目录名（挂在 `std::env::temp_dir()` 下），详见 `staging_dir`。
+const STAGING_SUBDIR: &str = "huanvaeguard-install";
 
 /// 守护进程是否已安装（二进制 + plist 均就位）
 pub fn is_installed() -> bool {
@@ -55,7 +80,8 @@ pub fn repair() -> Result<(), String> {
     install()
 }
 
-/// 解析打包资源 → 逐个校验存在 → 同机冲突预检 → 提权安装（`ensure_installed` / `repair` 共用）。
+/// 解析打包资源 → 逐个校验存在 → 选控制端口 → 渲染 plist 到暂存区 → 提权安装
+///（`ensure_installed` / `repair` 共用）。
 fn install() -> Result<(), String> {
     let res_dir = bundled_resource_dir()?;
     let bin = res_dir.join(BIN_NAME);
@@ -75,36 +101,183 @@ fn install() -> Result<(), String> {
         ));
     }
 
-    // 冲突预检放在提权之前：端口被占时装上去也起不来，不该先白弹一次管理员密码再失败。
-    if let Some(msg) = conflict_message(port_in_use(LOCAL_CONTROL_PORT)) {
-        return Err(msg);
-    }
+    // 端口选择放在提权之前：一个空闲端口都挑不出来时装上去也起不来，
+    // 不该先白弹一次管理员密码再失败。
+    //
+    // 已装 plist 里的端口优先复用，但**仅当它此刻空闲**：那是"重装 / 修复"的常态
+    //（旧守护进程没在跑，端口是自己上次占的名额），沿用它可以让配置保持稳定；
+    // 若它此刻被占（可能是别人抢了这个号，也可能是旧实例还活着），就另挑一个空闲的。
+    let port = match installed_control_port() {
+        Some(p) if !port_in_use(p) => p,
+        _ => pick_free_port(port_in_use).ok_or_else(all_candidates_busy_message)?,
+    };
 
-    run_install_with_admin(&bin, &plist)
+    // 渲染在 Rust 侧完成（不新增提权步骤）：把占位符换成本次实例名 + 监听地址，
+    // 落到用户私有暂存目录，再由提权命令把这份渲染件拷进 /Library/LaunchDaemons。
+    let template = std::fs::read_to_string(&plist)
+        .map_err(|e| format!("读取打包的 VPN 服务配置失败（{}）：{e}", plist.display()))?;
+    let rendered = render_plist(&template, APP_INSTANCE_NAME, &format!("127.0.0.1:{port}"))?;
+    let staged = write_staged_plist(&rendered)?;
+
+    let result = run_install_with_admin(&bin, &staged);
+    // 暂存件是一次性中间产物：成功失败都清掉，不给下次安装留下过期的渲染结果。
+    let _ = std::fs::remove_file(&staged);
+    result
+}
+
+/// 把渲染好的 plist 写进"当前用户私有"的暂存目录，返回暂存文件路径。
+///
+/// **为什么不是裸 /tmp**：提权命令里的 `cp` 是以 root 执行的，源路径若落在人人可写的
+/// 位置，非 root 攻击者就能在"我们写完"和"root 拷走"之间把文件换掉 —— 那等于把 root
+/// 写 /Library/LaunchDaemons 的能力送出去（提权漏洞）。macOS 上 `std::env::temp_dir()`
+/// 解析到的是**每用户独立**的受限 `TMPDIR`（非共享 /tmp），再把子目录收到 0700，
+/// 使这条替换路径关闭。
+fn write_staged_plist(rendered: &str) -> Result<PathBuf, String> {
+    let dir = staging_dir();
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("创建安装暂存目录失败（{}）：{e}", dir.display()))?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("收紧安装暂存目录权限失败（{}）：{e}", dir.display()))?;
+
+    let path = dir.join(PLIST_NAME);
+    std::fs::write(&path, rendered)
+        .map_err(|e| format!("写入安装暂存文件失败（{}）：{e}", path.display()))?;
+    Ok(path)
+}
+
+/// 渲染件暂存目录（每用户受限 TMPDIR 下的专属子目录），语义见 `write_staged_plist`。
+fn staging_dir() -> PathBuf {
+    std::env::temp_dir().join(STAGING_SUBDIR)
 }
 
 /// 本地控制端口是否已被占用：尝试 bind 一次，失败即视为被占。
 ///
 /// 判据必须是"端口此刻是否真被占"，而不是"某个 plist 文件在不在"——文件留在盘上但
-/// 未加载时端口其实空闲（据此拒装 = 误报，阻断合法安装），端口被别的程序占住时按
-/// 文件判定又会漏报（放行后装完必崩，用户拿不到原因）。bind 成功后立即 drop，不长期占用。
+/// 未加载时端口其实空闲（据此判占 = 误报，白白把自己的端口顺延掉），端口被别的程序
+/// 占住时按文件判定又会漏报（装完守护进程绑不上必崩）。bind 成功后立即 drop，不长期占用。
 fn port_in_use(port: u16) -> bool {
     TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_err()
 }
 
-/// 同机冲突判定：守护进程启动时会无条件 bind 本地控制端口，端口被占则起不来，
-/// 在 KeepAlive 下变成崩溃循环 —— 装上去也不可用，所以在提权之前就快速失败并说清楚。
+/// 从候选表里挑第一个空闲端口；全被占用返回 `None`。
 ///
-/// 抽成纯函数（入参"端口是否被占"）以便单测判定与文案。
-fn conflict_message(port_occupied: bool) -> Option<String> {
-    if !port_occupied {
-        return None;
+/// "端口是否被占"以入参谓词形式注入 —— 这样纯函数本身可以不碰真实 socket 就单测到
+/// "顺延到第几个""全占时如何"这些真正的判定逻辑。
+fn pick_free_port(is_busy: impl Fn(u16) -> bool) -> Option<u16> {
+    CONTROL_PORT_CANDIDATES
+        .into_iter()
+        .find(|&port| !is_busy(port))
+}
+
+/// 候选端口全被占用时的可操作提示。
+///
+/// 用户可见文案只讲端口区间与该怎么办，**不出现任何内部组件标签**（PUBLIC 仓红线）。
+fn all_candidates_busy_message() -> String {
+    let first = CONTROL_PORT_CANDIDATES[0];
+    let last = CONTROL_PORT_CANDIDATES[CONTROL_PORT_CANDIDATES.len() - 1];
+    format!(
+        "本地控制端口 127.0.0.1:{first}-{last} 已全部被其他程序占用，\
+         VPN 服务需要其中一个空闲端口才能启动，因此本次不做安装。\
+         请先退出占用这些端口的程序后重试。"
+    )
+}
+
+/// 从 plist XML 里读出控制 API 的监听端口。
+///
+/// 定位 `<string>--api-listen</string>` 元素，取**紧随其后**的 `<string>…</string>` 值
+///（形如 `127.0.0.1:<port>`）的端口部分。以下三种情况一律返回 `None`：
+///   - 还没替换的模板（值仍是占位符，不含 `host:port` 形状）；
+///   - 根本没有 `--api-listen` 元素（老 plist / 手改过的 plist）；
+///   - 端口部分解析不出数字。
+///
+/// 刻意只做字符串扫描：为读一个参数值引入 XML/plist 解析依赖不划算，而 plist 的
+/// `ProgramArguments` 是我们自己渲染出来的、形状固定。
+fn parse_api_listen_port(plist_xml: &str) -> Option<u16> {
+    const FLAG: &str = "<string>--api-listen</string>";
+    const OPEN: &str = "<string>";
+    const CLOSE: &str = "</string>";
+
+    let after_flag = &plist_xml[plist_xml.find(FLAG)? + FLAG.len()..];
+    let value_start = after_flag.find(OPEN)? + OPEN.len();
+    let rest = &after_flag[value_start..];
+    let value = &rest[..rest.find(CLOSE)?];
+
+    let (_host, port) = value.trim().rsplit_once(':')?;
+    port.parse().ok()
+}
+
+/// 把 plist 模板里的两个占位符替换成本次安装的实例名与监听地址。
+///
+/// 占位符缺失即报错（不做"缺了就算了"的兜底）：那说明打包进 .app 的模板是过期 / 错误的，
+/// 照装出去会让守护进程收到字面量 `__HG_…` 当参数 —— 要么起不来，要么绑到默认端口
+/// 变成"App 显示的是别人家的隧道"。宁可在这里失败并让用户重装应用。
+fn render_plist(template: &str, instance: &str, api_listen: &str) -> Result<String, String> {
+    if !template.contains(PLIST_INSTANCE_PLACEHOLDER) {
+        return Err(format!(
+            "打包的 VPN 服务配置模板缺少占位符 {PLIST_INSTANCE_PLACEHOLDER}：\
+             安装包内容异常，请重新下载并覆盖安装本应用。"
+        ));
     }
-    Some(format!(
-        "本地控制端口 127.0.0.1:{LOCAL_CONTROL_PORT} 已被其他程序占用，\
-         VPN 服务启动时会因端口被占反复退出，因此本次不做安装。\
-         请先退出占用该端口的程序后重试。"
-    ))
+    if !template.contains(PLIST_LISTEN_PLACEHOLDER) {
+        return Err(format!(
+            "打包的 VPN 服务配置模板缺少占位符 {PLIST_LISTEN_PLACEHOLDER}：\
+             安装包内容异常，请重新下载并覆盖安装本应用。"
+        ));
+    }
+    Ok(template
+        .replace(PLIST_INSTANCE_PLACEHOLDER, instance)
+        .replace(PLIST_LISTEN_PLACEHOLDER, api_listen))
+}
+
+/// 已装 plist 里**写明**的控制端口（全局可读，无需提权）。
+///
+/// 只回答"上次装的时候把端口写成了几"这一个问题：老版本 App 装的 plist 没有
+/// `--api-listen`，这里就是 `None`，由 `install` 自己另挑一个空闲端口写进去。
+/// 注意这**不是**"该连哪个端口"——那是 `control_port` 的判定，两者口径不同。
+fn installed_control_port() -> Option<u16> {
+    let xml = std::fs::read_to_string(PLIST_DST).ok()?;
+    parse_api_listen_port(&xml)
+}
+
+/// "该连哪个本地控制端口"的判定规则（纯函数，便于单测）。
+///
+/// 入参把两件事分开问：`plist_xml` 是已装 plist 的内容（`None` = 根本没装），
+/// `first_free` 是当前第一个空闲候选端口。`first_free` **只在没装时**被采纳。
+///
+/// 三种情况：
+///   - **plist 在、且写了端口** → 就是那个端口（那份文件字面上决定守护进程绑哪儿）。
+///   - **plist 在、但没写端口** → 老版本 App 装的，它启动的守护进程绑的是编译内置的
+///     默认端口，所以答案是 `DEFAULT_CONTROL_PORT`。这里若改去挑"第一个空闲候选"，
+///     恰恰会被自家老守护进程占着默认端口这一事实带偏（顺延到下一个），前端探不到
+///     → 明明活着却报"服务未运行"，逼用户去点修复。
+///   - **plist 不在** → 本机从没被本 App 装过守护进程，没有"我们的"实例可连，
+///     给出"接下来会装到的那个端口"（第一个空闲候选），安装前后前端拿到同一个值。
+///     **此处绝不能回落到默认端口**：默认端口此刻可能正被别人的实例占着，连上去
+///     就是"把别人的隧道当成自己的显示出来"——本次改造要消灭的正是这个 bug。
+///
+/// 已知边界：没装且候选全被占时，最终仍回落到默认端口，而在这种极端争用的机器上
+/// 那个端口可能属于别人的实例。接受这个残留（此时本来也装不上，`install` 会以
+/// `all_candidates_busy_message` 明确失败），不为它再加一层无处可去的分支。
+fn control_port_from_plist(plist_xml: Option<&str>, first_free: Option<u16>) -> u16 {
+    match plist_xml {
+        Some(xml) => parse_api_listen_port(xml).unwrap_or(DEFAULT_CONTROL_PORT),
+        None => first_free.unwrap_or(DEFAULT_CONTROL_PORT),
+    }
+}
+
+/// 本 App 该连的本地控制端口 —— 前端（`hg_local_control_port`）的唯一真值来源。
+///
+/// 薄封装：读一次 plist（读得到 = 装过），把真实入参喂给 `control_port_from_plist`，
+/// 判定规则与其理由见那里。
+pub fn control_port() -> u16 {
+    let xml = std::fs::read_to_string(PLIST_DST).ok();
+    // 只有"没装"这一支才会采纳空闲候选，装了就没必要白 bind 一轮候选端口去探。
+    let first_free = if xml.is_none() {
+        pick_free_port(port_in_use)
+    } else {
+        None
+    };
+    control_port_from_plist(xml.as_deref(), first_free)
 }
 
 /// 解析 .app 内打包资源目录 `.../HuanvaeGuard-macos`（取当前可执行文件位置）。
@@ -169,13 +342,17 @@ fn path_is_shell_safe(p: &str) -> bool {
 /// 该步失败不影响安装，故保持 `;` 不参与中止判定。
 /// 幂等：先 `launchctl bootout`（清可能残留的旧实例，未加载时报错被忽略）再 `bootstrap`，
 /// 这样半装/残留状态下重跑也能成功（macOS 11+ 均支持 bootout/bootstrap）。
-fn run_install_with_admin(bin: &Path, plist: &Path) -> Result<(), String> {
+///
+/// `staged_plist` 是**渲染后**的 plist（占位符已换成本次实例名 + 监听地址），位于
+/// `write_staged_plist` 交代的私有暂存目录；这里拷的是它，不是打包资源里的模板。
+fn run_install_with_admin(bin: &Path, staged_plist: &Path) -> Result<(), String> {
     let src_bin = bin.to_string_lossy();
-    let src_plist = plist.to_string_lossy();
+    let src_plist = staged_plist.to_string_lossy();
 
     // 注入防护：路径整体单引号包裹是主防线，详见 path_is_shell_safe；含单引号则拒绝。
+    // 暂存路径同样要过这道闸 —— 它由 TMPDIR（含用户名）推导，不是常量。
     if !path_is_shell_safe(&src_bin) || !path_is_shell_safe(&src_plist) {
-        return Err("资源路径含单引号，拒绝执行提权安装".to_string());
+        return Err("安装路径含单引号，拒绝执行提权安装".to_string());
     }
 
     let shell = format!(
@@ -342,14 +519,6 @@ mod tests {
     }
 
     #[test]
-    fn conflict_message_names_port_and_no_internal_label() {
-        let msg = conflict_message(true).expect("端口被占时必须判定为冲突");
-        assert!(msg.contains("19198"), "实际: {msg}");
-        // 用户可见文案不许出现任何内部组件标签（PUBLIC 仓红线）。
-        assert!(!msg.contains("com.huanvae"), "实际: {msg}");
-    }
-
-    #[test]
     fn port_in_use_detects_occupied_then_free() {
         // 绑 0 号端口取一个临时端口：持有 listener 时应判为被占，drop 后应判为空闲。
         // 绝不探测真实的 19198 —— 不抢占本机既有服务。
@@ -360,9 +529,135 @@ mod tests {
         assert!(!port_in_use(port), "释放后应判定为空闲");
     }
 
+    /// 打包进 .app 的 plist 模板本体：用它做渲染回环测试，
+    /// 一旦发货的模板丢了占位符，这里立刻红。
+    const BUNDLED_PLIST_TEMPLATE: &str =
+        include_str!("../../resources/HuanvaeGuard-macos/com.huanvaeguard.daemon.plist");
+
     #[test]
-    fn conflict_message_absent_is_none() {
-        assert!(conflict_message(false).is_none());
+    fn pick_free_port_takes_default_when_nothing_is_busy() {
+        assert_eq!(pick_free_port(|_| false), Some(19198));
+    }
+
+    #[test]
+    fn pick_free_port_skips_busy_candidates_in_order() {
+        // 前三个被占 → 顺延到第四个候选，而不是随便挑一个。
+        let busy = [19198_u16, 19199, 19200];
+        assert_eq!(pick_free_port(|p| busy.contains(&p)), Some(19201));
+    }
+
+    #[test]
+    fn pick_free_port_none_when_every_candidate_is_busy() {
+        assert_eq!(pick_free_port(|_| true), None);
+    }
+
+    #[test]
+    fn all_candidates_busy_message_names_range_and_no_internal_label() {
+        let msg = all_candidates_busy_message();
+        assert!(msg.contains("19198"), "实际: {msg}");
+        assert!(msg.contains("19207"), "实际: {msg}");
+        // 用户可见文案不许出现任何内部组件标签（PUBLIC 仓红线）。
+        assert!(!msg.contains("com.huanvae"), "实际: {msg}");
+    }
+
+    #[test]
+    fn parse_api_listen_port_reads_value_after_the_flag() {
+        let xml = "<array><string>/usr/local/bin/hg-macos</string>\
+                   <string>--api-listen</string><string>127.0.0.1:19203</string></array>";
+        assert_eq!(parse_api_listen_port(xml), Some(19203));
+    }
+
+    #[test]
+    fn parse_api_listen_port_rejects_unsubstituted_template() {
+        // 模板里该位置还是占位符 —— 不能被当成"装好了、端口是 X"。
+        assert_eq!(parse_api_listen_port(BUNDLED_PLIST_TEMPLATE), None);
+    }
+
+    #[test]
+    fn parse_api_listen_port_none_without_the_flag() {
+        // 有 host:port 形状的字符串，但没有 --api-listen 参数：不能瞎认。
+        let xml = "<array><string>/usr/local/bin/hg-macos</string>\
+                   <string>127.0.0.1:19198</string></array>";
+        assert_eq!(parse_api_listen_port(xml), None);
+    }
+
+    #[test]
+    fn parse_api_listen_port_none_for_non_numeric_port() {
+        let xml = "<array><string>--api-listen</string>\
+                   <string>127.0.0.1:not-a-port</string></array>";
+        assert_eq!(parse_api_listen_port(xml), None);
+    }
+
+    #[test]
+    fn render_plist_round_trips_bundled_template() {
+        let rendered = render_plist(BUNDLED_PLIST_TEMPLATE, APP_INSTANCE_NAME, "127.0.0.1:19205")
+            .expect("打包模板必须含两个占位符");
+        // 渲染出来的东西，读回去必须还是同一个端口（这条链就是运行时真值链）。
+        assert_eq!(parse_api_listen_port(&rendered), Some(19205));
+        assert!(
+            !rendered.contains("__HG_"),
+            "渲染后不应残留占位符:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(&format!("<string>{APP_INSTANCE_NAME}</string>")),
+            "渲染后应带上实例名:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn control_port_uses_port_named_by_installed_plist() {
+        // 走真实渲染件（而不是手写字面量），这条判定才是骑在真格式上的。
+        let rendered = render_plist(BUNDLED_PLIST_TEMPLATE, APP_INSTANCE_NAME, "127.0.0.1:19206")
+            .expect("打包模板必须含两个占位符");
+        // 同时喂一个"空闲候选"进去：装了就该以 plist 为准，不许被候选带偏。
+        assert_eq!(control_port_from_plist(Some(&rendered), Some(19199)), 19206);
+    }
+
+    #[test]
+    fn control_port_falls_back_to_default_for_legacy_install_without_flag() {
+        // 老版本 App 装的 plist：ProgramArguments 只有二进制路径，
+        // 它启动的守护进程绑的是编译内置默认端口。
+        let legacy = "<key>ProgramArguments</key>\
+                      <array><string>/usr/local/bin/hg-macos</string></array>";
+        // 传进来的候选之所以是 19199，正是因为默认端口被那个老守护进程占着；
+        // 若采信候选就会把活着的自家守护进程判成"未运行"。
+        assert_eq!(control_port_from_plist(Some(legacy), Some(19199)), 19198);
+    }
+
+    #[test]
+    fn control_port_without_plist_takes_first_free_never_the_default() {
+        // 反回归守卫：没装 plist 时默认端口可能正被**别人家**的实例占着
+        //（候选顺延到 19199 就是这么来的）。此时回落到默认端口 =
+        // "App 把别人的隧道当成自己的显示出来"，正是本次改造要消灭的 bug。
+        let got = control_port_from_plist(None, Some(19199));
+        assert_eq!(got, 19199);
+        assert_ne!(got, DEFAULT_CONTROL_PORT);
+    }
+
+    #[test]
+    fn control_port_without_plist_and_no_free_candidate_falls_back_to_default() {
+        assert_eq!(control_port_from_plist(None, None), 19198);
+    }
+
+    #[test]
+    fn render_plist_errors_when_instance_placeholder_missing() {
+        let stale = "<array><string>--api-listen</string>\
+                     <string>__HG_API_LISTEN__</string></array>";
+        let err = render_plist(stale, APP_INSTANCE_NAME, "127.0.0.1:19198")
+            .expect_err("缺实例占位符必须报错");
+        assert!(err.contains(PLIST_INSTANCE_PLACEHOLDER), "实际: {err}");
+        // 只该点名真正缺的那个，否则用户无从判断模板哪里不对。
+        assert!(!err.contains(PLIST_LISTEN_PLACEHOLDER), "实际: {err}");
+    }
+
+    #[test]
+    fn render_plist_errors_when_listen_placeholder_missing() {
+        let stale = "<array><string>--instance</string>\
+                     <string>__HG_INSTANCE__</string></array>";
+        let err = render_plist(stale, APP_INSTANCE_NAME, "127.0.0.1:19198")
+            .expect_err("缺监听占位符必须报错");
+        assert!(err.contains(PLIST_LISTEN_PLACEHOLDER), "实际: {err}");
+        assert!(!err.contains(PLIST_INSTANCE_PLACEHOLDER), "实际: {err}");
     }
 
     #[test]

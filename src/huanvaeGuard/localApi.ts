@@ -1,6 +1,11 @@
 /**
- * 本机 HuanvaeGuard Windows Service API 调用 (http://127.0.0.1:19198)
+ * 本机 HuanvaeGuard 守护进程 API 调用（回环明文 http://127.0.0.1:<控制端口>）
  *
+ * - **控制端口不写死，逐次向 Rust 侧解析（默认 19198）**：同一台机器上可以并存多路
+ *   守护进程实例，各自监听不同的回环端口。本 App 只该跟自己装的那一路说话，端口真值
+ *   由 `hg_local_control_port` 给出（macOS 读已装的服务配置；其余平台就是默认端口）。
+ *   写死端口的后果是：别的实例先占住 19198 时，App 会去连**别人家**的守护进程，
+ *   把对方的隧道当成自己的显示出来。
  * - **刻意保留 plugin-http(不迁 secure_http)**：本路径是**回环明文 http**(127.0.0.1)，
  *   既无 TLS(故无需 secure_net 的内置 CA 自管 TLS)、也非后端数据面调用(api.huanvae.cn)，
  *   不在"自签 TLS 直连数据面"迁移范围内。plugin-http 在此的作用是绕开浏览器 CORS
@@ -16,11 +21,51 @@
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import type { ApiResponse, TunnelStatus, PeerConfig, ObfuscationParams } from './types';
 
-const LOCAL_BASE = 'http://127.0.0.1:19198';
+/**
+ * 本地控制端口的默认值。
+ *
+ * 守护进程不带参数启动时绑的就是这个端口，安装时的端口候选表也以它排第一。
+ * 所以在"本机没有别的实例"的普通机器上解析出来的正是这个值 —— 端口改成动态解析后，
+ * 这类机器的行为与写死端口时代**完全一致**。
+ */
+const DEFAULT_LOCAL_PORT = 19198;
 
 type FetchInit = Parameters<typeof fetch>[1];
+
+/** IPC 拿回来的值是否是一个能用的端口号（1..=65535 的整数）。 */
+function isUsablePort(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
+/**
+ * 解析本次请求要连的回环基址。
+ *
+ * 端口真值只在 Rust 侧（macOS 以已安装的服务配置为准，其余平台是固定的默认端口），
+ * 这里经 `hg_local_control_port` 取回。跨 IPC 回来的值先验一遍是不是可用端口：
+ * 拿不到值（命令缺失 / 调用失败）或值不可用时用 `DEFAULT_LOCAL_PORT`。这不是"出错了
+ * 随便给个数"的兜底 —— 全新安装绑的就是这个端口，所以在没有更准确信息的情况下，
+ * 它就是**正确答案**，照它发请求能连上的概率最高。
+ *
+ * **刻意不缓存解析结果**：窗口开着的时候端口是会变的 —— 修复 / 重装路径可能把守护进程
+ * 落到另一个端口上。缓存下来的基址此后就指向一个没人监听的端口，更糟的是指向别人家的
+ * 实例（前者只是连不上，后者会让界面显示不属于自己的隧道）。而解析本身只是一次本机 IPC，
+ * 调用方紧接着就要发一次真正的网络请求，逐次解析的开销测不出来，换掉的却是一整类
+ * "状态过期"引发的 bug。
+ * 这里也不提供缓存失效 API：那需要调用方在合适的时机调它，会牵连到本次不该动的文件。
+ */
+async function resolveLocalBase(): Promise<string> {
+  let resolved: unknown;
+  try {
+    resolved = await invoke<number>('hg_local_control_port');
+  } catch {
+    // 端口查询失败：按默认端口处理（理由见上），不让它影响紧随其后的请求
+  }
+  const port = isUsablePort(resolved) ? resolved : DEFAULT_LOCAL_PORT;
+  return `http://127.0.0.1:${port}`;
+}
 
 /**
  * 单次本机请求的超时上限（ms）。
@@ -34,6 +79,8 @@ type FetchInit = Parameters<typeof fetch>[1];
 export const LOCAL_TIMEOUT_MS = 8000;
 
 async function localFetch<T>(path: string, init?: FetchInit): Promise<ApiResponse<T>> {
+  // 每次请求都重新解析基址（不缓存的理由见 resolveLocalBase）
+  const base = await resolveLocalBase();
   // plugin-http 的 fetch 遵循 init.signal：发请求前检查 aborted、并在 signal 上挂 abort
   // 监听器调 plugin:http|fetch_cancel 真正取消 Rust 侧请求（见 node_modules/@tauri-apps/
   // plugin-http/dist-js/index.js 的 46 / 88 / 104-113 / 151 行），故这里的超时是真取消，
@@ -41,7 +88,7 @@ async function localFetch<T>(path: string, init?: FetchInit): Promise<ApiRespons
   const controller = new AbortController();
   const timer = setTimeout(() => { controller.abort(); }, LOCAL_TIMEOUT_MS);
   try {
-    const resp = await fetch(`${LOCAL_BASE}${path}`, { ...init, signal: controller.signal });
+    const resp = await fetch(`${base}${path}`, { ...init, signal: controller.signal });
     const parsed = await resp.json().catch(
       () => ({ success: false, error: `HTTP ${resp.status}` }) as ApiResponse<T>,
     );

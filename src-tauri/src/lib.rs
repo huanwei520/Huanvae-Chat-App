@@ -608,6 +608,24 @@ fn hg_is_installed() -> bool {
     false
 }
 
+/// macOS：本机守护进程的本地控制端口（回环）。
+///
+/// 同机可并存多路守护进程实例，各自监听不同端口；本 App 安装时挑一个空闲端口写进
+/// 自己的 plist，前端必须按本命令的返回值连接，才不会连到别人那一路实例上去。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn hg_local_control_port() -> u16 {
+    desktop::huanvaeguard_macos::control_port()
+}
+
+/// 非 macOS：Windows 侧的服务固定绑定同一个回环端口（见 `desktop/huanvaeguard.rs`），
+/// 没有多实例选端口这回事，返回该默认端口即可。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn hg_local_control_port() -> u16 {
+    19198
+}
+
 /// macOS：生物识别（Touch ID）门禁。前端打开 VPN 前调用以"有 Touch ID 则优先生物识别"。
 /// - 通过 → `Ok("authenticated")`；无 Touch ID 硬件 → `Ok("unavailable")`（前端照常放行）；
 /// - 取消/失败/超时 → `Err(原因)`（前端中止动作）。
@@ -893,6 +911,7 @@ pub fn run() {
             hg_ensure_installed,
             hg_repair,
             hg_is_installed,
+            hg_local_control_port,
             biometric_authenticate,
             // 设备信息
             device_info::get_mac_address_cmd,

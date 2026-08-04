@@ -2,13 +2,14 @@
  * HuanvaeGuard 类型定义
  *
  * 分两部分：
- *   1. Local Windows Service types — 对应本机 svc (localhost:19198) 的 API 结构
+ *   1. Local Windows Service types — 对应本机 svc 的 API 结构。地址是回环控制端口
+ *      （127.0.0.1，端口由 Rust 侧解析给出，默认 19198 —— 见 localApi.ts）
  *      （由本仓 src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe 实现）
  *   2. Server API types — 对应远端 `/api/hg/*` 的结构
  *      （后端为独立仓库，本仓仅消费 JSON；字段以后端 OpenAPI/文档为准）
  */
 
-// ─── Local Windows Service types (localhost:19198) ───
+// ─── Local Windows Service types（回环控制端口，端口由 Rust 侧解析，默认 19198）───
 
 export interface ObfuscationParams {
   h1: [number, number];

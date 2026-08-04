@@ -5,9 +5,28 @@
     <key>Label</key>
     <string>com.huanvaeguard.daemon</string>
 
+    <!-- This file is a TEMPLATE: the two placeholder <string> values below are
+         substituted by the app at install time, right before the privileged
+         copy into /Library/LaunchDaemons.
+           --instance   -> the per-instance identity this daemon runs as.
+                           Several instances can coexist on one machine; a
+                           distinct name also keeps each instance's own rolling
+                           log files apart from every other instance's.
+           --api-listen -> the loopback bind address of the control API
+                           (127.0.0.1:<port>). The app picks a port that is
+                           free on this machine, so it never ends up talking to
+                           a foreign instance, and it reads this very value back
+                           out of the installed copy to know where to connect.
+         A placeholder that survives into the installed copy means the bundled
+         template is stale; the app refuses to install rather than launch the
+         daemon with a literal placeholder argument. -->
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/hg-macos</string>
+        <string>--instance</string>
+        <string>__HG_INSTANCE__</string>
+        <string>--api-listen</string>
+        <string>__HG_API_LISTEN__</string>
     </array>
 
     <!-- Start at boot and keep the daemon alive across crashes. -->

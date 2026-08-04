@@ -1,7 +1,8 @@
 /**
  * HuanvaeGuard VPN 模块
  *
- * 功能：通过 localhost:19198 控制本机 HG 守护进程管理 WireGuard 隧道
+ * 功能：通过回环控制端口（127.0.0.1，端口由 Rust 侧解析给出、默认 19198，见 localApi.ts）
+ *      控制本机 HG 守护进程管理 WireGuard 隧道
  *   - Windows：HuanvaeGuard Windows Service（sc.exe 控制，src-tauri 侧 huanvaeguard.rs）
  *   - macOS：hg-macos LaunchDaemon（launchctl 控制，src-tauri 侧 huanvaeguard_macos.rs）
  * 架构：独立 Tauri 窗口运行
