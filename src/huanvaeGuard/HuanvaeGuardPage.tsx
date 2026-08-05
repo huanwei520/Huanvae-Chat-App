@@ -5,7 +5,10 @@
  * Runs in a dedicated Tauri window.
  *
  * ## Data sources
- *   - Local service (http://127.0.0.1:19198) for tunnel control (start/stop/status)
+ *   - Local service on loopback for tunnel control (start/stop/status). Its control
+ *     port is resolved from the Rust side per request (default 19198) — several daemon
+ *     instances may coexist on one machine, each listening on its own port; the
+ *     resolution rules live in `localApi.ts`
  *   - Remote HG API (`/api/hg/*`) for device/link/group CRUD, fetched via Tauri
  *     HTTP plugin to bypass browser CORS
  *
@@ -19,6 +22,9 @@
  *   Server `HgDevice.status` relies on heartbeat (not yet wired), so UI overrides
  *   the self device to "online" whenever the local tunnel is active and its
  *   address matches `HgDevice.virtual_ip`.
+ *   Other devices' status is refreshed by the main window: it forwards the backend
+ *   `hg_device_status_changed` WS frame as the `hg:device-status-changed` Tauri
+ *   event, and this page reloads the device list on each one.
  *
  * ## Group join flow
  *   Joining a group is **only** via invitation: the inviter creates an invite
@@ -206,7 +212,14 @@ export default function HuanvaeGuardPage() {
 
       if (lastLoggedRunningRef.current !== running) {
         lastLoggedRunningRef.current = running;
-        addLog(running ? '已检测到本地服务（localhost:19198）' : '本地服务未运行');
+        if (running) {
+          // 端口是动态解析的（同机可并存多路实例），写死会让日志在排查"到底连了哪个端口"
+          // 时把人带偏；真值来自 localApi 的单一解析口，和刚才发请求用的是同一个
+          const port = await localApi.resolveLocalPort();
+          addLog(`已检测到本地服务（localhost:${port}）`);
+        } else {
+          addLog('本地服务未运行');
+        }
       }
 
       // 服务确实起来了就收掉"修复超时"那条提示：否则 header 写着运行中、横幅还写着没起来，
@@ -326,6 +339,21 @@ export default function HuanvaeGuardPage() {
     void emit('session:request-tokens');
     return () => { void unlistenPromise.then(fn => fn()); };
   }, [addLog]);
+
+  // 订阅设备在线态变更（跨 Tauri 窗口广播）
+  // WS 只连在主窗口，主窗口收到后端 hg_device_status_changed 帧后转发成这个事件。
+  // 本页首屏只拉一次设备列表（见上面的首屏数据加载 effect），这条事件是在线态唯一的
+  // 刷新来源——不接就永远显示开窗那一刻的快照。
+  useEffect(() => {
+    const unlistenPromise = listen<{ device_id: string; status: string }>(
+      'hg:device-status-changed',
+      (event) => {
+        addLog(`设备 ${event.payload.device_id} 状态变更：${localizeStatus(event.payload.status)}`);
+        void loadDevices();
+      },
+    );
+    return () => { void unlistenPromise.then(fn => fn()); };
+  }, [addLog, loadDevices]);
 
   // 常驻状态复查：唯一的定时探活来源。故意不用 serviceRunning 做门控 —— 旧实现
   // `if (!serviceRunning) { return; }` 会在 false 时直接关掉唯一的轮询，从此再也恢复不了

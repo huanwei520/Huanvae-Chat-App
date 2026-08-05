@@ -8,7 +8,9 @@
  * - message_recalled: 刷新本地数据库预览并通知 UI 重载
  * - system_notification: 更新待处理计数
  * - message_deleted: 标记本地消息已删除并刷新会话预览
- * - hg_*: HuanvaeGuard 事件（日志记录）
+ * - hg_topology_changed / hg_node_migrated / hg_group_toggled / hg_obfs_config_changed:
+ *   仅冒泡到 Rust，前端无副作用丢弃
+ * - hg_device_status_changed: 跨窗广播 `hg:device-status-changed` 给独立的 HuanvaeGuard 窗口
  * - 所有事件的连接级 event_seq 返回给 Context 用于跳号检测
  */
 
@@ -19,6 +21,7 @@ import type {
   WsSystemNotification,
 } from '../types/websocket';
 import type { PendingNotifications } from './WebSocketContext';
+import { emit } from '@tauri-apps/api/event';
 import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
@@ -793,8 +796,18 @@ export function handleWebSocketMessage(
       case 'hg_node_migrated':
       case 'hg_group_toggled':
       case 'hg_obfs_config_changed':
-      case 'hg_device_status_changed':
         // HuanvaeGuard 事件：仅冒泡到 Rust，前端无需处理
+        break;
+
+      case 'hg_device_status_changed':
+        // HuanvaeGuard 页面在独立 Tauri 窗口里渲染设备在线态，而 WS 只连在主窗口——
+        // 这一帧是 HG 窗口唯一的在线态更新来源，丢掉它用户看到的就永远是开窗那一刻的快照。
+        // 故原样跨窗广播 device_id/status，由 HG 窗口自行重拉设备列表。
+        // 广播失败只打日志：跨窗投递不该影响主窗口自身的连接状态处理。
+        emit('hg:device-status-changed', { device_id: msg.device_id, status: msg.status })
+          .catch((error) => {
+            console.warn('[WS] HuanvaeGuard 设备状态跨窗广播失败:', error);
+          });
         break;
     }
 

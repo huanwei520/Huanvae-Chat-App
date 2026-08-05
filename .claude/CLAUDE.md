@@ -71,6 +71,7 @@ api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer
 | 审核结论有争议 | 上面流程中插入 `review-dispute` |
 | 配置变更（settings.json / 权限 / hooks） | `update-config` → `completion-summary` |
 | 仅文档 / 规则文件修改 | 直接修改 + `skill-evolve`（如形成新经验）+ `completion-summary` |
+| 发布构建（升版本号 + 打 tag + 推 GitHub） | `release`（含 PUBLIC 仓脱敏核）→ `completion-summary`。**前提**：待发的代码改动已各自走完自己的流程；发布本身不代替 audit / code-review |
 
 2. **输出规划清单**：以表格列出 skill 调用顺序 + 每步的产出物 + 每步执行 Agent，向用户展示并征得同意
 
@@ -432,6 +433,18 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ```
 
 类型：`feat`（新功能）、`fix`（修复）、`refactor`（重构）、`test`（测试）、`docs`（文档）、`chore`（杂项）、`cleanup`（旧代码清理）
+
+## 发布流程
+
+发布 = 编辑 [scripts/release-config.txt](scripts/release-config.txt)（`VERSION` 每次 +0.0.1、`MESSAGE` 一句话说明），然后在项目根跑 `./scripts/linux/release.sh`（Windows 用 `scripts/release.ps1`）。脚本一条龙做完：同步 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` 三处版本号 → 跑 `scripts/linux/test-all.sh` 全量测试 → `git add -A` + commit → 打 tag → push main + push tag。
+
+**完整步骤、行号对照、脱敏核命令、坑的成因见 [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md)。** 三条最要命的红线先记住：
+
+1. **一条龙不切开** — 不存在"只跑前半段、后面手动补"。步骤 2 已把三处版本号改脏工作树，中途中断会留下"版本已升、没测没提交"的脏树，下一次发布被 `git add -A` 裹走。
+2. **不带参数跑** — `release.sh` 把收到的参数**原样透传**给 `test-all.sh`，而后者有 `--skip-rust` / `--skip-android` / `--skip-e2e` 开关。`./scripts/linux/release.sh --skip-e2e` 会**静默**发出一个没跑 E2E 的版本且照样打印"全部通过" = 降门槛，属红线。同理：测试没全绿就停下如实报，**不许改测试 / 加 skip / 降阈值硬推**。
+3. **PUBLIC 仓 push 前必做脱敏核** — 文本面 grep 私钥 / 连接串 / 凭据 env / 私网地址；**并对所有 tracked 二进制跑 `strings` 扫**（编译机绝对路径、内部主机名、构建元数据）。这条踩过：未 strip 的二进制曾随公开仓一起发布并泄露内部结构（见 `git log edbb439`）。tag 是 `--force` 推、push 即不可撤销。
+
+排查工作树归属时注意：本仓是巨树，**禁用 `git status` / `git add -A` 做排查**（会超时），改用 `git diff --name-only`、`git diff --cached --name-only`、`git ls-files --others --exclude-standard -- <目录>`。
 
 ## 语言偏好
 

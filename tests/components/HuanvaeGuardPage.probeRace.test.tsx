@@ -74,6 +74,8 @@ const mockLocalApi = vi.hoisted(() => ({
   getStatus: vi.fn(),
   startTunnel: vi.fn(),
   stopTunnel: vi.fn(),
+  // 探活转为「运行中」时页面用它取真实控制端口打日志（端口不写死）；19198 = 模块内的默认端口
+  resolveLocalPort: vi.fn().mockResolvedValue(19198),
 }));
 vi.mock('../../src/huanvaeGuard/localApi', () => mockLocalApi);
 

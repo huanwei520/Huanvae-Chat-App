@@ -18,6 +18,7 @@
  *   getStatus            GET  /api/tunnel/status    获取隧道状态 + peer 明细（兼作探活）
  *   startTunnel          POST /api/tunnel/start     建立 WireGuard 隧道
  *   stopTunnel           POST /api/tunnel/stop      关闭隧道
+ *   resolveLocalPort     IPC  hg_local_control_port 解析本次要连的本地控制端口（真值在 Rust 侧）
  */
 
 import { fetch } from '@tauri-apps/plugin-http';
@@ -30,6 +31,25 @@ import type { ApiResponse, TunnelStatus, PeerConfig, ObfuscationParams } from '.
  * 守护进程不带参数启动时绑的就是这个端口，安装时的端口候选表也以它排第一。
  * 所以在"本机没有别的实例"的普通机器上解析出来的正是这个值 —— 端口改成动态解析后，
  * 这类机器的行为与写死端口时代**完全一致**。
+ *
+ * 这个判断的证据链（省得下一个人重新推一遍）：
+ * - **macOS 全新机器装出来就是它**：安装时按候选表 `CONTROL_PORT_CANDIDATES = [19198,
+ *   19199, … 19207]` 取**第一个空闲**端口写进 plist（`src-tauri/src/desktop/huanvaeguard_macos.rs`
+ *   的 `pick_free_port`），候选全空闲时选中的就是排第一的 19198；单测
+ *   `pick_free_port_takes_default_when_nothing_is_busy` 正锁着这条。
+ * - **守护进程自己的编译内置默认也是它**：不带 `--api-listen` 启动时绑 `127.0.0.1:19198`
+ *   （HuanvaeGuard 仓 `client/macos/src/instance.rs` 的 `DEFAULT_API_LISTEN`）；Windows 侧
+ *   守护进程更是固定绑这个端口（同仓 `client/windows/src/api_server.rs` 的 `LISTEN_ADDR`）。
+ * - **非 macOS 平台这个值就是真值**：`hg_local_control_port` 的
+ *   `#[cfg(not(target_os = "macos"))]` 分支（`src-tauri/src/lib.rs`）直接返回 19198，
+ *   没有多实例选端口这回事 —— 所以在 Windows/Linux 上兜底值与真值恒等。
+ * - **兜底真正生效的场景很窄**：只有 `invoke('hg_local_control_port')` 抛错（命令缺失 /
+ *   IPC 失败）或返回值不是可用端口时，`resolveLocalPort` 才会用它；macOS 正常路径下
+ *   该命令总能返回一个 u16，不会落到这里。
+ *
+ * 在没有第二路实例的普通用户机器上，上面每条路径给出的都是 19198，所以这个兜底值
+ * **不是随手取的数**，是各条路径一致的正确答案；本机之所以观察到 19199，仅仅因为本机
+ * 额外跑了另一路实例把 19198 先占住了 —— 那是本机特例，不能拿来当普通机器的结论。
  */
 const DEFAULT_LOCAL_PORT = 19198;
 
@@ -41,7 +61,7 @@ function isUsablePort(value: unknown): value is number {
 }
 
 /**
- * 解析本次请求要连的回环基址。
+ * 解析本次请求要连的本地控制端口。
  *
  * 端口真值只在 Rust 侧（macOS 以已安装的服务配置为准，其余平台是固定的默认端口），
  * 这里经 `hg_local_control_port` 取回。跨 IPC 回来的值先验一遍是不是可用端口：
@@ -49,21 +69,29 @@ function isUsablePort(value: unknown): value is number {
  * 随便给个数"的兜底 —— 全新安装绑的就是这个端口，所以在没有更准确信息的情况下，
  * 它就是**正确答案**，照它发请求能连上的概率最高。
  *
+ * 界面要告诉用户"刚才连上的是哪个端口"时用的也是这个函数，所以显示出来的端口
+ * 永远不会和真正发请求用的端口对不上。
+ *
  * **刻意不缓存解析结果**：窗口开着的时候端口是会变的 —— 修复 / 重装路径可能把守护进程
- * 落到另一个端口上。缓存下来的基址此后就指向一个没人监听的端口，更糟的是指向别人家的
+ * 落到另一个端口上。缓存下来的端口此后就指向一个没人监听的端口，更糟的是指向别人家的
  * 实例（前者只是连不上，后者会让界面显示不属于自己的隧道）。而解析本身只是一次本机 IPC，
  * 调用方紧接着就要发一次真正的网络请求，逐次解析的开销测不出来，换掉的却是一整类
  * "状态过期"引发的 bug。
  * 这里也不提供缓存失效 API：那需要调用方在合适的时机调它，会牵连到本次不该动的文件。
  */
-async function resolveLocalBase(): Promise<string> {
+export async function resolveLocalPort(): Promise<number> {
   let resolved: unknown;
   try {
     resolved = await invoke<number>('hg_local_control_port');
   } catch {
     // 端口查询失败：按默认端口处理（理由见上），不让它影响紧随其后的请求
   }
-  const port = isUsablePort(resolved) ? resolved : DEFAULT_LOCAL_PORT;
+  return isUsablePort(resolved) ? resolved : DEFAULT_LOCAL_PORT;
+}
+
+/** 本次请求要用的回环基址；端口取自 `resolveLocalPort`（全仓唯一的解析口）。 */
+async function resolveLocalBase(): Promise<string> {
+  const port = await resolveLocalPort();
   return `http://127.0.0.1:${port}`;
 }
 
@@ -79,7 +107,7 @@ async function resolveLocalBase(): Promise<string> {
 export const LOCAL_TIMEOUT_MS = 8000;
 
 async function localFetch<T>(path: string, init?: FetchInit): Promise<ApiResponse<T>> {
-  // 每次请求都重新解析基址（不缓存的理由见 resolveLocalBase）
+  // 每次请求都重新解析基址（不缓存的理由见 resolveLocalPort）
   const base = await resolveLocalBase();
   // plugin-http 的 fetch 遵循 init.signal：发请求前检查 aborted、并在 signal 上挂 abort
   // 监听器调 plugin:http|fetch_cancel 真正取消 Rust 侧请求（见 node_modules/@tauri-apps/
