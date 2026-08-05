@@ -61,6 +61,26 @@ function Print-Warn($text) {
     Write-Host "  ⚠ $text" -ForegroundColor Yellow
 }
 
+# 校验标签确实指向当前 HEAD —— 在 push 之前拦住"tag 打到上一个 commit"
+function Assert-TagPointsAtHead {
+    param([string]$Tag)
+    $tagSha  = (git rev-parse "$Tag^{commit}").Trim()
+    $headSha = (git rev-parse HEAD).Trim()
+    if ($tagSha -ne $headSha) {
+        Write-Host "  ✗ 标签指向校验失败: $Tag 没有指向当前 HEAD" -ForegroundColor Red
+        Write-Host "    HEAD: $headSha" -ForegroundColor Red
+        Write-Host "    $Tag : $tagSha" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  已中止，未推送任何内容。手工修正步骤：" -ForegroundColor Yellow
+        Write-Host "    1) git tag -f `"$Tag`" $headSha" -ForegroundColor Yellow
+        Write-Host "    2) git rev-parse `"$Tag^{commit}`"   # 必须等于 $headSha" -ForegroundColor Yellow
+        Write-Host "    3) 核对无误后重跑本脚本，或手工 git push origin main; git push origin `"$Tag`" --force" -ForegroundColor Yellow
+        return $false
+    }
+    Write-Host "  ✓ 标签指向校验通过: $Tag -> $headSha" -ForegroundColor Green
+    return $true
+}
+
 # ============================================
 # 读取配置文件
 # ============================================
@@ -210,9 +230,20 @@ Write-Host "  (忽略: Vite动态导入提示、已标记的await-in-loop、cons
 Write-Host ""
 
 & powershell -ExecutionPolicy Bypass -File "$ScriptDir\test-all.ps1"
-if ($LASTEXITCODE -ne 0) {
+$TestExit = $LASTEXITCODE
+if ($TestExit -ne 0) {
     Write-Host ""
-    Print-Error "测试检查未通过！请修复所有问题后再发布"
+    if ($TestExit -eq 2) {
+        # test-all.ps1 退出码 2 = 有检查项被跳过且未显式放行（不是 FAIL，但也不算通过）
+        Print-Error "测试有检查项被跳过且未显式放行（退出码 2）—— 不视为通过，已中止发布"
+        Write-Host ""
+        Write-Host "  请补齐缺失的环境（如 NDK_HOME / rustup target add aarch64-linux-android）后重跑；" -ForegroundColor Yellow
+        Write-Host "  或确认可接受后显式放行再重跑发布，例如：" -ForegroundColor Yellow
+        Write-Host "    `$env:ALLOW_SKIP='clippy-android'" -ForegroundColor Yellow
+        Write-Host "    （具体被跳过的 id 见上方 test-all 输出）" -ForegroundColor Yellow
+    } else {
+        Print-Error "测试检查未通过！请修复所有问题后再发布"
+    }
     Write-Host ""
 
     if ($VersionUpdated) {
@@ -222,7 +253,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Print-Ok "所有测试检查通过！"
+if ($env:ALLOW_SKIP) {
+    Print-Warn "测试通过（注意: ALLOW_SKIP='$env:ALLOW_SKIP' 放行了部分未真跑的检查项）"
+} else {
+    Print-Ok "所有测试检查通过！"
+}
 
 # ============================================
 # 步骤 4: 同步依赖
@@ -256,12 +291,6 @@ $gitDiffStagedExit = $LASTEXITCODE
 
 if ($gitDiffExit -eq 0 -and $gitDiffStagedExit -eq 0) {
     Print-Warn "没有检测到文件变更"
-
-    $tagExists = git tag -l "v$TargetVersion" 2>&1 | Out-String
-    if ($tagExists.Trim() -match "v$([regex]::Escape($TargetVersion))") {
-        Print-Warn "标签 v$TargetVersion 已存在，将强制更新"
-        git tag -d "v$TargetVersion" 2>$null
-    }
 } else {
     git add -A
     $commitFile = "$ProjectRoot\.commit_msg"
@@ -271,9 +300,13 @@ if ($gitDiffExit -eq 0 -and $gitDiffStagedExit -eq 0) {
     Print-Ok "Git 提交完成"
 }
 
+# 显式把标签打到本次发布的提交上（不依赖"当前 HEAD 恰好正确"这一隐含假设）
+$releaseSha = (git rev-parse HEAD).Trim()
 git tag -d "v$TargetVersion" 2>$null
-git tag "v$TargetVersion"
-Print-Ok "标签 v$TargetVersion 已创建"
+git tag "v$TargetVersion" $releaseSha
+
+# push 之前强制校验：标签必须指向 HEAD，否则中止（曾出现 tag 指向上一个 commit 并被推上去）
+if (-not (Assert-TagPointsAtHead "v$TargetVersion")) { exit 1 }
 
 # ============================================
 # 步骤 6: 自动推送到 GitHub

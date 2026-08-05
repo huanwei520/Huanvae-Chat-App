@@ -9,6 +9,19 @@
 #   .\scripts\test-all.ps1
 #   .\scripts\test-all.ps1 -SkipRust       # 跳过 Rust 检查
 #   .\scripts\test-all.ps1 -SkipAndroid    # 跳过 Android clippy 检查
+#
+# SKIP 不等于 PASS：
+#   任何被跳过的检查项（参数显式跳过、或运行期环境缺失如 NDK/target 未装）都会进入
+#   跳过登记表，末尾如实列出。只要存在跳过项，就不会打印"所有检查通过!"。
+#
+#   $env:ALLOW_SKIP  显式放行跳过项（逗号或空格分隔的 id 列表；特殊值 all 放行全部）
+#     可用 id: cargo-check / clippy-desktop / clippy-android
+#     例: $env:ALLOW_SKIP='clippy-android'; .\scripts\test-all.ps1
+#
+# 退出码：
+#   0  全部真跑通过；或有跳过项但已被 ALLOW_SKIP 显式放行
+#   1  有检查项 FAIL
+#   2  有检查项被跳过且未显式放行（不视为通过）
 
 param(
     [switch]$SkipRust,
@@ -31,14 +44,43 @@ Write-Host ""
 
 $startTime = Get-Date
 $allPassed = $true
-$totalSteps = 9
-if ($SkipRust) { $totalSteps -= 2 }
-if ($SkipAndroid) { $totalSteps -= 1 }
+
+# 跳过登记表：SKIP 不等于 PASS，末尾汇总要如实列出跳了哪几项、为什么跳
+$skipped = @()
+
+function Record-Skip {
+    param([string]$Id, [string]$Reason)
+    $script:skipped += [PSCustomObject]@{ Id = $Id; Reason = $Reason }
+    Write-Host "  ⚠ SKIP: $Reason" -ForegroundColor Yellow
+}
+
+# 步骤计数：恒定 6 块（NSIS / package.json / TypeScript / ESLint / 单元测试 / 前端构建）
+# + 未跳过 Rust 时 +2（cargo check、clippy 桌面）+ 未跳过 Android 时再 +1（clippy Android）
+$script:totalSteps = 6
+if (-not $SkipRust) {
+    $script:totalSteps += 2
+    if (-not $SkipAndroid) { $script:totalSteps += 1 }
+}
+
+$script:step = 0
+function Step-Header([string]$Title) {
+    $script:step++
+    Write-Host "[$script:step/$script:totalSteps] $Title" -ForegroundColor Cyan
+}
+
+# 参数显式跳过的项也要登记（否则末尾会把"没跑"当成"跑过且通过"）
+if ($SkipRust) {
+    $script:skipped += [PSCustomObject]@{ Id = 'cargo-check';    Reason = '-SkipRust 参数显式跳过 cargo check' }
+    $script:skipped += [PSCustomObject]@{ Id = 'clippy-desktop'; Reason = '-SkipRust 参数显式跳过 cargo clippy 桌面端' }
+    $script:skipped += [PSCustomObject]@{ Id = 'clippy-android'; Reason = '-SkipRust 参数显式跳过 cargo clippy Android' }
+} elseif ($SkipAndroid) {
+    $script:skipped += [PSCustomObject]@{ Id = 'clippy-android'; Reason = '-SkipAndroid 参数显式跳过 cargo clippy Android' }
+}
 
 # ============================================
 # 1. Windows NSIS 安装配置检查
 # ============================================
-Write-Host "[1/$totalSteps] Windows NSIS 安装配置检查..." -ForegroundColor Cyan
+Step-Header "Windows NSIS 安装配置检查..."
 
 $tauriConfPath = "$projectRoot\src-tauri\tauri.conf.json"
 $nsisHooksPath = "$projectRoot\src-tauri\windows\hooks.nsi"
@@ -73,7 +115,7 @@ if ($tauriContent -match '"installMode".*"passive"') {
 # ============================================
 # 2. package.json 验证
 # ============================================
-Write-Host "[2/$totalSteps] package.json 验证..." -ForegroundColor Cyan
+Step-Header "package.json 验证..."
 
 $jsonCheckScript = @"
 const fs = require('fs');
@@ -116,7 +158,7 @@ if ($LASTEXITCODE -eq 0) {
 # ============================================
 # 3. TypeScript 类型检查
 # ============================================
-Write-Host "[3/$totalSteps] TypeScript 类型检查..." -ForegroundColor Cyan
+Step-Header "TypeScript 类型检查..."
 
 pnpm tsc --noEmit 2>&1 | Out-Null
 if ($LASTEXITCODE -eq 0) {
@@ -129,7 +171,7 @@ if ($LASTEXITCODE -eq 0) {
 # ============================================
 # 4. ESLint 代码检查 (严格模式)
 # ============================================
-Write-Host "[4/$totalSteps] ESLint 代码检查 (0 errors, 0 warnings)..." -ForegroundColor Cyan
+Step-Header "ESLint 代码检查 (0 errors, 0 warnings)..."
 
 $eslintOutput = pnpm lint 2>&1 | Out-String
 $eslintExit = $LASTEXITCODE
@@ -151,7 +193,7 @@ if ($eslintExit -eq 0) {
 # ============================================
 # 5. 单元测试
 # ============================================
-Write-Host "[5/$totalSteps] 单元测试..." -ForegroundColor Cyan
+Step-Header "单元测试..."
 
 $testOutput = pnpm test --run 2>&1 | Out-String
 $testExit = $LASTEXITCODE
@@ -171,7 +213,7 @@ if ($testExit -eq 0) {
 # ============================================
 # 6. 前端构建测试 (检查警告)
 # ============================================
-Write-Host "[6/$totalSteps] 前端构建测试 (检查警告)..." -ForegroundColor Cyan
+Step-Header "前端构建测试 (检查警告)..."
 
 $buildOutput = pnpm build 2>&1 | Out-String
 $buildExit = $LASTEXITCODE
@@ -222,7 +264,7 @@ if ($buildExit -eq 0) {
 # 7. Cargo Check (基础编译检查)
 # ============================================
 if (-not $SkipRust) {
-    Write-Host "[7/$totalSteps] Cargo check (编译检查)..." -ForegroundColor Cyan
+    Step-Header "Cargo check (编译检查)..."
 
     Push-Location "$projectRoot\src-tauri"
 
@@ -250,7 +292,7 @@ if (-not $SkipRust) {
 # 8. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
 if (-not $SkipRust) {
-    Write-Host "[8/$totalSteps] Cargo clippy 桌面端 (代码审查 - 禁止警告)..." -ForegroundColor Cyan
+    Step-Header "Cargo clippy 桌面端 (代码审查 - 禁止警告)..."
 
     Push-Location "$projectRoot\src-tauri"
 
@@ -272,7 +314,7 @@ if (-not $SkipRust) {
 # 9. Android Cargo Clippy (移动端代码审查)
 # ============================================
 if (-not $SkipRust -and -not $SkipAndroid) {
-    Write-Host "[9/$totalSteps] Cargo clippy Android (移动端代码审查)..." -ForegroundColor Cyan
+    Step-Header "Cargo clippy Android (移动端代码审查)..."
 
     $ndkHome = $env:NDK_HOME
     if (-not $ndkHome) {
@@ -286,11 +328,11 @@ if (-not $SkipRust -and -not $SkipAndroid) {
     }
 
     if (-not $ndkHome -or -not (Test-Path $ndkHome)) {
-        Write-Host "  ⚠ SKIP: Android NDK 未找到 (设置 NDK_HOME 或使用 -SkipAndroid)" -ForegroundColor Yellow
+        Record-Skip -Id 'clippy-android' -Reason 'Android NDK 未找到 (设置 NDK_HOME 或使用 -SkipAndroid)'
     } else {
         $targetInstalled = rustup target list --installed 2>&1 | Out-String
         if ($targetInstalled -notmatch "aarch64-linux-android") {
-            Write-Host "  ⚠ SKIP: aarch64-linux-android 目标未安装" -ForegroundColor Yellow
+            Record-Skip -Id 'clippy-android' -Reason 'aarch64-linux-android 目标未安装'
             Write-Host "    运行: rustup target add aarch64-linux-android" -ForegroundColor Gray
         } else {
             Push-Location "$projectRoot\src-tauri"
@@ -320,21 +362,65 @@ if (-not $SkipRust -and -not $SkipAndroid) {
 $endTime = Get-Date
 $duration = [math]::Round(($endTime - $startTime).TotalSeconds, 0)
 
+$canonicalTotal = 9
+$skipCount = $skipped.Count
+$ranCount = $canonicalTotal - $skipCount
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Magenta
 Write-Host "  耗时: $duration 秒"
 Write-Host "========================================" -ForegroundColor Magenta
 
-if ($allPassed) {
+if ($skipCount -gt 0) {
     Write-Host ""
-    Write-Host "  所有检查通过!" -ForegroundColor Green
-    Write-Host "  0 errors, 0 warnings" -ForegroundColor Green
-    Write-Host ""
-    exit 0
-} else {
+    Write-Host "  ⚠ 本次有 $skipCount 项被跳过（未真跑）：" -ForegroundColor Yellow
+    foreach ($s in $skipped) {
+        Write-Host "    - $($s.Id): $($s.Reason)" -ForegroundColor Yellow
+    }
+}
+
+if (-not $allPassed) {
     Write-Host ""
     Write-Host "  部分检查未通过!" -ForegroundColor Red
     Write-Host "  请修复上述问题后重试" -ForegroundColor Red
     Write-Host ""
     exit 1
 }
+
+if ($skipCount -eq 0) {
+    Write-Host ""
+    Write-Host "  所有检查通过!" -ForegroundColor Green
+    Write-Host "  $canonicalTotal/$canonicalTotal 真跑通过, 0 errors, 0 warnings" -ForegroundColor Green
+    Write-Host ""
+    exit 0
+}
+
+# 有跳过项：只有被 ALLOW_SKIP 显式放行的才算过，否则退出码 2（跳过未放行）
+$allowRaw = $env:ALLOW_SKIP
+$allowList = @()
+if ($allowRaw) {
+    $allowList = $allowRaw -split '[,\s]+' | Where-Object { $_ }
+}
+$allowAll = $allowList -contains 'all'
+$unapproved = @($skipped | Where-Object { -not ($allowAll -or ($allowList -contains $_.Id)) })
+
+if ($unapproved.Count -eq 0) {
+    Write-Host ""
+    Write-Host "  ⚠ 放行：本次有 $skipCount 项被跳过（ALLOW_SKIP 显式放行）" -ForegroundColor Yellow
+    Write-Host "  真跑通过 $ranCount/$canonicalTotal, 0 errors, 0 warnings" -ForegroundColor Green
+    Write-Host ""
+    exit 0
+}
+
+Write-Host ""
+Write-Host "  ✗ 有 $($unapproved.Count) 项被跳过且未显式放行 —— 不视为通过" -ForegroundColor Red
+foreach ($u in $unapproved) {
+    Write-Host "    - $($u.Id): $($u.Reason)" -ForegroundColor Red
+}
+Write-Host ""
+Write-Host "  真跑通过 $ranCount/$($canonicalTotal)（其余未跑）" -ForegroundColor Yellow
+Write-Host "  如确认可接受，显式放行后重跑，例如：" -ForegroundColor Yellow
+Write-Host "    `$env:ALLOW_SKIP='clippy-android'; .\scripts\test-all.ps1" -ForegroundColor Yellow
+Write-Host "    （多项用逗号分隔；`$env:ALLOW_SKIP='all' 放行全部）" -ForegroundColor Yellow
+Write-Host ""
+exit 2

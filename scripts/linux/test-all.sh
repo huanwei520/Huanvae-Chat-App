@@ -12,6 +12,16 @@
 #   ./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查
 #   ./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
 #   ./scripts/linux/test-all.sh --skip-e2e      # 跳过 Playwright E2E 测试
+#
+# 环境变量：
+#   ALLOW_SKIP="e2e,clippy-android"   显式放行被跳过的检查项（逗号或空格分隔）
+#                                     可用 id: e2e / cargo-check / clippy-desktop / clippy-android
+#   ALLOW_SKIP=all                    放行全部跳过项
+#
+# 退出码：
+#   0 = 全部真跑通过，或跳过项已被 ALLOW_SKIP 显式放行
+#   1 = 有检查项 FAIL
+#   2 = 有检查项被跳过且未显式放行（SKIP 不等于 PASS，不视为通过）
 
 set -e
 
@@ -23,6 +33,16 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 GRAY='\033[0;90m'
 NC='\033[0m'
+
+# 跳过登记表：SKIP 不等于 PASS，末尾汇总要如实列出跳了哪几项、为什么跳
+SKIPPED_IDS=()
+SKIPPED_REASONS=()
+
+record_skip() {   # $1=稳定 id  $2=人类可读原因
+    SKIPPED_IDS+=("$1")
+    SKIPPED_REASONS+=("$2")
+    echo -e "  ${YELLOW}⚠ SKIP: $2${NC}"
+}
 
 # 参数处理
 SKIP_RUST=false
@@ -50,21 +70,37 @@ echo ""
 
 START_TIME=$(date +%s)
 ALL_PASSED=true
-TOTAL_STEPS=11
-if $SKIP_RUST; then
-    TOTAL_STEPS=$((TOTAL_STEPS - 2))
+
+# 恒定执行的 7 块：NSIS / package.json / Tauri 版本 / TypeScript / ESLint / 单元测试 / 前端构建
+TOTAL_STEPS=7
+$SKIP_E2E || TOTAL_STEPS=$((TOTAL_STEPS + 1))
+if ! $SKIP_RUST; then
+    TOTAL_STEPS=$((TOTAL_STEPS + 2))
+    $SKIP_ANDROID || TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
-if $SKIP_ANDROID; then
-    TOTAL_STEPS=$((TOTAL_STEPS - 1))
-fi
+
+STEP=0
+step_header() {
+    STEP=$((STEP + 1))
+    echo -e "${CYAN}[$STEP/$TOTAL_STEPS] $1${NC}"
+}
+
+# flag 触发的跳过：一开跑就把"本次降门槛了"打在明面上
 if $SKIP_E2E; then
-    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+    record_skip e2e "--skip-e2e 参数显式跳过 Playwright E2E 测试"
+fi
+if $SKIP_RUST; then
+    record_skip cargo-check "--skip-rust 参数显式跳过 cargo check"
+    record_skip clippy-desktop "--skip-rust 参数显式跳过 cargo clippy 桌面端"
+    record_skip clippy-android "--skip-rust 参数显式跳过 cargo clippy Android"
+elif $SKIP_ANDROID; then
+    record_skip clippy-android "--skip-android 参数显式跳过 cargo clippy Android"
 fi
 
 # ============================================
 # 1. Windows NSIS 安装配置检查
 # ============================================
-echo -e "${CYAN}[1/$TOTAL_STEPS] Windows NSIS 安装配置检查...${NC}"
+step_header "Windows NSIS 安装配置检查..."
 
 TAURI_CONF="$PROJECT_ROOT/src-tauri/tauri.conf.json"
 NSIS_HOOKS="$PROJECT_ROOT/src-tauri/windows/hooks.nsi"
@@ -102,7 +138,7 @@ fi
 # ============================================
 # 2. package.json 验证
 # ============================================
-echo -e "${CYAN}[2/$TOTAL_STEPS] package.json 验证...${NC}"
+step_header "package.json 验证..."
 
 VALIDATE_RESULT=$(node -e "
 const fs = require('fs');
@@ -145,7 +181,7 @@ fi
 # ============================================
 # 3. Tauri 版本一致性检查 (Rust crate ↔ NPM)
 # ============================================
-echo -e "${CYAN}[3/$TOTAL_STEPS] Tauri 版本一致性检查 (Rust ↔ NPM)...${NC}"
+step_header "Tauri 版本一致性检查 (Rust ↔ NPM)..."
 
 TAURI_VERSION_OK=true
 TAURI_CHECK_RESULT=$(node -e "
@@ -221,7 +257,7 @@ fi
 # ============================================
 # 4. TypeScript 类型检查
 # ============================================
-echo -e "${CYAN}[4/$TOTAL_STEPS] TypeScript 类型检查...${NC}"
+step_header "TypeScript 类型检查..."
 
 if pnpm tsc --noEmit 2>&1; then
     echo -e "  ${GREEN}✓ PASS: TypeScript${NC}"
@@ -233,7 +269,7 @@ fi
 # ============================================
 # 5. ESLint 代码检查 (严格模式)
 # ============================================
-echo -e "${CYAN}[5/$TOTAL_STEPS] ESLint 代码检查 (0 errors, 0 warnings)...${NC}"
+step_header "ESLint 代码检查 (0 errors, 0 warnings)..."
 
 ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
 ESLINT_EXIT=$?
@@ -256,7 +292,7 @@ fi
 # ============================================
 # 6. 单元测试
 # ============================================
-echo -e "${CYAN}[6/$TOTAL_STEPS] 单元测试...${NC}"
+step_header "单元测试..."
 
 TEST_OUTPUT=$(pnpm test --run 2>&1) || true
 TEST_EXIT=$?
@@ -279,7 +315,7 @@ fi
 # 7. E2E 测试 (Playwright)
 # ============================================
 if ! $SKIP_E2E; then
-    echo -e "${CYAN}[7/$TOTAL_STEPS] E2E 视觉回归测试 (Playwright)...${NC}"
+    step_header "E2E 视觉回归测试 (Playwright)..."
 
     E2E_OUTPUT=$(npx playwright test 2>&1) || true
     E2E_EXIT=$?
@@ -302,7 +338,7 @@ fi
 # ============================================
 # 8. 前端构建测试 (检查警告)
 # ============================================
-echo -e "${CYAN}[8/$TOTAL_STEPS] 前端构建测试 (检查警告)...${NC}"
+step_header "前端构建测试 (检查警告)..."
 
 BUILD_OUTPUT=$(pnpm build 2>&1) || true
 BUILD_EXIT=$?
@@ -338,7 +374,7 @@ fi
 # 9. Cargo Check (基础编译检查)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[9/$TOTAL_STEPS] Cargo check (编译检查)...${NC}"
+    step_header "Cargo check (编译检查)..."
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -363,7 +399,7 @@ fi
 # 10. Cargo Clippy (代码审查 - 严格模式)
 # ============================================
 if ! $SKIP_RUST; then
-    echo -e "${CYAN}[10/$TOTAL_STEPS] Cargo clippy 桌面端 (代码审查 - 禁止警告)...${NC}"
+    step_header "Cargo clippy 桌面端 (代码审查 - 禁止警告)..."
     
     cd "$PROJECT_ROOT/src-tauri"
     
@@ -386,7 +422,7 @@ fi
 # 11. Android Cargo Clippy (移动端代码审查)
 # ============================================
 if ! $SKIP_RUST && ! $SKIP_ANDROID; then
-    echo -e "${CYAN}[11/$TOTAL_STEPS] Cargo clippy Android (移动端代码审查)...${NC}"
+    step_header "Cargo clippy Android (移动端代码审查)..."
     
     # 检查 Android NDK 是否存在
     if [[ -z "$NDK_HOME" ]]; then
@@ -399,11 +435,11 @@ if ! $SKIP_RUST && ! $SKIP_ANDROID; then
     fi
     
     if [[ -z "$NDK_HOME" || ! -d "$NDK_HOME" ]]; then
-        echo -e "  ${YELLOW}⚠ SKIP: Android NDK 未找到 (设置 NDK_HOME 或使用 --skip-android)${NC}"
+        record_skip clippy-android "Android NDK 未找到 (设置 NDK_HOME 或使用 --skip-android)"
     else
         # 检查目标是否已安装
         if ! rustup target list --installed | grep -q "aarch64-linux-android"; then
-            echo -e "  ${YELLOW}⚠ SKIP: aarch64-linux-android 目标未安装${NC}"
+            record_skip clippy-android "aarch64-linux-android 目标未安装"
             echo -e "  ${GRAY}  运行: rustup target add aarch64-linux-android${NC}"
         else
             cd "$PROJECT_ROOT/src-tauri"
@@ -434,21 +470,75 @@ fi
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
+# 全量口径固定 11 项，与本脚本的 11 个检查块一一对应；跳过项不计入"真跑通过"
+CANONICAL_TOTAL=11
+SKIP_COUNT=${#SKIPPED_IDS[@]}
+RAN_COUNT=$((CANONICAL_TOTAL - SKIP_COUNT))
+
+# ALLOW_SKIP: 逗号或空格分隔的跳过项 id 白名单；特殊值 all 放行全部
+ALLOW_SKIP="${ALLOW_SKIP:-}"
+allow_list=$(echo "$ALLOW_SKIP" | tr ',' ' ')
+is_allowed() {   # $1=id；ALLOW_SKIP 里出现 all 则放行全部
+    local a
+    for a in $allow_list; do
+        if [[ "$a" == "all" || "$a" == "$1" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 echo ""
 echo -e "${MAGENTA}========================================${NC}"
 echo -e "  耗时: ${DURATION} 秒"
 echo -e "${MAGENTA}========================================${NC}"
 
-if $ALL_PASSED; then
+if [[ $SKIP_COUNT -gt 0 ]]; then
     echo ""
-    echo -e "  ${GREEN}所有检查通过!${NC}"
-    echo -e "  ${GREEN}0 errors, 0 warnings${NC}"
-    echo ""
-    exit 0
-else
+    echo -e "  ${YELLOW}⚠ 本次有 $SKIP_COUNT 项被跳过（未真跑）${NC}"
+    for i in "${!SKIPPED_IDS[@]}"; do
+        echo -e "  ${YELLOW}- ${SKIPPED_IDS[$i]}: ${SKIPPED_REASONS[$i]}${NC}"
+    done
+fi
+
+if ! $ALL_PASSED; then
     echo ""
     echo -e "  ${RED}部分检查未通过!${NC}"
     echo -e "  ${RED}请修复上述问题后重试${NC}"
     echo ""
     exit 1
 fi
+
+if [[ $SKIP_COUNT -eq 0 ]]; then
+    echo ""
+    echo -e "  ${GREEN}所有检查通过!${NC}"
+    echo -e "  ${GREEN}$CANONICAL_TOTAL/$CANONICAL_TOTAL 真跑通过, 0 errors, 0 warnings${NC}"
+    echo ""
+    exit 0
+fi
+
+# 走到这里：无 FAIL，但有跳过项 —— 必须 ALLOW_SKIP 显式放行才算通过
+UNALLOWED_IDS=()
+for id in "${SKIPPED_IDS[@]}"; do
+    if ! is_allowed "$id"; then
+        UNALLOWED_IDS+=("$id")
+    fi
+done
+
+if [[ ${#UNALLOWED_IDS[@]} -eq 0 ]]; then
+    echo ""
+    echo -e "  ${YELLOW}⚠ 放行：本次有 $SKIP_COUNT 项被跳过（ALLOW_SKIP 显式放行）${NC}"
+    echo -e "  ${GREEN}真跑通过 $RAN_COUNT/$CANONICAL_TOTAL, 0 errors, 0 warnings${NC}"
+    echo ""
+    exit 0
+fi
+
+echo ""
+echo -e "  ${RED}✗ 有 ${#UNALLOWED_IDS[@]} 项被跳过且未显式放行 —— 不视为通过${NC}"
+for id in "${UNALLOWED_IDS[@]}"; do
+    echo -e "  ${RED}- $id${NC}"
+done
+echo -e "  ${GRAY}如确需放行: ALLOW_SKIP=\"id1,id2\" ./scripts/linux/test-all.sh ...${NC}"
+echo -e "  ${GRAY}（ALLOW_SKIP=all 放行全部；真跑通过 ${RAN_COUNT}/${CANONICAL_TOTAL}）${NC}"
+echo ""
+exit 2
