@@ -1,9 +1,0 @@
-{
-  "_comment": "Pinned build input for the Windows VPN service binary. It is NOT built from this repo and is NOT committed here (see .gitignore); scripts/dev/fetch-hg-windows.mjs fetches it at build time and verifies it against the sha256 below. The upstream artifact is named hg-windows.exe; it is written to the target path below under the name the NSIS post-install hook and scripts/dev/hg-service.ps1 expect. Re-pin sha256 + size + target_triple whenever a new build is published.",
-  "platform": "win32",
-  "arch": "x86_64",
-  "target_triple": "x86_64-pc-windows-gnu",
-  "target": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
-  "sha256": "356671a431c30dc756101bcfee95999b8fd35df7b1f53036d9b02a9082a637d6",
-  "size": 2904064
-}

@@ -1,8 +1,0 @@
-{
-  "_comment": "Pinned build input for the macOS VPN daemon binary. It is NOT built from this repo and is NOT committed here (see .gitignore); scripts/dev/fetch-hg-macos.mjs fetches it at build time and verifies it against the sha256 below. Re-pin sha256 + size whenever a new daemon build is published.",
-  "platform": "darwin",
-  "arch": "arm64",
-  "target": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
-  "sha256": "d713c41f21cc15f7d5b5c36158d5e2ee875852d7ae2a64167c3cce6d1b9cdb28",
-  "size": 2530736
-}
