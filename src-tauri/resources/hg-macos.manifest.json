@@ -3,6 +3,6 @@
   "platform": "darwin",
   "arch": "arm64",
   "target": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
-  "sha256": "5772d0be2296b560b10766d4f07ca3ca2b0f48c54b00107aad846e462f01eace",
+  "sha256": "d713c41f21cc15f7d5b5c36158d5e2ee875852d7ae2a64167c3cce6d1b9cdb28",
   "size": 2530736
 }
