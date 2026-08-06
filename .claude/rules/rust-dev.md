@@ -464,3 +464,56 @@ osascript 以 **root** 执行拼接的 shell 命令时：
 ### 一次做对（2026-06-04 macOS HuanvaeGuard daemon 安装）
 
 mod 层 `#[cfg(target_os="macos")]`（不踩 2026-05-24 Windows huanvaeguard 的 dead_code 陷阱）、命令双分支占位、注入防护单引号包裹+guard、纯函数+单测。code-review + 盲审双过，cargo check/clippy 0 warning，1077 vitest 全绿。
+
+### `Bootstrap failed: 5: Input/output error` 是四种成因合并的一句话（2026-08-06 逐一隔离实测）
+
+`launchctl bootstrap system <plist>` 对下面四种**互不相同**的状况报的是**同一句** `Bootstrap failed: 5: Input/output error`——错误码本身零信息量，不能据它猜成因：
+
+| 成因 | 安装链里由谁排除 |
+|------|-----------------|
+| (a) 服务已经加载 | `launchctl bootout system <plist>` |
+| (b) 该标签在 launchd 的 override 库里被标记为**禁用** | **只有 `launchctl enable`**（见下） |
+| (c) plist 属主不是 root:wheel | `chown root:wheel` |
+| (d) plist 组 / 其他人可写 | `chmod 644` |
+
+对照组（实测**不会**触发 error 5，别往这几个方向排查）：Program 指向的二进制不存在、二进制无执行位、plist 带 `com.apple.quarantine` 隔离属性 —— 这三种情况 bootstrap **返回 0**（服务加载成功，起不来是之后的事）。
+
+**真因只能从 launchd 自己的日志里看**，它会说出被合并掉的那一句：
+
+```
+launchd[1] [system:] Bootstrap by launchctl[…] for <private> failed (119: Service is disabled)
+```
+
+**(b) 是 `bootout` 清不掉的**：bootout 只卸载"已加载"的服务，根本不碰 override 库。所以"bootout 失败就重试 bootout + bootstrap"这种幂等写法对它**恒失败**（实测反复重跑无一次成功）——用户侧表现就是"安装/修复按钮每次都失败"。唯一解法是在 bootstrap 之前插一步：
+
+```sh
+launchctl bootout system '/Library/LaunchDaemons/<label>.plist' 2>/dev/null
+launchctl enable system/<label>          # ← 解除禁用 override，缺它则 (b) 无解
+launchctl bootstrap system '/Library/LaunchDaemons/<label>.plist' || exit 14
+```
+
+实测 `enable` 之后 bootstrap 返回 0、服务达到 `state = running`。
+
+**用户怎么落下这条 override**：在**系统设置 → 通用 → 登录项与扩展**里把本应用的后台项关掉；或此前执行过 `launchctl disable` / `launchctl unload -w`。因此 bootstrap 失败的用户文案要给的恢复动作是"回登录项与扩展里重新启用本应用的后台项再重试"，**不是**"可能有同名服务未卸载"（那种情况 bootout 早已处理，写出来纯属误导）。
+
+### `launchctl` 两种寻址形式：service target（斜杠）vs domain + plist 路径（空格）
+
+同一条命令链里两种形式混着用，写混了会静默不生效或报参数错：
+
+| 命令 | 形式 | 写法 |
+|------|------|------|
+| `enable` / `disable` | **service target** | `launchctl enable system/com.example.daemon`（斜杠 + **服务标签**）|
+| `bootstrap` / `bootout` | **domain + plist 路径** | `launchctl bootstrap system /Library/LaunchDaemons/x.plist`（空格 + **文件路径**）|
+
+由此派生一条代码约束：service target 用的**标签**必须与 plist 里 `<key>Label</key>` 的值严格相等 —— `launchctl enable` 对**不存在**的标签是**静默成功**的，两边写歪了不报任何错，只表现为"修复还是失败"。所以标签要提成常量（`DAEMON_LABEL`）并用单测把它与打包 plist 模板的 `Label` 值钉死（`daemon_label_matches_bundled_plist_template`）。
+
+### 发货二进制与 plist 参数必须同版本：加一条静态守卫
+
+同批还踩到另一个独立缺陷：plist 传了 `--api-listen`，但打包进 .app 的守护进程是**不认识该开关**的旧构建 → 进程启动即退 → `KeepAlive` 下崩溃循环 → 用户点多少次修复都没用，而**安装链每一步都"成功"**，没有任何地方会报错。
+
+守卫（`bundled_daemon_binary_understands_every_flag_in_bundled_plist`）：扫打包 plist 里所有以 `--` 开头的 `<string>` 值，逐个断言其字节出现在打包二进制里。两个细节别写错：
+
+- **按字节搜**（`windows()`），不要先 `String::from_utf8` —— Mach-O 不是合法 UTF-8，转换必失败。
+- **先断言扫描结果非空**再进循环：扫描逻辑或模板格式一变，空集合会让循环空转、测试**假通过**。
+
+配套再加一条 PUBLIC 仓脱敏守卫（`bundled_daemon_binary_leaks_no_build_host_paths`）：同一份字节里断言不含 `/Users/`、`/home/`、`C:\Users`。这个二进制既进仓也随 release 产物发出去，rustc 默认会把编译机绝对路径烘进 panic 位置等元数据 —— 等于公开构建机目录布局（含用户名）。发货前必须已做 `--remap-path-prefix`。这条把发布 skill 里"对 tracked 二进制跑 `strings` 扫"的人工动作常态化成了 `cargo test` 的一部分。

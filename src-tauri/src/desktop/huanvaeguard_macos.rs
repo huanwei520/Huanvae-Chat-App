@@ -24,6 +24,13 @@ use std::process::Command;
 const DAEMON_BIN_DST: &str = "/usr/local/bin/hg-macos";
 /// 安装后的 LaunchDaemon plist 路径
 const PLIST_DST: &str = "/Library/LaunchDaemons/com.huanvaeguard.daemon.plist";
+/// LaunchDaemon 的服务标签 —— `launchctl` 的 **service target** 用它寻址（`system/<label>`）。
+///
+/// **必须与打包 plist 模板里 `<key>Label</key>` 的取值完全一致**：不一致时
+/// `launchctl enable system/<label>` 会作用在一个不存在的服务上（静默返回，不报错），
+/// 随后的 bootstrap 照样被禁用 override 挡下，而错误信息里看不出任何线索。
+/// 测试 `daemon_label_matches_bundled_plist_template` 把两者钉死。
+const DAEMON_LABEL: &str = "com.huanvaeguard.daemon";
 /// 守护进程本地控制端口（回环）的默认值。
 ///
 /// 守护进程自身不带参数时也是绑这个端口，所以在"本机没有别的实例"的普通用户机上，
@@ -331,6 +338,24 @@ fn path_is_shell_safe(p: &str) -> bool {
     !p.contains('\'')
 }
 
+/// 提权安装实际执行的那条 shell 命令串（纯函数，便于对**步骤顺序**做单测）。
+///
+/// 两个入参是已过 `path_is_shell_safe` 的源路径；命令语义、中止链与
+/// bootout → enable → bootstrap 的顺序理由见 `run_install_with_admin` 的文档注释。
+fn install_shell(src_bin: &str, src_plist: &str) -> String {
+    format!(
+        "echo HGSTEP=mkdir >&2; mkdir -p /usr/local/bin /var/log/huanvaeguard || exit 11; \
+         echo HGSTEP=copybin >&2; cp '{src_bin}' '{DAEMON_BIN_DST}' || exit 12; \
+         chmod 755 '{DAEMON_BIN_DST}' || exit 12; \
+         xattr -dr com.apple.quarantine '{DAEMON_BIN_DST}' 2>/dev/null; \
+         echo HGSTEP=copyplist >&2; cp '{src_plist}' '{PLIST_DST}' || exit 13; \
+         chown root:wheel '{PLIST_DST}' || exit 13; chmod 644 '{PLIST_DST}' || exit 13; \
+         echo HGSTEP=bootstrap >&2; launchctl bootout system '{PLIST_DST}' 2>/dev/null; \
+         launchctl enable system/{DAEMON_LABEL}; \
+         launchctl bootstrap system '{PLIST_DST}' || exit 14",
+    )
+}
+
 /// 用 `osascript ... with administrator privileges` 一次性提权执行安装命令。
 ///
 /// **失败即中止 + 步骤可归因**：每步先往 stderr 打一条 `HGSTEP=<步骤>` 标记，再用
@@ -340,8 +365,32 @@ fn path_is_shell_safe(p: &str) -> bool {
 ///
 /// 个人测试阶段对二进制 `xattr -dr com.apple.quarantine` 绕 Gatekeeper（无 Developer ID 公证）；
 /// 该步失败不影响安装，故保持 `;` 不参与中止判定。
-/// 幂等：先 `launchctl bootout`（清可能残留的旧实例，未加载时报错被忽略）再 `bootstrap`，
-/// 这样半装/残留状态下重跑也能成功（macOS 11+ 均支持 bootout/bootstrap）。
+/// 幂等：先 `launchctl bootout`（清可能残留的旧实例，未加载时报错被忽略）、再
+/// `launchctl enable`（解除"服务被禁用"标记）、最后 `bootstrap`，这样半装 / 残留 / 被禁用
+/// 状态下重跑都能成功（macOS 11+ 均支持 bootout/bootstrap）。
+///
+/// **为什么必须有 enable 这一步**：`launchctl bootstrap` 对至少四种完全不同的状况都只报
+/// 同一句 `Bootstrap failed: 5: Input/output error`（逐一隔离实测）——
+///   1. 服务已经加载；
+///   2. 该标签在 launchd 的 override 库里被标记为**禁用**；
+///   3. plist 属主不是 root:wheel；
+///   4. plist 组 / 其他人可写。
+///
+/// 3 和 4 由上面的 `chown root:wheel` + `chmod 644` 排除，1 由 `bootout` 排除，唯独 2
+/// **`bootout` 清不掉** —— bootout 只卸载"已加载"的服务，不碰 override 库。真因只在
+/// launchd 自己的日志里说得出来：`failed (119: Service is disabled)`。用户在
+/// 「系统设置 → 通用 → 登录项与扩展」里关掉本应用的后台项，或此前跑过 `launchctl disable` /
+/// `launchctl unload -w`，都会落下这条 override；此后反复 bootout + bootstrap 永远失败
+///（"安装/修复"按钮每次都失败就是这么来的），只有 `launchctl enable` 能解除。
+///
+/// enable 步**故意不进 `|| exit` 中止链**（与上面 xattr 同款豁免，写 `;` 收尾）：它只是
+/// "清一个可能根本不存在的 override"，绝大多数机器上本就无 override 可清；真出问题时紧随
+/// 其后的 bootstrap 会立刻失败并带出真实错误，让 enable 自己 `|| exit` 反而会用一个
+/// 更含糊的失败盖掉后面那条更有信息量的。
+///
+/// 注意两者**寻址形式不同**：`enable` 收的是 **service target**（`system/<label>`，斜杠、
+/// 用服务标签），而这里的 `bootout` / `bootstrap` 收的是 **domain + plist 路径**
+///（`system <path>`，空格、用文件路径）——写混了命令会静默不生效或报参数错。
 ///
 /// `staged_plist` 是**渲染后**的 plist（占位符已换成本次实例名 + 监听地址），位于
 /// `write_staged_plist` 交代的私有暂存目录；这里拷的是它，不是打包资源里的模板。
@@ -355,16 +404,7 @@ fn run_install_with_admin(bin: &Path, staged_plist: &Path) -> Result<(), String>
         return Err("安装路径含单引号，拒绝执行提权安装".to_string());
     }
 
-    let shell = format!(
-        "echo HGSTEP=mkdir >&2; mkdir -p /usr/local/bin /var/log/huanvaeguard || exit 11; \
-         echo HGSTEP=copybin >&2; cp '{src_bin}' '{DAEMON_BIN_DST}' || exit 12; \
-         chmod 755 '{DAEMON_BIN_DST}' || exit 12; \
-         xattr -dr com.apple.quarantine '{DAEMON_BIN_DST}' 2>/dev/null; \
-         echo HGSTEP=copyplist >&2; cp '{src_plist}' '{PLIST_DST}' || exit 13; \
-         chown root:wheel '{PLIST_DST}' || exit 13; chmod 644 '{PLIST_DST}' || exit 13; \
-         echo HGSTEP=bootstrap >&2; launchctl bootout system '{PLIST_DST}' 2>/dev/null; \
-         launchctl bootstrap system '{PLIST_DST}' || exit 14",
-    );
+    let shell = install_shell(&src_bin, &src_plist);
 
     // AppleScript 字符串内的 `\` 和 `"` 需转义；shell 内用单引号包路径，通常无 `"`。
     let escaped = shell.replace('\\', "\\\\").replace('"', "\\\"");
@@ -407,9 +447,14 @@ fn classify_install_failure(stderr: &str) -> String {
     });
 
     match step {
+        // 这一步的原始错误几乎总是泛化的 `Bootstrap failed: 5: Input/output error`，
+        // 它把四种成因合并成一句（见 run_install_with_admin）。安装链已经把其中三种
+        //（已加载 / 属主 / 权限）排除掉了，剩下唯一还可能剩下、且**只能由用户自己解**的
+        // 是"这台机器把本应用的后台项关掉了"，所以文案直接给这条恢复路径，
+        // 不再泛泛说"可能已有同名服务未卸载"（那种情况 bootout 早已处理，属误导）。
         Some("bootstrap") => format!(
-            "文件已就位，但 launchctl 加载服务失败：可能已有同名服务未卸载，\
-             或系统拒绝了该 LaunchDaemon 配置。原始输出：{raw}"
+            "文件已就位，但系统拒绝加载后台服务。请打开「系统设置 → 通用 → 登录项与扩展」，\
+             把本应用的后台项重新启用，然后回来再点一次「安装/修复服务」。原始输出：{raw}"
         ),
         Some("copyplist") => format!(
             "写入 LaunchDaemon 配置到 /Library/LaunchDaemons 失败：\
@@ -666,7 +711,7 @@ mod tests {
         assert!(msg.contains("管理员密码"), "实际: {msg}");
         assert!(msg.contains("授权被取消"), "实际: {msg}");
         // 取消授权不该被归到任何具体安装步骤上。
-        assert!(!msg.contains("launchctl 加载服务失败"), "实际: {msg}");
+        assert!(!msg.contains("系统拒绝加载后台服务"), "实际: {msg}");
         assert!(!msg.contains("原始输出"), "实际: {msg}");
     }
 
@@ -676,7 +721,7 @@ mod tests {
         let msg = classify_install_failure(
             "HGSTEP=mkdir\nHGSTEP=copybin\nHGSTEP=bootstrap\nBootstrap failed: 5",
         );
-        assert!(msg.contains("launchctl 加载服务失败"), "实际: {msg}");
+        assert!(msg.contains("系统拒绝加载后台服务"), "实际: {msg}");
         assert!(msg.contains("Bootstrap failed: 5"), "实际: {msg}");
         assert!(!msg.contains("/usr/local/bin 失败"), "实际: {msg}");
     }
@@ -691,6 +736,163 @@ mod tests {
             msg.contains("cp: /usr/local/bin/hg-macos: Permission denied"),
             "实际: {msg}"
         );
-        assert!(!msg.contains("launchctl 加载服务失败"), "实际: {msg}");
+        assert!(!msg.contains("系统拒绝加载后台服务"), "实际: {msg}");
+    }
+
+    // ── 以下四条守 2026-08-06 那次 P0：「安装/修复」按钮每次都失败 ──────────────
+    // 真因是两件互相独立的事凑在一起：launchd 侧的禁用 override 让 bootstrap 恒失败，
+    // 以及发货的守护进程二进制是不认识 `--api-listen` 的旧构建。两者各配一条守卫。
+
+    /// 从 plist XML 里取 `<key>Label</key>` **紧随其后**的 `<string>…</string>` 值。
+    ///
+    /// 与 `parse_api_listen_port` 同款字符串扫描：plist 是我们自己写的、形状固定，
+    /// 为读一个键值引入 XML 解析依赖不划算。
+    fn parse_plist_label(xml: &str) -> Option<&str> {
+        const KEY: &str = "<key>Label</key>";
+        const OPEN: &str = "<string>";
+        const CLOSE: &str = "</string>";
+
+        let after_key = &xml[xml.find(KEY)? + KEY.len()..];
+        let value_start = after_key.find(OPEN)? + OPEN.len();
+        let rest = &after_key[value_start..];
+        Some(rest[..rest.find(CLOSE)?].trim())
+    }
+
+    /// 扫出 plist 里所有"以 `--` 开头"的 `<string>` 值 = 实际传给守护进程的命令行开关。
+    fn plist_flag_arguments(xml: &str) -> Vec<&str> {
+        const OPEN: &str = "<string>";
+        const CLOSE: &str = "</string>";
+
+        let mut flags = Vec::new();
+        let mut rest: &str = xml;
+        while let Some(open_at) = rest.find(OPEN) {
+            let after_open = &rest[open_at + OPEN.len()..];
+            let Some(close_at) = after_open.find(CLOSE) else {
+                break;
+            };
+            let value = after_open[..close_at].trim();
+            if value.starts_with("--") {
+                flags.push(value);
+            }
+            rest = &after_open[close_at + CLOSE.len()..];
+        }
+        flags
+    }
+
+    /// 打包进 .app 的守护进程二进制本体（发货件），按字节读。
+    ///
+    /// 刻意不做 UTF-8 转换 —— 它是 Mach-O，转不成字符串。
+    fn bundled_daemon_bytes() -> Vec<u8> {
+        const PATH: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/HuanvaeGuard-macos/hg-macos"
+        );
+        std::fs::read(PATH).unwrap_or_else(|e| panic!("读取打包守护进程二进制失败（{PATH}）：{e}"))
+    }
+
+    fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn daemon_label_matches_bundled_plist_template() {
+        // DAEMON_LABEL 只在 `launchctl enable system/<label>` 里出现，而 enable 对不存在的
+        // 服务标签是**静默成功**的 —— 两边写歪了不会有任何报错，只会表现为"修复还是失败"。
+        let label = parse_plist_label(BUNDLED_PLIST_TEMPLATE).expect("打包模板必须有 Label 键");
+        assert_eq!(
+            label, DAEMON_LABEL,
+            "enable 用的服务标签必须与打包 plist 的 Label 一致"
+        );
+    }
+
+    #[test]
+    fn install_shell_enables_service_between_bootout_and_bootstrap() {
+        let shell = install_shell(
+            "/tmp/src/hg-macos",
+            "/tmp/staged/com.huanvaeguard.daemon.plist",
+        );
+
+        let bootout = shell
+            .find("launchctl bootout")
+            .expect("提权安装必须先 bootout 清残留");
+        let enable = shell
+            .find(&format!("launchctl enable system/{DAEMON_LABEL}"))
+            .expect("提权安装必须显式 enable 服务标签，否则禁用 override 让 bootstrap 恒失败");
+        let bootstrap = shell
+            .find("launchctl bootstrap")
+            .expect("提权安装必须 bootstrap 加载服务");
+
+        // 顺序就是这条修复的全部：enable 排在 bootstrap **之后**等于没解除 override，
+        // 本次 bootstrap 照样失败（下次安装才受益）—— 所以断言的是相对位置，不是"出现过"。
+        assert!(
+            bootout < enable,
+            "enable 应在 bootout 之后（先卸载再解禁）：\n{shell}"
+        );
+        assert!(
+            enable < bootstrap,
+            "enable 必须在 bootstrap 之前，否则本次加载仍被禁用 override 挡下：\n{shell}"
+        );
+    }
+
+    #[test]
+    fn bundled_daemon_binary_understands_every_flag_in_bundled_plist() {
+        // 发过一次事故：plist 传了 `--api-listen`，打包的却是不认识该开关的旧构建 →
+        // 守护进程启动即退 → KeepAlive 崩溃循环 → 用户点多少次「修复」都没用，
+        // 而安装链本身每一步都"成功"，没有任何地方会报错。这条把"plist 写的开关"
+        // 与"发货二进制真认识的开关"钉在一起。
+        let flags = plist_flag_arguments(BUNDLED_PLIST_TEMPLATE);
+        assert!(
+            !flags.is_empty(),
+            "没从打包 plist 扫出任何 `--` 开头的参数：扫描逻辑或模板格式变了。\
+             此时下面的逐个断言会空转通过（假测试），必须先修扫描再谈这条测试的结论"
+        );
+        assert!(
+            flags.contains(&"--api-listen"),
+            "扫描结果里没有 --api-listen（实际扫到 {flags:?}）：\
+             它正是当年翻车的那个开关，丢了它这条守卫就失去了核心覆盖"
+        );
+
+        let bin = bundled_daemon_bytes();
+        for flag in flags {
+            assert!(
+                contains_bytes(&bin, flag.as_bytes()),
+                "打包的守护进程二进制里找不到开关 {flag}：发货的是不认识该开关的旧构建，\
+                 装上去必然起不来"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_daemon_binary_leaks_no_build_host_paths() {
+        // 本仓是 PUBLIC 仓，这个二进制既进仓也随 release 产物发出去。编译机的绝对路径
+        // 会被 rustc 烘进 panic 位置等元数据里，泄露的是构建机的目录布局（含用户名）。
+        // 发货前必须已做路径重映射（--remap-path-prefix），这条守卫替脱敏核把这一项常态化。
+        let bin = bundled_daemon_bytes();
+        for leak in [&b"/Users/"[..], b"/home/", b"C:\\Users"] {
+            assert!(
+                !contains_bytes(&bin, leak),
+                "打包的守护进程二进制里烘进了编译机绝对路径片段 {}：\
+                 PUBLIC 仓发货件必须先做路径重映射再放进来",
+                String::from_utf8_lossy(leak)
+            );
+        }
+    }
+
+    #[test]
+    fn classify_bootstrap_failure_points_at_login_items_recovery() {
+        let msg = classify_install_failure(
+            "HGSTEP=copyplist\nHGSTEP=bootstrap\nBootstrap failed: 5: Input/output error",
+        );
+        // error 5 把四种成因合成一句，其中安装链没法自己解决、只能由用户动手的那种，
+        // 就是"后台项被关掉"（launchd 记的禁用 override）。文案必须给出这条具体路径。
+        assert!(msg.contains("系统设置"), "实际: {msg}");
+        assert!(msg.contains("登录项与扩展"), "实际: {msg}");
+        // 原始输出必须留着 —— 上面那条路径解不了时，它是唯一还能往下查的线索。
+        assert!(
+            msg.contains("Bootstrap failed: 5: Input/output error"),
+            "实际: {msg}"
+        );
+        // 用户可见文案不许出现任何内部组件标签（PUBLIC 仓红线）。
+        assert!(!msg.contains("com.huanvae"), "实际: {msg}");
     }
 }
