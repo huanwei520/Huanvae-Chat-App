@@ -15,8 +15,10 @@
     2. 检查当前项目版本号一致性（package.json / Cargo.toml / tauri.conf.json）
     3. 对比配置版本与当前版本
     4. 如果版本不一致，先更新所有版本号
-    5. 运行完整测试（前后端 0 errors, 0 warnings）
-    6. 测试通过后自动进行 Git 提交、创建标签、推送发布
+    5. 从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进 App 落点
+       （失败即中止，绝不回落仓里的旧二进制继续发布）
+    6. 运行完整测试（前后端 0 errors, 0 warnings）
+    7. 测试通过后自动进行 Git 提交、创建标签、推送发布
 
 测试标准:
     - 除了以下已知无害警告外，必须 0 errors, 0 warnings：
@@ -122,7 +124,7 @@ Write-Host ""
 # ============================================
 # 步骤 1: 检查当前版本号一致性
 # ============================================
-Print-Step "1/6" "检查当前项目版本号一致性..."
+Print-Step "1/7" "检查当前项目版本号一致性..."
 
 $pkgContent = [System.IO.File]::ReadAllText("$ProjectRoot\package.json", $Utf8NoBom)
 $PkgVersion = ""
@@ -158,7 +160,7 @@ if ($PkgVersion -eq $CargoVersion -and $CargoVersion -eq $TauriVersion) {
 # ============================================
 # 步骤 2: 对比目标版本与当前版本
 # ============================================
-Print-Step "2/6" "对比目标版本与当前版本..."
+Print-Step "2/7" "对比目标版本与当前版本..."
 
 Write-Host "  当前版本: v$CurrentVersion" -ForegroundColor Gray
 Write-Host "  目标版本: v$TargetVersion" -ForegroundColor Gray
@@ -221,9 +223,41 @@ if ($CurrentVersion -eq $TargetVersion) {
 }
 
 # ============================================
-# 步骤 3: 运行完整测试
+# 步骤 3: 从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换
 # ============================================
-Print-Step "3/6" "运行完整代码质量测试..."
+# 发货的两个 VPN 守护进程二进制长期是"手工放进去、来源不明、无人验证"的仓内死文件，
+# 已连续造成两起生产故障（发货件落后于当前契约 / 签名形态不被系统服务管理器接受）。
+# 这一步把它们改成"每次发布前从源码构建 → 校验 → 替换"的可复现产物，且失败即中止发布。
+Print-Step "3/7" "从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换..."
+
+& powershell -ExecutionPolicy Bypass -File "$ScriptDir\build-hg-binaries.ps1"
+$BuildHgExit = $LASTEXITCODE
+
+if ($BuildHgExit -ne 0) {
+    Write-Host ""
+    Print-Error "VPN 二进制构建/替换失败 —— 发布中止。不使用仓里的旧二进制兜底继续发布（两起生产故障的根因就是发了来源不明、无人验证的旧二进制）。"
+    Write-Host ""
+
+    if ($VersionUpdated) {
+        Write-Host "提示: 版本号已更新到 v$TargetVersion，可以继续修复问题后重新运行发布脚本" -ForegroundColor Yellow
+    }
+    exit 1
+}
+
+$HgManifest = "$ProjectRoot\src-tauri\resources\hg-build-manifest.json"
+if (Test-Path $HgManifest) {
+    Write-Host ""
+    Write-Host "  build manifest (src-tauri\resources\hg-build-manifest.json):" -ForegroundColor Gray
+    Get-Content $HgManifest -Encoding UTF8 | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
+}
+
+Print-Ok "VPN 二进制已从源码构建、校验并替换到位"
+
+# ============================================
+# 步骤 4: 运行完整测试
+# ============================================
+Print-Step "4/7" "运行完整代码质量测试..."
 Write-Host ""
 Write-Host "  测试标准: 前后端 0 errors, 0 warnings" -ForegroundColor Yellow
 Write-Host "  (忽略: Vite动态导入提示、已标记的await-in-loop、console调试日志)" -ForegroundColor Gray
@@ -260,9 +294,9 @@ if ($env:ALLOW_SKIP) {
 }
 
 # ============================================
-# 步骤 4: 同步依赖
+# 步骤 5: 同步依赖
 # ============================================
-Print-Step "4/6" "同步 pnpm-lock.yaml..."
+Print-Step "5/7" "同步 pnpm-lock.yaml..."
 
 $installResult = pnpm install --frozen-lockfile 2>&1 | Out-String
 if ($LASTEXITCODE -eq 0) {
@@ -278,9 +312,9 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ============================================
-# 步骤 5: Git 提交和标签
+# 步骤 6: Git 提交和标签
 # ============================================
-Print-Step "5/6" "Git 提交和创建标签..."
+Print-Step "6/7" "Git 提交和创建标签..."
 
 $CommitMsg = "v${TargetVersion}: $ReleaseMessage"
 
@@ -309,9 +343,9 @@ git tag "v$TargetVersion" $releaseSha
 if (-not (Assert-TagPointsAtHead "v$TargetVersion")) { exit 1 }
 
 # ============================================
-# 步骤 6: 自动推送到 GitHub
+# 步骤 7: 自动推送到 GitHub
 # ============================================
-Print-Step "6/6" "推送到 GitHub..."
+Print-Step "7/7" "推送到 GitHub..."
 
 Write-Host ""
 Write-Host "  推送分支: main" -ForegroundColor White

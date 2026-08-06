@@ -11,8 +11,10 @@
 # 2. 检查当前项目版本号一致性（package.json / Cargo.toml / tauri.conf.json）
 # 3. 对比配置版本与当前版本
 # 4. 如果版本不一致，先更新所有版本号
-# 5. 运行完整测试（前后端 0 errors, 0 warnings）
-# 6. 测试通过后自动进行 Git 提交、创建标签（并校验标签指向当前 HEAD，
+# 5. 从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进 App 落点
+#    （失败即中止，绝不回落仓里的旧二进制继续发布）
+# 6. 运行完整测试（前后端 0 errors, 0 warnings）
+# 7. 测试通过后自动进行 Git 提交、创建标签（并校验标签指向当前 HEAD，
 #    不一致即中止且不推送）、推送发布
 #
 # ## 使用方法
@@ -140,7 +142,7 @@ echo ""
 # ============================================
 # 步骤 1: 检查当前版本号一致性
 # ============================================
-print_step "1/6" "检查当前项目版本号一致性..."
+print_step "1/7" "检查当前项目版本号一致性..."
 
 # 读取各文件版本号
 PKG_VERSION=$(grep '"version"' "$PROJECT_ROOT/package.json" | head -1 | sed 's/.*: "\([^"]*\)".*/\1/')
@@ -166,7 +168,7 @@ fi
 # ============================================
 # 步骤 2: 对比目标版本与当前版本
 # ============================================
-print_step "2/6" "对比目标版本与当前版本..."
+print_step "2/7" "对比目标版本与当前版本..."
 
 echo -e "  ${GRAY}当前版本: v$CURRENT_VERSION${NC}"
 echo -e "  ${GRAY}目标版本: v$TARGET_VERSION${NC}"
@@ -209,9 +211,42 @@ else
 fi
 
 # ============================================
-# 步骤 3: 运行完整测试
+# 步骤 3: 从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换
 # ============================================
-print_step "3/6" "运行完整代码质量测试..."
+# 发货的两个 VPN 守护进程二进制长期是"手工放进去、来源不明、无人验证"的仓内死文件，
+# 已连续造成两起生产故障（发货件落后于当前契约 / 签名形态不被系统服务管理器接受）。
+# 这一步把它们改成"每次发布前从源码构建 → 校验 → 替换"的可复现产物，且失败即中止发布。
+print_step "3/7" "从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换..."
+
+BUILD_HG_EXIT=0
+"$PROJECT_ROOT/scripts/build-hg-binaries.sh" || BUILD_HG_EXIT=$?
+
+if [[ $BUILD_HG_EXIT -ne 0 ]]; then
+    echo ""
+    print_error "VPN 二进制构建/替换失败 —— 发布中止。不使用仓里的旧二进制兜底继续发布（两起生产故障的根因就是发了来源不明、无人验证的旧二进制）。"
+    echo ""
+
+    # 如果版本号已更新，提示可修复后重跑
+    if $VERSION_UPDATED; then
+        echo -e "${YELLOW}提示: 版本号已更新到 v$TARGET_VERSION，可以继续修复问题后重新运行发布脚本${NC}"
+    fi
+    exit 1
+fi
+
+HG_MANIFEST="$PROJECT_ROOT/src-tauri/resources/hg-build-manifest.json"
+if [[ -f "$HG_MANIFEST" ]]; then
+    echo ""
+    echo -e "  ${GRAY}build manifest (src-tauri/resources/hg-build-manifest.json):${NC}"
+    cat "$HG_MANIFEST"
+    echo ""
+fi
+
+print_ok "VPN 二进制已从源码构建、校验并替换到位"
+
+# ============================================
+# 步骤 4: 运行完整测试
+# ============================================
+print_step "4/7" "运行完整代码质量测试..."
 echo ""
 echo -e "${YELLOW}  测试标准: 前后端 0 errors, 0 warnings${NC}"
 echo -e "${GRAY}  (忽略: Vite动态导入提示、已标记的await-in-loop、console调试日志)${NC}"
@@ -243,9 +278,9 @@ echo ""
 print_ok "所有测试检查通过！"
 
 # ============================================
-# 步骤 4: 同步依赖
+# 步骤 5: 同步依赖
 # ============================================
-print_step "4/6" "同步 pnpm-lock.yaml..."
+print_step "5/7" "同步 pnpm-lock.yaml..."
 
 if pnpm install --frozen-lockfile >/dev/null 2>&1; then
     print_ok "依赖已同步 (frozen-lockfile)"
@@ -259,9 +294,9 @@ else
 fi
 
 # ============================================
-# 步骤 5: Git 提交和标签
+# 步骤 6: Git 提交和标签
 # ============================================
-print_step "5/6" "Git 提交和创建标签..."
+print_step "6/7" "Git 提交和创建标签..."
 
 COMMIT_MSG="v$TARGET_VERSION: $RELEASE_MESSAGE"
 
@@ -289,9 +324,9 @@ if ! assert_tag_points_at_head "v$TARGET_VERSION"; then
 fi
 
 # ============================================
-# 步骤 6: 自动推送到 GitHub
+# 步骤 7: 自动推送到 GitHub
 # ============================================
-print_step "6/6" "推送到 GitHub..."
+print_step "7/7" "推送到 GitHub..."
 
 echo ""
 echo -e "  ${WHITE}推送分支: main${NC}"

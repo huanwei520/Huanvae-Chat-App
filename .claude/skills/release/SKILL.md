@@ -1,6 +1,6 @@
 ---
 name: release
-description: 版本发布流程 — 一条龙原子脚本（三处版本号同步 → 全量测试 → commit → tag → 校验 tag 指向 → force push），含 PUBLIC 仓脱敏核与四个必踩坑
+description: 版本发布流程 — 一条龙原子脚本（三处版本号同步 → 从源码构建替换 VPN 二进制 → 全量测试 → commit → tag → 校验 tag 指向 → force push），含 PUBLIC 仓脱敏核与四个必踩坑
 argument-hint: <目标版本号 + 更新说明>
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash, Edit
@@ -9,10 +9,15 @@ allowed-tools: Read, Grep, Glob, Bash, Edit
 # 版本发布流程
 
 发布 = **跑一个一条龙原子脚本**，不是"手动改版本号 → 手动 commit → 手动 push"。
-本 skill 的真值源是脚本本身（[scripts/linux/release.sh](../../../scripts/linux/release.sh) /
-[scripts/linux/test-all.sh](../../../scripts/linux/test-all.sh)）。`scripts/linux/README.md`
-已与脚本同步（见文末「README 同步状态」），但它仍是二手描述——凡本文 / README 与脚本冲突，
-一律以脚本为准。
+本 skill 的真值源是脚本本身：
+
+- [scripts/linux/release.sh](../../../scripts/linux/release.sh)（7 步一条龙）
+- [scripts/linux/test-all.sh](../../../scripts/linux/test-all.sh)（13 项门禁）
+- [scripts/build-hg-binaries.sh](../../../scripts/build-hg-binaries.sh)（发布前构建 / 替换 VPN 二进制，被 release.sh 步骤 3 调用）
+- [scripts/hg-connectivity-test.sh](../../../scripts/hg-connectivity-test.sh)（VPN 连通性测试，被 test-all.sh 第 13 项调用）
+
+`scripts/linux/README.md` 已与脚本同步（见文末「README 同步状态」），但它仍是二手描述——
+凡本文 / README 与脚本冲突，一律以脚本为准。
 
 ## 入口（两步，就这两步）
 
@@ -35,13 +40,13 @@ Windows 侧入口是 **`scripts/release.ps1`**（不是 `release.sh` 的同名 p
 powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1
 ```
 
-**配置文件解析的两个硬点**（release.sh:113-133）：
+**配置文件解析的两个硬点**（release.sh:115-135）：
 
-- 解析是 `while IFS='=' read -r key value`（:116），**只有 key 被 `tr -d '[:space:]'` 清洗**（:117），
+- 解析是 `while IFS='=' read -r key value`（:118），**只有 key 被 `tr -d '[:space:]'` 清洗**（:119），
   value 原样保留 ⇒ `=` 两侧不要留空格，否则版本号会带空格、`git tag "v1.1.20 "` 直接失败。
-- `VERSION` / `MESSAGE` 缺任一即 exit 1（:126-132）。`MESSAGE` 是文件最后一行，
+- `VERSION` / `MESSAGE` 缺任一即 exit 1（:128-135）。`MESSAGE` 是文件最后一行，
   **文件必须有结尾换行**，否则 `read` 丢掉最后一行 → 报"配置格式错误"。
-- `#` 开头的行被跳过（:118），可写注释。
+- `#` 开头的行被跳过（:120），可写注释。
 
 ## 一条龙原子流程：中途不许切开
 
@@ -51,12 +56,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1
 
 | 脚本步骤 | 行号 | 做什么 | 失败行为 |
 |---------|------|--------|---------|
-| 1/6 版本一致性 | :143-164 | 读 `package.json`(:146) / `src-tauri/Cargo.toml`(:147) / `src-tauri/tauri.conf.json`(:148)，三者必须相同 | 不一致直接 `exit 1`(:163)，要求先手动统一 |
-| 2/6 版本同步 | :169-209 | 与目标版本不同则 `sed -i` 改三处：package.json(:186)、tauri.conf.json(:189)、Cargo.toml(:192，正则锚到 `[package]` 段，不动依赖版本)，改完回读校验(:195-208) | 校验不过 `exit 1`(:207) |
-| 3/6 全量测试 | :214-240 | `TEST_EXIT=0`(:220) 后调 `"$SCRIPT_DIR/test-all.sh" "$@"`(:221)，**接住退出码** | 非 0 一律中止在这里、`exit 1`(:239)：退出码 **2**（有跳过未放行）走专门文案「跳过 ≠ 通过」+ 提示 `ALLOW_SKIP=...`(:225-229)；其它非 0 走 FAIL 文案(:230-232)。两者都**不提交、不推送**，并提示版本号已升、修完可重跑 |
-| 4/6 依赖同步 | :248-259 | `pnpm install --frozen-lockfile`(:250)，失败退回 `pnpm install`(:253) | 两次都失败 `exit 1`(:257) |
-| 5/6 提交 + 打标签 | :264-289 | `COMMIT_MSG="v$VER: $MSG"`(:266)；有改动则 **`git add -A`**(:274) + `git commit -m`(:275)；`RELEASE_SHA=$(git rev-parse HEAD)`(:280) 锁定本次发布 commit；`git tag -d`(:283) 后 `git tag "v$VER" "$RELEASE_SHA"`(:284) **显式指向**该 commit；随即 `assert_tag_points_at_head`(:287，函数体 :81-101) 断言 tag 指向当前 HEAD | 断言不过：打印两个 sha + 三步手工修正指引 → `exit 1`(:288)，**在 push 之前中止、不推送任何内容**（见坑 4） |
-| 6/6 推送 | :294-302 | `git push origin main`(:301)；`git push origin "v$VER" --force`(:302) | — |
+| 1/7 版本一致性 | :142-166 | 读 `package.json`(:148) / `src-tauri/Cargo.toml`(:149) / `src-tauri/tauri.conf.json`(:150)，三者必须相同 | 不一致直接 `exit 1`(:165)，要求先手动统一 |
+| 2/7 版本同步 | :168-211 | 与目标版本不同则 `sed -i` 改三处：package.json(:188)、tauri.conf.json(:191)、Cargo.toml(:194，正则锚到 `[package]` 段，不动依赖版本)，改完回读校验(:197-209) | 校验不过 `exit 1`(:209) |
+| **3/7 构建并替换 VPN 二进制** | :213-244 | `BUILD_HG_EXIT=0`(:221) 后调 [scripts/build-hg-binaries.sh](../../../scripts/build-hg-binaries.sh)(:222)：从 HuanvaeGuard 源码构建各平台守护进程 → 形态断言 → macOS 重签 → 替换落点 + sha256 复校 → 泄露扫 → 写 manifest；成功后把 `src-tauri/resources/hg-build-manifest.json` 原样打印出来 | 非 0 即 `exit 1`(:233)，文案明说**不使用仓里的旧二进制兜底继续发布**。**不提交、不推送**（见下方「两项新流程」）|
+| 4/7 全量测试 | :246-278 | `TEST_EXIT=0`(:255) 后调 `"$SCRIPT_DIR/test-all.sh" "$@"`(:256)，**接住退出码** | 非 0 一律中止在这里、`exit 1`(:274)：退出码 **2**（有跳过未放行）走专门文案「跳过 ≠ 通过」+ 提示 `ALLOW_SKIP=...`(:260-264)；其它非 0 走 FAIL 文案(:265-267)。两者都**不提交、不推送**，并提示版本号已升、修完可重跑 |
+| 5/7 依赖同步 | :280-294 | `pnpm install --frozen-lockfile`(:285)，失败退回 `pnpm install`(:288) | 两次都失败 `exit 1`(:292) |
+| 6/7 提交 + 打标签 | :296-324 | `COMMIT_MSG="v$VER: $MSG"`(:301)；有改动则 **`git add -A`**(:309) + `git commit -m`(:310)；`RELEASE_SHA=$(git rev-parse HEAD)`(:315) 锁定本次发布 commit；`git tag -d`(:318) 后 `git tag "v$VER" "$RELEASE_SHA"`(:319) **显式指向**该 commit；随即 `assert_tag_points_at_head`(:322，函数体 :83-104) 断言 tag 指向当前 HEAD | 断言不过：打印两个 sha + 三步手工修正指引 → `exit 1`(:323)，**在 push 之前中止、不推送任何内容**（见坑 4） |
+| 7/7 推送 | :326-339 | `git push origin main`(:336)；`git push origin "v$VER" --force`(:337) | — |
+
+⚠️ **步骤 3 在全量测试之前**：先把发货二进制换成刚构建、刚校验过的产物，第 4 步的门禁（含
+`cargo test` 里那两条**发货件静态守卫**）才是在**真正要发出去的那份字节**上跑的。顺序反了就
+等于验了一份不会发出去的东西。
 
 tag 推上去后 `.github/workflows/release.yml` 由 `push: tags: 'v*'` 触发，构建 Win/Linux/macOS/Android
 产物并发 Release。**即 push tag 那一刻发布就已不可撤销地对外发生**，脱敏核必须在此之前做完。
@@ -70,50 +80,58 @@ tag 推上去后 `.github/workflows/release.yml` 由 `push: tags: 'v*'` 触发�
 
 ## 🔴 坑 1：跑 release.sh 一律不带任何参数
 
-release.sh:220-221 是：
+release.sh:255-256 是：
 
 ```bash
 TEST_EXIT=0
 "$SCRIPT_DIR/test-all.sh" "$@" || TEST_EXIT=$?
 ```
 
-`"$@"` = **把 release.sh 收到的参数原样透传给 test-all.sh**。而 test-all.sh:51-57 解析三个开关：
+`"$@"` = **把 release.sh 收到的参数原样透传给 test-all.sh**。而 test-all.sh:54-61 解析**四个**开关：
 
 ```bash
---skip-rust) SKIP_RUST=true ;;      # :53  砍掉 cargo check + clippy 桌面 + clippy Android（3 项）
---skip-android) SKIP_ANDROID=true ;; # :54  砍掉 clippy Android
---skip-e2e) SKIP_E2E=true ;;         # :55  砍掉 Playwright E2E
+--skip-rust) SKIP_RUST=true ;;       # :56  砍掉 cargo check + clippy 桌面 + clippy Android + cargo test（4 项）
+--skip-android) SKIP_ANDROID=true ;; # :57  砍掉 clippy Android
+--skip-e2e) SKIP_E2E=true ;;         # :58  砍掉 Playwright E2E
+--skip-vpn) SKIP_VPN=true ;;         # :59  砍掉 VPN 连通性测试
 ```
 
 ⇒ `./scripts/linux/release.sh --skip-e2e` = 要求发布一个没跑过 E2E 的版本，属**降门槛硬推**，红线。
+`--skip-vpn` 同理，而且更要命：它砍掉的正是「隧道是不是真的在承载流量」这条唯一的真机复查。
+注意 `--skip-rust` 现在砍的是 **4 项**（多了 `cargo test` —— 连带把两条**发货件静态守卫**一起砍了）。
 
 **这类降门槛现在不再是静默的**（脚本已修）。flag 触发的跳过在开跑时就登记进跳过表
-（`record_skip`，:41-45 / :89-98）；末尾汇总先列 `⚠ 本次有 N 项被跳过（未真跑）` + 每项
-`- id: 原因`（:496-502），然后**默认以退出码 2 结束**（:536-544）。release.sh 步骤 3 接住 2，
-打印「有检查项被跳过且未真跑 —— 发布中止（跳过 ≠ 通过）」后 `exit 1`（:225-229 / :239）——
+（`record_skip`，:43-49 / :96-110）；末尾汇总先列 `⚠ 本次有 N 项被跳过（未真跑）` + 每项
+`- id: 原因`（:586-592），然后**默认以退出码 2 结束**（:626-634）。release.sh 步骤 4 接住 2，
+打印「有检查项被跳过且未真跑 —— 发布中止（跳过 ≠ 通过）」后 `exit 1`（:260-264 / :274）——
 **不提交、不推送**。只有 `ALLOW_SKIP` 显式放行时才走「⚠ 放行：本次有 N 项被跳过」+
-`真跑通过 X/11` 并 exit 0（:528-534）。
+`真跑通过 X/13` 并 exit 0（:618-623）。
 
-🔴 **只要存在跳过项，任何分支都不再打印「所有检查通过!」**——那句只在零跳过时出现（:512-518）。
+🔴 **只要存在跳过项，任何分支都不再打印「所有检查通过!」**——那句只在零跳过时出现（:602-607）。
 
 **判据不变**：`release.sh` 后面跟任何东西 = 违规。`ALLOW_SKIP` 是给"环境确实装不上"的兜底闸，
 不是给"懒得跑"用的 —— 用它是一个**决策**，得有人拍板，且交付里必须写清放行了哪几项、真跑 X/11。
 要调试测试就单独跑 `./scripts/linux/test-all.sh --skip-xxx`，但那条命令的结果**不能**当作发布门禁的通过凭据。
 
-**计数器已修**：`TOTAL_STEPS` 现在按 flag 实算（:75-80，恒定 7 块 + E2E / Rust 两块 / Android 各按需加），
-`step_header` 递增（:83-86），打印的 `[n/N]` 与本次**实际执行**的块数一致（旧版"跳 3 块只减 2"的错已不存在）。
-但注意 **N 是"本次跑了几块"，不是全量 11** —— 验收口径看末尾那行 `X/11 真跑通过`（:515 / :531）
+**计数器已修**：`TOTAL_STEPS` 现在按 flag 实算（:81-88，恒定 7 块 + E2E / VPN / Rust 三块 / Android 各按需加），
+`step_header` 递增（:91-94），打印的 `[n/N]` 与本次**实际执行**的块数一致（旧版"跳 3 块只减 2"的错已不存在）。
+但注意 **N 是"本次跑了几块"，不是全量 13** —— 验收口径看末尾那行 `X/13 真跑通过`（:605 / :621）
 和跳过清单，别拿 `[n/N]` 当交付依据。
 
-**同族的软跳过（运行期跳过，走完全相同的路径）**：Android clippy 在 NDK 未找到（:438）或
-`aarch64-linux-android` target 未安装（:442）时同样调 `record_skip clippy-android` ⇒ 一样进汇总、
-一样默认 exit 2、一样拦住发布。所以"这台机器没装 NDK 所以那项没跑"不会再混进"全绿"里；
-要在这种机器上发版，只能显式 `ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`
-并**如实报告"Android clippy 未真跑，真跑 10/11"**。
+**同族的软跳过（运行期跳过，走完全相同的路径）**：
+
+- Android clippy 在 NDK 未找到（:450）或 `aarch64-linux-android` target 未安装（:454）时调
+  `record_skip clippy-android`。
+- **VPN 连通性测试**在被调脚本返回退出码 **3**（本机物理上跑不了 = **未执行**）时调
+  `record_skip vpn-connectivity`（:550）。
+
+⇒ 一样进汇总、一样默认 exit 2、一样拦住发布。所以"这台机器没装 NDK / 没有对端所以那项没跑"
+不会再混进"全绿"里；要在这种机器上发版，只能显式
+`ALLOW_SKIP=clippy-android ./scripts/linux/release.sh` 并**如实报告"Android clippy 未真跑，真跑 12/13"**。
 
 ## 🔴 坑 2：`git add -A` 会把整棵工作树裹进这次发布
 
-release.sh:274-275 是全量 add：
+release.sh:309-310 是全量 add：
 
 ```bash
 git add -A
@@ -143,7 +161,7 @@ stat -c '%y %n' <file>...
 
 ## 🔴 坑 3：tag 是 force 推，同名 tag 会被无声覆盖
 
-release.sh:283-284 先 `git tag -d` 再重建本地 tag，:302 是：
+release.sh:318-319 先 `git tag -d` 再重建本地 tag，:337 是：
 
 ```bash
 git push origin "v$TARGET_VERSION" --force
@@ -173,13 +191,13 @@ commit（`e2a305d`），并且以 `--force` 推了上去。
 仓库只有一个 worktree；在本机 virtiofs 上做 350 次 commit→tag 循环也**未能复现**。
 所以下面这层**不是"根因已修复"**，而是在不知道根因的前提下**保证它再次发生时打不出去**。
 
-**脚本现在做两件事**（release.sh 步骤 5）：
+**脚本现在做两件事**（release.sh 步骤 6）：
 
-1. **显式指定 tag 目标**：先 `RELEASE_SHA=$(git rev-parse HEAD)`(:280) 锁定本次发布 commit，
-   再 `git tag "v$TARGET_VERSION" "$RELEASE_SHA"`(:284) —— 不再依赖 `git tag` 隐式解析 HEAD。
-2. **打完即断言**：`assert_tag_points_at_head`(:81-101，调用点 :287) 比对
+1. **显式指定 tag 目标**：先 `RELEASE_SHA=$(git rev-parse HEAD)`(:315) 锁定本次发布 commit，
+   再 `git tag "v$TARGET_VERSION" "$RELEASE_SHA"`(:319) —— 不再依赖 `git tag` 隐式解析 HEAD。
+2. **打完即断言**：`assert_tag_points_at_head`(:83-104，调用点 :322) 比对
    `git rev-parse "<tag>^{commit}"` 与 `git rev-parse HEAD`，不一致就打印两个 sha + 三步手工修正指引，
-   `exit 1`(:288)。这一步在**步骤 6 推送之前**，所以断言失败时**没有任何东西被推出去**
+   `exit 1`(:323)。这一步在**步骤 7 推送之前**，所以断言失败时**没有任何东西被推出去**
    （本地留下：一个已提交的 commit + 一个指错的 tag）。
 
 **断言失败时怎么手工修正**（脚本自己也会打印这三步）：
@@ -265,39 +283,139 @@ done
 （见上），不是本条判据的放行先例 —— 新增件仍要单独说清"为什么它必须随公开仓分发"。
 （历史里的那份二进制也仍在；清理历史是另一个决策，不在发布流程内顺手做。）
 
+📌 **那两个 HG 二进制现在是每次发布重新构建的产物**（步骤 3，见下一节），
+`build-hg-binaries.sh` 内部对产物做过一次泄露扫。**这不豁免本节的人工脱敏核** ——
+脚本只扫它自己刚产出的那两个文件，`git ls-files` 枚举出的其它 tracked 二进制没人管。照扫不误。
+
+---
+
+## 🔴 两项新流程：发货二进制不再是仓内死文件 + VPN 连通性必须真跑
+
+这两项是 2026-08-06 加进发布链的，动机不是"更严谨一点"，而是**两起已经发生的生产故障**。
+
+### 故障事实（写在这里，是为了防止后来的人把这两步当成可省的仪式）
+
+App 发货两个 VPN 守护进程二进制（macOS `hg-macos`、Windows `huanvaeguard-svc.exe`）。
+它们长期是**手工放进去、来源不明、无人验证**的仓内死文件 —— 跟着发布一路顺延，
+**没有任何 CI 步骤重编或刷新它们**，于是悄悄落后于当前契约，直到真机才炸：
+
+- **(A) macOS**：装 v1.1.20 后点「安装/修复」**恒报** `Bootstrap failed: 5`。仓里那份是
+  **linker-signed** 形态，而能被 launchd 加载的那份是 `codesign -f -s -` **显式重签**过的。
+- **(B) Windows**：用户连 VPN **无握手、上下行包均为 0**。仓里那份**根本不是**真机上验证过
+  「能被 SCM 拉起 + 能建隧道」的那个二进制。
+
+两起故障的共同点：**链路上每一步都"成功"，没有任何地方会报错**。所以补的不是文档，是机器复查。
+
+### 新流程 ①：发布前从源码构建各平台 VPN 二进制并替换（release.sh 步骤 3/7，:213-244）
+
+调 [scripts/build-hg-binaries.sh](../../../scripts/build-hg-binaries.sh)（Windows 宿主用 `.ps1`；
+两者差异只在"谁本机构建、谁 ssh 远程构建"）。红线逐条：
+
+1. **来源可追溯** —— 构建源必须是 HuanvaeGuard 仓**当前代码**；manifest
+   `src-tauri/resources/hg-build-manifest.json` 记来源 commit、是否 dirty、各产物 target + sha256 + 实测架构。
+   `release.sh` 成功后把 manifest 原样打印出来（:236-243），交付里贴它。
+2. **macOS 必须 `codesign -f -s -` 重签**，随后校验 flags **含 `adhoc` 且不含 `linker-signed`** —— 故障 A 的直接根因。
+3. **替换后重算落点 sha256 与源产物比对** —— 防「以为替换了其实没替换」。
+4. **产物形态断言**（构建"成功" ≠ 产物能在目标机上跑，这是唯一的机器复查）：
+   - **macOS 恰好 `arm64`**（`lipo -archs` 判**相等**，universal 也中止）。依据是
+     `.github/workflows/release.yml` 的 macOS build matrix **只有一条** `macos-14` /
+     `aarch64-apple-darwin`，DMG 名 `..._aarch64.dmg`，updater 只有 `darwin-aarch64` 一个 key
+     ⇒ **本产品线 macOS 仅支持 Apple Silicon**。这条断言是**防漂移**的：哪天改 universal 或加回
+     Intel target 而守护进程没跟上，就会复发「装上去 daemon 起不来」。
+   - **Windows 是 `x86_64-pc-windows-gnu`（mingw），不是 msvc**。理由：mingw 那一份正是真机验证过
+     「能被 SCM 拉起 + 能建隧道」的那份；换 msvc = 重新发一份没人验过的二进制，正是本流程要根治的病。
+5. **泄露扫** —— 对产物 `strings` 扫构建机路径（`/Users/`、`/home/`、`C:\Users`）与 RFC1918 私网地址，命中即失败。
+6. 🔴 **构建失败 = 发布中止，绝不用仓里的旧二进制兜底。**（脚本 `exit 1`(:233)，文案直说这一点。）
+7. 🔴 **主机地址一律经环境变量注入**：`HG_REPO` / `HG_WIN_BUILD_HOST`（**无默认值**）/
+   `HG_WIN_BUILD_DIR` / `HG_SKIP_WINDOWS`（Windows 宿主侧对应 `HG_MAC_BUILD_HOST` 等）。
+   **公开仓内不写任何内网地址 / 内部主机名 / 账号**，示例一律 `user@host`。
+   `HG_SKIP_WINDOWS=1` 只用于临时排障，**发布前不许这么跑**（manifest 会缺 Windows 产物）。
+
+### 新流程 ②：VPN 连通性测试（test-all.sh 第 13 项，:521-556）
+
+调 [scripts/hg-connectivity-test.sh](../../../scripts/hg-connectivity-test.sh)（`.ps1` 是 Windows 侧镜像）。
+
+🔴 **判据是「真握手 + 真收发包 + 端到端 ping」，不是「服务起来了」。** 故障 B 的真实形态就是
+**服务状态看着完全正常、上下行包却均为 0** —— 只看状态永远发现不了。五项必测：
+
+1. **守护进程被系统真拉起** —— macOS `launchctl print` 必须 `state = running`；Windows `sc query`
+   必须 `STATE : 4  RUNNING`。🔴 **手工前台跑得起来不算数**（那是另一个执行上下文；踩过的坑正是
+   "手启成功、被服务管理器拉不起来"）。
+2. **隧道接口 + VIP**（status JSON 的 `active` / `interface_name` / `address` + 网卡原始输出）。
+3. **真实握手** —— `peers[0].last_handshake` 必须非 0（0 = 从未握手）。
+4. **收发两向字节增量都 > 0** —— ping 前后各采样一次，**收、发分开量**，任一方向为 0 即 FAIL。
+5. **端到端 ping** —— 丢包率 + 每包 ttl + 路由归属。
+
+**ttl 判据（别硬编码 63）**：ttl 初值由**应答方 OS** 决定（macOS/Linux = 64，Windows = 128），
+判「是否经真转发」用「**初始 TTL − 实测 ttl == 1**」，初值由 `HG_PEER_INITIAL_TTL` 给出。
+另：macOS `route -n get <对端VIP>` 的 flags **含 `LOCAL` 即 FAIL**（含 LOCAL = 内核本地交付，
+包永不进隧道）。
+
+🔴 **对端必须是另一台机器。** 同机两个实例的 VIP 都带 `LOCAL` flag，包永不进隧道 —— 测出来是
+**假通过**。对端 VIP 只能经 `HG_PEER_VIP` 注入，**无默认值**；本文与脚本里一律写 `<对端VIP>` 占位符。
+
+**退出码三态，调用方必须分清**：
+
+| 退出码 | 含义 | test-all.sh 的处理 |
+|--------|------|-------------------|
+| `0` | 五项全过 | PASS |
+| `1` | 有项 FAIL（**真跑了**，没通过） | `ALL_PASSED=false` → exit 1 → 发布中止 |
+| `3` | 本机物理上跑不了，**未执行** | `record_skip vpn-connectivity`(:550) → 走既有「SKIP ≠ PASS」路径 → 默认 exit 2 → **发布中止**，除非 `ALLOW_SKIP=vpn-connectivity` 显式放行并**如实报告** |
+
+⚠️ `3` **既不是通过也不是失败**。把它当 0 处理 = 把"没测"报成"测过了"，正是这两项要根治的病。
+
+### 新流程 ③（配套补的洞）：`cargo test` 接进门禁（test-all.sh 第 12 项，:479-518）
+
+既有门禁只跑 `cargo check` + `clippy`，**从不运行测试** —— 于是
+`src-tauri/src/desktop/huanvaeguard_macos.rs` 里那两条**发货件静态守卫**等于**没接线**：
+
+- `bundled_daemon_binary_understands_every_flag_in_bundled_plist` —— 打包 plist 里每个 `--` 开关
+  都必须真出现在打包二进制的字节里（否则守护进程启动即退、`KeepAlive` 下崩溃循环，而安装链
+  每一步都"成功"）。
+- `bundled_daemon_binary_leaks_no_build_host_paths` —— 发货二进制里不得含 `/Users/`、`/home/`、
+  `C:\Users` 等构建机绝对路径（把脱敏核的人工动作常态化成 `cargo test` 的一部分）。
+
+第 12 项跑 `cargo test --lib` 把它们接上。**注意 `--skip-rust` 会连它一起砍掉。**
+
+⚠️ 这两条守卫是 **macOS 侧**的。**Windows 侧目前没有等价的自动守卫** —— 那边的失效形态是
+"在 SCM 下起不来"，只有真 Windows 主机能验，靠的是新流程 ② 的第 1 项。别把两者当成同一条。
+
 ---
 
 ## 测试没全绿就停 —— 如实报，不许改测试
 
-release.sh:221 调的 test-all.sh 覆盖 **11 项**（test-all.sh:474 `CANONICAL_TOTAL=11`，与脚本里 11 个检查块一一对应）：
+release.sh:256 调的 test-all.sh 覆盖 **13 项**（test-all.sh:564 `CANONICAL_TOTAL=13`，与脚本里 13 个检查块一一对应）：
 
 | # | 检查 | 行号 |
 |---|------|------|
-| 1 | Windows NSIS 安装配置 | :103 |
-| 2 | package.json 验证（重复键 + JSON 格式） | :141 |
-| 3 | Tauri 版本一致性（Rust crate ↔ NPM 包，major/minor 必须对齐） | :184 |
-| 4 | TypeScript `pnpm tsc --noEmit` | :260 |
-| 5 | ESLint（0 errors, **0 warnings**） | :272 |
-| 6 | 单元测试 `pnpm test --run` | :295 |
-| 7 | Playwright E2E | :318 |
-| 8 | 前端 `pnpm build`（查 Vite 警告） | :341 |
-| 9 | `cargo check` | :377 |
-| 10 | `cargo clippy` 桌面（`-D warnings`） | :402 |
-| 11 | `cargo clippy` Android | :425 |
+| 1 | Windows NSIS 安装配置 | :115 |
+| 2 | package.json 验证（重复键 + JSON 格式） | :153 |
+| 3 | Tauri 版本一致性（Rust crate ↔ NPM 包，major/minor 必须对齐） | :196 |
+| 4 | TypeScript `pnpm tsc --noEmit` | :272 |
+| 5 | ESLint（0 errors, **0 warnings**） | :284 |
+| 6 | 单元测试 `pnpm test --run` | :307 |
+| 7 | Playwright E2E | :330 |
+| 8 | 前端 `pnpm build`（查 Vite 警告） | :353 |
+| 9 | `cargo check` | :389 |
+| 10 | `cargo clippy` 桌面（`-D warnings`） | :414 |
+| 11 | `cargo clippy` Android | :437 |
+| 12 | **`cargo test --lib`**（Rust 单元测试 + 两条**发货件静态守卫**） | :491 |
+| 13 | **VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping；退出码三态，`3` = 未执行 → 跳过） | :534 |
 
-任一 FAIL → `ALL_PASSED=false` → `exit 1`(:504-510) → release.sh 中止在步骤 3(:239)，**不会提交、不会推送**
-（版本号已改，工作树留脏——修完重跑即可，步骤 2 会识别"已是目标版本"并跳过）。
+任一 FAIL → `ALL_PASSED=false` → `exit 1`(:594-600) → release.sh 中止在步骤 4(:274)，**不会提交、不会推送**
+（版本号已改、VPN 二进制已替换，工作树留脏——修完重跑即可，步骤 2 会识别"已是目标版本"并跳过）。
 
-**test-all.sh 退出码三态**（脚本头 :21-24 有注释；release.sh:223-239 逐个接住）：
+**test-all.sh 退出码三态**（脚本头 :22-26 有注释；release.sh:258-274 逐个接住）：
 
 | 退出码 | 含义 | release.sh 行为 |
 |--------|------|----------------|
-| 0 | 全部真跑通过（`11/11`），**或**跳过项已被 `ALLOW_SKIP` 显式放行（`真跑通过 X/11`） | 继续步骤 4 |
-| 1 | 有检查项 FAIL | 「测试检查未通过」(:231) → `exit 1`(:239)，不提交不推送 |
-| 2 | 有检查项被跳过且未放行（SKIP ≠ PASS） | 「跳过 ≠ 通过」+ 提示 `ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`(:226-229) → `exit 1`(:239)，不提交不推送 |
+| 0 | 全部真跑通过（`13/13`），**或**跳过项已被 `ALLOW_SKIP` 显式放行（`真跑通过 X/13`） | 继续步骤 5 |
+| 1 | 有检查项 FAIL | 「测试检查未通过」(:266) → `exit 1`(:274)，不提交不推送 |
+| 2 | 有检查项被跳过且未放行（SKIP ≠ PASS） | 「跳过 ≠ 通过」+ 提示 `ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`(:261-264) → `exit 1`(:274)，不提交不推送 |
 
-⚠️ 退出码 0 **不等于** 11/11：拿 `ALLOW_SKIP` 放行过就是 `X/11`。向上汇报时**必须报那个 X 和被放行的 id**，
-不许把"exit 0"翻译成"全部通过"。（v1.1.20 就是据一次含 `⚠ SKIP` 的 exit 0 错报了"11/11 通过"。）
+⚠️ 退出码 0 **不等于** 13/13：拿 `ALLOW_SKIP` 放行过就是 `X/13`。向上汇报时**必须报那个 X 和被放行的 id**，
+不许把"exit 0"翻译成"全部通过"。（v1.1.20 就是据一次含 `⚠ SKIP` 的 exit 0 错报了"全部通过"。）
+第 13 项尤其容易踩这条：**没有对端就退 3 = 未执行**，一放行就成了 `12/13`，交付里必须写明。
 
 **红线**：测试没全绿 = 发布停止 + 如实报告哪几项 FAIL。
 **禁止**：改测试断言、加 `--skip-*`、注释掉用例、降 lint 阈值来"让它绿"。
@@ -311,18 +429,24 @@ animation-conflict 注册、AnimatePresence 消失断言竞态）、
 
 | | Linux `scripts/linux/release.sh` | Windows `scripts/release.ps1` |
 |---|---|---|
-| 调测试 | `"$SCRIPT_DIR/test-all.sh" "$@"`(:221) — **透传参数**（坑 1） | `& powershell ... test-all.ps1`(:232) — **不传参数**，无透传面 |
-| 测试项数（canonical） | 11（test-all.sh:474，含 Tauri 版本一致性 + E2E） | **9**（test-all.ps1:365，无这两项，对齐 CLAUDE.md 的「9/9」口径） |
-| 跳过登记 / `ALLOW_SKIP` 可用 id | `e2e` / `cargo-check` / `clippy-desktop` / `clippy-android`（test-all.sh:17-18） | `cargo-check` / `clippy-desktop` / `clippy-android` —— **无 `e2e`**（test-all.ps1:18） |
-| 跳过未放行 → 退出码 2 | test-all.sh:544；release.sh:225-229 接住 | test-all.ps1:426；release.ps1:237-242 接住 |
-| 标签指向断言 | `assert_tag_points_at_head`(:81-101，调用 :287) | `Assert-TagPointsAtHead`(release.ps1:65，调用 :309) |
-| 版本号改写 | `sed -i`(:186/:189/:192) | UTF-8 无 BOM `WriteAllText`(:179/:184/:191) + 正则 |
-| 提交 / 标签 / 推送 | :274-275 / :280-284 / :301-302 | :295-298 / :304-306 / :321-322（行为相同，含 `--force` 推 tag） |
+| 调测试 | `"$SCRIPT_DIR/test-all.sh" "$@"`(:256) — **透传参数**（坑 1） | `& powershell ... test-all.ps1`(:266) — **不传参数**，无透传面 |
+| 构建 VPN 二进制（步骤 3/7） | `build-hg-binaries.sh`(:222) — 本机构建 macOS，ssh 到 Windows 构建机产出 Windows | `build-hg-binaries.ps1`(:233) — 本机构建 Windows，ssh 到 macOS 构建机产出 macOS |
+| 构建失败即中止 | `exit 1`(:233) | `exit 1`(:244) |
+| 测试项数（canonical） | **13**（test-all.sh:564，含 Tauri 版本一致性 + E2E） | **11**（test-all.ps1:451，无这两项） |
+| 跳过登记 / `ALLOW_SKIP` 可用 id | `e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity`（test-all.sh:18-19） | `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity` —— **无 `e2e`**（test-all.ps1:19） |
+| 跳过 flag | `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn`(:56-59) | `-SkipRust` / `-SkipAndroid` / `-SkipVpn`(:28-30) —— 无 `-SkipE2e` |
+| VPN 连通性取数手段 | `launchctl print` / `ifconfig` / `netstat -ibn` / `route -n get`（**只覆盖 macOS**，Linux 上恒退 3） | `sc.exe query` / `Get-NetAdapterStatistics` / `ping.exe -n` |
+| 跳过未放行 → 退出码 2 | test-all.sh:634；release.sh:260-264 接住 | test-all.ps1:512；release.ps1:270-275 接住 |
+| 标签指向断言 | `assert_tag_points_at_head`(:83-104，调用 :322) | `Assert-TagPointsAtHead`(release.ps1:67，调用 :343) |
+| 版本号改写 | `sed -i`(:188/:191/:194) | UTF-8 无 BOM `WriteAllText`(:181/:186/:193) + 正则 |
+| 提交 / 标签 / 推送 | :309-310 / :315-319 / :336-337 | :329-331 / :338-340 / :355-356（行为相同，含 `--force` 推 tag） |
 
-⚠️ **Windows 侧的对称修复尚未运行验证**：`scripts/test-all.ps1` / `scripts/release.ps1` 已按与 Linux
-相同口径改好（跳过登记 + `$env:ALLOW_SKIP` + 退出码 2 + `Assert-TagPointsAtHead`），但本次改动
-**在 macOS 上完成、本机无 PowerShell，两个 ps1 一行都没实际跑过**。Windows 侧首次使用时按"未验证代码"
-对待：先单独跑 `.\scripts\test-all.ps1` 核对汇总文案与退出码是否符合预期，再拿它发版。
+⚠️ **Windows 侧的对称实现尚未运行验证**：`scripts/test-all.ps1` / `scripts/release.ps1` /
+`scripts/build-hg-binaries.ps1` / `scripts/hg-connectivity-test.ps1` 都已按与 Linux/macOS 相同口径写好
+（跳过登记 + `$env:ALLOW_SKIP` + 退出码 2 + `Assert-TagPointsAtHead` + 步骤 3 构建替换 + 第 11 项
+VPN 连通性），但这些改动**在 macOS 上完成、本机无 PowerShell，四个 ps1 一行都没实际跑过**。
+Windows 侧首次使用时按"未验证代码"对待：先单独跑 `.\scripts\test-all.ps1` 核对汇总文案与退出码是否
+符合预期，再拿它发版。
 
 ⚠️ **不要在 macOS 上跑 `scripts/linux/release.sh`**：步骤 2 用 GNU 语法 `sed -i "s/.../"`(:186/:189/:192)，
 macOS 是 BSD sed —— 它的 `-i` **必须带备份后缀**，于是把 `s/.../` 脚本吃成后缀、把**文件名**当成脚本，
@@ -339,13 +463,20 @@ substitute pattern`，带地址范围的 Cargo.toml 那条报 `undefined label`�
 
 ## README 同步状态
 
-[scripts/linux/README.md](../../../scripts/linux/README.md) 已与当前脚本同步，本次订正了四处：
+[scripts/linux/README.md](../../../scripts/linux/README.md) 与
+[scripts/README.md](../../../scripts/README.md) 均已与当前脚本同步。
 
-- 检查项表由 9 项改为 **11 项**（补上「Tauri 版本一致性」「Playwright E2E」），第 1 项的说明也从
-  过时的 "WiX 模板 perUser" 改成实际检查的 NSIS + installerHooks。
-- 可选参数补 `--skip-e2e`（原先只列了 `--skip-rust` / `--skip-android`）。
-- 新增「跳过 ≠ 通过」段：跳过登记表、`ALLOW_SKIP` 用法与可用 id、退出码 0/1/2 语义。
-- 发布流程图与「自动执行的操作」表补上"创建标签后校验指向当前 HEAD，不一致中止且不推送"。
+2026-08-06 那批（两项新流程）订正的：
 
-⇒ 它现在可以当入门说明读，但**仍是二手描述**，脚本再改时它可能又落后。
+- `scripts/linux/README.md`：检查项表由 11 项改为 **13 项**（补第 12 项 `cargo test`、第 13 项
+  VPN 连通性测试）；可选参数补 `--skip-vpn`；`ALLOW_SKIP` 可用 id 补 `cargo-test` /
+  `vpn-connectivity`；`X/11` 口径全部改 `X/13`；发布流程图与「自动执行的操作」表补上
+  **步骤 3「构建并替换 VPN 二进制（失败即中止）」**，并把脚本步骤数订正为 7。
+- `scripts/README.md`：目录树与 Windows 脚本表补上 `build-hg-binaries.*` / `hg-connectivity-test.*`
+  四个新脚本（用途 / 环境变量 / 退出码 / 被谁调用）；「脚本自动执行的操作」由 6 条改为 7 步一条龙。
+
+2026-08-05 那批（SKIP ≠ PASS）订正的：检查项表 9 → 11、`--skip-e2e`、「跳过 ≠ 通过」段、
+标签指向校验。
+
+⇒ 它们现在可以当入门说明读，但**仍是二手描述**，脚本再改时可能又落后。
 引用发布流程的**具体行号 / 项数 / 退出码**时，直接读脚本。

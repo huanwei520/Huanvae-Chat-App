@@ -375,7 +375,7 @@ Agent(subagent_type="test-runner", prompt="在项目根目录下运行 pnpm test
 
 ## 修改完成后的验证流程
 
-代码和测试全部编辑完成后，严格按以下顺序执行。**最终门禁是 `scripts/test-all.ps1`，9/9 全绿才算完成**，不可只跑前几步就声明任务通过。
+代码和测试全部编辑完成后，严格按以下顺序执行。**最终门禁是 `scripts/test-all.ps1`，11/11 全绿才算完成**，不可只跑前几步就声明任务通过。
 
 ### 第 1 步：开发期局部验证（迭代时用）
 
@@ -389,17 +389,21 @@ Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm typechec
 
 ### 第 2 步：全量门禁 `scripts/test-all.ps1`（不可跳过）
 
-**任何任务完成前必须跑一次，9/9 全绿才允许进入 completion-summary。** 9 项检查：
+**任何任务完成前必须跑一次，11/11 全绿才允许进入 completion-summary。** 11 项检查（`test-all.ps1:451` `$canonicalTotal = 11`）：
 
-1. NSIS 安装配置 / 2. package.json 验证 / 3. TypeScript / 4. ESLint 严格模式 / 5. Vitest / 6. 前端 build / 7. cargo check / 8. clippy 桌面 / 9. clippy Android
+1. NSIS 安装配置 / 2. package.json 验证 / 3. TypeScript / 4. ESLint 严格模式 / 5. Vitest / 6. 前端 build / 7. cargo check / 8. clippy 桌面 / 9. clippy Android / **10. cargo test**（Rust 单元测试 + 两条发货件静态守卫）/ **11. VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping）
+
+> Linux 侧对应的 `scripts/linux/test-all.sh` 是 **13 项**（多「Tauri 版本一致性」与「Playwright E2E」两项，`test-all.sh:564` `CANONICAL_TOTAL=13`）。两边项数不同，别互相套用。
+>
+> 第 11 项的判据是**真握手 + 真收发包**，不是"服务起来了"；它的退出码是**三态**，`3` = 本机物理上跑不了（**未执行**）→ 登记为跳过 → 默认走「SKIP ≠ PASS」的退出码 2。**跳过不算通过**：放行必须显式 `ALLOW_SKIP=vpn-connectivity` 并在交付里如实写明真跑 X/11。
 
 **委托 test-runner Agent（haiku）执行**：
 
 ```
-Agent(subagent_type="test-runner", prompt="在 App 目录下用 PowerShell 运行 scripts/test-all.ps1，逐项报告 9 项结果。若 huanvaeguard-svc.exe 占用导致 cargo 失败，先 scripts/dev/hg-service.ps1 -Action stop 再重跑，结束后恢复。")
+Agent(subagent_type="test-runner", prompt="在 App 目录下用 PowerShell 运行 scripts/test-all.ps1，逐项报告 11 项结果（含被跳过的项与其 id）。若 huanvaeguard-svc.exe 占用导致 cargo 失败，先 scripts/dev/hg-service.ps1 -Action stop 再重跑，结束后恢复。")
 ```
 
-任何一项 FAIL 必须修复后**重新跑完整 9/9**，不许只重跑失败那项。常见坑见 [.claude/rules/rust-dev.md](.claude/rules/rust-dev.md)（HG 服务文件锁）和 [.claude/rules/frontend-test.md](.claude/rules/frontend-test.md)（vi.hoisted、animation-conflict 注册）。
+任何一项 FAIL 必须修复后**重新跑完整 11/11**，不许只重跑失败那项。常见坑见 [.claude/rules/rust-dev.md](.claude/rules/rust-dev.md)（HG 服务文件锁、发货二进制必须验「服务能被拉起」）和 [.claude/rules/frontend-test.md](.claude/rules/frontend-test.md)（vi.hoisted、animation-conflict 注册）。
 
 ### 动画类变更的额外门禁（不可跳过）
 
@@ -436,12 +440,14 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 
 ## 发布流程
 
-发布 = 编辑 [scripts/release-config.txt](scripts/release-config.txt)（`VERSION` 每次 +0.0.1、`MESSAGE` 一句话说明），然后在项目根跑 `./scripts/linux/release.sh`（Windows 用 `scripts/release.ps1`）。脚本一条龙做完：同步 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` 三处版本号 → 跑 `scripts/linux/test-all.sh` 全量测试 → `git add -A` + commit → 打 tag → push main + push tag。
+发布 = 编辑 [scripts/release-config.txt](scripts/release-config.txt)（`VERSION` 每次 +0.0.1、`MESSAGE` 一句话说明），然后在项目根跑 `./scripts/linux/release.sh`（Windows 用 `scripts/release.ps1`）。脚本 **7 步**一条龙做完：同步 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` 三处版本号 → **从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进 App 落点**（`scripts/build-hg-binaries.sh`，失败即中止发布）→ 跑 `scripts/linux/test-all.sh` 全量测试（13 项）→ `git add -A` + commit → 打 tag → push main + push tag。
+
+新增的构建步骤在**全量测试之前**：先把发货二进制换成刚构建、刚校验过的产物，门禁才是在真正要发出去的那份字节上跑的。它的动机是两起真实生产故障（发货的 VPN 二进制长期是「手工放进去、来源不明、无人验证」的仓内死文件：macOS 点「修复」恒失败、Windows 连 VPN 上下行包均为 0）——**构建失败绝不用仓里的旧二进制兜底继续发**，构建宿主地址一律经环境变量注入（公开仓内不写任何内网地址）。
 
 **完整步骤、行号对照、脱敏核命令、坑的成因见 [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md)。** 三条最要命的红线先记住：
 
 1. **一条龙不切开** — 不存在"只跑前半段、后面手动补"。步骤 2 已把三处版本号改脏工作树，中途中断会留下"版本已升、没测没提交"的脏树，下一次发布被 `git add -A` 裹走。
-2. **不带参数跑** — `release.sh` 把收到的参数**原样透传**给 `test-all.sh`，而后者有 `--skip-rust` / `--skip-android` / `--skip-e2e` 开关。`./scripts/linux/release.sh --skip-e2e` 会**静默**发出一个没跑 E2E 的版本且照样打印"全部通过" = 降门槛，属红线。同理：测试没全绿就停下如实报，**不许改测试 / 加 skip / 降阈值硬推**。
+2. **不带参数跑** — `release.sh` 把收到的参数**原样透传**给 `test-all.sh`，而后者有 `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn` 开关。`./scripts/linux/release.sh --skip-e2e` 会**静默**发出一个没跑 E2E 的版本且照样打印"全部通过" = 降门槛，属红线。同理：测试没全绿就停下如实报，**不许改测试 / 加 skip / 降阈值硬推**。（`--skip-vpn` 砍掉的是「隧道是不是真在承载流量」这条唯一的真机复查；`--skip-rust` 现在砍 4 项，连 `cargo test` 里两条发货件静态守卫一起砍。）
 3. **PUBLIC 仓 push 前必做脱敏核** — 文本面 grep 私钥 / 连接串 / 凭据 env / 私网地址；**并对所有 tracked 二进制跑 `strings` 扫**（编译机绝对路径、内部主机名、构建元数据）。这条踩过：未 strip 的二进制曾随公开仓一起发布并泄露内部结构（见 `git log edbb439`）。tag 是 `--force` 推、push 即不可撤销。
 
 排查工作树归属时注意：本仓是巨树，**禁用 `git status` / `git add -A` 做排查**（会超时），改用 `git diff --name-only`、`git diff --cached --name-only`、`git ls-files --others --exclude-standard -- <目录>`。

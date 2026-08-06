@@ -9,13 +9,15 @@
 #
 # 使用方法：
 #   ./scripts/linux/test-all.sh
-#   ./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查
+#   ./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查（cargo check / clippy / cargo test）
 #   ./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
 #   ./scripts/linux/test-all.sh --skip-e2e      # 跳过 Playwright E2E 测试
+#   ./scripts/linux/test-all.sh --skip-vpn      # 跳过 VPN 连通性测试
 #
 # 环境变量：
 #   ALLOW_SKIP="e2e,clippy-android"   显式放行被跳过的检查项（逗号或空格分隔）
-#                                     可用 id: e2e / cargo-check / clippy-desktop / clippy-android
+#                                     可用 id: e2e / cargo-check / clippy-desktop / clippy-android /
+#                                              cargo-test / vpn-connectivity
 #   ALLOW_SKIP=all                    放行全部跳过项
 #
 # 退出码：
@@ -48,11 +50,13 @@ record_skip() {   # $1=稳定 id  $2=人类可读原因
 SKIP_RUST=false
 SKIP_ANDROID=false
 SKIP_E2E=false
+SKIP_VPN=false
 for arg in "$@"; do
     case $arg in
         --skip-rust) SKIP_RUST=true ;;
         --skip-android) SKIP_ANDROID=true ;;
         --skip-e2e) SKIP_E2E=true ;;
+        --skip-vpn) SKIP_VPN=true ;;
     esac
 done
 
@@ -71,11 +75,15 @@ echo ""
 START_TIME=$(date +%s)
 ALL_PASSED=true
 
-# 恒定执行的 7 块：NSIS / package.json / Tauri 版本 / TypeScript / ESLint / 单元测试 / 前端构建
+# 无 flag 时恒定执行的 8 块：
+#   NSIS / package.json / Tauri 版本 / TypeScript / ESLint / 单元测试 / 前端构建 / VPN 连通性
+# 其中 VPN 块与 E2E 块同口径：--skip-* 时不执行（不计入 TOTAL_STEPS），但仍登记进跳过表。
 TOTAL_STEPS=7
 $SKIP_E2E || TOTAL_STEPS=$((TOTAL_STEPS + 1))
+$SKIP_VPN || TOTAL_STEPS=$((TOTAL_STEPS + 1))
 if ! $SKIP_RUST; then
-    TOTAL_STEPS=$((TOTAL_STEPS + 2))
+    # cargo check / cargo clippy 桌面 / cargo test
+    TOTAL_STEPS=$((TOTAL_STEPS + 3))
     $SKIP_ANDROID || TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 
@@ -93,8 +101,12 @@ if $SKIP_RUST; then
     record_skip cargo-check "--skip-rust 参数显式跳过 cargo check"
     record_skip clippy-desktop "--skip-rust 参数显式跳过 cargo clippy 桌面端"
     record_skip clippy-android "--skip-rust 参数显式跳过 cargo clippy Android"
+    record_skip cargo-test "--skip-rust 参数显式跳过 cargo test"
 elif $SKIP_ANDROID; then
     record_skip clippy-android "--skip-android 参数显式跳过 cargo clippy Android"
+fi
+if $SKIP_VPN; then
+    record_skip vpn-connectivity "--skip-vpn 参数显式跳过 VPN 连通性测试"
 fi
 
 # ============================================
@@ -465,13 +477,91 @@ if ! $SKIP_RUST && ! $SKIP_ANDROID; then
 fi
 
 # ============================================
+# 12. Cargo test（Rust 单元测试 + 发货二进制静态守卫）
+# ============================================
+# 为什么必须有这一块：
+#   src-tauri/src/desktop/huanvaeguard_macos.rs 的 #[cfg(test)] 里有两条**发货件守卫** ——
+#     · bundled_daemon_binary_understands_every_flag_in_bundled_plist
+#       （打包 plist 里每个 -- 开关，都必须真出现在打包二进制的字节里；否则守护进程启动即退、
+#         KeepAlive 下崩溃循环，而安装链每一步都"成功"，没有任何地方会报错）
+#     · bundled_daemon_binary_leaks_no_build_host_paths
+#       （PUBLIC 仓脱敏：发货二进制里不得含 /Users/、/home/、C:\Users 等构建机绝对路径）
+#   既有门禁只跑 cargo check + clippy，**从不运行测试** —— 这两条守卫等于没接线。本块把它们接上。
+if ! $SKIP_RUST; then
+    step_header "Cargo test (Rust 单元测试 + 发货二进制静态守卫)..."
+
+    cd "$PROJECT_ROOT/src-tauri"
+
+    CARGO_TEST_EXIT=0
+    CARGO_TEST_OUTPUT=$(cargo test --lib 2>&1) || CARGO_TEST_EXIT=$?
+
+    if [[ $CARGO_TEST_EXIT -eq 0 ]]; then
+        CARGO_TEST_PASSED=$(printf '%s\n' "$CARGO_TEST_OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
+        if [[ -n "$CARGO_TEST_PASSED" ]]; then
+            echo -e "  ${GREEN}✓ PASS: Cargo test (${CARGO_TEST_PASSED} 个测试)${NC}"
+        else
+            echo -e "  ${GREEN}✓ PASS: Cargo test${NC}"
+        fi
+    else
+        echo -e "  ${RED}✗ FAIL: Cargo test${NC}"
+        # 失败摘要优先打失败用例名 / 编译错误；没匹配到再打末尾 20 行，避免"报了 FAIL 却什么都看不到"
+        CARGO_TEST_SUMMARY=$(printf '%s\n' "$CARGO_TEST_OUTPUT" \
+            | grep -E "^(error|failures:|test .* FAILED|test result: FAILED)" | head -20)
+        if [[ -n "$CARGO_TEST_SUMMARY" ]]; then
+            printf '%s\n' "$CARGO_TEST_SUMMARY"
+        else
+            printf '%s\n' "$CARGO_TEST_OUTPUT" | tail -20
+        fi
+        ALL_PASSED=false
+    fi
+
+    cd "$PROJECT_ROOT"
+fi
+
+# ============================================
+# 13. VPN 连通性测试（真握手 + 真收发包 + 端到端 ping）
+# ============================================
+# 判据不是"服务起来了"，而是真握手 + 两向真收发包 + 端到端 ping ——
+# 已发生过"服务状态看着正常，但上下行包均为 0"的真实故障，只看状态发现不了。
+#
+# scripts/hg-connectivity-test.sh 的退出码是三态，这里必须按三态处理：
+#   0 → PASS
+#   3 → 本机物理上跑不了（**未执行**）：既不是通过也不是失败 → 登记为跳过，
+#       未经 ALLOW_SKIP 显式放行时 test-all 以退出码 2 结束 → 发布中止
+#   其它 → FAIL
+# 该脚本的**完整原始输出原样打印**（不只打结论）：验收要看五项各自的判据原文与原始命令输出。
+if ! $SKIP_VPN; then
+    step_header "VPN 连通性测试 (真握手 + 真收发包 + 端到端 ping)..."
+
+    VPN_SCRIPT="$PROJECT_ROOT/scripts/hg-connectivity-test.sh"
+    VPN_EXIT=0
+    VPN_OUTPUT=$("$VPN_SCRIPT" 2>&1) || VPN_EXIT=$?
+    printf '%s\n' "$VPN_OUTPUT"
+
+    if [[ $VPN_EXIT -eq 0 ]]; then
+        echo -e "  ${GREEN}✓ PASS: VPN 连通性测试 (5/5 真跑通过)${NC}"
+    elif [[ $VPN_EXIT -eq 3 ]]; then
+        # 取脚本自己打印的"未执行"原因（先剥掉 ANSI 颜色转义，否则原因里会混进控制字符）
+        VPN_REASON=$(printf '%s\n' "$VPN_OUTPUT" | sed $'s/\033\\[[0-9;]*m//g' \
+            | grep -o '本次未执行：.*' | head -1 | sed 's/^本次未执行：//')
+        if [[ -z "$VPN_REASON" ]]; then
+            VPN_REASON="hg-connectivity-test.sh 以退出码 3 结束（未打印具体原因）"
+        fi
+        record_skip vpn-connectivity "本机不具备执行条件（未设置对端 VIP / 未安装守护进程）：${VPN_REASON} —— 须在具备真实对端的机器上跑，或显式 ALLOW_SKIP=vpn-connectivity 放行并如实报告"
+    else
+        echo -e "  ${RED}✗ FAIL: VPN 连通性测试 (退出码 ${VPN_EXIT}，判据原文见上方原始输出)${NC}"
+        ALL_PASSED=false
+    fi
+fi
+
+# ============================================
 # 结果汇总
 # ============================================
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
-# 全量口径固定 11 项，与本脚本的 11 个检查块一一对应；跳过项不计入"真跑通过"
-CANONICAL_TOTAL=11
+# 全量口径固定 13 项，与本脚本的 13 个检查块一一对应；跳过项不计入"真跑通过"
+CANONICAL_TOTAL=13
 SKIP_COUNT=${#SKIPPED_IDS[@]}
 RAN_COUNT=$((CANONICAL_TOTAL - SKIP_COUNT))
 

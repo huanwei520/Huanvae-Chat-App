@@ -8,9 +8,17 @@
 
 | 文件 | 说明 |
 |------|------|
-| `release.sh` | 自动化发布脚本（测试通过后自动推送，无需确认） |
-| `test-all.sh` | 完整代码质量检查 |
+| `release.sh` | 自动化发布脚本（7 步；测试通过后自动推送，无需确认） |
+| `test-all.sh` | 完整代码质量检查（13 项） |
 | `setup-deps.sh` | 开发环境依赖安装 |
+
+本目录之外、但被上面两个脚本调用的两个新脚本（放在 `scripts/` 根，按宿主平台成对，
+详见 [../README.md](../README.md)）：
+
+| 文件 | 被谁调用 | 说明 |
+|------|---------|------|
+| `../build-hg-binaries.sh` | `release.sh` 步骤 3/7 | 发布前从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进落点，**失败即中止发布** |
+| `../hg-connectivity-test.sh` | `test-all.sh` 第 13 项 | VPN 连通性测试：真握手 + 真收发包 + 端到端 ping。**只覆盖 macOS**，在 Linux 上直接以退出码 3（未执行）返回 |
 
 ---
 
@@ -49,7 +57,7 @@ chmod +x scripts/linux/*.sh
 ./scripts/linux/test-all.sh
 ```
 
-**检查内容（共 11 项）：**
+**检查内容（共 13 项，`test-all.sh:564` `CANONICAL_TOTAL=13`）：**
 
 | 步骤 | 检查项 | 说明 |
 |------|--------|------|
@@ -64,6 +72,8 @@ chmod +x scripts/linux/*.sh
 | 9 | Cargo check | Rust 编译检查 |
 | 10 | Cargo clippy 桌面端 | Rust 代码审查，禁止任何警告 |
 | 11 | Cargo clippy Android | 移动端 Rust 代码审查 |
+| 12 | **Cargo test** | `cargo test --lib`。既有门禁只跑 `cargo check` + `clippy`、**从不运行测试**，于是 `src-tauri/src/desktop/huanvaeguard_macos.rs` 里那两条**发货件静态守卫**（打包 plist 的每个 `--` 开关必须真出现在打包二进制里；发货二进制不得含 `/Users/`、`/home/`、`C:\Users` 等构建机路径）等于**没接线**。本项把它们接上 |
+| 13 | **VPN 连通性测试** | 调 `../hg-connectivity-test.sh`，判据是**真握手 + 真收发包 + 端到端 ping**，不是"服务起来了"（真实故障形态是服务状态看着正常、上下行包却均为 0）。原始命令输出**原样打印**，不只打结论 |
 
 **测试标准：**
 - 要求：**0 errors, 0 warnings**
@@ -74,10 +84,13 @@ chmod +x scripts/linux/*.sh
 
 **可选参数：**
 ```bash
-./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查（cargo check + clippy 桌面 + clippy Android，共 3 项）
+./scripts/linux/test-all.sh --skip-rust     # 跳过 Rust 检查（cargo check + clippy 桌面 + clippy Android + cargo test，共 4 项）
 ./scripts/linux/test-all.sh --skip-android  # 跳过 Android clippy 检查
 ./scripts/linux/test-all.sh --skip-e2e      # 跳过 Playwright E2E 测试
+./scripts/linux/test-all.sh --skip-vpn      # 跳过 VPN 连通性测试
 ```
+
+注意 `--skip-rust` 现在砍掉的是 **4 项**（多了第 12 项 `cargo test`），不是过去的 3 项。
 
 **跳过 ≠ 通过（默认不放行）：**
 
@@ -98,14 +111,22 @@ ALLOW_SKIP="e2e,clippy-android" ./scripts/linux/test-all.sh  # 多项，逗号�
 ALLOW_SKIP=all ./scripts/linux/test-all.sh                   # 放行全部跳过项
 ```
 
-可用 id：`e2e` / `cargo-check` / `clippy-desktop` / `clippy-android`。
-放行后汇总打印的是 `真跑通过 X/11`（X = 11 − 跳过项数），**不是** "11/11"——报告时按 X 报。
+可用 id（`test-all.sh:18-19`）：`e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` /
+`cargo-test` / `vpn-connectivity`。
+放行后汇总打印的是 `真跑通过 X/13`（X = 13 − 跳过项数），**不是** "13/13"——报告时按 X 报。
+
+**VPN 连通性测试的"跳过"是怎么来的**：`../hg-connectivity-test.sh` 的退出码是**三态** ——
+`0` 全过 / `1` 有项 FAIL / **`3` 本机物理上跑不了（未执行）**。`3` 由 `test-all.sh` 登记为
+`vpn-connectivity` 跳过项，走的就是上面这条既有的「SKIP ≠ PASS」路径 → 默认退出码 2 →
+**发布中止**，除非 `ALLOW_SKIP=vpn-connectivity` 显式放行并**如实报告**。
+Linux 上这一项**必然是跳过**（该脚本只覆盖 macOS）；要真跑它得在装了守护进程、
+且有**另一台机器**作对端（`HG_PEER_VIP` 注入）的 macOS / Windows 上执行。
 
 **退出码：**
 
 | 退出码 | 含义 |
 |--------|------|
-| 0 | 全部真跑通过（11/11），或跳过项已被 `ALLOW_SKIP` 显式放行 |
+| 0 | 全部真跑通过（13/13），或跳过项已被 `ALLOW_SKIP` 显式放行 |
 | 1 | 有检查项 FAIL |
 | 2 | 有检查项被跳过且未显式放行（不视为通过） |
 
@@ -121,21 +142,27 @@ ALLOW_SKIP=all ./scripts/linux/test-all.sh                   # 放行全部跳�
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│            release.sh 自动发布流程                       │
+│            release.sh 自动发布流程（7 步）               │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  1. 读取 release-config.txt 目标版本号                  │
+│  读取 release-config.txt 目标版本号                     │
 │                     ↓                                   │
-│  2. 检查当前项目版本号一致性                            │
+│  1. 检查当前项目版本号一致性                            │
 │     (package.json / Cargo.toml / tauri.conf.json)       │
 │     ├─ 一致 → 继续                                      │
 │     └─ 不一致 → ❌ 报错退出                             │
 │                     ↓                                   │
-│  3. 对比目标版本与当前版本                              │
+│  2. 对比目标版本与当前版本                              │
 │     ├─ 相同 → 继续                                      │
 │     └─ 不同 → 自动更新所有版本号                        │
 │                     ↓                                   │
-│  4. 运行完整测试 (test-all.sh)                          │
+│  3. 构建并替换 VPN 二进制 (build-hg-binaries.sh)        │
+│     从 HuanvaeGuard 源码构建 → 形态断言 → 重签(mac)     │
+│     → 替换落点 → sha256 复校 → 泄露扫 → 写 manifest     │
+│     ├─ 成功(0) → 继续                                   │
+│     └─ 失败(1) → ❌ 中止(绝不回落仓里的旧二进制)        │
+│                     ↓                                   │
+│  4. 运行完整测试 (test-all.sh，13 项)                   │
 │     ├─ 全绿(0) → 继续                                   │
 │     ├─ 有 FAIL(1) → ❌ 报错退出                         │
 │     └─ 跳过未放行(2) → ❌ 中止(跳过≠通过)               │
@@ -180,11 +207,19 @@ MESSAGE=局域网传输优化、统一MSI安装包
 |------|------|------|
 | 1 | 版本一致性检查 | 确保三个配置文件版本号相同 |
 | 2 | 版本对比与更新 | 自动更新到目标版本 |
-| 3 | 完整测试 | 运行 `test-all.sh`；退出码 1（有 FAIL）或 2（有跳过未放行）均中止发布，不提交不推送 |
-| 4 | 依赖同步 | 运行 `pnpm install` |
-| 5 | Git 提交 | 自动 commit 所有变更（`git add -A`） |
-| 6 | 创建标签 + 指向校验 | 创建 `v{VERSION}` 标签并**显式指向本次发布 commit**，随后校验标签确实指向当前 HEAD；不一致则打印两个 sha + 手工修正步骤后中止，**不推送任何内容** |
+| 3 | **构建并替换 VPN 二进制** | 调 `../build-hg-binaries.sh`：从 HuanvaeGuard 源码构建各平台守护进程 → 断言产物形态（macOS 恰好 `arm64`、Windows `PE32+ x86-64`）→ macOS `codesign -f -s -` 重签并校验 flags 含 `adhoc` 且不含 `linker-signed` → 替换落点并**重算 sha256 与源产物比对** → `strings` 泄露扫 → 写 `src-tauri/resources/hg-build-manifest.json`（来源 commit / dirty / 各产物 target+sha256+架构）。🔴 **构建失败即中止发布，绝不用仓里的旧二进制兜底** |
+| 4 | 完整测试 | 运行 `test-all.sh`（13 项）；退出码 1（有 FAIL）或 2（有跳过未放行）均中止发布，不提交不推送 |
+| 5 | 依赖同步 | 运行 `pnpm install` |
+| 6 | Git 提交 + 创建标签 + 指向校验 | 自动 commit 所有变更（`git add -A`）；创建 `v{VERSION}` 标签并**显式指向本次发布 commit**，随后校验标签确实指向当前 HEAD；不一致则打印两个 sha + 手工修正步骤后中止，**不推送任何内容** |
 | 7 | 自动推送 | 推送到 GitHub 触发 Actions 构建（tag 用 `--force` 推） |
+
+**步骤 3 为什么存在**：App 发货的两个 VPN 守护进程二进制长期是「手工放进去、来源不明、无人验证」
+的仓内死文件，**已连续造成两起生产故障** —— (A) macOS 装 v1.1.20 后点「修复」恒报
+`Bootstrap failed: 5`（仓里那份是 linker-signed，能跑的那份是显式重签过的）；(B) Windows 用户连
+VPN **无握手、上下行包均为 0**（仓里那份根本不是真机验证过的那个二进制）。步骤 3 把它们改成
+「每次发布前从源码构建 → 校验 → 替换」的可复现产物。构建宿主地址一律经环境变量
+（`HG_REPO` / `HG_WIN_BUILD_HOST` / `HG_WIN_BUILD_DIR` / `HG_SKIP_WINDOWS`）注入，
+**公开仓内不写任何内网地址**。细节见 [../README.md](../README.md)。
 
 ### 版本号说明
 
@@ -285,9 +320,24 @@ pnpm lint
 1. **补齐环境后重跑**（推荐）：例如装 NDK（`export NDK_HOME=...`）或
    `rustup target add aarch64-linux-android`，然后重跑 `./scripts/linux/release.sh`。
 2. **确认可以不跑，显式放行**：`ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`。
-   这是一个决策，不是绕过——发布记录里要写清放行了哪几项、真跑 X/11。
+   这是一个决策，不是绕过——发布记录里要写清放行了哪几项、真跑 X/13。
 
 不要用 `--skip-*` 参数跑 `release.sh`：参数会被原样透传给 `test-all.sh`，等于主动降门槛。
+
+### Q: 提示"VPN 二进制构建/替换失败 —— 发布中止"怎么办？
+
+步骤 3 的 `../build-hg-binaries.sh` 非 0 退出了。**唯一正路是把构建修好后重跑**，
+🔴 **不许绕过、不许拿仓里的旧二进制继续发**（那正是两起生产故障的根因）。常见原因：
+
+- `HG_REPO` 指不到 HuanvaeGuard 源码仓，或它不是 git 仓库 → 用 `HG_REPO=/path/to/HuanvaeGuard` 指定。
+- `HG_WIN_BUILD_HOST` 未设置（**无默认值**，公开仓不写内网地址）→ 显式注入 ssh 目标。
+- 产物形态断言不过（macOS 架构不等于 `arm64`、Windows 不是 `PE32+ x86-64`）→ 说明发布目标变了，
+  需要人重新决策守护进程该产出什么形态，脚本不会默默放行。
+- macOS 重签后 flags 不含 `adhoc` 或仍含 `linker-signed` → 签名形态不符合预期，launchd 可能拒绝加载。
+- `strings` 泄露扫命中构建机路径或私网地址 → 构建时 `--remap-path-prefix` 没生效，
+  别用环境变量 `RUSTFLAGS`（会整体覆盖 HuanvaeGuard 仓 `.cargo/config.toml` 里的设置）。
+
+`HG_SKIP_WINDOWS=1` 只用于临时排障，**发布前不许这么跑**（manifest 会缺 Windows 产物）。
 
 ### Q: 提示"标签指向校验失败: vX.Y.Z 没有指向当前 HEAD"怎么办？
 
@@ -330,6 +380,18 @@ git push origin main --force
 ---
 
 ## 更新日志
+
+- **2026-08-06**: 发货 VPN 二进制改为源码构建 + 新增 VPN 连通性测试 + `cargo test` 接进门禁
+  - `release.sh` 新增**步骤 3/7**：调 `../build-hg-binaries.sh` 从 HuanvaeGuard 源码构建各平台
+    VPN 守护进程二进制并替换进落点（形态断言 + macOS 重签 + sha256 复校 + 泄露扫 + manifest），
+    **失败即中止发布**；脚本步骤总数由 6 变 **7**
+  - `test-all.sh` 新增第 **12** 项 `cargo test`：既有门禁只跑 `cargo check` + `clippy`、从不运行测试，
+    `huanvaeguard_macos.rs` 里两条发货件静态守卫等于没接线，本项把它们接上
+  - `test-all.sh` 新增第 **13** 项 VPN 连通性测试：判据是真握手 + 真收发包 + 端到端 ping，
+    不是"服务起来了"；调用脚本退出码三态（0/1/**3=未执行**），`3` 登记为跳过走 SKIP ≠ PASS 路径
+  - `CANONICAL_TOTAL` 由 11 改为 **13**；新增 `--skip-vpn` 参数；`ALLOW_SKIP` 可用 id 补
+    `cargo-test` / `vpn-connectivity`；`--skip-rust` 现在砍 4 项（多了 `cargo test`）
+  - 本文件检查项表由 11 项订正为 13 项，发布流程图与「自动执行的操作」表补上步骤 3
 
 - **2026-08-05**: SKIP 不再等于 PASS + 标签指向校验
   - `test-all.sh` 新增跳过登记表：参数跳过与运行期跳过（NDK / target 缺失）全部登记并在汇总列出
