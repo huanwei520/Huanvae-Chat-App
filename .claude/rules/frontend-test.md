@@ -78,6 +78,22 @@ globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserv
 
 **反例（2026-07-21 · req-06 顶置架）**：ChatPanel/MobileChatView 挂新子 `ConversationShelf`（`ConversationShelf.tsx:52 const api = useApi()`）→ 既有 `ChatHeaderAvatarA11y.test.tsx`（已把重型子树 mock 成 null 但没 mock 新子）13 用例全挂，报 `useSession must be used within a SessionProvider`；补 `vi.mock('../../src/chat/shared/ConversationShelf', () => ({ ConversationShelf: () => null }))` 后 13/13 复活、全量 2417/0。与上条 Observer-mock 同属"新增件连带炸看似无关既有测试"家族，但根因是"新子消费 context hook 而测试无 Provider"，非 Observer 构造契约。
 
+### 给模块新增导出后，必须同步补全所有 `vi.mock` 该模块的工厂
+
+`vi.mock('.../<模块>', () => ({ … }))` 的工厂是**整体替换**：工厂里没列的导出，在被测代码里就是不存在的，vitest 直接抛 `No "<导出名>" export is defined on the … mock`。所以给一个**被 mock 的模块新增导出**时，只改 `src/` 是不够的 —— 任何 `vi.mock` 了它、且被测组件会调到新导出的测试都会挂，且**挂的是看似跟本次改动无关的既有测试**。
+
+**规则**：新增导出后立刻
+
+```bash
+grep -rln "vi.mock('.*<模块名>" tests/
+```
+
+逐个把新导出补进工厂（**纯增量**：只加这一个 key，不动既有断言、不动既有用例）。新导出自身的行为由它自己的测试覆盖，这里补 mock 只为让既有测试不被打穿。
+
+**反例（2026-08-06）**：`src/huanvaeGuard/localApi.ts` 新增 `resolveLocalPort` 导出（全仓唯一的本地控制端口解析口）后，4 个 `vi.mock` 了该模块的测试（`HuanvaeGuardPage.test.tsx` / `HuanvaeGuardPage.probeRace.test.tsx` / `HuanvaeGuardPage.macos.test.tsx` / `HuanvaeGuardStatusRefresh.test.tsx`）工厂里都没列它 → 页面渲染一调就报 `No "resolveLocalPort" export is defined on the … mock`；4 处工厂各补一行即全部复活。
+
+与本节前两条（Observer 构造契约、新子消费 context hook）同族：根因都是"**新增件把既有测试的替身打穿**"，统一的检查动作是 —— **改完 `src/` 先 grep 谁 mock 了我**。
+
 ### 已 mock 的 Tauri 模块速查（tests/setup.ts 截至 2026-04-23）
 
 | 模块 | mock 程度 | 坑 |
@@ -617,6 +633,21 @@ const re=/.../; console.log('原:',re.test(s),'删后:',re.test(s.replace(/...re
 ```
 
 **CRLF 源文件的变异要按行删除**：被扫描的目标文件可能是 CRLF 行尾（如 `src-tauri/src/lib.rs`），用 `s.replace('...token...\n', '')` 这类含 `\n` 的字符串替换会因行尾实为 `\r\n` 而静默不命中 → 变异"没删掉"却误判断言恒真/恒假。对 CRLF 文件做变异时改为按行操作：`s.split(/\r?\n/).filter(l => !l.includes('token')).join('\n')` 删掉目标行再跑正则；断言正则本身也应容忍 `\r`（用 `\s` 而非字面 `\n`）。（2026-07-14 审核层对 logout-closes-child-windows.test.ts 做独立变异验证时发现）
+
+### 不变量口径写"禁裸写死"，不是"禁出现该数字"；且要在【剥掉注释的代码】上判
+
+给"日志 / URL 不得写死端口（真值在 Rust 侧解析）"这类不变量写静态契约测试时，把断言写成"文件内不得出现 `1919x`"是**错的口径** —— 它会把**带限定语的准确注释**（如 `default 19198, resolved from the Rust side`）一并判违规，逼着后来的人**删掉正确的文档**才能过门禁。
+
+**正确口径**：`端口字面量只允许带限定语出现（裸写死即违规）`。禁的是"把数字当真值用"，不是数字本身。
+
+两个配套细节，缺一就是假 FAIL / 假 PASS：
+
+1. **计数与块内断言必须在剥掉注释的代码上做**。注释里正当地写出 `invoke('hg_local_control_port')`（在解释兜底何时生效）会被算进调用点计数 → 1 变 2 → 明明只有一个调用点却 FAIL。收紧成"必须带 `invoke(` 前缀"也救不了：注释里那句连 `invoke(` 一起写全了。
+2. **剥注释别用朴素 `//.*$`**。模板串 `` `http://127.0.0.1:${port}` `` 里的 `//` 会被当成行注释起点，把 `${port}` 和右括号一起吃掉，反而制造假 FAIL。要逐行判断 `//` 是否在字符串外，并用 `inBlock` 标志跟踪 `/* … */` 跨行块。
+
+现成参考实现：[tests/huanvaeguard-port-resolution.test.ts](../../tests/huanvaeguard-port-resolution.test.ts)（`stripComments` + 端口字面量形状 + 限定语白名单，文件头注释逐条写了"这条断言为什么必须这么写"）。它也如实标注了残余缺口：**行内限定语判定拦不住"裸写字面量 + 行尾补个限定语注释"的绕法** —— 静态契约测试要写清自己防不住什么，别让读者以为它是全覆盖。
+
+仍按本节前述规则做 **node 变异验证**：把某处限定语删成裸字面量，断言必须从 PASS 翻 FAIL。
 
 **反例（2026-06-06）**：HuanvaeGuardConnectBiometric.test.tsx 初版用 `invoke('biometric_authenticate')[\s\S]*?catch[\s\S]*?return;` 断言"门禁失败即 return 中止"。code-review + 盲审都抓到：第二段 `[\s\S]*?return;` 会吞到下游 `if(!config.private_key){...return;}` 的 return，删掉 biometric catch 自己的 return 后仍 PASS → 对它唯一宣称要防的"catch 不 return"零防御。改成 `catch\s*\{[^}]*setError('专属文案')[^}]*return;[^}]*\}`（块内有界）后做 node 变异验证：原 true、删 return 后 false，确认有效。
 

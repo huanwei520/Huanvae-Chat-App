@@ -195,6 +195,22 @@ git rev-parse "v<版本>^{commit}"; git rev-parse HEAD          # 2) 两行输�
 对得上。断言是兜底，不是"问题已解决"的证明；再次出现指错就是复现线索，要留现场（别急着 `git tag -f`
 覆盖掉证据，先记下两个 sha 和 `git reflog` 输出）。
 
+### 推完必须自核远端（强制收尾，不是可选项）
+
+本地那条断言只证明**推之前**是对的，证明不了**远端最终是什么**。push 返回 0 之后立刻核：
+
+```bash
+git rev-parse HEAD
+git ls-remote origin refs/heads/main
+git ls-remote origin "refs/tags/v<版本>" "refs/tags/v<版本>^{}"
+```
+
+三者必须指向**同一个 commit**（tag 若是 annotated，以 `^{}` 解引用后的值为准）。
+
+**这一步真的抓到过**：一次发布远端 tag 指向的是**上一个 commit**，而本地一路看着都正常。所以它是收尾的一部分，不是"有空再看"。
+
+⚠️ 自核发现不一致时 —— **先取证，再修**：记下两个 sha、`git reflog`、`.git/refs/tags/<tag>` 的内容与 **mtime**（`stat -f "%Sm %N"`）。直接 `git tag -f` 会把 ref 的原始 mtime 覆盖掉，真因就再也查不了（**已踩过**：见 [.claude/rules/common.md](../../rules/common.md)「修 bug 之前先取证」）。
+
 ---
 
 ## 🔴 PUBLIC 仓脱敏核（push 前必做，两面都要）
@@ -220,7 +236,7 @@ git grep -nIE 'BEGIN [A-Z ]*PRIVATE KEY|ssh-(ed25519|rsa) AAAA|(DATABASE_URL|RED
 文本 grep 看不见编译产物里的东西。二进制会带**编译机的绝对路径、内部主机名、构建元数据**。
 
 ```bash
-# 枚举当前 tracked 的二进制（今天是 2 个：gradle-wrapper.jar、wintun.dll）
+# 枚举当前 tracked 的二进制（结果会变，以命令输出为准；2026-08-06 是 3 个：gradle-wrapper.jar / huanvaeguard-svc.exe / wintun.dll）
 git ls-files | grep -iE '\.(jar|exe|dll|so|dylib|node|bin|wasm|apk|aar)$'
 
 # 逐个扫
@@ -234,12 +250,20 @@ done
 "along with build-time metadata that has no reason to be published"（见 `git log edbb439` /
 `6501c2e` 的 commit body）。根因有两层：① 未 strip 的二进制把内部结构和构建路径明文带了出去；
 ② 该目录**早就有 ignore 规则**，但 ignore 对**已 tracked** 的路径无效——它是被 `git add -f`
-强推进 index 的，之后每次发布都在重新发布它。现已改为 `git rm --cached` + 构建时按 sha256
-manifest 拉取校验（`scripts/dev/fetch-hg-*.mjs`）。
+强推进 index 的，之后每次发布都在重新发布它。
+后来改成过 `git rm --cached` + 构建时按 sha256 manifest 拉取校验，但该设计**已被全量回退**
+（见 `git log fba9d2a`）：当前形态回到 **仓内跟踪 + CI 直接构建** —— `scripts/dev/fetch-hg-*.mjs`
+已不存在，`huanvaeguard-svc.exe` / `wintun.dll` 仍是 tracked。⇒ 上面的 `strings` 扫**照做不误**，
+这两个文件就在枚举结果里。
 
-⇒ **判据**：本批新增了任何二进制文件 = 高危，必须 strings 扫 + 回答"它凭什么该进公开仓"。
-默认答案是**不该**——构建产物走 fetch + sha256 校验，不入 index。
-（该二进制仍留在历史里；清理历史是另一个决策，不在发布流程内顺手做。）
+**通用教训（与那套已回退的设计无关，别读成"应该恢复它"）**：给 workflow 加"构建时拉取 + 校验"
+这类**外部供给**步骤时，配套的凭据 / 来源必须**同批建好并真跑验证过一次**再合入 —— 这类步骤按设计
+就是"拉不到即硬失败"，缺一样就把该平台的产物整个打没。本仓因此连续一个版本缺 macOS DMG 与 Windows EXE。
+
+⇒ **判据**：本批**新增**了任何二进制文件 = 高危，必须 strings 扫 + 回答"它凭什么该进公开仓"，
+默认答案是**不该**入 index。注意别把它跟现状搞混：HG 那两个二进制是**既有的、明知故犯地留在仓内**
+（见上），不是本条判据的放行先例 —— 新增件仍要单独说清"为什么它必须随公开仓分发"。
+（历史里的那份二进制也仍在；清理历史是另一个决策，不在发布流程内顺手做。）
 
 ---
 
@@ -301,9 +325,17 @@ animation-conflict 注册、AnimatePresence 消失断言竞态）、
 对待：先单独跑 `.\scripts\test-all.ps1` 核对汇总文案与退出码是否符合预期，再拿它发版。
 
 ⚠️ **不要在 macOS 上跑 `scripts/linux/release.sh`**：步骤 2 用 GNU 语法 `sed -i "s/.../"`(:186/:189/:192)，
-macOS 是 BSD sed（`-i` 必须带备份后缀），会报 `invalid command code` 并因 `set -e`(:31) 中止。
+macOS 是 BSD sed —— 它的 `-i` **必须带备份后缀**，于是把 `s/.../` 脚本吃成后缀、把**文件名**当成脚本，
+结果是 **rc=1 且文件一个字没改**（报文随脚本内容而异：简单 `s///` 报 `unescaped newline inside
+substitute pattern`，带地址范围的 Cargo.toml 那条报 `undefined label`），再被 `set -e`(:31) 当场中止。
 更隐蔽的是：当**当前版本已等于目标版本**时步骤 2 整段被跳过(:176-177)，脚本会继续往下跑——
-于是同一个脚本在 mac 上"有时炸有时不炸"。发布在 Linux（或 WSL）上做。
+于是同一个脚本在 mac 上"有时炸有时不炸"。
+
+**发布优先在 Linux（或 WSL）上做。** 只有在必须从 macOS 发时才用这条绕法：**先手工把三处版本号
+（`package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json`）改到目标值**，让步骤 2 命中
+「已是目标版本」整段跳过 —— 步骤 3~6（全量测试 → commit → 打 tag → 校验指向 → push）**仍完整留在
+脚本内跑**，所以这不是"手动补后半段"（那违反本文开头的一条龙红线）。用这条绕法时，交付里必须写清
+"版本号是手工改的、步骤 2 被跳过"，别让人误以为脚本从头跑通了。
 
 ## README 同步状态
 

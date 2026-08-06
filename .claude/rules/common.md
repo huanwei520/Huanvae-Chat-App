@@ -754,3 +754,88 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 3. 显式传入高于共存浮层的值（如 `<DragOverlay zIndex={10001}>`），并注释说明相对哪个浮层
 
 **反例（2026-07-14）**：侧边栏双区拖放的 DragOverlay 未显式设 zIndex，拖拽幽灵卡被 z-index 10000 的「更多」面板遮住——vitest/typecheck/lint 全绿，VM 真机截图才暴露；修复 `<DragOverlay zIndex={10001}>`（Sidebar.tsx，注释说明面板 10000）。
+
+## 无 tty 环境的 git push 挂死：先怀疑凭据交互，不是网络
+
+### 判据是进程链，不是网速
+
+本机全局 `credential.helper` 是 **Git Credential Manager**（`git config --global --get credential.helper` → `/usr/local/share/gcm-core/git-credential-manager`）。当 keychain / `~/.git-credentials` / `~/.gcm` / `gh auth` 里都没有 GitHub 凭据时，GCM 会走**交互式 OAuth**；agent 环境无 tty，它既弹不出界面也等不到输入 → **永久挂起**。表现极像"网慢/被墙"：实测挂满 15 分钟、零字节传出、远端 ref 纹丝不动。
+
+**判据**（别猜，看进程）：进程链是 `git push → git remote-https → git-credential-manager get`，且 `git-credential-manager get` 长期 **0% CPU 存活** = 卡在等输入，不是在传数据。
+
+**解法**：从金库运行时取 token + **内联 credential helper**（一次性，不落盘）：
+
+```bash
+GIT_TERMINAL_PROMPT=0 git \
+  -c credential.helper= \
+  -c credential.helper='!f(){ echo username=<user>; echo "password=$GH_TOKEN"; };f' \
+  push origin main
+```
+
+- 第一个 `-c credential.helper=`（**空值**）用来清掉继承的 GCM，**不可省** —— git 的 helper 是**列表**语义，只追加不覆盖；不先清空就仍会回落到 GCM，照样挂。
+- `GIT_TERMINAL_PROMPT=0` 让任何残余的交互式提问直接失败而不是挂住。
+- `gh` 同理：**`export GH_TOKEN=<token>` 即可，不需要 `gh auth login`**（后者本身就是交互式的）。
+- 本仓是**公开仓**：token 只运行时取，不落盘、不写进提交物、不进交付文本（交付里写 `<REDACTED …>`）。
+
+### 给可能挂死的命令设时限：macOS 没有 `timeout`
+
+macOS 自带 BSD 工具集**没有 `timeout`，也没有 `gtimeout`**（`command -v timeout` 空、rc=1，除非另装 coreutils）。而 `perl -e 'alarm N; exec …'` 对 `git` **无效** —— git 会 fork 出 `git-remote-https` / credential helper 等子进程，alarm 打不到真正挂住的那个。
+
+可靠做法：用 python 起子进程并真杀：
+
+```bash
+python3 -c "
+import subprocess
+subprocess.run(['git','push','origin','main'], timeout=120, start_new_session=True)
+"
+```
+
+超时抛 `TimeoutExpired` 并杀掉子进程；要连子孙进程一起收，配 `start_new_session=True` 后在超时分支 `os.killpg(p.pid, signal.SIGKILL)`。
+
+## 修 bug 之前先取证：现场只有一次
+
+### 修复动作本身往往就是覆盖证据的动作
+
+遇到**机制上解释不通**的异常（断言明明过了结果却不对、ref 指向不该指的 commit、文件内容与刚写入的不符），第一动作是**把现场落盘**，不是修。
+
+**要落的**：相关文件的**内容 + mtime**（macOS `stat -f "%Sm %N" <file>`；Linux `stat -c '%y %n'`）、`git reflog`、相关日志、进程快照（`ps -ef | grep …`）、命令的原始 rc 与 stderr 全文。
+
+**反例（2026-08-06）**：发布后自核发现 tag 指向了错误的 commit，随手 `git tag -f` 改正 —— `.git/refs/tags/<tag>` 的**原始 mtime 被覆盖**，"这个 ref 究竟是什么时候、被哪一步写的"从此无法回答，真因永久失去定位机会（同一症状此前已发生过一次，仍未定位）。
+
+⚠️ 这条纪律 [.claude/skills/release/SKILL.md](../skills/release/SKILL.md) 坑 4 里已针对 tag 单独写过一次（"别急着 `git tag -f` 覆盖掉证据"），**仍被违反** —— 说明它不能只挂在某条具体流程下，属于**通用纪律**：任何"先修一下看看"的冲动，都要先问"我这一下会不会抹掉唯一的现场"。
+
+## grep 字符类漏数字 ⇒ "查不到"是假的
+
+### `[A-Z_]` 不含数字，真实标识符里数字很常见
+
+写环境变量名 / 标识符的正则时，`[A-Z_]` **不匹配数字**。而真实标识符里数字极常见，一个数字就让整条模式**恒不匹配**，于是得出"这东西不存在"的错误结论。
+
+**实测**：
+
+```bash
+echo 'GITHUB_PAT_RELEASE2024=xxx' | grep -E '^[A-Z_]*(GITHUB|GH|GIT)[A-Z_]*='       # 无输出，rc=1
+echo 'GITHUB_PAT_RELEASE2024=xxx' | grep -E '^[A-Za-z0-9_]*(GITHUB|GH|GIT)[A-Za-z0-9_]*='  # 命中，rc=0
+```
+
+**规则**：
+
+1. 标识符字符类一律写 `[A-Za-z0-9_]`（或 `\w`），不要图省事写 `[A-Z_]`。
+2. **"查不到"先怀疑自己的模式，再下"不存在"的结论。**
+3. 想用一个模式证明"不存在"之前，先拿一个**已知存在**的样本喂给它，确认它真能命中 —— 没做这步的"没找到"不是证据。
+
+**反例（2026-08-06）**：用 `^[A-Z_]*(GITHUB|GH|GIT)[A-Z_]*=` 在金库里找 GitHub token，因 `GITHUB_PAT_RELEASE2024` 里的 `2024` 恒不匹配 → 误判"金库里没有 token"，转头去折腾别的登录方式，白绕一大圈。
+
+## ping 的 TTL 判读看【应答方】的初值，不是发起方
+
+### 初值由回包那一端的 OS 决定
+
+TTL 初值：**Windows 128**，**Linux / macOS 64**。判"中间有没有经过转发/隧道跳"，要拿收到的值跟**应答方**的初值比：
+
+| 场景 | 收到 TTL | 含义 |
+|------|---------|------|
+| mac ping Windows | 128 | 直连，**未**经转发 |
+| mac ping Windows | 127 | 经了 **1 跳**转发 |
+| Windows ping mac/Linux | 64 | 直连 |
+| Windows ping mac/Linux | 63 | 经了 1 跳 |
+
+**规则**：判读时把"应答方是谁、它的初值是多少"**显式写出来再减**，不要把这张表压缩成"127 就是转发"之类的单行速记 —— 方向一换就错（本仓在 HuanvaeGuard 真机验证里因此写错过一次）。用途：HG 隧道 up/down、mesh 互联、LAN 传输这类"包到底走没走隧道"的判定，全靠它。
