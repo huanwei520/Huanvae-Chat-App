@@ -517,3 +517,49 @@ launchctl bootstrap system '/Library/LaunchDaemons/<label>.plist' || exit 14
 - **先断言扫描结果非空**再进循环：扫描逻辑或模板格式一变，空集合会让循环空转、测试**假通过**。
 
 配套再加一条 PUBLIC 仓脱敏守卫（`bundled_daemon_binary_leaks_no_build_host_paths`）：同一份字节里断言不含 `/Users/`、`/home/`、`C:\Users`。这个二进制既进仓也随 release 产物发出去，rustc 默认会把编译机绝对路径烘进 panic 位置等元数据 —— 等于公开构建机目录布局（含用户名）。发货前必须已做 `--remap-path-prefix`。这条把发布 skill 里"对 tracked 二进制跑 `strings` 扫"的人工动作常态化成了 `cargo test` 的一部分。
+
+## 发货给 Windows Service 跑的二进制，必须验「SCM 能拉起」——手启成功不算数
+
+### 症状：`sc.exe start` 报 1053，进程连一行日志都不写
+
+NSIS 安装钩子把 `src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe` 注册成服务（`sc.exe create HuanvaeGuard binPath= "...\huanvaeguard-svc.exe" start= demand`，以 LocalSystem 运行）。v1.1.20 发出去的那份二进制**根本起不来**：
+
+```
+sc.exe start HuanvaeGuard
+[SC] StartService FAILED 1053:
+The service did not respond to the start or control request in a timely fashion.
+        STATE : 1  STOPPED
+```
+
+事件日志（Service Control Manager）：`A timeout was reached (30000 milliseconds) while waiting for the ... service to connect.`
+
+同一个 exe 直接在前台跑：**立即退出**，stdout 空、stderr 空、它自己的滚动日志**一行都没有**，本地控制端口上也没有任何监听。
+
+### 用户侧表现，以及必须分清的两种「0」
+
+VPN 页点「连接」是把隧道配置 POST 到守护进程的本地控制端口。服务是死的 → 这个 POST **连都连不上** → 隧道从来没建起来 → 收发计数**双 0**。
+
+| 计数形态 | 含义 | 根因方向 |
+|---------|------|---------|
+| Sent = 0 | **从未发出** —— 本例：守护进程压根没跑 | 服务/进程/控制面，与网络无关 |
+| Sent > 0、Recv = 0 | **发出去了但没人应** | 真网络/加密问题（对端、路由、握手、密钥） |
+
+两者根因完全不同，**必须分开量**：`Get-NetAdapterStatistics` 读 `SentUnicastPackets` 与 `ReceivedUnicastPackets` 两个独立数字，不许合成一个「不通」了事。
+
+### 可复用的取证法：单变量 A/B
+
+用真安装包装好，然后**只**替换服务路径上的那个二进制 —— 服务注册项、启动命令、POST 的配置全部逐字节不变。旧二进制 → `1053`、无网卡、无监听；新二进制 → 服务 `RUNNING`、隧道接口 up、有包在走。除二进制外零变量，因果就此钉死。
+
+### 规则：SCM 启动是独立的验证项
+
+**凡是打包出去要被 Windows Service 拉起的二进制，必须在干净机器上证明它「能被 SCM 启动」，而不是只证明「从控制台手启能跑」。** 这是两个执行上下文（LocalSystem、session 0、无交互桌面），"我双击能跑"不迁移。
+
+注意本项目健康版二进制是**双模的**：被 SCM 拉起时按服务跑，被直接启动时退回独立前台模式 —— 这正是"手启测试通过、服务路径却是坏的"能同时成立的原因。
+
+### 供应链成因：随发布顺延的 tracked blob，无任何 CI 刷新
+
+这份二进制是**跟着发布一路顺延下来的 tracked blob，没有任何 CI 步骤重编或刷新它**，于是悄悄落后于后端当前提供的数据面契约，直到真机才炸。
+
+本文件上一节已给 macOS 守护进程加了静态守卫（打包二进制必须认识打包 plist 传的每个 `--` 开关）。**Windows 侧目前没有等价的自动守卫**，而且不可能是同一条 —— 这里的失效形态是"在 SCM 下起不来"，只有真 Windows 主机能验。别把它写成已有守卫。
+
+**反例（2026-08-06，真机实测）**：v1.1.20 的 `huanvaeguard-svc.exe` 在真 Windows 机上 `sc.exe start` 恒报 1053、日志零输出、端口无监听 → VPN 连接 POST 直接连不上 → 收发双 0。单变量 A/B（只换二进制）确认二进制即唯一成因；换上新构建后服务 RUNNING、隧道 up、有包。教训：**发货二进制的验证项是"SCM 能不能拉起它"，手启成功属于另一条通路，不能顶替。**
