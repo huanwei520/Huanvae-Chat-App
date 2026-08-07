@@ -536,3 +536,27 @@
   color: var(--text-muted);
 }
 
+/* 设备行禁选态：该设备已在其它终端连接运行中（不能重复连接），或连接正在途中。
+   放在文件末尾是为了在同特异度下压过上面的 .hg-device-item:hover —— 禁用行不该有 hover 反馈。
+   刻意不加 transition —— 本仓有 CSS / framer-motion 冲突静态门禁。 */
+.hg-device-item--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* :not(.selected) 是必需的：连接在途时整列表禁选，被选中那行也带 --disabled，
+   若无条件把 hover 背景清成 transparent，鼠标划过时选中高亮会闪没。 */
+.hg-device-item--disabled:not(.selected):hover {
+  background: transparent;
+}
+
+.hg-device-item--disabled input[type='radio'] {
+  cursor: not-allowed;
+}
+
+/* 禁选原因的行内徽标：次要色小字，只在"被其它终端占用"时出现 */
+.hg-device-occupied {
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--text-muted);
+}

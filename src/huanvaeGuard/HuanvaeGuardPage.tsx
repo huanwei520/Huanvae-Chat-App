@@ -40,6 +40,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { formatSize } from '../utils/format';
 import { formatHandshake, osLabel } from './format';
+import { isDeviceOccupiedElsewhere, OCCUPIED_HINT } from './deviceState';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
 import { AppButton } from '../components/common/AppButton';
 import { useConfirmDialog, usePromptDialog } from '../lowcode/components/ConfirmDialog';
@@ -374,6 +375,23 @@ export default function HuanvaeGuardPage() {
       .then(setGroupDetail)
       .catch(e => addLog(`加载群组详情失败：${e}`));
   }, [windowData, selectedGroupId, addLog]);
+
+  // 选中态自愈：当前选中的设备一旦变成「已被其它终端占用」（别的终端把它连起来了），
+  // 立刻清空选中 —— 否则下方详情区 / 按钮会一直指着一台本终端已经不能操作的设备。
+  // 注：这里必须自己算一次本机隧道 IP。渲染期那份（localTunnelIp / isSelfDevice）位于
+  // `if (!windowData) return` 之后，Hook 不能写在早退之后，只能同式重算，判定式与渲染期一致。
+  useEffect(() => {
+    if (selectedDeviceId === null) { return; }
+    const selected = devices.find(d => d.device_id === selectedDeviceId);
+    if (!selected) { return; }
+    const tunnelIp = tunnelStatus?.active && tunnelStatus.address
+      ? tunnelStatus.address.split('/')[0]
+      : null;
+    const isSelf = tunnelIp !== null && selected.virtual_ip === tunnelIp;
+    if (isDeviceOccupiedElsewhere(selected.status, isSelf)) {
+      setSelectedDeviceId(null);
+    }
+  }, [devices, selectedDeviceId, tunnelStatus]);
 
   // ─── Handlers: Devices ───
 
@@ -728,6 +746,11 @@ export default function HuanvaeGuardPage() {
     localTunnelIp !== null && d.virtual_ip === localTunnelIp;
   const displayStatusKey = (d: HgDevice): string =>
     isSelfDevice(d) ? 'online' : d.status;
+  // 连接按钮的第二道闸：列表禁用只挡「点击选中」这一刻，挡不住"先选了一台离线设备、
+  // 它随后被别的终端连起来"——那时选中态仍在（自愈 effect 与本次渲染之间也有一帧空档），
+  // 所以按钮自身也要对当前选中设备复核一次。用服务端原值判定，不用 displayStatusKey。
+  const selectedOccupied = selectedDevice !== undefined
+    && isDeviceOccupiedElsewhere(selectedDevice.status, isSelfDevice(selectedDevice));
 
   const tabLabel: Record<Tab, string> = {
     devices: '设备',
@@ -791,13 +814,25 @@ export default function HuanvaeGuardPage() {
               <div className="hg-device-list">
                 {devices.map(d => {
                   const statusKey = displayStatusKey(d);
+                  // 占用判定用服务端原值 d.status（不是 statusKey）：statusKey 会把本机这台
+                  // 强制显示成 online，拿它判定会把本机自己误判成被占用。
+                  const occupied = isDeviceOccupiedElsewhere(d.status, isSelfDevice(d));
+                  // 连接在途时整列表暂时禁选：中途换选目标会造成"点了没反应 / 连错设备"
+                  const rowDisabled = occupied || loading;
                   return (
-                    <label key={d.device_id} className={`hg-device-item${selectedDeviceId === d.device_id ? ' selected' : ''}`}>
+                    <label
+                      key={d.device_id}
+                      className={`hg-device-item${selectedDeviceId === d.device_id ? ' selected' : ''}${rowDisabled ? ' hg-device-item--disabled' : ''}`}
+                      title={occupied ? OCCUPIED_HINT : undefined}
+                    >
                       <input type="radio" name="device" checked={selectedDeviceId === d.device_id}
+                        disabled={rowDisabled}
                         onChange={() => setSelectedDeviceId(d.device_id)} />
                       <span className="hg-device-name">{d.device_name}</span>
                       <span className="hg-device-ip">{d.virtual_ip}</span>
                       {isSelfDevice(d) && <span className="hg-device-self">（本机）</span>}
+                      {/* 禁用必须给出肉眼可见的原因，不能只靠 disabled 让它"点了没反应" */}
+                      {occupied && <span className="hg-device-occupied">已在其它终端连接</span>}
                       <span className={`hg-device-status${statusKey === 'online' ? ' active' : ''}`}>
                         {localizeStatus(statusKey)}
                       </span>
@@ -832,7 +867,7 @@ export default function HuanvaeGuardPage() {
               <AppButton variant="primary" size="md"
                 loading={loading}
                 onClick={handleConnect}
-                disabled={isActive || !serviceRunning}>
+                disabled={isActive || !serviceRunning || selectedOccupied}>
                 连接
               </AppButton>
               <AppButton variant="danger" size="md"
