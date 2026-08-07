@@ -875,6 +875,14 @@ export default function HuanvaeGuardPage() {
                   ))}
                 </tbody>
               </table>
+              {/* 空闲隧道说明：收发计数只统计业务数据，刚建立、还没跑过流量的隧道天然是 0。
+                  没有对端时不显示（无对端还说这句没意义）。中性提示，不是错误横幅。 */}
+              {tunnelStatus.peers.length > 0 &&
+                tunnelStatus.peers.every(p => p.rx_bytes === 0 && p.tx_bytes === 0) && (
+                <p className="hg-peers-idle-note">
+                  收发计数只统计通过隧道的业务数据（不含握手 / 保活包）；隧道刚建立、尚未使用时为 0 属正常。
+                </p>
+              )}
             </section>
           )}
         </>

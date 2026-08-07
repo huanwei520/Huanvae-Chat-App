@@ -527,3 +527,12 @@
   font-style: italic;
 }
 
+/* 空闲隧道提示：所有对端收发计数均为 0 时显示在对端表格下方（中性说明，非错误提示）。
+   刻意不加 transition —— 本仓有 CSS / framer-motion 冲突静态门禁。 */
+.hg-peers-idle-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
