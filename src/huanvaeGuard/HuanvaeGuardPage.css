@@ -10,8 +10,18 @@
 /* ============================================
    页面根容器
    ============================================ */
+/*
+ * 滚动归属：本页的纵向滚动由 .hg-page 自己承担，不能交给外层。
+ * 外层 #root（src/index.css 的 `html, body, #root { height:100%; overflow:hidden }`）是
+ * 定高裁切容器 —— 根容器若只声明 min-height 而不自持滚动，内容一超出窗口高度就被 #root
+ * 直接裁掉（底部日志区看不见也滚不到），而不是产生滚动条。
+ * 因此：height:100% 顶满 #root 的可视高度 + overflow-y:auto 本容器内滚。
+ * 用 auto 而非 scroll，保证内容不溢出时不出现多余滚动条。
+ * （本规则自带 box-sizing:border-box，padding 已计入 100% 高度内。）
+ */
 .hg-page {
-  min-height: 100vh;
+  height: 100%;
+  overflow-y: auto;
   padding: var(--space-5);
   background: var(--gradient-bg-page);
   color: var(--text-primary);
