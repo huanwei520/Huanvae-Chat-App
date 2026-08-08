@@ -43,6 +43,16 @@
  * - Rust 层 idle_timeout_secs 兜底回收半开 reader；ws_connect 带 15s 建连超时
  * - 重连成功后强制补一次增量 sync（halfOpenSyncPendingRef），不依赖 resumed 重放
  *
+ * 连接世代隔离（跨连接生命周期污染防护）：
+ * - connect() 每次真正建连时递增「连接世代」，并把该世代**捕获进这条连接的全部回调闭包**；
+ *   disconnect() 递增世代以作废当前连接
+ * - onopen / onclose / 入站帧只在「自己的世代 === 当前世代」时生效；陈旧世代的事件一律忽略并 warn
+ * - 取代旧的粘滞布尔 isDisconnectingRef：布尔既表达不了「这条 close/帧属于哪一次连接生命周期」
+ *   （上一代连接迟到的 close 会清掉新连接的 wsRef/connected/ping 并凭空再排一次重连 → 并存双连接），
+ *   又会在「disconnect() 置位后 connect() 撞上任一 early return」时永久卡死（此后不重连、丢弃所有
+ *   入站帧且零日志）。世代计数无粘滞状态：early return 不改动任何世代，故不污染后续任何一次连接。
+ *   陈旧事件必须留日志——静默吞掉本身就是缺陷（故障期零日志 = 无法定位）。
+ *
  * 消息处理逻辑已提取到 wsHandlers.ts
  */
 
@@ -173,8 +183,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChatRef = useRef<{ type: 'friend' | 'group'; id: string } | null>(null);
-  /** 是否正在断开连接（用于阻止闭包中的重连逻辑和消息处理） */
-  const isDisconnectingRef = useRef(false);
+  /**
+   * 连接世代计数器（取代粘滞布尔 isDisconnectingRef，见文件头「连接世代隔离」）：
+   * connect() 真正建连时递增并把世代捕获进该连接的回调闭包；disconnect() 递增以作废当前连接。
+   * 事件消费点比较「我的世代 === 当前世代」，只有当前世代的事件才作用于共享状态。
+   */
+  const connectionGenRef = useRef(0);
   /** 是否是首次连接（用于区分首次连接和重连） */
   const isFirstConnectRef = useRef(true);
   /** 是否正在刷新 token（防止重复刷新） */
@@ -253,8 +267,13 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   // 消息处理
   // ============================================
 
-  const handleMessage = useCallback((data: string) => {
-    if (isDisconnectingRef.current) {
+  const handleMessage = useCallback((data: string, generation: number) => {
+    // 陈旧世代（已被新连接取代 / 已主动断开）的在途帧不得当作当前连接的帧处理，
+    // 否则会把旧连接的 session_id / event_seq / 未读快照灌进当前连接的状态。绝不静默丢弃。
+    if (generation !== connectionGenRef.current) {
+      console.warn(
+        `[WebSocket] 丢弃陈旧连接的入站帧（该帧属第 ${generation} 代连接，当前第 ${connectionGenRef.current} 代）`,
+      );
       return;
     }
 
@@ -395,17 +414,33 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, []);
 
   /** 为 WebSocket 实例安装标准事件处理器 */
-  const installWsHandlers = useCallback((ws: RustWebSocket) => {
+  const installWsHandlers = useCallback((ws: RustWebSocket, generation: number) => {
     ws.onmessage = (event) => {
-      handleMessage(event.data as string);
+      handleMessage(event.data as string, generation);
     };
 
     ws.onerror = () => {
+      // 陈旧连接的 error 不得清掉【当前】连接的建连中状态
+      if (generation !== connectionGenRef.current) {
+        return;
+      }
       connectingRef.current = false;
       setConnecting(false);
     };
 
     ws.onclose = async (event) => {
+      // 世代不匹配 = 这条 close 属于已被取代 / 已主动断开的连接。必须在改动任何共享状态
+      //（wsRef / connected / connecting / ping 定时器）之前返回：否则上一代迟到的 close 会把
+      // 当前连接连根拔掉（wsRef 置空 + 停 ping）并再排一次退避重连 → 并存双连接。
+      // 生产可达：RustWebSocket.close() 只置 CLOSING + fire-and-forget ws_close，不置终态，
+      // 服务端的 close 事件与在途帧稍后仍会经 Channel 投递回来。
+      if (generation !== connectionGenRef.current) {
+        console.warn(
+          `[WebSocket] 忽略陈旧连接的关闭事件 (code=${event.code}，属第 ${generation} 代连接，当前第 ${connectionGenRef.current} 代)，不重连`,
+        );
+        return;
+      }
+
       setConnected(false);
       connectingRef.current = false;
       setConnecting(false);
@@ -414,10 +449,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       if (pingIntervalRef.current) {
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = null;
-      }
-
-      if (isDisconnectingRef.current) {
-        return;
       }
 
       const isAuthError = event.code === 1008;
@@ -506,7 +537,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       return;
     }
 
-    isDisconnectingRef.current = false;
+    // 递增连接世代并捕获进本次连接的所有回调闭包。放在两处 early return 之后：
+    // early return 不改动任何世代 ⇒ 不会留下影响后续连接的粘滞状态（旧粘滞布尔正是卡死在这里）。
+    const generation = ++connectionGenRef.current;
     connectingRef.current = true;
     setConnecting(true);
 
@@ -517,6 +550,16 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // 建连返回前本连接已被取代/主动断开（disconnect 时 wsRef 可能已不指向它，故它没被关掉）：
+        // 不得据此宣告 connected、更不得用它抢占 pingIntervalRef；直接关掉，避免留下无人引用的活连接。
+        if (generation !== connectionGenRef.current) {
+          console.warn(
+            `[WebSocket] 忽略陈旧连接的建立成功事件（属第 ${generation} 代连接，当前第 ${connectionGenRef.current} 代），关闭之`,
+          );
+          ws.close();
+          return;
+        }
+
         setConnected(true);
         connectingRef.current = false;
         setConnecting(false);
@@ -536,7 +579,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         }
       };
 
-      installWsHandlers(ws);
+      installWsHandlers(ws, generation);
     } catch (err) {
       console.error('[WebSocket] 连接失败:', err);
       connectingRef.current = false;
@@ -548,7 +591,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   connectRef.current = connect;
 
   const disconnect = useCallback(() => {
-    isDisconnectingRef.current = true;
+    // 递增世代作废「到此刻为止的」连接：它们之后到达的 onclose / 入站帧一律属陈旧世代
+    // → 不重连、不处理（主动断开仍然不触发重连，语义与旧实现一致）。
+    // 与旧粘滞布尔的区别：这里只作废已存在的连接，不给后续的 connect() 留下任何需要被"复位"的状态。
+    connectionGenRef.current++;
     isFirstConnectRef.current = true;
     connectingRef.current = false;
     reconnectAttemptsRef.current = 0;
