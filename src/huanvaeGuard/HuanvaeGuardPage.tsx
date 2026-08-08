@@ -812,9 +812,6 @@ export default function HuanvaeGuardPage() {
         <div className="hg-crown-main">
           <span className={`hg-crown-dot hg-crown-dot--${crownDotTone}`} />
           <span className="hg-crown-word">{crownWord}</span>
-          {isActive && tunnelStatus?.interface_name !== undefined && (
-            <span className="hg-crown-iface hg-mono">{tunnelStatus.interface_name}</span>
-          )}
           {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
         </div>
         <div className="hg-crown-sub">
@@ -823,6 +820,11 @@ export default function HuanvaeGuardPage() {
               <>
                 {tunnelStatus?.address !== undefined && (
                   <span className="hg-crown-addr hg-mono">{tunnelStatus.address}</span>
+                )}
+                {/* 接口名和地址、对端数是同一类事实，属于同一句陈述 ——
+                    单拎到右上角会读成一条无主的孤立标签。仍是机器字面量，故保留 .hg-mono。 */}
+                {tunnelStatus?.interface_name !== undefined && (
+                  <span className="hg-crown-fact hg-mono">{tunnelStatus.interface_name}</span>
                 )}
                 <span className="hg-crown-fact">{peers.length} 个对端</span>
                 {freshestHandshake !== null && (
@@ -943,6 +945,12 @@ export default function HuanvaeGuardPage() {
             {/* Device actions */}
             {selectedDevice && (
               <div className="hg-device-detail">
+                {/* 锁定/删除作用在哪台设备上，必须写出来 —— 只有一排动词的动作区
+                    等于让用户凭记忆确认自己选中的是哪台。 */}
+                <span className="hg-device-detail-target">
+                  已选择 <b>{selectedDevice.device_name}</b>{' '}
+                  <span className="hg-mono">{selectedDevice.virtual_ip}</span>
+                </span>
                 {selectedDevice.locked_endpoint && (
                   <span className="hg-detail-badge">
                     已锁定：<span className="hg-mono">{selectedDevice.locked_endpoint}</span>
@@ -957,8 +965,10 @@ export default function HuanvaeGuardPage() {
                       onClick={() => handleLockDevice(selectedDevice.device_id)}>锁定</AppButton>
                   )}
                   {/* 行内破坏性动作只做"触发器"，不做全页最响的东西：红留给状态冠的「断开」
-                      与确认框里那个真正不可逆的按钮（useConfirmDialog 已按 danger 渲染）。 */}
-                  <AppButton variant="secondary" size="sm"
+                      与确认框里那个真正不可逆的按钮（useConfirmDialog 已按 danger 渲染）。
+                      但它也不能和旁边的「锁定」长得一模一样 —— 只给字上色（.hg-btn-danger-text），
+                      标出来而不喊出来。 */}
+                  <AppButton variant="secondary" size="sm" className="hg-btn-danger-text"
                     onClick={() => handleDeleteDevice(selectedDevice.device_id)}>删除</AppButton>
                 </div>
               </div>
@@ -1080,7 +1090,7 @@ export default function HuanvaeGuardPage() {
                       <td>
                         {/* 不叫「断开」：那个词在状态冠上已经专指"断开本机隧道"。
                             一个动作在整条流程里只能有一个名字，这里删的是两台设备之间的链接。 */}
-                        <AppButton variant="secondary" size="sm"
+                        <AppButton variant="secondary" size="sm" className="hg-btn-danger-text"
                           onClick={() => handleDeleteLink(l.link_id)}>解除</AppButton>
                       </td>
                     </tr>
@@ -1176,7 +1186,7 @@ export default function HuanvaeGuardPage() {
                         onClick={e => { e.stopPropagation(); handleToggleGroup(g.group_id); }}>
                         {g.is_active ? '停用' : '启用'}
                       </AppButton>
-                      <AppButton variant="secondary" size="sm"
+                      <AppButton variant="secondary" size="sm" className="hg-btn-danger-text"
                         onClick={e => { e.stopPropagation(); handleDeleteGroup(g.group_id); }}>
                         删除
                       </AppButton>

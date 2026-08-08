@@ -37,6 +37,11 @@
  * `auto` (not `scroll`) so short content does not show a dead scrollbar.
  * padding-top is 0 on purpose: the status crown is `position: sticky; top: 0` and must
  * sit flush against the scrollport top, otherwise it would sticky-snap over a gap.
+ *
+ * Scroll AFFORDANCE (see the `background` declaration below): scrolling worked already,
+ * it just was not discoverable -- at 600x400 the peer card is sliced mid-way with no
+ * hint that anything follows. Solved with the pure-CSS shadow/cover technique: no
+ * JavaScript, no scroll listener, no extra DOM node.
  */
 .hg-page {
   /* --- palette: 6 named roles, all derived from theme tokens --- */
@@ -56,7 +61,32 @@
   height: 100%;
   overflow-y: auto;
   padding: 0 var(--space-4) var(--space-4);
-  background: var(--gradient-bg-page);
+
+  /* Scroll cue -- five background layers, listed topmost first:
+   *   1-2  fade covers, `background-attachment: local`  -> pinned to the CONTENT
+   *   3-4  edge shadows, `background-attachment: scroll` -> pinned to the SCROLLPORT
+   *   5    the page gradient, unchanged and still the bottom-most layer
+   * At an end the cover sits exactly on top of its shadow and hides it; scrolling away
+   * from that end carries the cover out of the scrollport and uncovers the shadow. So a
+   * cue is shown if and only if there really is more content past that edge, and a page
+   * that does not overflow shows neither -- it can never claim content that is not there.
+   * That auto-hiding is the whole point: an always-on fade would be a lie.
+   * Cover colour is --bg-primary, which is the mid stop of --gradient-bg-page itself,
+   * i.e. the closest solid the theme has to the surface it must blend into. Shadow
+   * colour is --border-strong: theme-aware, so it stays visible in dark mode too
+   * (a fixed black/white wash would vanish in one of the two modes).
+   * NOTE the longhands MUST stay after the shorthand -- `background` resets them. */
+  background:
+    linear-gradient(to bottom, var(--bg-primary), transparent),
+    linear-gradient(to top, var(--bg-primary), transparent),
+    radial-gradient(farthest-side at 50% 0, var(--border-strong), transparent),
+    radial-gradient(farthest-side at 50% 100%, var(--border-strong), transparent),
+    var(--gradient-bg-page);
+  background-position: 0 0, 0 100%, 0 0, 0 100%, 0 0;
+  background-size: 100% 32px, 100% 32px, 100% 14px, 100% 14px, auto;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll, scroll;
+
   color: var(--hg-ink);
   font-family: var(--hg-face-ui);
   font-size: var(--text-base);
@@ -92,7 +122,28 @@
   gap: 2px;
   margin: 0 calc(-1 * var(--space-4)) var(--space-3);
   padding: var(--space-3) var(--space-4);
-  background: var(--white-alpha-70);
+  /* This background MUST stay opaque and theme-aware. Two independent reasons, both
+     measured -- do not "restore" translucency here, it silently breaks legibility:
+       1. The crown is `position: sticky`, so page content scrolls UNDERNEATH it. Its
+          background is the only thing between that content and the crown's own text.
+       2. There is NO backdrop blur to soften what shows through. The two lines below are
+          inert app-wide: variables.css declares `--blur-md: blur(12px)` (a function) but
+          ThemeProvider injects `--blur-md: 16px` (a bare length), so the property resolves
+          to `backdrop-filter: 16px saturate(150%)` -- invalid, computes to `none`
+          (getComputedStyle confirms `none` while the engine does support the property).
+          122 declarations across 27 files share this bug; it is pre-existing and systemic,
+          fixed in src/theme + src/styles, not here. The two lines are KEPT so the crown
+          picks the effect up for free if that is ever repaired.
+     The earlier --white-alpha-70 failed reason 1 outright: it does not invert (literally
+     rgba(255,255,255,.7) in dark mode too), so a white scrim sat over near-black content
+     and the device rows bled through into the crown text. --bg-surface would still ghost
+     at 20% given reason 2. --bg-secondary is fully opaque in both themes (light #f6faff,
+     dark #0c0e13) and is the same token as the --color-neutral-1 stop inside
+     --gradient-bg-page, so the bar still reads as part of the page, not a foreign slab.
+     (The three non-sticky --white-alpha-* surfaces on this page are left alone on purpose:
+     nothing scrolls under them so they cannot collide, and their washed-out dark-mode look
+     is the same app-wide design-system issue -- 40 files -- not an HG one to diverge on.) */
+  background: var(--bg-secondary);
   backdrop-filter: var(--blur-md) var(--saturate-normal);
   -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
   border-bottom: 1px solid var(--border-subtle);
@@ -110,12 +161,6 @@
   font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--hg-ink);
-}
-
-.hg-crown-iface {
-  margin-left: auto;
-  font-size: var(--text-sm);
-  color: var(--hg-quiet);
 }
 
 .hg-crown-dot {
@@ -260,6 +305,22 @@
   display: flex;
   gap: var(--space-2);
   margin-bottom: 0;
+}
+
+/* Destructive trigger marker for SECONDARY buttons (delete device / delete group /
+   unlink). A filled red pill for every one of them was the "wall of red" this page
+   deliberately walked away from, but leaving them byte-identical to their harmless
+   neighbour (lock / invite) is the opposite failure: the irreversible action reads as
+   ordinary. So only the label is tinted -- marked, not shouted.
+   The second selector deliberately mirrors app-button.css's own hover specificity
+   (.app-btn--secondary:hover:not(:disabled):not(.app-btn--loading), which repaints the
+   label in the primary colour). Without it the marker would disappear exactly while the
+   pointer is on the button, i.e. at the only moment it has to be true. Scoping under
+   .hg-page keeps both selectors strictly more specific than app-button.css, so this
+   holds regardless of stylesheet order. */
+.hg-page .hg-btn-danger-text,
+.hg-page .hg-btn-danger-text:hover:not(:disabled):not(.app-btn--loading) {
+  color: var(--hg-fault);
 }
 
 /* ============================================
@@ -497,6 +558,20 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+/* Names the device the buttons below act on. Quiet by default; the name itself takes
+   the ink colour but NOT extra weight -- it has to be identifiable, not loud. */
+.hg-device-detail-target {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
+}
+
+.hg-device-detail-target b {
+  font-weight: normal;
+  color: var(--hg-ink);
+}
+
 .hg-detail-badge {
   display: inline-block;
   padding: 2px 10px;
@@ -542,12 +617,14 @@
   border-bottom: none;
 }
 
+/* Neutral ink, never --primary: blue is this app's link/interactive convention and this
+   column is inert text -- colouring it blue promises a click that does not exist. */
 .hg-peers-table .hg-pubkey {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--primary);
+  color: var(--hg-ink);
 }
 
 /* Idle-tunnel note: shown under the peer table when every peer counter is still 0.
@@ -794,10 +871,6 @@
   .hg-crown {
     margin: 0 calc(-1 * var(--space-3)) var(--space-3);
     padding: var(--space-3);
-  }
-
-  .hg-crown-iface {
-    margin-left: 0;
   }
 
   .hg-card {
