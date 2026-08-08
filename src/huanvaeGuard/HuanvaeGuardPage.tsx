@@ -28,9 +28,11 @@
  *
  * ## Group join flow
  *   Joining a group is **only** via invitation: the inviter creates an invite
- *   (returns groupId + invite_token), shares both, the invitee pastes them at the
- *   top "通过邀请加入群组" form. No self-join button on group cards (they're already
- *   visible to the user — clicking "join" would be meaningless).
+ *   (returns groupId + invite_token). Both values are combined into a single
+ *   `HGG1-…` code (see `inviteCode.ts`) so the invitee pastes **once** at the top
+ *   "通过邀请加入群组" form; the two raw fields stay visible as the fallback path
+ *   whenever the code cannot be parsed. No self-join button on group cards (they're
+ *   already visible to the user — clicking "join" would be meaningless).
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -41,6 +43,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { formatSize } from '../utils/format';
 import { formatHandshake, osLabel } from './format';
 import { isDeviceOccupiedElsewhere, OCCUPIED_HINT } from './deviceState';
+import { decodeGroupInvite, encodeGroupInvite } from './inviteCode';
+import { freshestHandshakeAge } from './tunnelSummary';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
 import { AppButton } from '../components/common/AppButton';
 import { useConfirmDialog, usePromptDialog } from '../lowcode/components/ConfirmDialog';
@@ -162,6 +166,8 @@ export default function HuanvaeGuardPage() {
   const [acceptGroupId, setAcceptGroupId] = useState('');
   const [acceptGroupToken, setAcceptGroupToken] = useState('');
   const [acceptGroupDeviceId, setAcceptGroupDeviceId] = useState('');
+  /** 合成邀请码输入框的原文（主路径）；下方两个手动框仍是提交时的真值来源 */
+  const [groupInviteCode, setGroupInviteCode] = useState('');
 
   // UI
   const [loading, setLoading] = useState(false);
@@ -719,9 +725,21 @@ export default function HuanvaeGuardPage() {
       setAcceptGroupId('');
       setAcceptGroupToken('');
       setAcceptGroupDeviceId('');
+      setGroupInviteCode('');
       await loadGroups();
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  // 邀请码输入：能解出就把 groupId / token 一并写进下方两个手动框（受控 → 用户看得见发生了什么，
+  // 也仍可手改）。解不出时只留原文、不动手动框 —— 清空会把用户已经填对的那半也一起抹掉。
+  const applyGroupInviteCode = (raw: string) => {
+    setGroupInviteCode(raw);
+    const decoded = decodeGroupInvite(raw);
+    if (decoded) {
+      setAcceptGroupId(decoded.groupId);
+      setAcceptGroupToken(decoded.token);
     }
   };
 
@@ -758,21 +776,91 @@ export default function HuanvaeGuardPage() {
     groups: '群组',
   };
 
+  // ─── 状态冠的陈述句素材 ───
+  const peers = tunnelStatus?.peers ?? [];
+  // 「最近一次握手」只在**真正握过手**的对端里取（见 tunnelSummary.ts）：age=0 有歧义，
+  // 直接 min 会被任意一个空闲对端拖成 0，把一条正常隧道报成「尚未握手」（213cc60 要消灭的正是这个）。
+  // null = 一个对端都还没握过手，此时另行措辞，绝不拼出「最近握手 尚未握手」。
+  const freshestHandshake = freshestHandshakeAge(peers);
+  const crownWord = isActive ? '已连接' : serviceLabel;
+  // 状态点三态：活着（呼吸环）/ 待命（服务在跑但还没建隧道）/ 休眠。
+  // 休眠刻意用中性灰不用红 —— 没启动是状态，不是故障；红只留给真故障（.hg-error）。
+  let crownDotTone = 'dormant';
+  if (isActive) {
+    crownDotTone = 'live';
+  } else if (serviceRunning) {
+    crownDotTone = 'ready';
+  }
+  // 未连接时第二行给下一步，而不是留白。
+  // 不说"下方"：隧道按钮就在本行右侧，且在链接/群组 tab 上设备列表根本不可见。
+  const crownHint = serviceRunning
+    ? '先在「设备」里选一台，再点「连接」'
+    : '需要先让本机服务跑起来，才能建立隧道';
+
+  // 邀请码解析反馈（纯展示提示，**不是** role="alert" —— 全页只允许一个 live region）
+  const decodedInvite = groupInviteCode.trim() === '' ? null : decodeGroupInvite(groupInviteCode);
+  // 生成侧的合成码；理论上不会为 null（groupId / token 都来自服务端且非空），为 null 时整项跳过
+  const groupInviteCombined = groupInvite
+    ? encodeGroupInvite(groupInvite.groupId, groupInvite.token)
+    : null;
+
   return (
     <div className="hg-page">
-      {/* Header */}
-      <header className="hg-header">
-        <h2 className="hg-title">HuanvaeGuard</h2>
-        <span className={`hg-status ${serviceRunning ? 'hg-status-running' : 'hg-status-stopped'}`}>
-          <span className="hg-dot" />
-          {serviceLabel}
-        </span>
-        {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
-        {osPlatform === 'macos' && !serviceRunning && (
-          <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
-            {installed ? '修复服务' : '安装服务'}
-          </AppButton>
-        )}
+      {/* 状态冠：常驻回答「通没通」。必须是原生 <header>，
+          且服务态文案与「安装服务 / 修复服务」按钮必须同处其中（测试用 closest('header') 定位）。 */}
+      <header className="hg-crown">
+        <div className="hg-crown-main">
+          <span className={`hg-crown-dot hg-crown-dot--${crownDotTone}`} />
+          <span className="hg-crown-word">{crownWord}</span>
+          {isActive && tunnelStatus?.interface_name !== undefined && (
+            <span className="hg-crown-iface hg-mono">{tunnelStatus.interface_name}</span>
+          )}
+          {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
+        </div>
+        <div className="hg-crown-sub">
+          <span className="hg-crown-facts">
+            {isActive ? (
+              <>
+                {tunnelStatus?.address !== undefined && (
+                  <span className="hg-crown-addr hg-mono">{tunnelStatus.address}</span>
+                )}
+                <span className="hg-crown-fact">{peers.length} 个对端</span>
+                {freshestHandshake !== null && (
+                  <span className="hg-crown-fact">
+                    最近握手{' '}
+                    <span className="hg-crown-live hg-mono">{formatHandshake(freshestHandshake)}</span>
+                  </span>
+                )}
+                {freshestHandshake === null && peers.length > 0 && (
+                  <span className="hg-crown-fact">尚未握手</span>
+                )}
+              </>
+            ) : crownHint}
+          </span>
+          {/* 隧道开关的两半（连接 / 断开）同属一条状态机，必须待在同一处 —— 分散到两个区域
+              会让人以为它们是两件不相干的事，且在别的 tab 上只剩一半可达。 */}
+          <span className="hg-crown-actions">
+            {osPlatform === 'macos' && !serviceRunning && (
+              <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
+                {installed ? '修复服务' : '安装服务'}
+              </AppButton>
+            )}
+            {isActive ? (
+              <AppButton variant="danger" size="sm" onClick={handleDisconnect} disabled={loading}>
+                断开
+              </AppButton>
+            ) : (
+              // isActive 不进 disabled：那一支由上面的三元决定「根本不渲染本按钮」，
+              // 再写进这里就是一个永远为假的死分支。
+              <AppButton variant="primary" size="sm"
+                loading={loading}
+                onClick={handleConnect}
+                disabled={!serviceRunning || selectedOccupied}>
+                连接
+              </AppButton>
+            )}
+          </span>
+        </div>
       </header>
 
       {/* Error */}
@@ -809,8 +897,14 @@ export default function HuanvaeGuardPage() {
             </div>
 
             {devices.length === 0 ? (
-              <ListEmpty message="暂无注册设备" />
+              <>
+                <ListEmpty message="暂无注册设备" />
+                <p className="hg-empty-hint">点击「+ 注册设备」把这台机器加入你的网络</p>
+              </>
             ) : (
+              /* 地址轨：[IP 檐槽][2px 竖轨][名字 · 徽标 … 状态]。
+                 轨必须连成一条不断的线 —— 行与行之间不留缝、也不加分隔边框（边框会把轨切断），
+                 纵向留白一律加在内容格上，轨格 align-self:stretch 撑满整行高度。 */
               <div className="hg-device-list">
                 {devices.map(d => {
                   const statusKey = displayStatusKey(d);
@@ -819,22 +913,26 @@ export default function HuanvaeGuardPage() {
                   const occupied = isDeviceOccupiedElsewhere(d.status, isSelfDevice(d));
                   // 连接在途时整列表暂时禁选：中途换选目标会造成"点了没反应 / 连错设备"
                   const rowDisabled = occupied || loading;
+                  const online = statusKey === 'online';
                   return (
                     <label
                       key={d.device_id}
                       className={`hg-device-item${selectedDeviceId === d.device_id ? ' selected' : ''}${rowDisabled ? ' hg-device-item--disabled' : ''}`}
                       title={occupied ? OCCUPIED_HINT : undefined}
                     >
-                      <input type="radio" name="device" checked={selectedDeviceId === d.device_id}
-                        disabled={rowDisabled}
-                        onChange={() => setSelectedDeviceId(d.device_id)} />
-                      <span className="hg-device-name">{d.device_name}</span>
-                      <span className="hg-device-ip">{d.virtual_ip}</span>
-                      {isSelfDevice(d) && <span className="hg-device-self">（本机）</span>}
-                      {/* 禁用必须给出肉眼可见的原因，不能只靠 disabled 让它"点了没反应" */}
-                      {occupied && <span className="hg-device-occupied">已在其它终端连接</span>}
-                      <span className={`hg-device-status${statusKey === 'online' ? ' active' : ''}`}>
-                        {localizeStatus(statusKey)}
+                      <span className="hg-device-addr hg-mono">{d.virtual_ip}</span>
+                      <span className={`hg-device-rail${online ? ' is-live' : ''}`} aria-hidden="true" />
+                      <span className="hg-device-body">
+                        <input type="radio" name="device" checked={selectedDeviceId === d.device_id}
+                          disabled={rowDisabled}
+                          onChange={() => setSelectedDeviceId(d.device_id)} />
+                        <span className="hg-device-name">{d.device_name}</span>
+                        {isSelfDevice(d) && <span className="hg-device-self">（本机）</span>}
+                        {/* 禁用必须给出肉眼可见的原因，不能只靠 disabled 让它"点了没反应" */}
+                        {occupied && <span className="hg-device-occupied">已在其它终端连接</span>}
+                        <span className={`hg-device-status${online ? ' active' : ''}`}>
+                          {localizeStatus(statusKey)}
+                        </span>
                       </span>
                     </label>
                   );
@@ -846,7 +944,9 @@ export default function HuanvaeGuardPage() {
             {selectedDevice && (
               <div className="hg-device-detail">
                 {selectedDevice.locked_endpoint && (
-                  <span className="hg-detail-badge">已锁定：{selectedDevice.locked_endpoint}</span>
+                  <span className="hg-detail-badge">
+                    已锁定：<span className="hg-mono">{selectedDevice.locked_endpoint}</span>
+                  </span>
                 )}
                 <div className="hg-btn-row">
                   {selectedDevice.locked_endpoint ? (
@@ -856,40 +956,27 @@ export default function HuanvaeGuardPage() {
                     <AppButton variant="secondary" size="sm"
                       onClick={() => handleLockDevice(selectedDevice.device_id)}>锁定</AppButton>
                   )}
-                  <AppButton variant="danger" size="sm"
+                  {/* 行内破坏性动作只做"触发器"，不做全页最响的东西：红留给状态冠的「断开」
+                      与确认框里那个真正不可逆的按钮（useConfirmDialog 已按 danger 渲染）。 */}
+                  <AppButton variant="secondary" size="sm"
                     onClick={() => handleDeleteDevice(selectedDevice.device_id)}>删除</AppButton>
                 </div>
               </div>
             )}
-
-            {/* Connect / Disconnect */}
-            <div className="hg-btn-row" style={{ marginTop: 16, marginBottom: 0 }}>
-              <AppButton variant="primary" size="md"
-                loading={loading}
-                onClick={handleConnect}
-                disabled={isActive || !serviceRunning || selectedOccupied}>
-                连接
-              </AppButton>
-              <AppButton variant="danger" size="md"
-                onClick={handleDisconnect}
-                disabled={loading || !isActive}>
-                断开
-              </AppButton>
-            </div>
           </section>
 
-          {/* Tunnel status */}
+          {/* 对端表（原独立「隧道」卡片已并入：接口/地址进状态冠，监听端口进本节标注） */}
           {tunnelStatus && isActive && (
             <section className="hg-card">
               <div className="hg-section-head">
-                <span className="hg-section-title">隧道</span>
+                <span className="hg-section-title">对端</span>
+                <span className="hg-section-note">
+                  {tunnelStatus.peers.length} 个
+                  {tunnelStatus.listen_port !== undefined && (
+                    <> · 监听 <span className="hg-mono">{tunnelStatus.listen_port}</span></>
+                  )}
+                </span>
               </div>
-              <dl className="hg-tunnel-info">
-                <dt>接口</dt><dd>{tunnelStatus.interface_name}</dd>
-                <dt>地址</dt><dd>{tunnelStatus.address}</dd>
-                <dt>监听端口</dt><dd>{tunnelStatus.listen_port}</dd>
-              </dl>
-              <div className="hg-peers-title">对端（{tunnelStatus.peers.length}）</div>
               <table className="hg-peers-table">
                 <thead>
                   <tr>
@@ -901,11 +988,11 @@ export default function HuanvaeGuardPage() {
                 <tbody>
                   {tunnelStatus.peers.map(p => (
                     <tr key={p.public_key}>
-                      <td className="hg-pubkey">{p.public_key.substring(0, 16)}...</td>
-                      <td>{p.endpoint}</td>
-                      <td className="hg-num">{formatSize(p.rx_bytes)}</td>
-                      <td className="hg-num">{formatSize(p.tx_bytes)}</td>
-                      <td className="hg-num">{formatHandshake(p.last_handshake)}</td>
+                      <td className="hg-pubkey hg-mono">{p.public_key.substring(0, 16)}...</td>
+                      <td className="hg-mono">{p.endpoint}</td>
+                      <td className="hg-num hg-mono">{formatSize(p.rx_bytes)}</td>
+                      <td className="hg-num hg-mono">{formatSize(p.tx_bytes)}</td>
+                      <td className="hg-num hg-mono">{formatHandshake(p.last_handshake)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -950,10 +1037,11 @@ export default function HuanvaeGuardPage() {
               document.body,
             )}
 
-          <div className="hg-invite-section">
-            <label className="hg-label">接受邀请</label>
+          {/* 拍平：卡片内直接是「标签 + 输入行」，不再套一层 .hg-invite-section 边框 */}
+          <div className="hg-field">
+            <span className="hg-field-label">接受邀请</span>
             <div className="hg-input-row">
-              <input className="hg-input" placeholder="邀请令牌" value={acceptToken}
+              <input className="hg-input hg-mono" placeholder="邀请令牌" value={acceptToken}
                 onChange={e => setAcceptToken(e.target.value)} />
               <select className="hg-input" value={acceptDeviceId}
                 onChange={e => setAcceptDeviceId(e.target.value)}>
@@ -970,7 +1058,10 @@ export default function HuanvaeGuardPage() {
           </div>
 
           {links.length === 0 ? (
-            <ListEmpty message="暂无链接" />
+            <>
+              <ListEmpty message="暂无链接" />
+              <p className="hg-empty-hint">链接把两台设备直接连起来。先在「设备」里选一台，再创建邀请。</p>
+            </>
           ) : (
             <table className="hg-peers-table">
               <thead>
@@ -987,8 +1078,10 @@ export default function HuanvaeGuardPage() {
                       <td>{nameA}</td><td>{nameB}</td>
                       <td>{localizeLinkSource(l.link_source)}</td>
                       <td>
-                        <AppButton variant="danger" size="sm"
-                          onClick={() => handleDeleteLink(l.link_id)}>断开</AppButton>
+                        {/* 不叫「断开」：那个词在状态冠上已经专指"断开本机隧道"。
+                            一个动作在整条流程里只能有一个名字，这里删的是两台设备之间的链接。 */}
+                        <AppButton variant="secondary" size="sm"
+                          onClick={() => handleDeleteLink(l.link_id)}>解除</AppButton>
                       </td>
                     </tr>
                   );
@@ -1007,11 +1100,34 @@ export default function HuanvaeGuardPage() {
             <div className="hg-section-head">
               <span className="hg-section-title">通过邀请加入群组</span>
             </div>
+            {/* 主路径：一个合成邀请码，粘一次即自动填好下面两栏 */}
+            <div className="hg-field">
+              <span className="hg-field-label">邀请码</span>
+              <input className="hg-input hg-input--block hg-mono" placeholder="HGG1-..."
+                value={groupInviteCode}
+                onChange={e => applyGroupInviteCode(e.target.value)} />
+              {decodedInvite && (
+                <p className="hg-field-note hg-field-note--live">
+                  已识别 · 群组 {decodedInvite.groupId.slice(0, 8)}
+                </p>
+              )}
+              {groupInviteCode.trim() !== '' && decodedInvite === null && (
+                <p className="hg-field-note">识别不出这个邀请码。请确认复制完整，或在下方分别填写。</p>
+              )}
+            </div>
+
+            {/* 回退路径：常驻可见但压暗。刻意不做折叠 —— 藏起来的回退路径等于没有 */}
+            <div className="hg-field hg-field--quiet">
+              <span className="hg-field-label">或分别填写</span>
+              <div className="hg-input-row">
+                <input className="hg-input hg-mono" placeholder="群组 ID" value={acceptGroupId}
+                  onChange={e => setAcceptGroupId(e.target.value)} />
+                <input className="hg-input hg-mono" placeholder="邀请令牌" value={acceptGroupToken}
+                  onChange={e => setAcceptGroupToken(e.target.value)} />
+              </div>
+            </div>
+
             <div className="hg-input-row">
-              <input className="hg-input" placeholder="群组 ID" value={acceptGroupId}
-                onChange={e => setAcceptGroupId(e.target.value)} />
-              <input className="hg-input" placeholder="邀请令牌" value={acceptGroupToken}
-                onChange={e => setAcceptGroupToken(e.target.value)} />
               <select className="hg-input" value={acceptGroupDeviceId}
                 onChange={e => setAcceptGroupDeviceId(e.target.value)}>
                 <option value="">选择设备</option>
@@ -1036,9 +1152,12 @@ export default function HuanvaeGuardPage() {
             </div>
 
             {groups.length === 0 ? (
-              <ListEmpty message="暂无群组" />
+              <>
+                <ListEmpty message="暂无群组" />
+                <p className="hg-empty-hint">群组让多台设备互相可见。创建一个，或用上面的邀请码加入。</p>
+              </>
             ) : (
-              <div className="hg-device-list">
+              <div className="hg-group-list">
                 {groups.map(g => (
                   <div key={g.group_id}
                     className={`hg-group-item${selectedGroupId === g.group_id ? ' selected' : ''}`}
@@ -1052,11 +1171,12 @@ export default function HuanvaeGuardPage() {
                         onClick={e => { e.stopPropagation(); handleGroupInvite(g.group_id); }}>
                         邀请
                       </AppButton>
+                      {/* 说清按下去会发生什么：按当前状态给出将要执行的动作，不写含糊的「切换状态」 */}
                       <AppButton variant="secondary" size="sm"
                         onClick={e => { e.stopPropagation(); handleToggleGroup(g.group_id); }}>
-                        切换状态
+                        {g.is_active ? '停用' : '启用'}
                       </AppButton>
-                      <AppButton variant="danger" size="sm"
+                      <AppButton variant="secondary" size="sm"
                         onClick={e => { e.stopPropagation(); handleDeleteGroup(g.group_id); }}>
                         删除
                       </AppButton>
@@ -1072,10 +1192,14 @@ export default function HuanvaeGuardPage() {
           {groupInvite &&
             createPortal(
               <div style={{ position: 'fixed', inset: 0, zIndex: 10001 }}>
+                {/* 合成码排第一（对方粘一次即可）；原始两项保留 —— 接收方的手动回退路径靠它们 */}
                 <SecretDisplay
                   title="群组邀请码"
                   warningText={`过期时间：${new Date(groupInvite.expiresAt).toLocaleString()}`}
                   fields={[
+                    ...(groupInviteCombined !== null
+                      ? [{ label: '邀请码', value: groupInviteCombined }]
+                      : []),
                     { label: '群组 ID', value: groupInvite.groupId },
                     { label: '邀请令牌', value: groupInvite.token },
                   ]}
@@ -1106,9 +1230,12 @@ export default function HuanvaeGuardPage() {
                     {groupDetail.devices.map(d => (
                       <tr key={d.device_id}>
                         <td>{devices.find(dev => dev.device_id === d.device_id)?.device_name ?? d.device_id.substring(0, 8)}</td>
-                        <td>{d.virtual_ip}</td>
+                        <td className="hg-mono">{d.virtual_ip}</td>
                         <td>{localizeStatus(d.status ?? 'unknown')}</td>
                         <td>
+                          {/* 本页最后一个红色行内触发器，且是刻意的：handleLeaveGroup 不弹确认框，
+                              红色是用户在动作发生前拿到的唯一警示。其余行内破坏性动作都由
+                              useConfirmDialog 兜住，所以那些降成了 secondary。 */}
                           <AppButton variant="danger" size="sm"
                             onClick={() => handleLeaveGroup(groupDetail.group.group_id, d.device_id)}>
                             退出
@@ -1124,16 +1251,23 @@ export default function HuanvaeGuardPage() {
         </>
       )}
 
-      {/* Log panel */}
-      <div className="hg-log">
-        {log.length === 0 ? (
-          <div className="hg-log-empty">就绪</div>
-        ) : (
-          log.map((l, i) => (
-            <div key={i} className="hg-log-line">{l}</div>
-          ))
-        )}
-      </div>
+      {/* Log panel：本单 Console 不可得时的证据来源，所以常驻可见、刻意不做折叠开关 */}
+      <section className="hg-log-panel">
+        <div className="hg-log-head">
+          <span className="hg-log-title">日志</span>
+          <span className="hg-log-count">{log.length} 条</span>
+        </div>
+        <div className="hg-log">
+          {log.length === 0 ? (
+            <div className="hg-log-empty">就绪</div>
+          ) : (
+            log.map((l, i) => (
+              // 日志行必须保持**单一文本节点**（有 $ 锚定的整行正则断言），只加 class、不拆 <span>
+              <div key={i} className="hg-log-line hg-mono">{l}</div>
+            ))
+          )}
+        </div>
+      </section>
 
       {/* 共享对话框（取代浏览器原生 confirm()/prompt()） */}
       {confirmDialog}

@@ -1,31 +1,64 @@
 /**
- * HuanvaeGuard VPN 管理页面样式
+ * HuanvaeGuard VPN page styles
  *
- * 设计原则：
- * - 完全使用主题系统 CSS 变量（variables.css + ThemeProvider 注入）
- * - 与主应用保持视觉一致：毛玻璃 + 主题色 + 统一圆角/间距
- * - 保留等宽字体以体现"技术工具"气质，但配色完全接入调色盘
+ * ASCII comments only. This repo has a documented encoding-corruption incident where
+ * editing a large CSS file that contains CJK comments produced BOM + GBK mojibake and
+ * broke the tailwind build (see .claude/rules/frontend-test.md "css-encoding").
+ *
+ * Design contract (do not silently undo):
+ *   - Every colour comes from a theme token (variables.css + ThemeProvider). No raw hex.
+ *   - NO color-mix(): tauri.conf.json minimumSystemVersion is 10.13, whose WKWebView
+ *     predates color-mix() (Safari 16.2+). A dropped declaration there falls back to
+ *     transparent/inherited, i.e. it breaks on the oldest supported system. Use the
+ *     existing --primary-subtle token whenever a "one shade lighter primary" is needed.
+ *   - Monospace is SEMANTIC, not ambient: .hg-mono marks machine literals only
+ *     (virtual IPs, public keys, interface name, listen port, invite codes/tokens,
+ *     log lines, byte counts, handshake age). Prose/labels/buttons stay in the UI face.
+ *   - --hg-live (green) means "alive right now". It is allowed ONLY on the crown dot,
+ *     live rail segments, online badges and handshake age. Never on buttons, borders,
+ *     titles or large background fills.
+ *   - No framer-motion / GSAP on this page. The only motion is one @keyframes breathing
+ *     ring on box-shadow. Every `transition` in this file is restricted to
+ *     `background-color` + `border-color` -- never all/transform/opacity/box-shadow
+ *     (transform/opacity would trip the repo's animation-conflict gate; box-shadow
+ *     would fight the breathing keyframes).
  */
 
 /* ============================================
-   页面根容器
+   Page root + design tokens
    ============================================ */
 /*
- * 滚动归属：本页的纵向滚动由 .hg-page 自己承担，不能交给外层。
- * 外层 #root（src/index.css 的 `html, body, #root { height:100%; overflow:hidden }`）是
- * 定高裁切容器 —— 根容器若只声明 min-height 而不自持滚动，内容一超出窗口高度就被 #root
- * 直接裁掉（底部日志区看不见也滚不到），而不是产生滚动条。
- * 因此：height:100% 顶满 #root 的可视高度 + overflow-y:auto 本容器内滚。
- * 用 auto 而非 scroll，保证内容不溢出时不出现多余滚动条。
- * （本规则自带 box-sizing:border-box，padding 已计入 100% 高度内。）
+ * Scroll ownership: this page owns its own vertical scrolling; the outer #root
+ * (src/index.css `html, body, #root { height:100%; overflow:hidden }`) is a fixed-height
+ * clipping container. A root that only declares min-height and does not scroll itself
+ * gets its overflow CLIPPED by #root (the bottom log panel becomes unreachable) instead
+ * of producing a scrollbar.
+ * Therefore: height:100% to fill #root's viewport + overflow-y:auto to scroll internally.
+ * `auto` (not `scroll`) so short content does not show a dead scrollbar.
+ * padding-top is 0 on purpose: the status crown is `position: sticky; top: 0` and must
+ * sit flush against the scrollport top, otherwise it would sticky-snap over a gap.
  */
 .hg-page {
+  /* --- palette: 6 named roles, all derived from theme tokens --- */
+  --hg-ink:      var(--text-primary);
+  --hg-quiet:    var(--text-muted);
+  --hg-vein:     var(--primary-subtle);   /* NO color-mix: minimumSystemVersion 10.13 */
+  --hg-live:     var(--status-success);
+  --hg-dormant:  var(--text-light);
+  --hg-fault:    var(--status-error);
+
+  /* --- type roles --- */
+  --hg-face-ui:   -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+                  'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --hg-face-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+                  'Liberation Mono', monospace;
+
   height: 100%;
   overflow-y: auto;
-  padding: var(--space-5);
+  padding: 0 var(--space-4) var(--space-4);
   background: var(--gradient-bg-page);
-  color: var(--text-primary);
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  color: var(--hg-ink);
+  font-family: var(--hg-face-ui);
   font-size: var(--text-base);
   line-height: 1.55;
   box-sizing: border-box;
@@ -37,68 +70,129 @@
   box-sizing: border-box;
 }
 
+/* Machine literals. Applied per element, never on the page root. */
+.hg-mono {
+  font-family: var(--hg-face-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ============================================
-   顶部标题栏（毛玻璃）
-   ============================================ */
-.hg-header {
+   Status crown (replaces the old header + the standalone tunnel card)
+   ============================================
+   One sentence about your network, not a row of stat tiles: no giant number,
+   no gradient accent bar. Sticky so the answer to "is it up?" never scrolls away.
+   The negative horizontal margins let it bleed to the scrollport edges while the
+   rest of the page keeps its inset. */
+.hg-crown {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 calc(-1 * var(--space-4)) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--white-alpha-70);
+  backdrop-filter: var(--blur-md) var(--saturate-normal);
+  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hg-crown-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.hg-crown-word {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--hg-ink);
+}
+
+.hg-crown-iface {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--hg-quiet);
+}
+
+.hg-crown-dot {
+  flex: none;
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--hg-dormant);
+}
+
+/* "not running" / "not installed" is a STATE, not a fault -- neutral grey, never red.
+   Red is reserved for .hg-error. */
+.hg-crown-dot--dormant { background: var(--hg-dormant); }
+.hg-crown-dot--ready   { background: var(--primary); }
+.hg-crown-dot--live    { background: var(--hg-live); }
+
+/* The only motion on this page. box-shadow only: transform/opacity are off limits
+   (animation-conflict gate) and a box-shadow transition would fight these keyframes. */
+.hg-crown-dot--live {
+  animation: hg-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes hg-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 var(--hg-live); }
+  50%      { box-shadow: 0 0 0 4px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-crown-dot--live { animation: none; }
+}
+
+.hg-crown-sub {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
-  background: var(--white-alpha-60);
-  backdrop-filter: var(--blur-md) var(--saturate-normal);
-  -webkit-backdrop-filter: var(--blur-md) var(--saturate-normal);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.hg-title {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--primary);
-}
-
-.hg-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  border-radius: var(--radius-full);
+  flex-wrap: wrap;
+  min-height: 26px;
   font-size: var(--text-sm);
-  font-weight: 500;
+  color: var(--hg-quiet);
 }
 
-.hg-status .hg-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  display: inline-block;
+.hg-crown-facts {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.hg-status-running {
-  color: var(--status-success);
-  background: var(--status-success-subtle);
-}
-.hg-status-running .hg-dot {
-  background: var(--status-success);
-  box-shadow: 0 0 8px var(--status-success);
+.hg-crown-addr {
+  color: var(--hg-ink);
+  word-break: break-all;
 }
 
-.hg-status-stopped {
-  color: var(--status-error);
-  background: var(--status-error-subtle);
+/* Thin separator between the facts, drawn in CSS so the DOM stays readable. */
+.hg-crown-fact + .hg-crown-fact::before,
+.hg-crown-addr + .hg-crown-fact::before {
+  content: '\00B7';
+  margin-right: var(--space-2);
+  color: var(--hg-dormant);
 }
-.hg-status-stopped .hg-dot {
-  background: var(--status-error);
+
+.hg-crown-live {
+  color: var(--hg-live);
+}
+
+.hg-crown-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 .hg-os-hint {
-  margin-left: auto;
-  padding: 2px 10px;
+  padding: 1px 8px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   color: var(--status-warning);
@@ -106,17 +200,16 @@
 }
 
 /* ============================================
-   通用卡片（毛玻璃分区）
+   Cards
    ============================================ */
 .hg-card {
   padding: var(--space-4);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
   background: var(--white-alpha-50);
   backdrop-filter: var(--blur-sm) var(--saturate-normal);
   -webkit-backdrop-filter: var(--blur-sm) var(--saturate-normal);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
 }
 
 .hg-section-head {
@@ -128,23 +221,29 @@
 
 .hg-section-title {
   font-size: var(--text-md);
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0.3px;
+  font-weight: 650;
+  color: var(--hg-ink);
+}
+
+/* Quiet caption on the right of a section head (counts, listen port, ...) */
+.hg-section-note {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
 }
 
 /* ============================================
-   错误条
+   Error banner (the page's only role="alert")
    ============================================ */
 .hg-error {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
-  color: var(--status-error);
+  margin-bottom: var(--space-3);
+  color: var(--hg-fault);
   background: var(--status-error-subtle);
-  border: 1px solid var(--status-error);
+  border: 1px solid var(--hg-fault);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
 }
@@ -155,236 +254,242 @@
 }
 
 /* ============================================
-   按钮布局
-   ============================================
-   按钮本身已迁移到 <AppButton> 组件，本节仅保留按钮组的 flex 布局类。
-   旧 .hg-btn / .hg-btn-sm / .hg-btn-primary / .hg-btn-danger 已删除。
-*/
+   Button rows (buttons themselves live in <AppButton>)
+   ============================================ */
 .hg-btn-row {
   display: flex;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  margin-bottom: 0;
 }
 
 /* ============================================
-   设备列表
-   ============================================ */
+   Tabs: quiet segmented control
+   ============================================
+   No pill, no card background, no shadow -- one hairline runs under the whole row and
+   the selected tab is marked by a 2px indicator drawn with inset box-shadow (a pseudo
+   element with transform would collide with the no-transform rule). Tabs size to their
+   content instead of splitting the row: an evenly split bar is the stock "segmented
+   control" look, which is not what this page wants. */
+.hg-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hg-tab {
+  padding: 8px 2px;
+  margin-right: var(--space-5);
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--hg-quiet);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.hg-tab:hover {
+  color: var(--hg-ink);
+}
+
+.hg-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.hg-tab.active {
+  color: var(--hg-ink);
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+/* ============================================
+   Device list: the address rail
+   ============================================
+   [ IP gutter ][ rail ][ name . badges ... status ]
+   The rail must read as ONE continuous line threading the whole address space, so:
+     - the row itself carries NO vertical padding and the list has NO gap
+       (padding or gap would leave the rail cell short of the row box edges);
+     - the breathing room lives on the content cells instead;
+     - the rail cell stretches to the full row height;
+     - rows are separated by hover/selected treatment, never by a border
+       (a border would cut the rail).
+   The hover wash covers the third column only -- washing the gutter or the rail
+   would visually sever the line. */
 .hg-device-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
 }
 
+/* The rail track is 4px wide so the widened selected rail still fits inside it --
+   a rail wider than its track would bulge into the column gap and lose its alignment. */
 .hg-device-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 84px 4px 1fr;
   align-items: center;
-  gap: var(--space-2);
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
+  column-gap: var(--space-3);
+  row-gap: 0;
+  padding: 0;
   cursor: pointer;
-  transition: var(--transition-fast);
   user-select: none;
 }
 
-.hg-device-item:hover {
+.hg-device-item:focus-within {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.hg-device-addr {
+  padding: 7px 0;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hg-device-rail {
+  align-self: stretch;
+  width: 3px;
+  background: var(--hg-vein);
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.hg-device-rail.is-live {
+  background: var(--hg-live);
+}
+
+.hg-device-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.hg-device-item:hover .hg-device-body {
   background: var(--primary-subtle);
 }
 
-.hg-device-item.selected {
-  background: var(--primary-subtle);
-  border-color: var(--primary);
+/* Selected state deliberately avoids a background block on the row: a filled block
+   fights the continuity of the rail. Instead the gutter takes the primary colour,
+   the name goes bold, the radio is checked and the rail thickens. */
+.hg-device-item.selected .hg-device-addr {
+  color: var(--primary);
+}
+
+/* WIDTH only. Rail COLOUR is liveness-only, forever -- it must never also encode
+   selection, or a selected-offline row and an unselected-online row would differ by
+   hue alone with no way to tell which meaning the hue is expressing. */
+.hg-device-item.selected .hg-device-rail {
+  width: 4px;
+}
+
+.hg-device-item.selected .hg-device-name {
+  font-weight: 700;
 }
 
 .hg-device-item input[type='radio'] {
+  flex: none;
+  width: 13px;
+  height: 13px;
   accent-color: var(--primary);
   margin: 0;
   cursor: pointer;
 }
 
 .hg-device-name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.hg-device-ip {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
+  font-weight: 550;
+  color: var(--hg-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hg-device-self {
-  color: var(--status-info, var(--color-accent, #4a90e2));
+  flex: none;
   font-size: var(--text-xs);
-  font-style: italic;
+  color: var(--hg-quiet);
 }
 
 .hg-device-status {
+  flex: none;
   margin-left: auto;
   padding: 1px 8px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  color: var(--text-muted);
-  background: var(--color-neutral-3);
+  color: var(--hg-quiet);
 }
 
 .hg-device-status.active {
-  color: var(--status-success);
+  color: var(--hg-live);
   background: var(--status-success-subtle);
 }
 
-/* ============================================
-   隧道状态（已连接时显示）
-   ============================================ */
-.hg-tunnel-info {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px var(--space-3);
-  margin-bottom: var(--space-3);
-  font-size: var(--text-sm);
+/* Narrow layout: the gutter moves above the name, the rail keeps running down the
+   left edge across both rows so the line is never broken. */
+@media (max-width: 560px) {
+  .hg-device-item {
+    grid-template-columns: 4px 1fr;
+    grid-template-areas:
+      'rail addr'
+      'rail body';
+    column-gap: var(--space-2);
+  }
+
+  .hg-device-addr {
+    grid-area: addr;
+    padding: 6px 0 0;
+    text-align: left;
+  }
+
+  .hg-device-rail { grid-area: rail; }
+
+  .hg-device-body {
+    grid-area: body;
+    padding-top: 2px;
+    padding-bottom: 6px;
+  }
 }
 
-.hg-tunnel-info dt {
-  color: var(--text-muted);
-  font-weight: 600;
+/* Disabled row: already connected on another terminal, or a connect is in flight.
+   Kept after the hover rules so it wins at equal specificity -- a disabled row must
+   not give hover feedback. Deliberately no transition (see file header). */
+.hg-device-item--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
-.hg-tunnel-info dd {
-  margin: 0;
-  color: var(--text-primary);
-  word-break: break-all;
-}
-
-.hg-peers-title {
-  margin: var(--space-2) 0 var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.hg-peers-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.hg-peers-table thead th {
-  text-align: left;
-  padding: 6px;
-  font-weight: 600;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.hg-peers-table thead th:last-child,
-.hg-peers-table thead th.hg-num,
-.hg-peers-table tbody td.hg-num {
-  text-align: right;
-}
-
-.hg-peers-table tbody td {
-  padding: 6px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.hg-peers-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.hg-peers-table .hg-pubkey {
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--primary);
-  font-family: inherit;
-}
-
-/* ============================================
-   日志面板
-   ============================================ */
-.hg-log {
-  padding: var(--space-3);
-  max-height: 220px;
-  overflow: auto;
-  background: var(--color-neutral-10);
-  color: var(--color-neutral-4);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  line-height: 1.6;
-}
-
-.hg-log-line {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.hg-log-line + .hg-log-line {
-  margin-top: 2px;
-}
-
-.hg-log-empty {
-  color: var(--color-neutral-6);
-  font-style: italic;
-}
-
-.hg-log::-webkit-scrollbar {
-  width: 8px;
-}
-.hg-log::-webkit-scrollbar-track {
+/* :not(.selected) is required: while a connect is in flight the whole list is disabled,
+   including the selected row; clearing its hover background unconditionally would make
+   the selection highlight blink away under the cursor. */
+.hg-device-item--disabled:not(.selected):hover .hg-device-body {
   background: transparent;
 }
-.hg-log::-webkit-scrollbar-thumb {
-  background: var(--color-neutral-7);
-  border-radius: var(--radius-full);
+
+.hg-device-item--disabled input[type='radio'] {
+  cursor: not-allowed;
 }
-.hg-log::-webkit-scrollbar-thumb:hover {
-  background: var(--color-neutral-6);
+
+/* Inline reason for the disabled state -- "why can't I pick this" must be visible,
+   not only discoverable via the title tooltip. */
+.hg-device-occupied {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
 }
 
 /* ============================================
-   Tab 导航
-   ============================================ */
-.hg-tabs {
-  display: flex;
-  gap: 2px;
-  margin-bottom: var(--space-4);
-  padding: 3px;
-  background: var(--white-alpha-50);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-}
-
-.hg-tab {
-  flex: 1;
-  padding: 6px 14px;
-  font-family: inherit;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.hg-tab:hover {
-  color: var(--text-primary);
-  background: var(--primary-subtle);
-}
-
-.hg-tab.active {
-  color: var(--primary);
-  background: var(--white-alpha-70);
-  border-color: var(--border-default);
-  box-shadow: var(--shadow-sm);
-}
-
-/* ============================================
-   设备详情 (Lock/Unlock)
+   Device detail (lock / unlock / delete)
    ============================================ */
 .hg-device-detail {
   margin-top: var(--space-3);
@@ -404,42 +509,95 @@
 }
 
 /* ============================================
-   邀请令牌 / 输入区
+   Peer table
    ============================================ */
-.hg-invite-section {
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  background: var(--white-alpha-40);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+.hg-peers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
-.hg-label {
+.hg-peers-table thead th {
+  text-align: left;
+  padding: 5px 6px;
+  font-weight: 600;
+  text-transform: none;
+  color: var(--hg-quiet);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.hg-peers-table thead th:last-child,
+.hg-peers-table thead th.hg-num,
+.hg-peers-table tbody td.hg-num {
+  text-align: right;
+}
+
+.hg-peers-table tbody td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hg-peers-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.hg-peers-table .hg-pubkey {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+}
+
+/* Idle-tunnel note: shown under the peer table when every peer counter is still 0.
+   Neutral explanation, not an error banner. No transition on purpose. */
+.hg-peers-idle-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--hg-quiet);
+}
+
+/* ============================================
+   Fields / inputs
+   ============================================
+   Flattened: a card holds "label + input row" directly. The old .hg-invite-section
+   frame (card > frame > row = three containers around one input) is gone. */
+.hg-field {
+  margin-bottom: var(--space-3);
+}
+
+.hg-field-label {
   display: block;
   margin-bottom: var(--space-1);
   font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--hg-ink);
 }
 
-.hg-hint {
-  display: block;
-  margin-top: var(--space-1);
+/* The manual fallback pair stays mounted and reachable, just visually demoted --
+   hiding it behind a toggle would make the recovery path undiscoverable. */
+.hg-field--quiet .hg-field-label {
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-weight: 500;
+  color: var(--hg-quiet);
 }
 
-.hg-token-display {
-  padding: var(--space-2) var(--space-3);
-  margin-top: var(--space-1);
-  background: var(--color-neutral-10);
-  color: var(--primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+.hg-field--quiet .hg-input {
   font-size: var(--text-xs);
-  font-family: inherit;
-  word-break: break-all;
-  user-select: all;
+  border-color: var(--border-subtle);
+  background: var(--white-alpha-50);
+}
+
+.hg-field-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
+}
+
+.hg-field-note--live {
+  color: var(--hg-live);
 }
 
 .hg-input-row {
@@ -455,36 +613,52 @@
   padding: 6px 10px;
   font-family: inherit;
   font-size: var(--text-sm);
-  color: var(--text-primary);
+  color: var(--hg-ink);
   background: var(--white-alpha-70);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  transition: var(--transition-fast);
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.hg-input--block {
+  display: block;
+  width: 100%;
+  flex: none;
 }
 
 .hg-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+.hg-input:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
 }
 
 .hg-input::placeholder {
-  color: var(--text-muted);
+  color: var(--hg-dormant);
 }
 
 /* ============================================
-   组网列表
+   Group list
    ============================================ */
+.hg-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .hg-group-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 8px 10px;
+  padding: 6px var(--space-2);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: var(--transition-fast);
   flex-wrap: wrap;
+  transition: background-color .15s ease, border-color .15s ease;
 }
 
 .hg-group-item:hover {
@@ -497,20 +671,20 @@
 }
 
 .hg-group-name {
+  font-size: var(--text-md);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--hg-ink);
 }
 
 .hg-group-status {
   padding: 1px 8px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  color: var(--text-muted);
-  background: var(--color-neutral-3);
+  color: var(--hg-quiet);
 }
 
 .hg-group-status.active {
-  color: var(--status-success);
+  color: var(--hg-live);
   background: var(--status-success-subtle);
 }
 
@@ -524,39 +698,113 @@
   margin: 0 0 var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  font-style: italic;
 }
 
-/* 空闲隧道提示：所有对端收发计数均为 0 时显示在对端表格下方（中性说明，非错误提示）。
-   刻意不加 transition —— 本仓有 CSS / framer-motion 冲突静态门禁。 */
-.hg-peers-idle-note {
-  margin: var(--space-2) 0 0;
+/* ============================================
+   Empty states
+   ============================================
+   The asserted message stays the sole content of <ListEmpty>; the guidance line is a
+   sibling so the shared component is untouched. An empty screen is an invitation to
+   act, not a statement that there is nothing. */
+.hg-empty-hint {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
+  text-align: center;
+}
+
+/* ============================================
+   Log panel
+   ============================================
+   Kept always visible (no collapse toggle): when the devtools console is not available
+   this panel is the only evidence trail. */
+.hg-log-panel {
+  margin-bottom: 0;
+}
+
+.hg-log-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.hg-log-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--hg-ink);
+}
+
+.hg-log-count {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--hg-quiet);
+}
+
+/* neutral-2, not neutral-10: the neutral ramp is regenerated per theme, so position 2
+   is "faint surface" in light mode AND in dark mode. A hard-coded dark slot would stay
+   black-on-black once the theme flips. */
+.hg-log {
+  padding: var(--space-3);
+  max-height: 160px;
+  overflow: auto;
+  background: var(--color-neutral-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   font-size: var(--text-xs);
   line-height: 1.6;
-  color: var(--text-muted);
 }
 
-/* 设备行禁选态：该设备已在其它终端连接运行中（不能重复连接），或连接正在途中。
-   放在文件末尾是为了在同特异度下压过上面的 .hg-device-item:hover —— 禁用行不该有 hover 反馈。
-   刻意不加 transition —— 本仓有 CSS / framer-motion 冲突静态门禁。 */
-.hg-device-item--disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.hg-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-/* :not(.selected) 是必需的：连接在途时整列表禁选，被选中那行也带 --disabled，
-   若无条件把 hover 背景清成 transparent，鼠标划过时选中高亮会闪没。 */
-.hg-device-item--disabled:not(.selected):hover {
+.hg-log-line + .hg-log-line {
+  margin-top: 2px;
+}
+
+.hg-log-empty {
+  color: var(--hg-quiet);
+}
+
+.hg-log::-webkit-scrollbar {
+  width: 8px;
+}
+.hg-log::-webkit-scrollbar-track {
   background: transparent;
 }
-
-.hg-device-item--disabled input[type='radio'] {
-  cursor: not-allowed;
+.hg-log::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-5);
+  border-radius: var(--radius-full);
+}
+.hg-log::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-6);
 }
 
-/* 禁选原因的行内徽标：次要色小字，只在"被其它终端占用"时出现 */
-.hg-device-occupied {
-  font-size: var(--text-xs);
-  font-style: italic;
-  color: var(--text-muted);
+/* ============================================
+   Narrow window (min supported size is 600x400)
+   ============================================ */
+@media (max-width: 560px) {
+  .hg-page {
+    padding: 0 var(--space-3) var(--space-3);
+  }
+
+  .hg-crown {
+    margin: 0 calc(-1 * var(--space-3)) var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .hg-crown-iface {
+    margin-left: 0;
+  }
+
+  .hg-card {
+    padding: var(--space-3);
+  }
+
+  .hg-tab {
+    margin-right: var(--space-4);
+  }
 }

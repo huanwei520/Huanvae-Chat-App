@@ -197,10 +197,12 @@ describe('HuanvaeGuardPage', () => {
     expect(screen.getByPlaceholderText('邀请令牌')).toBeInTheDocument();
   });
 
-  it('group card has no "加入" button (only 邀请/切换状态/删除)', async () => {
+  it('group card has no "加入" button (only 邀请/停用·启用/删除)', async () => {
     await renderAndOpenGroupsTab();
 
-    // 群组卡片上的按钮：邀请 / 切换状态 / 删除
+    // 群组卡片上的按钮：邀请 / 停用·启用 / 删除
+    // 中间那个按钮的文案随 is_active 变（本 fixture is_active: true → 显示「停用」），
+    // 不再是含糊的「切换状态」——控件要说清按下去会发生什么。
     const groupCard = screen.getByText('工作群组').closest('.hg-group-item');
     expect(groupCard).not.toBeNull();
     const actions = within(groupCard as HTMLElement);
@@ -208,7 +210,7 @@ describe('HuanvaeGuardPage', () => {
     expect(actions.queryByText('加入')).not.toBeInTheDocument();
     expect(actions.queryByText('Join')).not.toBeInTheDocument();
     expect(actions.getByText('邀请')).toBeInTheDocument();
-    expect(actions.getByText('切换状态')).toBeInTheDocument();
+    expect(actions.getByText('停用')).toBeInTheDocument();
     expect(actions.getByText('删除')).toBeInTheDocument();
 
     // 重构核心契约：UI 完全不再调用 serverApi.joinGroup（自助加入入口已删除）
