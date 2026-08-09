@@ -20,8 +20,15 @@ vi.mock('@tauri-apps/api/app', () => ({
   getVersion: vi.fn(() => Promise.resolve('1.0.11')),
 }));
 
+// 本地 mock 整体替换全局 setup.ts 的，Channel 需一并提供（update service 会 new 它）。
+// 🔴 class 必须**定义在工厂内部**：vi.mock 会被提升到文件顶部，引用外层变量会报
+//    "Cannot access 'X' before initialization"。
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(() => Promise.resolve()),
+  Channel: class {
+    onmessage: ((msg: unknown) => void) | null = null;
+    id = 1;
+  },
 }));
 
 // 模拟 SoundSelector 组件

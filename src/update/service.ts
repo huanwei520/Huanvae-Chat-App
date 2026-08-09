@@ -21,6 +21,7 @@
  */
 
 import { check, type Update } from '@tauri-apps/plugin-updater';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 // ============================================
@@ -43,14 +44,19 @@ export interface UpdateInfo {
 export interface DownloadProgress {
   /** 进度事件类型 */
   event: 'Started' | 'Progress' | 'Finished';
-  /** 总大小（字节） */
+  /** 总大小（字节）；服务端没给 Content-Length 时为 undefined */
   contentLength?: number;
   /** 当前块大小（字节） */
   chunkLength?: number;
-  /** 百分比（0-100） */
+  /** 百分比（0-100）；总长未知时为 undefined —— 此时看 indeterminate，别当成 0% */
   percent?: number;
   /** 已下载大小（字节） */
   downloaded?: number;
+  /**
+   * 不定态：总长度未知，无法算百分比。
+   * UI 应显示不定态进度条 / 已下载字节数，**不要**显示一个钉死不动的 0%。
+   */
+  indeterminate?: boolean;
 }
 
 export type ProgressCallback = (progress: DownloadProgress) => void;
@@ -115,8 +121,25 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
 // 下载并安装更新
 // ============================================
 
+/** Rust 侧 `ShardedEvent` 的线格式（serde tag="event" / content="data"，camelCase） */
+type ShardedEvent =
+  | { event: 'Started'; data: { contentLength: number | null } }
+  | { event: 'Progress'; data: { downloaded: number; contentLength: number | null } }
+  | { event: 'Finished' };
+
 /**
  * 下载并安装更新
+ *
+ * 走 Rust 侧自建下载器 `updater_sharded_install`（Range 分片 + 多连接并发 + 断点续传 +
+ * 重试 + 超时），**不再**用插件默认的单连接顺序下载 `update.downloadAndInstall()`。
+ * 受控链路损伤实测：5% 丢包 / 250ms RTT 下 8 段分片比单连接快 4.39x。
+ *
+ * 🔴 签名校验没有丢：插件的验签在它自己的 `download()` 内部，`install(bytes)` 不验签；
+ *    Rust 侧已原样复刻同一套 minisign 校验（见 `src-tauri/src/updater_download.rs`），
+ *    校验不过直接报错、绝不安装。
+ *
+ * 🔴 没有任何兜底：分片失败 / 源不支持 Range / 验签失败 一律直接抛错，
+ *    **不会**退回插件默认下载（产品决定：失败要让用户看见，不静默降级）。
  *
  * @param update - 更新对象（从 checkForUpdates 获取）
  * @param onProgress - 进度回调
@@ -125,48 +148,50 @@ export async function downloadAndInstall(
   update: Update,
   onProgress?: ProgressCallback,
 ): Promise<void> {
-  let downloaded = 0;
-  let contentLength = 0;
+  const channel = new Channel<ShardedEvent>();
+  let total: number | undefined;
+
+  channel.onmessage = (msg) => {
+    switch (msg.event) {
+      case 'Started': {
+        total = msg.data.contentLength ?? undefined;
+        onProgress?.({
+          event: 'Started',
+          contentLength: total,
+          // 总长未知 ⇒ 不定态；不再把百分比钉死成 0%
+          percent: total === undefined ? undefined : 0,
+          indeterminate: total === undefined,
+          downloaded: 0,
+        });
+        break;
+      }
+      case 'Progress': {
+        const downloaded = msg.data.downloaded;
+        const len = msg.data.contentLength ?? total;
+        onProgress?.({
+          event: 'Progress',
+          downloaded,
+          contentLength: len,
+          percent: len && len > 0 ? Math.round((downloaded / len) * 100) : undefined,
+          indeterminate: !len || len <= 0,
+        });
+        break;
+      }
+      case 'Finished': {
+        onProgress?.({
+          event: 'Finished',
+          percent: 100,
+          downloaded: total,
+          contentLength: total,
+          indeterminate: false,
+        });
+        break;
+      }
+    }
+  };
 
   try {
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case 'Started':
-          contentLength = event.data.contentLength || 0;
-          downloaded = 0;
-          onProgress?.({
-            event: 'Started',
-            contentLength,
-            percent: 0,
-            downloaded: 0,
-          });
-          break;
-
-        case 'Progress': {
-          downloaded += event.data.chunkLength;
-          const percent = contentLength > 0
-            ? Math.round((downloaded / contentLength) * 100)
-            : 0;
-          onProgress?.({
-            event: 'Progress',
-            chunkLength: event.data.chunkLength,
-            percent,
-            downloaded,
-            contentLength,
-          });
-          break;
-        }
-
-        case 'Finished':
-          onProgress?.({
-            event: 'Finished',
-            percent: 100,
-            downloaded: contentLength,
-            contentLength,
-          });
-          break;
-      }
-    });
+    await invoke('updater_sharded_install', { rid: update.rid, onEvent: channel });
   } catch (error) {
     console.error('[Update] 下载安装失败:', error);
     throw error;

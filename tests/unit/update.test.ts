@@ -23,8 +23,15 @@ vi.mock('@tauri-apps/plugin-os', () => ({
   platform: vi.fn(),
 }));
 
+// 本地 vi.mock 会**整体替换** setup.ts 的全局 mock，所以 Channel 必须在这里也补上
+// （service.ts 的 downloadAndInstall 用 `new Channel()` 驱动分片下载器的进度回调）。
+// 🔴 class 定义在工厂内部：vi.mock 提升到文件顶，引用外层变量会 ReferenceError。
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  Channel: class {
+    onmessage: ((msg: unknown) => void) | null = null;
+    id = 1;
+  },
 }));
 
 describe('Update Service', () => {

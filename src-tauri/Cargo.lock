@@ -2071,11 +2071,12 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "huanvae-chat-app"
-version = "1.1.22"
+version = "1.1.23"
 dependencies = [
  "aes-gcm",
  "async-channel",
  "axum",
+ "base64 0.22.1",
  "block2",
  "chrono",
  "crc32fast",
@@ -2091,6 +2092,7 @@ dependencies = [
  "mac_address",
  "mdns-sd",
  "mime_guess",
+ "minisign-verify",
  "objc2",
  "objc2-foundation",
  "objc2-local-authentication",

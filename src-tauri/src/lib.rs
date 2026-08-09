@@ -56,6 +56,11 @@ mod user_data;
 mod desktop;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod clipboard;
+// 自建分片并发下载器（替换 updater 插件的单连接默认下载）。
+// cfg 与 tauri-plugin-updater 依赖声明一致——插件本身就是桌面专属，
+// 移动端连模块都不参与编译（否则内部 helper 会变 dead_code，clippy -D warnings 直接 FAIL）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod updater_download;
 
 // ============================================
 // Android 专属模块（mobile_media_server 用于绕过 WebView 的 asset:// 视频播放
@@ -258,6 +263,24 @@ fn get_windows_installer_type() -> String {
 #[tauri::command(rename_all = "camelCase")]
 fn get_windows_installer_type() -> String {
     "unknown".to_string()
+}
+
+/// 分片并发下载 + 验签 + 安装（桌面端；替换 updater 插件的单连接默认下载）
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn updater_sharded_install<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+    rid: tauri::ResourceId,
+    on_event: tauri::ipc::Channel<updater_download::ShardedEvent>,
+) -> Result<(), String> {
+    updater_download::updater_sharded_install(webview, rid, on_event).await
+}
+
+/// 分片下载器（移动端存根）—— 移动端不用桌面 updater（Android 走 android_update）
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn updater_sharded_install() -> Result<(), String> {
+    Err("移动端不使用桌面更新器".to_string())
 }
 
 // ============================================================================
@@ -907,6 +930,8 @@ pub fn run() {
             activate_existing_instance,
             // Windows 安装类型检测（桌面端专属，用于更新器）
             get_windows_installer_type,
+            // 自建分片并发下载器（桌面端真实现 / 移动端存根）
+            updater_sharded_install,
             // HuanvaeGuard：macOS LaunchDaemon 首次安装 + 修复（其他平台占位返回 false）
             hg_ensure_installed,
             hg_repair,

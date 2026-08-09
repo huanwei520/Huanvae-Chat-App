@@ -20,8 +20,17 @@ MotionGlobalConfig.skipAnimations = true;
 // ============================================
 
 // Mock @tauri-apps/api
+// Channel 必须是**可 new 的 class**：src/update/service.ts 用 `new Channel<T>()` 驱动
+// Rust 侧分片下载器的进度回调。写成箭头 vi.fn() 会在 `new` 时行为不符合构造函数契约
+// （同 ResizeObserver 那条教训）。工厂里漏了它，任何 import 链碰到 service.ts 的测试
+// 都会报 `No "Channel" export is defined on the mock`。
+// 🔴 class 定义在工厂内部：vi.mock 会被提升到文件顶部，引用外层变量必 ReferenceError。
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  Channel: class {
+    onmessage: ((msg: unknown) => void) | null = null;
+    id = 1;
+  },
 }));
 
 // Mock @tauri-apps/plugin-updater

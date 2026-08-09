@@ -12,7 +12,7 @@
 
 [package]
 name = "huanvae-chat-app"
-version = "1.1.22"
+version = "1.1.23"
 description = "Huanvae Chat App - 即时通讯应用"
 authors = ["you"]
 edition = "2024"
@@ -144,6 +144,11 @@ mac_address = "1.1.8"
 tauri = { version = "2.11.1", features = ["protocol-asset", "tray-icon"] }
 # 更新器
 tauri-plugin-updater = "2.10.1"
+# 自建分片下载器的签名校验：与 tauri-plugin-updater 内部 verify_signature 用的是同一套
+# （updater.rs:1453 minisign-verify + base64）。自己下载就绕过了插件的校验，必须原样补回来，
+# 版本与插件对齐以便 Cargo 统一，不引入重复版本。
+minisign-verify = "0.2"
+base64 = "0.22"
 # 系统进程信息（用于会话锁检测）
 sysinfo = "0.33.1"
 # 剪贴板管理（用于粘贴图片功能）
