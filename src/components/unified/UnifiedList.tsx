@@ -27,7 +27,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
-import { useChatStore, useProfileViewStore } from '../../stores';
+import { useChatStore } from '../../stores';
 import { AIAvatar } from '../common/AIAvatar';
 import { SearchBox } from '../common/SearchBox';
 import { SyncStatusBanner } from '../common/SyncStatusBanner';
@@ -43,7 +43,6 @@ import { compareByTimeDesc, comparePinnedThenTime } from './conversationSort';
 import { ConversationContextMenu, PinFlagIcon } from './ConversationContextMenu';
 import { AddMenu } from './AddMenu';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
-import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
 import { getFriendConversationId } from '../../utils/conversationId';
 import { setConversationPinned } from '../../db';
@@ -230,10 +229,6 @@ export function UnifiedList({
 
   // 好友在线状态（首屏快照 + WS 增量维护，见 chatStore.friendPresence）
   const friendPresence = useChatStore((s) => s.friendPresence);
-  // 点开好友资料（低侵入：点头像看资料，点卡片其余部分进会话）
-  const openProfile = useProfileViewStore((s) => s.open);
-  // 好友头像键盘焦点环（keyed：每张头像用 card.id 作 key）
-  const avatarKbd = useKbdFocusRing();
 
   // 构建好友卡片列表
   const friendCards = useMemo((): UnifiedCard[] => {
@@ -521,39 +516,17 @@ export function UnifiedList({
     const isChatTab = activeTab === 'chat';
     const isGroupTab = activeTab === 'group';
 
-    // friend / bot 卡共享 Friend 数据与私聊交互（头像看资料、在线点、拉黑/关心标记）
+    // friend / bot 卡共享 Friend 数据与私聊交互（在线点、拉黑/关心标记）
     const isFriendLike = card.type === 'friend' || card.type === 'bot';
     const friendOnline = isFriendLike && !!friendPresence[card.id]?.online;
-    // 仅好友（含 bot）头像可点看资料；键盘焦点态与 focus handlers 同条件挂载
-    const avatarHandlers = isFriendLike ? avatarKbd.handlersFor(card.id) : null;
-    const avatarKbdFocused = isFriendLike && avatarKbd.isKbdFocused(card.id);
 
     return (
       <>
-        <div
-          className={`conv-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
-          onClick={isFriendLike
-            ? (e) => { e.stopPropagation(); openProfile(card.id); }
-            : undefined}
-          onKeyDown={isFriendLike
-            ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                // 阻止冒泡到会话列表容器（其 Enter=打开当前会话），头像键盘=看资料
-                e.preventDefault();
-                e.stopPropagation();
-                openProfile(card.id);
-              }
-            }
-            : undefined}
-          role={isFriendLike ? 'button' : undefined}
-          tabIndex={isFriendLike ? 0 : undefined}
-          aria-label={isFriendLike ? `查看${card.name}资料` : undefined}
-          onPointerDown={avatarHandlers?.onPointerDown}
-          onFocus={avatarHandlers?.onFocus}
-          onBlur={avatarHandlers?.onBlur}
-          style={isFriendLike ? { cursor: 'pointer', position: 'relative' } : undefined}
-          title={isFriendLike ? '查看资料' : undefined}
-        >
+        {/* 列表内头像不是独立控件：点它与点卡片其余部分一样进会话（不再开资料页）。
+            因此不挂 onClick/onKeyDown/role/tabIndex/aria-label —— 点击直接冒泡到卡片 onClick。
+            若让头像保留独立焦点却做和卡片相同的事，键盘用户会多出一个语义重复的 Tab 停靠点。
+            style 里的 position:relative 仅为在线绿点定位所需，不表示可交互。 */}
+        <div className="conv-avatar" style={isFriendLike ? { position: 'relative' } : undefined}>
           {isFriendLike ? (
             <FriendAvatar friend={card.data as Friend} />
           ) : (

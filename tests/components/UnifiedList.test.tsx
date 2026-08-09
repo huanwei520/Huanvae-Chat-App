@@ -179,7 +179,7 @@ describe('UnifiedList 会话列表键盘导航', () => {
   });
 });
 
-describe('UnifiedList 头像 a11y（点头像看资料，仅好友分支）', () => {
+describe('UnifiedList 头像行为（列表内点头像 = 进会话，不再开资料页）', () => {
   let openSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -193,15 +193,38 @@ describe('UnifiedList 头像 a11y（点头像看资料，仅好友分支）', ()
     return el as HTMLElement;
   }
 
-  it('好友头像具备 role=button / tabIndex=0 / aria-label=查看${名字}资料', () => {
-    const { container } = renderList({ activeTab: 'friends' });
-    const avatar = friendAvatar(container, 'f1');
-    expect(avatar).toHaveAttribute('role', 'button');
-    expect(avatar).toHaveAttribute('tabindex', '0');
-    expect(avatar).toHaveAttribute('aria-label', '查看好友一资料');
+  it('点好友头像 → 进会话（onSelectTarget 被调），且不开资料页', () => {
+    const { container, onSelectTarget } = renderList({ activeTab: 'friends' });
+    fireEvent.click(friendAvatar(container, 'f1'));
+    // 头像不再 stopPropagation → 冒泡到卡片 onClick → handleCardClick → onSelectTarget
+    expect(onSelectTarget).toHaveBeenCalledTimes(1);
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it('群卡片头像无 role/tabIndex/aria-label（反向断言）', () => {
+  it('点头像与点卡片其余部分行为一致（同一 target）', () => {
+    const { container, onSelectTarget } = renderList({ activeTab: 'friends' });
+    fireEvent.click(friendAvatar(container, 'f2'));
+    const viaAvatar = onSelectTarget.mock.calls[0]?.[0];
+    onSelectTarget.mockClear();
+
+    const card = container.querySelector('[data-conv-key="friend-f2"]') as HTMLElement;
+    fireEvent.click(card);
+    const viaCard = onSelectTarget.mock.calls[0]?.[0];
+
+    expect(viaAvatar).toBeDefined();
+    expect(viaAvatar).toEqual(viaCard);
+  });
+
+  it('好友头像不再是独立控件：无 role/tabIndex/aria-label/title', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    const avatar = friendAvatar(container, 'f1');
+    expect(avatar).not.toHaveAttribute('role');
+    expect(avatar).not.toHaveAttribute('tabindex');
+    expect(avatar).not.toHaveAttribute('aria-label');
+    expect(avatar).not.toHaveAttribute('title');
+  });
+
+  it('群卡片头像同样无 role/tabIndex/aria-label', () => {
     const { container } = renderList({ activeTab: 'group', groups: GROUPS });
     const groupAvatar = container.querySelector('[data-conv-key="group-g1"] .conv-avatar') as HTMLElement;
     expect(groupAvatar).not.toBeNull();
@@ -210,42 +233,18 @@ describe('UnifiedList 头像 a11y（点头像看资料，仅好友分支）', ()
     expect(groupAvatar).not.toHaveAttribute('aria-label');
   });
 
-  it('头像 Enter → openProfile(id)，stopPropagation 使会话「打开」回调未被调（冒泡断言）', () => {
-    const { container, list, onSelectTarget } = renderList({ activeTab: 'friends' });
-    // 先把列表键盘光标落到 friend-f1（否则列表 Enter 因 activeKey=null 天然 no-op，冒泡断言不成立）
+  it('a11y 不回退：列表内不存在「可聚焦但按下去没反应」的头像元素', () => {
+    const { container } = renderList({ activeTab: 'friends' });
+    // 硬要求——头像要么可聚焦且有行为，要么根本不可聚焦。这里选的是后者。
+    const focusableAvatars = container.querySelectorAll('.conv-avatar[tabindex], .conv-avatar[role="button"]');
+    expect(focusableAvatars.length).toBe(0);
+  });
+
+  it('a11y 不回退：卡片自身仍可键盘打开（Tab→↓→Enter 链路未被破坏）', () => {
+    const { list, onSelectTarget } = renderList({ activeTab: 'friends' });
     fireEvent.focus(list);
     fireEvent.keyDown(list, { key: 'ArrowDown' });
-    const avatar = friendAvatar(container, 'f1');
-    fireEvent.keyDown(avatar, { key: 'Enter' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('f1');
-    // stopPropagation 后，事件不冒泡到列表容器 → 不会 openByKey('friend-f1')
-    expect(onSelectTarget).not.toHaveBeenCalled();
-  });
-
-  it('头像 Space → openProfile(id)', () => {
-    const { container } = renderList({ activeTab: 'friends' });
-    const avatar = friendAvatar(container, 'f2');
-    fireEvent.keyDown(avatar, { key: ' ' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('f2');
-  });
-
-  it('头像无关键（如 a）不触发看资料', () => {
-    const { container } = renderList({ activeTab: 'friends' });
-    fireEvent.keyDown(friendAvatar(container, 'f1'), { key: 'a' });
-    expect(openSpy).not.toHaveBeenCalled();
-  });
-
-  it('好友头像键盘聚焦显示焦点环类；pointerdown 后聚焦不显示', () => {
-    const { container } = renderList({ activeTab: 'friends' });
-    const avatar = friendAvatar(container, 'f1');
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
-    fireEvent.blur(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
-    fireEvent.pointerDown(avatar);
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    fireEvent.keyDown(list, { key: 'Enter' });
+    expect(onSelectTarget).toHaveBeenCalledTimes(1);
   });
 });

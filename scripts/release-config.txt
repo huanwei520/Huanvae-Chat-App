@@ -15,5 +15,5 @@
 #
 # ============================================
 
-VERSION=1.1.21
-MESSAGE=修两个 VPN P0:macOS「安装/修复」恒失败(launchd override 禁用,bootstrap 前补 launchctl enable);Windows 发货守护进程换成真机验证过能被 SCM 拉起并建隧道的构建。发布流程新增:发布前从 HuanvaeGuard 源码构建各平台二进制并替换校验 sha、测试流程加 VPN 连通性硬门禁(握手+双向字节+端到端 ping)。已知未修:App WS 实时推送失效(红点不更新),将于 v1.1.22 单独发
+VERSION=1.1.22
+MESSAGE=WS 静默永久停摆根治(连接世代计数取代粘滞布尔) + VPN 页面按 frontend-design 方法论整页重构 + 群组邀请码合一(粘一次即可加入) + 已连接设备不可再选取 + 页面可滚动 + 握手/流量统计不再把空闲显示成故障 + macOS 未公证分发首次打开指引

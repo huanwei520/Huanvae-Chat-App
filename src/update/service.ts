@@ -68,7 +68,7 @@ export type ProgressCallback = (progress: DownloadProgress) => void;
  * 所有平台使用默认 target，Tauri 会自动匹配：
  * - Windows: windows-x86_64 (NSIS EXE)
  * - Linux: linux-x86_64 (AppImage)
- * - macOS: darwin-aarch64 (DMG)
+ * - macOS: darwin-aarch64 (.app.tar.gz —— Tauri v2 updater 不消费 DMG)
  *
  * @returns 更新信息
  */
