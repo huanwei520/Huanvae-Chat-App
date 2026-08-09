@@ -54,11 +54,16 @@ describe('App.tsx 已保存账号登录钥匙串访问契约（macOS）', () => 
     expect(APP_SOURCE).not.toMatch(/isNewAccount/);
   });
 
-  it('桌面读密码失败按 未保存 / Touch ID / 其它 三类分流提示（macOS AES+Touch ID 迁移）', () => {
-    // 修复 D：macOS 改 App 私有 AES + Touch ID 后，getPassword 失败可能是
-    // 未保存(AccountNotFound) 或 Touch ID 未通过(biometric)；desktop 分支应分流提示并转手动登录。
+  it('桌面读密码失败按 未保存 / 其它 两类分流提示（v1.1.24 起登录不再有 Touch ID 分支）', () => {
+    // v1.1.24：登录读密码的 Touch ID 门禁已从 macos_credential_store::get_password 摘除，
+    // 于是前端的 biometric 分支永不可达 —— 已按「零残留」删掉，只剩两类分流。
     expect(APP_SOURCE).toMatch(/Account not found/);
-    expect(APP_SOURCE).toMatch(/biometric/);
-    expect(APP_SOURCE).toMatch(/Touch ID 未通过/);
+    expect(APP_SOURCE).toMatch(/密码未保存，请重新输入密码登录/);
+    expect(APP_SOURCE).toMatch(/读取保存的密码失败，请手动登录/);
+    // 防回退：登录路径不许再出现生物识别分支。
+    // 🔴 断言的是**代码构造**而不是"Touch ID"这个词 —— 注释里写明「已不再需要 Touch ID」
+    // 是准确且有价值的文档，禁词会逼后来者删掉正确注释才能过闸门。
+    expect(APP_SOURCE).not.toMatch(/const\s+biometric\s*=/);
+    expect(APP_SOURCE).not.toMatch(/Touch ID 未通过/);
   });
 });

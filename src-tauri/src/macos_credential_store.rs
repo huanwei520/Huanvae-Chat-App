@@ -1,21 +1,23 @@
-//! macOS 凭据存储（App 私有 AES-256-GCM 加密文件 + Touch ID 门禁）
+//! macOS 凭据存储（App 私有 AES-256-GCM 加密文件）
 //!
 //! ## 为什么不用系统钥匙串
 //! 未签名 / ad-hoc 签名的 App 在 macOS 上每次读系统钥匙串都会弹 ACL 授权框
 //! （`SecKeychainFindGenericPassword` 对"非本签名创建的条目"弹框，dev 每次重构签名都变）。
-//! 本模块改为把密码加密写进 App 私有目录文件，读取前用 LocalAuthentication（Touch ID）门禁，
-//! 从而 **0 系统钥匙串弹框**。详见 `.claude/rules/common.md` 的钥匙串段。
+//! 本模块改为把密码加密写进 App 私有目录文件，从而 **0 系统钥匙串弹框**。
+//! 详见 `.claude/rules/common.md` 的钥匙串段。
 //!
 //! ## 安全取舍（未签名硬限制，已与用户确认）
 //! 拿不到 Secure Enclave / 数据保护钥匙串（那要签名 + entitlement）。AES 密钥必须能被 App
 //! **无提示**派生（否则无法自动登录），故密钥 = `SHA256(内置 salt ‖ 设备 host UUID)`：
 //! - 换一台机器无法解密（host UUID 不同）→ 防"只拷走密文文件"。
-//! - 同机能读该文件 + 跑本 App 代码者，可自行派生密钥 → 本质是"强混淆 + Touch ID 体验门禁"，
-//!   **非 Secure Enclave 级强加密**。这比系统钥匙串安全性下降，换来的是 0 弹框 + Touch ID。
+//! - 同机能读该文件 + 跑本 App 代码者，可自行派生密钥 → 本质是"强混淆"，
+//!   **非 Secure Enclave 级强加密**。这比系统钥匙串安全性下降，换来的是 0 弹框。
 //!
-//! ## Touch ID
-//! 读取前 `LAContext.evaluatePolicy(DeviceOwnerAuthenticationWithBiometrics)`；
-//! 失败 / 取消 / 无 Touch ID 硬件 → 返回错误，由前端 desktop 分支转手动输密码登录（回退）。
+//! ## 登录不再需要 Touch ID（v1.1.24）
+//! 此前读密码要先过一道 `LAContext.evaluatePolicy(DeviceOwnerAuthenticationWithBiometrics)`
+//! 门禁；已移除 —— 选已保存账号登录时直接解密，不弹指纹。
+//! ⚠️ 打开 VPN 前的生物识别是**另一条独立路径**（`biometric_authenticate` 命令 →
+//! `macos_biometric` 模块），与本模块无关、仍然生效，改动时别误删。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -141,7 +143,7 @@ fn write_map(map: &CredMap) -> Result<(), StorageError> {
 // 对外 API（storage.rs 的 macOS 分支调用）
 // ============================================================================
 
-/// 保存密码（加密写文件，不需 Touch ID —— 此刻用户刚用密码登录成功）。
+/// 保存密码（加密写文件）。
 pub fn save_password(server_url: &str, user_id: &str, password: &str) -> Result<(), StorageError> {
     let key = crate::storage::make_keyring_key(server_url, user_id);
     let mut map = read_map()?;
@@ -149,42 +151,20 @@ pub fn save_password(server_url: &str, user_id: &str, password: &str) -> Result<
     write_map(&map)
 }
 
-/// 读取密码（先 Touch ID 门禁，再解密）。
-/// 未保存 → "未找到保存的密码"（前端转手动登录）；Touch ID 失败 → Biometric 错误（前端转手动登录）。
+/// 读取密码（直接解密，**不需要 Touch ID**）。
+///
+/// 登录路径上曾有一道 Touch ID 门禁（`LAContext.evaluatePolicy`），已于 v1.1.24 移除：
+/// 选已保存账号登录时不再要求指纹，直接解密 App 私有 AES 文件。
+/// 打开 VPN 前的生物识别门禁是**另一条独立路径**（`biometric_authenticate` 命令 →
+/// `macos_biometric`），不受此改动影响、仍然生效。
+///
+/// 未保存 → `AccountNotFound`（前端转手动输密码登录）。
 pub fn get_password(server_url: &str, user_id: &str) -> Result<String, StorageError> {
     let key = crate::storage::make_keyring_key(server_url, user_id);
     let map = read_map()?;
     let Some(entry) = map.get(&key) else {
         return Err(StorageError::AccountNotFound);
     };
-    // ╔═══════════════════ DEV-ONLY 登录免指纹旁路（可视化测试用）═══════════════════╗
-    // ║ 一键还原：删掉这个 `if cfg!(debug_assertions) { … } else {` 包裹（连同上面注释）， ║
-    // ║          只留下方 match + decrypt，即恢复原始 Touch ID 门禁逻辑。              ║
-    // ║                                                                              ║
-    // ║ debug 构建（`tauri dev` / `cargo`，等价前端 import.meta.env.DEV=true）→ 跳过    ║
-    // ║   Touch ID 直接解密 → 在 dev 窗口点已存储账号即可直接登录，无需指纹。           ║
-    // ║ release 构建（`tauri build`）→ cfg!(debug_assertions)=false → 走 else 原门禁，   ║
-    // ║   正式路径行为零变化（dev 分支被编译器消除）。                                  ║
-    // ║ 注：用 `if cfg!()` 而非 `#[cfg]`，两分支都参与编译 → 一次 cargo check 覆盖 release。║
-    // ╚══════════════════════════════════════════════════════════════════════════════╝
-    if cfg!(debug_assertions) {
-        eprintln!(
-            "[DEV-ONLY] get_password 跳过 Touch ID 门禁（debug 构建，仅可视化测试）；release 构建不会有此行为。"
-        );
-    } else {
-        // Touch ID 门禁（release 路径，原逻辑未改）：无 Touch ID 硬件 / 验证失败都转手动登录
-        match crate::macos_biometric::authenticate("解锁已保存的登录密码") {
-            crate::macos_biometric::BiometricResult::Authenticated => {}
-            crate::macos_biometric::BiometricResult::Unavailable => {
-                return Err(StorageError::Biometric(
-                    "biometric_unavailable：本机不支持或未启用 Touch ID".to_string(),
-                ));
-            }
-            crate::macos_biometric::BiometricResult::Failed(e) => {
-                return Err(StorageError::Biometric(e));
-            }
-        }
-    }
     decrypt(entry)
 }
 

@@ -41,10 +41,11 @@ mod lan_transfer;
 mod permissions;
 mod sounds;
 mod storage;
-// macOS 凭据存储：App 私有 AES + Touch ID（替代系统钥匙串，消除未签名 App 的 ACL 弹框）
+// macOS 凭据存储：App 私有 AES（替代系统钥匙串，消除未签名 App 的 ACL 弹框）
+// v1.1.24 起登录读密码不再过 Touch ID 门禁
 #[cfg(target_os = "macos")]
 mod macos_credential_store;
-// macOS 生物识别（Touch ID）共享门禁：凭据解锁 + 打开 VPN 前验证复用
+// macOS 生物识别（Touch ID）门禁：**仅**打开 VPN 前验证用（登录路径已不再使用）
 #[cfg(target_os = "macos")]
 mod macos_biometric;
 mod user_data;

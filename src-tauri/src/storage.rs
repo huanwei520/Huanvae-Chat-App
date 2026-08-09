@@ -4,7 +4,8 @@
 //! 调用服务器格式使用下划线 "_"
 //!
 //! ## 平台差异
-//! - macOS：App 私有 AES-256-GCM 加密文件 + Touch ID（见 macos_credential_store），消除系统钥匙串 ACL 弹框
+//! - macOS：App 私有 AES-256-GCM 加密文件（见 macos_credential_store），消除系统钥匙串 ACL 弹框；
+//!   v1.1.24 起读密码不再要 Touch ID（VPN 那道门禁是独立路径，仍在）
 //! - Windows/Linux：使用系统密钥链 (keyring) 安全存储密码，使用 dirs::data_local_dir() 获取数据目录
 //! - Android：使用 Tauri app.path().app_data_dir() API 获取可写数据目录，密码暂不持久化
 //! - iOS：暂未支持
@@ -85,10 +86,6 @@ pub enum StorageError {
     #[error("Crypto error: {0}")]
     #[cfg(target_os = "macos")]
     Crypto(String),
-
-    #[error("Biometric error: {0}")]
-    #[cfg(target_os = "macos")]
-    Biometric(String),
 
     #[error("Request error: {0}")]
     Request(String),
@@ -318,9 +315,9 @@ pub fn save_account(
     Ok(())
 }
 
-/// 获取账号密码 —— macOS：Touch ID 门禁 + 解密 App 私有加密文件
+/// 获取账号密码 —— macOS：直接解密 App 私有加密文件（**不需要 Touch ID**）
 ///
-/// 未保存 → AccountNotFound；Touch ID 失败/取消/无硬件 → Biometric。两者均由前端转手动登录。
+/// 未保存 → AccountNotFound（由前端转手动输密码登录）。
 #[cfg(target_os = "macos")]
 pub fn get_account_password(server_url: &str, user_id: &str) -> Result<String, StorageError> {
     crate::macos_credential_store::get_password(server_url, user_id)
