@@ -82,9 +82,32 @@ print_warn() {
 # 校验标签确实指向当前 HEAD —— 在 push 之前拦住"tag 打到上一个 commit"
 assert_tag_points_at_head() {
     local tag="$1"
-    local tag_sha head_sha
-    tag_sha=$(git rev-parse "$tag^{commit}")
+    local tag_sha head_sha attempt
     head_sha=$(git rev-parse HEAD)
+
+    # 🔴 读取重试：`git tag` 刚写完 .git/refs/tags/<tag>，紧接着读回时，在
+    # virtiofs / 网络共享卷上会瞬时读不到（fatal: ambiguous argument ... unknown revision）。
+    # 旧写法不区分「读失败」与「指向不符」—— rev-parse 失败让 tag_sha 变空串，
+    # 空串 != head_sha 于是误判成"标签指错"并中止发布。
+    # v1.1.22/23/24/25/26 连续五次命中，每次都要人工取证后手动 push。
+    # ref 本身是好的（同期 `cat .git/refs/tags/<tag>` 恒能读出正确 sha），纯属可见性滞后，
+    # 因此这里退避重试；只有「读到了、但确实不等」才判失败。
+    for attempt in 1 2 3 4 5; do
+        tag_sha=$(git rev-parse "$tag^{commit}" 2>/dev/null) && [[ -n "$tag_sha" ]] && break
+        # 第二判据：绕开 rev-parse 的缓存路径，直接读 ref 文件 / for-each-ref
+        tag_sha=$(git for-each-ref --format='%(objectname)' "refs/tags/$tag" 2>/dev/null)
+        [[ -n "$tag_sha" ]] && break
+        sleep 0.2
+    done
+
+    if [[ -z "$tag_sha" ]]; then
+        print_error "标签读取失败: $tag 重试 5 次仍读不出对象（ref 可能未落盘）"
+        echo -e "  ${RED}HEAD:  $head_sha${NC}"
+        echo -e "${YELLOW}  已中止，未推送任何内容。请人工核对：${NC}"
+        echo -e "${YELLOW}    cat .git/refs/tags/$tag${NC}"
+        echo -e "${YELLOW}    git for-each-ref refs/tags/$tag${NC}"
+        return 1
+    fi
 
     if [[ "$tag_sha" != "$head_sha" ]]; then
         print_error "标签指向校验失败: $tag 没有指向当前 HEAD"
