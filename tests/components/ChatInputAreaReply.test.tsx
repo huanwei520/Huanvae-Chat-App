@@ -107,7 +107,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
     expect(screen.queryByText('别群的原文')).not.toBeInTheDocument();
   });
 
-  it('私聊会话不显示回复条（后端好友消息表无 reply-to 列，不支持引用）', () => {
+  it('草稿属于群、当前是私聊：不显示（跨会话闸对不同会话类型同样生效）', () => {
     useChatStore.setState({
       chatTarget: { type: 'friend', data: FRIEND },
       replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
@@ -116,6 +116,33 @@ describe('ChatInputArea — 「正在回复」条', () => {
     renderInput();
 
     expect(screen.queryByText('回复 Alice')).not.toBeInTheDocument();
+  });
+
+  // 私聊自 migration 036 起后端支持 reply_to，回复条与群聊走同一条通路。
+  // 这条是上面那条跨会话闸的**正对照**：没有它，把归属校验写成恒 false 也能让上面全绿。
+  it('草稿属于当前私聊会话：正常显示回复条', () => {
+    useChatStore.setState({
+      chatTarget: { type: 'friend', data: FRIEND },
+      replyDraft: { conversationKey: 'friend:f-1', messageUuid: 'm-1', senderName: 'Bob', preview: '私聊被引用的原文' },
+    });
+
+    renderInput();
+
+    expect(screen.getByText('回复 Bob')).toBeInTheDocument();
+    expect(screen.getByText('私聊被引用的原文')).toBeInTheDocument();
+  });
+
+  // bot 会话的 key 前缀是 `bot:` 而不是 `friend:` —— 接线时按 friend 硬编码会让 bot 会话的
+  // 回复条永远不显示且无任何报错。这条把该前缀钉死。
+  it('草稿属于当前 bot 会话：正常显示回复条（key 前缀 bot: 而非 friend:）', () => {
+    useChatStore.setState({
+      chatTarget: { type: 'bot', data: FRIEND },
+      replyDraft: { conversationKey: 'bot:f-1', messageUuid: 'm-1', senderName: 'Bot', preview: 'bot 的原文' },
+    });
+
+    renderInput();
+
+    expect(screen.getByText('回复 Bot')).toBeInTheDocument();
   });
 });
 
