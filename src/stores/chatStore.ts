@@ -58,11 +58,15 @@ export interface GroupReadMirror {
  * 反查依赖被引用消息仍在已加载窗口内，而用户完全可能在编辑期间翻走历史。
  */
 export interface ReplyDraft {
-  /** 所属群 ID（用于校验草稿与当前会话一致，防止串会话发错引用） */
-  groupId: string;
+  /**
+   * 所属会话 key（`draftKeyOf()` 产出，如 `group:g1` / `friend:f1`）。
+   * 用于校验草稿与当前会话一致，防止串会话发错引用。
+   * 群聊与私聊共用同一字段——私聊回复自 migration 036 起后端已支持。
+   */
+  conversationKey: string;
   /** 被回复消息的 UUID，发送时作为 reply_to 提交给后端 */
   messageUuid: string;
-  /** 被回复者显示名（已套用群内私有备注） */
+  /** 被回复者显示名（群聊已套用群内私有备注） */
   senderName: string;
   /** 被回复消息的单行摘要 */
   preview: string;

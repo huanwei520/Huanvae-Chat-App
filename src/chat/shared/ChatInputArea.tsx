@@ -26,6 +26,7 @@ import { useBotCommandsStore } from '../../stores/botCommandsStore';
 import type { BotCommand } from '../../api/bots';
 import { SlashCommandPanel } from './SlashCommandPanel';
 import { ReplyComposeBar } from './ReplyComposeBar';
+import { draftKeyOf } from './conversationKey';
 import { parseSlashQuery, filterCommands } from './slashCommands';
 
 /** 图片扩展名 */
@@ -167,8 +168,12 @@ export function ChatInputArea({
   const setReplyDraft = useChatStore((state) => state.setReplyDraft);
   const messageJumpNotice = useChatStore((state) => state.messageJumpNotice);
   const setMessageJumpNotice = useChatStore((state) => state.setMessageJumpNotice);
-  // 草稿必须属于当前这个群才显示：切会话时 store 已清，这里是第二道闸
-  const activeReplyDraft = replyDraft && groupId && replyDraft.groupId === groupId ? replyDraft : null;
+  // 草稿必须属于当前这个会话才显示：切会话时 store 已清，这里是第二道闸。
+  // 用 conversationKey 而非 groupId —— 私聊回复自 migration 036 起也走这条通路。
+  const conversationKey = draftKeyOf(chatTarget);
+  const activeReplyDraft = replyDraft && conversationKey && replyDraft.conversationKey === conversationKey
+    ? replyDraft
+    : null;
 
   const jumpNoticeNode = (
     <AnimatePresence>

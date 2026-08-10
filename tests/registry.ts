@@ -243,7 +243,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
   { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
-  { name: 'ReplyQuote', path: 'chat/group/ReplyQuote', category: 'chat', description: '群消息气泡内的被引用消息块（Telegram 风格，点击定位原消息）' },
+  { name: 'ReplyQuote', path: 'chat/shared/ReplyQuote', category: 'chat', description: '消息气泡内的被引用消息块（Telegram 风格，点击定位原消息；群聊+私聊共用）' },
 
   // bot 斜杠命令 + 会话顶置架
   { name: 'SlashCommandPanel', path: 'chat/shared/SlashCommandPanel', category: 'chat', description: '斜杠命令面板（bot 会话输入 / 弹命令、填入不直发，portal 弹层）' },
@@ -340,7 +340,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'shelfStore', path: 'stores/shelfStore', category: 'services', description: '顶置架状态管理（按 scope|scopeKey 分桶，REST + WS shelf_updated 整组替换）' },
   { name: 'botCommandsStore', path: 'stores/botCommandsStore', category: 'services', description: 'Bot 指令缓存（按 bot_user_id 分桶，getBotCommands 拉取，失败存空）' },
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
-  { name: 'replyPreview', path: 'chat/group/replyPreview', category: 'services', description: '群消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位）' },
+  { name: 'replyPreview', path: 'chat/shared/replyPreview', category: 'services', description: '消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位；群聊+私聊共用）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },

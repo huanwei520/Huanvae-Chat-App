@@ -70,7 +70,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于当前群：显示被回复者与摘要', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { groupId: 'g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
     });
 
     renderInput();
@@ -82,7 +82,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('点「取消回复」清空 store 草稿并收起该条', async () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { groupId: 'g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
     });
 
     renderInput();
@@ -98,7 +98,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于别的群：当前会话不显示（跨会话闸）', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { groupId: 'g-OTHER', messageUuid: 'm-1', senderName: 'Alice', preview: '别群的原文' },
+      replyDraft: { conversationKey: 'group:g-OTHER', messageUuid: 'm-1', senderName: 'Alice', preview: '别群的原文' },
     });
 
     renderInput();
@@ -110,7 +110,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('私聊会话不显示回复条（后端好友消息表无 reply-to 列，不支持引用）', () => {
     useChatStore.setState({
       chatTarget: { type: 'friend', data: FRIEND },
-      replyDraft: { groupId: 'g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
     });
 
     renderInput();
@@ -123,7 +123,7 @@ describe('chatStore — 切会话清回复草稿', () => {
   it('setChatTarget 清空 replyDraft / highlightedMessageId / messageJumpNotice', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { groupId: 'g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
       highlightedMessageId: 'm-9',
       messageJumpNotice: '原消息不在本地记录中，无法定位',
     });

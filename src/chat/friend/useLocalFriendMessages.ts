@@ -499,7 +499,7 @@ export function useLocalFriendMessages(friendId: string | null) {
   // 发送文本消息（乐观更新）
   // ============================================
 
-  const sendTextMessage = useCallback(async (content: string): Promise<void> => {
+  const sendTextMessage = useCallback(async (content: string, replyTo?: string): Promise<void> => {
     if (!friendId || !content.trim() || !session) {
       return;
     }
@@ -523,6 +523,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_url: null,
       file_size: null,
       file_hash: null,
+      reply_to: replyTo ?? null,
       send_time: tempSendTime,
       seq: 0,
       is_recalled: false,
@@ -542,6 +543,8 @@ export function useLocalFriendMessages(friendId: string | null) {
         receiver_id: friendId,
         message_content: content,
         message_type: 'text',
+        // 非回复时留 undefined，JSON 序列化会整个丢掉这个 key（后端 reply_to 为可选字段）
+        reply_to: replyTo,
       });
 
       // 更新消息状态：用真正的 UUID 替换临时 UUID，标记为已发送（保留 clientId）
@@ -574,7 +577,7 @@ export function useLocalFriendMessages(friendId: string | null) {
         image_width: null,
         image_height: null,
         seq: response.seq,
-        reply_to: null,
+        reply_to: replyTo ?? null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,
@@ -705,6 +708,8 @@ export function useLocalFriendMessages(friendId: string | null) {
         image_width: null, // 图片尺寸在发送后由后端返回
         image_height: null,
         seq: response.seq,
+        // 文件消息恒无引用：「正在回复」条只挂在文本输入区，走 sendTextMessage 那条路；
+        // 发文件不经过它，故这里不是漏传而是本就没有引用目标（群聊文件路径同口径）。
         reply_to: null,
         is_recalled: false,
         is_deleted: false,

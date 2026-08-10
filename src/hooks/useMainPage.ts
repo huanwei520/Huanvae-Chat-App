@@ -41,6 +41,7 @@ import { useAIMessages } from '../chat/ai/useAIMessages';
 import { useVoiceCall } from '../chat/ai/voice/useVoiceCall';
 import { useVoiceProfiles } from '../chat/ai/voice/useVoiceProfiles';
 import { scrollMessageIntoView } from '../chat/shared/scrollMessageIntoView';
+import { draftKeyOf } from '../chat/shared/conversationKey';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -178,23 +179,6 @@ async function processUploadSuccess(options: UploadSuccessOptions): Promise<void
       imageWidth: result.imageWidth,
       imageHeight: result.imageHeight,
     });
-  }
-}
-
-/**
- * 会话草稿 key：与 ChatTarget 的联合类型一一对应，唯一即可。
- * 抽成模块级纯函数（而非组件内嵌套三元），便于单测覆盖各分支。
- */
-export function draftKeyOf(target: ChatTarget | null | undefined): string | null {
-  if (!target) { return null; }
-  switch (target.type) {
-    case 'group':
-      return `group:${target.data.group_id}`;
-    case 'ai':
-      return `ai:${target.conversationId ?? 'default'}`;
-    default:
-      // friend / bot：数据形态一致，都用 friend_id
-      return `${target.type}:${target.data.friend_id}`;
   }
 }
 
@@ -635,18 +619,20 @@ export function useMainPage() {
 
     const timestamp = new Date().toISOString();
 
+    // 回复草稿必须属于当前会话才作数（切会话时 setChatTarget 已清，这里是第二道闸，
+    // 防止任何未来的清理时序漏洞把 A 会话的引用发到 B 会话）。
+    // 群聊与私聊同一口径 —— 私聊 reply_to 自 migration 036 起后端已支持。
+    const replyTo = draftKey && replyDraft?.conversationKey === draftKey
+      ? replyDraft.messageUuid
+      : undefined;
+    // 先清草稿再 await：发送是异步的，不先清会让「正在回复」条在整个网络往返期间挂着，
+    // 用户以为没发出去而重复点发送。
+    if (replyDraft) { setReplyDraft(null); }
+
     if (isFriendLikeTarget(chatTarget)) {
-      await sendFriendMessage(content);
+      await sendFriendMessage(content, replyTo);
       updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
-      // 群聊回复：草稿必须属于当前群才作数（切会话时 setChatTarget 已清，这里是第二道闸，
-      // 防止任何未来的清理时序漏洞把 A 群的引用发到 B 群）。
-      const replyTo = replyDraft?.groupId === chatTarget.data.group_id
-        ? replyDraft.messageUuid
-        : undefined;
-      // 先清草稿再 await：发送是异步的，不先清会让「正在回复」条在整个网络往返期间挂着，
-      // 用户以为没发出去而重复点发送。
-      if (replyDraft) { setReplyDraft(null); }
       await sendGroupMessage(content, replyTo);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }

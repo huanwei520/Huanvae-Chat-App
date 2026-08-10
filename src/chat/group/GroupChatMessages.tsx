@@ -38,8 +38,9 @@ import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import {
   buildReplyPreviewIndex,
   resolveReplyQuote,
-  summarizeGroupMessageForReply,
-} from './replyPreview';
+  summarizeMessageForReply,
+} from '../shared/replyPreview';
+import { groupConversationKey } from '../shared/conversationKey';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -166,10 +167,10 @@ export function GroupChatMessages({
   const handleReply = useCallback((message: GroupMessage) => {
     if (!groupId) { return; }
     setReplyDraft({
-      groupId,
+      conversationKey: groupConversationKey(groupId),
       messageUuid: message.message_uuid,
       senderName: displayNameOf(message),
-      preview: summarizeGroupMessageForReply(message),
+      preview: summarizeMessageForReply(message),
     });
   }, [groupId, setReplyDraft, displayNameOf]);
 

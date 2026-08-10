@@ -6,7 +6,7 @@
  * 两个不同会话若算出同一个 key，就会互相覆盖对方的草稿。故逐分支覆盖 + 唯一性断言。
  */
 import { describe, it, expect } from 'vitest';
-import { draftKeyOf } from '../../src/hooks/useMainPage';
+import { draftKeyOf } from '../../src/chat/shared/conversationKey';
 import type { ChatTarget, Friend, Group } from '../../src/types/chat';
 
 const friend = (id: string): Friend => ({

@@ -412,6 +412,7 @@ export function ChatPanel({
             messages={friendMessages}
             session={session}
             friend={chatTarget.data as Friend}
+            conversationType={chatTarget.type}
             isMultiSelectMode={isMultiSelectMode}
             selectedMessages={selectedMessages}
             onToggleSelect={onToggleSelect}

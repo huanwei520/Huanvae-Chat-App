@@ -46,10 +46,10 @@ import { isMobile } from '../../utils/platform';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
-import { ReplyQuote } from './ReplyQuote';
+import { ReplyQuote } from '../shared/ReplyQuote';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
-import type { ResolvedReplyQuote } from './replyPreview';
+import type { ResolvedReplyQuote } from '../shared/replyPreview';
 import type { GroupReader } from './useGroupReadReceipt';
 
 interface GroupMessageBubbleProps {
@@ -438,7 +438,7 @@ export function GroupMessageBubble({
   }, [onQuoteClick, message.reply_to]);
 
   // 「回复」菜单项的显示条件：
-  // - 需要列表层给了 onReply（好友私聊不给 → 后端 friends_messages 表无 reply-to 列，不支持引用）
+  // - 需要列表层给了 onReply
   // - 系统消息不可回复
   // - 发送中/失败的消息还没有服务端 UUID，拿它当 reply_to 发出去后端会 400
   const canReply = !!onReply

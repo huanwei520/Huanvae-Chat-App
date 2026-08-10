@@ -26,6 +26,8 @@ import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/com
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
+import { ReplyQuote } from '../shared/ReplyQuote';
+import type { ResolvedReplyQuote } from '../shared/replyPreview';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
 import { CardRenderer } from '../shared/CardRenderer';
@@ -58,6 +60,14 @@ interface MessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 已读回执：仅自己发出的已送达消息传入 isRead（对方是否已读）；对方消息/发送中/失败/已撤回不传 */
   readReceipt?: { isRead: boolean };
+  /** 被引用原消息的解析结果；非回复消息为 null（不渲染引用块） */
+  replyQuote?: ResolvedReplyQuote | null;
+  /** 点击引用块 → 定位到原消息 */
+  onQuoteClick?: (targetUuid: string) => void;
+  /** 把本条设为回复目标（列表层不给则「回复」菜单项不出现） */
+  onReply?: (message: Message) => void;
+  /** 是否为定位高亮目标（引用块/搜索跳转后短暂高亮） */
+  isHighlighted?: boolean;
   /** 是否播放入场滑入动画：仅"挂载后新增"的实时新消息为 true（由列表用 shouldPlayEnter 判定）；
    *  切换/打开时已有的历史为 false → 不并拢，整体走面板渐变。 */
   playEnter?: boolean;
@@ -100,6 +110,10 @@ export function MessageBubble({
   onDelete,
   onEnterMultiSelect,
   readReceipt,
+  replyQuote,
+  onQuoteClick,
+  onReply,
+  isHighlighted = false,
   playEnter = false,
 }: MessageBubbleProps) {
   // 右键菜单状态
@@ -266,6 +280,25 @@ export function MessageBubble({
     onToggleSelect?.(); // 同时选中当前消息
   }, [onEnterMultiSelect, onToggleSelect]);
 
+  // 设为回复目标
+  const handleReply = useCallback(() => {
+    onReply?.(message);
+  }, [onReply, message]);
+
+  // 点击引用块 → 定位到原消息
+  const handleQuoteClick = useCallback(() => {
+    if (message.reply_to) {
+      onQuoteClick?.(message.reply_to);
+    }
+  }, [onQuoteClick, message.reply_to]);
+
+  // 「回复」菜单项的显示条件（与群聊同口径）：
+  // - 需要列表层给了 onReply
+  // - 发送中/失败的消息还没有服务端 UUID，拿它当 reply_to 发出去后端会 400
+  const canReply = !!onReply
+    && message.sendStatus !== 'sending'
+    && message.sendStatus !== 'failed';
+
   // 保存到相册（移动端）
   const handleSaveToGallery = useCallback(async () => {
     if (!localPath) { return; }
@@ -368,7 +401,7 @@ export function MessageBubble({
 
             <div
               ref={bubbleRef}
-              className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
+              className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}${isHighlighted ? ' message-bubble--highlight' : ''}`}
               onContextMenu={handleContextMenu}
               onClick={handleClick}
               // 移动端长按触发菜单
@@ -396,6 +429,16 @@ export function MessageBubble({
                 {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
               </div>
               <div className="bubble-content">
+                {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
+                    私聊 reply_to 自 migration 036 起后端支持，与群聊共用同一套 shared/replyPreview。 */}
+                {replyQuote && (
+                  <ReplyQuote
+                    senderName={replyQuote.senderName}
+                    text={replyQuote.text}
+                    resolved={replyQuote.resolved}
+                    onClick={handleQuoteClick}
+                  />
+                )}
                 {message.message_type === 'text' && (
                   <div className="bubble-text">
                     <MarkdownRenderer content={message.message_content} />
@@ -452,6 +495,8 @@ export function MessageBubble({
         position={contextMenu.position}
         bubbleRect={contextMenu.bubbleRect}
         canRecall={canRecallMessage(message, isOwn)}
+        canReply={canReply}
+        onReply={handleReply}
         localPath={localPath}
         messageContent={message.message_type === 'text' ? message.message_content : null}
         fileType={getFileType()}

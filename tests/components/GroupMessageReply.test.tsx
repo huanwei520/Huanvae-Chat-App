@@ -48,7 +48,7 @@ vi.mock('../../src/stores', () => ({
 }));
 
 import { GroupMessageBubble } from '../../src/chat/group/GroupMessageBubble';
-import { REPLY_UNRESOLVED_TEXT } from '../../src/chat/group/replyPreview';
+import { REPLY_UNRESOLVED_TEXT } from '../../src/chat/shared/replyPreview';
 
 function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {
   return {
@@ -99,7 +99,7 @@ describe('GroupMessageBubble — 回复触发入口（右键菜单）', () => {
     expect(onReply).toHaveBeenCalledWith(message);
   });
 
-  it('未传 onReply（好友私聊链路）：菜单里没有「回复」项', () => {
+  it('未传 onReply（列表层未接线）：菜单里没有「回复」项', () => {
     render(<GroupMessageBubble message={makeMessage()} isOwn={false} groupId="g-1" />);
 
     openContextMenu();

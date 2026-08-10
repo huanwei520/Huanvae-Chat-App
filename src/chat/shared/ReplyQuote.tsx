@@ -1,8 +1,8 @@
 /**
- * 群消息气泡内的「被引用消息」块（Telegram 风格）
+ * 消息气泡内的「被引用消息」块（Telegram 风格，群聊 + 私聊共用）
  *
- * @module chat/group
- * @location src/chat/group/ReplyQuote.tsx
+ * @module chat/shared
+ * @location src/chat/shared/ReplyQuote.tsx
  *
  * 渲染在气泡正文上方：左侧竖色条 + 被回复者名字 + 原消息单行摘要，整块可点击跳转到原消息。
  *

@@ -33,6 +33,14 @@ import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
 import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
+import { useChatStore } from '../../stores';
+import { friendDisplayName } from '../../utils/friendName';
+import {
+  buildReplyPreviewIndex,
+  resolveReplyQuote,
+  summarizeMessageForReply,
+} from '../shared/replyPreview';
+import { friendConversationKey } from '../shared/conversationKey';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
 const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
@@ -43,6 +51,12 @@ interface ChatMessagesProps {
   messages: Message[];
   session: SessionInfo & { userId: string };
   friend: Friend;
+  /**
+   * 会话类型。bot 与 friend 的数据形态一致，但会话 key 前缀不同
+   * （`bot:` vs `friend:`）—— 回复草稿的归属校验按 key 比对，
+   * 这里传错会让 bot 会话的「正在回复」条永远显示不出来。
+   */
+  conversationType: 'friend' | 'bot';
   /** 是否处于多选模式 */
   isMultiSelectMode?: boolean;
   /** 已选中的消息 UUID 集合 */
@@ -68,6 +82,7 @@ export function ChatMessages({
   messages,
   session,
   friend,
+  conversationType,
   isMultiSelectMode = false,
   selectedMessages = new Set(),
   onToggleSelect,
@@ -93,6 +108,46 @@ export function ChatMessages({
 
   // 获取消息的稳定 key（优先使用 clientId）
   const getStableKey = (msg: Message) => msg.clientId || msg.message_uuid;
+
+  // ==================== 回复（引用）接线 ====================
+  // 这层是「回复」功能在私聊消息列表侧的唯一接线点：气泡本身保持纯 props 驱动，
+  // 不直接碰 store —— 这样既让气泡好测，也不会让既有气泡测试的 store mock 被打穿
+  // （见 .claude/rules/frontend-test.md「改完 src/ 先 grep 谁 mock 了我」）。
+  const setReplyDraft = useChatStore((s) => s.setReplyDraft);
+  const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
+
+  // 私聊只有两个人，显示名不需要备注映射：自己的消息显示「我」，对方用好友显示名（含备注）。
+  // 这正是 buildReplyPreviewIndex 要求调用方注入 resolveSenderName 的原因 ——
+  // 私聊消息上根本没有 sender_nickname 字段可供默认。
+  const displayNameOf = useCallback(
+    (m: Message) => (m.sender_id === session.userId ? '我' : friendDisplayName(friend)),
+    [session.userId, friend],
+  );
+
+  // uuid → 引用预览 索引。数据源是当前已加载的全部消息（含 loadMore 拉回的历史）——
+  // 后端不下发被引用消息的内容快照，只能本地反查；查不到时引用块显示「未加载，点击定位」占位。
+  const replyPreviewIndex = useMemo(
+    () => buildReplyPreviewIndex(messages, displayNameOf),
+    [messages, displayNameOf],
+  );
+
+  // 选中「回复」：把被回复者名字与摘要**当场快照**进草稿，而不是发送时再反查——
+  // 用户完全可能在编辑期间翻走历史让原消息离开窗口。
+  const handleReply = useCallback((message: Message) => {
+    setReplyDraft({
+      conversationKey: friendConversationKey(conversationType, friend.friend_id),
+      messageUuid: message.message_uuid,
+      senderName: displayNameOf(message),
+      preview: summarizeMessageForReply(message),
+    });
+  }, [setReplyDraft, conversationType, friend.friend_id, displayNameOf]);
+
+  // 点击引用块：复用全局搜索那条定位通路（useMainPage 监听 pendingScrollToMessageId，
+  // 负责拉历史 + 滚动 + 高亮 + 找不到时给降级提示），不另造一套滚动机制。
+  const handleQuoteClick = useCallback((targetUuid: string) => {
+    setPendingScrollToMessageId(targetUuid);
+  }, [setPendingScrollToMessageId]);
 
   // 消息去重 + 排序：按 message_uuid 去重后按时间倒序（新→旧）。
   // column-reverse 把 index 0（最新）放在视觉底部；发送中的消息排在 index 0（视觉最底）。
@@ -234,6 +289,10 @@ export function ChatMessages({
                   onDelete={() => onDelete?.(message.message_uuid)}
                   onEnterMultiSelect={onEnterMultiSelect}
                   readReceipt={readReceipt}
+                  replyQuote={resolveReplyQuote(replyPreviewIndex, message.reply_to)}
+                  onQuoteClick={handleQuoteClick}
+                  onReply={handleReply}
+                  isHighlighted={highlightedMessageId === message.message_uuid}
                   playEnter={playEnter}
                 />
               );

@@ -386,6 +386,7 @@ export function MobileChatView({
             messages={friendMessages}
             session={session}
             friend={friend}
+            conversationType={chatTarget.type}
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={onLoadMore}
