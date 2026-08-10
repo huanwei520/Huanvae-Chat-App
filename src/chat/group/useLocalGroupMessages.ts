@@ -89,6 +89,10 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
     image_width: local.image_width,
     image_height: local.image_height,
     reply_to: local.reply_to,
+    // 相册三件套：落库了但转换时丢掉等于白存，相册照样散成 N 条独立图片
+    media_group_id: local.media_group_id,
+    media_group_index: local.media_group_index,
+    media_group_count: local.media_group_count,
     send_time: local.send_time,
     is_recalled: local.is_recalled,
     seq: local.seq,

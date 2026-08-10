@@ -95,6 +95,12 @@ function localMessageToMessage(local: LocalMessage, friendId: string): Message {
     file_hash: local.file_hash,
     image_width: local.image_width,
     image_height: local.image_height,
+    // reply_to 与相册三件套必须一路带到 UI：落库了但转换时丢掉，
+    // 等于白存 —— 从 DB 读出来的消息照样没有引用块、相册照样散架
+    reply_to: local.reply_to,
+    media_group_id: local.media_group_id,
+    media_group_index: local.media_group_index,
+    media_group_count: local.media_group_count,
     send_time: local.send_time,
     seq: local.seq,
     is_recalled: local.is_recalled,
