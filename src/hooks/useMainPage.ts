@@ -167,6 +167,11 @@ async function processUploadSuccess(options: UploadSuccessOptions): Promise<void
       image_height: result.imageHeight ?? null,
       seq: 0,
       reply_to: null,
+      // 上传落库：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
+      // 发送侧接上后要从上传结果带三件套，否则自己发的相册在本地散架。
+      media_group_id: null,
+      media_group_index: null,
+      media_group_count: null,
       is_recalled: false,
       is_deleted: false,
       send_time: result.messageSendTime || timestamp,

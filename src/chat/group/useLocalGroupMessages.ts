@@ -530,6 +530,11 @@ export function useLocalGroupMessages(groupId: string | null) {
         image_height: null,
         seq: response.seq,
         reply_to: replyTo ?? null,
+        // 本端发送：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
+        // 发送侧接上后这里要跟着带三件套，否则自己发的相册在本地散架。
+        media_group_id: null,
+        media_group_index: null,
+        media_group_count: null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,
@@ -660,6 +665,11 @@ export function useLocalGroupMessages(groupId: string | null) {
         image_height: null,
         seq: response.seq,
         reply_to: null,
+        // 本端发送：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
+        // 发送侧接上后这里要跟着带三件套，否则自己发的相册在本地散架。
+        media_group_id: null,
+        media_group_index: null,
+        media_group_count: null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,

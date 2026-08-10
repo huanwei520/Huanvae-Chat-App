@@ -578,6 +578,11 @@ export function useLocalFriendMessages(friendId: string | null) {
         image_height: null,
         seq: response.seq,
         reply_to: replyTo ?? null,
+        // 本端发送：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
+        // 发送侧接上后这里要跟着带三件套，否则自己发的相册在本地散架。
+        media_group_id: null,
+        media_group_index: null,
+        media_group_count: null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,
@@ -711,6 +716,11 @@ export function useLocalFriendMessages(friendId: string | null) {
         // 文件消息恒无引用：「正在回复」条只挂在文本输入区，走 sendTextMessage 那条路；
         // 发文件不经过它，故这里不是漏传而是本就没有引用目标（群聊文件路径同口径）。
         reply_to: null,
+        // 本端发送：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
+        // 发送侧接上后这里要跟着带三件套，否则自己发的相册在本地散架。
+        media_group_id: null,
+        media_group_index: null,
+        media_group_count: null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,

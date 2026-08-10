@@ -26,7 +26,22 @@ pub fn get_messages(
     limit: i64,
     before_seq: Option<i64>,
 ) -> Result<Vec<LocalMessage>, String> {
-    with_db!(db, {
+    with_db!(db, { get_messages_with_conn(db, conversation_id, limit, before_seq) })
+}
+
+/// `get_messages` 的可注入连接版本
+///
+/// 拆出来是为了让单测能对 in-memory 连接跑**同一条真实查询** ——
+/// 这块最容易出错的是 SELECT 列顺序与 row.get(i) 索引的配对，
+/// 测试里另抄一份 SQL 就正好测不到那种漂移（与本文件既有的
+/// `search_messages_with_conn` / `list_conversation_messages_with_conn` 同一手法）。
+pub fn get_messages_with_conn(
+    db: &Connection,
+    conversation_id: &str,
+    limit: i64,
+    before_seq: Option<i64>,
+) -> Result<Vec<LocalMessage>, String> {
+    {
         // 排序逻辑：seq=0 的消息（未同步的新消息）排在最前面，按 send_time 排序
         // 其他消息按 seq DESC 排序
         let (query, params): (&str, Vec<Box<dyn rusqlite::ToSql>>) = match before_seq {
@@ -34,7 +49,8 @@ pub fn get_messages(
                 "SELECT message_uuid, conversation_id, conversation_type, sender_id,
                  sender_name, sender_avatar, content, content_type, file_uuid, file_url,
                  file_size, file_hash, image_width, image_height, seq, reply_to,
-                 is_recalled, is_deleted, send_time, created_at
+                 is_recalled, is_deleted, send_time, created_at,
+                 media_group_id, media_group_index, media_group_count
                  FROM messages
                  WHERE conversation_id = ? AND is_deleted = 0 AND (seq < ? OR seq = 0)
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
@@ -51,7 +67,8 @@ pub fn get_messages(
                 "SELECT message_uuid, conversation_id, conversation_type, sender_id,
                  sender_name, sender_avatar, content, content_type, file_uuid, file_url,
                  file_size, file_hash, image_width, image_height, seq, reply_to,
-                 is_recalled, is_deleted, send_time, created_at
+                 is_recalled, is_deleted, send_time, created_at,
+                 media_group_id, media_group_index, media_group_count
                  FROM messages
                  WHERE conversation_id = ? AND is_deleted = 0
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
@@ -92,6 +109,9 @@ pub fn get_messages(
                     is_deleted: row.get::<_, i64>(17)? != 0,
                     send_time: row.get(18)?,
                     created_at: row.get(19)?,
+                    media_group_id: row.get(20)?,
+                    media_group_index: row.get(21)?,
+                    media_group_count: row.get(22)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -105,7 +125,7 @@ pub fn get_messages(
         // flex-direction: column-reverse 容器会正确显示为：旧(顶部) → 新(底部)
 
         Ok(messages)
-    })
+    }
 }
 
 /// 保存消息
@@ -115,8 +135,10 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              file_hash, image_width, image_height, seq, reply_to,
+              media_group_id, media_group_index, media_group_count,
+              is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -134,6 +156,9 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
                 msg.image_height,
                 msg.seq,
                 msg.reply_to,
+                msg.media_group_id,
+                msg.media_group_index,
+                msg.media_group_count,
                 if msg.is_recalled { 1 } else { 0 },
                 if msg.is_deleted { 1 } else { 0 },
                 msg.send_time,
@@ -159,8 +184,10 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              file_hash, image_width, image_height, seq, reply_to,
+              media_group_id, media_group_index, media_group_count,
+              is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -178,6 +205,9 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
                 msg.image_height,
                 msg.seq,
                 msg.reply_to,
+                msg.media_group_id,
+                msg.media_group_index,
+                msg.media_group_count,
                 if msg.is_recalled { 1 } else { 0 },
                 if msg.is_deleted { 1 } else { 0 },
                 msg.send_time,
@@ -213,8 +243,10 @@ pub fn save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), St
             "INSERT OR IGNORE INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to, is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              file_hash, image_width, image_height, seq, reply_to,
+              media_group_id, media_group_index, media_group_count,
+              is_recalled, is_deleted, send_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -232,6 +264,9 @@ pub fn save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), St
                 msg.image_height,
                 msg.seq,
                 msg.reply_to,
+                msg.media_group_id,
+                msg.media_group_index,
+                msg.media_group_count,
                 if msg.is_recalled { 1 } else { 0 },
                 if msg.is_deleted { 1 } else { 0 },
                 msg.send_time,
@@ -378,6 +413,7 @@ fn fts_search(
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
                 m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
                 m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
+                m.media_group_id, m.media_group_index, m.media_group_count,
                 c.name, c.avatar_url
          FROM messages_fts
          JOIN messages m ON m.rowid = messages_fts.rowid
@@ -423,6 +459,7 @@ fn like_search(
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
                 m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
                 m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
+                m.media_group_id, m.media_group_index, m.media_group_count,
                 c.name, c.avatar_url
          FROM messages m
          LEFT JOIN conversations c ON c.id = m.conversation_id
@@ -466,6 +503,9 @@ fn row_to_local_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalMessag
         is_deleted: row.get::<_, i64>(17)? != 0,
         send_time: row.get(18)?,
         created_at: row.get(19)?,
+        media_group_id: row.get(20)?,
+        media_group_index: row.get(21)?,
+        media_group_count: row.get(22)?,
     })
 }
 
@@ -478,8 +518,8 @@ fn collect_hits(
         .query_map(parameters, |row| {
             Ok((
                 row_to_local_message(row)?,
-                row.get::<_, Option<String>>(20)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(21)?,
+                row.get::<_, Option<String>>(23)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(24)?,
             ))
         })
         .map_err(|e| e.to_string())?;
@@ -606,7 +646,8 @@ pub(crate) fn list_conversation_messages_with_conn(
         "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
                 m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
-                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at
+                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
+                m.media_group_id, m.media_group_index, m.media_group_count
          FROM messages m
          WHERE m.is_deleted = 0
            AND m.is_recalled = 0{}{}
@@ -695,6 +736,9 @@ mod tests {
                 image_height INTEGER,
                 seq INTEGER NOT NULL,
                 reply_to TEXT,
+                media_group_id TEXT,
+                media_group_index INTEGER,
+                media_group_count INTEGER,
                 is_recalled INTEGER NOT NULL DEFAULT 0,
                 is_deleted INTEGER NOT NULL DEFAULT 0,
                 send_time TEXT NOT NULL,
@@ -762,6 +806,39 @@ mod tests {
         .unwrap();
     }
 
+    /// 相册三件套必须能**存进去再读回来**。
+    ///
+    /// 这条是整块本地持久化的意义所在：消息列表是 DB-first 的，
+    /// 三列不落库的话，网络上收到的相册在内存里能渲染，一旦重启 / 切会话 / 离线加载
+    /// 就散成 N 条独立图片 —— 而且**不报任何错**，只是分组静默消失。
+    #[test]
+    fn media_group_survives_save_and_load() {
+        let conn = setup_test_db();
+        conn.execute(
+            "INSERT INTO messages (message_uuid, conversation_id, conversation_type, sender_id,
+             content, content_type, seq, send_time,
+             media_group_id, media_group_index, media_group_count)
+             VALUES ('mg1', 'c1', 'friend', 'u1', '整组配文', 'image', 1, '2026-05-11T01:00:00Z',
+                     'grp-1', 0, 3)",
+            [],
+        )
+        .unwrap();
+
+        let msgs = get_messages_with_conn(&conn, "c1", 50, None).unwrap();
+        let hit = msgs
+            .iter()
+            .find(|m| m.message_uuid == "mg1")
+            .expect("刚插入的消息应当读得回来");
+
+        assert_eq!(hit.media_group_id.as_deref(), Some("grp-1"));
+        assert_eq!(hit.media_group_index, Some(0));
+        assert_eq!(hit.media_group_count, Some(3));
+        // 同时确认相邻列没有因为新增列而错位（位置索引是这块最容易出错的地方）
+        assert_eq!(hit.content, "整组配文");
+        assert_eq!(hit.seq, 1);
+        assert!(!hit.is_recalled);
+    }
+
     #[test]
     fn fts_hit_text_message() {
         let conn = setup_test_db();
@@ -822,6 +899,7 @@ mod tests {
                 file_uuid TEXT, file_url TEXT, file_size INTEGER, file_hash TEXT,
                 image_width INTEGER, image_height INTEGER,
                 seq INTEGER NOT NULL, reply_to TEXT,
+                media_group_id TEXT, media_group_index INTEGER, media_group_count INTEGER,
                 is_recalled INTEGER NOT NULL DEFAULT 0, is_deleted INTEGER NOT NULL DEFAULT 0,
                 send_time TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))

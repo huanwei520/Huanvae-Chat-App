@@ -80,6 +80,14 @@ export interface LocalMessage {
   image_height: number | null;
   seq: number;
   reply_to: string | null;
+  /** 媒体组（相册）ID —— 组内各项共享同一值；非组内消息为 null。
+   *  必须本地持久化：消息列表是 DB-first 的，不落库的话重启 / 切会话 / 离线加载后
+   *  相册会散成 N 条独立图片。 */
+  media_group_id: string | null;
+  /** 组内位次（0-based）；index=0 那条的 content 即整组 caption */
+  media_group_index: number | null;
+  /** 组的期望总数（2..10）；跨分页只加载到一部分时靠它预留占位 */
+  media_group_count: number | null;
   is_recalled: boolean;
   is_deleted: boolean;
   send_time: string;

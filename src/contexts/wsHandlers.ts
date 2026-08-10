@@ -450,7 +450,11 @@ export async function saveMessageToLocal(msg: WsNewMessage, currentUserId: strin
       // 且不产生 WS 事件）。忠实写入 msg.seq，绝不把缺失/异常值强制成 0——seq=0 是「未送达」
       // 的唯一信号（MessageBubble 红叹号），伪造 0 会让已送达消息误显「未送达」。
       seq: msg.seq,
-      reply_to: null,
+      // 原先这里写死 null ⇒ 实时推来的引用回复/相册落库后丢失，重启或切会话就散架
+      reply_to: msg.reply_to ?? null,
+      media_group_id: msg.media_group_id ?? null,
+      media_group_index: msg.media_group_index ?? null,
+      media_group_count: msg.media_group_count ?? null,
       is_recalled: false,
       is_deleted: false,
       send_time: msg.timestamp,

@@ -63,6 +63,10 @@ interface ServerMessage {
   image_height?: number | null;
   seq: number;
   reply_to?: string | null;
+  /** 媒体组（相册）三件套：sync 端点同样下发，不接就会在增量同步路径上丢分组 */
+  media_group_id?: string | null;
+  media_group_index?: number | null;
+  media_group_count?: number | null;
   send_time: string;
   is_recalled?: boolean;
 }
@@ -316,6 +320,9 @@ export class SyncService {
               image_height: msg.image_height ?? null,
               seq: msg.seq,
               reply_to: msg.reply_to || null,
+              media_group_id: msg.media_group_id ?? null,
+              media_group_index: msg.media_group_index ?? null,
+              media_group_count: msg.media_group_count ?? null,
               is_recalled: msg.is_recalled || false,
               is_deleted: false,
               send_time: msg.send_time,
@@ -453,6 +460,9 @@ export class SyncService {
           image_height: msg.image_height ?? null,
           seq: msg.seq,
           reply_to: msg.reply_to || null,
+          media_group_id: msg.media_group_id ?? null,
+          media_group_index: msg.media_group_index ?? null,
+          media_group_count: msg.media_group_count ?? null,
           is_recalled: msg.is_recalled || false,
           is_deleted: false,
           send_time: msg.send_time,
@@ -506,6 +516,10 @@ export class SyncService {
     image_width?: number;
     /** 图片高度（像素），仅图片类型消息有值 */
     image_height?: number;
+    /** 媒体组（相册）三件套：不透传的话同步下来的相册会散成 N 条独立图片 */
+    media_group_id?: string | null;
+    media_group_index?: number | null;
+    media_group_count?: number | null;
   }): Promise<void> {
     // 保存消息到本地
     const localMessage: Omit<LocalMessage, 'created_at'> = {
@@ -523,6 +537,9 @@ export class SyncService {
       file_hash: message.file_hash || null,
       image_width: message.image_width ?? null,
       image_height: message.image_height ?? null,
+      media_group_id: message.media_group_id ?? null,
+      media_group_index: message.media_group_index ?? null,
+      media_group_count: message.media_group_count ?? null,
       seq: message.seq || 0,
       reply_to: null,
       is_recalled: false,

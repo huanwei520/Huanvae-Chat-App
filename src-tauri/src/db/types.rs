@@ -55,6 +55,14 @@ pub struct LocalMessage {
     pub image_height: Option<i32>,
     pub seq: i64,
     pub reply_to: Option<String>,
+    /// 媒体组（相册）ID —— 组内各项共享同一值；非组内消息为 None。
+    /// 必须本地持久化：消息列表是 DB-first 的，不存的话重启/切会话/离线加载后
+    /// 相册会散成 N 条独立图片。
+    pub media_group_id: Option<String>,
+    /// 组内位次（0-based）；index=0 那条的 content 即整组 caption
+    pub media_group_index: Option<i32>,
+    /// 组的期望总数（2..10）；跨分页只加载到一部分时靠它预留占位
+    pub media_group_count: Option<i32>,
     pub is_recalled: bool,
     pub is_deleted: bool,
     pub send_time: String,

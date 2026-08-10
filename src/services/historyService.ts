@@ -123,7 +123,13 @@ export async function loadAllHistoryMessages(
           image_width: msg.image_width ?? null,
           image_height: msg.image_height ?? null,
           seq: msg.seq || 0,
-          reply_to: null,
+          // 引用回复与相册三件套必须从服务端消息原样落库：
+          // 消息列表是 DB-first 的，这里丢了，历史加载出来的消息就没有引用块、
+          // 相册也会散成 N 条独立图片（private reply 自 migration 036 起后端已支持）
+          reply_to: msg.reply_to ?? null,
+          media_group_id: msg.media_group_id ?? null,
+          media_group_index: msg.media_group_index ?? null,
+          media_group_count: msg.media_group_count ?? null,
           is_recalled: false,
           is_deleted: false,
           send_time: msg.send_time,
@@ -177,7 +183,12 @@ export async function loadAllHistoryMessages(
           image_width: msg.image_width ?? null,
           image_height: msg.image_height ?? null,
           seq: msg.seq,
-          reply_to: null,
+          // 同上：群聊引用回复自 v1.1.25 起就有，但历史加载一直写死 null ⇒
+          // 从历史读出来的群消息引用块渲染不出来。一并修正。
+          reply_to: msg.reply_to ?? null,
+          media_group_id: msg.media_group_id ?? null,
+          media_group_index: msg.media_group_index ?? null,
+          media_group_count: msg.media_group_count ?? null,
           is_recalled: msg.is_recalled || false,
           is_deleted: false,
           send_time: msg.send_time,

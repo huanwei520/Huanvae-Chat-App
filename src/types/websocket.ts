@@ -123,6 +123,14 @@ export interface WsNewMessage {
   image_width?: number;
   /** 图片高度（像素），仅图片类型消息有值 */
   image_height?: number;
+  /** 引用回复：被引用的原消息 message_uuid（私聊与群聊同形；后端 migration 036 起下发） */
+  reply_to?: string | null;
+  /** 媒体组（相册）ID —— 组内各项共享同一值 */
+  media_group_id?: string | null;
+  /** 组内位次（0-based）；index=0 那条的 content 即整组 caption */
+  media_group_index?: number | null;
+  /** 组的期望总数（2..10） */
+  media_group_count?: number | null;
 }
 
 /**

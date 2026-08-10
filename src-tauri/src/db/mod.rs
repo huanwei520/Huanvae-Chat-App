@@ -159,6 +159,9 @@ pub fn init_database() -> Result<(), String> {
             image_height INTEGER,
             seq INTEGER NOT NULL,
             reply_to TEXT,
+            media_group_id TEXT,
+            media_group_index INTEGER,
+            media_group_count INTEGER,
             is_recalled INTEGER NOT NULL DEFAULT 0,
             is_deleted INTEGER NOT NULL DEFAULT 0,
             send_time TEXT NOT NULL,
@@ -173,6 +176,14 @@ pub fn init_database() -> Result<(), String> {
     conn.execute("ALTER TABLE messages ADD COLUMN image_width INTEGER", [])
         .ok();
     conn.execute("ALTER TABLE messages ADD COLUMN image_height INTEGER", [])
+        .ok();
+
+    // 迁移：媒体组（相册）三件套（旧数据库兼容；列已存在时 ALTER 失败，.ok() 忽略）
+    conn.execute("ALTER TABLE messages ADD COLUMN media_group_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE messages ADD COLUMN media_group_index INTEGER", [])
+        .ok();
+    conn.execute("ALTER TABLE messages ADD COLUMN media_group_count INTEGER", [])
         .ok();
 
     // 创建消息索引
