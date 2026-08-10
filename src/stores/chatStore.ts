@@ -51,6 +51,23 @@ export interface GroupReadMirror {
 // 类型定义
 // ============================================
 
+/**
+ * 群聊「正在回复」草稿
+ *
+ * senderName / preview 在选中回复的那一刻就快照下来，不在渲染时反查——
+ * 反查依赖被引用消息仍在已加载窗口内，而用户完全可能在编辑期间翻走历史。
+ */
+export interface ReplyDraft {
+  /** 所属群 ID（用于校验草稿与当前会话一致，防止串会话发错引用） */
+  groupId: string;
+  /** 被回复消息的 UUID，发送时作为 reply_to 提交给后端 */
+  messageUuid: string;
+  /** 被回复者显示名（已套用群内私有备注） */
+  senderName: string;
+  /** 被回复消息的单行摘要 */
+  preview: string;
+}
+
 /** 禁言信息 */
 interface MuteInfo {
   /** 禁言结束时间（ISO 字符串） */
@@ -98,6 +115,34 @@ interface ChatState {
    *   非 null → 加载历史至该消息 + scrollIntoView + 清空
    */
   pendingScrollToMessageId: string | null;
+
+  /**
+   * 定位成功后要高亮的消息 UUID（回复引用点击 / 全局搜索跳转共用）
+   *
+   * useMainPage 在滚动到位后写入，并起一次性定时器在 2s 后清空；
+   * GroupChatMessages 据此给对应气泡加 `.message-bubble--highlight`（CSS keyframes 脉冲）。
+   */
+  highlightedMessageId: string | null;
+
+  /**
+   * 消息定位失败的降级提示文案（null = 无提示）
+   *
+   * 触发点：loadUntilMessage 把本地历史翻完仍未命中目标（原消息更早于本地保留范围 /
+   * 已被本地删除）。此时**必须**给用户明确反馈，不能静默无反应。
+   *
+   * 渲染方：ChatInputArea（桌面 + 移动共用，位于输入区上方）——刻意不放进
+   * .chat-messages-container，那是 overflow:auto 的滚动容器，绝对定位浮层会锚到内容顶
+   * 而非视口顶，用户滚到下面时根本看不见（见 .claude/rules/common.md 同名条目）。
+   */
+  messageJumpNotice: string | null;
+
+  /**
+   * 群聊「正在回复」草稿（null = 当前没在回复任何人）
+   *
+   * 只保留一条：切换会话时清空（见 setChatTarget），不做按会话多槽保留——
+   * 回复目标是强上下文的临时意图，跨会话保活反而会让人发错引用。
+   */
+  replyDraft: ReplyDraft | null;
 
   // ==================== 切换会话恢复状态 ====================
   /**
@@ -284,6 +329,14 @@ interface ChatActions {
   // ==================== 跳转操作 ====================
   /** 设置待跳转的目标消息 UUID（搜索结果点击时设置，ChatMessages 滚动到该消息后清空） */
   setPendingScrollToMessageId: (messageId: string | null) => void;
+  /** 设置定位成功后高亮的消息 UUID（useMainPage 定时清空） */
+  setHighlightedMessageId: (messageId: string | null) => void;
+  /** 设置消息定位失败的降级提示文案（null = 清除） */
+  setMessageJumpNotice: (notice: string | null) => void;
+
+  // ==================== 群聊回复操作 ====================
+  /** 设置 / 清空「正在回复」草稿 */
+  setReplyDraft: (draft: ReplyDraft | null) => void;
 
   // ==================== 切换会话恢复操作 ====================
   /**
@@ -333,6 +386,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   pendingMeetingJoin: false,
 
   pendingScrollToMessageId: null,
+
+  highlightedMessageId: null,
+
+  messageJumpNotice: null,
+
+  replyDraft: null,
 
   cachedFriendMessages: {},
 
@@ -482,7 +541,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   }),
 
   // ==================== 聊天目标操作 ====================
-  setChatTarget: (target) => set({ chatTarget: target }),
+  // 切会话一并丢掉「回复草稿 / 高亮 / 定位失败提示」这三样强会话上下文的临时态：
+  // 回复草稿跨会话保留会让人对着 B 发出引用 A 的消息；高亮和提示都是上一条会话的残留。
+  // 注意**不清** pendingScrollToMessageId —— 全局搜索的调用顺序正是「先 setChatTarget
+  // 再 setPendingScrollToMessageId」，清了会把刚设的跳转目标顺手抹掉（见 Main.tsx:353-362）。
+  setChatTarget: (target) => set({
+    chatTarget: target,
+    replyDraft: null,
+    highlightedMessageId: null,
+    messageJumpNotice: null,
+  }),
 
   updateChatTargetRole: (groupId, role) => {
     const { chatTarget } = get();
@@ -518,6 +586,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   // ==================== 跳转操作 ====================
   setPendingScrollToMessageId: (messageId) => set({ pendingScrollToMessageId: messageId }),
+
+  setHighlightedMessageId: (messageId) => set({ highlightedMessageId: messageId }),
+
+  setMessageJumpNotice: (notice) => set({ messageJumpNotice: notice }),
+
+  // ==================== 群聊回复操作 ====================
+  setReplyDraft: (draft) => set({ replyDraft: draft }),
 
   // ==================== 切换会话恢复操作 ====================
   // 缓存当前 messages 全量（不再 slice(-50)）：
@@ -558,7 +633,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })),
 
   clearMessageCache: () =>
-    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadPositions: {}, cachedFriendReadPositions: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {}, friendPresence: {} }),
+    set({ cachedFriendMessages: {}, cachedGroupMessages: {}, cachedGroupReadPositions: {}, cachedFriendReadPositions: {}, groupMessageBlocks: {}, groupSpecialCares: {}, groupMemberRemarks: {}, friendBlacklistTimes: {}, friendPresence: {}, replyDraft: null, highlightedMessageId: null, messageJumpNotice: null }),
 
   getMuteRemaining: (groupId) => {
     const { muteStatus } = get();

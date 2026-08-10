@@ -221,6 +221,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'ReaderAvatarStack', path: 'chat/shared/ReaderAvatarStack', category: 'chat', description: '已读者头像堆叠（16px 重叠，超出显示 +N）' },
   { name: 'GroupReadReceipt', path: 'chat/group/GroupReadReceipt', category: 'chat', description: '群聊已读回执（绿双勾 + N 人已读 + 头像堆叠，点击展开名单）' },
   { name: 'GroupReadListModal', path: 'chat/group/GroupReadListModal', category: 'chat', description: '群已读名单弹层（桌面居中 modal / 移动底部 sheet）' },
+  { name: 'ReplyComposeBar', path: 'chat/shared/ReplyComposeBar', category: 'chat', description: '输入框上方「正在回复」条（群聊回复，桌面+移动共用 ChatInputArea 渲染）' },
   { name: 'MultiSelectActionBar', path: 'chat/shared/MultiSelectActionBar', category: 'chat', description: '多选操作栏' },
   { name: 'UploadProgress', path: 'chat/shared/UploadProgress', category: 'chat', description: '上传进度' },
   { name: 'OtherProfilePanel', path: 'chat/shared/OtherProfilePanel', category: 'chat', description: '他人公开资料面板（只读公开字段 + 关系状态；非好友可加好友）' },
@@ -236,6 +237,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupChatMessages', path: 'chat/group/GroupChatMessages', category: 'chat', description: '群聊消息列表' },
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
   { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
+  { name: 'ReplyQuote', path: 'chat/group/ReplyQuote', category: 'chat', description: '群消息气泡内的被引用消息块（Telegram 风格，点击定位原消息）' },
 
   // bot 斜杠命令 + 会话顶置架
   { name: 'SlashCommandPanel', path: 'chat/shared/SlashCommandPanel', category: 'chat', description: '斜杠命令面板（bot 会话输入 / 弹命令、填入不直发，portal 弹层）' },
@@ -330,6 +332,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'shelfStore', path: 'stores/shelfStore', category: 'services', description: '顶置架状态管理（按 scope|scopeKey 分桶，REST + WS shelf_updated 整组替换）' },
   { name: 'botCommandsStore', path: 'stores/botCommandsStore', category: 'services', description: 'Bot 指令缓存（按 bot_user_id 分桶，getBotCommands 拉取，失败存空）' },
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
+  { name: 'replyPreview', path: 'chat/group/replyPreview', category: 'services', description: '群消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },

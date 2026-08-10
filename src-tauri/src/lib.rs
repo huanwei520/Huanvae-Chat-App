@@ -160,6 +160,14 @@ fn update_account_nickname(
     storage::update_account_nickname(&server_url, &user_id, &nickname).map_err(|e| e.to_string())
 }
 
+/// 记录一次登录成功（写 last_login_at，供账号选择器按"上次登录"倒序排列）
+///
+/// 只改本地账号元数据，不碰凭据存储。
+#[tauri::command]
+fn touch_account_login(server_url: String, user_id: String) -> Result<(), String> {
+    storage::touch_account_login(&server_url, &user_id).map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // 会话锁管理 Commands（桌面端专属）
 // ============================================================================
@@ -857,6 +865,7 @@ pub fn run() {
             delete_account,
             update_account_avatar,
             update_account_nickname,
+            touch_account_login,
             // 用户数据目录管理
             set_current_user,
             clear_current_user,

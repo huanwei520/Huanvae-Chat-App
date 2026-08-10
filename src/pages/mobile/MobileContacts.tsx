@@ -10,12 +10,11 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
-import { useChatStore, useProfileViewStore } from '../../stores';
+import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { isBotUserId } from '../../api/bots';
 import { BotBadge } from '../../components/common/BotBadge';
-import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { Friend, Group, ChatTarget } from '../../types/chat';
 
 // 箭头图标
@@ -82,11 +81,8 @@ export function MobileContacts({
   onToggleFriends,
   onToggleGroups,
 }: MobileContactsProps) {
-  // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
+  // 好友在线状态（点头像不再看资料：与桌面 UnifiedList 同口径，列表内点头像=进会话）
   const friendPresence = useChatStore((s) => s.friendPresence);
-  const openProfile = useProfileViewStore((s) => s.open);
-  // 好友头像键盘焦点环（keyed：每张头像用 friend_id 作 key）
-  const contactAvatarKbd = useKbdFocusRing();
 
   // 搜索过滤
   const filteredFriends = useMemo(() => {
@@ -163,8 +159,6 @@ export function MobileContacts({
                 </div>
               ) : (
                 filteredFriends.map((friend) => {
-                  const avatarHandlers = contactAvatarKbd.handlersFor(friend.friend_id);
-                  const avatarKbdFocused = contactAvatarKbd.isKbdFocused(friend.friend_id);
                   return (
                     <motion.div
                       key={friend.friend_id}
@@ -173,24 +167,12 @@ export function MobileContacts({
                       variants={rowVariants}
                       whileTap={{ scale: 0.97 }}
                     >
+                      {/* 头像：与桌面 UnifiedList「好友」页同口径 —— 列表内头像不是独立控件，
+                          点它与点卡片其余部分一样进会话，不再开资料页（不挂交互属性，直接冒泡到卡片）。
+                          position:relative 仅为在线绿点定位。 */}
                       <div
-                        className={`mobile-contact-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
+                        className="mobile-contact-avatar"
                         style={{ width: 44, height: 44, position: 'relative' }}
-                        onClick={(e) => { e.stopPropagation(); openProfile(friend.friend_id); }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            // 阻止冒泡到卡片（其 onClick=进聊天），头像键盘=看资料
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openProfile(friend.friend_id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`查看${friendDisplayName(friend)}资料`}
-                        onPointerDown={avatarHandlers.onPointerDown}
-                        onFocus={avatarHandlers.onFocus}
-                        onBlur={avatarHandlers.onBlur}
                       >
                         <FriendAvatar friend={friend} />
                         {friendPresence[friend.friend_id]?.online && (

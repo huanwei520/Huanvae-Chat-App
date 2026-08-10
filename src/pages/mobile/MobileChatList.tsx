@@ -22,7 +22,6 @@ import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
 import { useChatStore, useProfileViewStore, useGroupDetailStore } from '../../stores';
-import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { useSession } from '../../contexts/SessionContext';
 import { parseFriendIdFromConversationId, getFriendConversationId } from '../../utils/conversationId';
 import { setConversationPinned } from '../../db';
@@ -86,12 +85,10 @@ export function MobileChatList({
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
-  // 好友在线状态 + 点头像看资料（与桌面 UnifiedList 一致）
+  // 好友在线状态（点头像不再看资料：与桌面 UnifiedList 同口径，列表内点头像=进会话）
   const friendPresence = useChatStore((s) => s.friendPresence);
   const openProfile = useProfileViewStore((s) => s.open);
   const openGroupDetail = useGroupDetailStore((s) => s.open);
-  // 好友头像键盘焦点环（keyed：每张头像用 card.id 作 key）
-  const avatarKbd = useKbdFocusRing();
   const { session } = useSession();
 
   // 构建好友卡片
@@ -260,9 +257,6 @@ export function MobileChatList({
           {sortedCards.map((card) => {
             // friend / bot 卡共享 Friend 数据与私聊交互（头像看资料、在线点）
             const isFriendLike = card.type === 'friend' || card.type === 'bot';
-            // 仅好友（含 bot）头像可点看资料；键盘焦点态与 focus handlers 同条件挂载
-            const avatarHandlers = isFriendLike ? avatarKbd.handlersFor(card.id) : null;
-            const avatarKbdFocused = isFriendLike && avatarKbd.isKbdFocused(card.id);
             return (
               <motion.div
                 key={card.uniqueKey}
@@ -275,29 +269,14 @@ export function MobileChatList({
                 exit="exit"
                 whileTap={{ scale: 0.97 }}
               >
-                {/* 头像 */}
+                {/* 头像：与桌面 UnifiedList 同口径（v1.1.22 桌面已改，v1.1.25 移动跟上）——
+                    列表内头像不是独立控件，点它与点卡片其余部分一样进会话，不再开资料页。
+                    故不挂 onClick/onKeyDown/role/tabIndex/aria-label，点击直接冒泡到卡片 onClick；
+                    也就不会留下「能聚焦却按了没反应」的元素。
+                    style 的 position:relative 仅为在线绿点定位所需，不表示可交互。 */}
                 <div
-                  className={`mobile-contact-avatar${avatarKbdFocused ? ' a11y-kbd-focus' : ''}`}
+                  className="mobile-contact-avatar"
                   style={{ width: 44, height: 44, position: 'relative' }}
-                  onClick={isFriendLike
-                    ? (e) => { e.stopPropagation(); openProfile(card.id); }
-                    : undefined}
-                  onKeyDown={isFriendLike
-                    ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        // 阻止冒泡到卡片（其 onClick=进聊天），头像键盘=看资料
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openProfile(card.id);
-                      }
-                    }
-                    : undefined}
-                  role={isFriendLike ? 'button' : undefined}
-                  tabIndex={isFriendLike ? 0 : undefined}
-                  aria-label={isFriendLike ? `查看${card.name}资料` : undefined}
-                  onPointerDown={avatarHandlers?.onPointerDown}
-                  onFocus={avatarHandlers?.onFocus}
-                  onBlur={avatarHandlers?.onBlur}
                 >
                   {isFriendLike ? (
                     <FriendAvatar friend={card.data as Friend} />

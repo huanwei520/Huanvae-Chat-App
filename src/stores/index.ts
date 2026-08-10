@@ -17,6 +17,7 @@ export {
   selectIsGroupOwner,
   selectCurrentMuteStatus,
   type ChatStore,
+  type ReplyDraft,
 } from './chatStore';
 
 // ============================================

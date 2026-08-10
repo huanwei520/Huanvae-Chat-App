@@ -50,6 +50,7 @@ function App() {
     deleteAccount,
     updateAvatar,
     updateNickname,
+    touchLoginTime,
   } = useAccounts();
 
   const { session, setSession, isLoggedIn, restoreSession: restoreSessionToContext } = useSession();
@@ -113,6 +114,13 @@ function App() {
       ),
     ]);
 
+    // 记一次登录成功（写 last_login_at）：本函数是「已保存账号直登」与「手动输入登录」
+    // 两条路径唯一的公共收口点，所以只在这里记一次，不散到各条路径里。
+    // 失败只影响下次账号选择器的排序，不该把已经成功的登录打回去 → 记日志后继续。
+    await touchLoginTime(serverUrl, userId).catch((err) => {
+      console.warn('[App] 记录上次登录时间失败:', err);
+    });
+
     // 解析头像相对路径为完整 URL
     const resolvedProfile = {
       ...profile,
@@ -128,7 +136,7 @@ function App() {
       profile: resolvedProfile,
       avatarPath,
     });
-  }, [setSession]);
+  }, [setSession, touchLoginTime]);
 
   // 选中的账号（用于密码丢失时重新输入）
   const [selectedAccount, setSelectedAccount] = useState<SavedAccount | null>(null);

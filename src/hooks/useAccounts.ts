@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { sortAccountsByLastLogin } from '../utils/accountOrder';
 import { directIpUrl } from '../services/discovery';
 import { resolveStorageUrl } from '../utils/network';
 import { isMobile } from '../utils/platform';
@@ -38,7 +39,8 @@ export function useAccounts() {
 
     try {
       const savedAccounts = await invoke<SavedAccount[]>('get_saved_accounts');
-      setAccounts(savedAccounts || []);
+      // 列表顺序在此收口：一律按「上次登录」倒序，账号选择器直接消费这个顺序
+      setAccounts(sortAccountsByLastLogin(savedAccounts || []));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setAccounts([]);
@@ -183,6 +185,25 @@ export function useAccounts() {
   }, [loadAccounts]);
 
   // ==========================================================================
+  // 记录登录时间
+  // ==========================================================================
+
+  /**
+   * 记一次登录成功：写 last_login_at
+   *
+   * 只改账号 JSON 元数据，不碰钥匙串 / macOS 私有加密凭据（登录路径上多余的凭据写会在
+   * macOS 上多弹系统密码框）。写完重新加载列表，让排序立即反映最新一次登录
+   * —— 退出登录回到账号选择器时，刚登录过的账号已经排在第一位。
+   */
+  const touchLoginTime = useCallback(async (
+    serverUrl: string,
+    userId: string,
+  ): Promise<void> => {
+    await invoke('touch_account_login', { serverUrl, userId });
+    await loadAccounts();
+  }, [loadAccounts]);
+
+  // ==========================================================================
   // 初始化
   // ==========================================================================
 
@@ -213,5 +234,7 @@ export function useAccounts() {
     updateAvatar,
     /** 更新账号昵称 */
     updateNickname,
+    /** 记录一次登录成功（写 last_login_at，用于账号选择器排序） */
+    touchLoginTime,
   };
 }

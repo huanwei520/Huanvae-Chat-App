@@ -35,6 +35,11 @@ import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
+import {
+  buildReplyPreviewIndex,
+  resolveReplyQuote,
+  summarizeGroupMessageForReply,
+} from './replyPreview';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -134,6 +139,48 @@ export function GroupChatMessages({
 
   // D7 群内私有备注：本群「我设的备注」映射，用于已读名单显示名替换
   const groupRemarks = useChatStore((s) => (groupId ? s.groupMemberRemarks[groupId] : undefined));
+
+  // ==================== 回复（引用）接线 ====================
+  // 这层是「回复」功能在群消息列表侧的唯一接线点：气泡本身保持纯 props 驱动，
+  // 不直接碰 store —— 这样既让气泡好测，也不会让 4 个既有气泡测试的 store mock 被打穿
+  // （见 .claude/rules/frontend-test.md「改完 src/ 先 grep 谁 mock 了我」）。
+  const setReplyDraft = useChatStore((s) => s.setReplyDraft);
+  const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
+
+  // 发送者在本群对我显示的名字（备注优先），气泡与引用块共用同一口径
+  const displayNameOf = useCallback(
+    (m: GroupMessage) => groupMemberDisplayName(groupRemarks?.[m.sender_id], m.sender_nickname),
+    [groupRemarks],
+  );
+
+  // uuid → 引用预览 索引。数据源是当前已加载的全部消息（含 loadMore 拉回的历史）——
+  // 后端不下发被引用消息的内容快照，只能本地反查；查不到时引用块显示「未加载，点击定位」占位。
+  const replyPreviewIndex = useMemo(
+    () => buildReplyPreviewIndex(messages, displayNameOf),
+    [messages, displayNameOf],
+  );
+
+  // 选中「回复」：把被回复者名字与摘要**当场快照**进草稿，而不是发送时再反查——
+  // 用户完全可能在编辑期间翻走历史让原消息离开窗口。
+  const handleReply = useCallback((message: GroupMessage) => {
+    if (!groupId) { return; }
+    setReplyDraft({
+      groupId,
+      messageUuid: message.message_uuid,
+      senderName: displayNameOf(message),
+      preview: summarizeGroupMessageForReply(message),
+    });
+  }, [groupId, setReplyDraft, displayNameOf]);
+
+  // 没有 groupId 就建不出草稿 —— 与其给个点了没反应的菜单项，不如让气泡把「回复」整项藏掉
+  const onReplyOrUndefined = groupId ? handleReply : undefined;
+
+  // 点击引用块：复用全局搜索那条定位通路（useMainPage 监听 pendingScrollToMessageId，
+  // 负责拉历史 + 滚动 + 高亮 + 找不到时给降级提示），不另造一套滚动机制。
+  const handleQuoteClick = useCallback((targetUuid: string) => {
+    setPendingScrollToMessageId(targetUuid);
+  }, [setPendingScrollToMessageId]);
 
   // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
   // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。
@@ -242,11 +289,18 @@ export function GroupChatMessages({
                 readReceipt = { text, readers };
               }
 
+              // 引用块内容：非回复消息为 null（不渲染），原消息不在窗口内则给占位（仍可点）
+              const replyQuote = resolveReplyQuote(replyPreviewIndex, message.reply_to);
+
               return (
                 <GroupMessageBubble
                   key={stableKey}
                   message={message}
                   isOwn={isOwn}
+                  replyQuote={replyQuote}
+                  onQuoteClick={handleQuoteClick}
+                  onReply={onReplyOrUndefined}
+                  isHighlighted={highlightedMessageId === message.message_uuid}
                   isMultiSelectMode={isMultiSelectMode}
                   isSelected={isSelected}
                   onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

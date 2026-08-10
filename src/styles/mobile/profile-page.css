@@ -13,22 +13,36 @@
  * 特化与分段控件/卡片。封面浅蓝渐变走 variables.css 的 --profile-cover-* token。
  *
  * 动画约束：根 .mobile-profile-page 是 framer-motion 组件（pageVariants 控 x/opacity），
- * 故本文件对它 **不声明** transform/opacity/all 的 CSS transition，避免与 motion 抢帧
- * （见 .claude/rules/animation.md 规则一；无需登记 animation-conflict 注册表）。
+ * 其内层 .mobile-profile-swipe-layer 也是 motion 组件（边缘侧滑的 MotionValue 控 x），
+ * 故本文件对这两者 **均不声明** transform/opacity/all 的 CSS transition，避免与 JS 抢帧
+ * （见 .claude/rules/animation.md 规则一；两者均已防御性登记进 animation-conflict 注册表）。
  * 分段滑块 .mobile-profile-seg-thumb 是普通 span（受控 inline transform + CSS transition
  * 单一所有权），非 motion 组件，同样无需登记。
  */
 
 /* ============================================================================
    整屏页容器（从右滑入的独立页面）
+
+   两层结构：外层只管定位与裁剪、**不铺背景**（边缘侧滑时露出下面的主页面而不是本页
+   底色）；页面视觉全在内层 .mobile-profile-swipe-layer 上。
    ============================================================================ */
 .mobile-profile-page {
   position: fixed;
   inset: 0;
   z-index: 200;
+  overflow: hidden;
+}
+
+/* 侧滑层：承载整页视觉，跟手位移（transform）由 useEdgeSwipeBack 的 MotionValue 独占。
+   touch-action: pan-y —— React 17+ 的 onTouchMove 是 passive、preventDefault 无效，
+   纵向滚动的让位靠这里 + JS 主轴判定共同保证。 */
+.mobile-profile-swipe-layer {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  touch-action: pan-y;
   /* 柔和蓝调页底：顶部极浅蓝渐入面板底色，白色玻璃卡在其上浮起（层次感） */
   background: linear-gradient(
     180deg,

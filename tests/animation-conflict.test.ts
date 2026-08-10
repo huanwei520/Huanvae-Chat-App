@@ -350,6 +350,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/pages/mobile/MobileProfilePage.tsx (pageVariants: x+opacity spring)',
   },
   {
+    selector: '.mobile-profile-swipe-layer',
+    cssFile: 'src/styles/mobile/profile-page.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/mobile/MobileProfilePage.tsx (边缘侧滑返回层 style={{ x }}：useEdgeSwipeBack 的 MotionValue 独占 transform；当前无 CSS transition，防御登记)',
+  },
+  {
     selector: '.mobile-settings-page',
     cssFile: 'src/styles/mobile/settings-page.css',
     controlledProps: ['transform', 'opacity'],
@@ -433,6 +439,34 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/components/add-menu.css',
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/unified/AddMenu.tsx (dropdownVariants: opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
+  },
+  // ===== 登录页账号选择器卡片堆（外层槽位位移 + 内层账号换人过渡） =====
+  {
+    selector: '.stack-card',
+    cssFile: 'src/styles/components/wheel-selector.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/account/CardSlot.tsx (槽位位移 cardTransition：y+scale+opacity+filter；当前无 CSS transition，防御登记)',
+  },
+  {
+    selector: '.stack-account-card',
+    cssFile: 'src/styles/components/wheel-selector.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/account/CardSlot.tsx (cardSwapVariants：账号换人时 opacity+y 淡出淡入；CSS 只准过渡 border-color/box-shadow)',
+  },
+  // ===== 群聊回复（输入区「正在回复」条 + 定位失败提示条） =====
+  // 两者的 opacity 与 height 都由 framer-motion 逐帧写 inline style，基础规则必须无 transition；
+  // 需要过渡效果的 hover 反馈一律下沉到它们内部的普通子元素（motion 不碰那些节点）。
+  {
+    selector: '.reply-compose-bar',
+    cssFile: 'src/styles/components/reply-quote.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/shared/ReplyComposeBar.tsx (motion.div：opacity + height 展开收起)',
+  },
+  {
+    selector: '.reply-jump-notice',
+    cssFile: 'src/styles/components/reply-quote.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/shared/ChatInputArea.tsx (定位失败提示 motion.div：opacity + height 展开收起)',
   },
 ];
 

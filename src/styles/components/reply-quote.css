@@ -1,0 +1,262 @@
+/**
+ * ========================================
+ * Group message reply (Telegram style)
+ * ========================================
+ *
+ * @description Styles for the group-chat reply feature. Three pieces:
+ *   1. .reply-quote          quoted-original block rendered inside a message bubble
+ *   2. .reply-compose-bar    "replying to X" strip above the chat input
+ *   3. .reply-jump-notice    degradation notice when the original cannot be located
+ *
+ * Shared by desktop (ChatPanel) and mobile (MobileChatView): both render the same
+ * GroupChatMessages / ChatInputArea, so there is no per-platform duplicate here.
+ *
+ * Animation ownership (see .claude/rules/animation.md):
+ *   .reply-compose-bar and .reply-jump-notice are framer-motion controlled
+ *   (opacity + height). Their base rules therefore declare NO `transition` at all -
+ *   any transition on opacity/transform here would fight the per-frame inline styles.
+ *   Only non-animated properties (background/color/border) may get a transition, and
+ *   only on the plain child buttons that motion never touches.
+ *
+ * ASCII-only comments on purpose: this project has been bitten by GBK mojibake when
+ * editing CSS with CJK comments (see .claude/rules/frontend-test.md css-encoding).
+ */
+
+/* ============================================
+   1. Quoted original inside a bubble
+   ============================================ */
+
+/* shrink-to-fit like .bubble-text (align-self keeps it from stretching to the widest
+   sibling, max-width caps it so the nowrap+ellipsis children can actually truncate) */
+.reply-quote {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 2px;
+  padding: 5px 10px 5px 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--white-alpha-70, rgba(255, 255, 255, 0.7));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.reply-quote:hover {
+  background: var(--white-alpha-80, rgba(255, 255, 255, 0.8));
+}
+
+.reply-quote:focus-visible {
+  outline: 2px solid var(--primary, #3b82f6);
+  outline-offset: 1px;
+}
+
+/* left accent bar - the Telegram tell that this is a quote */
+.reply-quote-bar {
+  flex: 0 0 3px;
+  width: 3px;
+  min-height: 100%;
+  border-radius: 2px;
+  background: var(--primary, #3b82f6);
+}
+
+.reply-quote-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.reply-quote-sender {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-quote-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-light, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* original not in the loaded window: dim + dashed accent so it reads as a placeholder */
+.reply-quote--unresolved .reply-quote-bar {
+  background: var(--text-light, #9ca3af);
+}
+
+.reply-quote--unresolved .reply-quote-text {
+  font-style: italic;
+}
+
+/* own bubbles sit on the blue gradient; keep the quote readable on top of it */
+.message-bubble.own .reply-quote {
+  align-self: flex-end;
+}
+
+/* ============================================
+   2. "Replying to X" strip above the input
+   ============================================ */
+
+/* no `transition` here on purpose: framer-motion drives opacity + height per frame */
+.reply-compose-bar {
+  overflow: hidden;
+}
+
+.reply-compose-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--white-alpha-70, rgba(255, 255, 255, 0.7));
+  border: 1px solid var(--white-alpha-80, rgba(255, 255, 255, 0.8));
+}
+
+.reply-compose-bar-line {
+  flex: 0 0 3px;
+  align-self: stretch;
+  min-height: 26px;
+  border-radius: 2px;
+  background: var(--primary, #3b82f6);
+}
+
+.reply-compose-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-compose-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #3b82f6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-compose-preview {
+  font-size: 12px;
+  color: var(--text-light, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-compose-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-light, #6b7280);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.reply-compose-cancel:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary, #111827);
+}
+
+/* ============================================
+   3. Jump failure notice
+   ============================================ */
+
+/* no `transition` here on purpose: framer-motion drives opacity + height per frame */
+.reply-jump-notice {
+  overflow: hidden;
+}
+
+.reply-jump-notice-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: var(--status-warning, #b45309);
+  font-size: 12px;
+}
+
+.reply-jump-notice-inner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-jump-notice-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.reply-jump-notice-close:hover {
+  background: rgba(180, 83, 9, 0.14);
+}
+
+/* ============================================
+   4. Highlight pulse after a successful jump
+   ============================================
+   Applied to .message-bubble (a plain div), NOT to the motion-controlled
+   .message-row - so this keyframe animation can never contend with
+   framer-motion's per-frame transform/opacity writes on the row.
+   Only box-shadow + background-color are animated here. */
+
+@keyframes reply-jump-highlight {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: rgba(59, 130, 246, 0);
+  }
+  25% {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.28);
+    background-color: rgba(59, 130, 246, 0.12);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: rgba(59, 130, 246, 0);
+  }
+}
+
+.message-bubble--highlight {
+  border-radius: 16px;
+  animation: reply-jump-highlight 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-bubble--highlight {
+    animation: none;
+    background-color: rgba(59, 130, 246, 0.12);
+  }
+}

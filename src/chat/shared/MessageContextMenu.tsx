@@ -52,6 +52,10 @@ interface MessageContextMenuProps {
   canRemarkSender?: boolean;
   /** D7 群内私有备注：该发送者当前是否已有备注（决定按钮文案：设置 / 修改） */
   hasRemark?: boolean;
+  /** 群聊回复：是否显示「回复」项（仅群聊、非系统消息、已送达的消息传 true） */
+  canReply?: boolean;
+  /** 群聊回复：把本条设为回复目标 */
+  onReply?: () => void;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -82,6 +86,8 @@ export function MessageContextMenu({
   isSenderSpecialCared,
   canRemarkSender,
   hasRemark,
+  canReply,
+  onReply,
   onRecall,
   onDelete,
   onMultiSelect,
@@ -186,6 +192,8 @@ export function MessageContextMenu({
   const hasMessageContent = !!messageContent;
   // 保存到相册：仅移动端 + 图片/视频 + 有本地缓存
   const canSaveToGallery = mobile && !!localPath && (fileType === 'image' || fileType === 'video');
+  // 回复：需要调用方同时给出开关与回调（好友私聊两者都不传 → 该项不出现）
+  const showReply = !!canReply && !!onReply;
 
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
@@ -195,6 +203,7 @@ export function MessageContextMenu({
     if (mobile && bubbleRect) {
       // 移动端水平菜单宽度估算（每个按钮约 50px）
       let itemCount = 2; // 删除 + 多选
+      if (showReply) { itemCount += 1; } // 回复
       if (hasMessageContent) { itemCount += 1; } // 复制
       if (hasMessageContent && onSelectText) { itemCount += 1; } // 选取文字
       if (canRecall) { itemCount += 1; }
@@ -239,6 +248,7 @@ export function MessageContextMenu({
     const menuWidth = 160;
     // 基础高度（删除 + 多选 + 分隔线）约 100，每增加一项约 36
     let menuHeight = 100;
+    if (showReply) { menuHeight += 36; } // 回复
     if (hasMessageContent) { menuHeight += 36; } // 复制
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
@@ -291,6 +301,19 @@ export function MessageContextMenu({
           exit={{ opacity: 0, scale: 0.9, y: mobile ? 5 : -5 }}
           transition={{ duration: 0.15, ease: [0, 0, 0.2, 1] }}
         >
+          {/* 回复（仅群聊消息；Telegram 风格，排在最前——它是最高频动作） */}
+          {showReply && (
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onReply?.();
+                onClose();
+              }}
+            >
+              <ReplyIcon />
+              <span>回复</span>
+            </button>
+          )}
           {/* 复制（仅文本消息） */}
           {hasMessageContent && (
             <button
@@ -426,6 +449,13 @@ export function MessageContextMenu({
 const CopyIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+  </svg>
+);
+
+// 回复图标（左弯箭头，Telegram 风格）
+const ReplyIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 016 6v3" />
   </svg>
 );
 

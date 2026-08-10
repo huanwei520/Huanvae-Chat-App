@@ -18,6 +18,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -129,6 +130,13 @@ pub struct SavedAccount {
     pub avatar_path: Option<String>,
     /// 保存时间
     pub created_at: String,
+    /// 上次登录成功时间（RFC3339）
+    ///
+    /// 后加字段：存量 accounts.json 里没有它，`serde(default)` 解析为 None，
+    /// 序列化给前端时为 `null`；前端排序此时回落 `created_at`
+    /// （见 src/utils/accountOrder.ts）。
+    #[serde(default)]
+    pub last_login_at: Option<String>,
 }
 
 /// 账号列表存储结构
@@ -222,6 +230,25 @@ fn make_avatar_filename(server_url: &str, user_id: &str) -> String {
     format!("{}-{}.jpg", server_clean, user_id)
 }
 
+/// accounts.json 的进程内「读-改-写」串行锁
+///
+/// 登录成功时前端会并发发出多个账号写命令（App.tsx 的 `Promise.all` 里
+/// `save_account` / `update_account_nickname` 与 `touch_account_login` 同时在飞），
+/// 而每个写命令都是「整文件读 → 改一个字段 → 整文件写」。不串行会互相覆盖（丢更新：
+/// 后写的那份是基于旧快照改的，会把先写的字段抹回去）。本锁把每次读-改-写包成临界区，
+/// 后到者能重新读到前者已落盘的结果。
+static ACCOUNTS_RMW_LOCK: Mutex<()> = Mutex::new(());
+
+/// 取账号文件读-改-写锁
+///
+/// 锁被 poison 时沿用内部值继续：本锁不维护任何跨调用的内存不变量（真值全在磁盘文件上），
+/// 上一次持锁 panic 不会让后续调用读到的文件内容失去意义。
+fn lock_accounts_rmw() -> std::sync::MutexGuard<'static, ()> {
+    ACCOUNTS_RMW_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// 读取账号列表
 fn read_accounts() -> Result<AccountsStore, StorageError> {
     let file_path = get_accounts_file()?;
@@ -284,7 +311,8 @@ pub fn save_account(
         let _ = password; // 避免未使用警告
     }
 
-    // 2. 读取现有账号列表
+    // 2. 读取现有账号列表（读-改-写串行，见 ACCOUNTS_RMW_LOCK）
+    let _guard = lock_accounts_rmw();
     let mut store = read_accounts()?;
 
     // 3. 检查是否已存在（相同 server_url + user_id）
@@ -293,12 +321,17 @@ pub fn save_account(
         .iter()
         .position(|a| a.server_url == server_url && a.user_id == user_id);
 
+    // 本命令只在登录 / 注册成功后调用（见 lib.rs 的 save_account 命令），
+    // 所以这一次保存同时就是一次登录：created_at 与 last_login_at 记同一时刻。
+    let now = Utc::now().to_rfc3339();
+
     let account = SavedAccount {
         user_id,
         nickname,
         server_url,
         avatar_path,
-        created_at: Utc::now().to_rfc3339(),
+        created_at: now.clone(),
+        last_login_at: Some(now),
     };
 
     if let Some(idx) = existing_idx {
@@ -366,7 +399,8 @@ pub fn delete_account(server_url: &str, user_id: &str) -> Result<(), StorageErro
         }
     }
 
-    // 2. 从账号列表删除
+    // 2. 从账号列表删除（读-改-写串行，见 ACCOUNTS_RMW_LOCK）
+    let _guard = lock_accounts_rmw();
     let mut store = read_accounts()?;
     let original_len = store.accounts.len();
 
@@ -427,16 +461,20 @@ pub async fn update_account_avatar(
     // 1. 下载头像
     let local_path = download_avatar(server_url, user_id, avatar_url).await?;
     
-    // 2. 更新账号记录
-    let mut store = read_accounts()?;
-    
-    if let Some(account) = store.accounts.iter_mut().find(|a| {
-        a.server_url == server_url && a.user_id == user_id
-    }) {
-        account.avatar_path = Some(local_path.clone());
-        write_accounts(&store)?;
+    // 2. 更新账号记录（读-改-写串行，见 ACCOUNTS_RMW_LOCK；
+    //    锁只包住这段同步读改写，不跨越上面的 await）
+    {
+        let _guard = lock_accounts_rmw();
+        let mut store = read_accounts()?;
+
+        if let Some(account) = store.accounts.iter_mut().find(|a| {
+            a.server_url == server_url && a.user_id == user_id
+        }) {
+            account.avatar_path = Some(local_path.clone());
+            write_accounts(&store)?;
+        }
     }
-    
+
     Ok(local_path)
 }
 
@@ -446,8 +484,10 @@ pub fn update_account_nickname(
     user_id: &str,
     nickname: &str,
 ) -> Result<(), StorageError> {
+    // 读-改-写串行，见 ACCOUNTS_RMW_LOCK
+    let _guard = lock_accounts_rmw();
     let mut store = read_accounts()?;
-    
+
     if let Some(account) = store.accounts.iter_mut().find(|a| {
         a.server_url == server_url && a.user_id == user_id
     }) {
@@ -457,6 +497,29 @@ pub fn update_account_nickname(
     } else {
         Err(StorageError::AccountNotFound)
     }
+}
+
+/// 记录一次登录成功（写 last_login_at）
+///
+/// 只改 accounts.json 元数据，**不碰**钥匙串 / macOS 私有加密凭据 —— 登录路径上任何多余的
+/// 凭据写都会在 macOS 上多弹一次系统密码框（见 .claude/rules/common.md 的钥匙串规则）。
+///
+/// 账号不存在时按无操作处理并返回 Ok：手动登录路径下本命令与 `save_account` 由前端并发发出，
+/// 若本命令先落地则账号行尚未创建；随后 `save_account` 会用同一时刻写入 created_at 与
+/// last_login_at，排序结果一致，不需要把这种正常时序当成错误抛给调用方。
+pub fn touch_account_login(server_url: &str, user_id: &str) -> Result<(), StorageError> {
+    // 读-改-写串行，见 ACCOUNTS_RMW_LOCK
+    let _guard = lock_accounts_rmw();
+    let mut store = read_accounts()?;
+
+    if let Some(account) = store.accounts.iter_mut().find(|a| {
+        a.server_url == server_url && a.user_id == user_id
+    }) {
+        account.last_login_at = Some(Utc::now().to_rfc3339());
+        write_accounts(&store)?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

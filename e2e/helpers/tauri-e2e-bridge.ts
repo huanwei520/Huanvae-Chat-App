@@ -397,6 +397,7 @@ export function tauriE2EBridgeScript(): string {
             'save_account': null,
             'delete_account': null,
             'update_account_nickname': null,
+            'touch_account_login': null,
             'update_account_avatar': null,
             'get_saved_accounts': [],
             'get_account_password': null,

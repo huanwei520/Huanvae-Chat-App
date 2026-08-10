@@ -14,7 +14,8 @@ src/styles/
 │   ├── glass-input.css    # 毛玻璃输入框
 │   ├── wheel-selector.css # 轮盘选择器
 │   ├── loading.css        # 加载状态
-│   └── toast.css          # 提示消息
+│   ├── toast.css          # 提示消息
+│   └── reply-quote.css    # 群聊回复引用（气泡引用块 / 正在回复条 / 定位失败提示 / 高亮脉冲）
 ├── pages/                 # 页面特定样式
 │   ├── auth.css           # 认证页面
 │   ├── main.css           # 主页面
@@ -207,6 +208,19 @@ src/styles/
 
 ---
 
+#### `reply-quote.css` - 群聊回复引用
+
+桌面（ChatPanel）与移动（MobileChatView）共用同一套 —— 两端都渲染同一个 GroupChatMessages / ChatInputArea。
+
+| 类名 | 说明 |
+|------|------|
+| `.reply-quote` | 气泡内「被引用原消息」块（可点击定位；`--unresolved` 修饰符 = 原消息未加载占位） |
+| `.reply-compose-bar` | 输入框上方「正在回复」条（framer-motion 控 opacity+height，故基础规则无 transition） |
+| `.reply-jump-notice` | 定位失败降级提示条（同上，无 transition） |
+| `.message-bubble--highlight` | 定位命中后的高亮脉冲（keyframes 只动 box-shadow/background，不碰 motion 接管的 transform/opacity） |
+
+---
+
 ### 第四层：页面样式（`pages/`）
 
 页面特定的样式，不应被其他页面复用。
@@ -303,6 +317,7 @@ box-shadow:
 | `wheel-selector.css` | ~340 | Embla 选择器（含详细配置文档） |
 | `loading.css` | ~90 | 加载状态 |
 | `toast.css` | ~120 | 提示消息 |
+| `reply-quote.css` | ~230 | 群聊回复引用 |
 | `auth.css` | ~250 | 认证页面 |
 
 ---

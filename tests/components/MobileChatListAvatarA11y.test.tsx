@@ -2,9 +2,10 @@
  * MobileChatList 会话卡头像 a11y 测试（可点击头像容器 a11y 修复，点 9）
  *
  * 锁定契约（src/pages/mobile/MobileChatList.tsx `.mobile-contact-avatar`）：
- * - 仅好友分支头像挂 role=button / tabIndex=0 / aria-label=`查看${name}资料`
- *   + onKeyDown(Enter/Space)=openProfile + onClick stopPropagation + 键盘焦点环
- * - 群分支头像无 a11y 交互属性（反向断言）；置顶 AI 卡头像同样无 a11y
+ * - v1.1.25 起与桌面 UnifiedList 同口径：**列表内头像不是独立控件**，
+ *   点它与点卡片其余部分一样「进会话」，不再开资料页。
+ * - 所有分支（好友 / 群 / 置顶 AI）头像都无 role / tabIndex / aria-label / 键盘处理 / 焦点环，
+ *   点击直接冒泡到卡片 —— 不存在「能聚焦却按了没反应」的元素。
  *
  * 依赖本地会话预览 / 会话上下文 / 下载卡 / 搜索浮层，均 mock 掉，只保留卡片结构；
  * getFriendPreview / getGroupPreview 返回 lastMessage 让好友/群卡通过 activeCards 过滤显示。
@@ -77,68 +78,35 @@ describe('MobileChatList — 会话卡头像 a11y', () => {
     openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
   });
 
-  it('好友卡头像具备 role=button / tabIndex=0 / aria-label=查看${name}资料', () => {
+  it('好友卡头像不再是独立控件：无 role / tabIndex / aria-label', () => {
     const { container } = renderChatList();
     const avatar = avatarInCard(container, 'Amy');
-    expect(avatar).toHaveAttribute('role', 'button');
-    expect(avatar).toHaveAttribute('tabindex', '0');
-    expect(avatar).toHaveAttribute('aria-label', '查看Amy资料');
-  });
-
-  it('群卡头像无 role/tabIndex/aria-label（反向断言）', () => {
-    const { container } = renderChatList();
-    const avatar = avatarInCard(container, '群一');
     expect(avatar).not.toHaveAttribute('role');
     expect(avatar).not.toHaveAttribute('tabindex');
     expect(avatar).not.toHaveAttribute('aria-label');
   });
 
-  it('置顶 AI 卡头像无 role/tabIndex/aria-label（反向断言）', () => {
+  it('群卡 / 置顶 AI 卡头像同样无 role/tabIndex/aria-label', () => {
     const { container } = renderChatList();
-    const avatar = avatarInCard(container, 'AI 助手');
-    expect(avatar).not.toHaveAttribute('role');
-    expect(avatar).not.toHaveAttribute('tabindex');
-    expect(avatar).not.toHaveAttribute('aria-label');
+    for (const name of ['群一', 'AI 助手']) {
+      const avatar = avatarInCard(container, name);
+      expect(avatar).not.toHaveAttribute('role');
+      expect(avatar).not.toHaveAttribute('tabindex');
+      expect(avatar).not.toHaveAttribute('aria-label');
+    }
   });
 
-  it('好友卡头像点击 → openProfile(id)，stopPropagation 使「进聊天」onSelectTarget 未被调（冒泡断言）', () => {
+  it('点好友卡头像 → 进会话（冒泡到卡片），且不开资料页', () => {
     const { container, onSelectTarget } = renderChatList();
     fireEvent.click(avatarInCard(container, 'Amy'));
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-    expect(onSelectTarget).not.toHaveBeenCalled();
-  });
-
-  it('好友卡头像 Enter → openProfile(id)，不进聊天', () => {
-    const { container, onSelectTarget } = renderChatList();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: 'Enter' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-    expect(onSelectTarget).not.toHaveBeenCalled();
-  });
-
-  it('好友卡头像 Space → openProfile(id)', () => {
-    const { container } = renderChatList();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: ' ' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-  });
-
-  it('好友卡头像无关键（如 a）不触发看资料', () => {
-    const { container } = renderChatList();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: 'a' });
+    expect(onSelectTarget).toHaveBeenCalledTimes(1);
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it('好友卡头像键盘聚焦显示焦点环类；pointerdown 后聚焦不显示', () => {
+  it('a11y 不回退：列表里不存在「可聚焦但没行为」的头像', () => {
     const { container } = renderChatList();
-    const avatar = avatarInCard(container, 'Amy');
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
-    fireEvent.blur(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
-    fireEvent.pointerDown(avatar);
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    expect(
+      container.querySelectorAll('.mobile-contact-avatar[tabindex], .mobile-contact-avatar[role="button"]').length,
+    ).toBe(0);
   });
 });

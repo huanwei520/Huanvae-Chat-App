@@ -368,6 +368,65 @@ describe('useLocalGroupMessages — renderHook 行为', () => {
     expect(dbMock.markMessageRecalled).toHaveBeenCalledWith('ws-1');
   });
 
+  it('回复发送：reply_to 同时进 HTTP 请求体 / 乐观气泡 / 本地落库', async () => {
+    let resolveApi!: (v: SendGroupMessageResponse) => void;
+    const pending = new Promise<SendGroupMessageResponse>((r) => {
+      resolveApi = r;
+    });
+    apiMock.post.mockReturnValueOnce(pending);
+    dbMock.saveMessage.mockClear();
+
+    const { result } = renderHook(() => useLocalGroupMessages('g-1'));
+
+    let sendPromise: Promise<void> = Promise.resolve();
+    act(() => {
+      sendPromise = result.current.sendTextMessage('回你一句', 'origin-uuid');
+    });
+
+    // 1) 乐观气泡当场带上 reply_to —— 否则自己发出去的那一刻本端看不到引用块
+    expect(result.current.messages[0].reply_to).toBe('origin-uuid');
+
+    // 2) HTTP 请求体带 reply_to（后端 /api/group_messages 的可选字段）
+    expect(apiMock.post).toHaveBeenCalledWith(
+      '/api/group_messages',
+      expect.objectContaining({ group_id: 'g-1', message_content: '回你一句', reply_to: 'origin-uuid' }),
+    );
+
+    await act(async () => {
+      resolveApi({ message_uuid: 'real-r1', send_time: '2026-01-02T00:00:01Z', seq: 11 });
+      await sendPromise;
+    });
+
+    // 3) 落库也要带 —— 重开会话时本地 DB 是唯一数据源，漏了引用就永久丢失
+    expect(dbMock.saveMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message_uuid: 'real-r1',
+      reply_to: 'origin-uuid',
+    }));
+    expect(result.current.messages[0].reply_to).toBe('origin-uuid');
+  });
+
+  it('普通发送：不传 replyTo 时 reply_to 为 undefined/null，不污染普通消息', async () => {
+    apiMock.post.mockResolvedValueOnce({
+      message_uuid: 'real-n1',
+      send_time: '2026-01-02T00:00:01Z',
+      seq: 12,
+    } as SendGroupMessageResponse);
+    dbMock.saveMessage.mockClear();
+
+    const { result } = renderHook(() => useLocalGroupMessages('g-1'));
+
+    await act(async () => {
+      await result.current.sendTextMessage('普通消息');
+    });
+
+    expect(apiMock.post).toHaveBeenCalledWith(
+      '/api/group_messages',
+      expect.objectContaining({ reply_to: undefined }),
+    );
+    expect(dbMock.saveMessage).toHaveBeenCalledWith(expect.objectContaining({ reply_to: null }));
+    expect(result.current.messages[0].reply_to).toBeNull();
+  });
+
   it('进群接线：mount 后三个群私有视图接口各被以 (api, groupId) 调用', async () => {
     renderHook(() => useLocalGroupMessages('g-1'));
     // flush 三个 .then（写 zustand store）

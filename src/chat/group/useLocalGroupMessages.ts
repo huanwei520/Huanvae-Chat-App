@@ -447,7 +447,12 @@ export function useLocalGroupMessages(groupId: string | null) {
   // 发送文本消息（乐观更新）
   // ============================================
 
-  const sendTextMessage = useCallback(async (content: string): Promise<void> => {
+  /**
+   * @param replyTo 被引用消息的 message_uuid（群聊「回复」功能）；不传 = 普通消息。
+   *   乐观消息、HTTP 请求体、本地落库三处都要带上它，否则发出去的那一刻本端气泡不显示引用，
+   *   或者重开会话后引用丢失（本地 DB 是重开时的唯一数据源）。
+   */
+  const sendTextMessage = useCallback(async (content: string, replyTo?: string): Promise<void> => {
     if (!groupId || !content.trim() || !session) {
       return;
     }
@@ -470,7 +475,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       file_url: null,
       file_size: null,
       file_hash: null,
-      reply_to: null,
+      reply_to: replyTo ?? null,
       send_time: tempSendTime,
       is_recalled: false,
       seq: 0,
@@ -490,6 +495,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         group_id: groupId,
         message_content: content,
         message_type: 'text',
+        // 非回复时留 undefined，JSON 序列化会整个丢掉这个 key（后端 reply_to 为可选字段）
+        reply_to: replyTo,
       });
 
       // 更新消息状态：用真正的 UUID 替换临时 UUID，标记为已发送（保留 clientId）
@@ -522,7 +529,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         image_width: null,
         image_height: null,
         seq: response.seq,
-        reply_to: null,
+        reply_to: replyTo ?? null,
         is_recalled: false,
         is_deleted: false,
         send_time: response.send_time,

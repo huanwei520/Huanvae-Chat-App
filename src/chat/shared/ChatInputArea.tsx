@@ -25,6 +25,7 @@ import { useApi } from '../../contexts/SessionContext';
 import { useBotCommandsStore } from '../../stores/botCommandsStore';
 import type { BotCommand } from '../../api/bots';
 import { SlashCommandPanel } from './SlashCommandPanel';
+import { ReplyComposeBar } from './ReplyComposeBar';
 import { parseSlashQuery, filterCommands } from './slashCommands';
 
 /** 图片扩展名 */
@@ -156,6 +157,48 @@ export function ChatInputArea({
   const isGroup = chatTarget?.type === 'group';
   const groupId = isGroup ? chatTarget.data.group_id : null;
 
+  // ==================== 群聊回复 ====================
+  // 「正在回复」条与「定位失败」提示都挂在输入区，因此桌面 ChatPanel 与移动 MobileChatView
+  // 复用同一个 ChatInputArea = 两端天然一致，不需要在两个容器里各接一遍。
+  //
+  // 提示条刻意不放进消息列表容器：那是 overflow:auto 的滚动容器，绝对定位浮层会锚到
+  // 内容顶而非视口顶，用户滚到下面就完全看不见（见 .claude/rules/common.md 同名条目）。
+  const replyDraft = useChatStore((state) => state.replyDraft);
+  const setReplyDraft = useChatStore((state) => state.setReplyDraft);
+  const messageJumpNotice = useChatStore((state) => state.messageJumpNotice);
+  const setMessageJumpNotice = useChatStore((state) => state.setMessageJumpNotice);
+  // 草稿必须属于当前这个群才显示：切会话时 store 已清，这里是第二道闸
+  const activeReplyDraft = replyDraft && groupId && replyDraft.groupId === groupId ? replyDraft : null;
+
+  const jumpNoticeNode = (
+    <AnimatePresence>
+      {messageJumpNotice && (
+        <motion.div
+          className="reply-jump-notice"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+          role="status"
+        >
+          <div className="reply-jump-notice-inner">
+            <span>{messageJumpNotice}</span>
+            <button
+              type="button"
+              className="reply-jump-notice-close"
+              onClick={() => setMessageJumpNotice(null)}
+              aria-label="关闭提示"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
   // 定时更新禁言剩余时间
   useEffect(() => {
     if (!groupId || !muteInfo) {
@@ -201,15 +244,16 @@ export function ChatInputArea({
     textarea.style.height = `${newHeight}px`;
   }, []);
 
-  // 消息清空后重置输入框高度
+  // 输入内容变化后重算高度。
+  //
+  // 🔴 这里原来只处理「清空 → 收回一行」，**不处理「内容从外部变成非空」**：
+  // 切走会话再切回来时，草稿被恢复进 value，但高度还停在 rows={1} 的默认值，
+  // 于是多行草稿被压成一行（用户报的「输入框大小不对」）。
+  // adjustTextareaHeight 先置 auto 再按 scrollHeight 收敛，两种方向都覆盖：
+  // 空内容 → 塌回一行（等价于原来的行为）；多行草稿 → 撑到应有高度。
   useEffect(() => {
-    if (!messageInput) {
-      const textarea = textareaRef.current;
-      if (textarea) {
-        textarea.style.height = 'auto';
-      }
-    }
-  }, [messageInput]);
+    adjustTextareaHeight();
+  }, [messageInput, adjustTextareaHeight]);
 
   // 处理键盘事件
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -400,6 +444,8 @@ export function ChatInputArea({
         exit={{ opacity: 0 }}
         transition={panelFadeTransition}
       >
+        {/* 禁言态也要能看到定位失败提示：被禁言不影响点引用块去定位原消息 */}
+        {jumpNoticeNode}
         <div className="mute-notice">
           <MuteIcon />
           <span>{muteMessage}</span>
@@ -426,6 +472,21 @@ export function ChatInputArea({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* 消息定位失败的降级提示（点击引用块但原消息不在本地记录中） */}
+      {jumpNoticeNode}
+
+      {/* 「正在回复」条（群聊回复，Telegram 风格：被回复者 + 摘要 + 取消） */}
+      <AnimatePresence>
+        {activeReplyDraft && (
+          <ReplyComposeBar
+            key="reply-compose-bar"
+            senderName={activeReplyDraft.senderName}
+            preview={activeReplyDraft.preview}
+            onCancel={() => setReplyDraft(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* 上传进度条 */}
       <AnimatePresence>
         {uploading && uploadingFile && uploadProgress && (

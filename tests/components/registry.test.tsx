@@ -142,6 +142,7 @@ import * as FileMessageContent from '../../src/chat/shared/FileMessageContent';
 import * as FilePreviewModal from '../../src/chat/shared/FilePreviewModal';
 import * as DocumentDownloadAction from '../../src/chat/shared/DocumentDownloadAction';
 import * as MessageContextMenu from '../../src/chat/shared/MessageContextMenu';
+import * as ReplyComposeBar from '../../src/chat/shared/ReplyComposeBar';
 import * as MultiSelectActionBar from '../../src/chat/shared/MultiSelectActionBar';
 import * as UploadProgress from '../../src/chat/shared/UploadProgress';
 import * as OtherProfilePanel from '../../src/chat/shared/OtherProfilePanel';
@@ -151,6 +152,7 @@ import * as MessageBubble from '../../src/chat/friend/MessageBubble';
 import * as GroupChatMessages from '../../src/chat/group/GroupChatMessages';
 import * as GroupMessageBubble from '../../src/chat/group/GroupMessageBubble';
 import * as GroupRemarkInputModal from '../../src/chat/group/GroupRemarkInputModal';
+import * as ReplyQuote from '../../src/chat/group/ReplyQuote';
 import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
@@ -232,6 +234,7 @@ import * as shelfApi from '../../src/api/shelf';
 import * as shelfStore from '../../src/stores/shelfStore';
 import * as botCommandsStore from '../../src/stores/botCommandsStore';
 import * as slashCommands from '../../src/chat/shared/slashCommands';
+import * as replyPreview from '../../src/chat/group/replyPreview';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -434,6 +437,7 @@ const COMPONENT_MAP = {
   FilePreviewModal,
   DocumentDownloadAction,
   MessageContextMenu,
+  ReplyComposeBar,
   MultiSelectActionBar,
   UploadProgress,
   OtherProfilePanel,
@@ -443,6 +447,7 @@ const COMPONENT_MAP = {
   GroupChatMessages,
   GroupMessageBubble,
   GroupRemarkInputModal,
+  ReplyQuote,
   ReadReceiptIcons,
   PrivateReadReceipt,
   ReaderAvatarStack,
@@ -521,6 +526,7 @@ const COMPONENT_MAP = {
   shelfStore,
   botCommandsStore,
   slashCommands,
+  replyPreview,
   // 工具模块
   formatUtils,
   avatarColor,

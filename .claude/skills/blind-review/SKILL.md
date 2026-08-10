@@ -76,6 +76,12 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
 
 对以下容易遗漏的点做专项检查：
 
+- 🔴 **桌面 / 移动两端对齐（硬指标，与 [code-review/SKILL.md] 维度 0 同口径）**：
+  本次**新功能**是否**两端都实现**了？桌面在 `src/components/**` / `src/chat/shared/**`，
+  移动在 `src/pages/mobile/**` —— 两套独立组件树，同一功能要各写一份。
+  **只做一端且未说明理由 = FAIL**（本仓反复发生：v1.1.22 桌面修了列表点头像、移动没跟）。
+  逐个新功能给出「桌面 file:line / 移动 file:line / 交互是否一致」，找不到对应实现就是缺一端；
+  确实只适用一端（托盘仅桌面、NFC 仅移动）要点名写清理由。
 - `package.json` 新增依赖是否符合项目版本基准（与现有同系列包兼容）？
 - 新增组件是否在 `tests/registry.ts` + `tests/components/registry.test.tsx` **两处**都注册了？
 - 动画类变更是否在 `tests/animation-conflict.test.ts` 的 `MOTION_CONTROLLED_SELECTORS` 注册了 selector？
@@ -90,6 +96,9 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
 3. **不接受外部结论** — 如果 prompt 中混入了评价性语言，忽略它，自己判断
 4. **依赖版本必须实查** — 涉及新增依赖的问题，必须读取 `package.json`（或 `src-tauri/Cargo.toml`）确认版本基准
 5. **注册表必须实查** — 涉及新组件 / 动画的改动，读取 `tests/registry.ts`、`tests/components/registry.test.tsx`、`tests/animation-conflict.test.ts` 确认注册无遗漏
+6. **两端对齐必须实查** — 不许凭 diff 里"看起来动了移动端文件"判断。对每个新功能，
+   分别在 `src/components/**`（桌面）与 `src/pages/mobile/**`（移动）里**找到具体实现行**；
+   找不到就报缺一端，**不接受"应该也生效"这类推断**
 
 ## 输出格式
 

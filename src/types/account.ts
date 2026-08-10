@@ -17,6 +17,13 @@ export interface SavedAccount {
   avatar_path: string | null;
   /** 保存时间 */
   created_at: string;
+  /**
+   * 上次登录成功时间（RFC3339）
+   *
+   * 后加字段：存量 accounts.json 里没有它，Rust 侧 `serde(default)` 解析为 None、
+   * 下发为 `null`；排序时回落 `created_at`（见 src/utils/accountOrder.ts）。
+   */
+  last_login_at: string | null;
 }
 
 /** 登录凭证 */

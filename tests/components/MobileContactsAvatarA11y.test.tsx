@@ -2,10 +2,10 @@
  * MobileContacts 通讯录头像 a11y 测试（可点击头像容器 a11y 修复，点 8）
  *
  * 锁定契约（src/pages/mobile/MobileContacts.tsx `.mobile-contact-avatar`）：
- * - 好友头像恒有 role=button / tabIndex=0 / aria-label=`查看${显示名}资料`
- *   + onKeyDown(Enter/Space)=openProfile + onClick stopPropagation（点头像看资料，
- *   不冒泡到卡片的「进聊天」onClick）+ 键盘焦点环
- * - 群头像无 a11y 交互属性（反向断言）
+ * - v1.1.25 起与桌面 UnifiedList 同口径：**列表内头像不是独立控件**，
+ *   点它与点卡片其余部分一样「进会话」，不再开资料页。
+ * - 因此头像无 role / tabIndex / aria-label / 键盘处理 / 焦点环，
+ *   点击直接冒泡到卡片 onClick —— 也就不存在「能聚焦却按了没反应」的元素。
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
@@ -64,15 +64,15 @@ describe('MobileContacts — 头像 a11y', () => {
     openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
   });
 
-  it('好友头像具备 role=button / tabIndex=0 / aria-label=查看${显示名}资料', () => {
+  it('好友头像不再是独立控件：无 role / tabIndex / aria-label', () => {
     const { container } = renderContacts();
     const avatar = avatarInCard(container, 'Amy');
-    expect(avatar).toHaveAttribute('role', 'button');
-    expect(avatar).toHaveAttribute('tabindex', '0');
-    expect(avatar).toHaveAttribute('aria-label', '查看Amy资料');
+    expect(avatar).not.toHaveAttribute('role');
+    expect(avatar).not.toHaveAttribute('tabindex');
+    expect(avatar).not.toHaveAttribute('aria-label');
   });
 
-  it('群头像无 role/tabIndex/aria-label（反向断言）', () => {
+  it('群头像同样无 role/tabIndex/aria-label', () => {
     const { container } = renderContacts();
     const avatar = avatarInCard(container, '群一');
     expect(avatar).not.toHaveAttribute('role');
@@ -80,44 +80,28 @@ describe('MobileContacts — 头像 a11y', () => {
     expect(avatar).not.toHaveAttribute('aria-label');
   });
 
-  it('头像点击 → openProfile(id)，stopPropagation 使卡片「进聊天」onSelectTarget 未被调（冒泡断言）', () => {
+  it('点好友头像 → 进会话（冒泡到卡片），且不开资料页', () => {
     const { container, onSelectTarget } = renderContacts();
     fireEvent.click(avatarInCard(container, 'Amy'));
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-    expect(onSelectTarget).not.toHaveBeenCalled();
-  });
-
-  it('头像 Enter → openProfile(id)，不进聊天', () => {
-    const { container, onSelectTarget } = renderContacts();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: 'Enter' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-    expect(onSelectTarget).not.toHaveBeenCalled();
-  });
-
-  it('头像 Space → openProfile(id)', () => {
-    const { container } = renderContacts();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: ' ' });
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith('fa');
-  });
-
-  it('头像无关键（如 a）不触发看资料', () => {
-    const { container } = renderContacts();
-    fireEvent.keyDown(avatarInCard(container, 'Amy'), { key: 'a' });
+    expect(onSelectTarget).toHaveBeenCalledTimes(1);
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it('好友头像键盘聚焦显示焦点环类；pointerdown 后聚焦不显示', () => {
+  it('点头像与点卡片其余部分产生同一个 target', () => {
+    const { container, onSelectTarget } = renderContacts();
+    fireEvent.click(avatarInCard(container, 'Amy'));
+    const viaAvatar = onSelectTarget.mock.calls[0]?.[0];
+    onSelectTarget.mockClear();
+    const card = avatarInCard(container, 'Amy').closest('.mobile-contact-card') as HTMLElement;
+    fireEvent.click(card);
+    expect(viaAvatar).toBeDefined();
+    expect(viaAvatar).toEqual(onSelectTarget.mock.calls[0]?.[0]);
+  });
+
+  it('a11y 不回退：列表里不存在「可聚焦但没行为」的头像', () => {
     const { container } = renderContacts();
-    const avatar = avatarInCard(container, 'Amy');
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(true);
-    fireEvent.blur(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
-    fireEvent.pointerDown(avatar);
-    fireEvent.focus(avatar);
-    expect(avatar.classList.contains('a11y-kbd-focus')).toBe(false);
+    expect(
+      container.querySelectorAll('.mobile-contact-avatar[tabindex], .mobile-contact-avatar[role="button"]').length,
+    ).toBe(0);
   });
 });

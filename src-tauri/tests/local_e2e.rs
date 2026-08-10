@@ -4,6 +4,7 @@
 //! 直接驱动 App 数据面**仅有的两个真实请求函数**:
 //!   - `secure_net::secure_http`  —— HTTP(`#[tauri::command]` 但本质普通 async fn,可直接 await)
 //!   - `ws_proxy::ws_connect`     —— WebSocket(经 Tauri `Channel<WsEvent>` 回推帧)
+//!
 //! 打本地隔离集群的实例 A(HTTP `http://127.0.0.1:18080`,WS `ws://127.0.0.1:18080/ws`)。
 //!
 //! **不是 L3 真机**:没有 webview、没有真 UI、没有真设备,只跑 App 的 Rust 数据面逻辑。

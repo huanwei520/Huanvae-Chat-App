@@ -46,8 +46,10 @@ import { isMobile } from '../../utils/platform';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
+import { ReplyQuote } from './ReplyQuote';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
+import type { ResolvedReplyQuote } from './replyPreview';
 import type { GroupReader } from './useGroupReadReceipt';
 
 interface GroupMessageBubbleProps {
@@ -76,6 +78,14 @@ interface GroupMessageBubbleProps {
   /** 是否播放入场滑入动画：仅"挂载后新增"的实时新消息为 true（由列表用 shouldPlayEnter 判定）；
    *  切换/打开时已有的历史为 false → 不并拢，整体走面板渐变。 */
   playEnter?: boolean;
+  /** 本条消息引用的原消息（reply_to 解析结果）；null = 不是回复，不渲染引用块 */
+  replyQuote?: ResolvedReplyQuote | null;
+  /** 点击引用块 → 定位到原消息（由列表接到 pendingScrollToMessageId 通路） */
+  onQuoteClick?: (targetUuid: string) => void;
+  /** 右键/长按菜单「回复」→ 把本条设为回复目标；不传则菜单不显示该项 */
+  onReply?: (message: GroupMessage) => void;
+  /** 定位命中后短暂高亮本条（CSS keyframes 脉冲） */
+  isHighlighted?: boolean;
 }
 
 // 使用统一的消息动画配置
@@ -122,6 +132,10 @@ export function GroupMessageBubble({
   onOpenReadList,
   groupId,
   playEnter = false,
+  replyQuote = null,
+  onQuoteClick,
+  onReply,
+  isHighlighted = false,
 }: GroupMessageBubbleProps) {
   const api = useApi();
   // 右键菜单状态
@@ -411,6 +425,27 @@ export function GroupMessageBubble({
     onToggleSelect?.();
   }, [onEnterMultiSelect, onToggleSelect]);
 
+  // 回复本条消息（右键/长按菜单触发）
+  const handleReply = useCallback(() => {
+    onReply?.(message);
+  }, [onReply, message]);
+
+  // 点击引用块 → 定位原消息
+  const handleQuoteClick = useCallback(() => {
+    if (message.reply_to) {
+      onQuoteClick?.(message.reply_to);
+    }
+  }, [onQuoteClick, message.reply_to]);
+
+  // 「回复」菜单项的显示条件：
+  // - 需要列表层给了 onReply（好友私聊不给 → 后端 friends_messages 表无 reply-to 列，不支持引用）
+  // - 系统消息不可回复
+  // - 发送中/失败的消息还没有服务端 UUID，拿它当 reply_to 发出去后端会 400
+  const canReply = !!onReply
+    && message.message_type !== 'system'
+    && message.sendStatus !== 'sending'
+    && message.sendStatus !== 'failed';
+
   // 保存到相册（移动端）
   const handleSaveToGallery = useCallback(async () => {
     if (!localPath) { return; }
@@ -513,7 +548,7 @@ export function GroupMessageBubble({
 
             <div
               ref={bubbleRef}
-              className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}`}
+              className={`message-bubble ${isOwn ? 'own' : 'other'} ${message.sendStatus === 'sending' ? 'sending' : ''} ${message.sendStatus === 'failed' ? 'send-failed' : ''}${isHighlighted ? ' message-bubble--highlight' : ''}`}
               onContextMenu={handleContextMenu}
               onClick={handleClick}
               // 移动端长按触发菜单
@@ -547,6 +582,17 @@ export function GroupMessageBubble({
               <div className="bubble-content">
                 {!isOwn && (
                   <div className="bubble-sender">{senderDisplayName}</div>
+                )}
+                {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
+                    放在折叠判定之外：引用块只暴露"被回复的那条"的摘要，与本条发送者是否被屏蔽无关；
+                    但被屏蔽者自己发的引用块也一并折叠掉更符合"屏蔽此人消息"的预期 → 故仍受 isSenderHidden 门控。 */}
+                {!isSenderHidden && replyQuote && (
+                  <ReplyQuote
+                    senderName={replyQuote.senderName}
+                    text={replyQuote.text}
+                    resolved={replyQuote.resolved}
+                    onClick={handleQuoteClick}
+                  />
                 )}
                 {/* 折叠占位（内容隐藏）：D6 群屏蔽右键可取消；好友拉黑在私聊/设置取消后自动恢复 */}
                 {isSenderHidden ? (
@@ -621,6 +667,8 @@ export function GroupMessageBubble({
         canRemarkSender={!isOwn && !!groupId && message.message_type !== 'system'}
         hasRemark={!!senderRemark}
         onSetRemark={() => setRemarkModalOpen(true)}
+        canReply={canReply}
+        onReply={handleReply}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}

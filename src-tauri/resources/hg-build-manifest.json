@@ -4,7 +4,7 @@
   "source_repo_dirty_files": [
     ".claude/skills/hg-daemon-debug/SKILL.md"
   ],
-  "built_at_utc": "2026-08-09T12:57:15Z",
+  "built_at_utc": "2026-08-10T05:20:01Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",

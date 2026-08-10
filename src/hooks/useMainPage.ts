@@ -71,6 +71,13 @@ import { resolveServerAvatarUrl } from '../utils/avatar';
 const MIN_PANEL_WIDTH = 88;
 const MAX_PANEL_WIDTH = 280;
 
+/** 消息定位失败（本地历史翻完仍未命中）的降级提示文案 */
+const MESSAGE_JUMP_NOT_FOUND_NOTICE = '原消息不在本地记录中，无法定位';
+/** 定位命中后高亮脉冲的存活时长（ms） */
+const HIGHLIGHT_DURATION_MS = 2000;
+/** 定位失败提示条的自动消失时长（ms） */
+const JUMP_NOTICE_DURATION_MS = 4000;
+
 // ============================================
 // 文件上传成功后的公共处理逻辑
 // ============================================
@@ -173,6 +180,23 @@ async function processUploadSuccess(options: UploadSuccessOptions): Promise<void
   }
 }
 
+/**
+ * 会话草稿 key：与 ChatTarget 的联合类型一一对应，唯一即可。
+ * 抽成模块级纯函数（而非组件内嵌套三元），便于单测覆盖各分支。
+ */
+export function draftKeyOf(target: ChatTarget | null | undefined): string | null {
+  if (!target) { return null; }
+  switch (target.type) {
+    case 'group':
+      return `group:${target.data.group_id}`;
+    case 'ai':
+      return `ai:${target.conversationId ?? 'default'}`;
+    default:
+      // friend / bot：数据形态一致，都用 friend_id
+      return `${target.type}:${target.data.friend_id}`;
+  }
+}
+
 export function useMainPage() {
   const { session, clearSession } = useSession();
   const api = useApi();
@@ -193,9 +217,17 @@ export function useMainPage() {
   const setChatTarget = useChatStore((state) => state.setChatTarget);
   // 注意：updateChatTargetRole 在 WebSocket 回调中通过 store.getState() 使用
 
-  // 全局搜索点击跳转：监听 store.pendingScrollToMessageId
+  // 消息定位（全局搜索点击 / 群聊回复引用点击共用）：监听 store.pendingScrollToMessageId
   const pendingScrollToMessageId = useChatStore((s) => s.pendingScrollToMessageId);
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  // 定位成功后的高亮 / 定位失败的降级提示（两者都由本 hook 定时清空）
+  const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
+  const setHighlightedMessageId = useChatStore((s) => s.setHighlightedMessageId);
+  const messageJumpNotice = useChatStore((s) => s.messageJumpNotice);
+  const setMessageJumpNotice = useChatStore((s) => s.setMessageJumpNotice);
+  // 群聊「正在回复」草稿：发送时取出作为 reply_to，发完即清
+  const replyDraft = useChatStore((s) => s.replyDraft);
+  const setReplyDraft = useChatStore((s) => s.setReplyDraft);
 
   // ============================================
   // 好友/群聊 Hooks（内部使用 Zustand store）
@@ -223,6 +255,38 @@ export function useMainPage() {
   const [activeTab, setActiveTab] = useState<NavTab>('chat');
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ============================================
+  // 输入框草稿：按会话独立保存
+  // ============================================
+  // 此前 messageInput 是**全局一份**，所有会话共用 —— 切到别的聊天再切回来，
+  // 之前敲了一半的内容会串台/丢失。改为按会话 key 存草稿：切走存、切回取。
+  //
+  // 只存在内存（useRef，不落 localStorage）：草稿是「这次会话期间的临时输入」，
+  // 落盘会带来「重启后冒出旧草稿」的困惑，且未发送内容持久化到磁盘属多余的数据留存。
+  // 需求只要求「切换会话之间保持」，内存足够。
+  //
+  // 桌面与移动端共用本 hook（Main.tsx / MobileMain.tsx 都读 page.messageInput），
+  // 所以这一处改动**两端同时生效**。
+  const draftsRef = useRef<Record<string, string>>({});
+  const messageInputRef = useRef(messageInput);
+  messageInputRef.current = messageInput;
+
+  const draftKey = draftKeyOf(chatTarget);
+  const prevDraftKeyRef = useRef<string | null>(draftKey);
+
+  useEffect(() => {
+    const prev = prevDraftKeyRef.current;
+    if (prev === draftKey) { return; }
+    // 切走：存下当前这条会话的半成品（空串也要存，代表"清空过"）
+    if (prev !== null) {
+      draftsRef.current[prev] = messageInputRef.current;
+    }
+    // 切回：恢复目标会话的草稿；没存过就是空
+    // （messageInput 通过 messageInputRef 读最新值，故不进依赖 —— 否则每敲一个字都会重跑）
+    setMessageInput(draftKey !== null ? (draftsRef.current[draftKey] ?? '') : '');
+    prevDraftKeyRef.current = draftKey;
+  }, [draftKey]);
 
   // 弹窗状态
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -558,6 +622,10 @@ export function useMainPage() {
 
     const content = messageInput.trim();
     setMessageInput('');
+    // 发出去了就不再是草稿 —— 不清的话切走再切回，已发送的内容会作为草稿复活
+    if (draftKey !== null) {
+      delete draftsRef.current[draftKey];
+    }
 
     if (chatTarget.type === 'ai') {
       await ai.sendMessage(content);
@@ -570,10 +638,18 @@ export function useMainPage() {
       await sendFriendMessage(content);
       updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
-      await sendGroupMessage(content);
+      // 群聊回复：草稿必须属于当前群才作数（切会话时 setChatTarget 已清，这里是第二道闸，
+      // 防止任何未来的清理时序漏洞把 A 群的引用发到 B 群）。
+      const replyTo = replyDraft?.groupId === chatTarget.data.group_id
+        ? replyDraft.messageUuid
+        : undefined;
+      // 先清草稿再 await：发送是异步的，不先清会让「正在回复」条在整个网络往返期间挂着，
+      // 用户以为没发出去而重复点发送。
+      if (replyDraft) { setReplyDraft(null); }
+      await sendGroupMessage(content, replyTo);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai]);
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft]);
 
   // ============================================
   // 文件上传
@@ -757,8 +833,11 @@ export function useMainPage() {
     }
   }, [chatTarget, loadFriendMessages, loadGroupMessages]);
 
-  // 全局搜索跳转：当 chatTarget 与 pendingScrollToMessageId 同时存在时，
-  // 加载历史直到目标进入窗口 → 在 DOM 中查找元素 → scrollIntoView → 清空 pending
+  // 消息定位（全局搜索结果点击 / 群聊回复引用点击共用同一条通路）：
+  // chatTarget 与 pendingScrollToMessageId 同时存在时，加载历史直到目标进入窗口
+  // → 在 DOM 中查找元素 → scrollIntoView → 高亮 → 清空 pending。
+  // 翻完本地历史仍未命中（原消息早于本地保留范围 / 已被本地删除）→ 写降级提示，
+  // 绝不静默无反应（用户点了引用块必须得到反馈）。
   useEffect(() => {
     if (!pendingScrollToMessageId || !chatTarget) {
       return;
@@ -781,7 +860,7 @@ export function useMainPage() {
         return;
       }
       if (!ok) {
-        // 找不到目标，直接清空
+        setMessageJumpNotice(MESSAGE_JUMP_NOT_FOUND_NOTICE);
         setPendingScrollToMessageId(null);
         return;
       }
@@ -795,6 +874,11 @@ export function useMainPage() {
         );
         if (el) {
           el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // 只有真滚到了才高亮：DOM 里找不到元素（极端时序）时高亮会落到看不见的地方，
+          // 用户只会看到「点了没反应」，那种情况按定位失败给提示更诚实。
+          setHighlightedMessageId(targetId);
+        } else {
+          setMessageJumpNotice(MESSAGE_JUMP_NOT_FOUND_NOTICE);
         }
         setPendingScrollToMessageId(null);
       });
@@ -811,7 +895,27 @@ export function useMainPage() {
     loadUntilFriendMessage,
     loadUntilGroupMessage,
     setPendingScrollToMessageId,
+    setHighlightedMessageId,
+    setMessageJumpNotice,
   ]);
+
+  // 高亮自动熄灭：脉冲动画约 1.6s，2s 后清掉状态（留一点余量让动画收尾）
+  useEffect(() => {
+    if (!highlightedMessageId) {
+      return;
+    }
+    const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [highlightedMessageId, setHighlightedMessageId]);
+
+  // 降级提示自动消失（用户也可以点提示条上的 × 立即关掉）
+  useEffect(() => {
+    if (!messageJumpNotice) {
+      return;
+    }
+    const timer = setTimeout(() => setMessageJumpNotice(null), JUMP_NOTICE_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [messageJumpNotice, setMessageJumpNotice]);
 
   // ============================================
   // 计算属性

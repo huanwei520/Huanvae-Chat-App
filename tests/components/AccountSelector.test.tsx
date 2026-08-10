@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, createEvent, act } from '@testing-library/react';
+import { render, fireEvent, createEvent, act, waitFor } from '@testing-library/react';
 import { AccountSelector } from '../../src/pages/AccountSelector';
 import type { SavedAccount } from '../../src/types/account';
 
@@ -23,9 +23,9 @@ const ANIMATION_DURATION = 400;
 
 function makeAccounts(): SavedAccount[] {
   return [
-    { user_id: 'u1', nickname: '账号一', server_url: 'https://a.example.com', avatar_path: null, created_at: '2026-01-01T00:00:00Z' },
-    { user_id: 'u2', nickname: '账号二', server_url: 'https://b.example.com', avatar_path: null, created_at: '2026-01-02T00:00:00Z' },
-    { user_id: 'u3', nickname: '账号三', server_url: 'https://c.example.com', avatar_path: null, created_at: '2026-01-03T00:00:00Z' },
+    { user_id: 'u1', nickname: '账号一', server_url: 'https://a.example.com', avatar_path: null, created_at: '2026-01-01T00:00:00Z', last_login_at: null },
+    { user_id: 'u2', nickname: '账号二', server_url: 'https://b.example.com', avatar_path: null, created_at: '2026-01-02T00:00:00Z', last_login_at: null },
+    { user_id: 'u3', nickname: '账号三', server_url: 'https://c.example.com', avatar_path: null, created_at: '2026-01-03T00:00:00Z', last_login_at: null },
   ];
 }
 
@@ -248,5 +248,62 @@ describe('AccountSelector 滚轮手势', () => {
     }
     advanceAnimation();
     expect(counterText()).toContain('2 / 3'); // 只被键盘前进一格,滚轮未生效
+  });
+});
+
+// 账号列表重排（按上次登录时间排序、删除账号后收缩）会让同一个槽位换绑另一个账号。
+// CardSlot 用 AnimatePresence(mode="wait") 做淡出→淡入过渡，这里验证过渡最终能收敛：
+// 主卡片切换到新账号，且旧账号的内容不残留（退场卡片必须真的被卸载）。
+// 用真实 timer + waitFor：AnimatePresence 的退场卸载是异步的，同步断言会抢跑
+// （见 .claude/rules/frontend-test.md「AnimatePresence 内组件的消失断言必须入 waitFor」）。
+describe('AccountSelector 账号列表重排', () => {
+  it('列表重排后主卡片换成新的首个账号，旧账号内容不残留', async () => {
+    const accounts = makeAccounts();
+    const props = {
+      onSelectAccount: vi.fn(),
+      onAddAccount: vi.fn(),
+      onDeleteAccount: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <AccountSelector accounts={accounts} {...props} />,
+    );
+    const mainCardText = () => container.querySelector('.stack-card-main')?.textContent ?? '';
+
+    expect(mainCardText()).toContain('账号一');
+
+    // 模拟「账号三」刚登录过 → useAccounts 重新加载后把它排到第一位
+    rerender(
+      <AccountSelector accounts={[accounts[2], accounts[0], accounts[1]]} {...props} />,
+    );
+
+    await waitFor(() => {
+      expect(mainCardText()).toContain('账号三');
+      expect(mainCardText()).not.toContain('账号一');
+    });
+  });
+
+  it('重排后 Enter 登录的是新的首个账号（选中项跟随重排结果）', async () => {
+    const accounts = makeAccounts();
+    const onSelectAccount = vi.fn();
+    const props = {
+      onSelectAccount,
+      onAddAccount: vi.fn(),
+      onDeleteAccount: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <AccountSelector accounts={accounts} {...props} />,
+    );
+
+    rerender(
+      <AccountSelector accounts={[accounts[2], accounts[0], accounts[1]]} {...props} />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.stack-card-main')?.textContent ?? '').toContain('账号三');
+    });
+
+    fireEvent.keyDown(container.querySelector('.stack-selector') as HTMLElement, { key: 'Enter' });
+    expect(onSelectAccount).toHaveBeenCalledTimes(1);
+    expect(onSelectAccount).toHaveBeenCalledWith(accounts[2]);
   });
 });
