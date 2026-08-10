@@ -244,6 +244,7 @@ import * as shelfStore from '../../src/stores/shelfStore';
 import * as botCommandsStore from '../../src/stores/botCommandsStore';
 import * as slashCommands from '../../src/chat/shared/slashCommands';
 import * as replyPreview from '../../src/chat/shared/replyPreview';
+import * as AlbumMessage from '../../src/chat/shared/AlbumMessage';
 import * as mediaGroup from '../../src/chat/shared/mediaGroup';
 import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
@@ -548,6 +549,7 @@ const COMPONENT_MAP = {
   botCommandsStore,
   slashCommands,
   replyPreview,
+  AlbumMessage,
   mediaGroup,
   conversationKey,
   scrollMessageIntoView,

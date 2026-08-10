@@ -108,6 +108,16 @@ export interface FileMessageContentProps {
   imageWidth?: number | null;
   /** 图片高度（像素），从消息中获取 */
   imageHeight?: number | null;
+  /**
+   * 显示形态：
+   * - `bubble`（默认）气泡内按原始宽高比自适应，尺寸由 calculateDisplaySize 内联算出
+   * - `album`   相册格子内铺满，尺寸交给外层 grid（内联宽高会跟 grid 打架，故此时不写）
+   *
+   * 相册**复用本组件**而不是另写一个缩略图，是为了不新增「显示点」——
+   * 远程媒体必经安全反代那条不变量由 tests/secure-display-routing.test.ts 守着，
+   * 每多一个直接渲染 <img> 的地方就多一处会漏的口子。
+   */
+  displayVariant?: 'bubble' | 'album';
 }
 
 // ============================================
@@ -151,6 +161,7 @@ function ImageMessage({
   friendId,
   imageWidth,
   imageHeight,
+  displayVariant,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
@@ -163,6 +174,8 @@ function ImageMessage({
   imageWidth?: number | null;
   /** 消息中携带的图片高度（后端返回） */
   imageHeight?: number | null;
+  /** 显示形态：album 时铺满外层 grid 格子，不写内联宽高 */
+  displayVariant?: 'bubble' | 'album';
 }) {
   const { session } = useSession();
   const {
@@ -261,11 +274,10 @@ function ImageMessage({
     );
   }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src, presignedUrl, imgLoadFailed]);
 
-  // 容器样式：固定尺寸，不会因图片加载而改变
-  const containerStyle: React.CSSProperties = {
-    width: displaySize.width,
-    height: displaySize.height,
-  };
+  // 容器样式：气泡态固定尺寸（不会因图片加载而改变）；相册态铺满格子（尺寸归外层 grid）
+  const containerStyle: React.CSSProperties = displayVariant === 'album'
+    ? { width: '100%', height: '100%' }
+    : { width: displaySize.width, height: displaySize.height };
 
   // 合并 API 级别和浏览器级别的错误
   const showError = error || imgLoadFailed;
@@ -362,6 +374,7 @@ function VideoMessage({
   friendId,
   imageWidth,
   imageHeight,
+  displayVariant,
 }: {
   fileUuid: string;
   fileHash: string | null | undefined;
@@ -374,6 +387,8 @@ function VideoMessage({
   imageWidth?: number | null;
   /** 消息中携带的视频高度（后端返回） */
   imageHeight?: number | null;
+  /** 显示形态：album 时铺满外层 grid 格子，不写内联宽高 */
+  displayVariant?: 'bubble' | 'album';
 }) {
   const { session } = useSession();
   const { src, isLocal, loading, error, onPlay, localPath, presignedUrl, openInFolder } = useVideoCache(
@@ -490,11 +505,10 @@ function VideoMessage({
     actualLocalPath, isLocal, src, presignedUrl, isDownloaded, isDownloading,
   ]);
 
-  // 容器样式
-  const containerStyle: React.CSSProperties = {
-    width: displaySize.width,
-    height: displaySize.height,
-  };
+  // 容器样式（同 ImageMessage：相册态铺满格子）
+  const containerStyle: React.CSSProperties = displayVariant === 'album'
+    ? { width: '100%', height: '100%' }
+    : { width: displaySize.width, height: displaySize.height };
 
   return (
     <>
@@ -701,6 +715,7 @@ export function FileMessageContent({
   friendId,
   imageWidth,
   imageHeight,
+  displayVariant = 'bubble',
 }: FileMessageContentProps) {
   // 从消息内容中提取文件名
   const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
@@ -727,6 +742,7 @@ export function FileMessageContent({
           friendId={friendId}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
+          displayVariant={displayVariant}
         />
       );
 
@@ -741,6 +757,7 @@ export function FileMessageContent({
           friendId={friendId}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
+          displayVariant={displayVariant}
         />
       );
 

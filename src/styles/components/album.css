@@ -1,0 +1,67 @@
+/* Album (media group) grid inside a message bubble.
+ *
+ * Layout is driven ONLY by expectedCount (see chat/shared/AlbumMessage.tsx):
+ * cell height is reserved via aspect-ratio so nothing shifts when images finish
+ * loading. The message list is column-reverse -- any height jump would push the
+ * user's current reading position away. Keep it that way.
+ *
+ * NOTE (deliberate): no `transition: all` and no transform transitions here.
+ * If this component ever gets wrapped in motion.*, transform/opacity must stay
+ * owned by JS only -- see .claude/rules/animation.md rule 1 and register the
+ * selector in tests/animation-conflict.test.ts.
+ */
+
+.album-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 280px;
+}
+
+.album-grid {
+  display: grid;
+  gap: 3px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Square cells: height is reserved before the image loads. */
+.album-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: rgba(147, 197, 253, 0.08);
+}
+
+/* Inside an album cell the media fills the square (cover), unlike the bubble
+ * variant which uses contain to show the whole picture at its natural ratio. */
+.album-cell .image-message .message-image,
+.album-cell .video-message .message-video-thumbnail {
+  object-fit: cover;
+  border-radius: 0;
+}
+
+/* The per-cell container is sized by the grid (displayVariant="album" makes the
+ * component skip its inline width/height), so strip the bubble-level caps. */
+.album-cell .file-message {
+  max-width: none;
+  border-radius: 0;
+}
+
+/* Not-yet-loaded slot (cross-page split): stays silent on purpose -- it is not
+ * an error, the user simply has not paged back that far yet. */
+.album-cell-placeholder {
+  width: 100%;
+  height: 100%;
+  background: rgba(147, 197, 253, 0.08);
+}
+
+/* Caption belongs to the WHOLE album, hence it sits under the grid rather than
+ * on the first image. */
+.album-caption {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
