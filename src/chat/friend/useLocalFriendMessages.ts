@@ -880,6 +880,12 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_hash: wsMsg.file_hash ?? null,
         image_width: wsMsg.image_width ?? null,
         image_height: wsMsg.image_height ?? null,
+        // 实时推送同样要带：不带的话对方回复/发相册时，我这边**当场**就渲染不出
+        // 引用块与网格（重启后更没有，因为落库那段也曾经在丢）
+        reply_to: wsMsg.reply_to ?? null,
+        media_group_id: wsMsg.media_group_id ?? null,
+        media_group_index: wsMsg.media_group_index ?? null,
+        media_group_count: wsMsg.media_group_count ?? null,
         send_time: wsMsg.timestamp,
         // WS 推送的消息必然已送达（seq>=1）；忠实写入，不强制成 0（0=未送达信号）。
         seq: wsMsg.seq,

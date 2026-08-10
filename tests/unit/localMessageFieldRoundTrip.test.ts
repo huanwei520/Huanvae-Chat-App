@@ -64,6 +64,26 @@ describe('群聊 localMessageToGroupMessage — 字段不丢', () => {
   });
 });
 
+describe('WS 实时推送 → 内存 Message：字段不丢（不经 DB 的那条路）', () => {
+  // 这条路绕过 SQLite 直接进 UI state。它丢字段的表现是「对方回复/发相册时我这边
+  // **当场**就渲染不出引用块与网格」—— 与 DB 那条路的「重启后消失」是两个独立缺陷。
+  it('私聊：WS 构造的 Message 带 reply_to 与三件套', () => {
+    const body = FRIEND_HOOK.slice(FRIEND_HOOK.indexOf('const newMessage: Message = {'));
+    const obj = body.slice(0, body.indexOf('};'));
+    expect(obj).toMatch(/reply_to:\s*wsMsg\.reply_to/);
+    expect(obj).toMatch(/media_group_id:\s*wsMsg\.media_group_id/);
+    expect(obj).toMatch(/media_group_count:\s*wsMsg\.media_group_count/);
+  });
+
+  it('群聊：WS 构造的 GroupMessage 带 reply_to 与三件套（原先写死 null）', () => {
+    const body = GROUP_HOOK.slice(GROUP_HOOK.indexOf('const newMessage: GroupMessage = {'));
+    const obj = body.slice(0, body.indexOf('};'));
+    expect(obj).toMatch(/reply_to:\s*wsMsg\.reply_to/);
+    expect(obj).not.toMatch(/reply_to:\s*null/);
+    expect(obj).toMatch(/media_group_id:\s*wsMsg\.media_group_id/);
+  });
+});
+
 describe('写入路径 — 服务端字段必须落库', () => {
   it('WS 实时推送落库时带 reply_to 与三件套（原先写死 null，重启后引用/相册消失）', () => {
     const ws = read('src/contexts/wsHandlers.ts');

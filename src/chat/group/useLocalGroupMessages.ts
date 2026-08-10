@@ -809,7 +809,13 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_hash: wsMsg.file_hash ?? null,
         image_width: wsMsg.image_width ?? null,
         image_height: wsMsg.image_height ?? null,
-        reply_to: null,
+        // 原先写死 null ⇒ 别人在群里回复时，我这边**当场**就看不到引用块。
+        // 后端 ws_message.rs 注释明写「此前群消息的 reply_to 也未下发，本次补齐」，
+        // App 侧一直没接上这一跳。
+        reply_to: wsMsg.reply_to ?? null,
+        media_group_id: wsMsg.media_group_id ?? null,
+        media_group_index: wsMsg.media_group_index ?? null,
+        media_group_count: wsMsg.media_group_count ?? null,
         send_time: wsMsg.timestamp,
         is_recalled: false,
         seq: wsMsg.seq || 0,
