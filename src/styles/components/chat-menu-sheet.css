@@ -1,0 +1,161 @@
+/**
+ * ========================================
+ * 聊天设置侧边滑出面板（chat menu side sheet）
+ * ========================================
+ *
+ * @description 顶栏「更多操作」打开的右侧滑出面板，取代原下拉菜单 .chat-menu-dropdown。
+ *              桌面与移动共用同一套样式（面板宽度自适应），组件见
+ *              src/chat/shared/ChatMenuPanel.tsx。
+ *
+ * ## 动画所有权（.claude/rules/animation.md 规则一）
+ *
+ * .chat-menu-scrim 的 opacity、.chat-menu-sheet 的 transform 由 framer-motion 逐帧写
+ * inline style（含移动端拖拽关闭），本文件**不得**给这两个选择器声明
+ * transition: all / transform / opacity；两者已登记 tests/animation-conflict.test.ts。
+ *
+ * ## 宽度约束不是随手写的
+ *
+ * `min(400px, 100vw - 56px)` 保证面板左边缘至少距屏幕左侧 56px —— 移动端「边缘侧滑返回」
+ * 的起手带是左侧 24px（src/utils/edgeSwipe.ts EDGE_SWIPE_EDGE_WIDTH），面板内的拖拽
+ * 起手点因此在几何上不可能落进边缘带，两套手势互不抢。改宽度前先看这条。
+ *
+ * ## z-index
+ *
+ * 9000/9001：高于应用内所有常规层（最高 1100），低于 toast(9999) 与从面板里再拉起的
+ * 弹窗——群头像裁剪(10000)、群内备注输入(10001)——保证它们盖在面板之上。
+ */
+
+.chat-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--black-alpha-50);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.chat-menu-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 100vw - 56px);
+  height: 100%;
+  z-index: 9001;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+}
+
+/* ---------- 标题栏 ---------- */
+
+.chat-menu-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: calc(14px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 16px 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.chat-menu-sheet-heading {
+  min-width: 0;
+}
+
+.chat-menu-sheet-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-menu-sheet-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.chat-menu-sheet-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.chat-menu-sheet-close:hover {
+  background: rgba(147, 197, 253, 0.18);
+  color: var(--text-primary);
+}
+
+.chat-menu-sheet-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ---------- 内容区 ---------- */
+
+.chat-menu-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px));
+}
+
+.chat-menu-sheet-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px));
+}
+
+/* ---------- 语义分组 ---------- */
+
+.menu-group {
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.menu-group:last-child {
+  border-bottom: none;
+}
+
+.menu-group-title {
+  margin: 0;
+  padding: 8px 20px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+  text-transform: uppercase;
+}
+
+.menu-group--danger .menu-group-title {
+  color: var(--status-error);
+  opacity: 0.75;
+}
+
+/* 面板内的菜单项：比原下拉菜单更宽的左内边距，与组标题对齐 */
+.chat-menu-sheet .menu-item {
+  padding-left: 20px;
+  padding-right: 20px;
+  border-radius: 0;
+}
+
+/* 隐藏态（角色不匹配）由 framer-motion 收成 height:0 并置 disabled，
+   这里只保证它不吃鼠标事件、不显示 disabled 光标 */
+.chat-menu-sheet .menu-item:disabled {
+  pointer-events: none;
+}

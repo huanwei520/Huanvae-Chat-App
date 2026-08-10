@@ -91,6 +91,49 @@
   border-radius: 3px;
 }
 
+/**
+ * 不定态滚动条（与桌面 .update-toast-progress-indeterminate 两端对齐）
+ *
+ * 纯 CSS keyframes：本节点**不是** motion 组件，transform 只有 CSS 一个主人。
+ * 与 .mobile-download-card-progress-fill 互斥，同一时刻只渲染其中一个。
+ */
+.mobile-download-card-progress-indeterminate {
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 3px;
+  animation: mobile-download-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes mobile-download-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* 尊重系统「减弱动画」偏好：降级为呼吸式脉冲，不做横向位移 */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-download-card-progress-indeterminate {
+    width: 100%;
+    animation: mobile-download-indeterminate-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes mobile-download-indeterminate-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+
+    50% {
+      opacity: 1;
+    }
+  }
+}
+
 /* 元信息 */
 .mobile-download-card-meta {
   font-size: 12px;

@@ -87,6 +87,9 @@
 /* 群聊回复引用 - 气泡内引用块 + 输入区「正在回复」条 + 定位失败提示 + 定位高亮脉冲 */
 @import './components/reply-quote.css';
 
+/* 聊天设置侧边滑出面板 - 顶栏「更多操作」的右侧抽屉 + 语义分组（桌面/移动共用） */
+@import './components/chat-menu-sheet.css';
+
 /* 全局消息搜索结果（移动 + 桌面共用） */
 @import './search.css';
 

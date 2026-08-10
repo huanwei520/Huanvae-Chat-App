@@ -46,6 +46,11 @@ export const SEARCH_COMPONENTS: ComponentEntry[] = [
   { name: 'GlobalMessageSearchResults', path: 'components/search/GlobalMessageSearchResults', category: 'components', description: '跨会话消息内容/文件名搜索结果（移动+桌面共用）' },
   { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
   { name: 'useDiscoverySearch', path: 'hooks/useDiscoverySearch', category: 'hooks', description: '服务端发现搜索 Hook（500ms 防抖；人/群/bot；头像边界解析）' },
+  { name: 'ConversationMessageSearch', path: 'components/search/ConversationMessageSearch', category: 'components', description: '会话内消息查找面板（好友/bot/群；全部+文字/图片/视频/文件五页签）' },
+  { name: 'useConversationMessageSearch', path: 'components/search/useConversationMessageSearch', category: 'hooks', description: '会话内消息搜索 Hook（500ms 防抖 + SQL 层分类过滤）' },
+  { name: 'messageCategory', path: 'components/search/messageCategory', category: 'services', description: '消息分类 ↔ content_type 映射（图片/视频/文件白名单，文字取补集）' },
+  { name: 'conversationSearchTarget', path: 'components/search/conversationSearchTarget', category: 'services', description: 'ChatTarget → 会话内查找用 conversation_id（AI 会话返回 null）' },
+  { name: 'highlightMatch', path: 'components/search/highlightMatch', category: 'services', description: '搜索关键词高亮切片（全局搜索 + 会话内查找共用）' },
 ];
 
 // ============== NFC 指令执行器 ==============
@@ -255,6 +260,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'AIHistoryPanel', path: 'chat/ai/AIHistoryPanel', category: 'chat', description: 'AI 历史记录抽屉面板' },
 
   // 聊天菜单子组件
+  { name: 'ChatMenuPanel', path: 'chat/shared/ChatMenuPanel', category: 'chat', description: '聊天设置侧边滑出面板（右侧抽屉外壳）' },
   { name: 'ConfirmDialog', path: 'chat/shared/menu/ConfirmDialog', category: 'chat', description: '确认对话框' },
   { name: 'EditNameForm', path: 'chat/shared/menu/EditNameForm', category: 'chat', description: '编辑名称表单' },
   { name: 'EditNicknameForm', path: 'chat/shared/menu/EditNicknameForm', category: 'chat', description: '编辑昵称表单' },
@@ -333,6 +339,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'botCommandsStore', path: 'stores/botCommandsStore', category: 'services', description: 'Bot 指令缓存（按 bot_user_id 分桶，getBotCommands 拉取，失败存空）' },
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
   { name: 'replyPreview', path: 'chat/group/replyPreview', category: 'services', description: '群消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位）' },
+  { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },

@@ -162,13 +162,32 @@ describe('useUpdateToast', () => {
 
     act(() => {
       result.current.startDownload();
-      result.current.updateProgress(50, 1000, 2000, 'https://store.huanvae.cn/foo.apk');
+      result.current.updateProgress({
+        percent: 50,
+        downloaded: 1000,
+        total: 2000,
+        sourceUrl: 'https://store.huanvae.cn/foo.apk',
+      });
     });
 
     expect(result.current.progress).toBe(50);
     expect(result.current.downloaded).toBe(1000);
     expect(result.current.total).toBe(2000);
+    expect(result.current.indeterminate).toBe(false);
     expect(result.current.sourceUrl).toBe('https://store.huanvae.cn/foo.apk');
+  });
+
+  it('updateProgress 总长未知时进入不定态（不把 undefined 吃成 0%）', () => {
+    const { result } = renderHook(() => useUpdateToast());
+
+    act(() => {
+      result.current.startDownload();
+      result.current.updateProgress({ downloaded: 4096, indeterminate: true });
+    });
+
+    expect(result.current.indeterminate).toBe(true);
+    expect(result.current.downloaded).toBe(4096);
+    expect(result.current.total).toBe(0);
   });
 
   it('downloadComplete 更新状态为 ready', () => {

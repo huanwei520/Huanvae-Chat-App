@@ -48,8 +48,13 @@ interface MotionControlledEntry {
   selector: string;
   /** 对应的 CSS 文件相对路径（项目根） */
   cssFile: string;
-  /** JS 动画（framer-motion variants/animate 或 GSAP tween）控制的 CSS 属性集合 */
-  controlledProps: ('transform' | 'opacity')[];
+  /**
+   * JS 动画（framer-motion variants/animate 或 GSAP tween）控制的 CSS 属性集合
+   *
+   * `width` 也在内：进度条用 `animate={{ width }}` 逐帧写宽度，
+   * CSS 若再声明 `transition: width` 同样会与之抢帧。
+   */
+  controlledProps: ('transform' | 'opacity' | 'width')[];
   /** 控制方组件位置（仅注释，便于追溯） */
   motionLocation: string;
 }
@@ -142,6 +147,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/search.css',
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/search/GlobalMessageSearchResults.tsx (桌面 scale 缩放 / 移动 translateY 拉出 — desktopVariants/mobileVariants)',
+  },
+  {
+    selector: '.conv-msg-search',
+    cssFile: 'src/styles/search.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/components/search/ConversationMessageSearch.tsx (顶栏下方展开/收起：panelVariants height + opacity)',
   },
   {
     selector: '.mobile-media-preview-menu',
@@ -440,6 +451,31 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/unified/AddMenu.tsx (dropdownVariants: opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
   },
+  // ===== 聊天设置侧边滑出面板（顶栏「更多操作」，桌面/移动共用） =====
+  {
+    selector: '.chat-menu-scrim',
+    cssFile: 'src/styles/components/chat-menu-sheet.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/chat/shared/ChatMenuPanel.tsx (scrimVariants: opacity 进出场)',
+  },
+  {
+    selector: '.chat-menu-sheet',
+    cssFile: 'src/styles/components/chat-menu-sheet.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/ChatMenuPanel.tsx (sheetVariants: 从右滑入 translateX + 移动端 drag="x" 跟手位移)',
+  },
+  {
+    selector: '.menu-group',
+    cssFile: 'src/styles/components/chat-menu-sheet.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/menu/MainMenu.tsx (AnimatedMenuGroup groupVariants: 角色变化时整组 opacity+height 收展)',
+  },
+  {
+    selector: '.menu-item',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/menu/MainMenu.tsx (AnimatedMenuItem menuItemVariants: opacity+x+height+padding 收展)',
+  },
   // ===== 登录页账号选择器卡片堆（外层槽位位移 + 内层账号换人过渡） =====
   {
     selector: '.stack-card',
@@ -467,6 +503,22 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/components/reply-quote.css',
     controlledProps: ['opacity'],
     motionLocation: 'src/chat/shared/ChatInputArea.tsx (定位失败提示 motion.div：opacity + height 展开收起)',
+  },
+  // ===== 更新下载进度条（确定态由 framer-motion 逐帧写 width） =====
+  // 不定态用的是**另外两个** selector（.update-toast-progress-indeterminate /
+  // .mobile-download-card-progress-indeterminate），它们是纯 CSS keyframes 的普通 div，
+  // 不由 JS 逐帧接管，故不登记在此。
+  {
+    selector: '.update-toast-progress-fill',
+    cssFile: 'src/update/components/UpdateToast.css',
+    controlledProps: ['width'],
+    motionLocation: 'src/update/components/UpdateToast.tsx (downloading 分支 animate={{ width }})',
+  },
+  {
+    selector: '.mobile-download-card-progress-fill',
+    cssFile: 'src/update/components/MobileDownloadCard.css',
+    controlledProps: ['width'],
+    motionLocation: 'src/update/components/MobileDownloadCard.tsx (animate={{ width }})',
   },
 ];
 

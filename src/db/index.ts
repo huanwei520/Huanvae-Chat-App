@@ -103,6 +103,22 @@ export interface ConversationWithPreview {
 }
 
 /** 消息搜索结果（含会话上下文 + 前后相邻消息预览） */
+/**
+ * 消息搜索过滤条件（镜像 Rust `db::MessageSearchFilter`，字段名保持 snake_case）
+ *
+ * 字段收的是**原始 content_type 值**（`text` / `image` / `video` / `file` / `card` …），
+ * 业务分类 → content_type 的映射在前端 `components/search/messageCategory.ts` 里。
+ * 「文字」用 exclude 而非 include，这样服务端未来新增的未知类型仍归入文字，不会从四类里消失。
+ */
+export interface MessageSearchFilter {
+  /** 限定单个会话（省略 = 跨会话） */
+  conversation_id?: string;
+  /** 仅保留这些 content_type（省略 = 不限；空数组 = 无任何命中） */
+  include_content_types?: string[];
+  /** 排除这些 content_type（省略 / 空数组 = 不排除） */
+  exclude_content_types?: string[];
+}
+
 export interface SearchMessageResult {
   /** 命中消息本体 */
   message: LocalMessage;
@@ -368,12 +384,22 @@ export async function saveMessagesSkipExisting(
   }
 }
 
-/** 跨会话搜索消息内容（含文件名）— 调 Rust db_search_messages */
+/**
+ * 搜索消息内容（含文件名）— 调 Rust db_search_messages
+ *
+ * 不传 filter = 跨会话、不限类型（全局搜索）。
+ * 传 filter 可限定单会话 + 按 content_type 筛选（会话内搜索的四类分页）。
+ */
 export function searchMessages(
   query: string,
   limit = 50,
+  filter?: MessageSearchFilter,
 ): Promise<SearchMessageResult[]> {
-  return invoke<SearchMessageResult[]>('db_search_messages', { query, limit });
+  return invoke<SearchMessageResult[]>('db_search_messages', {
+    query,
+    limit,
+    filter: filter ?? null,
+  });
 }
 
 /** 标记消息为已删除 */

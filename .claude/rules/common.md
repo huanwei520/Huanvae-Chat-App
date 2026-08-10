@@ -1107,3 +1107,47 @@ tail -3 build.log      # → "✓ built in 26m 9s"
 
 ⇒ 被指出错误后我只改了第一处，其余三处是**后续两轮自查**才逐一挖出来的。
 **主动扫一遍的成本，远低于让矛盾文档流出去。**
+
+## 改系统级网络状态（pf/dummynet）：安全网必须活得比"清场命令"久
+
+给本机注入受控劣化（`dnctl` + `pfctl`）做实验时，规则残留会波及整台机器上所有在跑的线。
+除了 `trap` 恢复，还要有**独立看门狗**兜底。但看门狗本身有两个反复踩到的坑：
+
+**① 看门狗不能用定时触发，必须用"主进程消失"触发。**
+`( sleep N; 恢复 ) &` 会在**长实验中途**把规则清掉 —— 后面几档就在「以为有损伤、其实没有」的状态下跑，
+产出一份**看着正常、实则归因全错**的数据。正确写法是轮询主进程存活：
+
+```bash
+MAIN=$$
+( while kill -0 "$MAIN" 2>/dev/null; do sleep 10; done; <恢复命令> ) &
+```
+
+**② 🔴 看门狗的 argv 必须与主脚本可区分，否则 `pkill -f` 会连安全网一起杀。**
+看门狗常写成主脚本的子 shell ⇒ `ps` 里 argv 与主脚本**完全相同** ⇒
+`pkill -f '<脚本名>'` 中止实验时**同时命中看门狗**，规则就此残留（实测残留 11 秒才被发现）。
+对策：看门狗用独立可执行/独立 argv 起（如 `bash -c '<恢复逻辑>' hv-watchdog`），
+或中止实验时**按 PID 精确杀主进程**，不要用 `pkill -f`。
+
+**③ 影响面收窄到单个目标**，不要对全局 443 施加规则 —— 同一台机器上通常还有别的线在跑。
+**④ 结束后实证恢复**：`pfctl -s info` 回到基线态、`pfctl -sr` 与基线**逐字一致**、`dnctl list` 为空、
+无残留进程、外网连通正常。四条都要，缺一条都可能漏掉残留。
+
+## Cargo feature 会跨 dependent 统一 —— 你写的 `default-features = false` 可能根本没生效
+
+`Cargo.toml` 里对某个包写 `default-features = false` + 精简 features，**不代表最终二进制里它就是精简的**：
+只要**另一个依赖**也依赖同一包的同一版本且未关默认 features，Cargo 会把两边的 feature 集**取并集**，
+你关掉的那些会被**重新打开**。
+
+**判据：不要读 `Cargo.toml` 就下结论，要读实际解析结果。**
+
+```bash
+cargo tree -e features -i -p <crate>@<version> --target <triple>
+```
+
+**反例（2026-08-10，本仓）**：`src-tauri/Cargo.toml:53` 写
+`reqwest = { default-features = false, features = ["json","rustls-tls","stream"] }`，
+据此推断「App 只能走 HTTP/1.1、且不读系统代理」，并准备按这个前提去补 `http2`。
+实测 `cargo tree -e features -i -p reqwest@0.12.28` 发现：同文件 `:39` 的 `tauri-plugin-http = "2.5.9"`
+**未关默认 features**、依赖同一个 reqwest ⇒ `http2` / `system-proxy` / `charset` / `cookies` **全部被重新打开**，
+下载器**本来就在跟对端谈 HTTP/2**。⇒「补 http2」这个动作根本不存在。
+旁证：同仓 `secure_net.rs` 专门写了 `pinned_http1_client` 去**强制** h1 —— 正因为 h2 一直可用。

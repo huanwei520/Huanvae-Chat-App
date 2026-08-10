@@ -16,6 +16,7 @@ export function MobileDownloadCard() {
   const progress = useUpdateStore((s) => s.progress);
   const downloaded = useUpdateStore((s) => s.downloaded);
   const total = useUpdateStore((s) => s.total);
+  const indeterminate = useUpdateStore((s) => s.indeterminate);
 
   // 仅在下载状态时显示
   if (status !== 'downloading') {
@@ -38,18 +39,29 @@ export function MobileDownloadCard() {
         <div className="mobile-download-card-info">
           <div className="mobile-download-card-title">
             正在更新 v{version}
-            <span className="mobile-download-card-percent">{Math.round(progress)}%</span>
+            <span className="mobile-download-card-percent">
+              {indeterminate ? '下载中' : `${Math.round(progress)}%`}
+            </span>
           </div>
           <div className="mobile-download-card-progress">
-            <motion.div
-              className="mobile-download-card-progress-fill"
-              initial={{ width: 0 }}
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.3 }}
-            />
+            {indeterminate ? (
+              // 总长未知：纯 CSS keyframes 滚动条（不用 framer-motion，
+              // 避免与 CSS 动画抢同一个 transform，见 .claude/rules/animation.md 规则一）
+              <div className="mobile-download-card-progress-indeterminate" />
+            ) : (
+              <motion.div
+                className="mobile-download-card-progress-fill"
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            )}
           </div>
           <div className="mobile-download-card-meta">
-            {formatSize(downloaded)} / {formatSize(total)}
+            {/* 总长未知时只报已下载字节，不显示 "x / 0 B" 这种误导文案 */}
+            {indeterminate
+              ? formatSize(downloaded)
+              : `${formatSize(downloaded)} / ${formatSize(total)}`}
           </div>
         </div>
       </div>

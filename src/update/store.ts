@@ -25,7 +25,11 @@
 
 import { create } from 'zustand';
 import { isMobile } from '../utils/platform';
-import type { UpdateToastStatus, UpdateToastProps } from './components/UpdateToast';
+import type {
+  UpdateToastStatus,
+  UpdateToastProps,
+  UpdateProgressInput,
+} from './components/UpdateToast';
 
 // 动态导入，避免循环依赖
 import type { UpdateInfo } from './service';
@@ -40,9 +44,13 @@ interface UpdateStoreState {
   status: UpdateToastStatus;
   version: string;
   notes: string;
+  /** 百分比（0-100）；**仅当 indeterminate=false 时有意义** */
   progress: number;
   downloaded: number;
+  /** 总字节数；0 表示未知（此时 indeterminate 必为 true） */
   total: number;
+  /** 不定态：总长未知 ⇒ UI 显示滚动动画而不是一个不动的 0% */
+  indeterminate: boolean;
   sourceUrl: string;
   errorMessage: string;
 
@@ -58,7 +66,7 @@ interface UpdateStoreActions {
   // 弹窗操作
   showAvailable: (version: string, notes?: string) => void;
   startDownload: () => void;
-  updateProgress: (progress: number, downloaded: number, total: number, sourceUrl?: string) => void;
+  updateProgress: (input: UpdateProgressInput) => void;
   downloadComplete: () => void;
   showError: (message: string) => void;
   dismiss: () => void;
@@ -92,6 +100,7 @@ const initialState: UpdateStoreState = {
   progress: 0,
   downloaded: 0,
   total: 0,
+  indeterminate: false,
   sourceUrl: '',
   errorMessage: '',
   isChecking: false,
@@ -120,20 +129,27 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   startDownload: () => {
-    set({ status: 'downloading', progress: 0, downloaded: 0, total: 0 });
+    // 起手总长必然未知（第一个 Started 事件还没到）⇒ 先进不定态，
+    // 免得先闪一个「0%」再变成真实百分比。
+    set({ status: 'downloading', progress: 0, downloaded: 0, total: 0, indeterminate: true });
   },
 
-  updateProgress: (progress, downloaded, total, sourceUrl) => {
-    set({
-      progress,
-      downloaded,
-      total,
+  updateProgress: ({ percent, downloaded, total, indeterminate, sourceUrl }) => {
+    // 数据源显式给了就听它的；没给才按「有没有总长」推断。
+    // 🔴 全程不用 `||`：percent=0 / downloaded=0 都是合法值，`||` 会把它们和 undefined 混掉。
+    const isIndeterminate = indeterminate ?? (total === undefined || total <= 0);
+    set((state) => ({
+      // 不定态下没有可信百分比，保持 0（UI 按 indeterminate 渲染滚动条，不读这个值）
+      progress: isIndeterminate ? 0 : (percent ?? state.progress),
+      downloaded: downloaded ?? state.downloaded,
+      total: total ?? state.total,
+      indeterminate: isIndeterminate,
       ...(sourceUrl ? { sourceUrl } : {}),
-    });
+    }));
   },
 
   downloadComplete: () => {
-    set({ status: 'ready', progress: 100 });
+    set({ status: 'ready', progress: 100, indeterminate: false });
   },
 
   showError: (message) => {
@@ -221,7 +237,13 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         store.startDownload();
         console.warn('[UpdateStore] 开始下载 APK:', info.apkUrl);
         const localPath = await downloadApk(info.apkUrl, (progress) => {
-          store.updateProgress(progress.percent, progress.downloaded, progress.total, info.apkUrl);
+          // Android 侧总长来自 Content-Length；拿不到时是 0 ⇒ 由 updateProgress 推断成不定态
+          store.updateProgress({
+            percent: progress.percent,
+            downloaded: progress.downloaded,
+            total: progress.total,
+            sourceUrl: info.apkUrl,
+          });
         });
 
         console.warn('[UpdateStore] 下载完成:', localPath);
@@ -243,11 +265,14 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         store.startDownload();
 
         await downloadAndInstall(info.update, (progress) => {
-          store.updateProgress(
-            progress.percent || 0,
-            progress.downloaded || 0,
-            progress.contentLength || 0,
-          );
+          // 🔴 原样透传，不做 `|| 0` 兜底：service.ts 已经把「总长未知」表达成
+          // percent=undefined + indeterminate=true，兜底会把它压成一个假的 0%。
+          store.updateProgress({
+            percent: progress.percent,
+            downloaded: progress.downloaded,
+            total: progress.contentLength,
+            indeterminate: progress.indeterminate,
+          });
         });
 
         store.downloadComplete();
@@ -295,6 +320,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       progress: state.progress,
       downloaded: state.downloaded,
       total: state.total,
+      indeterminate: state.indeterminate,
       sourceUrl: state.sourceUrl,
       errorMessage: state.errorMessage,
       onUpdate: state.handleUpdate,
@@ -322,6 +348,7 @@ export function useUpdateToastProps(): UpdateToastProps {
   const progress = useUpdateStore((s) => s.progress);
   const downloaded = useUpdateStore((s) => s.downloaded);
   const total = useUpdateStore((s) => s.total);
+  const indeterminate = useUpdateStore((s) => s.indeterminate);
   const sourceUrl = useUpdateStore((s) => s.sourceUrl);
   const errorMessage = useUpdateStore((s) => s.errorMessage);
 
@@ -338,6 +365,7 @@ export function useUpdateToastProps(): UpdateToastProps {
     progress,
     downloaded,
     total,
+    indeterminate,
     sourceUrl,
     errorMessage,
     onUpdate: handleUpdate,

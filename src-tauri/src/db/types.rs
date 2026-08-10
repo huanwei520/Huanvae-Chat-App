@@ -85,6 +85,28 @@ pub struct LocalFileMapping {
     pub created_at: Option<String>,
 }
 
+/// 消息搜索过滤条件（全 None = 跨会话、不限类型的全局搜索）
+///
+/// `include_content_types` / `exclude_content_types` 收的是**原始 content_type 值**
+/// （`text` / `image` / `video` / `file` / `system` / `meeting_invite` / `card` …），
+/// 由前端按业务分类映射后下发——Rust 侧不认识"图片/文件"这类业务分类，
+/// 因为 `messages.content_type` 是服务端 message_type 的原样透传、DB 无 CHECK 约束，
+/// 未来新增类型不应要求改 Rust。
+///
+/// 两个方向都需要：
+/// - 「图片 / 视频 / 文件」用 include（枚举已知类型）
+/// - 「文字」用 exclude（= 非文件类，这样未来新增的未知类型仍归入文字，不会从四个分类里凭空消失）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MessageSearchFilter {
+    /// 限定单个会话（None = 跨会话）
+    pub conversation_id: Option<String>,
+    /// 仅保留这些 content_type（None = 不限；Some(空) = 无任何命中）
+    pub include_content_types: Option<Vec<String>>,
+    /// 排除这些 content_type（None / Some(空) = 不排除）
+    pub exclude_content_types: Option<Vec<String>>,
+}
+
 /// 消息搜索结果（含会话上下文 + 前后相邻消息预览）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchMessageResult {

@@ -1,14 +1,30 @@
 /**
- * 主菜单视图组件
+ * 主菜单视图组件（侧边滑出面板的「main」视图）
  *
- * 根据用户角色（群主/管理员/普通成员）动态显示菜单项
- * 使用"始终渲染 + 状态动画"方式：所有菜单项始终存在于 DOM 中
- * 通过 animate prop 控制显示/隐藏状态，确保动画 100% 可靠
+ * 内容按**语义分组**呈现，而不是一条平铺的长列表：每组有组标题，破坏性操作单独成组
+ * 且排在最后（`.menu-group--danger`）。面板外壳、标题栏、关闭键在
+ * [ChatMenuPanel](../ChatMenuPanel.tsx)，本组件只产出面板 body 里的分组内容
+ * （因此不再自带 MenuHeader —— 聊天对象名与「群聊设置/好友设置」由面板标题栏承担）。
+ *
+ * ## 分组
+ *
+ * | 目标 | 分组（自上而下） |
+ * |------|------------------|
+ * | 好友 / bot | 会话 · 好友 · 危险操作 |
+ * | 群聊 | 会话 · 群聊 · 群管理（owner/admin） · 危险操作 |
+ *
+ * ## 角色变化用「始终渲染 + 状态动画」
+ *
+ * 群角色会被 WebSocket 实时改写（升管理员 / 转让群主），所以角色相关的项与「群管理」
+ * 整组都**常驻 DOM**，靠 animate 在 visible/hidden 间过渡（height/padding/opacity），
+ * 而不是条件卸载 —— 条件卸载会让权限变化表现为「突然多一块」。
+ *
+ * ⚠️ hidden 态必须 `disabled`：只把 height 收成 0 的话按钮仍在 Tab 序里、Enter 仍会触发，
+ * 就成了「能聚焦却按了没反应（甚至误触发）」的可达性坑。
  */
 
 import { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { MenuHeader } from './MenuHeader';
 import {
   TrashIcon,
   EditIcon,
@@ -60,22 +76,16 @@ const menuItemVariants = {
   }),
 };
 
-/** 分割线动画变体 - 从左展开 */
-const dividerVariants = {
+/** 整组显隐动画（组标题跟着一起收） */
+const groupVariants = {
   visible: {
     opacity: 1,
-    scaleX: 1,
-    height: 1,
-    marginTop: 6,
-    marginBottom: 6,
+    height: 'auto' as const,
     transition: { duration: 0.2, ease: 'easeOut' as const },
   },
   hidden: {
     opacity: 0,
-    scaleX: 0,
     height: 0,
-    marginTop: 0,
-    marginBottom: 0,
     transition: { duration: 0.15, ease: 'easeIn' as const },
   },
 };
@@ -98,7 +108,7 @@ interface AnimatedMenuItemProps {
  * 始终渲染在 DOM 中，通过 visible prop 控制显示/隐藏动画
  * 动画效果：从左滑入（x: -30 → 0），向右滑出（x: 0 → 30）
  * 使用 useRef 追踪上一个状态，通过 custom prop 传递方向信息
- * 隐藏时 height=0 + pointerEvents='none' 确保不影响布局和交互
+ * 隐藏时 height=0 + disabled 确保不影响布局，也不留在 Tab 序 / 不可被 Enter 误触发
  */
 function AnimatedMenuItem({
   visible,
@@ -123,14 +133,13 @@ function AnimatedMenuItem({
     <motion.button
       className={`menu-item ${className || ''}`}
       onClick={onClick}
+      disabled={!visible}
+      aria-hidden={!visible}
       variants={menuItemVariants}
       animate={visible ? 'visible' : 'hidden'}
       custom={isEnteringRef.current}
       initial={false}
-      style={{
-        overflow: 'hidden',
-        pointerEvents: visible ? 'auto' : 'none',
-      }}
+      style={{ overflow: 'hidden' }}
     >
       {icon}
       <span>{label}</span>
@@ -138,27 +147,41 @@ function AnimatedMenuItem({
   );
 }
 
-interface AnimatedDividerProps {
+interface MenuGroupProps {
+  title: string;
+  /** 破坏性分组：整组走危险配色并排在最后 */
+  danger?: boolean;
+  children: React.ReactNode;
+}
+
+/** 语义分组：组标题 + 组内容 */
+function MenuGroup({ title, danger = false, children }: MenuGroupProps) {
+  return (
+    <section className={`menu-group${danger ? ' menu-group--danger' : ''}`}>
+      <h3 className="menu-group-title">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+interface AnimatedMenuGroupProps extends MenuGroupProps {
   visible: boolean;
 }
 
-/**
- * 动画分割线组件
- *
- * 始终渲染，通过 visible 控制显示/隐藏
- */
-function AnimatedDivider({ visible }: AnimatedDividerProps) {
+/** 按角色显隐的分组（如「群管理」）：始终渲染，靠 animate 收展 */
+function AnimatedMenuGroup({ visible, title, danger = false, children }: AnimatedMenuGroupProps) {
   return (
-    <motion.div
-      className="menu-divider"
-      variants={dividerVariants}
+    <motion.section
+      className={`menu-group${danger ? ' menu-group--danger' : ''}`}
+      variants={groupVariants}
       animate={visible ? 'visible' : 'hidden'}
       initial={false}
-      style={{
-        overflow: 'hidden',
-        transformOrigin: 'left',
-      }}
-    />
+      aria-hidden={!visible}
+      style={{ overflow: 'hidden' }}
+    >
+      <h3 className="menu-group-title">{title}</h3>
+      {children}
+    </motion.section>
   );
 }
 
@@ -219,12 +242,9 @@ export function MainMenu({
   const isGroup = targetType === 'group';
   // friend / bot 共用好友菜单（好友关系操作对 bot 好友同样有效）
   const isFriendLike = targetType === 'friend' || targetType === 'bot';
-  const title = isGroup ? '群聊设置' : '好友设置';
 
   return (
     <>
-      <MenuHeader title={title} />
-
       {/* 群头像显示区域 - 仅群主/管理员可见 */}
       {isGroup && group && isOwnerOrAdmin && (
         <div className="menu-avatar-section">
@@ -261,143 +281,146 @@ export function MainMenu({
         </div>
       )}
 
-      {/* 多选消息选项 - 始终显示 */}
-      <button
-        className={`menu-item ${isMultiSelectMode ? 'active' : ''}`}
-        onClick={onToggleMultiSelect}
-      >
-        <MultiSelectIcon />
-        <span>{isMultiSelectMode ? '退出多选' : '多选消息'}</span>
-      </button>
-
-      {/* 加载全部聊天记录 */}
-      {onLoadAllHistory && (
+      {/* ===== 会话（两种目标共有） ===== */}
+      <MenuGroup title="会话">
         <button
-          className={`menu-item ${loadingHistory ? 'loading' : ''}`}
-          onClick={onLoadAllHistory}
-          disabled={loadingHistory}
+          className={`menu-item ${isMultiSelectMode ? 'active' : ''}`}
+          onClick={onToggleMultiSelect}
         >
-          <CloudDownloadIcon />
-          <span>
-            {loadingHistory
-              ? historyProgress || '加载中...'
-              : '加载全部记录'}
-          </span>
+          <MultiSelectIcon />
+          <span>{isMultiSelectMode ? '退出多选' : '多选消息'}</span>
         </button>
-      )}
 
-      <div className="menu-divider" />
+        {onLoadAllHistory && (
+          <button
+            className={`menu-item ${loadingHistory ? 'loading' : ''}`}
+            onClick={onLoadAllHistory}
+            disabled={loadingHistory}
+          >
+            <CloudDownloadIcon />
+            <span>
+              {loadingHistory
+                ? historyProgress || '加载中...'
+                : '加载全部记录'}
+            </span>
+          </button>
+        )}
+      </MenuGroup>
 
-      {/* 好友菜单（friend / bot 共用） */}
+      {/* ===== 好友（friend / bot 共用） ===== */}
       {isFriendLike && (
         <>
-          <button
-            className="menu-item"
-            onClick={() => onSetView('edit-remark')}
-          >
-            <EditIcon />
-            <span>设置备注</span>
-          </button>
-          {/* 特别关心（直接切换） */}
-          <button
-            className={`menu-item ${isFriendSpecialCare ? 'active' : ''}`}
-            onClick={onToggleSpecialCare}
-          >
-            <StarIcon filled={isFriendSpecialCare} />
-            <span>{isFriendSpecialCare ? '取消特别关心' : '特别关心'}</span>
-          </button>
-          {/* 拉黑 / 取消拉黑（拉黑经二次确认，取消拉黑直接执行） */}
-          {isFriendBlacklisted ? (
-            <button className="menu-item" onClick={onUnblacklist}>
-              <BlockIcon />
-              <span>取消拉黑</span>
+          <MenuGroup title="好友">
+            <button
+              className="menu-item"
+              onClick={() => onSetView('edit-remark')}
+            >
+              <EditIcon />
+              <span>设置备注</span>
             </button>
-          ) : (
+            {/* 特别关心（直接切换） */}
+            <button
+              className={`menu-item ${isFriendSpecialCare ? 'active' : ''}`}
+              onClick={onToggleSpecialCare}
+            >
+              <StarIcon filled={isFriendSpecialCare} />
+              <span>{isFriendSpecialCare ? '取消特别关心' : '特别关心'}</span>
+            </button>
+            {/* 取消拉黑是恢复性操作，归「好友」组；拉黑是破坏性的，归下方危险组 */}
+            {isFriendBlacklisted && (
+              <button className="menu-item" onClick={onUnblacklist}>
+                <BlockIcon />
+                <span>取消拉黑</span>
+              </button>
+            )}
+          </MenuGroup>
+
+          <MenuGroup title="危险操作" danger>
+            {!isFriendBlacklisted && (
+              <button
+                className="menu-item danger"
+                onClick={() => onSetView('confirm-blacklist')}
+              >
+                <BlockIcon />
+                <span>拉黑</span>
+              </button>
+            )}
             <button
               className="menu-item danger"
-              onClick={() => onSetView('confirm-blacklist')}
+              onClick={() => onSetView('confirm-delete')}
             >
-              <BlockIcon />
-              <span>拉黑</span>
+              <TrashIcon />
+              <span>删除好友</span>
             </button>
-          )}
-          <button
-            className="menu-item danger"
-            onClick={() => onSetView('confirm-delete')}
-          >
-            <TrashIcon />
-            <span>删除好友</span>
-          </button>
+          </MenuGroup>
         </>
       )}
 
-      {/* 群聊菜单 */}
+      {/* ===== 群聊 ===== */}
       {isGroup && (
         <>
-          {/* 群公告 - 所有成员可查看 */}
-          <button className="menu-item" onClick={() => onSetView('notices')}>
-            <MegaphoneIcon />
-            <span>群公告</span>
-          </button>
+          <MenuGroup title="群聊">
+            {/* 群公告 / 查看成员 / 群内昵称 - 所有成员可用 */}
+            <button className="menu-item" onClick={() => onSetView('notices')}>
+              <MegaphoneIcon />
+              <span>群公告</span>
+            </button>
+            <button className="menu-item" onClick={() => onSetView('members')}>
+              <UsersIcon />
+              <span>查看成员</span>
+            </button>
+            <button className="menu-item" onClick={() => onSetView('edit-nickname')}>
+              <UserIcon />
+              <span>修改群内昵称</span>
+            </button>
+          </MenuGroup>
 
-          {/* 管理员/群主专属功能（动画控制） */}
-          <AnimatedMenuItem
-            visible={isOwnerOrAdmin}
-            onClick={() => onSetView('edit-name')}
-            icon={<EditIcon />}
-            label="修改群名称"
-          />
-          <AnimatedMenuItem
-            visible={isOwnerOrAdmin}
-            onClick={() => onSetView('invite')}
-            icon={<UserPlusIcon />}
-            label="邀请成员"
-          />
-          <AnimatedMenuItem
-            visible={isOwnerOrAdmin}
-            onClick={() => onSetView('invite-codes')}
-            icon={<QrCodeIcon />}
-            label="邀请码管理"
-          />
+          {/* 管理员/群主专属（整组随角色收展） */}
+          <AnimatedMenuGroup visible={isOwnerOrAdmin} title="群管理">
+            <AnimatedMenuItem
+              visible={isOwnerOrAdmin}
+              onClick={() => onSetView('edit-name')}
+              icon={<EditIcon />}
+              label="修改群名称"
+            />
+            <AnimatedMenuItem
+              visible={isOwnerOrAdmin}
+              onClick={() => onSetView('invite')}
+              icon={<UserPlusIcon />}
+              label="邀请成员"
+            />
+            <AnimatedMenuItem
+              visible={isOwnerOrAdmin}
+              onClick={() => onSetView('invite-codes')}
+              icon={<QrCodeIcon />}
+              label="邀请码管理"
+            />
+            {/* 转让群主：群主专属，在管理组内单独 gating */}
+            <AnimatedMenuItem
+              visible={isOwner}
+              onClick={() => onSetView('transfer-owner')}
+              icon={<ArrowsRightLeftIcon />}
+              label="转让群主"
+            />
+          </AnimatedMenuGroup>
 
-          {/* 查看成员 - 所有成员可用 */}
-          <button className="menu-item" onClick={() => onSetView('members')}>
-            <UsersIcon />
-            <span>查看成员</span>
-          </button>
-
-          {/* 修改群内昵称 - 所有成员可用 */}
-          <button className="menu-item" onClick={() => onSetView('edit-nickname')}>
-            <UserIcon />
-            <span>修改群内昵称</span>
-          </button>
-
-          {/* 群主专属分割线 */}
-          <AnimatedDivider visible={isOwner} />
-
-          {/* 群主专属功能（动画控制） */}
-          <AnimatedMenuItem
-            visible={isOwner}
-            onClick={() => onSetView('transfer-owner')}
-            icon={<ArrowsRightLeftIcon />}
-            label="转让群主"
-          />
-          <AnimatedMenuItem
-            visible={isOwner}
-            className="danger"
-            onClick={() => onSetView('confirm-disband')}
-            icon={<XCircleIcon />}
-            label="解散群聊"
-          />
-
-          {/* 非群主可退出（动画控制） */}
-          <AnimatedMenuItem
-            visible={!isOwner}
-            className="danger"
-            onClick={() => onSetView('confirm-leave')}
-            icon={<ExitIcon />}
-            label="退出群聊"
-          />
+          <MenuGroup title="危险操作" danger>
+            {/* 群主解散 / 非群主退出，二选一（角色变化时靠动画互换） */}
+            <AnimatedMenuItem
+              visible={isOwner}
+              className="danger"
+              onClick={() => onSetView('confirm-disband')}
+              icon={<XCircleIcon />}
+              label="解散群聊"
+            />
+            <AnimatedMenuItem
+              visible={!isOwner}
+              className="danger"
+              onClick={() => onSetView('confirm-leave')}
+              icon={<ExitIcon />}
+              label="退出群聊"
+            />
+          </MenuGroup>
         </>
       )}
     </>

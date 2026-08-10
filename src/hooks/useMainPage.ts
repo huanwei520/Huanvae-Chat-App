@@ -40,6 +40,7 @@ import { useLocalGroupMessages } from '../chat/group/useLocalGroupMessages';
 import { useAIMessages } from '../chat/ai/useAIMessages';
 import { useVoiceCall } from '../chat/ai/voice/useVoiceCall';
 import { useVoiceProfiles } from '../chat/ai/voice/useVoiceProfiles';
+import { scrollMessageIntoView } from '../chat/shared/scrollMessageIntoView';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
 import { useChatActions } from './useChatActions';
@@ -835,7 +836,8 @@ export function useMainPage() {
 
   // 消息定位（全局搜索结果点击 / 群聊回复引用点击共用同一条通路）：
   // chatTarget 与 pendingScrollToMessageId 同时存在时，加载历史直到目标进入窗口
-  // → 在 DOM 中查找元素 → scrollIntoView → 高亮 → 清空 pending。
+  // → 在 DOM 中查找元素 → 滚消息列表容器自己（scrollMessageIntoView，不冒泡到祖先）
+  // → 高亮 → 清空 pending。
   // 翻完本地历史仍未命中（原消息早于本地保留范围 / 已被本地删除）→ 写降级提示，
   // 绝不静默无反应（用户点了引用块必须得到反馈）。
   useEffect(() => {
@@ -869,11 +871,7 @@ export function useMainPage() {
         if (cancelled) {
           return;
         }
-        const el = document.querySelector(
-          `[data-message-uuid="${CSS.escape(targetId)}"]`,
-        );
-        if (el) {
-          el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (scrollMessageIntoView(targetId)) {
           // 只有真滚到了才高亮：DOM 里找不到元素（极端时序）时高亮会落到看不见的地方，
           // 用户只会看到「点了没反应」，那种情况按定位失败给提示更诚实。
           setHighlightedMessageId(targetId);

@@ -7,11 +7,22 @@
  *
  * 状态管理已提取到 useChatMenu Hook
  * 本组件仅负责渲染 UI
+ *
+ * ## 呈现形态：右侧滑出面板（不是下拉菜单）
+ *
+ * 顶栏按钮打开的是 [ChatMenuPanel](./ChatMenuPanel.tsx) —— 从屏幕右侧滑入的整高面板 +
+ * 全屏遮罩，桌面与移动**同一组件、同一套交互**（点遮罩 / Esc / 关闭键关闭）。
+ * 面板 body 里渲染当前 view：`main` 是按语义分组的设置列表（见 menu/MainMenu.tsx），
+ * 其余是各子视图（成员、公告、确认框……）。
+ *
+ * useChatMenu 的 `menuRef`（点击外部关闭）挂在**面板本体**上而不是顶栏容器上，
+ * 原因与协作细节见 ChatMenuPanel 文件头。
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useChatMenu } from '../group/useChatMenu';
 import { GroupRemarkInputModal } from '../group/GroupRemarkInputModal';
+import { ChatMenuPanel } from './ChatMenuPanel';
 import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
@@ -333,14 +344,23 @@ export function ChatMenuButton({
     }
   };
 
+  // 面板标题栏：主标题=聊天对象名，副标题=设置域（原下拉菜单里的 MenuHeader 已由它承担）
+  const panelTitle = target.type === 'group'
+    ? target.data.group_name
+    : friendDisplayName(target.data);
+  const panelSubtitle = target.type === 'group' ? '群聊设置' : '好友设置';
+
   return (
-    <div className="chat-menu-container" ref={menu.menuRef}>
+    <div className="chat-menu-container">
       <motion.button
         className="chat-menu-btn"
         onClick={menu.handleToggle}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         title="更多操作"
+        aria-label="更多操作"
+        aria-haspopup="dialog"
+        aria-expanded={menu.isOpen}
       >
         <MenuIcon />
       </motion.button>
@@ -368,26 +388,26 @@ export function ChatMenuButton({
         />
       )}
 
-      <AnimatePresence>
-        {menu.isOpen && (
-          <motion.div
-            className="chat-menu-dropdown"
-            initial={{ opacity: 0, scale: 0.95, y: -10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -10 }}
-            transition={{ duration: 0.15 }}
-          >
-            {renderViewContent()}
-
-            {/* 错误/成功提示 */}
-            {(menu.error || menu.success) && (
-              <div className={`menu-message ${menu.error ? 'error' : 'success'}`}>
-                {menu.error || menu.success}
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ChatMenuPanel
+        open={menu.isOpen}
+        title={panelTitle}
+        subtitle={panelSubtitle}
+        onClose={menu.handleCloseMenu}
+        sheetRef={menu.menuRef}
+        footer={
+          (menu.error || menu.success) ? (
+            <div
+              className={`menu-message ${menu.error ? 'error' : 'success'}`}
+              role="status"
+              aria-live="polite"
+            >
+              {menu.error || menu.success}
+            </div>
+          ) : null
+        }
+      >
+        {renderViewContent()}
+      </ChatMenuPanel>
     </div>
   );
 }

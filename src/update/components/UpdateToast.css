@@ -139,6 +139,50 @@
   border-radius: 3px;
 }
 
+/**
+ * 不定态滚动条（服务端没给 Content-Length，算不出百分比时用）
+ *
+ * 纯 CSS keyframes：这个节点**不是** motion 组件，transform 只有 CSS 一个主人，
+ * 不存在与 framer-motion 抢帧的问题（.claude/rules/animation.md 规则一）。
+ * 与 .update-toast-progress-fill 是互斥的两个节点，同一时刻只渲染其中一个。
+ */
+.update-toast-progress-indeterminate {
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 3px;
+  animation: update-toast-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes update-toast-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* 尊重系统「减弱动画」偏好：降级为呼吸式脉冲，不做横向位移 */
+@media (prefers-reduced-motion: reduce) {
+  .update-toast-progress-indeterminate {
+    width: 100%;
+    animation: update-toast-indeterminate-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes update-toast-indeterminate-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+
+    50% {
+      opacity: 1;
+    }
+  }
+}
+
 .update-toast-progress-text {
   font-size: 11px;
   font-weight: 600;

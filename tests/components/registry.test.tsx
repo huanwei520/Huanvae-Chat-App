@@ -44,6 +44,12 @@ import * as MobileProfilePage from '../../src/pages/mobile/MobileProfilePage';
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
+// 会话内消息查找
+import * as ConversationMessageSearch from '../../src/components/search/ConversationMessageSearch';
+import * as useConversationMessageSearch from '../../src/components/search/useConversationMessageSearch';
+import * as messageCategory from '../../src/components/search/messageCategory';
+import * as conversationSearchTarget from '../../src/components/search/conversationSearchTarget';
+import * as highlightMatch from '../../src/components/search/highlightMatch';
 // 股票研究窗口
 import * as StockPage from '../../src/stocks/StockPage';
 import * as stocksApi from '../../src/api/stocks';
@@ -169,6 +175,7 @@ import * as CardChart from '../../src/chat/shared/CardChart';
 import * as AIChatMessages from '../../src/chat/ai/AIChatMessages';
 import * as AIMessageBubble from '../../src/chat/ai/AIMessageBubble';
 import * as AIHistoryPanel from '../../src/chat/ai/AIHistoryPanel';
+import * as ChatMenuPanel from '../../src/chat/shared/ChatMenuPanel';
 import * as ConfirmDialog from '../../src/chat/shared/menu/ConfirmDialog';
 import * as EditNameForm from '../../src/chat/shared/menu/EditNameForm';
 import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
@@ -235,6 +242,7 @@ import * as shelfStore from '../../src/stores/shelfStore';
 import * as botCommandsStore from '../../src/stores/botCommandsStore';
 import * as slashCommands from '../../src/chat/shared/slashCommands';
 import * as replyPreview from '../../src/chat/group/replyPreview';
+import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -307,6 +315,12 @@ const COMPONENT_MAP = {
   // 全局搜索
   GlobalMessageSearchResults,
   useGlobalMessageSearch,
+  // 会话内消息查找
+  ConversationMessageSearch,
+  useConversationMessageSearch,
+  messageCategory,
+  conversationSearchTarget,
+  highlightMatch,
   // 股票研究窗口
   StockPage,
   stocksApi,
@@ -462,6 +476,7 @@ const COMPONENT_MAP = {
   AIChatMessages,
   AIMessageBubble,
   AIHistoryPanel,
+  ChatMenuPanel,
   ConfirmDialog,
   EditNameForm,
   EditNicknameForm,
@@ -527,6 +542,7 @@ const COMPONENT_MAP = {
   botCommandsStore,
   slashCommands,
   replyPreview,
+  scrollMessageIntoView,
   // 工具模块
   formatUtils,
   avatarColor,

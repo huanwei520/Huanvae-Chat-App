@@ -7,7 +7,7 @@
 //! - `save_messages_skip_existing`: 批量插入消息（INSERT OR IGNORE — 仅补本地缺失，不覆盖本地状态）
 //! - `mark_message_recalled`: 标记消息为已撤回
 //! - `mark_message_deleted`: 标记消息为已删除（软删除）
-//! - `search_messages`: 跨会话搜消息内容（FTS5 主路径 + LIKE fallback）
+//! - `search_messages`: 搜消息内容（FTS5 主路径 + LIKE fallback；可按会话 + content_type 过滤）
 //!
 //! ## 消息排序
 //!
@@ -16,7 +16,7 @@
 
 use rusqlite::{params, Connection};
 
-use super::types::{LocalMessage, SearchMessageResult};
+use super::types::{LocalMessage, MessageSearchFilter, SearchMessageResult};
 use super::{with_db, DB};
 
 /// 获取会话的消息列表
@@ -257,7 +257,7 @@ pub fn mark_message_recalled(message_uuid: &str) -> Result<(), String> {
     })
 }
 
-/// 跨会话搜索消息内容（含前后上下文）
+/// 搜索消息内容（含前后上下文）
 ///
 /// 双轨制：
 /// - 主路径 FTS5 MATCH 短语：性能最佳，处理大部分常规查询
@@ -267,14 +267,19 @@ pub fn mark_message_recalled(message_uuid: &str) -> Result<(), String> {
 /// - JOIN conversations 拿会话名 + 头像
 /// - 对每条命中，按 conversation_id + seq 取前后各 1 条作为上下文预览
 /// - 排除 is_deleted 和 is_recalled
+/// - 按 filter 限定会话 / content_type（见 `MessageSearchFilter`）
 /// - 按 send_time DESC 排序，限 limit 条
-pub fn search_messages(query: &str, limit: i64) -> Result<Vec<SearchMessageResult>, String> {
+pub fn search_messages(
+    query: &str,
+    limit: i64,
+    filter: &MessageSearchFilter,
+) -> Result<Vec<SearchMessageResult>, String> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
 
-    with_db!(db, { search_messages_with_conn(db, trimmed, limit) })
+    with_db!(db, { search_messages_with_conn(db, trimmed, limit, filter) })
 }
 
 /// search_messages 的内部实现（接受 Connection 引用，便于单测使用 in-memory DB）
@@ -284,16 +289,75 @@ pub(crate) fn search_messages_with_conn(
     conn: &Connection,
     query: &str,
     limit: i64,
+    filter: &MessageSearchFilter,
 ) -> Result<Vec<SearchMessageResult>, String> {
+    // include 显式给了空集 = "只要这 0 种类型" → 结果必然为空，直接短路
+    // （不短路会拼出 `content_type IN ()`，SQLite 语法错误）
+    if filter
+        .include_content_types
+        .as_ref()
+        .is_some_and(|t| t.is_empty())
+    {
+        return Ok(Vec::new());
+    }
+
     // 主路径：FTS5 MATCH 短语查询
-    let fts_results = fts_search(conn, query, limit)?;
+    let fts_results = fts_search(conn, query, limit, filter)?;
     if !fts_results.is_empty() {
         return enrich_with_context(conn, fts_results);
     }
 
     // Fallback：LIKE 子串匹配（处理 FTS 索引未同步 / unicode61 分词边界等场景）
-    let like_results = like_search(conn, query, limit)?;
+    let like_results = like_search(conn, query, limit, filter)?;
     enrich_with_context(conn, like_results)
+}
+
+/// 把过滤条件编译成 SQL 片段（每条以 ` AND ` 起头）+ 顺序一致的绑定值
+///
+/// 调用方保证 `include_content_types` 非 Some(空)（`search_messages_with_conn` 已短路）。
+fn compile_filter(filter: &MessageSearchFilter) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
+    let mut sql = String::new();
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(conversation_id) = &filter.conversation_id {
+        sql.push_str(" AND m.conversation_id = ?");
+        binds.push(Box::new(conversation_id.clone()));
+    }
+
+    if let Some(types) = &filter.include_content_types {
+        sql.push_str(" AND m.content_type IN (");
+        sql.push_str(&placeholders(types.len()));
+        sql.push(')');
+        for t in types {
+            binds.push(Box::new(t.clone()));
+        }
+    }
+
+    if let Some(types) = &filter.exclude_content_types {
+        // 空排除集 = 不排除任何东西，跳过（拼 `NOT IN ()` 是语法错误）
+        if !types.is_empty() {
+            sql.push_str(" AND m.content_type NOT IN (");
+            sql.push_str(&placeholders(types.len()));
+            sql.push(')');
+            for t in types {
+                binds.push(Box::new(t.clone()));
+            }
+        }
+    }
+
+    (sql, binds)
+}
+
+/// 生成 `?,?,?` 形式的占位符串（n >= 1）
+fn placeholders(n: usize) -> String {
+    let mut s = String::with_capacity(n * 2);
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('?');
+    }
+    s
 }
 
 /// FTS5 MATCH 短语查询；返回 (LocalMessage, conv_name, conv_avatar) 列表
@@ -301,30 +365,37 @@ fn fts_search(
     conn: &Connection,
     query: &str,
     limit: i64,
+    filter: &MessageSearchFilter,
 ) -> Result<Vec<(LocalMessage, String, Option<String>)>, String> {
     // 转义查询里的双引号（FTS5 短语用 "" 表示一个 "）
     let escaped = query.replace('"', "\"\"");
     let fts_query = format!("\"{}\"", escaped);
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
-                    m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                    m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
-                    m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
-                    c.name, c.avatar_url
-             FROM messages_fts
-             JOIN messages m ON m.rowid = messages_fts.rowid
-             LEFT JOIN conversations c ON c.id = m.conversation_id
-             WHERE messages_fts MATCH ?
-               AND m.is_deleted = 0
-               AND m.is_recalled = 0
-             ORDER BY m.send_time DESC
-             LIMIT ?",
-        )
-        .map_err(|e| e.to_string())?;
+    let (filter_sql, filter_binds) = compile_filter(filter);
+    let sql = format!(
+        "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
+                m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
+                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
+                c.name, c.avatar_url
+         FROM messages_fts
+         JOIN messages m ON m.rowid = messages_fts.rowid
+         LEFT JOIN conversations c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?
+           AND m.is_deleted = 0
+           AND m.is_recalled = 0{}
+         ORDER BY m.send_time DESC
+         LIMIT ?",
+        filter_sql
+    );
 
-    collect_hits(&mut stmt, params![fts_query, limit])
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(fts_query)];
+    binds.extend(filter_binds);
+    binds.push(Box::new(limit));
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    collect_hits(&mut stmt, bind_refs.as_slice())
 }
 
 /// LIKE %query% 兜底查询
@@ -332,6 +403,7 @@ fn like_search(
     conn: &Connection,
     query: &str,
     limit: i64,
+    filter: &MessageSearchFilter,
 ) -> Result<Vec<(LocalMessage, String, Option<String>)>, String> {
     // SQLite LIKE 通配符转义
     let escaped = query
@@ -340,24 +412,30 @@ fn like_search(
         .replace('_', "\\_");
     let pattern = format!("%{}%", escaped);
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
-                    m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                    m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
-                    m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
-                    c.name, c.avatar_url
-             FROM messages m
-             LEFT JOIN conversations c ON c.id = m.conversation_id
-             WHERE m.content LIKE ? ESCAPE '\\'
-               AND m.is_deleted = 0
-               AND m.is_recalled = 0
-             ORDER BY m.send_time DESC
-             LIMIT ?",
-        )
-        .map_err(|e| e.to_string())?;
+    let (filter_sql, filter_binds) = compile_filter(filter);
+    let sql = format!(
+        "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
+                m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
+                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
+                c.name, c.avatar_url
+         FROM messages m
+         LEFT JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.content LIKE ? ESCAPE '\\'
+           AND m.is_deleted = 0
+           AND m.is_recalled = 0{}
+         ORDER BY m.send_time DESC
+         LIMIT ?",
+        filter_sql
+    );
 
-    collect_hits(&mut stmt, params![pattern, limit])
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(pattern)];
+    binds.extend(filter_binds);
+    binds.push(Box::new(limit));
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    collect_hits(&mut stmt, bind_refs.as_slice())
 }
 
 /// 把 prepare 好的 stmt 执行并收集为 hits 列表
@@ -576,7 +654,7 @@ mod tests {
     fn fts_hit_text_message() {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "hello world", "text", 1, "2026-05-11T01:00:00Z");
-        let results = search_messages_with_conn(&conn, "hello", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.message_uuid, "m1");
     }
@@ -585,7 +663,7 @@ mod tests {
     fn single_char_hit() {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "1", "text", 1, "2026-05-11T01:00:00Z");
-        let results = search_messages_with_conn(&conn, "1", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "1", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1, "单字符 '1' 应命中（FTS 或 LIKE fallback）");
     }
 
@@ -594,7 +672,7 @@ mod tests {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "photo.png", "image", 1, "2026-05-11T01:00:00Z");
         insert_msg(&conn, "m2", "c1", "video.mp4", "video", 2, "2026-05-11T02:00:00Z");
-        let results = search_messages_with_conn(&conn, "photo", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "photo", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.content_type, "image");
     }
@@ -608,7 +686,7 @@ mod tests {
         conn.execute("UPDATE messages SET is_deleted=1 WHERE message_uuid='m2'", []).unwrap();
         conn.execute("UPDATE messages SET is_recalled=1 WHERE message_uuid='m3'", []).unwrap();
 
-        let results = search_messages_with_conn(&conn, "hello", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1, "已撤回 + 已删除的消息应排除");
         assert_eq!(results[0].message.message_uuid, "m1");
     }
@@ -645,7 +723,7 @@ mod tests {
         // 插入消息但不灌 FTS（trigger 缺失）
         insert_msg(&conn, "m1", "c1", "lonely message", "text", 1, "2026-05-11T01:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "lonely", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "lonely", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1, "FTS 空时 LIKE fallback 应命中");
     }
 
@@ -655,7 +733,7 @@ mod tests {
         insert_msg(&conn, "m1", "c1", "anything", "text", 1, "2026-05-11T01:00:00Z");
 
         // FTS 主路径与 LIKE 兜底都搜不到时，返回空 Vec（非 None / 非 Error）
-        let results = search_messages_with_conn(&conn, "nonexistent", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "nonexistent", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 0, "无命中的 query 应返回空 Vec");
     }
 
@@ -666,7 +744,7 @@ mod tests {
         insert_msg(&conn, "m2", "c1", "hello middle", "text", 2, "2026-05-11T02:00:00Z");
         insert_msg(&conn, "m3", "c1", "last message", "text", 3, "2026-05-11T03:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "middle", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "middle", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].context_before.as_deref(), Some("first message"));
         assert_eq!(results[0].context_after.as_deref(), Some("last message"));
@@ -679,10 +757,139 @@ mod tests {
         insert_msg(&conn, "m2", "c1", "hello B", "text", 2, "2026-05-11T02:00:00Z");
         insert_msg(&conn, "m3", "c1", "hello C", "text", 3, "2026-05-11T03:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "hello", 50).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 3);
         // 最新的在前
         assert_eq!(results[0].message.message_uuid, "m3");
         assert_eq!(results[2].message.message_uuid, "m1");
+    }
+
+    // ========================================================================
+    // 会话内搜索 + 分类过滤（MessageSearchFilter）
+    // ========================================================================
+
+    /// 便捷构造：只限会话
+    fn in_conversation(conversation_id: &str) -> MessageSearchFilter {
+        MessageSearchFilter {
+            conversation_id: Some(conversation_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// 便捷构造：content_type 白名单
+    fn include_types(types: &[&str]) -> MessageSearchFilter {
+        MessageSearchFilter {
+            include_content_types: Some(types.iter().map(|t| (*t).to_string()).collect()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn filter_limits_results_to_one_conversation() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "hello here", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c2", "hello there", "text", 1, "2026-05-11T02:00:00Z");
+
+        // 不过滤：两个会话都命中
+        let all = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(all.len(), 2, "无过滤时应跨会话命中");
+
+        let scoped = search_messages_with_conn(&conn, "hello", 50, &in_conversation("c1")).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].message.message_uuid, "m1");
+        assert_eq!(scoped[0].message.conversation_id, "c1");
+    }
+
+    #[test]
+    fn filter_include_content_types_keeps_only_listed() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "target text", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "target.png", "image", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "target.mp4", "video", 3, "2026-05-11T03:00:00Z");
+        insert_msg(&conn, "m4", "c1", "target.zip", "file", 4, "2026-05-11T04:00:00Z");
+
+        let images = search_messages_with_conn(&conn, "target", 50, &include_types(&["image"])).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].message.message_uuid, "m2");
+
+        let videos = search_messages_with_conn(&conn, "target", 50, &include_types(&["video"])).unwrap();
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].message.message_uuid, "m3");
+
+        // 多值 IN：文件类可包含多个 content_type
+        let files = search_messages_with_conn(&conn, "target", 50, &include_types(&["file", "audio"])).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].message.message_uuid, "m4");
+    }
+
+    #[test]
+    fn filter_exclude_content_types_keeps_unknown_types_as_text() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "target text", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "target.png", "image", 2, "2026-05-11T02:00:00Z");
+        // 服务端未来新增的未知类型：不在文件类白名单里 → 必须仍归入「文字」，不能凭空消失
+        insert_msg(&conn, "m3", "c1", "target card", "card", 3, "2026-05-11T03:00:00Z");
+        insert_msg(&conn, "m4", "c1", "target future", "brand_new_type", 4, "2026-05-11T04:00:00Z");
+
+        let filter = MessageSearchFilter {
+            exclude_content_types: Some(
+                ["image", "video", "file", "audio"].iter().map(|t| (*t).to_string()).collect(),
+            ),
+            ..Default::default()
+        };
+        let texts = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
+        let uuids: Vec<&str> = texts.iter().map(|r| r.message.message_uuid.as_str()).collect();
+        assert_eq!(texts.len(), 3, "文字类 = 非文件类（含 card 与未知类型）");
+        assert!(uuids.contains(&"m1"));
+        assert!(uuids.contains(&"m3"));
+        assert!(uuids.contains(&"m4"));
+        assert!(!uuids.contains(&"m2"), "image 应被排除");
+    }
+
+    #[test]
+    fn filter_empty_include_returns_empty_not_error() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "hello", "text", 1, "2026-05-11T01:00:00Z");
+
+        // Some(空集) = "只要这 0 种类型"：必须返回空 Vec 而不是 SQL 语法错误
+        let filter = MessageSearchFilter {
+            include_content_types: Some(Vec::new()),
+            ..Default::default()
+        };
+        let results = search_messages_with_conn(&conn, "hello", 50, &filter).unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn filter_also_applies_on_like_fallback_path() {
+        let conn = setup_test_db();
+        // unicode61 把 "prefixbcdesuffix" 切成单个 token，短语 "bcde" 匹配不到 →
+        // 走 LIKE fallback。此处验证 fallback 路径同样受 filter 约束。
+        insert_msg(&conn, "m1", "c1", "prefixbcdesuffix", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c2", "prefixbcdesuffix", "text", 1, "2026-05-11T02:00:00Z");
+
+        let unfiltered = search_messages_with_conn(&conn, "bcde", 50, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(unfiltered.len(), 2, "前置条件：该 query 只能由 LIKE fallback 命中");
+
+        let scoped = search_messages_with_conn(&conn, "bcde", 50, &in_conversation("c2")).unwrap();
+        assert_eq!(scoped.len(), 1, "LIKE fallback 路径也必须应用会话过滤");
+        assert_eq!(scoped[0].message.message_uuid, "m2");
+    }
+
+    #[test]
+    fn filter_combines_conversation_and_content_type() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "target.png", "image", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c2", "target.png", "image", 1, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "target text", "text", 2, "2026-05-11T03:00:00Z");
+
+        let filter = MessageSearchFilter {
+            conversation_id: Some("c1".to_string()),
+            include_content_types: Some(vec!["image".to_string()]),
+            exclude_content_types: None,
+        };
+        let results = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].message.message_uuid, "m1");
     }
 }

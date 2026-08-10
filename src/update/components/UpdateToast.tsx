@@ -38,6 +38,30 @@ export type UpdateToastStatus =
   | 'ready'
   | 'error';
 
+/**
+ * 一次进度上报的输入（store action 与本文件的 useUpdateToast 共用）。
+ *
+ * 🔴 用可选字段的对象而不是位置参数：位置参数逼着调用方给「未知」编一个数字
+ * ——历史实现就是 `progress.percent || 0` / `progress.contentLength || 0`，
+ * 把合法的 `undefined` 吃成 0，于是总长未知时进度条全程钉死 0%、
+ * 直到 Finished 才跳 100%（本次修的就是它）。
+ */
+export interface UpdateProgressInput {
+  /** 百分比（0-100）；总长未知时为 undefined —— 不要用 `|| 0` 兜底 */
+  percent?: number;
+  /** 已下载字节数 */
+  downloaded?: number;
+  /** 总字节数；未知时为 undefined */
+  total?: number;
+  /**
+   * 不定态（总长未知，算不出百分比）。
+   * 由数据源显式给出；未给时按「有没有拿到总长」推断。
+   */
+  indeterminate?: boolean;
+  /** 当前下载源 URL */
+  sourceUrl?: string;
+}
+
 export interface UpdateToastProps {
   /** 当前状态 */
   status: UpdateToastStatus;
@@ -45,12 +69,17 @@ export interface UpdateToastProps {
   version?: string;
   /** 更新说明 */
   notes?: string;
-  /** 下载进度 (0-100) */
+  /** 下载进度 (0-100)；**仅当 indeterminate=false 时有意义** */
   progress?: number;
   /** 已下载大小 */
   downloaded?: number;
-  /** 总大小 */
+  /** 总大小；0 表示未知 */
   total?: number;
+  /**
+   * 不定态：服务端没给 Content-Length，算不出百分比。
+   * 此时显示滚动动画 + 已下载字节数，**不要**渲染一个钉死不动的 0%。
+   */
+  indeterminate?: boolean;
   /** 当前正在下载的源 URL（用于显示主机名） */
   sourceUrl?: string;
   /** 错误信息 */
@@ -76,6 +105,7 @@ export function UpdateToast({
   progress = 0,
   downloaded = 0,
   total = 0,
+  indeterminate = false,
   sourceUrl,
   errorMessage,
   onUpdate,
@@ -157,17 +187,30 @@ export function UpdateToast({
               <div className="update-toast-title">正在下载 v{version}</div>
               <div className="update-toast-progress-container">
                 <div className="update-toast-progress-bar">
-                  <motion.div
-                    className="update-toast-progress-fill"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
+                  {indeterminate ? (
+                    // 总长未知：纯 CSS keyframes 滚动条（不用 framer-motion，
+                    // 避免与 CSS 动画抢同一个 transform，见 .claude/rules/animation.md 规则一）
+                    <div className="update-toast-progress-indeterminate" />
+                  ) : (
+                    <motion.div
+                      className="update-toast-progress-fill"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  )}
                 </div>
-                <span className="update-toast-progress-text">{Math.round(progress)}%</span>
+                <span className="update-toast-progress-text">
+                  {indeterminate ? '下载中' : `${Math.round(progress)}%`}
+                </span>
               </div>
               <div className="update-toast-meta">
-                <span>{formatSize(downloaded)} / {formatSize(total)}</span>
+                {/* 总长未知时只报已下载字节，不显示 "x / 0 B" 这种误导文案 */}
+                <span>
+                  {indeterminate
+                    ? formatSize(downloaded)
+                    : `${formatSize(downloaded)} / ${formatSize(total)}`}
+                </span>
                 {sourceUrl && (
                   <span className="update-toast-source">
                     源: {extractHostname(sourceUrl)}
@@ -263,11 +306,12 @@ export interface UseUpdateToastReturn {
   progress: number;
   downloaded: number;
   total: number;
+  indeterminate: boolean;
   sourceUrl: string;
   errorMessage: string;
   showAvailable: (version: string, notes?: string) => void;
   startDownload: () => void;
-  updateProgress: (progress: number, downloaded: number, total: number, sourceUrl?: string) => void;
+  updateProgress: (input: UpdateProgressInput) => void;
   downloadComplete: () => void;
   showError: (message: string) => void;
   dismiss: () => void;
@@ -280,6 +324,7 @@ export function useUpdateToast(): UseUpdateToastReturn {
   const [progress, setProgress] = useState(0);
   const [downloaded, setDownloaded] = useState(0);
   const [total, setTotal] = useState(0);
+  const [indeterminate, setIndeterminate] = useState(false);
   const [sourceUrl, setSourceUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -293,14 +338,23 @@ export function useUpdateToast(): UseUpdateToastReturn {
     setProgress(0);
     setDownloaded(0);
     setTotal(0);
+    // 起手总长还未知 ⇒ 不定态，避免先闪一个 0%
+    setIndeterminate(true);
     setStatus('downloading');
   }, []);
 
   const updateProgress = useCallback(
-    (p: number, d: number, t: number, source?: string) => {
-      setProgress(p);
-      setDownloaded(d);
-      setTotal(t);
+    ({ percent, downloaded: d, total: t, indeterminate: ind, sourceUrl: source }: UpdateProgressInput) => {
+      // 与 store 同一套语义：percent=0 是合法值，不能被 `||` 兜底吃掉
+      const isIndeterminate = ind ?? (t === undefined || t <= 0);
+      setIndeterminate(isIndeterminate);
+      setProgress(isIndeterminate ? 0 : (percent ?? 0));
+      if (d !== undefined) {
+        setDownloaded(d);
+      }
+      if (t !== undefined) {
+        setTotal(t);
+      }
       if (source) {
         setSourceUrl(source);
       }
@@ -310,6 +364,7 @@ export function useUpdateToast(): UseUpdateToastReturn {
 
   const downloadComplete = useCallback(() => {
     setProgress(100);
+    setIndeterminate(false);
     setStatus('ready');
   }, []);
 
@@ -329,6 +384,7 @@ export function useUpdateToast(): UseUpdateToastReturn {
     progress,
     downloaded,
     total,
+    indeterminate,
     sourceUrl,
     errorMessage,
     showAvailable,

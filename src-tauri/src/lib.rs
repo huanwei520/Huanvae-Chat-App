@@ -456,13 +456,17 @@ fn db_save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), Str
     db::save_messages_skip_existing(messages)
 }
 
-/// 跨会话搜索消息内容（含文件名）
+/// 搜索消息内容（含文件名）
+///
+/// `filter` 省略 / null = 跨会话、不限类型（全局搜索）；
+/// 传入时可限定单会话 + 按 content_type 白/黑名单筛选（会话内搜索的四类分页）。
 #[tauri::command]
 fn db_search_messages(
     query: String,
     limit: i64,
+    filter: Option<db::MessageSearchFilter>,
 ) -> Result<Vec<db::SearchMessageResult>, String> {
-    db::search_messages(&query, limit)
+    db::search_messages(&query, limit, &filter.unwrap_or_default())
 }
 
 /// 标记消息为已撤回

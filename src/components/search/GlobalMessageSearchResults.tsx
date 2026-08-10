@@ -41,6 +41,7 @@ import {
 import { useDiscoverySearch } from '../../hooks/useDiscoverySearch';
 import type { SearchMessageResult } from '../../db';
 import type { Friend, Group } from '../../types/chat';
+import { highlightMatch } from './highlightMatch';
 
 /** 桌面端动画：从搜索框左上角缩放展开/收回 */
 const desktopVariants = {
@@ -93,34 +94,6 @@ interface GlobalMessageSearchResultsProps {
   onSelectDiscoveryBot?: (botUserId: string, username: string) => void;
   /** 点击发现的「群聊」项 → 打开群详情弹窗 */
   onSelectDiscoveryGroup?: (groupId: string) => void;
-}
-
-/** 把文本按 query 切片并高亮匹配子串（不区分大小写） */
-function highlightMatch(text: string, query: string): React.ReactNode {
-  if (!query.trim() || !text) {
-    return text;
-  }
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase();
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  while (cursor < text.length) {
-    const idx = lower.indexOf(q, cursor);
-    if (idx === -1) {
-      parts.push(text.slice(cursor));
-      break;
-    }
-    if (idx > cursor) {
-      parts.push(text.slice(cursor, idx));
-    }
-    parts.push(
-      <mark key={idx} className="global-msg-search-mark">
-        {text.slice(idx, idx + q.length)}
-      </mark>,
-    );
-    cursor = idx + q.length;
-  }
-  return <>{parts}</>;
 }
 
 /** 非文本类型消息加类型图标前缀 */
