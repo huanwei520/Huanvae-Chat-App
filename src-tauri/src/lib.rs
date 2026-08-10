@@ -469,6 +469,28 @@ fn db_search_messages(
     db::search_messages(&query, limit, &filter.unwrap_or_default())
 }
 
+/// 会话内按分类浏览消息（关键词可选）+ LIMIT/OFFSET 分页
+///
+/// 与 `db_search_messages` 的分工见 `db::messages::list_conversation_messages` 文档：
+/// 这条是**单会话**内的浏览列表，`query` 省略 / null 时按分类按时间倒序列出全部
+/// （不必先输入关键词），传入时在同一分类内再做子串过滤。
+#[tauri::command(rename_all = "camelCase")]
+fn db_list_conversation_messages(
+    conversation_id: String,
+    query: Option<String>,
+    limit: i64,
+    offset: i64,
+    filter: Option<db::MessageSearchFilter>,
+) -> Result<Vec<db::LocalMessage>, String> {
+    db::list_conversation_messages(
+        &conversation_id,
+        query.as_deref(),
+        limit,
+        offset,
+        &filter.unwrap_or_default(),
+    )
+}
+
 /// 标记消息为已撤回
 #[tauri::command(rename_all = "camelCase")]
 fn db_mark_message_recalled(message_uuid: String) -> Result<(), String> {
@@ -893,6 +915,7 @@ pub fn run() {
             db_save_messages,
             db_save_messages_skip_existing,
             db_search_messages,
+            db_list_conversation_messages,
             db_mark_message_recalled,
             db_mark_message_deleted,
             db_save_file_mapping,
@@ -990,10 +1013,11 @@ pub fn run() {
             // 剪贴板图片处理（桌面端专属）
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             clipboard::save_clipboard_image,
-            // Android 更新（版本检测、APK 下载）
+            // Android 更新（版本检测、APK 下载、待安装包恢复）
             android_update::get_app_version,
             android_update::fetch_update_json,
             android_update::download_apk,
+            android_update::pending_apk_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

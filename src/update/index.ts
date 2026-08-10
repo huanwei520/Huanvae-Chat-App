@@ -71,10 +71,13 @@ export {
   checkForUpdates as checkForUpdatesAndroid,
   downloadApk,
   installApk,
+  getPendingApkInstall,
+  reportUiVisibility,
   extractHostname,
   type AndroidUpdateInfo,
   type AndroidDownloadProgress,
   type AndroidProgressCallback,
+  type PendingApkInstall,
 } from './service.android';
 
 // ============================================

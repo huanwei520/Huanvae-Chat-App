@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { Session } from '../../types/session';
 import type { ChatTarget, Message, AIConversation } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -26,8 +26,6 @@ import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
 import { ConversationShelf } from '../../chat/shared/ConversationShelf';
 import { BotBadge } from '../../components/common/BotBadge';
-import { ConversationMessageSearch } from '../../components/search/ConversationMessageSearch';
-import { getSearchConversationId } from '../../components/search/conversationSearchTarget';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
@@ -240,10 +238,6 @@ export function MobileChatView({
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
-  // 会话内消息查找（AI 会话不落本地 messages 表 → convSearchId 为 null，不给入口）
-  const [showConvSearch, setShowConvSearch] = useState(false);
-  const convSearchId = getSearchConversationId(chatTarget, session.userId);
-
   const handleAIHistorySelect = useCallback((convId: string) => {
     onAISwitchConversation?.(convId);
     setShowAIHistory(false);
@@ -326,27 +320,8 @@ export function MobileChatView({
           </div>
         ) : (
           <>
-            {convSearchId && (
-              <div
-                className="mobile-chat-menu"
-                role="button"
-                tabIndex={0}
-                aria-label="查找聊天记录"
-                aria-pressed={showConvSearch}
-                onClick={() => setShowConvSearch((v) => !v)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setShowConvSearch((v) => !v);
-                  }
-                }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" />
-                </svg>
-              </div>
-            )}
+            {/* 会话内查找**没有**独立入口：它是「更多操作」侧边面板里的一项
+                （ChatMenu.tsx 的 search view）。别再往这儿加放大镜按钮。 */}
             <div className="mobile-chat-menu">
               <ChatMenuButton
                 target={chatTarget}
@@ -361,18 +336,6 @@ export function MobileChatView({
           </>
         )}
       </header>
-
-      {/* 会话内消息查找面板（顶栏与消息列表之间的 flex 兄弟节点，不浮在滚动容器里） */}
-      <AnimatePresence>
-        {showConvSearch && convSearchId && (
-          <ConversationMessageSearch
-            key="conv-msg-search"
-            conversationId={convSearchId}
-            onClose={() => setShowConvSearch(false)}
-            layout="mobile"
-          />
-        )}
-      </AnimatePresence>
 
       {/* AI 历史记录抽屉 */}
       {chatTarget.type === 'ai' && (

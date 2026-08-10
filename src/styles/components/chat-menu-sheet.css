@@ -7,11 +7,24 @@
  *              桌面与移动共用同一套样式（面板宽度自适应），组件见
  *              src/chat/shared/ChatMenuPanel.tsx。
  *
+ * ## 非模态：没有遮罩层
+ *
+ * 面板**不铺**变暗遮罩（产品口径：打开时聊天区照常可用）。因此这里只有 .chat-menu-sheet
+ * 一个选择器，它自己 `position: fixed` 贴右边；`.chat-menu-scrim` 已随之删除。
+ *
+ * ## 顶边由 JS 内联 top 决定，不写死
+ *
+ * 面板只盖「消息区 + 输入框」，**不盖聊天标题栏** —— 顶边贴齐 .chat-header /
+ * .mobile-chat-header 的下沿。两端标题栏高度不同（移动端还含安全区），没有可写死的常量，
+ * 故由组件实测后写内联 `top`（见 ChatMenuPanel.tsx）；本文件只给 `top: 0` 作兜底初值，
+ * 内联值会覆盖它。**别在这里加 height: 100%** —— 那会让面板从 top 起再撑满一屏、溢出到
+ * 视口下方；高度由 `top` + `bottom: 0` 共同决定。
+ *
  * ## 动画所有权（.claude/rules/animation.md 规则一）
  *
- * .chat-menu-scrim 的 opacity、.chat-menu-sheet 的 transform 由 framer-motion 逐帧写
- * inline style（含移动端拖拽关闭），本文件**不得**给这两个选择器声明
- * transition: all / transform / opacity；两者已登记 tests/animation-conflict.test.ts。
+ * .chat-menu-sheet 的 transform 由 framer-motion 逐帧写 inline style（含移动端拖拽关闭），
+ * 本文件**不得**给它声明 transition: all / transform / opacity；已登记
+ * tests/animation-conflict.test.ts。内联 top 是静态定位值、不参与动画，不算抢帧。
  *
  * ## 宽度约束不是随手写的
  *
@@ -21,26 +34,18 @@
  *
  * ## z-index
  *
- * 9000/9001：高于应用内所有常规层（最高 1100），低于 toast(9999) 与从面板里再拉起的
+ * 9001：高于应用内所有常规层（最高 1100），低于 toast(9999) 与从面板里再拉起的
  * 弹窗——群头像裁剪(10000)、群内备注输入(10001)——保证它们盖在面板之上。
  */
 
-.chat-menu-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  display: flex;
-  justify-content: flex-end;
-  background: var(--black-alpha-50);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
 .chat-menu-sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   width: min(400px, 100vw - 56px);
-  height: 100%;
   z-index: 9001;
   background: var(--bg-primary);
   border-left: 1px solid var(--border-subtle);
@@ -56,7 +61,9 @@
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
-  padding: calc(14px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 16px 14px 20px;
+  /* 不再补安全区：面板顶边已贴在聊天标题栏下沿，安全区由那条标题栏自己吃掉，
+     这里再补一次就是双份留白 */
+  padding: 14px 16px 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -158,4 +165,72 @@
    这里只保证它不吃鼠标事件、不显示 disabled 光标 */
 .chat-menu-sheet .menu-item:disabled {
   pointer-events: none;
+}
+
+/* ---------- 群成员头像网格（面板第一组，见 menu/MemberGrid.tsx） ---------- */
+
+.member-grid {
+  display: grid;
+  /* 5 列：面板宽 min(400px, 100vw - 56px) 减去左右 20px 内边距后，每格 >= 64px 仍放得下 */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px 4px;
+  padding: 6px 20px 10px;
+}
+
+.member-grid-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.member-grid-avatar {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--white-alpha-50);
+}
+
+.member-grid-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.member-grid-name {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-grid-more {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 0 20px 10px;
+  padding: 5px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.member-grid-more:hover {
+  background: rgba(147, 197, 253, 0.18);
+  color: var(--text-primary);
 }

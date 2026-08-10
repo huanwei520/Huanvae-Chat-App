@@ -30,6 +30,19 @@
 //! - 验签失败 → **直接报错**。
 //!
 //! 失败就明确告诉用户，不静默降级。
+//!
+//! # 🔴 请求整形必须与插件一致
+//!
+//! 插件 `download()` 在建 client / 发请求时做了一整套整形（`updater.rs:657-687`）：
+//! 自定义 UA、`Accept: application/octet-stream`、用户 headers、timeout、proxy/no_proxy、
+//! 两个 dangerous TLS 开关。自建下载器一旦漏掉，用户在 `check()` 里配的东西就**静默失效**。
+//! 本模块用 [`RequestShaping`] + [`build_client`] 逐项复刻，见那里的对照注释。
+//!
+//! ⚠️ 一个容易误判的点：**漏掉 `proxy` 字段 ≠ 不走系统代理**。reqwest 的
+//! `auto_sys_proxy` 默认就是 `true`（`reqwest-0.12.28/src/async_impl/client.rs:309`，
+//! 建 client 时 `:419` push `ProxyMatcher::system()`），即**默认就读环境变量 / 系统代理**；
+//! 反倒是调用 `.proxy()` 或 `.no_proxy()` 会把 `auto_sys_proxy` 置 `false`（`:1416` / `:1429`）。
+//! 所以 `Update.proxy` 只在调用方**显式**传了代理时才有意义。
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -39,6 +52,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use minisign_verify::{PublicKey, Signature};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
 use tauri::{ipc::Channel, Manager, ResourceId, Runtime, Webview};
 use tauri_plugin_updater::Update;
 
@@ -52,6 +66,96 @@ const SHARD_TIMEOUT: Duration = Duration::from_secs(120);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// 低于该大小不值得分片（并发建连开销大于收益）。
 const MIN_SHARD_TOTAL: u64 = 1024 * 1024;
+
+/// 插件下载请求用的 User-Agent（`updater.rs:44`）。
+///
+/// 插件那边是 `const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/",
+/// env!("CARGO_PKG_VERSION"))` —— **私有 const**，外部 crate 取不到，`env!` 又只会展开成
+/// *本* crate 的名字/版本，所以只能按值复刻。值会随插件升版漂移，故有
+/// `user_agent_matches_plugin_version_in_lockfile` 从 Cargo.lock 读真值来钉死它。
+const UPDATER_USER_AGENT: &str = "tauri-plugin-updater/2.10.1";
+
+/// 复刻插件 `download()` 对 client / 请求做的整形（`updater.rs:657-687`）。
+///
+/// 字段来源分两类：
+/// - `headers` / `timeout` / `proxy` / `no_proxy` —— `Update` 上的 **pub** 字段，直接读；
+/// - `accept_invalid_certs` / `accept_invalid_hostnames` —— 插件读的是 `Update.config`
+///   （**私有**字段，取不到），但它就是 `tauri.conf.json` 的 `plugins.updater` 反序列化结果，
+///   所以改从运行时配置读同一份真值（与 [`pubkey_from_config`] 同样的做法）。
+#[derive(Clone, Default)]
+struct RequestShaping {
+    /// 调用方经 `check()` 传入的自定义请求头（`updater.rs:658`）
+    headers: HeaderMap,
+    /// 整体请求超时（`updater.rs:670`）
+    timeout: Option<Duration>,
+    /// 显式代理；`no_proxy` 为真时插件不看这个字段（`updater.rs:675`）
+    proxy: Option<String>,
+    /// 禁用系统代理（`updater.rs:673`）
+    no_proxy: bool,
+    /// `plugins.updater.dangerousAcceptInvalidCerts`（`updater.rs:664`）
+    accept_invalid_certs: bool,
+    /// `plugins.updater.dangerousAcceptInvalidHostnames`（`updater.rs:667`）
+    accept_invalid_hostnames: bool,
+}
+
+/// 复刻 `updater.rs:658-661`：在用户 headers 基础上补 `Accept`，
+/// **但用户已显式给了 `Accept` 就不覆盖**。
+fn shaping_headers(user_headers: &HeaderMap) -> HeaderMap {
+    let mut headers = user_headers.clone();
+    if !headers.contains_key(ACCEPT) {
+        headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
+    }
+    headers
+}
+
+/// 按 [`RequestShaping`] 建 client，逐项对应 `updater.rs:663-681`。
+///
+/// 整形挂在 **client** 上（而非逐个请求）是有意的：本模块有 HEAD 探测 / 分片 GET /
+/// 单连接 GET 三条出口，共用这一个 client 才能保证三条都被整形。`default_headers`
+/// 不会覆盖请求级 header（`reqwest-0.12.28/src/async_impl/client.rs:2590-2596`
+/// 只填 `Entry::Vacant`），所以分片那条 `RANGE` 照常生效。
+fn build_client(shaping: &RequestShaping) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent(UPDATER_USER_AGENT)
+        .default_headers(shaping_headers(&shaping.headers))
+        // 本模块自有（插件没有）：给建连一个上界，其余下载参数一概不动
+        .connect_timeout(CONNECT_TIMEOUT);
+
+    if shaping.accept_invalid_certs {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    if shaping.accept_invalid_hostnames {
+        builder = builder.danger_accept_invalid_hostnames(true);
+    }
+    if let Some(timeout) = shaping.timeout {
+        builder = builder.timeout(timeout);
+    }
+    // 与插件同样的 if / else if 次序：no_proxy 优先，两者都没有则保持 reqwest
+    // 默认的 auto_sys_proxy（即照常走系统 / 环境变量代理）
+    if shaping.no_proxy {
+        builder = builder.no_proxy();
+    } else if let Some(proxy) = &shaping.proxy {
+        builder = builder.proxy(
+            reqwest::Proxy::all(proxy.as_str()).map_err(|e| format!("代理配置无效: {e}"))?,
+        );
+    }
+
+    builder.build().map_err(err)
+}
+
+/// 读 `tauri.conf.json` → `plugins.updater` 下的 bool 开关。
+///
+/// 同时认 camelCase 与 kebab-case，与插件 `config.rs` 的 `#[serde(alias = "...")]` 对齐。
+fn updater_config_flag<R: Runtime>(webview: &Webview<R>, camel: &str, kebab: &str) -> bool {
+    webview
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|v| v.get(camel).or_else(|| v.get(kebab)))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
 
 /// 下载进度事件（字段名与前端 `src/update/service.ts` 的解析保持一致）
 #[derive(Clone, serde::Serialize)]
@@ -247,10 +351,26 @@ pub async fn updater_sharded_install<R: Runtime>(
     let signature = update.signature.clone();
     let pubkey = pubkey_from_config(&webview)?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()
-        .map_err(err)?;
+    // 🔴 请求整形必须与插件 download() 一致，否则调用方在 check() 里配的
+    // headers / timeout / proxy 会被静默丢弃。这一个 client 同时服务于
+    // probe(HEAD) / fetch_shard(GET Range) / fetch_whole(GET)，三条出口一起覆盖。
+    let shaping = RequestShaping {
+        headers: update.headers.clone(),
+        timeout: update.timeout,
+        proxy: update.proxy.as_ref().map(|p| p.to_string()),
+        no_proxy: update.no_proxy,
+        accept_invalid_certs: updater_config_flag(
+            &webview,
+            "dangerousAcceptInvalidCerts",
+            "dangerous-accept-invalid-certs",
+        ),
+        accept_invalid_hostnames: updater_config_flag(
+            &webview,
+            "dangerousAcceptInvalidHostnames",
+            "dangerous-accept-invalid-hostnames",
+        ),
+    };
+    let client = build_client(&shaping)?;
 
     let (total, accepts_range) = probe(&client, &url).await?;
     let _ = on_event.send(ShardedEvent::Started {
@@ -398,5 +518,177 @@ mod tests {
             assert_eq!(covered, len, "分片必须恰好覆盖全部字节 (len={len})");
             assert_eq!(prev_end, Some(len - 1), "最后一片必须到达末字节 (len={len})");
         }
+    }
+
+    // ---------- 请求整形（复刻 updater.rs:657-687）----------
+
+    /// 插件无条件补 `Accept: application/octet-stream`（`updater.rs:659-661`）。
+    #[test]
+    fn shaping_headers_adds_accept_when_absent() {
+        let out = shaping_headers(&HeaderMap::new());
+        assert_eq!(
+            out.get(ACCEPT).map(|v| v.to_str().unwrap()),
+            Some("application/octet-stream"),
+            "缺省时必须补上 Accept，否则部分更新源会按 text/html 回内容"
+        );
+    }
+
+    /// 插件是 `if !headers.contains_key(ACCEPT)` —— 用户显式给了就**不能**覆盖。
+    #[test]
+    fn shaping_headers_does_not_override_user_accept() {
+        let mut user = HeaderMap::new();
+        user.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        let out = shaping_headers(&user);
+        assert_eq!(
+            out.get(ACCEPT).map(|v| v.to_str().unwrap()),
+            Some("application/json"),
+            "用户显式设置的 Accept 必须原样保留"
+        );
+    }
+
+    /// 用户经 `check()` 传的其它自定义头（鉴权 / 灰度标记等）必须一并带上。
+    #[test]
+    fn shaping_headers_preserves_user_headers() {
+        let mut user = HeaderMap::new();
+        user.insert("x-update-channel", HeaderValue::from_static("beta"));
+        let out = shaping_headers(&user);
+        assert_eq!(
+            out.get("x-update-channel").map(|v| v.to_str().unwrap()),
+            Some("beta"),
+            "用户自定义头不能被丢掉"
+        );
+        // 补 Accept 与保留用户头两件事必须同时成立
+        assert!(out.contains_key(ACCEPT), "补 Accept 不能以丢掉用户头为代价");
+    }
+
+    /// 从 Cargo.lock 取插件真实版本 —— 独立于本文件的真值源。
+    fn plugin_version_from_lockfile() -> String {
+        const LOCK: &str = include_str!("../Cargo.lock");
+        const NAME: &str = "name = \"tauri-plugin-updater\"";
+        const VER: &str = "version = \"";
+        let after = &LOCK[LOCK.find(NAME).expect("Cargo.lock 里应有 tauri-plugin-updater")..];
+        let start = after.find(VER).expect("包条目后应有 version 字段") + VER.len();
+        let end = start + after[start..].find('"').expect("version 字符串应闭合");
+        after[start..end].to_string()
+    }
+
+    /// UA 是按值复刻的（插件那个 const 私有，见 [`UPDATER_USER_AGENT`] 注释），
+    /// 所以必须有东西盯着它别跟插件版本漂移 —— 升级插件后本测试会立刻翻红。
+    #[test]
+    fn user_agent_matches_plugin_version_in_lockfile() {
+        let expected = format!("tauri-plugin-updater/{}", plugin_version_from_lockfile());
+        assert_eq!(
+            UPDATER_USER_AGENT, expected,
+            "UA 与 Cargo.lock 里的插件版本不一致：插件升版后请同步 UPDATER_USER_AGENT"
+        );
+    }
+
+    // 下面几条断言的观测面是 `reqwest::Client` 的 `Debug` —— 它会把 `default_headers` /
+    // `proxies` / `timeout` 原样打出来（`reqwest-0.12.28/src/async_impl/client.rs`
+    // `fn fmt_fields`）。用它才能证明整形**真的被交给了 reqwest**，而不是只在我们自己的
+    // 结构体里躺着：任何一项接线被删，对应断言立刻翻红。
+
+    fn debug_of(shaping: &RequestShaping) -> String {
+        format!("{:?}", build_client(shaping).expect("client 必须能建出来"))
+    }
+
+    /// UA（`updater.rs:663`）+ Accept（`:659-661`）必须真的落到 client 上。
+    #[test]
+    fn build_client_carries_plugin_user_agent_and_accept() {
+        let debug = debug_of(&RequestShaping::default());
+        assert!(
+            debug.contains(&format!("\"user-agent\": \"{UPDATER_USER_AGENT}\"")),
+            "client 必须带插件同款 UA，实际: {debug}"
+        );
+        assert!(
+            debug.contains("\"accept\": \"application/octet-stream\""),
+            "client 必须带 Accept: application/octet-stream，实际: {debug}"
+        );
+    }
+
+    /// 用户自定义头要带上；用户若自带 UA，**用户的赢**（插件那边是请求级 headers
+    /// 盖过 client 级 UA，本模块靠 `.user_agent()` 在前、`.default_headers()` 在后
+    /// 的次序等价实现 —— 这条把该次序钉死）。
+    #[test]
+    fn build_client_carries_user_headers_and_lets_user_ua_win() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-update-channel", HeaderValue::from_static("beta"));
+        headers.insert(
+            reqwest::header::USER_AGENT,
+            HeaderValue::from_static("my-own-agent/9"),
+        );
+        let debug = debug_of(&RequestShaping {
+            headers,
+            ..Default::default()
+        });
+        assert!(
+            debug.contains("\"x-update-channel\": \"beta\""),
+            "用户自定义头必须落到 client 上，实际: {debug}"
+        );
+        assert!(
+            debug.contains("\"user-agent\": \"my-own-agent/9\""),
+            "用户显式给的 UA 必须覆盖插件默认 UA，实际: {debug}"
+        );
+    }
+
+    /// 显式代理必须真的进到 client 的 proxies 里（`updater.rs:675-677`）。
+    #[test]
+    fn build_client_applies_explicit_proxy() {
+        let debug = debug_of(&RequestShaping {
+            proxy: Some("http://127.0.0.1:8080".to_string()),
+            ..Default::default()
+        });
+        assert!(
+            debug.contains("http://127.0.0.1:8080"),
+            "显式代理必须出现在 client 的 proxies 里，实际: {debug}"
+        );
+    }
+
+    /// `no_proxy`（`updater.rs:673`）必须清空代理；同时这条也钉住了插件的
+    /// `if no_proxy { .. } else if let Some(proxy) { .. }` 次序 —— 两者同时给时以
+    /// `no_proxy` 为准，代理不得出现。
+    #[test]
+    fn build_client_no_proxy_clears_proxies_and_wins_over_proxy() {
+        let debug = debug_of(&RequestShaping {
+            proxy: Some("http://127.0.0.1:8080".to_string()),
+            no_proxy: true,
+            ..Default::default()
+        });
+        assert!(
+            !debug.contains("proxies"),
+            "no_proxy 必须把代理清空（含系统代理），实际: {debug}"
+        );
+        assert!(
+            !debug.contains("127.0.0.1:8080"),
+            "no_proxy 为真时不得再应用 proxy 字段，实际: {debug}"
+        );
+    }
+
+    /// 反向对照：**不** 设 no_proxy 时 reqwest 默认就会带上系统代理匹配器
+    /// （`auto_sys_proxy` 默认 true）。这条是模块头注释那个「漏掉 proxy 字段 ≠
+    /// 不走系统代理」结论的机器化证据，防止后人再据此误判。
+    #[test]
+    fn default_shaping_keeps_system_proxy_detection() {
+        let debug = debug_of(&RequestShaping::default());
+        assert!(
+            debug.contains("proxies"),
+            "默认应保留 reqwest 的系统代理探测，实际: {debug}"
+        );
+    }
+
+    /// timeout（`updater.rs:670-672`）与两个 dangerous TLS 开关（`:664-669`）必须接线。
+    #[test]
+    fn build_client_applies_timeout_and_danger_flags() {
+        let debug = debug_of(&RequestShaping {
+            timeout: Some(Duration::from_secs(37)),
+            accept_invalid_certs: true,
+            accept_invalid_hostnames: true,
+            ..Default::default()
+        });
+        // reqwest 0.12.28 把整体超时打成 `reqwest::config::TotalTimeout: 37s`
+        assert!(
+            debug.contains("TotalTimeout: 37s"),
+            "用户配置的 timeout 必须落到 client 上，实际: {debug}"
+        );
     }
 }

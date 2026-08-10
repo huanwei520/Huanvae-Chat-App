@@ -326,29 +326,22 @@
 }
 
 /* ============================================
- * 会话内消息查找面板
+ * 会话内消息查找视图
  * src/components/search/ConversationMessageSearch.tsx
  *
- * 与上面的全局搜索浮层不同：它不是浮层，而是顶栏与消息列表之间的 flex 兄弟节点
- * （被推开而非盖住消息列表）。理由见组件文件头注释：
- * 绝对定位浮层挂进 overflow:auto 的消息容器会锚到内容顶，用户滚动后就看不见了。
+ * 它是**侧边设置面板（ChatMenuPanel）里的一个 view**，不是浮层、也不再是顶栏下的展开条。
+ * 高度撑满面板 body（height:100%），内部只有结果列表一层滚动 —— 面板 body 自身因此
+ * 不会产生第二条滚动条（嵌套滚动会让「滚到底加载下一页」的判定失准）。
  *
- * ⚠️ .conv-msg-search 的 height / opacity 由 framer-motion variants 逐帧接管，
- * 因此本 selector **不得**声明任何 transition（含 transition: all）。
- * 已登记进 tests/animation-conflict.test.ts 的 MOTION_CONTROLLED_SELECTORS。
+ * 无 framer-motion：面板本体的滑入动画已经承担了入场表现，view 之间是直接切换。
+ * （故本组的 selector 都不在 tests/animation-conflict.test.ts 的注册表里。）
  * ============================================ */
+/* 根不加左右内边距：MenuHeader 与其它子视图一样通栏，缩进由各段自己给 */
 .conv-msg-search {
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.conv-msg-search-inner {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 16px 12px;
-  background: var(--white-alpha-50);
-  border-bottom: 1px solid var(--glass-border-subtle);
+  height: 100%;
+  min-height: 0;
 }
 
 /* 搜索框 */
@@ -356,6 +349,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  margin: 10px 16px 0;
   padding: 6px 10px;
   border-radius: 10px;
   background: var(--white-alpha-85);
@@ -381,32 +375,12 @@
   color: var(--text-tertiary);
 }
 
-.conv-msg-search-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.conv-msg-search-close:hover {
-  background: var(--white-alpha-50);
-  color: var(--text-primary);
-}
-
 /* 分类页签 */
 .conv-msg-search-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding: 8px 16px 0;
 }
 
 .conv-msg-search-tab {
@@ -436,7 +410,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 2px;
+  padding: 10px 16px;
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -445,30 +419,18 @@
   color: var(--color-danger, #dc2626);
 }
 
-.conv-msg-search-count {
-  padding: 0 2px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-/* 结果列表 */
+/* 结果列表：面板内唯一的滚动层，滚到底触发下一页 */
 .conv-msg-search-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 6px 12px 12px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-}
-
-.conv-msg-search--desktop .conv-msg-search-list {
-  max-height: 260px;
-}
-
-.conv-msg-search--mobile .conv-msg-search-list {
-  max-height: 40vh;
 }
 
 .conv-msg-search-list::-webkit-scrollbar {
@@ -485,6 +447,9 @@
 }
 
 .conv-msg-search-hit {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 6px 8px;
   border-radius: 8px;
   cursor: pointer;
@@ -497,9 +462,63 @@
   outline: none;
 }
 
-.conv-msg-search-hit--active {
-  background: rgba(147, 197, 253, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.55);
+/* 行首缩略图 / 文件图标：定宽方块，图片与视频统一裁切成同一尺寸避免行高抖动 */
+.conv-msg-search-thumb {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--white-alpha-50);
+}
+
+.conv-msg-search-thumb--empty {
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.conv-msg-search-thumb--doc {
+  padding: 8px;
+  color: var(--text-secondary);
+}
+
+.conv-msg-search-hit-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-msg-search-hit-size {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* 列表末尾：加载更多 / 加载中 / 没有更多 */
+.conv-msg-search-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.conv-msg-search-more {
+  padding: 4px 14px;
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.conv-msg-search-more:hover {
+  background: var(--white-alpha-50);
+  color: var(--text-primary);
+}
+
+.conv-msg-search-end {
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .conv-msg-search-hit-meta {

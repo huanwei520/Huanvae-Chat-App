@@ -141,6 +141,10 @@ pub struct ConversationPreview {
     pub msg_content_type: Option<String>,
     /// 最新消息时间
     pub msg_send_time: Option<String>,
+    /// 最新消息发送者 ID（群聊卡片预览前缀判「是不是我」用）
+    pub msg_sender_id: Option<String>,
+    /// 最新消息发送者昵称（群聊卡片预览前缀用；未带昵称的同步路径为 None）
+    pub msg_sender_name: Option<String>,
 }
 
 /// 本地好友记录

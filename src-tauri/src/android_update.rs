@@ -4,14 +4,110 @@
 //! - 获取应用版本号
 //! - 获取版本检测 JSON（支持超时）
 //! - 下载 APK 文件（带进度通知）
+//! - 下载完成后落「待安装」标记 + 后台时发通知（不依赖前端 JS 还活着）
 //!
 //! 注意：此模块仅在 Android 平台编译，桌面端使用 tauri-plugin-updater
+//!
+//! ## 为什么「下载完成 → 拉起安装器」不能交给前端 JS
+//!
+//! 两条 Android 平台规则决定了旧实现（JS 里 `await downloadApk()` 后再 `installApk()`）
+//! 在应用切后台时**必然失效**：
+//!
+//! 1. **后台不许启动 Activity**（Android 10 / API 29 起）。系统**静默**拦截，
+//!    调用方拿不到返回值也拿不到异常，只在 logcat 打一行 `Background activity launch blocked!`。
+//!    → 后台调安装器 = 什么都不会发生，而且代码层面完全无感知。
+//!    官方豁免清单里唯一适用的一条是：**「Activity 由系统发出的 PendingIntent 启动
+//!    （例如用户点击通知）」** ⇒ 正确做法是发通知把用户拉回前台，再由前台发起安装。
+//!    <https://developer.android.com/guide/components/activities/background-starts>
+//! 2. **进程进入 cached 态后后台工作会被禁止**（Android 14 / API 34 起）：
+//!    "Shortly after an app process enters a cached state, background work is disallowed,
+//!    until a process component re-enters an active state of the lifecycle."
+//!    → 连 Rust 侧的下载本身都不保证跑完；更不能指望「下载完那一刻前端 JS 正好在跑」。
+//!    <https://developer.android.com/about/versions/14/behavior-changes-all>
+//!
+//! 所以完成时的三件事全部落在 Rust 侧（不经前端）：写标记文件 → 判可见性 → 必要时发通知。
+//! 前端只负责「在前台时」把安装器拉起来，以及重回前台/重启后从标记文件恢复出「可安装」状态。
 
 use tauri::AppHandle;
 #[cfg(target_os = "android")]
 use tauri::Emitter;
 #[cfg(target_os = "android")]
+use tauri::Listener;
+#[cfg(target_os = "android")]
 use tauri::Manager;
+
+// ============================================
+// 常量
+// ============================================
+
+/// APK 下载落点文件名（应用缓存目录内）
+#[cfg(target_os = "android")]
+const APK_FILE_NAME: &str = "huanvae-chat-update.apk";
+
+/// 「已下完、待安装」标记文件名（与 APK 同目录）
+///
+/// 它是**跨进程存活**的那份状态：前端 zustand store 只在内存里，进程被系统回收即丢失，
+/// 于是用户回来只能看到一个卡死的满进度条、且必须重下一遍。有了标记文件，
+/// 重回前台/冷启动都能恢复出「已下完，点这里安装」。
+#[cfg(target_os = "android")]
+const APK_MARKER_FILE_NAME: &str = "huanvae-chat-update.pending.json";
+
+/// 前端上报 webview 可见性用的事件名
+///
+/// 方向很关键：**JS → Rust 是同步可靠的**（`Ipc.postMessage` 是 `@JavascriptInterface`，
+/// 由 JS 线程直接同步调进 Rust，见 gen/android 生成的 `Ipc.kt`）；
+/// 而 **Rust → JS 要经主线程 `post{}` + `evaluateJavascript`**（`RustWebView.kt`），
+/// 应用被 pause/cached 后不可靠。所以「谁可见」这件事由 JS 主动推给 Rust，
+/// 让**判断和动作都留在 Rust 侧**。
+#[cfg(target_os = "android")]
+const UI_VISIBILITY_EVENT: &str = "apk-ui-visibility";
+
+// ============================================
+// 待安装状态
+// ============================================
+
+/// 已下载完成、等待用户确认安装的 APK
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PendingApkInstall {
+    /// 待安装包的版本号
+    pub version: String,
+    /// APK 本地绝对路径
+    pub path: String,
+    /// 下载完成时的字节数（用于识别被截断的半截文件）
+    pub size: u64,
+}
+
+/// webview 是否可见。默认 true：用户是在前台点的「更新」。
+#[cfg(target_os = "android")]
+static UI_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// 可见性监听只注册一次（重试下载不重复挂监听）
+#[cfg(target_os = "android")]
+static UI_VISIBILITY_LISTENER: std::sync::Once = std::sync::Once::new();
+
+#[cfg(target_os = "android")]
+#[derive(serde::Deserialize)]
+struct UiVisibilityPayload {
+    visible: bool,
+}
+
+/// 注册前端可见性上报监听（幂等）
+#[cfg(target_os = "android")]
+fn ensure_ui_visibility_listener(app: &AppHandle) {
+    UI_VISIBILITY_LISTENER.call_once(|| {
+        app.listen(UI_VISIBILITY_EVENT, |event| {
+            match serde_json::from_str::<UiVisibilityPayload>(event.payload()) {
+                Ok(payload) => {
+                    println!("[Android Update] webview 可见性上报: {}", payload.visible);
+                    UI_VISIBLE.store(payload.visible, std::sync::atomic::Ordering::Relaxed);
+                }
+                Err(e) => {
+                    eprintln!("[Android Update] 可见性事件解析失败: {}", e);
+                }
+            }
+        });
+    });
+}
 
 /// 获取应用版本号
 ///
@@ -74,15 +170,25 @@ pub async fn fetch_update_json(url: String, timeout_secs: u64) -> Result<String,
 
 /// 下载 APK 文件（仅 Android）
 ///
-/// 下载 APK 到应用缓存目录（无需权限），并通过事件发送进度
+/// 下载 APK 到应用缓存目录（无需权限），并通过事件发送进度。
+///
+/// 下载完成后**在 Rust 侧**收尾（见模块头注释）：
+/// 1. 写「待安装」标记文件 —— 进程被系统回收也不丢，重启后不必重下
+/// 2. 若此刻 webview 不可见，发一条通知把用户拉回前台
+///    （后台直接拉安装器会被系统静默拦掉，通知点击是官方唯一适用的豁免路径）
+///
+/// `version` 只用于写进标记文件与通知文案，不参与下载本身。
 #[cfg(target_os = "android")]
 #[tauri::command]
-pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String> {
+pub async fn download_apk(url: String, version: String, app: AppHandle) -> Result<String, String> {
     use futures_util::StreamExt;
     use std::io::Write;
 
     println!("[Android Update] ========== download_apk 开始 ==========");
     println!("[Android Update] 下载 URL: {}", url);
+    println!("[Android Update] 目标版本: {}", version);
+
+    ensure_ui_visibility_listener(&app);
 
     let client = reqwest::Client::new();
     println!("[Android Update] 发送下载请求...");
@@ -112,7 +218,7 @@ pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String>
         .path()
         .cache_dir()
         .map_err(|e| format!("获取缓存目录失败: {}", e))?;
-    let file_path = cache_dir.join("huanvae-chat-update.apk");
+    let file_path = cache_dir.join(APK_FILE_NAME);
     let file_path_str = file_path.to_string_lossy().to_string();
     println!("[Android Update] 保存路径: {}", file_path_str);
 
@@ -121,6 +227,11 @@ pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String>
         eprintln!("[Android Update] 创建缓存目录失败（可能已存在）: {}", e);
         // 继续尝试，目录可能已存在
     }
+
+    // 先把上一轮的「待安装」标记清掉：接下来要把同名 APK 截断重写，
+    // 标记若留着就会短暂地指向一个半截文件。
+    let marker_path = cache_dir.join(APK_MARKER_FILE_NAME);
+    let _ = std::fs::remove_file(&marker_path);
 
     // 创建文件
     println!("[Android Update] 创建文件...");
@@ -173,7 +284,66 @@ pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String>
         "[Android Update] ✓ 下载完成: {} ({} bytes)",
         file_path_str, downloaded
     );
+
+    // ---- 完成收尾：这三步全部不经过前端 JS ----
+
+    // 1) 落「待安装」标记（跨进程存活）
+    let pending = PendingApkInstall {
+        version: version.clone(),
+        path: file_path_str.clone(),
+        size: downloaded,
+    };
+    match serde_json::to_string(&pending) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&marker_path, json) {
+                // 标记写失败不影响本次安装（前台路径仍能直接拉起安装器），
+                // 只是丢掉「重启后免重下」的能力 —— 如实报错，不静默。
+                eprintln!("[Android Update] 写待安装标记失败: {}", e);
+            } else {
+                println!("[Android Update] ✓ 已写待安装标记: {:?}", marker_path);
+            }
+        }
+        Err(e) => eprintln!("[Android Update] 序列化待安装标记失败: {}", e),
+    }
+
+    // 2) 后台则发通知把用户拉回前台（后台直接拉安装器会被系统静默拦掉）
+    if UI_VISIBLE.load(std::sync::atomic::Ordering::Relaxed) {
+        println!("[Android Update] webview 可见，交由前端直接拉起安装器");
+    } else {
+        println!("[Android Update] webview 不可见，发通知提醒用户回到应用安装");
+        // 🔴 另起线程发：`show()` 是一次同步 JNI 往返，要等 Android 主线程处理。
+        //    应用正处于后台（很可能已经 cached），主线程什么时候被调度不由我们说了算。
+        //    若在这里同步等，本命令就可能迟迟不返回 ⇒ 前端的 invoke 也就迟迟不 resolve
+        //    ⇒ 又变回「卡在满进度条」。通知是尽力而为的旁路，绝不能挡住主返回路径。
+        let app_for_notify = app.clone();
+        let version_for_notify = version.clone();
+        std::thread::spawn(move || {
+            notify_download_complete(&app_for_notify, &version_for_notify);
+        });
+    }
+
     Ok(file_path_str)
+}
+
+/// 下载完成通知（仅在应用不可见时发）
+///
+/// 点击该通知会走 tauri-plugin-notification 设置的 content PendingIntent 打开主 Activity，
+/// 正好命中官方后台启动 Activity 豁免清单第 3 条（"started from a PendingIntent that was
+/// sent by the system, for example, from a notification tap"）—— 用户回到前台后，
+/// 前端再发起安装就是合法的前台启动。
+#[cfg(target_os = "android")]
+fn notify_download_complete(app: &AppHandle, version: &str) {
+    use tauri_plugin_notification::NotificationExt;
+
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title("更新已下载完成")
+        .body(format!("点击回到应用，安装 v{}", version))
+        .show()
+    {
+        eprintln!("[Android Update] 发送下载完成通知失败: {}", e);
+    }
 }
 
 /// 下载 APK 文件（非 Android 平台的存根）
@@ -181,6 +351,84 @@ pub async fn download_apk(url: String, app: AppHandle) -> Result<String, String>
 /// 桌面端不需要此功能，返回错误
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-pub async fn download_apk(_url: String, _app: AppHandle) -> Result<String, String> {
+pub async fn download_apk(
+    _url: String,
+    _version: String,
+    _app: AppHandle,
+) -> Result<String, String> {
     Err("APK 下载仅支持 Android 平台".to_string())
+}
+
+/// 查询是否有「已下完、待安装」的 APK（仅 Android）
+///
+/// 前端在冷启动、以及每次重回前台时调用它恢复状态 —— 这是把
+/// 「切回来只剩一个卡死的满进度条 / 必须清后台重下一遍」修掉的那一环。
+///
+/// 三重校验，任一不过就当作没有并顺手清理，绝不把半截文件报成可安装：
+/// - 标记文件能解析
+/// - 标记版本 ≠ 当前应用版本（相等说明已经装上了，标记过期）
+/// - APK 仍在盘上，且字节数与下载完成时**完全一致**
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn pending_apk_install(app: AppHandle) -> Result<Option<PendingApkInstall>, String> {
+    let cache_dir = app
+        .path()
+        .cache_dir()
+        .map_err(|e| format!("获取缓存目录失败: {}", e))?;
+    let marker_path = cache_dir.join(APK_MARKER_FILE_NAME);
+
+    let Ok(raw) = std::fs::read_to_string(&marker_path) else {
+        return Ok(None);
+    };
+
+    let pending: PendingApkInstall = match serde_json::from_str(&raw) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[Android Update] 待安装标记损坏，清理: {}", e);
+            let _ = std::fs::remove_file(&marker_path);
+            return Ok(None);
+        }
+    };
+
+    // 版本与当前一致 ⇒ 这个包已经装上了，标记连同 APK 一起清掉，别再提示
+    let current_version = app.config().version.clone().unwrap_or_default();
+    if pending.version == current_version {
+        println!("[Android Update] 待安装包与当前版本一致，清理标记与 APK");
+        let _ = std::fs::remove_file(&marker_path);
+        let _ = std::fs::remove_file(&pending.path);
+        return Ok(None);
+    }
+
+    match std::fs::metadata(&pending.path) {
+        Ok(meta) if meta.len() == pending.size => {
+            println!(
+                "[Android Update] 发现待安装包 v{} ({} bytes)",
+                pending.version, pending.size
+            );
+            Ok(Some(pending))
+        }
+        Ok(meta) => {
+            eprintln!(
+                "[Android Update] 待安装 APK 字节数不符（{} != {}），清理标记",
+                meta.len(),
+                pending.size
+            );
+            let _ = std::fs::remove_file(&marker_path);
+            Ok(None)
+        }
+        Err(e) => {
+            eprintln!("[Android Update] 待安装 APK 已不存在（{}），清理标记", e);
+            let _ = std::fs::remove_file(&marker_path);
+            Ok(None)
+        }
+    }
+}
+
+/// 查询待安装 APK（非 Android 平台的存根）
+///
+/// 桌面端走 tauri-plugin-updater，不存在「下完等用户点安装」这一步
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn pending_apk_install(_app: AppHandle) -> Result<Option<PendingApkInstall>, String> {
+    Ok(None)
 }

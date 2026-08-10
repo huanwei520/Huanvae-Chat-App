@@ -60,6 +60,22 @@ interface UpdateStoreState {
   // 缓存的更新信息
   desktopUpdateInfo: UpdateInfo | null;
   androidUpdateInfo: AndroidUpdateInfo | null;
+
+  /**
+   * Android：已下完、待安装的 APK 本地路径（''=没有）
+   *
+   * 有它才谈得上「下完之后还能再点一次安装」——旧实现下完就 dismiss，
+   * 安装器一旦没弹出来（后台被系统拦掉 / 用户点了取消），这个包就再也点不到了。
+   */
+  androidApkPath: string;
+
+  /**
+   * Android：本次会话里用户已经把「可安装」提示关掉过
+   *
+   * 只作用于**从磁盘标记恢复**的那条路径：不加这个标志，用户每次切回前台
+   * 都会被同一条提示重新怼一次。仅进程内有效，重启后会再提示一次（合理：包确实还等着装）。
+   */
+  pendingInstallDismissed: boolean;
 }
 
 interface UpdateStoreActions {
@@ -77,6 +93,16 @@ interface UpdateStoreActions {
   // 更新下载安装
   handleUpdate: () => Promise<void>;
 
+  /** Android：对已下完的 APK 再次拉起系统安装器（「立即安装」按钮） */
+  installReadyApk: () => Promise<void>;
+
+  /**
+   * Android：从 Rust 侧的磁盘标记恢复「已下完，待安装」状态
+   *
+   * 冷启动 + 每次重回前台各调一次。
+   */
+  restorePendingInstall: () => Promise<void>;
+
   // 重启（桌面端）
   handleRestart: () => Promise<void>;
 
@@ -88,6 +114,25 @@ interface UpdateStoreActions {
 }
 
 type UpdateStore = UpdateStoreState & UpdateStoreActions;
+
+// ============================================
+// 工具
+// ============================================
+
+/**
+ * 当前 webview 是否可见
+ *
+ * 用途只有一个：决定「能不能拉系统安装器」。Android 10 起后台不许启动 Activity，
+ * 且系统是**静默**拦截 —— 拉了不会报错、也不会有任何反应，所以必须在调用前自己判断，
+ * 不能靠 catch 兜。<https://developer.android.com/guide/components/activities/background-starts>
+ *
+ * 判错的代价是不对称的，因此**默认按可见处理**：
+ * - 误判成可见 ⇒ 白拉一次安装器（被系统拦掉，无副作用），状态仍停在可安装
+ * - 误判成不可见 ⇒ 明明在前台却不弹安装器，用户得多点一次
+ */
+function isUiVisible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+}
 
 // ============================================
 // 初始状态
@@ -106,6 +151,8 @@ const initialState: UpdateStoreState = {
   isChecking: false,
   desktopUpdateInfo: null,
   androidUpdateInfo: null,
+  androidApkPath: '',
+  pendingInstallDismissed: false,
 };
 
 // ============================================
@@ -131,7 +178,18 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   startDownload: () => {
     // 起手总长必然未知（第一个 Started 事件还没到）⇒ 先进不定态，
     // 免得先闪一个「0%」再变成真实百分比。
-    set({ status: 'downloading', progress: 0, downloaded: 0, total: 0, indeterminate: true });
+    set({
+      status: 'downloading',
+      progress: 0,
+      downloaded: 0,
+      total: 0,
+      indeterminate: true,
+      // Android：新一轮下载会把同名 APK 截断重写、并删掉旧标记 ⇒ 旧路径此刻指向半截文件，
+      // 必须一起作废，免得残留一个指向坏包的「立即安装」。
+      androidApkPath: '',
+      // 用户重新点了更新 = 重新有兴趣了，之前那次「稍后」不该继续压制提示
+      pendingInstallDismissed: false,
+    });
   },
 
   updateProgress: ({ percent, downloaded, total, indeterminate, sourceUrl }) => {
@@ -157,7 +215,10 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   dismiss: () => {
-    set({ status: 'idle' });
+    // 移动端把「已下完待安装」关掉时记一笔，免得每次切回前台都被同一条提示怼一次
+    // （仅本次进程内有效，见 pendingInstallDismissed 注释）
+    const shouldMutePending = isMobile() && get().status === 'ready';
+    set(shouldMutePending ? { status: 'idle', pendingInstallDismissed: true } : { status: 'idle' });
   },
 
   // ========== 更新检查（带锁） ==========
@@ -236,7 +297,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         // 2. 权限通过后开始下载
         store.startDownload();
         console.warn('[UpdateStore] 开始下载 APK:', info.apkUrl);
-        const localPath = await downloadApk(info.apkUrl, (progress) => {
+        const localPath = await downloadApk(info.apkUrl, info.version ?? '', (progress) => {
           // Android 侧总长来自 Content-Length；拿不到时是 0 ⇒ 由 updateProgress 推断成不定态
           store.updateProgress({
             percent: progress.percent,
@@ -248,11 +309,32 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
         console.warn('[UpdateStore] 下载完成:', localPath);
 
-        // 3. 直接调用安装器（权限已在步骤1获取）
-        console.warn('[UpdateStore] 调用安装器...');
-        await installApk(localPath);
-        // 安装器启动后，系统会接管，应用可能被替换，直接关闭弹窗
-        store.dismiss();
+        // 3. 先落成「已下完，可安装」这个**可交互**状态，再谈拉安装器。
+        //    顺序不能反：旧实现是「拉安装器 → dismiss」，一旦安装器没真弹出来
+        //    （后台被系统静默拦掉 / 用户点了取消），UI 要么停在一个永远满着的进度条上，
+        //    要么直接消失，用户既看不到也点不到那个已经下好的包。
+        set({
+          androidApkPath: localPath,
+          status: 'ready',
+          progress: 100,
+          indeterminate: false,
+          pendingInstallDismissed: false,
+        });
+
+        // 4. 只有在**可见**时才拉安装器。后台拉会被 Android 静默拦掉
+        //    （既无返回值也无异常），此时改由 Rust 侧发通知把用户拉回来。
+        //    ⚠️ installApk 是 void 且不可 await（插件成功路径永不 settle，见其注释），
+        //    所以状态必须在**它之前**就落好 —— 这也是上一步顺序不能反的原因。
+        if (isUiVisible()) {
+          console.warn('[UpdateStore] 前台，直接调用安装器...');
+          installApk(localPath, (message) => {
+            // 拉安装器失败**不能**把整次更新判成失败：包已经下好了，
+            // 状态停在「可安装」，用户还能再点一次「立即安装」（那条显式路径会报错）。
+            console.error('[UpdateStore] 自动拉起安装器失败，保留可安装状态:', message);
+          });
+        } else {
+          console.warn('[UpdateStore] 后台，不拉安装器（会被系统拦截），等用户回到前台');
+        }
       } else {
         // 桌面端
         const info = state.desktopUpdateInfo;
@@ -282,6 +364,72 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       console.error('[UpdateStore] 更新失败:', errorMsg);
       store.showError(errorMsg);
     }
+  },
+
+  // ========== Android：对已下完的包再次拉起安装器 ==========
+
+  installReadyApk: async () => {
+    const apkPath = get().androidApkPath;
+    if (!apkPath) {
+      console.warn('[UpdateStore] 没有待安装的 APK');
+      return;
+    }
+
+    try {
+      const { installApk, ensureInstallPermission } = await import('./service.android');
+      // 冷启动恢复出来的待安装包，权限可能是上一个进程里授的（也可能被用户撤了），
+      // 所以这条显式路径每次都自己确认一遍，不复用下载前那次。
+      await ensureInstallPermission();
+      // ⚠️ 不能 await：插件成功路径永不 settle（见 installApk 注释），
+      //    await 会让这里永久挂起、catch 也永远等不到。失败经回调回来。
+      installApk(apkPath, (message) => get().showError(message));
+    } catch (err) {
+      // 这里只兜得到「拉安装器之前」的失败：权限被拒等
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[UpdateStore] 安装失败:', errorMsg);
+      get().showError(errorMsg);
+    }
+  },
+
+  // ========== Android：从磁盘标记恢复「待安装」 ==========
+
+  restorePendingInstall: async () => {
+    if (!isMobile()) {
+      return;
+    }
+
+    const state = get();
+    // 用户这次会话里已经把提示关掉了，别再怼他
+    if (state.pendingInstallDismissed) {
+      return;
+    }
+    // 只有这两个状态该被磁盘上的「已下完」接管：
+    // - idle：冷启动 / 平时
+    // - downloading：**关键** —— 这正是故障现场。下载其实早就完成了（标记文件是完成时才写的，
+    //   且每轮下载开始会先删掉旧标记，所以标记存在 ⇒ 这一份确已下完），只是那条
+    //   「Rust → JS」的回执没能把前端从 downloading 推出去。不放行这个状态，
+    //   用户切回来看到的就还是那根卡死的满进度条。
+    // 其余状态（available / ready / error）都是用户正在看的、有明确语义的提示，不覆盖。
+    if (state.status !== 'idle' && state.status !== 'downloading') {
+      return;
+    }
+
+    const { getPendingApkInstall } = await import('./service.android');
+    const pending = await getPendingApkInstall();
+    if (!pending) {
+      return;
+    }
+
+    console.warn('[UpdateStore] 恢复待安装包:', pending.version, pending.path);
+    set({
+      status: 'ready',
+      version: pending.version,
+      androidApkPath: pending.path,
+      progress: 100,
+      indeterminate: false,
+      downloaded: pending.size,
+      total: pending.size,
+    });
   },
 
   // ========== 重启（桌面端） ==========
@@ -327,6 +475,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       onDismiss: state.dismiss,
       onRestart: state.handleRestart,
       onRetry: state.handleRetry,
+      onInstall: state.installReadyApk,
     };
   },
 }));
@@ -357,6 +506,7 @@ export function useUpdateToastProps(): UpdateToastProps {
   const dismiss = useUpdateStore((s) => s.dismiss);
   const handleRestart = useUpdateStore((s) => s.handleRestart);
   const handleRetry = useUpdateStore((s) => s.handleRetry);
+  const installReadyApk = useUpdateStore((s) => s.installReadyApk);
 
   return {
     status,
@@ -372,6 +522,7 @@ export function useUpdateToastProps(): UpdateToastProps {
     onDismiss: dismiss,
     onRestart: handleRestart,
     onRetry: handleRetry,
+    onInstall: installReadyApk,
   };
 }
 

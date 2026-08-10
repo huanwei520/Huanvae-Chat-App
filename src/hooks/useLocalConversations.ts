@@ -6,6 +6,10 @@
  *
  * 数据更新策略：事件驱动，由外部在消息变更时调用 refresh()。
  * 不再使用 5 秒定时轮询。
+ *
+ * 预览文本的发送者前缀（`昵称: ` / `我: `）在**本 hook 内**统一派生，
+ * 只对群聊生效；两个消费方（桌面 UnifiedList、移动 MobileChatList）都直接渲染
+ * lastMessage 字符串，故两端呈现由构造保证一致，不存在各自拼接漂移的可能。
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -18,6 +22,10 @@ const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
 /** 会话预览信息 */
 export interface ConversationPreview {
   conversationId: string;
+  /**
+   * 卡片预览文本。**群聊**已带发送者前缀（`昵称: 内容` / `我: 内容`，见 groupSenderPrefix）；
+   * 单聊/bot 为纯内容。桌面 UnifiedList 与移动 MobileChatList 同吃这一份，天然两端一致。
+   */
   lastMessage: string | null;
   lastMessageTime: string | null;
   lastSeq: number;
@@ -59,6 +67,23 @@ function toPreviewText(contentType: string | null, content: string | null): stri
   return CONTENT_TYPE_MAP[contentType] ?? content;
 }
 
+/**
+ * 群聊预览的发送者前缀（`昵称: ` / `我: `），无法归属时返回空串。
+ *
+ * 仅群聊调用 —— 单聊/bot 会话里发送者只有两个人，前缀是纯噪音。
+ * - 系统消息（入群/退群等）本身已含主语且无真实发送者 → 不加前缀
+ * - 自己发的 → 「我: 」（多人会话里「最后说话的是不是我」本身就是有效信息，
+ *   与 Telegram「You:」/ QQ「我:」一致；不加前缀则无法与"昵称缺失的他人消息"区分）
+ * - 发送者不可辨（未带昵称的同步路径写入 sender_name=null）→ 不加前缀，
+ *   而非退化成裸用户 ID（ID 对用户无意义，且会挤掉本就有限的预览宽度）
+ */
+function groupSenderPrefix(row: db.ConversationWithPreview, currentUserId: string): string {
+  if (row.msg_content_type === 'system') { return ''; }
+  if (row.msg_sender_id === currentUserId) { return '我: '; }
+  if (row.msg_sender_name) { return `${row.msg_sender_name}: `; }
+  return '';
+}
+
 export function useLocalConversations(): UseLocalConversationsReturn {
   const { session } = useSession();
   const [previews, setPreviews] = useState<ConversationPreviews>({
@@ -84,9 +109,14 @@ export function useLocalConversations(): UseLocalConversationsReturn {
       const groupPreviews = new Map<string, ConversationPreview>();
 
       for (const row of rows) {
+        const isGroup = row.type !== 'friend';
+        const previewText = toPreviewText(row.msg_content_type, row.msg_content);
         const preview: ConversationPreview = {
           conversationId: row.id,
-          lastMessage: toPreviewText(row.msg_content_type, row.msg_content),
+          // 群聊卡片带发送者前缀（多人会话里"谁最后说话"是关键信息）；单聊不带
+          lastMessage: isGroup && previewText !== null
+            ? groupSenderPrefix(row, session.userId) + previewText
+            : previewText,
           lastMessageTime: row.msg_send_time,
           lastSeq: row.last_seq,
           isPinned: row.is_pinned,

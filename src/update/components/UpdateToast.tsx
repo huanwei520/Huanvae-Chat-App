@@ -15,7 +15,7 @@
  * 1. idle: 隐藏状态
  * 2. available: 显示有新版本可用，可点击更新
  * 3. downloading: 显示下载进度和代理链接（移动端底部迷你卡片）
- * 4. ready: 下载完成，等待重启
+ * 4. ready: 下载完成 —— 桌面端等待重启；**移动端等待用户点「立即安装」**
  * 5. error: 显示错误信息
  */
 
@@ -88,10 +88,17 @@ export interface UpdateToastProps {
   onUpdate?: () => void;
   /** 点击稍后按钮 */
   onDismiss?: () => void;
-  /** 点击重启按钮 */
+  /** 点击重启按钮（桌面端） */
   onRestart?: () => void;
   /** 点击重试按钮 */
   onRetry?: () => void;
+  /**
+   * 点击安装按钮（Android）
+   *
+   * 移动端没有「重启完成更新」这回事 —— 得把已下好的 APK 交给系统安装器。
+   * 这个入口同时承担「后台下完、回到前台补装」和「安装器被取消后重来一次」。
+   */
+  onInstall?: () => void;
 }
 
 // ============================================
@@ -112,6 +119,7 @@ export function UpdateToast({
   onDismiss,
   onRestart,
   onRetry,
+  onInstall,
 }: UpdateToastProps) {
   const isVisible = status !== 'idle';
 
@@ -222,6 +230,36 @@ export function UpdateToast({
         );
 
       case 'ready':
+        // 移动端「下载完成」的下一步是**交给系统安装器**，不是重启：
+        // 后台下完时安装器根本弹不出来（Android 10 起后台禁止启动 Activity，
+        // 且静默拦截），这个按钮就是用户回到前台后唯一能把包装上的入口。
+        if (isMobile()) {
+          return (
+            <>
+              <div className="update-toast-icon">✅</div>
+              <div className="update-toast-info">
+                <div className="update-toast-title">v{version} 已下载完成</div>
+                <div className="update-toast-notes">点击安装以完成更新</div>
+              </div>
+              <div className="update-toast-actions">
+                <button
+                  type="button"
+                  className="update-toast-btn update-toast-btn-secondary"
+                  onClick={onDismiss}
+                >
+                  稍后
+                </button>
+                <button
+                  type="button"
+                  className="update-toast-btn update-toast-btn-primary"
+                  onClick={onInstall}
+                >
+                  立即安装
+                </button>
+              </div>
+            </>
+          );
+        }
         return (
           <>
             <div className="update-toast-icon">✅</div>

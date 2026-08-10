@@ -242,9 +242,11 @@ pub fn get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
                 // '[消息已撤回]'），保留其 send_time 让会话卡片留在原排序位置 ——
                 // 与 WeChat / Telegram / WhatsApp 行为一致：撤回是一次"最新交互"，
                 // 不应让卡片掉回到撤回前一条消息的旧时间。仅排除真正软删的消息。
+                // sender_id / sender_name 供群聊卡片拼「发送者: 内容」预览前缀
+                // （单聊不用，前端按会话类型决定是否加前缀）
                 "SELECT c.id, c.type, c.name, c.avatar_url,
                         c.last_seq, c.unread_count, c.is_muted, c.is_pinned, c.updated_at,
-                        m.content, m.content_type, m.send_time
+                        m.content, m.content_type, m.send_time, m.sender_id, m.sender_name
                  FROM conversations c
                  LEFT JOIN messages m ON m.message_uuid = (
                      SELECT message_uuid FROM messages
@@ -271,6 +273,8 @@ pub fn get_conversation_previews() -> Result<Vec<ConversationPreview>, String> {
                     msg_content: row.get(9)?,
                     msg_content_type: row.get(10)?,
                     msg_send_time: row.get(11)?,
+                    msg_sender_id: row.get(12)?,
+                    msg_sender_name: row.get(13)?,
                 })
             })
             .map_err(|e| e.to_string())?;

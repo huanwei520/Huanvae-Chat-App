@@ -8,6 +8,7 @@
 //! - `mark_message_recalled`: 标记消息为已撤回
 //! - `mark_message_deleted`: 标记消息为已删除（软删除）
 //! - `search_messages`: 搜消息内容（FTS5 主路径 + LIKE fallback；可按会话 + content_type 过滤）
+//! - `list_conversation_messages`: 会话内按分类浏览（关键词可选）+ LIMIT/OFFSET 分页
 //!
 //! ## 消息排序
 //!
@@ -398,6 +399,15 @@ fn fts_search(
     collect_hits(&mut stmt, bind_refs.as_slice())
 }
 
+/// 把关键词编译成 `%…%` LIKE 模式（转义 SQLite 通配符，配 `ESCAPE '\'` 使用）
+fn like_pattern(query: &str) -> String {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{}%", escaped)
+}
+
 /// LIKE %query% 兜底查询
 fn like_search(
     conn: &Connection,
@@ -405,12 +415,7 @@ fn like_search(
     limit: i64,
     filter: &MessageSearchFilter,
 ) -> Result<Vec<(LocalMessage, String, Option<String>)>, String> {
-    // SQLite LIKE 通配符转义
-    let escaped = query
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let pattern = format!("%{}%", escaped);
+    let pattern = like_pattern(query);
 
     let (filter_sql, filter_binds) = compile_filter(filter);
     let sql = format!(
@@ -438,6 +443,32 @@ fn like_search(
     collect_hits(&mut stmt, bind_refs.as_slice())
 }
 
+/// 把查询行的前 20 列映射成 LocalMessage（列序 = 本文件各查询 SELECT 的固定列序）
+fn row_to_local_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalMessage> {
+    Ok(LocalMessage {
+        message_uuid: row.get(0)?,
+        conversation_id: row.get(1)?,
+        conversation_type: row.get(2)?,
+        sender_id: row.get(3)?,
+        sender_name: row.get(4)?,
+        sender_avatar: row.get(5)?,
+        content: row.get(6)?,
+        content_type: row.get(7)?,
+        file_uuid: row.get(8)?,
+        file_url: row.get(9)?,
+        file_size: row.get(10)?,
+        file_hash: row.get(11)?,
+        image_width: row.get(12)?,
+        image_height: row.get(13)?,
+        seq: row.get(14)?,
+        reply_to: row.get(15)?,
+        is_recalled: row.get::<_, i64>(16)? != 0,
+        is_deleted: row.get::<_, i64>(17)? != 0,
+        send_time: row.get(18)?,
+        created_at: row.get(19)?,
+    })
+}
+
 /// 把 prepare 好的 stmt 执行并收集为 hits 列表
 fn collect_hits(
     stmt: &mut rusqlite::Statement,
@@ -446,28 +477,7 @@ fn collect_hits(
     let rows = stmt
         .query_map(parameters, |row| {
             Ok((
-                LocalMessage {
-                    message_uuid: row.get(0)?,
-                    conversation_id: row.get(1)?,
-                    conversation_type: row.get(2)?,
-                    sender_id: row.get(3)?,
-                    sender_name: row.get(4)?,
-                    sender_avatar: row.get(5)?,
-                    content: row.get(6)?,
-                    content_type: row.get(7)?,
-                    file_uuid: row.get(8)?,
-                    file_url: row.get(9)?,
-                    file_size: row.get(10)?,
-                    file_hash: row.get(11)?,
-                    image_width: row.get(12)?,
-                    image_height: row.get(13)?,
-                    seq: row.get(14)?,
-                    reply_to: row.get(15)?,
-                    is_recalled: row.get::<_, i64>(16)? != 0,
-                    is_deleted: row.get::<_, i64>(17)? != 0,
-                    send_time: row.get(18)?,
-                    created_at: row.get(19)?,
-                },
+                row_to_local_message(row)?,
                 row.get::<_, Option<String>>(20)?.unwrap_or_default(),
                 row.get::<_, Option<String>>(21)?,
             ))
@@ -522,6 +532,108 @@ fn enrich_with_context(
         });
     }
     Ok(results)
+}
+
+/// 会话内「按分类浏览 + 可选关键词过滤」的分页列表（Telegram 式查找）
+///
+/// 与 [`search_messages`] 的分工：
+/// - `search_messages`：**跨会话全局**搜索，关键词**必填**，FTS5 短语为主路径
+/// - 本函数：**单会话**内浏览，关键词**可选** —— 不给关键词就按分类按时间倒序列出全部
+///   （产品要求：点「图片/视频/文件/全部」立刻出列表，不必先输入关键词），
+///   给了关键词就在同一分类结果里再过滤
+///
+/// ## 为什么关键词走 `LIKE %kw%` 而不是 FTS5
+///
+/// 1. **分页必须自洽**。`search_messages` 是「FTS 命中为空则回落 LIKE」的双轨制；
+///    同一组条件在不同 offset 上可能落到不同轨道，翻页会重复/漏条。单轨 LIKE 的
+///    LIMIT/OFFSET 才是确定的。
+/// 2. **中文子串**。FTS5 `unicode61` 不切分 CJK，一整段中文是一个 token，短语查询
+///    匹配不到句中片段 —— `search_messages` 挂 LIKE 兜底正是为此。会话内查找几乎
+///    全是「记得其中几个字」，LIKE 才是对的语义。
+/// 3. 扫描量有界：`conversation_id` 把范围钉死在单个会话内。
+///
+/// ## 排序三元组
+///
+/// `send_time DESC, seq DESC, message_uuid DESC` —— 只按 send_time 排序时，同一秒
+/// 发出的多条消息在两次分页查询里可能顺序不同，翻页就会重复/丢条。三元组唯一。
+pub fn list_conversation_messages(
+    conversation_id: &str,
+    query: Option<&str>,
+    limit: i64,
+    offset: i64,
+    filter: &MessageSearchFilter,
+) -> Result<Vec<LocalMessage>, String> {
+    // 会话范围由参数强制注入，不接受调用方经 filter 传 —— 漏传会静默变成"全库列表"
+    let scoped = MessageSearchFilter {
+        conversation_id: Some(conversation_id.to_string()),
+        ..filter.clone()
+    };
+    with_db!(db, {
+        list_conversation_messages_with_conn(db, query, limit, offset, &scoped)
+    })
+}
+
+/// `list_conversation_messages` 的内部实现（接受 Connection 引用，便于单测用 in-memory DB）
+///
+/// `filter.conversation_id` 由公共入口保证已填。仅 crate 内可见。
+pub(crate) fn list_conversation_messages_with_conn(
+    conn: &Connection,
+    query: Option<&str>,
+    limit: i64,
+    offset: i64,
+    filter: &MessageSearchFilter,
+) -> Result<Vec<LocalMessage>, String> {
+    // include 显式给了空集 = "只要这 0 种类型" → 结果必然为空，直接短路
+    // （不短路会拼出 `content_type IN ()`，SQLite 语法错误；同 search_messages_with_conn）
+    if filter
+        .include_content_types
+        .as_ref()
+        .is_some_and(|t| t.is_empty())
+    {
+        return Ok(Vec::new());
+    }
+
+    let keyword = query.map(str::trim).filter(|q| !q.is_empty());
+
+    let (filter_sql, filter_binds) = compile_filter(filter);
+    let keyword_sql = if keyword.is_some() {
+        " AND m.content LIKE ? ESCAPE '\\'"
+    } else {
+        ""
+    };
+
+    let sql = format!(
+        "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
+                m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
+                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at
+         FROM messages m
+         WHERE m.is_deleted = 0
+           AND m.is_recalled = 0{}{}
+         ORDER BY m.send_time DESC, m.seq DESC, m.message_uuid DESC
+         LIMIT ? OFFSET ?",
+        filter_sql, keyword_sql
+    );
+
+    // 绑定顺序必须与 SQL 中 `?` 的出现顺序一致：filter → keyword → limit → offset
+    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = filter_binds;
+    if let Some(kw) = keyword {
+        binds.push(Box::new(like_pattern(kw)));
+    }
+    binds.push(Box::new(limit));
+    binds.push(Box::new(offset));
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt
+        .query_map(bind_refs.as_slice(), row_to_local_message)
+        .map_err(|e| e.to_string())?;
+
+    let mut out: Vec<LocalMessage> = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
 }
 
 /// 标记消息为已删除
@@ -891,5 +1003,245 @@ mod tests {
         let results = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.message_uuid, "m1");
+    }
+
+    // ------------------------------------------------------------------
+    // list_conversation_messages —— 会话内分类浏览（关键词可选）+ 分页
+    // ------------------------------------------------------------------
+
+    /// 会话 c1 的浏览过滤器（会话范围由 with_conn 的调用方显式给出，
+    /// 与公共入口 `list_conversation_messages` 强制注入的形态一致）
+    fn browse_c1(include: Option<Vec<&str>>, exclude: Option<Vec<&str>>) -> MessageSearchFilter {
+        MessageSearchFilter {
+            conversation_id: Some("c1".to_string()),
+            include_content_types: include
+                .map(|v| v.into_iter().map(str::to_string).collect()),
+            exclude_content_types: exclude
+                .map(|v| v.into_iter().map(str::to_string).collect()),
+        }
+    }
+
+    fn browse_uuids(rows: &[LocalMessage]) -> Vec<&str> {
+        rows.iter().map(|m| m.message_uuid.as_str()).collect()
+    }
+
+    #[test]
+    fn browse_without_keyword_lists_whole_category_time_desc() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "a.png", "image", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "b.png", "image", 2, "2026-05-11T03:00:00Z");
+        insert_msg(&conn, "m3", "c1", "c.png", "image", 3, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m4", "c1", "只是文字", "text", 4, "2026-05-11T09:00:00Z");
+        insert_msg(&conn, "m5", "c2", "别的会话.png", "image", 1, "2026-05-11T09:00:00Z");
+
+        // 关键词为 None —— 这是本次需求的核心：不输入也要按分类列出全部
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            None,
+            50,
+            0,
+            &browse_c1(Some(vec!["image"]), None),
+        )
+        .unwrap();
+
+        assert_eq!(
+            browse_uuids(&rows),
+            vec!["m2", "m3", "m1"],
+            "无关键词时按 send_time 倒序列出该分类全部，且不跨会话"
+        );
+    }
+
+    #[test]
+    fn browse_all_category_without_keyword_lists_every_type() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "文字", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "a.png", "image", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "a.zip", "file", 3, "2026-05-11T03:00:00Z");
+
+        let rows =
+            list_conversation_messages_with_conn(&conn, None, 50, 0, &browse_c1(None, None))
+                .unwrap();
+        assert_eq!(browse_uuids(&rows), vec!["m3", "m2", "m1"]);
+    }
+
+    #[test]
+    fn browse_keyword_filters_inside_category() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "holiday.png", "image", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "invoice.png", "image", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "holiday.txt", "file", 3, "2026-05-11T03:00:00Z");
+
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            Some("holiday"),
+            50,
+            0,
+            &browse_c1(Some(vec!["image"]), None),
+        )
+        .unwrap();
+        assert_eq!(
+            browse_uuids(&rows),
+            vec!["m1"],
+            "关键词只在当前分类内过滤，不把别的分类捞回来"
+        );
+    }
+
+    #[test]
+    fn browse_keyword_matches_cjk_substring() {
+        let conn = setup_test_db();
+        // FTS5 unicode61 不切分 CJK，短语查询匹配不到句中片段；LIKE 子串可以。
+        // 这正是本函数不走 FTS 的理由之一，缺了它中文查找会一条都搜不到。
+        insert_msg(&conn, "m1", "c1", "明天下午三点开会", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "晚上去吃饭", "text", 2, "2026-05-11T02:00:00Z");
+
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            Some("下午"),
+            50,
+            0,
+            &browse_c1(None, None),
+        )
+        .unwrap();
+        assert_eq!(browse_uuids(&rows), vec!["m1"]);
+    }
+
+    #[test]
+    fn browse_paginates_by_limit_offset_without_overlap() {
+        let conn = setup_test_db();
+        for i in 0..5 {
+            insert_msg(
+                &conn,
+                &format!("m{}", i),
+                "c1",
+                "文字",
+                "text",
+                i + 1,
+                &format!("2026-05-11T0{}:00:00Z", i),
+            );
+        }
+
+        let page1 =
+            list_conversation_messages_with_conn(&conn, None, 2, 0, &browse_c1(None, None))
+                .unwrap();
+        let page2 =
+            list_conversation_messages_with_conn(&conn, None, 2, 2, &browse_c1(None, None))
+                .unwrap();
+        let page3 =
+            list_conversation_messages_with_conn(&conn, None, 2, 4, &browse_c1(None, None))
+                .unwrap();
+
+        assert_eq!(browse_uuids(&page1), vec!["m4", "m3"]);
+        assert_eq!(browse_uuids(&page2), vec!["m2", "m1"]);
+        assert_eq!(browse_uuids(&page3), vec!["m0"], "最后一页不足 limit → 前端据此判无更多");
+        assert!(page3.len() < 2);
+    }
+
+    #[test]
+    fn browse_pagination_is_stable_when_send_time_ties() {
+        let conn = setup_test_db();
+        // 同一 send_time 的三条：只按 send_time 排序时顺序不定 → 翻页会重复/丢条。
+        // 排序三元组（send_time, seq, message_uuid）必须让分页结果两两不相交且并集完整。
+        insert_msg(&conn, "ma", "c1", "同秒 A", "text", 1, "2026-05-11T05:00:00Z");
+        insert_msg(&conn, "mb", "c1", "同秒 B", "text", 2, "2026-05-11T05:00:00Z");
+        insert_msg(&conn, "mc", "c1", "同秒 C", "text", 3, "2026-05-11T05:00:00Z");
+
+        let page1 =
+            list_conversation_messages_with_conn(&conn, None, 2, 0, &browse_c1(None, None))
+                .unwrap();
+        let page2 =
+            list_conversation_messages_with_conn(&conn, None, 2, 2, &browse_c1(None, None))
+                .unwrap();
+
+        let mut all: Vec<&str> = browse_uuids(&page1);
+        all.extend(browse_uuids(&page2));
+        all.sort_unstable();
+        assert_eq!(all, vec!["ma", "mb", "mc"], "分页并集完整、无重复");
+    }
+
+    #[test]
+    fn browse_excludes_recalled_and_deleted() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "正常", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "已删", "text", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "已撤回", "text", 3, "2026-05-11T03:00:00Z");
+        conn.execute("UPDATE messages SET is_deleted=1 WHERE message_uuid='m2'", []).unwrap();
+        conn.execute("UPDATE messages SET is_recalled=1 WHERE message_uuid='m3'", []).unwrap();
+
+        let rows =
+            list_conversation_messages_with_conn(&conn, None, 50, 0, &browse_c1(None, None))
+                .unwrap();
+        assert_eq!(browse_uuids(&rows), vec!["m1"]);
+    }
+
+    #[test]
+    fn browse_text_category_excludes_file_types() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "文字", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "a.png", "image", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "卡片", "card", 3, "2026-05-11T03:00:00Z");
+
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            None,
+            50,
+            0,
+            &browse_c1(None, Some(vec!["image", "video", "file", "audio"])),
+        )
+        .unwrap();
+        assert_eq!(
+            browse_uuids(&rows),
+            vec!["m3", "m1"],
+            "文字类用 exclude → 未知/特殊类型（card）仍归文字，不凭空消失"
+        );
+    }
+
+    #[test]
+    fn browse_empty_include_returns_empty_not_error() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "文字", "text", 1, "2026-05-11T01:00:00Z");
+
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            None,
+            50,
+            0,
+            &browse_c1(Some(vec![]), None),
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 0);
+    }
+
+    #[test]
+    fn browse_blank_keyword_is_treated_as_no_keyword() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "文字", "text", 1, "2026-05-11T01:00:00Z");
+
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            Some("   "),
+            50,
+            0,
+            &browse_c1(None, None),
+        )
+        .unwrap();
+        assert_eq!(browse_uuids(&rows), vec!["m1"], "全空白关键词等同于不过滤");
+    }
+
+    #[test]
+    fn browse_keyword_wildcards_are_escaped() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "100% 完成", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "毫不相干", "text", 2, "2026-05-11T02:00:00Z");
+
+        // 未转义时 `%` 是 LIKE 通配符，会把 m2 也捞出来
+        let rows = list_conversation_messages_with_conn(
+            &conn,
+            Some("100%"),
+            50,
+            0,
+            &browse_c1(None, None),
+        )
+        .unwrap();
+        assert_eq!(browse_uuids(&rows), vec!["m1"]);
     }
 }

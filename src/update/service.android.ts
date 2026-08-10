@@ -9,10 +9,23 @@
  * 注意：
  * - 桌面端使用 @tauri-apps/plugin-updater，支持自动安装和重启
  * - Android 需要调用系统安装器，用户手动确认安装
+ *
+ * ## 前台/后台分工（别再把安装挂在下载 Promise 后面）
+ *
+ * 拉起系统安装器本质是 `startActivity`，而 Android 10 (API 29) 起**后台应用不许启动
+ * Activity**，且系统是**静默**拦截（调用方既没有返回值也没有异常，只有 logcat 里一行
+ * `Background activity launch blocked!`）——
+ * <https://developer.android.com/guide/components/activities/background-starts>
+ *
+ * 所以本模块的分工是：
+ * - **前台**：`installApk()` 直接拉安装器（合法的前台启动）
+ * - **后台**：完全不碰安装器；由 Rust 侧写「待安装」标记 + 发通知
+ *   （通知点击走系统 PendingIntent，正是官方豁免清单里唯一适用的那条），
+ *   用户回到前台后再由 `getPendingApkInstall()` 恢复出「可安装」状态
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   checkPermissions,
   requestPermissions,
@@ -63,6 +76,65 @@ export interface AndroidDownloadProgress {
 }
 
 export type AndroidProgressCallback = (progress: AndroidDownloadProgress) => void;
+
+/** 已下完、等待用户确认安装的 APK（真值在 Rust 侧的标记文件，见 android_update.rs） */
+export interface PendingApkInstall {
+  /** 待安装包版本号 */
+  version: string;
+  /** APK 本地绝对路径 */
+  path: string;
+  /** 下载完成时的字节数 */
+  size: number;
+}
+
+// ============================================
+// webview 可见性上报
+// ============================================
+
+/** 上报可见性用的事件名（与 Rust 侧 `UI_VISIBILITY_EVENT` 必须一致） */
+const UI_VISIBILITY_EVENT = 'apk-ui-visibility';
+
+/**
+ * 把当前 webview 是否可见上报给 Rust
+ *
+ * 为什么必须由 JS 主动推、而不是 Rust 去问：
+ * JS → Rust 是**同步**的（`Ipc.postMessage` 是 `@JavascriptInterface`，由 JS 线程直接调进
+ * Rust，见 gen/android 生成的 `Ipc.kt`），应用切后台那一刻的 `visibilitychange` 能可靠送达；
+ * 反方向 Rust → JS 要经 Android 主线程 `post{} + evaluateJavascript`（`RustWebView.kt`），
+ * webview 被 pause / 进程进 cached 态后不可靠。
+ *
+ * 失败不抛：这只是给 Rust 的一个提示，拿不到时 Rust 按「可见」兜底（多发一条通知
+ * 远好过该发不发）。
+ */
+export async function reportUiVisibility(visible: boolean): Promise<void> {
+  try {
+    await emit(UI_VISIBILITY_EVENT, { visible });
+  } catch (e) {
+    console.warn('[Android Update] 上报可见性失败:', e);
+  }
+}
+
+// ============================================
+// 待安装包查询
+// ============================================
+
+/**
+ * 查询是否有「已下完、待安装」的 APK
+ *
+ * 冷启动 + 每次重回前台各查一次。它是这两个症状的解药：
+ * - 切回来只看到一个卡死的满进度条（内存里的 store 状态已经没意义了，以磁盘标记为准）
+ * - 必须清掉后台重新下一遍（APK 其实还在缓存目录里，不必重下）
+ *
+ * 查不到（非 Android / 无标记 / 文件已被系统清缓存）一律返回 null，不抛。
+ */
+export async function getPendingApkInstall(): Promise<PendingApkInstall | null> {
+  try {
+    return await invoke<PendingApkInstall | null>('pending_apk_install');
+  } catch (e) {
+    console.warn('[Android Update] 查询待安装包失败:', e);
+    return null;
+  }
+}
 
 // ============================================
 // 版本比较
@@ -169,12 +241,19 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
 /**
  * 下载 APK 到本地存储
  *
+ * ⚠️ 这个 Promise **不能**被当成「安装的触发器」来用：应用切后台时 webview 被 pause、
+ * 进程还可能进 cached 态，Rust → JS 的响应投递不可靠，于是它可能迟迟不 resolve
+ * （用户看到的就是「切回来只有一个满进度条」）。真正跨进程可靠的完成收尾在 Rust 侧
+ * （写待安装标记 + 不可见时发通知），见 `src-tauri/src/android_update.rs` 模块头注释。
+ *
  * @param url - APK 下载地址
+ * @param version - 目标版本号（写进待安装标记与通知文案）
  * @param onProgress - 进度回调
  * @returns 本地文件路径
  */
 export async function downloadApk(
   url: string,
+  version: string,
   onProgress?: AndroidProgressCallback,
 ): Promise<string> {
   console.warn('[Android Update] ========== downloadApk 开始 ==========');
@@ -198,7 +277,7 @@ export async function downloadApk(
   try {
     console.warn('[Android Update] 调用 Rust download_apk...');
     // 调用 Rust 后端下载
-    const localPath = await invoke<string>('download_apk', { url });
+    const localPath = await invoke<string>('download_apk', { url, version });
     console.warn('[Android Update] ✓ Rust 返回本地路径:', localPath);
     return localPath;
   } catch (err) {
@@ -253,24 +332,58 @@ export async function ensureInstallPermission(): Promise<boolean> {
 // ============================================
 
 /**
- * 安装 APK
- * 注意：调用前应先调用 ensureInstallPermission() 确保有权限
+ * 拉起系统安装器（发射后不管）
  *
- * @param apkPath - APK 本地路径
+ * ## ⚠️ 返回 `void` 而不是 `Promise` 是故意的 —— 千万别改回 async
+ *
+ * `tauri-plugin-android-package-install` 2.0.2 的 Kotlin 侧 `install` 命令
+ * （`android/src/main/java/PackageInstallPlugin.kt`）**在所有路径上都不调
+ * `invoke.resolve()` / `invoke.reject()`**：
+ *
+ * ```kotlin
+ * @Command
+ * fun install(invoke: Invoke) {
+ *   …
+ *   try { activity.startActivity(installIntent) }
+ *   catch (e: ActivityNotFoundException) { Toast… }
+ *   catch (e: SecurityException) { Toast… }
+ * }   // ← 没有 resolve，也没有 reject
+ * ```
+ *
+ * 于是成功路径上底层 invoke 的 Promise **永远不会 settle**。谁 `await` 它谁就永久挂起，
+ * 它后面的代码一行都跑不到 —— 这正是旧实现「卡在满进度条」的直接机制：
+ * `await install()` 永不返回 ⇒ 既到不了 `dismiss()`、也进不了 `catch`，
+ * store 永远停在 `downloading` + progress=100。（Android 14 真机 logcat 实测：
+ * 整场 `调用系统安装器` 2 次、`✓ 已启动` 0 次、`✗ 失败` 0 次。）
+ *
+ * 前台之所以看不出问题，只是因为安装器盖住了界面、应用随后被替换，
+ * 那个悬挂的 Promise 没人看见——它一直都在。
+ *
+ * ## 另外：后台调用会被系统静默丢弃
+ *
+ * 拉安装器就是 `startActivity`，Android 10 起后台应用不许启动 Activity，
+ * 且**不抛异常**（真机实测 `ActivityTaskManager: Background activity launch blocked …
+ * (BAL_BLOCK) result code=102`，插件的两个 catch 一个都没触发）。
+ * 所以调用方必须自己先确认应用可见，别指望这里报错。
+ *
+ * @param apkPath - APK 本地路径（调用前应先 ensureInstallPermission()）
+ * @param onLaunchError - 拉起失败回调。`startActivity` 之前发生的失败（参数错误、
+ *   FileProvider 抛 IllegalArgumentException 等）仍会被 Tauri 插件框架 reject 出来，
+ *   由它收口；成功时**不会**有任何回调（见上）。
  */
-export async function installApk(apkPath: string): Promise<void> {
+export function installApk(
+  apkPath: string,
+  onLaunchError?: (message: string) => void,
+): void {
   console.warn('[Android Update] ========== installApk 开始 ==========');
   console.warn('[Android Update] APK 路径:', apkPath);
+  console.warn('[Android Update] 调用系统安装器（不 await，插件成功路径不 settle）...');
 
-  // 调用系统安装器
-  console.warn('[Android Update] 调用系统安装器...');
-  try {
-    await install(apkPath);
-    console.warn('[Android Update] ✓ 系统安装器已启动');
-  } catch (err) {
-    console.error('[Android Update] ✗ 调用安装器失败:', err);
-    throw err;
-  }
+  void install(apkPath).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Android Update] ✗ 调用安装器失败:', message);
+    onLaunchError?.(message);
+  });
 }
 
 // ============================================

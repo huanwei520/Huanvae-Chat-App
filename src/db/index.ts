@@ -100,6 +100,10 @@ export interface ConversationWithPreview {
   msg_content: string | null;
   msg_content_type: string | null;
   msg_send_time: string | null;
+  /** 最新消息发送者 ID（群聊卡片预览前缀判「是不是我」用） */
+  msg_sender_id: string | null;
+  /** 最新消息发送者昵称（群聊卡片预览前缀用；未带昵称的同步路径为 null） */
+  msg_sender_name: string | null;
 }
 
 /** 消息搜索结果（含会话上下文 + 前后相邻消息预览） */
@@ -399,6 +403,40 @@ export function searchMessages(
     query,
     limit,
     filter: filter ?? null,
+  });
+}
+
+/** `listConversationMessages` 的入参（字段多且同类型，用对象避免位置参数写反） */
+export interface ListConversationMessagesParams {
+  /** 会话 ID（好友 `conv-{a}-{b}` / 群 group_id）；范围由 Rust 侧强制注入，不可省 */
+  conversationId: string;
+  /** 关键词。省略 / 空串 = **不过滤**，按分类列出全部（会话内查找的浏览态） */
+  query?: string;
+  /** 本页条数 */
+  limit: number;
+  /** 起始偏移（分页） */
+  offset: number;
+  /** content_type 白/黑名单（分类映射见 components/search/messageCategory.ts） */
+  filter?: Pick<MessageSearchFilter, 'include_content_types' | 'exclude_content_types'>;
+}
+
+/**
+ * 会话内按分类浏览消息（关键词可选）— 调 Rust `db_list_conversation_messages`
+ *
+ * 与 `searchMessages` 的分工：那条是**跨会话全局**搜索、关键词必填、FTS5 短语；
+ * 这条是**单会话**内的分页浏览，**不给关键词就按分类按时间倒序列出全部**
+ * （产品要求：点分类即出列表，不必先输入关键词），给了关键词就在该分类内再过滤。
+ * 详细的「为什么不走 FTS」「排序为何是三元组」见 Rust 侧同名函数文档。
+ */
+export function listConversationMessages(
+  params: ListConversationMessagesParams,
+): Promise<LocalMessage[]> {
+  return invoke<LocalMessage[]>('db_list_conversation_messages', {
+    conversationId: params.conversationId,
+    query: params.query ?? null,
+    limit: params.limit,
+    offset: params.offset,
+    filter: params.filter ?? null,
   });
 }
 

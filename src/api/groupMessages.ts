@@ -32,6 +32,12 @@ export interface GroupMessage {
   /** 图片高度（像素），仅图片类型消息有值 */
   image_height?: number | null;
   reply_to: string | null;
+  /** 媒体组（相册）ID —— 组内各项共享同一值，由客户端生成；非组内消息为 null。撤回不清空 */
+  media_group_id?: string | null;
+  /** 组内位次（0-based）；index=0 那条的 message_content 即整组 caption */
+  media_group_index?: number | null;
+  /** 组的期望总数（2..10）；每一项都冗余带，收到任意一条即可预留整组高度 */
+  media_group_count?: number | null;
   send_time: string;
   is_recalled: boolean;
   /** 消息序号（用于增量同步） */
@@ -42,7 +48,10 @@ export interface GroupMessage {
   clientId?: string;
 }
 
-/** 群消息列表响应（client.ts 已解包 ApiResponse.data） */
+/** 群消息列表响应（client.ts 已解包 ApiResponse.data）
+ *
+ * ⚠️ 媒体组「分页不切组」：后端取满 limit 后若边界那条属于某个相册，会**续取该组剩余项**
+ * （最多再取 9 条）⇒ `messages.length` 可能 > 请求的 limit。客户端不要断言 `<= limit`。 */
 export interface GroupMessagesResponse {
   messages: GroupMessage[];
   has_more: boolean;
@@ -57,6 +66,12 @@ export interface SendGroupMessageRequest {
   file_url?: string;
   file_size?: number;
   reply_to?: string;
+  /** 媒体组（相册）三件套 —— 要么全给要么全不给，后端强制校验（违反 400）。
+   *  count ∈ 2..10；index ∈ 0..count-1；同组须同 sender 同群、count 一致、index 不重复；
+   *  image 与 video 可同组，file 只能与 file 同组。 */
+  media_group_id?: string;
+  media_group_index?: number;
+  media_group_count?: number;
 }
 
 /** 发送群消息响应（client.ts 已解包 ApiResponse.data） */

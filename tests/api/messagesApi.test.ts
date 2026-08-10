@@ -85,6 +85,7 @@ describe('好友消息 API 封装 (api/messages)', () => {
       file_uuid: 'f-uuid',
       file_url: 'https://example.com/f.png',
       file_size: 1024,
+      reply_to: 'orig-uuid-1',
     });
     expect(api.post).toHaveBeenCalledWith('/api/messages', {
       receiver_id: '42',
@@ -93,6 +94,7 @@ describe('好友消息 API 封装 (api/messages)', () => {
       file_uuid: 'f-uuid',
       file_url: 'https://example.com/f.png',
       file_size: 1024,
+      reply_to: 'orig-uuid-1',
     });
     expect(out).toEqual({ message_uuid: 'u1', send_time: '2026-01-01T00:00:00Z' });
   });
@@ -111,6 +113,7 @@ describe('好友消息 API 封装 (api/messages)', () => {
       file_uuid: null,
       file_url: null,
       file_size: null,
+      reply_to: null,
     });
   });
 

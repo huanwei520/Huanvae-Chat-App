@@ -22,6 +22,11 @@ import type {
  * @param friendId - 好友 ID
  * @param options - 分页选项
  */
+/**
+ * ⚠️ 媒体组「分页不切组」：后端取满 limit 后若边界那条属于某个相册（media_group_id 非空），
+ * 会**续取该组剩余项**（最多再取 9 条）⇒ 返回的 `messages.length` 可能 > 传入的 limit。
+ * 分页游标仍取返回数组最后一条的 send_time，无重复无空洞。
+ */
 export function getMessages(
   api: ApiClient,
   friendId: string,
@@ -57,6 +62,8 @@ export function sendMessage(
     file_uuid: request.file_uuid ?? null,
     file_url: request.file_url ?? null,
     file_size: request.file_size ?? null,
+    // 引用回复：后端要求被引用消息存在且同会话，否则 400
+    reply_to: request.reply_to ?? null,
   });
 }
 

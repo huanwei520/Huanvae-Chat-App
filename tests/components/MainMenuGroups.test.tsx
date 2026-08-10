@@ -3,6 +3,8 @@
  *
  * 覆盖「优化显示结构」这次改造的可验证契约：
  * - 好友 / 群聊各自的分组集合与顺序，破坏性操作单独成组且**排在最后**
+ * - 群聊：**群成员头像网格是第一组**（微信式，见 MemberGrid.tsx）
+ * - 会话组含「查找聊天记录」入口（原顶栏那颗独立放大镜按钮已删，查找并进本面板）
  * - 危险项确实落在危险组内（不是散在别处只是标了红）
  * - 角色相关项（群管理 / 解散 / 退出）用「常驻 DOM + disabled」表达隐藏：
  *   隐藏态必须既不在无障碍树里、也不可激活 —— 防「能聚焦却按了没反应」
@@ -13,8 +15,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MainMenu } from '../../src/chat/shared/menu/MainMenu';
+import type { GroupMember } from '../../src/api/groups';
 
 type MainMenuProps = React.ComponentProps<typeof MainMenu>;
+
+const buildMember = (id: string): GroupMember => ({
+  user_id: id,
+  user_nickname: `用户${id}`,
+  // 后端契约里该字段非空，没设头像时下发空串（MembersList / MemberGrid 都按真值判断降级到占位）
+  user_avatar_url: '',
+  group_nickname: null,
+  role: 'member',
+  joined_at: '2026-05-01T00:00:00Z',
+  join_method: 'search_direct',
+  muted_until: null,
+});
 
 function renderMenu(overrides: Partial<MainMenuProps> = {}) {
   const props: MainMenuProps = {
@@ -28,6 +43,8 @@ function renderMenu(overrides: Partial<MainMenuProps> = {}) {
     onLoadAllHistory: vi.fn(),
     onToggleSpecialCare: vi.fn(),
     onUnblacklist: vi.fn(),
+    onSelectMember: vi.fn(),
+    onOpenSearch: vi.fn(),
     ...overrides,
   };
   const { container } = render(<MainMenu {...props} />);
@@ -87,22 +104,65 @@ describe('MainMenu — 语义分组结构', () => {
       expect(danger).toContainElement(screen.getByRole('button', { name: /删除好友/ }));
     });
 
-    it('「多选消息」「加载全部记录」归会话组', () => {
+    it('「查找聊天记录」「多选消息」「加载全部记录」归会话组', () => {
       const { container } = renderMenu({ targetType: 'friend' });
       const conversation = container.querySelectorAll<HTMLElement>('.menu-group')[0];
 
+      expect(conversation).toContainElement(screen.getByRole('button', { name: /查找聊天记录/ }));
       expect(conversation).toContainElement(screen.getByRole('button', { name: /多选消息/ }));
       expect(conversation).toContainElement(screen.getByRole('button', { name: /加载全部记录/ }));
+    });
+
+    it('好友没有成员网格（那是群聊专属）', () => {
+      const { container } = renderMenu({ targetType: 'friend', members: [buildMember('a')] });
+      expect(container.querySelector('.member-grid')).toBeNull();
+    });
+  });
+
+  describe('查找聊天记录入口', () => {
+    it('点击调 onOpenSearch（切到面板内的查找视图，不是另开一个入口）', () => {
+      const { props } = renderMenu({ targetType: 'friend' });
+
+      screen.getByRole('button', { name: /查找聊天记录/ }).click();
+
+      expect(props.onOpenSearch).toHaveBeenCalledTimes(1);
+      // 查找不走 onSetView 的其它视图名，只由 onOpenSearch 这一条通路发起
+      expect(props.onSetView).not.toHaveBeenCalled();
+    });
+
+    it('无本地会话（未提供 onOpenSearch）时不显示该入口', () => {
+      renderMenu({ targetType: 'friend', onOpenSearch: undefined });
+      expect(screen.queryByRole('button', { name: /查找聊天记录/ })).toBeNull();
     });
   });
 
   describe('群聊', () => {
-    it('分组为「会话 → 群聊 → 群管理 → 危险操作」，危险组排在最后', () => {
-      const { container } = renderMenu({ targetType: 'group', isOwnerOrAdmin: true });
-      expect(groupTitles(container)).toEqual(['会话', '群聊', '群管理', '危险操作']);
+    it('分组为「群成员 → 会话 → 群聊 → 群管理 → 危险操作」：成员网格第一、危险组最后', () => {
+      const { container } = renderMenu({
+        targetType: 'group',
+        isOwnerOrAdmin: true,
+        members: [buildMember('a'), buildMember('b')],
+      });
+      expect(groupTitles(container)).toEqual(['群成员 (2)', '会话', '群聊', '群管理', '危险操作']);
 
       const groups = container.querySelectorAll('.menu-group');
+      // 第一组就是成员网格，且网格真的渲染了成员格（不是只有个空标题）
+      expect(groups[0]).toHaveClass('member-grid-group');
+      expect(groups[0]?.querySelectorAll('.member-grid-item')).toHaveLength(2);
       expect(groups[groups.length - 1]).toHaveClass('menu-group--danger');
+    });
+
+    it('点成员网格里的人 → onSelectMember 收到该成员（打开资料的入口）', () => {
+      const { props } = renderMenu({
+        targetType: 'group',
+        members: [buildMember('a'), buildMember('b')],
+      });
+
+      screen.getByRole('button', { name: '查看用户b资料' }).click();
+
+      expect(props.onSelectMember).toHaveBeenCalledWith(
+        expect.objectContaining({ user_id: 'b' }),
+      );
     });
 
     it('普通成员：群管理组隐藏（脱离无障碍树）且组内项被禁用，不可误触发', () => {
@@ -161,14 +221,16 @@ describe('MainMenu — 语义分组结构', () => {
       expect(screen.getByText('解散群聊').closest('button')).toBeDisabled();
     });
 
-    it('「群公告 / 查看成员 / 修改群内昵称」归群聊组，人人可用', () => {
+    it('「群公告 / 成员管理 / 修改群内昵称」归群聊组，人人可用', () => {
       const { container } = renderMenu({ targetType: 'group' });
       const chatGroup = Array.from(container.querySelectorAll<HTMLElement>('.menu-group')).find(
         (g) => g.querySelector('.menu-group-title')?.textContent === '群聊',
       );
 
       expect(chatGroup).toContainElement(screen.getByRole('button', { name: /群公告/ }));
-      expect(chatGroup).toContainElement(screen.getByRole('button', { name: /查看成员/ }));
+      // 浏览成员已由头像网格承担；这一项只剩「管理/私有操作」链路，故改名「成员管理」
+      expect(chatGroup).toContainElement(screen.getByRole('button', { name: /成员管理/ }));
+      expect(screen.queryByRole('button', { name: /^查看成员$/ })).toBeNull();
       expect(chatGroup).toContainElement(screen.getByRole('button', { name: /修改群内昵称/ }));
     });
 

@@ -11,7 +11,12 @@
  * | 目标 | 分组（自上而下） |
  * |------|------------------|
  * | 好友 / bot | 会话 · 好友 · 危险操作 |
- * | 群聊 | 会话 · 群聊 · 群管理（owner/admin） · 危险操作 |
+ * | 群聊 | **群成员（头像网格）** · 会话 · 群聊 · 群管理（owner/admin） · 危险操作 |
+ *
+ * 群成员是**第一组**：微信式头像网格直接把人铺出来（见 MemberGrid.tsx），点头像看资料。
+ * 「成员管理」（备注 / 屏蔽 / 特别关心 / 设管理员 / 禁言 / 移出）是另一条链路，仍作为
+ * 菜单项留在「群聊」组里 —— 网格点击只承载"看资料"，不承载这些操作，两者不重复。
+ * 危险组无论如何**恒为最后一组**（有测试断言）。
  *
  * ## 角色变化用「始终渲染 + 状态动画」
  *
@@ -41,9 +46,12 @@ import {
   CloudDownloadIcon,
   StarIcon,
   BlockIcon,
+  SearchIcon,
 } from '../../../components/common/Icons';
 import { CircularProgress } from '../../../components/common/CircularProgress';
 import { GroupAvatar } from '../../../components/common/Avatar';
+import { MemberGrid } from './MemberGrid';
+import type { GroupMember } from '../../../api/groups';
 import type { Group } from '../../../types/chat';
 import type { MenuView } from './types';
 
@@ -209,6 +217,18 @@ interface MainMenuProps {
   isFriendSpecialCare?: boolean;
   /** 好友：是否已拉黑（决定显示「拉黑」还是「取消拉黑」） */
   isFriendBlacklisted?: boolean;
+  /** 群成员（头像网格用；非群聊时忽略） */
+  members?: GroupMember[];
+  /** 成员是否加载中 */
+  loadingMembers?: boolean;
+  /** D7 群内私有备注映射（user_id → 备注名），成员网格展示名优先用它 */
+  memberRemarks?: Record<string, string>;
+  /** 当前用户 ID（成员网格给自己那格标「我」） */
+  currentUserId?: string;
+  /** 点成员网格里的某人 → 打开其资料 */
+  onSelectMember?: (member: GroupMember) => void;
+  /** 打开会话内消息查找（无本地会话时不传 → 不显示入口） */
+  onOpenSearch?: () => void;
   onSetView: (view: MenuView) => void;
   onUploadAvatar: () => void;
   onToggleMultiSelect: () => void;
@@ -232,6 +252,12 @@ export function MainMenu({
   historyProgress = '',
   isFriendSpecialCare = false,
   isFriendBlacklisted = false,
+  members = [],
+  loadingMembers = false,
+  memberRemarks,
+  currentUserId,
+  onSelectMember,
+  onOpenSearch,
   onSetView,
   onUploadAvatar,
   onToggleMultiSelect,
@@ -281,8 +307,26 @@ export function MainMenu({
         </div>
       )}
 
+      {/* ===== 群成员网格（群聊第一组；微信式，点头像看资料） ===== */}
+      {isGroup && onSelectMember && (
+        <MemberGrid
+          members={members}
+          loading={loadingMembers}
+          remarks={memberRemarks}
+          currentUserId={currentUserId}
+          onSelect={onSelectMember}
+        />
+      )}
+
       {/* ===== 会话（两种目标共有） ===== */}
       <MenuGroup title="会话">
+        {onOpenSearch && (
+          <button className="menu-item" onClick={onOpenSearch}>
+            <SearchIcon />
+            <span>查找聊天记录</span>
+          </button>
+        )}
+
         <button
           className={`menu-item ${isMultiSelectMode ? 'active' : ''}`}
           onClick={onToggleMultiSelect}
@@ -365,9 +409,12 @@ export function MainMenu({
               <MegaphoneIcon />
               <span>群公告</span>
             </button>
+            {/* 「浏览成员」已由上方头像网格承担；这一项留的是网格点击不承载的另一条链路：
+                备注 / 屏蔽 / 特别关心（人人可用）+ 设管理员 / 禁言 / 移出（管理员）。
+                故改名为「成员管理」，与网格不重复。 */}
             <button className="menu-item" onClick={() => onSetView('members')}>
               <UsersIcon />
-              <span>查看成员</span>
+              <span>成员管理</span>
             </button>
             <button className="menu-item" onClick={() => onSetView('edit-nickname')}>
               <UserIcon />

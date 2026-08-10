@@ -29,8 +29,6 @@ import { VoiceProfileManager } from '../ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from './ChatMenu';
-import { ConversationMessageSearch } from '../../components/search/ConversationMessageSearch';
-import { getSearchConversationId } from '../../components/search/conversationSearchTarget';
 import { ConversationShelf } from './ConversationShelf';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
@@ -239,10 +237,6 @@ export function ChatPanel({
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
-  // 会话内消息查找（AI 会话不落本地 messages 表 → convSearchId 为 null，不给入口）
-  const [showConvSearch, setShowConvSearch] = useState(false);
-  const convSearchId = getSearchConversationId(chatTarget, session.userId);
-
   // 私聊顶栏点开对方资料（群/AI 不适用；bot 同好友可看资料）
   const openProfile = useProfileViewStore((s) => s.open);
   const friendIdForProfile = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
@@ -350,20 +344,8 @@ export function ChatPanel({
           </div>
         ) : (
           <div className="chat-header-actions">
-            {convSearchId && (
-              <button
-                className={`header-action-btn ${showConvSearch ? 'active' : ''}`}
-                onClick={() => setShowConvSearch((v) => !v)}
-                title="查找聊天记录"
-                aria-label="查找聊天记录"
-                aria-pressed={showConvSearch}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" />
-                </svg>
-              </button>
-            )}
+            {/* 会话内查找**没有**独立入口：它是「更多操作」侧边面板里的一项
+                （ChatMenu.tsx 的 search view）。别再往这儿加放大镜按钮。 */}
             <ChatMenuButton
               target={chatTarget}
               onFriendRemoved={onFriendRemoved}
@@ -376,18 +358,6 @@ export function ChatPanel({
           </div>
         )}
       </div>
-
-      {/* 会话内消息查找面板（顶栏与消息列表之间的 flex 兄弟节点，不浮在滚动容器里） */}
-      <AnimatePresence>
-        {showConvSearch && convSearchId && (
-          <ConversationMessageSearch
-            key="conv-msg-search"
-            conversationId={convSearchId}
-            onClose={() => setShowConvSearch(false)}
-            layout="desktop"
-          />
-        )}
-      </AnimatePresence>
 
       {/* 拉黑提示条（私聊且已拉黑对方，friend/bot 同链路） */}
       {isFriendLikeTarget(chatTarget) && friendBlacklisted && (

@@ -46,6 +46,7 @@ import * as GlobalMessageSearchResults from '../../src/components/search/GlobalM
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
 // 会话内消息查找
 import * as ConversationMessageSearch from '../../src/components/search/ConversationMessageSearch';
+import * as ConversationSearchMedia from '../../src/components/search/ConversationSearchMedia';
 import * as useConversationMessageSearch from '../../src/components/search/useConversationMessageSearch';
 import * as messageCategory from '../../src/components/search/messageCategory';
 import * as conversationSearchTarget from '../../src/components/search/conversationSearchTarget';
@@ -184,6 +185,7 @@ import * as InviteCodeManager from '../../src/chat/shared/menu/InviteCodeManager
 import * as InviteForm from '../../src/chat/shared/menu/InviteForm';
 import * as MainMenu from '../../src/chat/shared/menu/MainMenu';
 import * as MemberActions from '../../src/chat/shared/menu/MemberActions';
+import * as MemberGrid from '../../src/chat/shared/menu/MemberGrid';
 import * as MembersList from '../../src/chat/shared/menu/MembersList';
 import * as MenuHeader from '../../src/chat/shared/menu/MenuHeader';
 import * as MuteSettings from '../../src/chat/shared/menu/MuteSettings';
@@ -317,6 +319,7 @@ const COMPONENT_MAP = {
   useGlobalMessageSearch,
   // 会话内消息查找
   ConversationMessageSearch,
+  ConversationSearchMedia,
   useConversationMessageSearch,
   messageCategory,
   conversationSearchTarget,
@@ -485,6 +488,7 @@ const COMPONENT_MAP = {
   InviteForm,
   MainMenu,
   MemberActions,
+  MemberGrid,
   MembersList,
   MenuHeader,
   MuteSettings,

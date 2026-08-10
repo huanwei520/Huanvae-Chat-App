@@ -43,6 +43,15 @@ export interface Message {
   image_width?: number | null;
   /** 媒体高度（像素），图片/视频类型消息有值 */
   image_height?: number | null;
+  /** 引用回复：被引用的原消息 message_uuid（migration 036 起私聊也支持；无引用为 null）。
+   *  撤回不清空；被引用消息被彻底删除时后端自动置 null（DB ON DELETE SET NULL） */
+  reply_to?: string | null;
+  /** 媒体组（相册）ID —— 组内各项共享同一值，由客户端生成；非组内消息为 null。撤回不清空 */
+  media_group_id?: string | null;
+  /** 组内位次（0-based）；index=0 那条的 message_content 即整组 caption */
+  media_group_index?: number | null;
+  /** 组的期望总数（2..10）；每一项都冗余带，收到任意一条即可预留整组高度 */
+  media_group_count?: number | null;
   send_time: string;
   /** 序列号（用于增量同步） */
   seq?: number;
@@ -71,6 +80,9 @@ export interface SendMessageRequest {
   file_uuid?: string | null;
   file_url?: string | null;
   file_size?: number | null;
+  /** 引用回复：被引用的原消息 message_uuid。必须存在且属于同一会话，否则后端 400。
+   *  注意本端点**不接受**媒体组三件套 —— 文本消息不可成组，相册项由 storage 上传链路建消息 */
+  reply_to?: string | null;
 }
 
 /** 发送消息响应 */
@@ -124,6 +136,12 @@ export interface GroupMessage {
   /** 媒体高度（像素），图片/视频类型消息有值 */
   image_height?: number | null;
   reply_to: string | null;
+  /** 媒体组（相册）ID —— 组内各项共享同一值，由客户端生成；非组内消息为 null。撤回不清空 */
+  media_group_id?: string | null;
+  /** 组内位次（0-based）；index=0 那条的 message_content 即整组 caption */
+  media_group_index?: number | null;
+  /** 组的期望总数（2..10）；每一项都冗余带，收到任意一条即可预留整组高度 */
+  media_group_count?: number | null;
   send_time: string;
   is_recalled: boolean;
 }

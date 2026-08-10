@@ -228,3 +228,67 @@ describe('发现搜索头像：数据边界经 resolveServerAvatarUrl 解析，�
     expect(SEARCH_RESULTS).not.toMatch(/\bavatar_url\b/);
   });
 });
+
+describe('会话内查找的媒体缩略图：src 取自 fileCache 收口点，不碰消息行里的裸 file_url', () => {
+  // 会话内查找列出图片/视频时要给缩略图。消息行本身带后端裸地址字段，直接喂 <img/video src>
+  // 就会重演「certificate invalid → 真机静默裂图」那类回归；正确来源是 useFileCache
+  // （内部 getFileSource/getVideoSource 已经过 resolveDisplayUrl）。
+  //
+  // ⚠️ 判定必须在**剥掉注释的代码**上做：源码注释里正当地写着「不得把 file_url 裸喂给 img」
+  // 这句话本身含该字段名，直接扫全文会把一条准确的文档判成违规，逼后来的人删注释才能过门禁。
+  const SEARCH_MEDIA_RAW = read('src/components/search/ConversationSearchMedia.tsx');
+
+  /**
+   * 剥掉 `//` 行注释与 `/* *\/` 块注释。
+   * 行注释不能用朴素 `//.*$`：模板串里的 `http://` 会被当成注释起点，把后面的代码一起吃掉；
+   * 故逐字符判断 `//` 是否落在字符串/模板串之外。
+   */
+  function stripComments(source: string): string {
+    let out = '';
+    let inBlock = false;
+    let quote: string | null = null;
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+      const next = source[i + 1];
+      if (inBlock) {
+        if (ch === '*' && next === '/') { inBlock = false; i++; }
+        continue;
+      }
+      if (quote) {
+        out += ch;
+        if (ch === '\\') { out += next ?? ''; i++; } else if (ch === quote) { quote = null; }
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; out += ch; continue; }
+      if (ch === '/' && next === '*') { inBlock = true; i++; continue; }
+      if (ch === '/' && next === '/') {
+        while (i < source.length && source[i] !== '\n') { i++; }
+        out += '\n';
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  }
+
+  const SEARCH_MEDIA = stripComments(SEARCH_MEDIA_RAW);
+
+  it('剥注释器本身有效（正对照：注释里的字段名被剥掉，代码里的保留）', () => {
+    expect(stripComments("// 不得用 file_url\nconst a = 'file_url';")).not.toMatch(/不得用/);
+    expect(stripComments("// 不得用 file_url\nconst a = 'file_url';")).toMatch(/const a = 'file_url'/);
+    // 模板串里的 `//` 不是注释，后面的代码不能被吃掉
+    expect(stripComments('const u = `http://x`; const b = 1;')).toMatch(/const b = 1/);
+  });
+
+  it('缩略图组件经 useFileCache 取源', () => {
+    expect(SEARCH_MEDIA).toMatch(/import \{ useFileCache \} from '\.\.\/\.\.\/hooks\/useFileCache'/);
+    expect(SEARCH_MEDIA).toMatch(/const \{ src \} = useFileCache\(\{/);
+  });
+
+  it('img / video 的 src 都绑到 useFileCache 的 src，代码里不出现后端裸地址字段', () => {
+    const bound = SEARCH_MEDIA.match(/src=\{src\}/g) ?? [];
+    expect(bound.length).toBe(2); // <video src={src}> + <img src={src}>
+    // 回归守卫：改回 message.file_url 即 FAIL（已 node 变异验证：2 → 1 且该字段名出现）
+    expect(SEARCH_MEDIA).not.toMatch(/\bfile_url\b/);
+  });
+});

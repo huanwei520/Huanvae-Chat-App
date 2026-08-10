@@ -24,6 +24,8 @@ export interface ChatMenuProps {
 
 export type MenuView =
   | 'main'
+  /** 会话内消息查找（原顶栏放大镜按钮已并入本面板，见 ChatMenu.tsx） */
+  | 'search'
   | 'edit-name'
   | 'edit-avatar'
   | 'edit-nickname'

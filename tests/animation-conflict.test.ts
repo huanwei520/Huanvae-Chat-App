@@ -148,12 +148,8 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/components/search/GlobalMessageSearchResults.tsx (桌面 scale 缩放 / 移动 translateY 拉出 — desktopVariants/mobileVariants)',
   },
-  {
-    selector: '.conv-msg-search',
-    cssFile: 'src/styles/search.css',
-    controlledProps: ['opacity'],
-    motionLocation: 'src/components/search/ConversationMessageSearch.tsx (顶栏下方展开/收起：panelVariants height + opacity)',
-  },
+  // 注：`.conv-msg-search` 已不在此注册表 —— 会话内查找改成侧边面板里的一个 view 之后
+  // 不再自带 framer-motion（入场表现由面板本体的滑入承担），没有 JS 逐帧接管的属性。
   {
     selector: '.mobile-media-preview-menu',
     cssFile: 'src/styles/mobile/chat-view.css',
@@ -452,12 +448,7 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/components/unified/AddMenu.tsx (dropdownVariants: opacity+y+scale 入出场；当前无 CSS transition，防御登记)',
   },
   // ===== 聊天设置侧边滑出面板（顶栏「更多操作」，桌面/移动共用） =====
-  {
-    selector: '.chat-menu-scrim',
-    cssFile: 'src/styles/components/chat-menu-sheet.css',
-    controlledProps: ['opacity'],
-    motionLocation: 'src/chat/shared/ChatMenuPanel.tsx (scrimVariants: opacity 进出场)',
-  },
+  // 注：`.chat-menu-scrim` 已不在此注册表 —— 面板改成非模态后遮罩层整个删除了（无此选择器）。
   {
     selector: '.chat-menu-sheet',
     cssFile: 'src/styles/components/chat-menu-sheet.css',

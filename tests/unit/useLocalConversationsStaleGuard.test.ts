@@ -49,6 +49,9 @@ function groupRow(id: string, content: string): ConversationWithPreview {
     msg_content: content,
     msg_content_type: 'text',
     msg_send_time: '2026-01-01T00:00:00Z',
+    // 无昵称且非本人 → groupSenderPrefix 返回空串，本用例断言的仍是纯内容
+    msg_sender_id: 'other',
+    msg_sender_name: null,
   };
 }
 
