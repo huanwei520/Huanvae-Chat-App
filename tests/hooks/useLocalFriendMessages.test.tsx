@@ -348,6 +348,41 @@ describe('useLocalFriendMessages — renderHook 行为', () => {
     expect(result.current.messages[2].message_content).toBe('cached');
   });
 
+  // 这条钉的是「DB→UI 转换段」的行为（此前只有静态契约覆盖，而缺陷正好出在这一段）：
+  // localMessageToMessage 若漏写 reply_to / 三件套，从 db 读出来的消息就没有引用块、
+  // 相册也散成 N 条独立图 —— 且**不报任何错**。
+  it('DB→UI 转换：reply_to 与相册三件套必须原样带到 UI Message', async () => {
+    dbMock.getMessages.mockResolvedValueOnce([
+      makeLocalMessage({
+        message_uuid: 'quoted',
+        seq: 9,
+        reply_to: 'orig-uuid',
+        content: '这是一条回复',
+      }),
+      makeLocalMessage({
+        message_uuid: 'album-0',
+        seq: 8,
+        content_type: 'image',
+        media_group_id: 'grp-1',
+        media_group_index: 0,
+        media_group_count: 3,
+      }),
+    ]);
+
+    const { result } = renderHook(() => useLocalFriendMessages('them'));
+    await act(async () => {
+      await result.current.loadMessages();
+    });
+
+    const quoted = result.current.messages.find((m) => m.message_uuid === 'quoted');
+    expect(quoted?.reply_to).toBe('orig-uuid');
+
+    const albumItem = result.current.messages.find((m) => m.message_uuid === 'album-0');
+    expect(albumItem?.media_group_id).toBe('grp-1');
+    expect(albumItem?.media_group_index).toBe(0);
+    expect(albumItem?.media_group_count).toBe(3);
+  });
+
   it('撤回 handler：onMessageRecalled 帧 → 原地 is_recalled + 占位文案 + markMessageRecalled 落库', () => {
     const { result } = renderHook(() => useLocalFriendMessages('them'));
 
