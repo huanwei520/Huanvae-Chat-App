@@ -27,6 +27,7 @@
 
 import { useMemo } from 'react';
 import { FileMessageContent } from './FileMessageContent';
+import type { MessageType } from '../../types/chat';
 import type { AlbumNode } from './mediaGroup';
 
 /** 相册项需要的字段（群消息 / 私聊消息都满足） */
@@ -58,6 +59,18 @@ export function albumColumns(count: number): number {
   return 3;
 }
 
+/**
+ * 把组内一项的 message_type 收窄成 FileMessageContent 需要的类型。
+ *
+ * AlbumMediaItem.message_type 是 `string`（为了让私聊 Message 与群聊 GroupMessage
+ * 都能结构化满足；后者还多一个 'system'）。相册项按后端约束只可能是媒体，
+ * 故这里做一个**全域函数**式收窄：不是 video 就当 image 渲染。
+ * 不用 `as` 强转 —— 强转会把「将来混进非媒体类型」这种情况静默放过去。
+ */
+function albumItemMediaType(rawType: string): MessageType {
+  return rawType === 'video' ? 'video' : 'image';
+}
+
 export function AlbumMessage({ album, urlType = 'friend', friendId }: AlbumMessageProps) {
   const columns = albumColumns(album.expectedCount);
 
@@ -85,7 +98,7 @@ export function AlbumMessage({ album, urlType = 'friend', friendId }: AlbumMessa
             {item
               ? (
                 <FileMessageContent
-                  messageType={item.message_type as never}
+                  messageType={albumItemMediaType(item.message_type)}
                   messageContent={item.message_content}
                   fileUuid={item.file_uuid}
                   fileSize={item.file_size}

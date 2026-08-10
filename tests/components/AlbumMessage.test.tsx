@@ -19,8 +19,9 @@ vi.mock('../../src/chat/shared/FileMessageContent', () => ({
   FileMessageContent: ({
     fileUuid,
     displayVariant,
-  }: { fileUuid: string | null; displayVariant?: string }) => (
-    <div data-testid="media" data-uuid={fileUuid} data-variant={displayVariant} />
+    messageType,
+  }: { fileUuid: string | null; displayVariant?: string; messageType?: string }) => (
+    <div data-testid="media" data-uuid={fileUuid} data-variant={displayVariant} data-type={messageType} />
   ),
 }));
 
@@ -127,5 +128,32 @@ describe('AlbumMessage — 跨分页拆组（R1）', () => {
     expect(cells[0].querySelector('[data-uuid="fA"]')).not.toBeNull();
     expect(cells[1].querySelector('.album-cell-placeholder')).not.toBeNull();
     expect(cells[2].querySelector('[data-uuid="fC"]')).not.toBeNull();
+  });
+});
+
+describe('AlbumMessage — message_type 收窄', () => {
+  it('video 项渲染为 video，其余一律按 image 渲染（相册项只可能是媒体）', () => {
+    render(
+      <AlbumMessage
+        album={album({
+          items: [
+            { ...item(0), message_type: 'video' },
+            { ...item(1), message_type: 'image' },
+          ],
+        })}
+      />,
+    );
+
+    const types = screen.getAllByTestId('media').map((n) => n.getAttribute('data-type'));
+    expect(types).toEqual(['video', 'image']);
+  });
+
+  // 收窄必须是全域的：混进非媒体类型时退化为 image，而不是把脏值原样透传下去
+  it('非媒体类型退化为 image，不原样透传', () => {
+    render(
+      <AlbumMessage album={album({ items: [{ ...item(0), message_type: 'system' }], expectedCount: 1 })} />,
+    );
+
+    expect(screen.getByTestId('media')).toHaveAttribute('data-type', 'image');
   });
 });
