@@ -41,6 +41,7 @@ import {
   summarizeMessageForReply,
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
+import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
 const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
@@ -165,6 +166,10 @@ export function ChatMessages({
     });
   }, [messages]);
 
+  // 相册折叠：把同一 media_group_id 的 N 条消息折叠成一个渲染节点。
+  // 放在排序之后 —— 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
+  const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
   // 捕获挂载入场基准：首帧非空时记下当前 key 快照（缓存未命中首帧为空，待 db 加载到的首批再捕获，
   // 它们都属"挂载时已有"→ 不演入场；此后真正新增的实时消息不在快照内 → 演滑入）。
   if (mountedKeysRef.current === null && sortedMessages.length > 0) {
@@ -262,9 +267,14 @@ export function ChatMessages({
       {!isEmpty && (
         <LayoutGroup>
           <AnimatePresence mode="popLayout">
-            {sortedMessages.map((message) => {
+            {renderNodes.map((node) => {
+              // 相册节点取组内最小位次那条作代表：头像 / 时间 / 已读回执 / 右键菜单都以它为准。
+              // 后端保证整组同时撤回，故 is_recalled 用代表消息的即可。
+              const message = node.kind === 'album' ? node.items[0] : node.message;
+              if (!message) { return null; }
+              const album = node.kind === 'album' ? node : null;
               const isOwn = message.sender_id === session.userId;
-              const stableKey = getStableKey(message);
+              const stableKey = node.kind === 'album' ? `album-${node.groupId}` : getStableKey(message);
               const playEnter = shouldPlayEnter(message.clientId, stableKey, mountedKeysRef.current);
               const isSelected = selectedMessages.has(message.message_uuid);
 
@@ -293,6 +303,7 @@ export function ChatMessages({
                   onQuoteClick={handleQuoteClick}
                   onReply={handleReply}
                   isHighlighted={highlightedMessageId === message.message_uuid}
+                  album={album}
                   playEnter={playEnter}
                 />
               );

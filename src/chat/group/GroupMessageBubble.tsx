@@ -47,6 +47,8 @@ import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { ReplyQuote } from '../shared/ReplyQuote';
+import { AlbumMessage, type AlbumMediaItem } from '../shared/AlbumMessage';
+import type { AlbumNode } from '../shared/mediaGroup';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
 import type { ResolvedReplyQuote } from '../shared/replyPreview';
@@ -86,6 +88,11 @@ interface GroupMessageBubbleProps {
   onReply?: (message: GroupMessage) => void;
   /** 定位命中后短暂高亮本条（CSS keyframes 脉冲） */
   isHighlighted?: boolean;
+  /**
+   * 相册（媒体组）：非空时气泡正文渲染整个相册网格，而不是本条自己的媒体。
+   * 此时 `message` 是该组的**代表消息**（组内最小位次那条）。
+   */
+  album?: AlbumNode<AlbumMediaItem> | null;
 }
 
 // 使用统一的消息动画配置
@@ -136,6 +143,7 @@ export function GroupMessageBubble({
   onQuoteClick,
   onReply,
   isHighlighted = false,
+  album,
 }: GroupMessageBubbleProps) {
   const api = useApi();
   // 右键菜单状态
@@ -601,35 +609,42 @@ export function GroupMessageBubble({
                   </div>
                 ) : (
                   <>
-                    {(message.message_type === 'text' || message.message_type === 'system') && (
-                      <div className="bubble-text">
-                        <MarkdownRenderer content={message.message_content} />
-                      </div>
-                    )}
-                    {message.message_type === 'meeting_invite' && (
-                      <MeetingInviteCard messageContent={message.message_content} />
-                    )}
-                    {message.message_type === 'card' && (
-                      <CardRenderer
-                        messageContent={message.message_content}
-                        messageUuid={message.message_uuid}
-                        sourceType="group"
-                      />
-                    )}
-                    {message.message_type !== 'text'
+                    {/* 相册：整组渲染成一个网格，本条自己的媒体不再单独出现。
+                        仍在 isSenderHidden 之内 —— 被屏蔽者发的相册同样要折叠掉。 */}
+                    {album && <AlbumMessage album={album} urlType="group" />}
+                    {!album && (
+                      <>
+                        {(message.message_type === 'text' || message.message_type === 'system') && (
+                          <div className="bubble-text">
+                            <MarkdownRenderer content={message.message_content} />
+                          </div>
+                        )}
+                        {message.message_type === 'meeting_invite' && (
+                          <MeetingInviteCard messageContent={message.message_content} />
+                        )}
+                        {message.message_type === 'card' && (
+                          <CardRenderer
+                            messageContent={message.message_content}
+                            messageUuid={message.message_uuid}
+                            sourceType="group"
+                          />
+                        )}
+                        {message.message_type !== 'text'
                       && message.message_type !== 'system'
                       && message.message_type !== 'meeting_invite'
                       && message.message_type !== 'card' && (
-                      <FileMessageContent
-                        messageType={message.message_type as 'image' | 'video' | 'file'}
-                        messageContent={message.message_content}
-                        fileUuid={message.file_uuid}
-                        fileSize={message.file_size}
-                        fileHash={message.file_hash}
-                        urlType="group"
-                        imageWidth={message.image_width}
-                        imageHeight={message.image_height}
-                      />
+                          <FileMessageContent
+                            messageType={message.message_type as 'image' | 'video' | 'file'}
+                            messageContent={message.message_content}
+                            fileUuid={message.file_uuid}
+                            fileSize={message.file_size}
+                            fileHash={message.file_hash}
+                            urlType="group"
+                            imageWidth={message.image_width}
+                            imageHeight={message.image_height}
+                          />
+                        )}
+                      </>
                     )}
                   </>
                 )}

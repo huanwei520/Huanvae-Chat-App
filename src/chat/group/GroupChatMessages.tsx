@@ -41,6 +41,7 @@ import {
   summarizeMessageForReply,
 } from '../shared/replyPreview';
 import { groupConversationKey } from '../shared/conversationKey';
+import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
 import type { GroupMessage } from '../../api/groupMessages';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
@@ -162,6 +163,10 @@ export function GroupChatMessages({
     [messages, displayNameOf],
   );
 
+  // 相册折叠：同一 media_group_id 的 N 条消息折叠成一个渲染节点。
+  // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
+  const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
   // 选中「回复」：把被回复者名字与摘要**当场快照**进草稿，而不是发送时再反查——
   // 用户完全可能在编辑期间翻走历史让原消息离开窗口。
   const handleReply = useCallback((message: GroupMessage) => {
@@ -271,9 +276,13 @@ export function GroupChatMessages({
       {!isEmpty && (
         <LayoutGroup>
           <AnimatePresence mode="popLayout">
-            {sortedMessages.map((message) => {
+            {renderNodes.map((node) => {
+              // 相册节点取组内最小位次那条作代表（头像/时间/已读/菜单以它为准）
+              const message = node.kind === 'album' ? node.items[0] : node.message;
+              if (!message) { return null; }
+              const album = node.kind === 'album' ? node : null;
               const isOwn = message.sender_id === currentUserId;
-              const stableKey = getStableKey(message);
+              const stableKey = node.kind === 'album' ? `album-${node.groupId}` : getStableKey(message);
               const playEnter = shouldPlayEnter(message.clientId, stableKey, mountedKeysRef.current);
               const isSelected = selectedMessages.has(message.message_uuid);
 
@@ -302,6 +311,7 @@ export function GroupChatMessages({
                   onQuoteClick={handleQuoteClick}
                   onReply={onReplyOrUndefined}
                   isHighlighted={highlightedMessageId === message.message_uuid}
+                  album={album}
                   isMultiSelectMode={isMultiSelectMode}
                   isSelected={isSelected}
                   onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

@@ -95,6 +95,9 @@ describe('好友消息 API 封装 (api/messages)', () => {
       file_url: 'https://example.com/f.png',
       file_size: 1024,
       reply_to: 'orig-uuid-1',
+      media_group_id: null,
+      media_group_index: null,
+      media_group_count: null,
     });
     expect(out).toEqual({ message_uuid: 'u1', send_time: '2026-01-01T00:00:00Z' });
   });
@@ -114,7 +117,30 @@ describe('好友消息 API 封装 (api/messages)', () => {
       file_url: null,
       file_size: null,
       reply_to: null,
+      media_group_id: null,
+      media_group_index: null,
+      media_group_count: null,
     });
+  });
+
+  // 媒体组三件套同生同灭：成组时三者都要原样进 body，缺任何一个后端都不认这条是相册项
+  it('sendMessage 契约：媒体组三件套原样透传（index=0 是整组配文那条）', async () => {
+    api.post.mockResolvedValue({ message_uuid: 'u3', send_time: '2026-01-01T00:00:02Z' });
+    await messages.sendMessage(api, {
+      receiver_id: '42',
+      message_content: '整组配文',
+      message_type: 'image',
+      file_uuid: 'f-1',
+      media_group_id: 'grp-1',
+      media_group_index: 0,
+      media_group_count: 3,
+    });
+
+    expect(api.post).toHaveBeenLastCalledWith('/api/messages', expect.objectContaining({
+      media_group_id: 'grp-1',
+      media_group_index: 0,
+      media_group_count: 3,
+    }));
   });
 
   it('sendMessage 异常：api.post 抛错时向上抛', async () => {

@@ -27,6 +27,8 @@ import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
 import { ReplyQuote } from '../shared/ReplyQuote';
+import { AlbumMessage, type AlbumMediaItem } from '../shared/AlbumMessage';
+import type { AlbumNode } from '../shared/mediaGroup';
 import type { ResolvedReplyQuote } from '../shared/replyPreview';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
@@ -68,6 +70,12 @@ interface MessageBubbleProps {
   onReply?: (message: Message) => void;
   /** 是否为定位高亮目标（引用块/搜索跳转后短暂高亮） */
   isHighlighted?: boolean;
+  /**
+   * 相册（媒体组）：非空时气泡正文渲染整个相册网格，而不是本条自己的媒体。
+   * 此时 `message` 是该组的**代表消息**（组内最小位次那条），头像 / 时间 / 已读回执 /
+   * 右键菜单都以它为准 —— 后端保证整组同时撤回，故 is_recalled 用代表消息的即可。
+   */
+  album?: AlbumNode<AlbumMediaItem> | null;
   /** 是否播放入场滑入动画：仅"挂载后新增"的实时新消息为 true（由列表用 shouldPlayEnter 判定）；
    *  切换/打开时已有的历史为 false → 不并拢，整体走面板渐变。 */
   playEnter?: boolean;
@@ -114,6 +122,7 @@ export function MessageBubble({
   onQuoteClick,
   onReply,
   isHighlighted = false,
+  album,
   playEnter = false,
 }: MessageBubbleProps) {
   // 右键菜单状态
@@ -439,33 +448,40 @@ export function MessageBubble({
                     onClick={handleQuoteClick}
                   />
                 )}
-                {message.message_type === 'text' && (
-                  <div className="bubble-text">
-                    <MarkdownRenderer content={message.message_content} />
-                  </div>
-                )}
-                {message.message_type === 'meeting_invite' && (
-                  <MeetingInviteCard messageContent={message.message_content} />
-                )}
-                {message.message_type === 'card' && (
-                  <CardRenderer
-                    messageContent={message.message_content}
-                    messageUuid={message.message_uuid}
-                    messageRev={message.rev}
-                    sourceType="friend"
-                  />
-                )}
-                {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && message.message_type !== 'card' && (
-                  <FileMessageContent
-                    messageType={message.message_type}
-                    messageContent={message.message_content}
-                    fileUuid={message.file_uuid}
-                    fileSize={message.file_size}
-                    fileHash={message.file_hash}
-                    urlType="friend"
-                    imageWidth={message.image_width}
-                    imageHeight={message.image_height}
-                  />
+                {album ? (
+                  // 相册：整组渲染成一个网格，本条自己的媒体不再单独出现
+                  <AlbumMessage album={album} urlType="friend" friendId={friend.friend_id} />
+                ) : (
+                  <>
+                    {message.message_type === 'text' && (
+                      <div className="bubble-text">
+                        <MarkdownRenderer content={message.message_content} />
+                      </div>
+                    )}
+                    {message.message_type === 'meeting_invite' && (
+                      <MeetingInviteCard messageContent={message.message_content} />
+                    )}
+                    {message.message_type === 'card' && (
+                      <CardRenderer
+                        messageContent={message.message_content}
+                        messageUuid={message.message_uuid}
+                        messageRev={message.rev}
+                        sourceType="friend"
+                      />
+                    )}
+                    {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && message.message_type !== 'card' && (
+                      <FileMessageContent
+                        messageType={message.message_type}
+                        messageContent={message.message_content}
+                        fileUuid={message.file_uuid}
+                        fileSize={message.file_size}
+                        fileHash={message.file_hash}
+                        urlType="friend"
+                        imageWidth={message.image_width}
+                        imageHeight={message.image_height}
+                      />
+                    )}
+                  </>
                 )}
                 {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
                 <div className="bubble-meta">
