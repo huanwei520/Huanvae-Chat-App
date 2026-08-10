@@ -24,8 +24,12 @@ import type {
  */
 /**
  * ⚠️ 媒体组「分页不切组」：后端取满 limit 后若边界那条属于某个相册（media_group_id 非空），
- * 会**续取该组剩余项**（最多再取 9 条）⇒ 返回的 `messages.length` 可能 > 传入的 limit。
- * 分页游标仍取返回数组最后一条的 send_time，无重复无空洞。
+ * 会**按时间区间续取** —— 把「该相册最早一项」到「边界那条」之间的**所有**消息补齐
+ * （不只是同组项，交错在相册中间的普通消息也会一并带出）⇒ 返回的 `messages.length`
+ * 可能 > 传入的 limit。
+ *
+ * 正因为补的是完整时间区间而非零散的同组项，本页覆盖的时间区间才是 DESC 连续的：
+ * 分页游标取返回数组**最后一条**的 send_time，无重复无空洞。
  */
 export function getMessages(
   api: ApiClient,
@@ -64,6 +68,10 @@ export function sendMessage(
     file_size: request.file_size ?? null,
     // 引用回复：后端要求被引用消息存在且同会话，否则 400
     reply_to: request.reply_to ?? null,
+    // 媒体组三件套：三者同生同灭；成组项必须同时带 file_uuid，否则后端 400
+    media_group_id: request.media_group_id ?? null,
+    media_group_index: request.media_group_index ?? null,
+    media_group_count: request.media_group_count ?? null,
   });
 }
 

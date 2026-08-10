@@ -80,9 +80,15 @@ export interface SendMessageRequest {
   file_uuid?: string | null;
   file_url?: string | null;
   file_size?: number | null;
-  /** 引用回复：被引用的原消息 message_uuid。必须存在且属于同一会话，否则后端 400。
-   *  注意本端点**不接受**媒体组三件套 —— 文本消息不可成组，相册项由 storage 上传链路建消息 */
+  /** 引用回复：被引用的原消息 message_uuid。必须存在且属于同一会话，否则后端 400。 */
   reply_to?: string | null;
+  /** 媒体组（相册）三件套 —— 三者同生同灭，与群端点对称。
+   *  成组项**必须同时带 `file_uuid`**（转发/重发已上传的文件），否则后端 400；
+   *  `media_group_count` 取值 2..10，`media_group_index` 取值 0..count-1。
+   *  另一条建相册的路径是 storage 上传链路（新上传的图逐项建消息）。 */
+  media_group_id?: string | null;
+  media_group_index?: number | null;
+  media_group_count?: number | null;
 }
 
 /** 发送消息响应 */

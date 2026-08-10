@@ -244,6 +244,8 @@ import * as shelfStore from '../../src/stores/shelfStore';
 import * as botCommandsStore from '../../src/stores/botCommandsStore';
 import * as slashCommands from '../../src/chat/shared/slashCommands';
 import * as replyPreview from '../../src/chat/shared/replyPreview';
+import * as mediaGroup from '../../src/chat/shared/mediaGroup';
+import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
@@ -546,6 +548,8 @@ const COMPONENT_MAP = {
   botCommandsStore,
   slashCommands,
   replyPreview,
+  mediaGroup,
+  conversationKey,
   scrollMessageIntoView,
   // 工具模块
   formatUtils,

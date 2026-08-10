@@ -341,6 +341,8 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'botCommandsStore', path: 'stores/botCommandsStore', category: 'services', description: 'Bot 指令缓存（按 bot_user_id 分桶，getBotCommands 拉取，失败存空）' },
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
   { name: 'replyPreview', path: 'chat/shared/replyPreview', category: 'services', description: '消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位；群聊+私聊共用）' },
+  { name: 'mediaGroup', path: 'chat/shared/mediaGroup', category: 'services', description: '媒体组（相册）聚合纯逻辑（N 条独立消息按 media_group_id 折叠成一个渲染节点，index 升序、保留 expectedCount 供跨分页占位、caption 只认 index=0；群聊+私聊共用）' },
+  { name: 'conversationKey', path: 'chat/shared/conversationKey', category: 'services', description: '会话身份 key 纯逻辑（草稿与回复草稿的归属校验共用同一口径，key 格式单一真值源）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },

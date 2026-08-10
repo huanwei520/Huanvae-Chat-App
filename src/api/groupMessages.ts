@@ -50,8 +50,10 @@ export interface GroupMessage {
 
 /** 群消息列表响应（client.ts 已解包 ApiResponse.data）
  *
- * ⚠️ 媒体组「分页不切组」：后端取满 limit 后若边界那条属于某个相册，会**续取该组剩余项**
- * （最多再取 9 条）⇒ `messages.length` 可能 > 请求的 limit。客户端不要断言 `<= limit`。 */
+ * ⚠️ 媒体组「分页不切组」：后端取满 limit 后若边界那条属于某个相册，会**按时间区间续取** ——
+ * 把「该相册最早一项」到「边界那条」之间的**所有**消息补齐（交错在相册中间的普通消息也一并带出）
+ * ⇒ `messages.length` 可能 > 请求的 limit。客户端不要断言 `<= limit`。
+ * 补的是完整时间区间而非零散同组项，故游标取返回数组最后一条的 send_time 时无重复无空洞。 */
 export interface GroupMessagesResponse {
   messages: GroupMessage[];
   has_more: boolean;
@@ -68,7 +70,8 @@ export interface SendGroupMessageRequest {
   reply_to?: string;
   /** 媒体组（相册）三件套 —— 要么全给要么全不给，后端强制校验（违反 400）。
    *  count ∈ 2..10；index ∈ 0..count-1；同组须同 sender 同群、count 一致、index 不重复；
-   *  image 与 video 可同组，file 只能与 file 同组。 */
+   *  image 与 video 可同组，file 只能与 file 同组。
+   *  ⚠️ 成组项**必须同时带 `file_uuid`** —— 没有文件就不该占位次，否则后端 400。 */
   media_group_id?: string;
   media_group_index?: number;
   media_group_count?: number;
