@@ -223,7 +223,6 @@ import * as useScrollKeyboardControls from '../../src/chat/shared/useScrollKeybo
 import * as useKbdFocusRing from '../../src/hooks/useKbdFocusRing';
 import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
-import * as useUpdateToast from '../../src/update/components/UpdateToast';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 import * as useBots from '../../src/hooks/useBots';
 
@@ -528,7 +527,6 @@ const COMPONENT_MAP = {
   useGroupReadReceipt,
   useAIMessages,
   useWebRTC,
-  useUpdateToast,
   useNotificationSounds,
   useLanTransfer,
   useBots,

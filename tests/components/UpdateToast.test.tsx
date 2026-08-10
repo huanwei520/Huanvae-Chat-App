@@ -6,8 +6,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { UpdateToast, useUpdateToast } from '../../src/update/components';
-import { renderHook, act } from '@testing-library/react';
+import { UpdateToast } from '../../src/update/components';
 
 describe('UpdateToast', () => {
   describe('状态渲染', () => {
@@ -125,101 +124,5 @@ describe('UpdateToast', () => {
       fireEvent.click(screen.getByText('重试'));
       expect(onRetry).toHaveBeenCalledTimes(1);
     });
-  });
-});
-
-describe('useUpdateToast', () => {
-  it('初始状态为 idle', () => {
-    const { result } = renderHook(() => useUpdateToast());
-    expect(result.current.status).toBe('idle');
-  });
-
-  it('showAvailable 更新状态为 available', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.showAvailable('1.0.8', '新功能');
-    });
-
-    expect(result.current.status).toBe('available');
-    expect(result.current.version).toBe('1.0.8');
-    expect(result.current.notes).toBe('新功能');
-  });
-
-  it('startDownload 更新状态为 downloading', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.startDownload();
-    });
-
-    expect(result.current.status).toBe('downloading');
-    expect(result.current.progress).toBe(0);
-  });
-
-  it('updateProgress 更新进度信息', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.startDownload();
-      result.current.updateProgress({
-        percent: 50,
-        downloaded: 1000,
-        total: 2000,
-        sourceUrl: 'https://store.huanvae.cn/foo.apk',
-      });
-    });
-
-    expect(result.current.progress).toBe(50);
-    expect(result.current.downloaded).toBe(1000);
-    expect(result.current.total).toBe(2000);
-    expect(result.current.indeterminate).toBe(false);
-    expect(result.current.sourceUrl).toBe('https://store.huanvae.cn/foo.apk');
-  });
-
-  it('updateProgress 总长未知时进入不定态（不把 undefined 吃成 0%）', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.startDownload();
-      result.current.updateProgress({ downloaded: 4096, indeterminate: true });
-    });
-
-    expect(result.current.indeterminate).toBe(true);
-    expect(result.current.downloaded).toBe(4096);
-    expect(result.current.total).toBe(0);
-  });
-
-  it('downloadComplete 更新状态为 ready', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.downloadComplete();
-    });
-
-    expect(result.current.status).toBe('ready');
-    expect(result.current.progress).toBe(100);
-  });
-
-  it('showError 更新状态为 error', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.showError('下载失败');
-    });
-
-    expect(result.current.status).toBe('error');
-    expect(result.current.errorMessage).toBe('下载失败');
-  });
-
-  it('dismiss 重置状态为 idle', () => {
-    const { result } = renderHook(() => useUpdateToast());
-
-    act(() => {
-      result.current.showAvailable('1.0.8');
-      result.current.dismiss();
-    });
-
-    expect(result.current.status).toBe('idle');
   });
 });

@@ -316,7 +316,6 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useGroupReadReceipt', path: 'chat/group/useGroupReadReceipt', category: 'hooks', description: '群聊已读回执 Hook（read-positions 快照含昵称/头像/已读时间 + read_sync 实时合并，N 人已读 + 已读名单）' },
   { name: 'useAIMessages', path: 'chat/ai/useAIMessages', category: 'hooks', description: 'AI 消息管理 Hook' },
   { name: 'useWebRTC', path: 'meeting/useWebRTC', category: 'hooks', description: 'WebRTC Hook' },
-  { name: 'useUpdateToast', path: 'update/components/UpdateToast', category: 'hooks', description: '更新弹窗状态管理 Hook' },
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
   { name: 'useBots', path: 'hooks/useBots', category: 'hooks', description: '机器人管理 Hook（列表/创建/删除/重置token/按 username 加好友）' },

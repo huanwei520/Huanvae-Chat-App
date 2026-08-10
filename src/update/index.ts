@@ -24,11 +24,9 @@
 // ============================================
 export {
   UpdateToast,
-  useUpdateToast,
   type UpdateToastProps,
   type UpdateToastStatus,
   type UpdateProgressInput,
-  type UseUpdateToastReturn,
 } from './components';
 
 // ============================================

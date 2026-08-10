@@ -60,22 +60,6 @@ vi.mock('../../src/update', () => ({
   checkForUpdates: vi.fn(() => Promise.resolve({ available: false })),
   downloadAndInstall: vi.fn(),
   restartApp: vi.fn(),
-  useUpdateToast: vi.fn(() => ({
-    status: 'idle',
-    version: '',
-    notes: '',
-    progress: 0,
-    downloaded: 0,
-    total: 0,
-    sourceUrl: '',
-    errorMessage: '',
-    showAvailable: vi.fn(),
-    startDownload: vi.fn(),
-    updateProgress: vi.fn(),
-    downloadComplete: vi.fn(),
-    showError: vi.fn(),
-    dismiss: vi.fn(),
-  })),
   UpdateToast: () => null,
 }));
 

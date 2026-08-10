@@ -19,7 +19,6 @@
  * 5. error: 显示错误信息
  */
 
-import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
@@ -39,7 +38,7 @@ export type UpdateToastStatus =
   | 'error';
 
 /**
- * 一次进度上报的输入（store action 与本文件的 useUpdateToast 共用）。
+ * 一次进度上报的输入（update store 的 updateProgress action 用）。
  *
  * 🔴 用可选字段的对象而不是位置参数：位置参数逼着调用方给「未知」编一个数字
  * ——历史实现就是 `progress.percent || 0` / `progress.contentLength || 0`，
@@ -331,107 +330,6 @@ export function UpdateToast({
     </AnimatePresence>,
     document.body,
   );
-}
-
-// ============================================
-// Hook: 更新弹窗状态管理
-// ============================================
-
-export interface UseUpdateToastReturn {
-  status: UpdateToastStatus;
-  version: string;
-  notes: string;
-  progress: number;
-  downloaded: number;
-  total: number;
-  indeterminate: boolean;
-  sourceUrl: string;
-  errorMessage: string;
-  showAvailable: (version: string, notes?: string) => void;
-  startDownload: () => void;
-  updateProgress: (input: UpdateProgressInput) => void;
-  downloadComplete: () => void;
-  showError: (message: string) => void;
-  dismiss: () => void;
-}
-
-export function useUpdateToast(): UseUpdateToastReturn {
-  const [status, setStatus] = useState<UpdateToastStatus>('idle');
-  const [version, setVersion] = useState('');
-  const [notes, setNotes] = useState('');
-  const [progress, setProgress] = useState(0);
-  const [downloaded, setDownloaded] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [indeterminate, setIndeterminate] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-
-  const showAvailable = useCallback((v: string, n?: string) => {
-    setVersion(v);
-    setNotes(n || '');
-    setStatus('available');
-  }, []);
-
-  const startDownload = useCallback(() => {
-    setProgress(0);
-    setDownloaded(0);
-    setTotal(0);
-    // 起手总长还未知 ⇒ 不定态，避免先闪一个 0%
-    setIndeterminate(true);
-    setStatus('downloading');
-  }, []);
-
-  const updateProgress = useCallback(
-    ({ percent, downloaded: d, total: t, indeterminate: ind, sourceUrl: source }: UpdateProgressInput) => {
-      // 与 store 同一套语义：percent=0 是合法值，不能被 `||` 兜底吃掉
-      const isIndeterminate = ind ?? (t === undefined || t <= 0);
-      setIndeterminate(isIndeterminate);
-      setProgress(isIndeterminate ? 0 : (percent ?? 0));
-      if (d !== undefined) {
-        setDownloaded(d);
-      }
-      if (t !== undefined) {
-        setTotal(t);
-      }
-      if (source) {
-        setSourceUrl(source);
-      }
-    },
-    [],
-  );
-
-  const downloadComplete = useCallback(() => {
-    setProgress(100);
-    setIndeterminate(false);
-    setStatus('ready');
-  }, []);
-
-  const showError = useCallback((msg: string) => {
-    setErrorMessage(msg);
-    setStatus('error');
-  }, []);
-
-  const dismiss = useCallback(() => {
-    setStatus('idle');
-  }, []);
-
-  return {
-    status,
-    version,
-    notes,
-    progress,
-    downloaded,
-    total,
-    indeterminate,
-    sourceUrl,
-    errorMessage,
-    showAvailable,
-    startDownload,
-    updateProgress,
-    downloadComplete,
-    showError,
-    dismiss,
-  };
 }
 
 export default UpdateToast;
