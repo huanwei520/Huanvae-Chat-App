@@ -250,16 +250,6 @@ export function declineGroupInvitation(
 }
 
 /**
- * 通过邀请码入群
- */
-export function joinGroupByCode(
-  api: ApiClient,
-  code: string,
-): Promise<{ success: boolean; message: string }> {
-  return api.post('/api/groups/join_by_code', { code });
-}
-
-/**
  * 对可发现的群发起加入/加群申请（搜索方式）。按群 join_mode 分流：
  * open→直接入群；approval_required→创建待审核申请；closed/invite_only/admin_invite_only→400。
  * 已是成员 / 已有 pending 申请 → 400。返回 { message }。
@@ -277,6 +267,84 @@ export function applyToJoinGroup(
  */
 export function getSentJoinRequests(api: ApiClient): Promise<SentJoinRequestsResponse> {
   return api.get<SentJoinRequestsResponse>('/api/groups/requests/sent');
+}
+
+// ============================================
+// 入群申请审批（群主 / 管理员侧）
+// ============================================
+
+/**
+ * 一条待审批的入群申请
+ *
+ * 字段严格镜像后端 `JoinRequestInfo`
+ * （`Huanvae-Chat-Rust/src/groups/models/response.rs:73`）—— 后端 struct 是唯一真值源。
+ */
+export interface GroupJoinRequestInfo {
+  request_id: string;
+  group_id: string;
+  group_name: string | null;
+  user_id: string;
+  user_nickname: string | null;
+  /** 'apply'（用户主动申请）/ 'invite'（被邀请）等，由后端下发 */
+  request_type: string;
+  inviter_id: string | null;
+  inviter_nickname: string | null;
+  message: string | null;
+  user_accepted: boolean;
+  status: string;
+  created_at: string;
+}
+
+/** `GET /api/groups/{group_id}/requests` 响应（client.ts 已解包 ApiResponse.data） */
+export interface GroupJoinRequestListResponse {
+  requests: GroupJoinRequestInfo[];
+}
+
+/**
+ * 拉取本群待审批的入群申请（**仅群主 / 管理员**，后端 `verify_admin_or_owner` 校验，
+ * 非管理员调用返回 403）
+ *
+ * 这三个端点后端一直都在，但客户端此前**从未接过** —— 后果是
+ * `join_mode = approval_required` 的群，用户申请后群主在 App 里**根本看不到**，
+ * 申请永久 pending。
+ */
+export function getGroupJoinRequests(
+  api: ApiClient,
+  groupId: string,
+): Promise<GroupJoinRequestListResponse> {
+  return api.get<GroupJoinRequestListResponse>(
+    `/api/groups/${encodeURIComponent(groupId)}/requests`,
+  );
+}
+
+/** 通过一条入群申请 */
+export function approveGroupJoinRequest(
+  api: ApiClient,
+  groupId: string,
+  requestId: string,
+): Promise<{ success: boolean }> {
+  return api.post(
+    `/api/groups/${encodeURIComponent(groupId)}/requests/${encodeURIComponent(requestId)}/approve`,
+  );
+}
+
+/**
+ * 拒绝一条入群申请
+ *
+ * 后端 body 是 `ProcessJoinRequestBody { reason: Option<String> }`
+ * （`Huanvae-Chat-Rust/src/groups/models/request.rs:105`）—— 必须带 body，
+ * 不传理由时也要发 `{}`，否则 axum 的 `Json<T>` 提取会因缺 body 而 400。
+ */
+export function rejectGroupJoinRequest(
+  api: ApiClient,
+  groupId: string,
+  requestId: string,
+  reason?: string,
+): Promise<{ success: boolean }> {
+  return api.post(
+    `/api/groups/${encodeURIComponent(groupId)}/requests/${encodeURIComponent(requestId)}/reject`,
+    { reason: reason ?? null },
+  );
 }
 
 // ============================================

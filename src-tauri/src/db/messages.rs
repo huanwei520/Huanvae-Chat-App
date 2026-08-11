@@ -15,10 +15,51 @@
 //! 消息按 seq DESC 排序返回，seq=0 的消息（未同步）优先按 send_time 排序。
 //! 前端使用 `flex-direction: column-reverse` 容器正确显示消息顺序。
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Row};
 
 use super::types::{LocalMessage, MessageSearchFilter, SearchMessageResult};
 use super::{with_db, DB};
+
+/// `messages` 表的完整列清单（顺序即 [`map_message_row`] 里 `row.get(i)` 的索引顺序）
+///
+/// 抽成常量的理由写在 [`get_messages_with_conn`] 的注释里：这块最容易出错的就是
+/// 「SELECT 列顺序与 `row.get(i)` 索引的配对漂移」。原先两处查询各抄一份列清单，
+/// 窗口化又要再加两处 ⇒ 四份副本任一处改错都只会在运行时静默取错列。
+/// 常量 + 单一映射函数让「加一列」只需改两个地方，且两处必然同步。
+const MSG_SELECT_COLUMNS: &str = "message_uuid, conversation_id, conversation_type, sender_id,
+     sender_name, sender_avatar, content, content_type, file_uuid, file_url,
+     file_size, file_hash, image_width, image_height, seq, reply_to,
+     is_recalled, is_deleted, send_time, created_at,
+     media_group_id, media_group_index, media_group_count";
+
+/// 把 [`MSG_SELECT_COLUMNS`] 顺序取出的一行映射成 [`LocalMessage`]
+fn map_message_row(row: &Row<'_>) -> rusqlite::Result<LocalMessage> {
+    Ok(LocalMessage {
+        message_uuid: row.get(0)?,
+        conversation_id: row.get(1)?,
+        conversation_type: row.get(2)?,
+        sender_id: row.get(3)?,
+        sender_name: row.get(4)?,
+        sender_avatar: row.get(5)?,
+        content: row.get(6)?,
+        content_type: row.get(7)?,
+        file_uuid: row.get(8)?,
+        file_url: row.get(9)?,
+        file_size: row.get(10)?,
+        file_hash: row.get(11)?,
+        image_width: row.get(12)?,
+        image_height: row.get(13)?,
+        seq: row.get(14)?,
+        reply_to: row.get(15)?,
+        is_recalled: row.get::<_, i64>(16)? != 0,
+        is_deleted: row.get::<_, i64>(17)? != 0,
+        send_time: row.get(18)?,
+        created_at: row.get(19)?,
+        media_group_id: row.get(20)?,
+        media_group_index: row.get(21)?,
+        media_group_count: row.get(22)?,
+    })
+}
 
 /// 获取会话的消息列表
 pub fn get_messages(
@@ -44,19 +85,17 @@ pub fn get_messages_with_conn(
     {
         // 排序逻辑：seq=0 的消息（未同步的新消息）排在最前面，按 send_time 排序
         // 其他消息按 seq DESC 排序
-        let (query, params): (&str, Vec<Box<dyn rusqlite::ToSql>>) = match before_seq {
+        let (query, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = match before_seq {
             Some(seq) => (
-                "SELECT message_uuid, conversation_id, conversation_type, sender_id,
-                 sender_name, sender_avatar, content, content_type, file_uuid, file_url,
-                 file_size, file_hash, image_width, image_height, seq, reply_to,
-                 is_recalled, is_deleted, send_time, created_at,
-                 media_group_id, media_group_index, media_group_count
+                format!(
+                    "SELECT {MSG_SELECT_COLUMNS}
                  FROM messages
                  WHERE conversation_id = ? AND is_deleted = 0 AND (seq < ? OR seq = 0)
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC
-                 LIMIT ?",
+                 LIMIT ?"
+                ),
                 vec![
                     Box::new(conversation_id.to_string()),
                     Box::new(seq),
@@ -64,17 +103,15 @@ pub fn get_messages_with_conn(
                 ],
             ),
             None => (
-                "SELECT message_uuid, conversation_id, conversation_type, sender_id,
-                 sender_name, sender_avatar, content, content_type, file_uuid, file_url,
-                 file_size, file_hash, image_width, image_height, seq, reply_to,
-                 is_recalled, is_deleted, send_time, created_at,
-                 media_group_id, media_group_index, media_group_count
+                format!(
+                    "SELECT {MSG_SELECT_COLUMNS}
                  FROM messages
                  WHERE conversation_id = ? AND is_deleted = 0
                  ORDER BY CASE WHEN seq = 0 THEN 0 ELSE 1 END,
                           CASE WHEN seq = 0 THEN send_time ELSE NULL END DESC,
                           seq DESC
-                 LIMIT ?",
+                 LIMIT ?"
+                ),
                 vec![
                     Box::new(conversation_id.to_string()),
                     Box::new(limit),
@@ -82,38 +119,12 @@ pub fn get_messages_with_conn(
             ),
         };
 
-        let mut stmt = db.prepare(query).map_err(|e| e.to_string())?;
+        let mut stmt = db.prepare(&query).map_err(|e| e.to_string())?;
 
         let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt
-            .query_map(params_refs.as_slice(), |row| {
-                Ok(LocalMessage {
-                    message_uuid: row.get(0)?,
-                    conversation_id: row.get(1)?,
-                    conversation_type: row.get(2)?,
-                    sender_id: row.get(3)?,
-                    sender_name: row.get(4)?,
-                    sender_avatar: row.get(5)?,
-                    content: row.get(6)?,
-                    content_type: row.get(7)?,
-                    file_uuid: row.get(8)?,
-                    file_url: row.get(9)?,
-                    file_size: row.get(10)?,
-                    file_hash: row.get(11)?,
-                    image_width: row.get(12)?,
-                    image_height: row.get(13)?,
-                    seq: row.get(14)?,
-                    reply_to: row.get(15)?,
-                    is_recalled: row.get::<_, i64>(16)? != 0,
-                    is_deleted: row.get::<_, i64>(17)? != 0,
-                    send_time: row.get(18)?,
-                    created_at: row.get(19)?,
-                    media_group_id: row.get(20)?,
-                    media_group_index: row.get(21)?,
-                    media_group_count: row.get(22)?,
-                })
-            })
+            .query_map(params_refs.as_slice(), map_message_row)
             .map_err(|e| e.to_string())?;
 
         let mut messages: Vec<LocalMessage> = Vec::new();
@@ -126,6 +137,134 @@ pub fn get_messages_with_conn(
 
         Ok(messages)
     }
+}
+
+/// 以某条消息为锚点，取它**前后各一段**（定位跳转用）
+///
+/// ## 为什么需要它
+///
+/// 定位一条很早的消息，原先只能靠「从最新一路 `get_messages(before_seq=游标)` 往回翻」，
+/// 中间每一页都会进 state 并渲染 —— 目标越早读得越多，卡顿即由此而来；
+/// 且翻页有轮次上限，超出范围的目标会**翻不到**而报「定位失败」，尽管它就在库里。
+/// 本函数一次取回 `before + 1 + after` 条，与目标有多早**无关**。
+///
+/// ## 语义
+///
+/// - 锚点按 `message_uuid` 找，必须属于该会话且未软删除；找不到返回 `Ok(None)`，
+///   由调用方决定降级（不吞成空数组 —— 空数组会被误读成「这段真的没有消息」）。
+/// - 窗口**只按 seq 取，且排除 `seq = 0`**：`seq = 0` 是本地未同步的新消息，
+///   概念上恒属"最新那一端"，把它混进一段历史窗口会让顺序错乱。
+/// - 返回顺序与 [`get_messages`] 一致：**[新→旧]**（`seq DESC`），
+///   前端 `flex-direction: column-reverse` 容器据此正确显示。
+pub fn get_messages_around_with_conn(
+    db: &Connection,
+    conversation_id: &str,
+    anchor_uuid: &str,
+    before: i64,
+    after: i64,
+) -> Result<Option<Vec<LocalMessage>>, String> {
+    let anchor_seq: Option<i64> = db
+        .query_row(
+            "SELECT seq FROM messages
+             WHERE message_uuid = ? AND conversation_id = ? AND is_deleted = 0",
+            params![anchor_uuid, conversation_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let Some(anchor_seq) = anchor_seq else {
+        return Ok(None);
+    };
+
+    // 较新的一段 + 锚点自身：seq >= anchor，升序取 after+1 条，再翻成 [新→旧]
+    let newer_sql = format!(
+        "SELECT {MSG_SELECT_COLUMNS}
+         FROM messages
+         WHERE conversation_id = ? AND is_deleted = 0 AND seq >= ? AND seq > 0
+         ORDER BY seq ASC
+         LIMIT ?"
+    );
+    let mut stmt = db.prepare(&newer_sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![conversation_id, anchor_seq, after + 1], map_message_row)
+        .map_err(|e| e.to_string())?;
+    let mut newer: Vec<LocalMessage> = Vec::new();
+    for row in rows {
+        newer.push(row.map_err(|e| e.to_string())?);
+    }
+    newer.reverse();
+
+    // 较旧的一段：seq < anchor，降序取 before 条（本身即 [新→旧]）
+    let older_sql = format!(
+        "SELECT {MSG_SELECT_COLUMNS}
+         FROM messages
+         WHERE conversation_id = ? AND is_deleted = 0 AND seq < ? AND seq > 0
+         ORDER BY seq DESC
+         LIMIT ?"
+    );
+    let mut stmt = db.prepare(&older_sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![conversation_id, anchor_seq, before], map_message_row)
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        newer.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(Some(newer))
+}
+
+/// [`get_messages_around_with_conn`] 的全局 DB 版本
+pub fn get_messages_around(
+    conversation_id: &str,
+    anchor_uuid: &str,
+    before: i64,
+    after: i64,
+) -> Result<Option<Vec<LocalMessage>>, String> {
+    with_db!(db, {
+        get_messages_around_with_conn(db, conversation_id, anchor_uuid, before, after)
+    })
+}
+
+/// 向**更新**方向分页（窗口化之后必须有的另一半）
+///
+/// [`get_messages`] 的 `before_seq` 只能往更旧的方向翻。定位落在历史中段后，
+/// 用户往下滚要能接着加载更新的消息，没有这条查询就只能重新从最新整段拉回来
+/// —— 那正是本次要消灭的行为。
+///
+/// 返回顺序同样是 **[新→旧]**，与 [`get_messages`] 一致，调用方无需分辨来源。
+/// 同样排除 `seq = 0`（本地未同步消息不参与历史分页，它们恒在最新端由内存态持有）。
+pub fn get_messages_after_with_conn(
+    db: &Connection,
+    conversation_id: &str,
+    after_seq: i64,
+    limit: i64,
+) -> Result<Vec<LocalMessage>, String> {
+    let sql = format!(
+        "SELECT {MSG_SELECT_COLUMNS}
+         FROM messages
+         WHERE conversation_id = ? AND is_deleted = 0 AND seq > ? AND seq > 0
+         ORDER BY seq ASC
+         LIMIT ?"
+    );
+    let mut stmt = db.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![conversation_id, after_seq, limit], map_message_row)
+        .map_err(|e| e.to_string())?;
+    let mut messages: Vec<LocalMessage> = Vec::new();
+    for row in rows {
+        messages.push(row.map_err(|e| e.to_string())?);
+    }
+    messages.reverse();
+    Ok(messages)
+}
+
+/// [`get_messages_after_with_conn`] 的全局 DB 版本
+pub fn get_messages_after(
+    conversation_id: &str,
+    after_seq: i64,
+    limit: i64,
+) -> Result<Vec<LocalMessage>, String> {
+    with_db!(db, { get_messages_after_with_conn(db, conversation_id, after_seq, limit) })
 }
 
 /// 保存消息
@@ -1392,5 +1531,191 @@ mod tests {
         )
         .unwrap();
         assert_eq!(browse_uuids(&rows), vec!["m1"]);
+    }
+
+    // ========================================================================
+    // 定位窗口化（get_messages_around / get_messages_after）
+    // ========================================================================
+
+    /// 播种一个「有 n 条消息」的会话，seq 从 1 递增到 n（seq 越大越新）
+    fn seed_conversation(conn: &Connection, conv_id: &str, n: i64) {
+        let tx = conn.unchecked_transaction().unwrap();
+        for seq in 1..=n {
+            insert_msg(
+                conn,
+                &format!("m{seq}"),
+                conv_id,
+                &format!("消息 {seq}"),
+                "text",
+                seq,
+                &format!("2026-05-11T00:00:{:02}Z", seq % 60),
+            );
+        }
+        tx.commit().unwrap();
+    }
+
+    fn uuids(rows: &[LocalMessage]) -> Vec<&str> {
+        rows.iter().map(|m| m.message_uuid.as_str()).collect()
+    }
+
+    /// 窗口必须是「锚点前后各一段」，且整体保持 [新→旧]
+    #[test]
+    fn around_returns_window_newest_first() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 100);
+
+        let win = get_messages_around_with_conn(&conn, "c1", "m50", 3, 2)
+            .unwrap()
+            .expect("锚点存在");
+
+        // after=2 → m52, m51；锚点 m50；before=3 → m49, m48, m47
+        assert_eq!(uuids(&win), vec!["m52", "m51", "m50", "m49", "m48", "m47"]);
+    }
+
+    /// 锚点在最边界时不许越界，也不许少给另一侧
+    #[test]
+    fn around_clamps_at_both_ends() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 10);
+
+        let newest = get_messages_around_with_conn(&conn, "c1", "m10", 2, 5)
+            .unwrap()
+            .unwrap();
+        assert_eq!(uuids(&newest), vec!["m10", "m9", "m8"], "最新端：没有更新的了");
+
+        let oldest = get_messages_around_with_conn(&conn, "c1", "m1", 5, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(uuids(&oldest), vec!["m3", "m2", "m1"], "最旧端：没有更旧的了");
+    }
+
+    /// 锚点不存在 → `Ok(None)`，**不是**空数组
+    ///
+    /// 空数组会被调用方误读成「这段真的没有消息」而静默展示空白；
+    /// `None` 才能让它走「定位失败」的显式提示。
+    #[test]
+    fn around_missing_anchor_is_none_not_empty() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 10);
+
+        assert!(get_messages_around_with_conn(&conn, "c1", "不存在", 5, 5)
+            .unwrap()
+            .is_none());
+
+        // 锚点存在但属于别的会话 → 同样是 None（不许跨会话取窗口）
+        assert!(get_messages_around_with_conn(&conn, "c2", "m5", 5, 5)
+            .unwrap()
+            .is_none());
+    }
+
+    /// `seq = 0`（本地未同步的新消息）不许混进历史窗口
+    #[test]
+    fn around_excludes_unsynced_seq_zero() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 20);
+        insert_msg(&conn, "pending", "c1", "还没同步", "text", 0, "2026-05-11T09:00:00Z");
+
+        let win = get_messages_around_with_conn(&conn, "c1", "m10", 3, 3)
+            .unwrap()
+            .unwrap();
+        assert!(
+            !uuids(&win).contains(&"pending"),
+            "seq=0 恒属最新端，混进历史窗口会让顺序错乱"
+        );
+    }
+
+    /// 向更新方向分页：顺序仍是 [新→旧]，且不含起点自身
+    #[test]
+    fn after_paginates_forward_newest_first() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 100);
+
+        let rows = get_messages_after_with_conn(&conn, "c1", 50, 3).unwrap();
+        assert_eq!(uuids(&rows), vec!["m53", "m52", "m51"]);
+    }
+
+    /// 🔴 先量后改的「前」：当前实现（从最新逐页往回翻）到底读了多少行
+    ///
+    /// 复刻 `useLocalFriendMessages.ts:481 loadUntilMessage` 的算法：
+    /// 每轮 `get_messages(limit=50, before_seq=游标)`，最多 20 轮。
+    /// 断言的是**行为差**，不是耗时（耗时随机器波动，不能进断言，只打印）。
+    #[test]
+    fn locate_paging_reads_whole_prefix_window_reads_constant() {
+        let conn = setup_test_db();
+        const TOTAL: i64 = 5000;
+        const PAGE: i64 = 50;
+        const MAX_ITER: i64 = 20;
+        seed_conversation(&conn, "c1", TOTAL);
+
+        // 目标：第 4900 条之前（离最新 ~600 条），仍在 20×50=1000 的可达范围内
+        let anchor = "m4400";
+
+        // —— 前：逐页翻到命中
+        let mut paged_rows = 0i64;
+        let mut cursor: Option<i64> = None;
+        let mut hit = false;
+        for _ in 0..MAX_ITER {
+            let page = get_messages_with_conn(&conn, "c1", PAGE, cursor).unwrap();
+            paged_rows += page.len() as i64;
+            if page.iter().any(|m| m.message_uuid == anchor) {
+                hit = true;
+                break;
+            }
+            match page.last() {
+                Some(last) => cursor = Some(last.seq),
+                None => break,
+            }
+        }
+        assert!(hit, "该锚点应在翻页可达范围内");
+
+        // —— 后：一次窗口
+        let window = get_messages_around_with_conn(&conn, "c1", anchor, 30, 30)
+            .unwrap()
+            .unwrap();
+        let window_rows = window.len() as i64;
+
+        println!("[MEASURE] 逐页翻到 {anchor}: 读 {paged_rows} 行；窗口(±30): 读 {window_rows} 行");
+
+        assert_eq!(window_rows, 61, "窗口恒为 before+1+after 条，与目标多早无关");
+        assert!(
+            paged_rows > window_rows * 9,
+            "逐页读的行数应远大于窗口（实测 {paged_rows} vs {window_rows}）"
+        );
+    }
+
+    /// 🔴 顺带修掉的**静默失败**：超出 20×50 轮次上限的目标，逐页翻**根本翻不到**
+    ///
+    /// 用户看到的是「定位失败」提示，但那条消息就在本地库里 —— 只是翻页够不着。
+    /// 窗口查询与目标有多早无关，因此天然没有这个上限。
+    #[test]
+    fn locate_paging_cannot_reach_beyond_iteration_cap_but_window_can() {
+        let conn = setup_test_db();
+        const TOTAL: i64 = 5000;
+        const PAGE: i64 = 50;
+        const MAX_ITER: i64 = 20;
+        seed_conversation(&conn, "c1", TOTAL);
+
+        // 离最新 ~4000 条，远超 20×50=1000 的可达上限
+        let anchor = "m1000";
+
+        let mut cursor: Option<i64> = None;
+        let mut hit = false;
+        for _ in 0..MAX_ITER {
+            let page = get_messages_with_conn(&conn, "c1", PAGE, cursor).unwrap();
+            if page.iter().any(|m| m.message_uuid == anchor) {
+                hit = true;
+                break;
+            }
+            match page.last() {
+                Some(last) => cursor = Some(last.seq),
+                None => break,
+            }
+        }
+        assert!(!hit, "前提：该锚点确实超出翻页可达范围（否则这条测试没在测它要测的东西）");
+
+        let window = get_messages_around_with_conn(&conn, "c1", anchor, 30, 30)
+            .unwrap()
+            .expect("窗口查询与目标多早无关，必须命中");
+        assert!(window.iter().any(|m| m.message_uuid == anchor));
     }
 }

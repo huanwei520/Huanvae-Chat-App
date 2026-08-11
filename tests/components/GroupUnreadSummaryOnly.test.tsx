@@ -44,7 +44,6 @@ vi.mock('../../src/contexts/WebSocketContext', () => ({
 vi.mock('../../src/api/groups', () => ({
   getMyGroups: groupsApiMocks.getMyGroups,
   createGroup: vi.fn(),
-  joinGroupByCode: vi.fn(),
   getGroupInvitations: groupsApiMocks.getGroupInvitations,
   acceptGroupInvitation: vi.fn(),
   declineGroupInvitation: vi.fn(),

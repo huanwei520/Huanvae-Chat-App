@@ -17,7 +17,13 @@
  * 触发口：滚到底自动取下一页（顺手），以及列表末尾一颗「加载更多」按钮
  * （确定性入口 —— 键盘可达，且当首屏没铺满容器、根本滚不动时仍能继续取）。
  *
- * ## 点击结果的定位通路
+ * ## 结果的两种版式
+ *
+ * 「图片」/「视频」分类 → **正方形九宫格封面**（每行 3 个，`aspect-ratio: 1/1` +
+ * `object-fit: cover`）；其余分类（全部 / 文字 / 文件 / 群成员）保持列表行。
+ * 分界线是「这一屏有没有正文可显示」——同一套行也渲染文字命中，文字命中没有封面可放。
+ *
+ * ## 定位通路（现在挂在**右键 / 长按菜单**上，不再是点一下就跳）
  *
  * 写 chatStore.pendingScrollToMessageId，复用**全仓唯一**那条消息定位通路
  * （useMainPage 的定位 effect：补历史直到目标进窗口 → `scrollMessageIntoView` 手动改
@@ -25,48 +31,23 @@
  * 收起侧边面板，好让被定位的消息真的露出来。
  * 🔴 定位**绝不用 `scrollIntoView`**：它沿祖先链冒泡，会把整个 App 外壳一起顶上去
  * （见 src/chat/shared/scrollMessageIntoView.ts 与 .claude/rules/common.md 同名条目）。
+ *
+ * 单条命中项的版式与交互（左键打开 / 右键·长按定位）全在 ConversationSearchHit。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { MenuHeader } from '../../chat/shared/menu/MenuHeader';
-import { formatMessageTime } from '../../utils/time';
-import { formatFileSize } from '../../utils/format';
 import { useChatStore } from '../../stores';
 import type { LocalMessage } from '../../db';
 import type { GroupMember } from '../../api/groups';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
-import { highlightMatch } from './highlightMatch';
-import { ConversationSearchMedia } from './ConversationSearchMedia';
-import {
-  MESSAGE_CATEGORY_TABS,
-  contentTypeBadge,
-  contentTypeToCategory,
-  type MessageCategory,
-} from './messageCategory';
+import { ConversationSearchHit } from './ConversationSearchHit';
+import { MESSAGE_CATEGORY_TABS, type MessageCategory } from './messageCategory';
 import { useConversationMessageSearch } from './useConversationMessageSearch';
 
 /** 距列表底部多少 px 内触发自动取下一页 */
 const SCROLL_LOAD_THRESHOLD = 120;
-
-/** 文档类结果的行首图标（与消息气泡里的文件图标同款） */
-function DocumentIcon() {
-  return (
-    <svg
-      className="conv-msg-search-thumb conv-msg-search-thumb--doc"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
 
 interface ConversationMessageSearchProps {
   /** 当前会话 ID（好友：conv-{a}-{b}；群：group_id） */
@@ -114,7 +95,7 @@ export function ConversationMessageSearch({
     inputRef.current?.focus();
   }, []);
 
-  const handleSelect = useCallback(
+  const handleLocate = useCallback(
     (message: LocalMessage) => {
       // 交给全仓唯一那条定位通路（补历史 → scrollMessageIntoView 手动 scrollTop → 高亮 /
       // 失败提示），不在此另起第二套滚动机制
@@ -136,6 +117,8 @@ export function ConversationMessageSearch({
 
   const trimmedQuery = query.trim();
   const showEmpty = !loading && !error && items.length === 0;
+  // 图片 / 视频分类走九宫格封面；其余分类（含群成员，此时 category === 'member'）仍是列表行
+  const isCoverGrid = category === 'image' || category === 'video';
 
   return (
     <div className="conv-msg-search">
@@ -256,50 +239,19 @@ export function ConversationMessageSearch({
           )}
 
           {!loading && !error && items.length > 0 && (
-            <ul className="conv-msg-search-list" onScroll={handleScroll}>
-              {items.map((message) => {
-                const badge = contentTypeBadge(message.content_type);
-                const kind = contentTypeToCategory(message.content_type);
-                return (
-                  <li
-                    key={message.message_uuid}
-                    className="conv-msg-search-hit"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handleSelect(message)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSelect(message);
-                      }
-                    }}
-                  >
-                    {(kind === 'image' || kind === 'video') && (
-                      <ConversationSearchMedia message={message} />
-                    )}
-                    {kind === 'file' && <DocumentIcon />}
-                    <div className="conv-msg-search-hit-body">
-                      <div className="conv-msg-search-hit-meta">
-                        <span className="conv-msg-search-hit-sender">
-                          {message.sender_name ?? message.sender_id}
-                        </span>
-                        <span className="conv-msg-search-hit-time">
-                          {formatMessageTime(message.send_time)}
-                        </span>
-                        {badge && <span className="conv-msg-search-hit-badge">{badge}</span>}
-                      </div>
-                      <div className="conv-msg-search-hit-content">
-                        {highlightMatch(message.content, trimmedQuery)}
-                      </div>
-                      {kind !== 'text' && message.file_size !== null && (
-                        <div className="conv-msg-search-hit-size">
-                          {formatFileSize(message.file_size)}
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
+            <ul
+              className={`conv-msg-search-list${isCoverGrid ? ' conv-msg-search-list--grid' : ''}`}
+              onScroll={handleScroll}
+            >
+              {items.map((message) => (
+                <ConversationSearchHit
+                  key={message.message_uuid}
+                  message={message}
+                  query={trimmedQuery}
+                  layout={isCoverGrid ? 'cover' : 'row'}
+                  onLocate={handleLocate}
+                />
+              ))}
 
               <li className="conv-msg-search-foot">
                 {loadingMore && (

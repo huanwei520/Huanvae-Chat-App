@@ -90,7 +90,7 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     selector: '.message-context-menu',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['transform', 'opacity'],
-    motionLocation: 'src/chat/shared/MessageContextMenu.tsx + src/components/unified/ConversationContextMenu.tsx (motion.div 入出场 opacity+scale+y)',
+    motionLocation: 'src/chat/shared/MessageContextMenu.tsx + src/components/unified/ConversationContextMenu.tsx + src/components/search/ConversationSearchHitMenu.tsx (motion.div 入出场 opacity+scale+y)',
   },
   // .avatar-wrapper 的基础规则在 main.css（base.css 里只有 .avatar-wrapper.a11y-kbd-focus
   // 复合焦点环选择器，不含基础规则），cssFile 必须指向 main.css 门禁才真正生效
@@ -135,6 +135,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['opacity'],
     motionLocation: 'src/chat/friend/ChatMessages.tsx + src/chat/group/GroupChatMessages.tsx (消息区容器整块淡入：panelFadeTransition opacity 0→1，打开/切换会话时挂载播一次)',
+  },
+  {
+    selector: '.jump-to-latest-btn',
+    cssFile: 'src/chat/shared/JumpToLatestButton.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/JumpToLatestButton.tsx (motion.button 入出场 opacity+y+scale + whileTap scale；CSS 只准过渡 background/box-shadow/border-color)',
   },
   {
     selector: '.chat-input-area',

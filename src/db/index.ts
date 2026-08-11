@@ -335,6 +335,46 @@ export function getMessages(
   });
 }
 
+/**
+ * 以某条消息为锚点，取它**前后各一段**（定位跳转用）
+ *
+ * 返回 `null` = 锚点不在本地库（**不是**「窗口为空」）——
+ * 调用方据此走「定位失败」提示，两者混为一谈会让用户看到一片空白却无任何反馈。
+ *
+ * 顺序与 {@link getMessages} 一致：**[新→旧]**。
+ */
+export function getMessagesAround(
+  conversationId: string,
+  anchorUuid: string,
+  before: number,
+  after: number,
+): Promise<LocalMessage[] | null> {
+  return invoke<LocalMessage[] | null>('db_get_messages_around', {
+    conversationId,
+    anchorUuid,
+    before,
+    after,
+  });
+}
+
+/**
+ * 向**更新**方向分页（定位落在历史中段后，往下滚续加载用）
+ *
+ * {@link getMessages} 的 `beforeSeq` 只能往更旧翻；没有这条，向下滚就只能整段重拉最新，
+ * 那正是窗口化要消灭的行为。顺序同样是 **[新→旧]**。
+ */
+export function getMessagesAfter(
+  conversationId: string,
+  afterSeq: number,
+  limit: number = 50,
+): Promise<LocalMessage[]> {
+  return invoke<LocalMessage[]>('db_get_messages_after', {
+    conversationId,
+    afterSeq,
+    limit,
+  });
+}
+
 /** 获取会话的最新消息 */
 export async function getLatestMessage(
   conversationId: string,

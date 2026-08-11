@@ -108,6 +108,22 @@ function localMessageToMessage(local: LocalMessage, friendId: string): Message {
 }
 
 // ============================================================================
+// 定位窗口大小
+// ============================================================================
+
+/**
+ * 定位跳转时锚点**两侧**各取多少条。
+ *
+ * 取 30（窗口 61 条）的依据：
+ * - 既有分页页大小是 50，30 条约 1.5~2 屏，落地即填满视口并留出滚动余量，
+ *   不会一落地就立刻触发续加载（那会把"少读"的收益又还回去）；
+ * - 又明显小于 50，首帧要渲染的气泡数量随之下降 —— 这正是卡顿的另一半来源；
+ * - 两侧对称，是因为用户从查找结果跳过来后，往上往下看的概率没有先验差别。
+ */
+const LOCATE_WINDOW_BEFORE = 30;
+const LOCATE_WINDOW_AFTER = 30;
+
+// ============================================================================
 // Hook 实现
 // ============================================================================
 
@@ -130,6 +146,13 @@ export function useLocalFriendMessages(friendId: string | null) {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // 定位窗口态：非 null = 当前列表是「围绕某条历史消息的一段窗口」，不是「最新那一段」。
+  // 它有两处不可省的护栏（见 loadMessages / unmount 缓存写入）：窗口既不能被最新 50 条
+  // 合并（会造成中间断档却看不出来），也不能被写进 cachedFriendMessages（那会让下次进会话
+  // 从一段历史窗口开场）。
+  const [windowAnchorUuid, setWindowAnchorUuid] = useState<string | null>(null);
+  // 窗口态下「更新方向还有没有」。非窗口态恒 false —— 非窗口态的列表本就顶到最新。
+  const [hasNewer, setHasNewer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // sending 状态保留用于向后兼容，但不再使用发送锁
   const [sending] = useState(false);
@@ -142,15 +165,21 @@ export function useLocalFriendMessages(friendId: string | null) {
   const currentFriendId = useRef<string | null>(friendId);
   const dbInitialized = useRef(false);
 
-  // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
+  // 异步回调里读最新 state（避免闭包过期）
   const messagesRef = useRef<Message[]>(messages);
   const hasMoreRef = useRef<boolean>(hasMore);
+  // 窗口态标志的 ref 版：loadMessages 与 unmount cleanup 都在闭包里判它，
+  // 用 state 会读到过期值（护栏读到过期值 = 护栏失效，是这里必须用 ref 的唯一理由）
+  const windowAnchorRef = useRef<string | null>(windowAnchorUuid);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
   useEffect(() => {
     hasMoreRef.current = hasMore;
   }, [hasMore]);
+  useEffect(() => {
+    windowAnchorRef.current = windowAnchorUuid;
+  }, [windowAnchorUuid]);
 
   // ============================================
   // 数据库初始化检查
@@ -193,9 +222,17 @@ export function useLocalFriendMessages(friendId: string | null) {
   // 通过 messagesRef.current 读 unmount 那一刻的最新 messages 值（messagesRef 由 line 131
   // 的 useEffect 实时镜像）；如果 deps 包含 messages，cleanup 会在每次 messages 变化都
   // 跑一次，写入缓存的频率过高且无意义。仅在 friendId 切换或 unmount 时才需要写缓存。
+  //
+  // 🔴 护栏一：**窗口态不写缓存**。窗口是「某条历史消息前后各 30 条」，把它写进
+  // cachedFriendMessages 会让下次进这个会话直接从一段历史开场（且它会成为 useState
+  // 初值，与 loadMessages 的增量合并撞在一起）—— 正是 .claude/rules/common.md
+  // 「缓存与数据库 SSOT 协同」那条规则描述的失效形态，只是方向反过来。
   useEffect(() => {
     const captureFriendId = friendId;
     return () => {
+      if (windowAnchorRef.current) {
+        return;
+      }
       if (captureFriendId && messagesRef.current.length > 0) {
         useChatStore.getState().cacheFriendMessages(captureFriendId, messagesRef.current);
       }
@@ -208,6 +245,13 @@ export function useLocalFriendMessages(friendId: string | null) {
 
   const loadMessages = useCallback(async (limit = 50) => {
     if (!friendId || !session || !dbInitialized.current) {
+      return;
+    }
+    // 🔴 护栏二：**窗口态不并最新 50 条**。下方的增量合并把 db 结果并进 prev，
+    // 而窗口态的 prev 是一段历史；并进来的最新 50 条与窗口之间隔着成百上千条没加载的消息，
+    // 渲染出来却是紧挨着的两段 —— 用户从窗口往上滚会直接掉进另一个时间段，且**看不出断档**。
+    // 要回到最新走 jumpToLatest（显式退出窗口态 + 整段替换），不走这里。
+    if (windowAnchorRef.current) {
       return;
     }
 
@@ -471,35 +515,128 @@ export function useLocalFriendMessages(friendId: string | null) {
   }, [friendId, session, hasMore, messages]);
 
   // ============================================
-  // 加载历史直到目标消息进入窗口（用于全局搜索点击跳转）
+  // 定位到某条消息：只取它前后一小段（窗口化）
   // ============================================
 
   /**
-   * 循环 loadMoreMessages 直到 messages 中包含目标 messageUuid
-   * 或 hasMore=false 或达 maxIterations 防死循环。
+   * 以目标消息为锚点，一次取回它**前后各一段**并整段替换列表。
+   *
+   * ## 为什么不是「翻页翻到它」
+   *
+   * 原实现是 `loadUntilMessage`：从最新逐页 `loadMoreMessages()` 往回翻直到命中，
+   * 上限 20 轮 × 每页 50。两个后果：
+   * 1. **卡顿** —— 中间每一页都会进 state 并渲染，目标越早读得越多。
+   *    实测（`src-tauri/src/db/messages.rs` 的 `locate_paging_reads_whole_prefix_window_reads_constant`）：
+   *    锚点离最新约 600 条时读 **650 行**，而窗口恒为 **61 行**。
+   * 2. **静默够不着** —— 超出 20×50=1000 条的目标**根本翻不到**，用户看到「定位失败」，
+   *    可那条消息就在本地库里。窗口查询与目标多早无关，天然没有这个上限
+   *    （守卫测试 `locate_paging_cannot_reach_beyond_iteration_cap_but_window_can`）。
+   *
+   * 返回 false = 锚点不在本地库（DB 层返回 null），调用方据此走「定位失败」提示；
+   * **不与「窗口为空」混为一谈**。
    */
-  const loadUntilMessage = useCallback(
-    async (messageUuid: string, maxIterations = 20): Promise<boolean> => {
-      for (let i = 0; i < maxIterations; i++) {
-        if (messagesRef.current.some((m) => m.message_uuid === messageUuid)) {
-          return true;
-        }
-        if (!hasMoreRef.current) {
+  const locateMessage = useCallback(
+    async (messageUuid: string): Promise<boolean> => {
+      if (!friendId || !session) {
+        return false;
+      }
+      const conversationId = getFriendConversationId(session.userId, friendId);
+      try {
+        const rows = await db.getMessagesAround(
+          conversationId,
+          messageUuid,
+          LOCATE_WINDOW_BEFORE,
+          LOCATE_WINDOW_AFTER,
+        );
+        if (rows === null) {
           return false;
         }
-        // 分页加载必须串行：每页加载后检查是否命中目标消息，再决定是否加载下一页
-        // eslint-disable-next-line no-await-in-loop
-        await loadMoreMessages();
-        // 让 React 提交 + useEffect 同步 ref
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise<void>((r) => {
-          setTimeout(r, 0);
-        });
+        const uiMessages = rows.map((m) => localMessageToMessage(m, friendId));
+        // 整段替换：窗口态的语义就是「现在看的是这一段」，不是「在原列表上补几条」。
+        // 缓存不受影响 —— 窗口态下 unmount 不写缓存（见上方护栏一）。
+        setMessages(uiMessages);
+        // 该侧取满 = 该侧还有更多。锚点必在结果里（DB 层不返回 null 即代表命中），
+        // 用它把窗口切成"更旧"与"更新"两半分别判定。
+        const anchorSeq = rows.find((m) => m.message_uuid === messageUuid)?.seq ?? 0;
+        const olderCount = rows.filter((m) => m.seq < anchorSeq).length;
+        const newerCount = rows.filter((m) => m.seq > anchorSeq).length;
+        setHasMore(olderCount >= LOCATE_WINDOW_BEFORE);
+        // 更新侧没取满 = 窗口已经顶到最新 ⇒ 列表与最新连续，**不进窗口态**。
+        // 否则会卡在「窗口态但加载不了更新的」，两条护栏永远挂着却毫无意义。
+        const reachedNewest = newerCount < LOCATE_WINDOW_AFTER;
+        setHasNewer(!reachedNewest);
+        setWindowAnchorUuid(reachedNewest ? null : messageUuid);
+        logLocal('定位窗口加载完成', { anchor: messageUuid, count: uiMessages.length });
+        return true;
+      } catch (err) {
+        logError('定位窗口加载失败', err);
+        setError(err instanceof Error ? err.message : String(err));
+        return false;
       }
-      return messagesRef.current.some((m) => m.message_uuid === messageUuid);
     },
-    [loadMoreMessages],
+    [friendId, session],
   );
+
+  /**
+   * 窗口态下向**更新**方向续加载（用户从历史窗口往下滚）
+   *
+   * 接到最新端（DB 返回不足一页）时**自动退出窗口态** —— 此刻列表已与最新连续，
+   * 再留着窗口标志只会让缓存与合并两条护栏白白继续拦着。
+   */
+  const loadNewerMessages = useCallback(async (limit = 50) => {
+    if (!friendId || !session || !hasNewer || loadingMore) {
+      return;
+    }
+    const conversationId = getFriendConversationId(session.userId, friendId);
+    // messages 是 [新→旧]，最新的一条在头部；seq=0 / 未定义都是本地未同步消息，
+    // 它们恒在最新端且没有真实序号，不能拿来当向前分页的游标
+    const newestSeq = messagesRef.current.find((m) => (m.seq ?? 0) > 0)?.seq;
+    if (newestSeq === undefined) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const rows = await db.getMessagesAfter(conversationId, newestSeq, limit);
+      if (rows.length > 0) {
+        const uiMessages = rows.map((m) => localMessageToMessage(m, friendId));
+        // 更新的消息接在头部（[新→旧] 顺序）
+        setMessages((prev) => [...uiMessages, ...prev]);
+      }
+      if (rows.length < limit) {
+        setHasNewer(false);
+        setWindowAnchorUuid(null);
+        logLocal('已接上最新，退出定位窗口态');
+      }
+    } catch (err) {
+      logError('向更新方向加载失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [friendId, session, hasNewer, loadingMore]);
+
+  /**
+   * 回到最新（④「一键回到最底部」在窗口态下的真实动作）
+   *
+   * 窗口态下列表里根本没有最新消息，单纯滚容器只会滚到**已加载区域**的底 —— 那不是最新。
+   * 所以这里显式退出窗口态并整段换成最新一页。
+   */
+  const jumpToLatest = useCallback(async (limit = 50) => {
+    if (!friendId || !session) {
+      return;
+    }
+    const conversationId = getFriendConversationId(session.userId, friendId);
+    try {
+      const rows = await db.getMessages(conversationId, limit);
+      setMessages(rows.map((m) => localMessageToMessage(m, friendId)));
+      setWindowAnchorUuid(null);
+      setHasNewer(false);
+      setHasMore(rows.length >= limit);
+    } catch (err) {
+      logError('回到最新失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [friendId, session]);
 
   // ============================================
   // 发送文本消息（乐观更新）
@@ -993,7 +1130,13 @@ export function useLocalFriendMessages(friendId: string | null) {
     syncing,
     loadMessages,
     loadMoreMessages,
-    loadUntilMessage,
+    locateMessage,
+    // 窗口态三件套：非窗口态时 isWindowed=false / hasNewer=false，
+    // 调用方无需分辨两种形态，按同一套接口用即可。
+    isWindowed: windowAnchorUuid !== null,
+    hasNewer,
+    loadNewerMessages,
+    jumpToLatest,
     sendTextMessage,
     sendMediaMessage,
     recall,

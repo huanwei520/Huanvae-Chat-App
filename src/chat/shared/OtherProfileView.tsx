@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useProfileViewStore } from '../../stores';
 import { useEdgeSwipeBack } from '../../hooks/useEdgeSwipeBack';
+import { useMobileBackOverlay } from '../../hooks/useMobileBackHandler';
 import { OtherProfilePanel } from './OtherProfilePanel';
 import { friendChatTarget } from '../../utils/chatTarget';
 import type { ChatTarget, Friend } from '../../types/chat';
@@ -44,6 +45,19 @@ export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
   // 边缘侧滑返回：达标后调用的就是 close —— 与右上角关闭键、Esc、点遮罩同一个返回动作。
   // hook 必须无条件调用（React 规则），是否生效由下方按 mobile 决定挂不挂 style/handlers。
   const { x: swipeX, handlers: swipeHandlers } = useEdgeSwipeBack({ onBack: close });
+
+  // 🔴 Android 系统返回：在**手势导航**（安卓默认，也是 huanwei 的真机形态）下，
+  // 屏幕最左边缘那条带子归系统，从那里起手的右滑**不会**到达 WebView ——
+  // 系统把它转成 Android back 发给 App。所以这条通路才是那种形态下**唯一**的返回路径。
+  // 缺了它的真机后果不是"手势没反应"，而是**直接退出 App**（返回事件一路没人认领，
+  // 走到默认行为）。上面的 useEdgeSwipeBack 只在 3 键导航 / iOS 那类没有系统边缘手势的形态下生效。
+  useMobileBackOverlay(() => {
+    if (!userId) {
+      return false;
+    }
+    close();
+    return true;
+  });
 
   const handleSendMessage = (friend: Friend) => {
     onOpenChat?.(friendChatTarget(friend));

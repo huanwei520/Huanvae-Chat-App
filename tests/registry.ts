@@ -47,7 +47,8 @@ export const SEARCH_COMPONENTS: ComponentEntry[] = [
   { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
   { name: 'useDiscoverySearch', path: 'hooks/useDiscoverySearch', category: 'hooks', description: '服务端发现搜索 Hook（500ms 防抖；人/群/bot；头像边界解析）' },
   { name: 'ConversationMessageSearch', path: 'components/search/ConversationMessageSearch', category: 'components', description: '会话内消息查找视图（侧边面板内；点分类即按时间倒序列出，关键词再收窄）' },
-  { name: 'ConversationSearchMedia', path: 'components/search/ConversationSearchMedia', category: 'components', description: '查找结果里的图片/视频缩略图（src 经 useFileCache → 反代收口点）' },
+  { name: 'ConversationSearchHit', path: 'components/search/ConversationSearchHit', category: 'components', description: '查找结果单条命中项（行/九宫格封面；左键打开预览、右键长按定位；媒体 src 经 useFileCache → 反代收口点）' },
+  { name: 'ConversationSearchHitMenu', path: 'components/search/ConversationSearchHitMenu', category: 'components', description: '命中项右键/长按单项菜单「定位到聊天消息」+ 长按/键盘触发 Hook' },
   { name: 'useConversationMessageSearch', path: 'components/search/useConversationMessageSearch', category: 'hooks', description: '会话内查找 Hook（关键词可选 + SQL 层分类过滤 + limit/offset 分页）' },
   { name: 'messageCategory', path: 'components/search/messageCategory', category: 'services', description: '消息分类 ↔ content_type 映射（图片/视频/文件白名单，文字取补集）' },
   { name: 'conversationSearchTarget', path: 'components/search/conversationSearchTarget', category: 'services', description: 'ChatTarget → 会话内查找用 conversation_id（AI 会话返回 null）' },
@@ -244,6 +245,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'GroupMessageBubble', path: 'chat/group/GroupMessageBubble', category: 'chat', description: '群聊消息气泡' },
   { name: 'GroupRemarkInputModal', path: 'chat/group/GroupRemarkInputModal', category: 'chat', description: '群内私有备注输入弹窗（D7，右键「设置备注」触发）' },
   { name: 'ReplyQuote', path: 'chat/shared/ReplyQuote', category: 'chat', description: '消息气泡内的被引用消息块（Telegram 风格，点击定位原消息；群聊+私聊共用）' },
+  { name: 'JumpToLatestButton', path: 'chat/shared/JumpToLatestButton', category: 'chat', description: '「回到最新」浮动按钮（离底才浮出，点击滚回 scrollTop=0；column-reverse 坐标，桌面+移动共用）' },
 
   // bot 斜杠命令 + 会话顶置架
   { name: 'SlashCommandPanel', path: 'chat/shared/SlashCommandPanel', category: 'chat', description: '斜杠命令面板（bot 会话输入 / 弹命令、填入不直发，portal 弹层）' },

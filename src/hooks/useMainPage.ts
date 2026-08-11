@@ -315,7 +315,11 @@ export function useMainPage() {
     // sendMediaMessage: sendFriendMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadFriendMessages,
     loadMoreMessages: loadMoreFriendMessages,
-    loadUntilMessage: loadUntilFriendMessage,
+    locateMessage: locateFriendMessage,
+    isWindowed: friendIsWindowed,
+    hasNewer: friendHasNewer,
+    loadNewerMessages: loadNewerFriendMessages,
+    jumpToLatest: jumpToLatestFriend,
     removeMessage: removeFriendMessage,
     recall: recallFriendMessage,
   } = useLocalFriendMessages(friendId);
@@ -333,7 +337,11 @@ export function useMainPage() {
     // sendMediaMessage: sendGroupMediaMessage, // 媒体消息发送（保留用于将来）
     loadMessages: loadGroupMessages,
     loadMoreMessages: loadMoreGroupMessages,
-    loadUntilMessage: loadUntilGroupMessage,
+    locateMessage: locateGroupMessage,
+    isWindowed: groupIsWindowed,
+    hasNewer: groupHasNewer,
+    loadNewerMessages: loadNewerGroupMessages,
+    jumpToLatest: jumpToLatestGroup,
     removeMessage: removeGroupMessage,
     recall: recallGroupMessage,
   } = useLocalGroupMessages(groupId);
@@ -928,8 +936,8 @@ export function useMainPage() {
     const run = async () => {
       const ok =
         isFriendLikeTarget(chatTarget)
-          ? await loadUntilFriendMessage(targetId)
-          : await loadUntilGroupMessage(targetId);
+          ? await locateFriendMessage(targetId)
+          : await locateGroupMessage(targetId);
       if (cancelled) {
         return;
       }
@@ -962,8 +970,8 @@ export function useMainPage() {
   }, [
     pendingScrollToMessageId,
     chatTarget,
-    loadUntilFriendMessage,
-    loadUntilGroupMessage,
+    locateFriendMessage,
+    locateGroupMessage,
     setPendingScrollToMessageId,
     setHighlightedMessageId,
     setMessageJumpNotice,
@@ -1005,6 +1013,28 @@ export function useMainPage() {
       loadMoreGroupMessages();
     }
   }, [chatTarget, loadMoreFriendMessages, loadMoreGroupMessages]);
+
+  // 定位窗口态：把私聊 / 群聊两套收敛成一组出口，UI 无需分辨会话类型
+  //
+  // `isWindowed` 为真 = 当前列表是「围绕某条历史消息的一段窗口」，**里面没有最新消息**。
+  // 这正是「一键回到最底部」不能只滚容器的原因：滚到底只会到达**已加载区域**的底，
+  // 而不是最新 —— 必须走 handleJumpToLatest 重新取最新段并退出窗口态。
+  const isWindowed = isFriendLikeTarget(chatTarget) ? friendIsWindowed : groupIsWindowed;
+  const hasNewer = isFriendLikeTarget(chatTarget) ? friendHasNewer : groupHasNewer;
+  const handleLoadNewer = useCallback(() => {
+    if (isFriendLikeTarget(chatTarget)) {
+      loadNewerFriendMessages();
+    } else if (chatTarget?.type === 'group') {
+      loadNewerGroupMessages();
+    }
+  }, [chatTarget, loadNewerFriendMessages, loadNewerGroupMessages]);
+  const handleJumpToLatest = useCallback(async () => {
+    if (isFriendLikeTarget(chatTarget)) {
+      await jumpToLatestFriend();
+    } else if (chatTarget?.type === 'group') {
+      await jumpToLatestGroup();
+    }
+  }, [chatTarget, jumpToLatestFriend, jumpToLatestGroup]);
 
   const canBatchRecall = chatTarget?.type === 'group' &&
     (chatTarget.data.role === 'owner' || chatTarget.data.role === 'admin');
@@ -1051,6 +1081,11 @@ export function useMainPage() {
 
     // 加载更多
     hasMore,
+    // 定位窗口态（供「一键回到最底部」与向下续加载消费）
+    isWindowed,
+    hasNewer,
+    handleLoadNewer,
+    handleJumpToLatest,
     loadingMore,
     handleLoadMore,
 

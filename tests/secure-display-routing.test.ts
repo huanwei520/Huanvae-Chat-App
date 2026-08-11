@@ -229,14 +229,14 @@ describe('发现搜索头像：数据边界经 resolveServerAvatarUrl 解析，�
   });
 });
 
-describe('会话内查找的媒体缩略图：src 取自 fileCache 收口点，不碰消息行里的裸 file_url', () => {
-  // 会话内查找列出图片/视频时要给缩略图。消息行本身带后端裸地址字段，直接喂 <img/video src>
-  // 就会重演「certificate invalid → 真机静默裂图」那类回归；正确来源是 useFileCache
-  // （内部 getFileSource/getVideoSource 已经过 resolveDisplayUrl）。
+describe('会话内查找的媒体命中项：src 取自 fileCache 收口点，不碰消息行里的裸 file_url', () => {
+  // 会话内查找列出图片/视频时要给缩略图 / 九宫格封面，点开还要喂全屏预览。消息行本身带后端
+  // 裸地址字段，直接喂 <img/video src> 就会重演「certificate invalid → 真机静默裂图」那类
+  // 回归；正确来源是 useFileCache（内部 getFileSource/getVideoSource 已经过 resolveDisplayUrl）。
   //
   // ⚠️ 判定必须在**剥掉注释的代码**上做：源码注释里正当地写着「不得把 file_url 裸喂给 img」
   // 这句话本身含该字段名，直接扫全文会把一条准确的文档判成违规，逼后来的人删注释才能过门禁。
-  const SEARCH_MEDIA_RAW = read('src/components/search/ConversationSearchMedia.tsx');
+  const SEARCH_MEDIA_RAW = read('src/components/search/ConversationSearchHit.tsx');
 
   /**
    * 剥掉 `//` 行注释与 `/* *\/` 块注释。
@@ -280,15 +280,21 @@ describe('会话内查找的媒体缩略图：src 取自 fileCache 收口点，�
     expect(stripComments('const u = `http://x`; const b = 1;')).toMatch(/const b = 1/);
   });
 
-  it('缩略图组件经 useFileCache 取源', () => {
+  it('媒体命中项经 useFileCache 取源', () => {
     expect(SEARCH_MEDIA).toMatch(/import \{ useFileCache \} from '\.\.\/\.\.\/hooks\/useFileCache'/);
-    expect(SEARCH_MEDIA).toMatch(/const \{ src \} = useFileCache\(\{/);
+    // 解构里除 src 外还要 localPath / presignedUrl（递给独立预览窗），故不写死整个解构串
+    expect(SEARCH_MEDIA).toMatch(/const \{[^}]*\bsrc\b[^}]*\} = useFileCache\(\{/);
   });
 
-  it('img / video 的 src 都绑到 useFileCache 的 src，代码里不出现后端裸地址字段', () => {
+  it('img / video / 全屏预览的 src 都绑到 useFileCache 的 src，代码里不出现后端裸地址字段', () => {
     const bound = SEARCH_MEDIA.match(/src=\{src\}/g) ?? [];
-    expect(bound.length).toBe(2); // <video src={src}> + <img src={src}>
-    // 回归守卫：改回 message.file_url 即 FAIL（已 node 变异验证：2 → 1 且该字段名出现）
+    // <video src={src}>（缩略图/封面）+ <img src={src}> + <MobileMediaPreview src={src}>
+    // 回归守卫：任一处改回 message.file_url 即 FAIL（已 node 变异验证：3 → 2 且该字段名出现）
+    expect(bound.length).toBe(3);
     expect(SEARCH_MEDIA).not.toMatch(/\bfile_url\b/);
+  });
+
+  it('递给独立预览窗的是**原始** presignedUrl 而不是反代 src（跨窗不烘回环端口）', () => {
+    expect(SEARCH_MEDIA).toMatch(/presignedUrl: isLocal \? undefined : presignedUrl/);
   });
 });

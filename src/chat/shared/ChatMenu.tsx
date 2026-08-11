@@ -29,6 +29,7 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useChatMenu } from '../group/useChatMenu';
+import { useMobileBackOverlay } from '../../hooks/useMobileBackHandler';
 import { GroupRemarkInputModal } from '../group/GroupRemarkInputModal';
 import { ChatMenuPanel } from './ChatMenuPanel';
 import { useChatStore, useProfileViewStore } from '../../stores';
@@ -70,6 +71,26 @@ export function ChatMenuButton({
     onGroupUpdated,
     onGroupLeft,
     onHistoryLoaded,
+  });
+
+  // 🔴 Android 系统返回：群设置面板与他人资料页是**同族的洞**。
+  // 手势导航（安卓默认）下最左边缘归系统，返回事件以 Android back 的形式过来；
+  // 面板不认领就一路落到默认行为 = **退出 App**（真机实测过）。
+  //
+  // 语义：面板在子视图时先退回根视图，再按一次才关面板 —— 与面板内 ← 键的方向一致。
+  // 简化之处：所有子视图统一退回 'main'，而面板内个别 ← 是退到中间层（如 member-action → members）。
+  // 这里不做逐层映射，因为系统返回键的用户预期是"退一层出去"，多退一层不会造成误操作，
+  // 而漏认领会直接退出 App —— 两种代价不对等。
+  useMobileBackOverlay(() => {
+    if (!menu.isOpen) {
+      return false;
+    }
+    if (menu.view !== 'main') {
+      menu.handleSetView('main');
+      return true;
+    }
+    menu.handleCloseMenu();
+    return true;
   });
 
   // 触发按钮所在容器：面板据此往上找聊天标题栏，把顶边贴在它下沿（不遮标题栏）
@@ -211,6 +232,10 @@ export function ChatMenuButton({
             loadingMembers={menu.loadingMembers}
             currentUserId={menu.currentUserId}
             remarks={groupRemarks}
+            joinRequests={menu.joinRequests}
+            processingRequestId={menu.processingRequestId}
+            onApproveJoinRequest={menu.handleApproveJoinRequest}
+            onRejectJoinRequest={menu.handleRejectJoinRequest}
             onBack={() => menu.handleSetView('main')}
             onMemberClick={menu.handleMemberClick}
           />

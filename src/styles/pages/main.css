@@ -1194,6 +1194,53 @@
   overflow-y: auto;
 }
 
+/* 待审批入群申请（群主 / 管理员侧，成员管理视图顶部）
+   —— 仅在有待审批项时渲染；无 transition 声明，本区块不由 JS 逐帧接管 */
+.join-requests-block {
+  padding: 8px 0 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 8px;
+}
+
+.join-request-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.join-request-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.join-request-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #1f2937);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 申请附言由申请方填写 —— 必须截断，否则长文本会把「通过/拒绝」两个按钮挤出可视区 */
+.join-request-message {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.join-request-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .member-item {
   display: flex;
   align-items: center;

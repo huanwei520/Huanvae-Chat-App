@@ -3,6 +3,7 @@
  */
 
 import { MenuHeader } from './MenuHeader';
+import type { GroupJoinRequestInfo } from '../../../api/groups';
 import { isMuted, formatMutedUntil } from './utils';
 import { useKbdFocusRing } from '../../../hooks/useKbdFocusRing';
 import { resolveServerAvatarUrl } from '../../../utils/avatar';
@@ -29,6 +30,18 @@ function joinMethodLabel(method: string): string {
 
 interface MembersListProps {
   members: GroupMember[];
+  /**
+   * 本群待审批的入群申请（**仅群主 / 管理员**非空；普通成员恒为空数组）。
+   *
+   * 放在成员管理视图里而不是全局「待通过申请」页，理由有二：
+   * 后端端点本就是**按群**的（`GET /api/groups/{id}/requests`），放全局要对每个我管理的群
+   * 各发一次请求（N+1）；而群主要处理入群申请时本来就会进这个群的设置。
+   */
+  joinRequests?: GroupJoinRequestInfo[];
+  /** 正在处理中的那条 request_id（按钮置灰防重复点） */
+  processingRequestId?: string | null;
+  onApproveJoinRequest?: (requestId: string) => void;
+  onRejectJoinRequest?: (requestId: string) => void;
   loadingMembers: boolean;
   currentUserId: string | undefined;
   /** D7 群内私有备注：本群「我设的备注」映射（user_id → 备注名）；展示名优先用备注 */
@@ -39,6 +52,10 @@ interface MembersListProps {
 
 export function MembersList({
   members,
+  joinRequests = [],
+  processingRequestId = null,
+  onApproveJoinRequest,
+  onRejectJoinRequest,
   loadingMembers,
   currentUserId,
   remarks,
@@ -50,6 +67,37 @@ export function MembersList({
   return (
     <>
       <MenuHeader title={`群成员 (${members.length})`} onBack={onBack} />
+      {joinRequests.length > 0 && (
+        <div className="join-requests-block">
+          <h4 className="menu-group-title">待审批入群申请 ({joinRequests.length})</h4>
+          {joinRequests.map((req) => (
+            <div key={req.request_id} className="join-request-item">
+              <div className="join-request-info">
+                <span className="join-request-name">{req.user_nickname ?? req.user_id}</span>
+                {req.message && <span className="join-request-message">{req.message}</span>}
+              </div>
+              <div className="join-request-actions">
+                <button
+                  type="button"
+                  className="subtle-btn subtle-btn--primary"
+                  disabled={processingRequestId === req.request_id}
+                  onClick={() => onApproveJoinRequest?.(req.request_id)}
+                >
+                  通过
+                </button>
+                <button
+                  type="button"
+                  className="subtle-btn subtle-btn--danger"
+                  disabled={processingRequestId === req.request_id}
+                  onClick={() => onRejectJoinRequest?.(req.request_id)}
+                >
+                  拒绝
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="members-list">
         {loadingMembers && (
           <div className="menu-loading">加载中...</div>

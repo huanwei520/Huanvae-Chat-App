@@ -334,7 +334,8 @@
  * 不会产生第二条滚动条（嵌套滚动会让「滚到底加载下一页」的判定失准）。
  *
  * 无 framer-motion：面板本体的滑入动画已经承担了入场表现，view 之间是直接切换。
- * （故本组的 selector 都不在 tests/animation-conflict.test.ts 的注册表里。）
+ * （故本组的 selector 都不在 tests/animation-conflict.test.ts 的注册表里。命中项的右键 /
+ * 长按菜单是个例外，但它复用 .message-context-menu —— 那条已在注册表里，样式也在 main.css。）
  * ============================================ */
 /* 根不加左右内边距：MenuHeader 与其它子视图一样通栏，缩进由各段自己给 */
 .conv-msg-search {
@@ -479,6 +480,67 @@
 .conv-msg-search-thumb--doc {
   padding: 8px;
   color: var(--text-secondary);
+}
+
+/* ============================================
+ * 图片 / 视频分类：正方形九宫格封面
+ *
+ * 必须排在 .conv-msg-search-list 之后：两者同为单类选择器（特异性相同），
+ * 靠源码顺序覆盖掉基础列表的 display:flex / gap。
+ * 无 framer-motion（与本组其余部分一致），故不进 tests/animation-conflict.test.ts 注册表；
+ * 也因此不给 transform / opacity 声明 transition。
+ * ============================================ */
+.conv-msg-search-list--grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  align-content: start;
+}
+
+/* 「加载更多 / 没有更多了」在网格里独占一行 */
+.conv-msg-search-list--grid .conv-msg-search-foot {
+  grid-column: 1 / -1;
+}
+
+.conv-msg-search-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--white-alpha-50);
+}
+
+.conv-msg-search-cell:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.9);
+  outline-offset: -2px;
+}
+
+.conv-msg-search-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.conv-msg-search-cover--empty {
+  border: 1px solid var(--glass-border-subtle);
+}
+
+/* 视频封面右下角的播放标记：九宫格里靠它区分图片与视频 */
+.conv-msg-search-cover-play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  pointer-events: none;
 }
 
 .conv-msg-search-hit-body {

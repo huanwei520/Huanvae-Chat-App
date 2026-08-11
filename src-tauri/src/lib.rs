@@ -450,6 +450,30 @@ fn db_get_messages(
     db::get_messages(&conversation_id, limit, before_seq)
 }
 
+/// 以某条消息为锚点取前后各一段（定位跳转用）
+///
+/// 返回 `None` 表示锚点不在该会话的本地库里 —— 调用方据此走「定位失败」提示，
+/// 不可与「窗口为空」混为一谈。
+#[tauri::command(rename_all = "camelCase")]
+fn db_get_messages_around(
+    conversation_id: String,
+    anchor_uuid: String,
+    before: i64,
+    after: i64,
+) -> Result<Option<Vec<LocalMessage>>, String> {
+    db::get_messages_around(&conversation_id, &anchor_uuid, before, after)
+}
+
+/// 向更新方向分页（窗口化之后向下续加载用）
+#[tauri::command(rename_all = "camelCase")]
+fn db_get_messages_after(
+    conversation_id: String,
+    after_seq: i64,
+    limit: i64,
+) -> Result<Vec<LocalMessage>, String> {
+    db::get_messages_after(&conversation_id, after_seq, limit)
+}
+
 /// 保存消息
 #[tauri::command]
 fn db_save_message(message: LocalMessage) -> Result<(), String> {
@@ -954,6 +978,8 @@ pub fn run() {
             db_upsert_group_read_positions,
             db_replace_group_read_positions,
             db_get_messages,
+            db_get_messages_around,
+            db_get_messages_after,
             db_save_message,
             db_save_messages,
             db_save_messages_skip_existing,

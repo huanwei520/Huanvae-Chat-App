@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useGroupDetailStore } from '../../stores';
+import { useMobileBackOverlay } from '../../hooks/useMobileBackHandler';
 import { GroupDetailPanel } from './GroupDetailPanel';
 import type { ChatTarget, Group } from '../../types/chat';
 
@@ -40,6 +41,16 @@ export function GroupDetailView({ onOpenChat, onRefreshGroups }: GroupDetailView
   const groupId = useGroupDetailStore((s) => s.groupId);
   const close = useGroupDetailStore((s) => s.close);
   const mobile = isMobile();
+
+  // Android 系统返回：与他人资料页同族的洞 —— 手势导航下最左边缘归系统，
+  // 返回事件走 Android back 过来；不认领就一路落到默认行为 = **退出 App**。
+  useMobileBackOverlay(() => {
+    if (!groupId) {
+      return false;
+    }
+    close();
+    return true;
+  });
 
   const handleEnter = (group: Group) => {
     onOpenChat?.({ type: 'group', data: group });

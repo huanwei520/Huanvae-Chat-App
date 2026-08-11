@@ -46,7 +46,8 @@ import * as GlobalMessageSearchResults from '../../src/components/search/GlobalM
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
 // 会话内消息查找
 import * as ConversationMessageSearch from '../../src/components/search/ConversationMessageSearch';
-import * as ConversationSearchMedia from '../../src/components/search/ConversationSearchMedia';
+import * as ConversationSearchHit from '../../src/components/search/ConversationSearchHit';
+import * as ConversationSearchHitMenu from '../../src/components/search/ConversationSearchHitMenu';
 import * as useConversationMessageSearch from '../../src/components/search/useConversationMessageSearch';
 import * as messageCategory from '../../src/components/search/messageCategory';
 import * as conversationSearchTarget from '../../src/components/search/conversationSearchTarget';
@@ -247,6 +248,7 @@ import * as AlbumMessage from '../../src/chat/shared/AlbumMessage';
 import * as mediaGroup from '../../src/chat/shared/mediaGroup';
 import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
+import * as JumpToLatestButton from '../../src/chat/shared/JumpToLatestButton';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
 import * as lanTransferIndex from '../../src/lanTransfer/index';
@@ -321,7 +323,8 @@ const COMPONENT_MAP = {
   useGlobalMessageSearch,
   // 会话内消息查找
   ConversationMessageSearch,
-  ConversationSearchMedia,
+  ConversationSearchHit,
+  ConversationSearchHitMenu,
   useConversationMessageSearch,
   messageCategory,
   conversationSearchTarget,
@@ -551,6 +554,7 @@ const COMPONENT_MAP = {
   mediaGroup,
   conversationKey,
   scrollMessageIntoView,
+  JumpToLatestButton,
   // 工具模块
   formatUtils,
   avatarColor,

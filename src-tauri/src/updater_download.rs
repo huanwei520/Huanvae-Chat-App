@@ -119,7 +119,44 @@ fn build_client(shaping: &RequestShaping) -> Result<reqwest::Client, String> {
         .user_agent(UPDATER_USER_AGENT)
         .default_headers(shaping_headers(&shaping.headers))
         // 本模块自有（插件没有）：给建连一个上界，其余下载参数一概不动
-        .connect_timeout(CONNECT_TIMEOUT);
+        .connect_timeout(CONNECT_TIMEOUT)
+        // ── HTTP/2 流控窗口（本模块自有；插件与 reqwest 默认都不设）──
+        //
+        // reqwest 的三个 h2 窗口旋钮**默认全关**
+        // （`reqwest-0.12.28/src/async_impl/client.rs:343/345/347`：
+        // `http2_initial_stream_window_size: None` / `http2_initial_connection_window_size: None`
+        // / `http2_adaptive_window: false`）⇒ 不发 SETTINGS 覆盖 ⇒ 落到协议默认
+        // **65535 字节**（`h2-0.4.12/src/frame/settings.rs:44`
+        // `pub const DEFAULT_INITIAL_WINDOW_SIZE: u32 = 65_535;`）。
+        //
+        // 单条 h2 流的吞吐上界 ≈ 窗口 / RTT。64 KiB 窗口在 30ms RTT 上就是 ~2 MB/s——
+        // 与链路带宽无关，纯粹是流控在卡。**这正是现状 8 分片在替窗口还债**：8 条独立
+        // TCP 各自拿一份 64 KiB 窗口，聚合起来才把速度堆上去；一旦看单流就会发现它慢。
+        // 明确放大窗口后，速度不再依赖"多开连接"这个副作用。
+        //
+        // 实测（2026-08-11，同机 / 同 URL = v1.1.28 的 macOS 包 13,748,110 B / 交错 A-B
+        // 14 轮取中位数；改前改后逐轮交替次序以抵消网络漂移）：
+        //
+        // | 变体                                   | 单流       | 本模块 8 分片 |
+        // |----------------------------------------|-----------|-------------|
+        // | 改前：reqwest 默认（= 65535 窗口）        | 6.31 MB/s | 12.54 MB/s  |
+        // | 改后：本行两个窗口                        |10.95 MB/s | 17.46 MB/s  |
+        // | 对照：Chromium（浏览器，单连接）           |10.50 MB/s |      —      |
+        //
+        // 单流 1.73x、分片路径 1.39x；同轮配对里改后更快的轮次 12/14（单流）、11/14（分片）。
+        // 注意改后**单流**已经追平乃至略超浏览器 —— 说明此前"分片才追得上浏览器"确实是
+        // 拿并发在补窗口的亏。
+        //
+        // 🔴 **绝对不要改成 `http2_adaptive_window(true)`**，两条独立理由：
+        //   1. 实测更差——同一批次里自适应单流只有 **4.07 MB/s**，不但远低于改后的
+        //      10.95，连改前的默认 6.31 都不如（同轮配对中它只在 3/14 轮里更快，
+        //      中位比值 0.63x）；它的窗口探测爬升期反而拖垮了这种"几秒就结束"的短下载；
+        //   2. 它会**覆盖**下面这两个显式上限（reqwest 自己的文档就这么写：
+        //      `client.rs:1598-1599` "Enabling this will override the limits set in
+        //      `http2_initial_stream_window_size` and `http2_initial_connection_window_size`"）
+        //      ⇒ 打开它等于把这两行静默作废。
+        .http2_initial_stream_window_size(4 * 1024 * 1024)
+        .http2_initial_connection_window_size(8 * 1024 * 1024);
 
     if shaping.accept_invalid_certs {
         builder = builder.danger_accept_invalid_certs(true);

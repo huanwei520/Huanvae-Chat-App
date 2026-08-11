@@ -404,7 +404,38 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
 
     ensure_ui_visibility_listener(&app);
 
-    let client = reqwest::Client::new();
+    // ── HTTP/2 流控窗口（与桌面 updater_download.rs::build_client 同一套理由）──
+    //
+    // reqwest 的三个 h2 窗口旋钮**默认全关**
+    // （`reqwest-0.12.28/src/async_impl/client.rs:343/345/347`：
+    // `http2_initial_stream_window_size: None` / `http2_initial_connection_window_size: None`
+    // / `http2_adaptive_window: false`）⇒ 不发 SETTINGS 覆盖 ⇒ 落到协议默认
+    // **65535 字节**（`h2-0.4.12/src/frame/settings.rs:44`
+    // `pub const DEFAULT_INITIAL_WINDOW_SIZE: u32 = 65_535;`）。
+    //
+    // 单条 h2 流的吞吐上界 ≈ 窗口 / RTT，64 KiB 窗口与链路带宽无关地把单流钉死。
+    // 下面那套 `APK_SHARD_COUNT` 分片**一直在替这个窗口还债**（N 条独立 TCP 拿 N 份
+    // 64 KiB 窗口聚合），移动网络 RTT 更大、这笔债更贵。显式放大窗口后，单流本身就能跑满。
+    //
+    // 桌面侧实测（2026-08-11，同机 / 同 URL / 交错 A-B 14 轮中位数，详表见
+    // `updater_download.rs::build_client` 上的对照表）：单流 6.31 → 10.95 MB/s（1.73x），
+    // 8 分片 12.54 → 17.46 MB/s（1.39x）。安卓真机未复测（无移动网真机测速台），
+    // 但窗口是**协议级**上界、与平台无关，移动网 RTT 更大只会让这笔债更贵。
+    //
+    // 🔴 **绝对不要改成 `http2_adaptive_window(true)`**：① 实测更差——同一批次里自适应
+    // 单流只有 4.07 MB/s，不但远低于改后的 10.95，连改前默认的 6.31 都不如（同轮配对中
+    // 它只在 3/14 轮里更快），其窗口探测爬升期反而拖垮这种几秒就结束的短下载；
+    // ② 它会**覆盖**下面这两个显式上限——reqwest 文档原话（`client.rs:1598-1599`）：
+    // "Enabling this will override the limits set in `http2_initial_stream_window_size`
+    // and `http2_initial_connection_window_size`" ⇒ 打开它等于把这两行静默作废。
+    let client = reqwest::Client::builder()
+        .http2_initial_stream_window_size(4 * 1024 * 1024)
+        .http2_initial_connection_window_size(8 * 1024 * 1024)
+        .build()
+        .map_err(|e| {
+            eprintln!("[Android Update] 创建 HTTP 客户端失败: {}", e);
+            format!("创建 HTTP 客户端失败: {}", e)
+        })?;
 
     // 落盘路径要在选择下载方式**之前**准备好：分片路径需要先预分配文件再并发按偏移写。
     let cache_dir = app

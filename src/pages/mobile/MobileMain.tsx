@@ -508,6 +508,10 @@ export function MobileMain() {
               hasMore={page.hasMore}
               loadingMore={page.loadingMore}
               onLoadMore={page.handleLoadMore}
+              onJumpToLatest={page.handleJumpToLatest}
+              isWindowed={page.isWindowed}
+              onLoadNewer={page.handleLoadNewer}
+              hasNewer={page.hasNewer}
               messageInput={page.messageInput}
               onMessageChange={page.setMessageInput}
               onSendMessage={page.handleSendMessage}

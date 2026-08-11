@@ -60,6 +60,10 @@ import {
   type GroupMember,
   type GroupNotice,
   type InviteCode,
+  getGroupJoinRequests,
+  approveGroupJoinRequest,
+  rejectGroupJoinRequest,
+  type GroupJoinRequestInfo,
 } from '../../api/groups';
 import { loadAllHistoryMessages } from '../../services/historyService';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
@@ -190,6 +194,14 @@ export interface UseChatMenuReturn {
   openMemberRemarkModal: () => void;
   closeMemberRemarkModal: () => void;
   handleCloseMenu: () => void;
+
+  // 入群申请审批（群主 / 管理员）
+  /** 本群待审批的入群申请；普通成员恒为空数组（不发请求，避免刷 403） */
+  joinRequests: GroupJoinRequestInfo[];
+  /** 正在处理中的 request_id（按钮置灰防重复点） */
+  processingRequestId: string | null;
+  handleApproveJoinRequest: (requestId: string) => Promise<void>;
+  handleRejectJoinRequest: (requestId: string) => Promise<void>;
   handleUpdateGroupNickname: () => Promise<void>;
   handleClearGroupNickname: () => Promise<void>;
   handleUpdateFriendRemark: () => Promise<void>;
@@ -213,6 +225,10 @@ export function useChatMenu({
 
   // 基础状态
   const [isOpen, setIsOpen] = useState(false);
+  // 入群申请审批（群主/管理员）：后端三个端点一直都在，客户端此前从未接过 ——
+  // 后果是 join_mode=approval_required 的群，申请永久 pending、群主在 App 里根本看不到。
+  const [joinRequests, setJoinRequests] = useState<GroupJoinRequestInfo[]>([]);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [view, setView] = useState<MenuView>('main');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +376,53 @@ export function useChatMenu({
       setMembers([]);
     } finally {
       setLoadingMembers(false);
+    }
+
+    // 入群申请只有群主/管理员看得到（后端 verify_admin_or_owner，普通成员 403）。
+    // 这里按角色先行判断再请求，避免给普通成员刷一串 403。
+    if (currentRole !== 'owner' && currentRole !== 'admin') {
+      setJoinRequests([]);
+      return;
+    }
+    try {
+      const res = await getGroupJoinRequests(api, target.data.group_id);
+      setJoinRequests(res.requests || []);
+    } catch {
+      // 拉失败就当没有待审批 —— 成员列表本身已经加载出来了，
+      // 不该因为附带的申请列表失败而让整个视图空掉。
+      setJoinRequests([]);
+    }
+  }, [api, target, currentRole]);
+
+  /** 通过一条入群申请：成功后从列表移除 + 重拉成员（新成员应立刻出现在名单里） */
+  const handleApproveJoinRequest = useCallback(async (requestId: string) => {
+    if (target.type !== 'group') { return; }
+    setProcessingRequestId(requestId);
+    try {
+      await approveGroupJoinRequest(api, target.data.group_id, requestId);
+      setJoinRequests((prev) => prev.filter((r) => r.request_id !== requestId));
+      const response = await getGroupMembers(api, target.data.group_id);
+      setMembers(response.members || []);
+      setSuccess('已通过入群申请');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '通过申请失败');
+    } finally {
+      setProcessingRequestId(null);
+    }
+  }, [api, target]);
+
+  /** 拒绝一条入群申请 */
+  const handleRejectJoinRequest = useCallback(async (requestId: string) => {
+    if (target.type !== 'group') { return; }
+    setProcessingRequestId(requestId);
+    try {
+      await rejectGroupJoinRequest(api, target.data.group_id, requestId);
+      setJoinRequests((prev) => prev.filter((r) => r.request_id !== requestId));
+      setSuccess('已拒绝入群申请');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '拒绝申请失败');
+    } finally {
+      setProcessingRequestId(null);
     }
   }, [api, target]);
 
@@ -1078,6 +1141,11 @@ export function useChatMenu({
     openMemberRemarkModal: () => setMemberRemarkModalOpen(true),
     closeMemberRemarkModal: () => setMemberRemarkModalOpen(false),
     handleCloseMenu,
+    // 入群申请审批
+    joinRequests,
+    processingRequestId,
+    handleApproveJoinRequest,
+    handleRejectJoinRequest,
     handleUpdateGroupNickname,
     handleClearGroupNickname,
     handleUpdateFriendRemark,

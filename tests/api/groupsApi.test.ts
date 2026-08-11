@@ -172,13 +172,6 @@ describe('群聊 API 封装 (api/groups)', () => {
     expect(api.post).toHaveBeenCalledWith('/api/groups/invitations/r1/decline');
   });
 
-  it('joinGroupByCode 正常：POST join_by_code，body 为 {code}', async () => {
-    api.post.mockResolvedValue({ success: true, message: 'joined' });
-    const out = await groups.joinGroupByCode(api, 'ABC123');
-    expect(api.post).toHaveBeenCalledWith('/api/groups/join_by_code', { code: 'ABC123' });
-    expect(out).toEqual({ success: true, message: 'joined' });
-  });
-
   // ---- 群头像上传（经 uploadWithProgress，不走 api.get/post）----
 
   it('uploadGroupAvatar 正常：拼 baseUrl+路径，透传 token/file/字段名/进度回调，返回透传', async () => {
@@ -310,7 +303,6 @@ describe('群聊 API 封装 (api/groups)', () => {
     ['getGroupInvitations', (a) => groups.getGroupInvitations(a)],
     ['acceptGroupInvitation', (a) => groups.acceptGroupInvitation(a, 'r1')],
     ['declineGroupInvitation', (a) => groups.declineGroupInvitation(a, 'r1')],
-    ['joinGroupByCode', (a) => groups.joinGroupByCode(a, 'ABC')],
     ['removeMember', (a) => groups.removeMember(a, 'g1', 'u2')],
     ['setAdmin', (a) => groups.setAdmin(a, 'g1', 'u2')],
     ['removeAdmin', (a) => groups.removeAdmin(a, 'g1', 'u2')],

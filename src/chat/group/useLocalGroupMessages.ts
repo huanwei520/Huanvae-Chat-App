@@ -73,6 +73,13 @@ function logError(action: string, error: unknown) {
 /**
  * 将本地消息转换为 UI GroupMessage 类型
  */
+/**
+ * 定位跳转时锚点**两侧**各取多少条（与私聊侧同值，理由见
+ * `src/chat/friend/useLocalFriendMessages.ts` 的同名常量注释）。
+ */
+const LOCATE_WINDOW_BEFORE = 30;
+const LOCATE_WINDOW_AFTER = 30;
+
 function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
   return {
     message_uuid: local.message_uuid,
@@ -120,6 +127,11 @@ export function useLocalGroupMessages(groupId: string | null) {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // 定位窗口态：非 null = 当前列表是「围绕某条历史消息的一段窗口」，不是「最新那一段」。
+  // 两条护栏见 loadMessages 与 unmount 缓存写入（与私聊侧同构）。
+  const [windowAnchorUuid, setWindowAnchorUuid] = useState<string | null>(null);
+  // 窗口态下「更新方向还有没有」。非窗口态恒 false。
+  const [hasNewer, setHasNewer] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // D6 群内屏蔽：进群时把本群屏蔽集拉进 store，供 GroupMessageBubble 渲染折叠占位用。
@@ -139,15 +151,20 @@ export function useLocalGroupMessages(groupId: string | null) {
   const currentGroupId = useRef<string | null>(groupId);
   const dbInitialized = useRef(false);
 
-  // 用于 loadUntilMessage 异步循环时读取最新 state（避免闭包过期）
+  // 异步回调里读最新 state（避免闭包过期）
   const messagesRef = useRef<GroupMessage[]>(messages);
   const hasMoreRef = useRef<boolean>(hasMore);
+  // 窗口态标志的 ref 版：两条护栏都在闭包里判它，用 state 会读到过期值 = 护栏失效
+  const windowAnchorRef = useRef<string | null>(windowAnchorUuid);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
   useEffect(() => {
     hasMoreRef.current = hasMore;
   }, [hasMore]);
+  useEffect(() => {
+    windowAnchorRef.current = windowAnchorUuid;
+  }, [windowAnchorUuid]);
 
   // ============================================
   // 数据库初始化检查
@@ -184,6 +201,11 @@ export function useLocalGroupMessages(groupId: string | null) {
   useEffect(() => {
     const captureGroupId = groupId;
     return () => {
+      // 🔴 护栏一：窗口态不写缓存 —— 否则下次进这个群会从一段历史开场
+      // （.claude/rules/common.md「缓存与数据库 SSOT 协同」的同族失效形态）
+      if (windowAnchorRef.current) {
+        return;
+      }
       if (captureGroupId && messagesRef.current.length > 0) {
         useChatStore.getState().cacheGroupMessages(captureGroupId, messagesRef.current);
       }
@@ -196,6 +218,11 @@ export function useLocalGroupMessages(groupId: string | null) {
 
   const loadMessages = useCallback(async (limit = 50) => {
     if (!groupId || !dbInitialized.current) {
+      return;
+    }
+    // 🔴 护栏二：窗口态不并最新 50 条 —— 并进来会造成中间断档却看不出来。
+    // 回到最新走 jumpToLatest（显式退出窗口态 + 整段替换）。
+    if (windowAnchorRef.current) {
       return;
     }
 
@@ -422,30 +449,105 @@ export function useLocalGroupMessages(groupId: string | null) {
   }, [groupId, hasMore, messages]);
 
   // ============================================
-  // 加载历史直到目标消息进入窗口（用于全局搜索点击跳转）
+  // 定位到某条消息：只取它前后一小段（窗口化）
   // ============================================
 
-  const loadUntilMessage = useCallback(
-    async (messageUuid: string, maxIterations = 20): Promise<boolean> => {
-      for (let i = 0; i < maxIterations; i++) {
-        if (messagesRef.current.some((m) => m.message_uuid === messageUuid)) {
-          return true;
-        }
-        if (!hasMoreRef.current) {
+  /**
+   * 以目标消息为锚点一次取回前后各一段并整段替换列表。
+   *
+   * 原实现是从最新逐页翻到命中（上限 20 轮 × 每页 50）：目标越早读得越多 ⇒ 卡顿；
+   * 且超出 1000 条的目标**根本翻不到**，明明在库里却报「定位失败」。
+   * 实测数字与守卫测试见 `src-tauri/src/db/messages.rs`
+   * （`locate_paging_reads_whole_prefix_window_reads_constant` /
+   *  `locate_paging_cannot_reach_beyond_iteration_cap_but_window_can`）。
+   *
+   * 返回 false = 锚点不在本地库（DB 层 null），与「窗口为空」不同义。
+   */
+  const locateMessage = useCallback(
+    async (messageUuid: string): Promise<boolean> => {
+      if (!groupId) {
+        return false;
+      }
+      try {
+        const rows = await db.getMessagesAround(
+          groupId,
+          messageUuid,
+          LOCATE_WINDOW_BEFORE,
+          LOCATE_WINDOW_AFTER,
+        );
+        if (rows === null) {
           return false;
         }
-        // 分页加载必须串行：每页加载后检查是否命中目标消息，再决定是否加载下一页
-        // eslint-disable-next-line no-await-in-loop
-        await loadMoreMessages();
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise<void>((r) => {
-          setTimeout(r, 0);
-        });
+        setMessages(rows.map((m) => localMessageToGroupMessage(m)));
+        const anchorSeq = rows.find((m) => m.message_uuid === messageUuid)?.seq ?? 0;
+        const olderCount = rows.filter((m) => m.seq < anchorSeq).length;
+        const newerCount = rows.filter((m) => m.seq > anchorSeq).length;
+        setHasMore(olderCount >= LOCATE_WINDOW_BEFORE);
+        // 更新侧没取满 = 窗口已顶到最新 ⇒ 不进窗口态（否则卡在「窗口态但加载不了更新的」）
+        const reachedNewest = newerCount < LOCATE_WINDOW_AFTER;
+        setHasNewer(!reachedNewest);
+        setWindowAnchorUuid(reachedNewest ? null : messageUuid);
+        logLocal('定位窗口加载完成', { anchor: messageUuid, count: rows.length });
+        return true;
+      } catch (err) {
+        logError('定位窗口加载失败', err);
+        setError(err instanceof Error ? err.message : String(err));
+        return false;
       }
-      return messagesRef.current.some((m) => m.message_uuid === messageUuid);
     },
-    [loadMoreMessages],
+    [groupId],
   );
+
+  /** 窗口态下向**更新**方向续加载；接到最新端即自动退出窗口态 */
+  const loadNewerMessages = useCallback(async (limit = 50) => {
+    if (!groupId || !hasNewer || loadingMore) {
+      return;
+    }
+    // messages 是 [新→旧]；seq=0 / undefined 是本地未同步消息，不能当游标
+    const newestSeq = messagesRef.current.find((m) => (m.seq ?? 0) > 0)?.seq;
+    if (newestSeq === undefined) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const rows = await db.getMessagesAfter(groupId, newestSeq, limit);
+      if (rows.length > 0) {
+        const uiMessages = rows.map((m) => localMessageToGroupMessage(m));
+        setMessages((prev) => [...uiMessages, ...prev]);
+      }
+      if (rows.length < limit) {
+        setHasNewer(false);
+        setWindowAnchorUuid(null);
+        logLocal('已接上最新，退出定位窗口态');
+      }
+    } catch (err) {
+      logError('向更新方向加载失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [groupId, hasNewer, loadingMore]);
+
+  /**
+   * 回到最新（④「一键回到最底部」在窗口态下的真实动作）
+   *
+   * 窗口态下列表里没有最新消息，单纯滚容器只会滚到**已加载区域**的底。
+   */
+  const jumpToLatest = useCallback(async (limit = 50) => {
+    if (!groupId) {
+      return;
+    }
+    try {
+      const rows = await db.getMessages(groupId, limit);
+      setMessages(rows.map((m) => localMessageToGroupMessage(m)));
+      setWindowAnchorUuid(null);
+      setHasNewer(false);
+      setHasMore(rows.length >= limit);
+    } catch (err) {
+      logError('回到最新失败', err);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [groupId]);
 
   // ============================================
   // 发送文本消息（乐观更新）
@@ -957,7 +1059,11 @@ export function useLocalGroupMessages(groupId: string | null) {
     syncing,
     loadMessages,
     loadMoreMessages,
-    loadUntilMessage,
+    locateMessage,
+    isWindowed: windowAnchorUuid !== null,
+    hasNewer,
+    loadNewerMessages,
+    jumpToLatest,
     sendTextMessage,
     sendMediaMessage,
     recall,

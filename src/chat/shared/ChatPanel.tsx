@@ -58,6 +58,14 @@ interface ChatPanelProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  /** 「回到最新」接管：窗口态下必须重新加载最新一段，纯滚动只能滚到窗口的底 */
+  onJumpToLatest?: () => void;
+  /** 窗口态下向更新方向续加载 */
+  onLoadNewer?: () => void;
+  /** 更新方向是否还有更多 */
+  hasNewer?: boolean;
+  /** 当前是否处于定位窗口态（决定「回到最新」按钮是否恒显） */
+  isWindowed?: boolean;
 
   // 输入
   messageInput: string;
@@ -171,6 +179,10 @@ export function ChatPanel({
   hasMore,
   loadingMore,
   onLoadMore,
+  onJumpToLatest,
+  isWindowed,
+  onLoadNewer,
+  hasNewer,
   messageInput,
   onMessageChange,
   onSendMessage,
@@ -422,6 +434,10 @@ export function ChatPanel({
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={onLoadMore}
+            onJumpToLatest={onJumpToLatest}
+            isWindowed={isWindowed}
+            onLoadNewer={onLoadNewer}
+            hasNewer={hasNewer}
           />
         ) : (
           <GroupChatMessages
@@ -439,6 +455,10 @@ export function ChatPanel({
             hasMore={hasMore}
             loadingMore={loadingMore}
             onLoadMore={onLoadMore}
+            onJumpToLatest={onJumpToLatest}
+            isWindowed={isWindowed}
+            onLoadNewer={onLoadNewer}
+            hasNewer={hasNewer}
             groupId={(chatTarget.data as Group).group_id}
           />
         )}

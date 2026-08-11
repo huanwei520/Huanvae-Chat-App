@@ -6,31 +6,57 @@
  * 1. **不输入关键词，点分类即出结果**（本次核心；同时断言下发给 DB 的过滤条件不带 query）
  * 2. 输入关键词 → 在同一分类内过滤，命中文本按关键词高亮（<mark class="msg-search-mark">）
  * 3. 结果按 DB 给的顺序（send_time 倒序）渲染 —— 组件不得自作主张重排
- * 4. 图片/视频给缩略图组件、文件给图标 + 文件名 + 大小、文字不带徽标
+ * 4. 图片/视频给缩略图、文件给图标 + 文件名 + 大小、文字不带徽标
  * 5. **分页**：首屏只请求一页；点「加载更多」以 offset=已加载条数 追加；滚到底自动追加；
  *    到底后显示「没有更多了」且不再请求
- * 6. 点命中 → 写 chatStore.pendingScrollToMessageId（全仓唯一那条定位通路的入口）+ onJump，
+ * 6. **版式随分类切换**（本次改造）：图片 / 视频分类走正方形九宫格封面，
+ *    其余分类保持列表行 —— 断言的是同一组件在 category 变化下的行为差
+ * 7. **定位改挂右键 / 长按菜单**（本次改造）：左键**不再**定位；右键弹菜单、选中菜单项才
+ *    写 chatStore.pendingScrollToMessageId（全仓唯一那条定位通路的入口）+ onJump，
  *    并且**显式断言没走 scrollIntoView**（jsdom 里它是 undefined，误回退会静默 noop，
  *    不显式断言就防不住回退 —— 见 .claude/rules/frontend-test.md 防回退断言）
- * 7. 两种空态文案分开（有关键词 vs 纯浏览）、DB 报错、返回主菜单
+ * 8. 两种空态文案分开（有关键词 vs 纯浏览）、DB 报错、返回主菜单
  *
- * 缩略图子组件 ConversationSearchMedia 被 mock 掉：它内部 useFileCache → useApi 需要整套
- * SessionProvider，与本文件要验的列表逻辑无关；它自身的契约由 ConversationSearchMedia.test.tsx 覆盖。
+ * 命中项本身（ConversationSearchHit）在这里跑**真组件**，只把它脚下的三样外部依赖挡掉：
+ * useFileCache（取源，需整套 SessionProvider）、media 独立窗、平台判定。命中项自己的契约
+ * （取源红线 / 左键打开 / 长按 / 键盘）由 ConversationSearchHit.test.tsx 覆盖。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent, within } from '@testing-library/react';
 
 const mockListConversationMessages = vi.hoisted(() => vi.fn());
+const mockUseFileCache = vi.hoisted(() =>
+  vi.fn(() => ({
+    src: 'http://127.0.0.1:41234/proxied/asset',
+    isLocal: false,
+    localPath: null,
+    presignedUrl: 'https://backend.example/presigned/asset',
+    openInFolder: vi.fn(),
+  })),
+);
+const mockOpenMediaWindow = vi.hoisted(() => vi.fn());
+// 引用稳定的单例（见 .claude/rules/frontend-test.md「mock context hook 的返回值必须引用稳定」）
+const sessionMock = vi.hoisted(() => ({
+  session: { serverUrl: 'https://api.example', accessToken: 'tok-1' },
+}));
 
 vi.mock('../../src/db', () => ({
   listConversationMessages: mockListConversationMessages,
 }));
 
-vi.mock('../../src/components/search/ConversationSearchMedia', () => ({
-  ConversationSearchMedia: ({ message }: { message: { message_uuid: string } }) => (
-    <div data-testid={`thumb-${message.message_uuid}`} />
-  ),
+vi.mock('../../src/hooks/useFileCache', () => ({ useFileCache: mockUseFileCache }));
+vi.mock('../../src/media', () => ({ openMediaWindow: mockOpenMediaWindow }));
+vi.mock('../../src/contexts/SessionContext', () => ({ useSession: () => sessionMock }));
+vi.mock('../../src/utils/platform', () => ({
+  isMobile: () => false,
+  isDesktop: () => true,
+  isMacOS: () => false,
+  getPlatformType: () => 'desktop',
+  _resetPlatformCache: () => undefined,
+}));
+vi.mock('../../src/chat/shared/MobileMediaPreview', () => ({
+  MobileMediaPreview: () => null,
 }));
 
 import { ConversationMessageSearch } from '../../src/components/search/ConversationMessageSearch';
@@ -166,7 +192,41 @@ describe('ConversationMessageSearch', () => {
       }),
     );
     expect(screen.getByRole('tab', { name: '图片' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('thumb-i1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '图片 a.png' })).toBeInTheDocument();
+  });
+
+  it('版式随分类切换：图片 / 视频走九宫格封面，全部 / 文字 / 文件保持列表行', async () => {
+    mockListConversationMessages.mockResolvedValue([
+      buildMessage('x1', 'image', 'a.png', { file_uuid: 'fu-1' }),
+      buildMessage('x2', 'image', 'b.png', { file_uuid: 'fu-2' }),
+    ]);
+    renderPanel();
+    await settle();
+
+    // 默认「全部」：列表行，没有网格容器、没有格子
+    expect(document.querySelector('.conv-msg-search-list--grid')).toBeNull();
+    expect(document.querySelectorAll('.conv-msg-search-hit')).toHaveLength(2);
+    expect(document.querySelectorAll('.conv-msg-search-cell')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('tab', { name: '图片' }));
+    await settle();
+
+    // 图片分类：网格容器 + 每条一个正方形格子，行版式的文字块不再渲染
+    expect(document.querySelector('.conv-msg-search-list--grid')).not.toBeNull();
+    expect(document.querySelectorAll('.conv-msg-search-cell')).toHaveLength(2);
+    expect(document.querySelectorAll('.conv-msg-search-cover')).toHaveLength(2);
+    expect(document.querySelectorAll('.conv-msg-search-hit')).toHaveLength(0);
+    expect(document.querySelectorAll('.conv-msg-search-hit-body')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('tab', { name: '视频' }));
+    await settle();
+    expect(document.querySelector('.conv-msg-search-list--grid')).not.toBeNull();
+
+    // 切回文字分类 ⇒ 回到列表行（不是「一进过图片就永远是网格」）
+    fireEvent.click(screen.getByRole('tab', { name: '文字' }));
+    await settle();
+    expect(document.querySelector('.conv-msg-search-list--grid')).toBeNull();
+    expect(document.querySelectorAll('.conv-msg-search-hit')).toHaveLength(2);
   });
 
   it('输入关键词：在当前分类内过滤，命中文本按关键词高亮', async () => {
@@ -219,10 +279,10 @@ describe('ConversationMessageSearch', () => {
     expect(items).toHaveLength(4);
 
     expect(within(items[0] as HTMLElement).getByText('图片')).toBeInTheDocument();
-    expect(screen.getByTestId('thumb-m1')).toBeInTheDocument();
+    expect((items[0] as HTMLElement).querySelector('img.conv-msg-search-thumb')).not.toBeNull();
 
     expect(within(items[1] as HTMLElement).getByText('视频')).toBeInTheDocument();
-    expect(screen.getByTestId('thumb-m2')).toBeInTheDocument();
+    expect((items[1] as HTMLElement).querySelector('video.conv-msg-search-thumb')).not.toBeNull();
 
     // 文件：图标 + 文件名 + 大小
     expect(within(items[2] as HTMLElement).getByText('文件')).toBeInTheDocument();
@@ -234,7 +294,7 @@ describe('ConversationMessageSearch', () => {
     expect(within(items[3] as HTMLElement).queryByText('图片')).not.toBeInTheDocument();
     expect(within(items[3] as HTMLElement).queryByText('视频')).not.toBeInTheDocument();
     expect(within(items[3] as HTMLElement).queryByText('文件')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('thumb-m4')).not.toBeInTheDocument();
+    expect((items[3] as HTMLElement).querySelector('.conv-msg-search-thumb')).toBeNull();
   });
 
   it('分页：首屏只渲染一页，点「加载更多」以 offset 追加下一页', async () => {
@@ -288,7 +348,7 @@ describe('ConversationMessageSearch', () => {
     expect(screen.getByRole('button', { name: /滚出来的/ })).toBeInTheDocument();
   });
 
-  it('点命中：写 pendingScrollToMessageId 走既有定位通路 + 通知调用方收面板，且不调 scrollIntoView', async () => {
+  it('右键命中项 → 选「定位到聊天消息」：写 pendingScrollToMessageId 走既有定位通路 + 收面板，且不调 scrollIntoView', async () => {
     mockListConversationMessages.mockResolvedValue([
       buildMessage('m-target', 'text', 'jump here please'),
     ]);
@@ -300,7 +360,8 @@ describe('ConversationMessageSearch', () => {
     const scrollIntoViewSpy = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoViewSpy;
 
-    fireEvent.click(hit);
+    fireEvent.contextMenu(hit);
+    fireEvent.click(screen.getByRole('menuitem', { name: '定位到聊天消息' }));
 
     expect(useChatStore.getState().pendingScrollToMessageId).toBe('m-target');
     expect(onJump).toHaveBeenCalledTimes(1);
@@ -309,7 +370,28 @@ describe('ConversationMessageSearch', () => {
     Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
   });
 
-  it('键盘 Enter 选中命中项（与点击等价）', async () => {
+  // 旧交互「点一下就跳」已整体移除：左键在文字命中上不做任何事，
+  // 在媒体命中上是「打开预览」——两者都不许再写定位请求
+  it('左键单击不再定位（旧交互无残留）：文字命中什么都不发生，图片命中只开预览', async () => {
+    mockListConversationMessages.mockResolvedValue([
+      buildMessage('m-text', 'text', 'plain text hit'),
+      buildMessage('m-img', 'image', 'shot.png', { file_uuid: 'fu-img' }),
+    ]);
+    const { onJump } = renderPanel();
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: /plain text hit/ }));
+    expect(useChatStore.getState().pendingScrollToMessageId).toBeNull();
+    expect(onJump).not.toHaveBeenCalled();
+    expect(mockOpenMediaWindow).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /shot\.png/ }));
+    expect(mockOpenMediaWindow).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().pendingScrollToMessageId).toBeNull();
+    expect(onJump).not.toHaveBeenCalled();
+  });
+
+  it('键盘 Enter 弹定位菜单（键盘没有右键，这是它唯一的入口）', async () => {
     mockListConversationMessages.mockResolvedValue([
       buildMessage('m-kbd', 'text', 'keyboard reachable'),
     ]);
@@ -317,7 +399,10 @@ describe('ConversationMessageSearch', () => {
     await settle();
 
     fireEvent.keyDown(screen.getByRole('button', { name: /keyboard reachable/ }), { key: 'Enter' });
+    // 弹出菜单本身不定位，选中那一项才定位
+    expect(useChatStore.getState().pendingScrollToMessageId).toBeNull();
 
+    fireEvent.click(screen.getByRole('menuitem', { name: '定位到聊天消息' }));
     expect(useChatStore.getState().pendingScrollToMessageId).toBe('m-kbd');
   });
 

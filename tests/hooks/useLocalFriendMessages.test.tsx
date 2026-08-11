@@ -74,6 +74,10 @@ vi.mock('../../src/contexts/WebSocketContext', () => ({ useWebSocket: () => wsMo
 
 const dbMock = vi.hoisted(() => ({
   getMessages: vi.fn().mockResolvedValue([]),
+  // 定位窗口化新增的两条导出：SUT 会调它们，工厂里不列 ⇒ vitest 直接抛
+  // 「No "getMessagesAround" export is defined on the mock」（frontend-test.md 有专条）
+  getMessagesAround: vi.fn().mockResolvedValue(null),
+  getMessagesAfter: vi.fn().mockResolvedValue([]),
   getConversation: vi.fn().mockResolvedValue(null),
   saveMessage: vi.fn().mockResolvedValue(undefined),
   saveConversation: vi.fn().mockResolvedValue(undefined),
