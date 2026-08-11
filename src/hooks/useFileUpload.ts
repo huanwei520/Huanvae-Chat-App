@@ -606,12 +606,21 @@ export function useFileUpload() {
    * 上传好友文件
    */
   const uploadFriendFile = useCallback(
-    (file: File, friendId: string): Promise<UploadResult> => {
+    (
+      file: File,
+      friendId: string,
+      /** 相册元数据；单发时不传（传了才成组） */
+      mediaGroup?: MediaGroupMeta,
+      /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+      caption?: string,
+    ): Promise<UploadResult> => {
       return uploadFile({
         file,
         fileType: getFileType(file, 'friend_messages'),
         storageLocation: 'friend_messages',
         relatedId: friendId,
+        mediaGroup,
+        caption,
       });
     },
     [uploadFile],
@@ -621,12 +630,21 @@ export function useFileUpload() {
    * 上传群聊文件
    */
   const uploadGroupFile = useCallback(
-    (file: File, groupId: string): Promise<UploadResult> => {
+    (
+      file: File,
+      groupId: string,
+      /** 相册元数据；单发时不传（传了才成组） */
+      mediaGroup?: MediaGroupMeta,
+      /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+      caption?: string,
+    ): Promise<UploadResult> => {
       return uploadFile({
         file,
         fileType: getFileType(file, 'group_files'),
         storageLocation: 'group_files',
         relatedId: groupId,
+        mediaGroup,
+        caption,
       });
     },
     [uploadFile],
