@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useProfileViewStore } from '../../stores';
+import { useEdgeSwipeBack } from '../../hooks/useEdgeSwipeBack';
 import { OtherProfilePanel } from './OtherProfilePanel';
 import { friendChatTarget } from '../../utils/chatTarget';
 import type { ChatTarget, Friend } from '../../types/chat';
@@ -39,6 +40,10 @@ export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
   const botUsername = useProfileViewStore((s) => s.botUsername);
   const close = useProfileViewStore((s) => s.close);
   const mobile = isMobile();
+
+  // 边缘侧滑返回：达标后调用的就是 close —— 与右上角关闭键、Esc、点遮罩同一个返回动作。
+  // hook 必须无条件调用（React 规则），是否生效由下方按 mobile 决定挂不挂 style/handlers。
+  const { x: swipeX, handlers: swipeHandlers } = useEdgeSwipeBack({ onBack: close });
 
   const handleSendMessage = (friend: Friend) => {
     onOpenChat?.(friendChatTarget(friend));
@@ -73,12 +78,22 @@ export function OtherProfileView({ onOpenChat }: OtherProfileViewProps = {}) {
             transition={{ type: 'spring', stiffness: 360, damping: 34 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <OtherProfilePanel
-              userId={userId}
-              botUsername={botUsername ?? undefined}
-              onClose={close}
-              onSendMessage={handleSendMessage}
-            />
+            {/* 侧滑层：整页视觉在这一层，x 由 useEdgeSwipeBack 的 MotionValue 独占（跟手/回弹）。
+                外层 shell 的 transform 归 panelVariants（入退场），两层各有各的 transform、
+                互不抢帧（.claude/rules/animation.md 规则一/四），与 MobileProfilePage 同一手法。
+                仅移动端挂：桌面是右侧抽屉，鼠标没有「边缘侧滑」这一说。 */}
+            <motion.div
+              className="other-profile-swipe-layer"
+              style={mobile ? { x: swipeX } : undefined}
+              {...(mobile ? swipeHandlers : {})}
+            >
+              <OtherProfilePanel
+                userId={userId}
+                botUsername={botUsername ?? undefined}
+                onClose={close}
+                onSendMessage={handleSendMessage}
+              />
+            </motion.div>
           </motion.div>
         </motion.div>
       )}

@@ -357,6 +357,12 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/pages/mobile/MobileProfilePage.tsx (pageVariants: x+opacity spring)',
   },
   {
+    selector: '.other-profile-swipe-layer',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/OtherProfileView.tsx (边缘侧滑返回层 style={{ x }}：useEdgeSwipeBack 的 MotionValue 独占 transform；外层 .other-profile-shell 的 transform 归 panelVariants，两层分开)',
+  },
+  {
     selector: '.mobile-profile-swipe-layer',
     cssFile: 'src/styles/mobile/profile-page.css',
     controlledProps: ['transform'],

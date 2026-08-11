@@ -3597,7 +3597,25 @@
   height: 100%;
   background: var(--bg-primary);
   box-shadow: var(--shadow-lg);
+  /* 滚动下移到 .other-profile-swipe-layer：跟手位移作用在内层，
+     滚动容器必须与位移层是同一个，否则侧滑时滚动条会跟着一起平移。
+     本层只负责裁剪，避免内层位移时把内容溢出到抽屉外。 */
+  overflow: hidden;
+}
+
+/* 侧滑层：承载整页视觉，跟手位移（transform）由 useEdgeSwipeBack 的 MotionValue 独占。
+   本规则**不得**声明 transform 相关的 transition —— 那会与逐帧写 inline transform 抢帧
+   （.claude/rules/animation.md 规则一）。 */
+.other-profile-swipe-layer {
+  height: 100%;
   overflow-y: auto;
+  /* 🔴 必须显式写 overflow-x: hidden，不能只写 overflow-y。
+     CSS 规定：overflow-y 为 auto/scroll/hidden 而 overflow-x 是默认的 visible 时，
+     overflow-x 会被**隐式计算成 auto**（MDN: "the value will be implicitly computed as auto"）
+     ⇒ 内容一旦超宽，整页就能被横向滚动并停在偏移位置。
+     huanwei 报的「个人信息页面会被左右滑动移动偏离」就是这个：不是回弹没夹住，是它真的可以横向滚。
+     移动端整屏资料页任何时候都不该横向滚动，故显式关掉。 */
+  overflow-x: hidden;
 }
 
 .other-profile-shell.desktop {
