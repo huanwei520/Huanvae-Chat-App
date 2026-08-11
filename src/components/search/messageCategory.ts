@@ -16,7 +16,7 @@
 import type { MessageSearchFilter } from '../../db';
 
 /** 会话内搜索的分类页签 */
-export type MessageCategory = 'all' | 'text' | 'image' | 'video' | 'file';
+export type MessageCategory = 'all' | 'text' | 'image' | 'video' | 'file' | 'member';
 
 /**
  * 文件类 content_type 集合

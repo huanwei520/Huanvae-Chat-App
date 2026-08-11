@@ -557,3 +557,56 @@
   overflow: hidden;
   word-break: break-word;
 }
+
+/* ── 会话内查找：群成员分类 ─────────────────────────────────────────────
+ * 「群成员」页签下先列成员，选中后才查该成员在本群的记录。
+ * 该分支整块替换结果区（不与结果列表并存），否则会同时出现成员列表和
+ * 「该分类暂无内容」，读起来像"这个人没说过话"。
+ */
+
+.conv-msg-search-member-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.conv-msg-search-member-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-msg-search-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  /* 与结果列表同口径：只纵向滚，避免长昵称把面板撑出横向滚动条 */
+  overflow-x: hidden;
+  flex: 1;
+}
+
+.conv-msg-search-member-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-msg-search-member-item:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}

@@ -76,11 +76,23 @@ const fullPage = (prefix: string): LocalMessage[] =>
   Array.from({ length: CONVERSATION_PAGE_SIZE }, (_, i) =>
     buildMessage(`${prefix}-${i}`, 'text', `第 ${i} 条`));
 
-function renderPanel(overrides: { onBack?: () => void; onJump?: () => void } = {}) {
+const MEMBERS = [
+  { user_id: 'u1', user_nickname: '张三' },
+  { user_id: 'u2', user_nickname: '李四' },
+] as never;
+
+function renderPanel(
+  overrides: { onBack?: () => void; onJump?: () => void; members?: unknown } = {},
+) {
   const onBack = overrides.onBack ?? vi.fn();
   const onJump = overrides.onJump ?? vi.fn();
   const view = render(
-    <ConversationMessageSearch conversationId={CONV_ID} onBack={onBack} onJump={onJump} />,
+    <ConversationMessageSearch
+      conversationId={CONV_ID}
+      onBack={onBack}
+      onJump={onJump}
+      members={overrides.members as never}
+    />,
   );
   return { ...view, onBack, onJump };
 }
@@ -340,4 +352,73 @@ describe('ConversationMessageSearch', () => {
     fireEvent.keyDown(screen.getByLabelText('在当前会话中查找消息'), { key: 'Escape' });
     expect(onBack).toHaveBeenCalledTimes(2);
   });
+
+  describe('群成员分类（huanwei 新需求：单独看某个群员在本群说过什么）', () => {
+    it('不传 members（好友会话）⇒ 不出现「群成员」页签', async () => {
+      renderPanel();
+      await settle();
+      expect(screen.queryByRole('tab', { name: '群成员' })).not.toBeInTheDocument();
+    });
+
+    it('群聊：点「群成员」先列成员，**不**直接查记录（此时不该发查询）', async () => {
+      renderPanel({ members: MEMBERS });
+      await settle();
+      mockListConversationMessages.mockClear();
+
+      fireEvent.click(screen.getByRole('tab', { name: '群成员' }));
+      await settle();
+
+      expect(screen.getByRole('button', { name: '张三' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '李四' })).toBeInTheDocument();
+    });
+
+    it('选中成员 ⇒ 以 sender_id 查询该成员在本会话的记录', async () => {
+      renderPanel({ members: MEMBERS });
+      await settle();
+      fireEvent.click(screen.getByRole('tab', { name: '群成员' }));
+      await settle();
+
+      fireEvent.click(screen.getByRole('button', { name: '张三' }));
+      await settle();
+
+      expect(mockListConversationMessages).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filter: expect.objectContaining({ sender_id: 'u1' }) }),
+      );
+    });
+
+    // 没有这条，用户看着一屏记录不知道是谁的
+    it('选中后显示「正在看谁」，点「换人」回到成员列表', async () => {
+      renderPanel({ members: MEMBERS });
+      await settle();
+      fireEvent.click(screen.getByRole('tab', { name: '群成员' }));
+      await settle();
+      fireEvent.click(screen.getByRole('button', { name: '张三' }));
+      await settle();
+
+      expect(screen.getByText('张三')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '换人' }));
+      await settle();
+
+      expect(screen.getByRole('button', { name: '李四' })).toBeInTheDocument();
+    });
+
+    // 换页签不该保留上次选中的人，否则「点进群成员却直接是某人的记录」
+    it('切到别的页签再切回来：回到成员选择，不残留上次的人', async () => {
+      renderPanel({ members: MEMBERS });
+      await settle();
+      fireEvent.click(screen.getByRole('tab', { name: '群成员' }));
+      await settle();
+      fireEvent.click(screen.getByRole('button', { name: '张三' }));
+      await settle();
+
+      fireEvent.click(screen.getByRole('tab', { name: '图片' }));
+      await settle();
+      fireEvent.click(screen.getByRole('tab', { name: '群成员' }));
+      await settle();
+
+      expect(screen.getByRole('button', { name: '张三' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '换人' })).not.toBeInTheDocument();
+    });
+  });
 });
+

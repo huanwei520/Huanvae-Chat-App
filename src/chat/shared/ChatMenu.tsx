@@ -150,6 +150,9 @@ export function ChatMenuButton({
             conversationId={searchConversationId}
             onBack={() => menu.handleSetView('main')}
             onJump={menu.handleCloseMenu}
+            // 仅群聊传成员：好友会话只有两个人，按人过滤没有意义 ⇒ 不出「群成员」页签
+            members={target.type === 'group' ? menu.members : undefined}
+            memberRemarks={groupRemarks}
           />
         );
 

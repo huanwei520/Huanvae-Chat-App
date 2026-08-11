@@ -34,6 +34,8 @@ import { formatMessageTime } from '../../utils/time';
 import { formatFileSize } from '../../utils/format';
 import { useChatStore } from '../../stores';
 import type { LocalMessage } from '../../db';
+import type { GroupMember } from '../../api/groups';
+import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { highlightMatch } from './highlightMatch';
 import { ConversationSearchMedia } from './ConversationSearchMedia';
 import {
@@ -73,21 +75,39 @@ interface ConversationMessageSearchProps {
   onBack: () => void;
   /** 已选中某条结果并写入定位请求 —— 调用方据此收起侧边面板 */
   onJump: () => void;
+  /**
+   * 群成员列表；**仅群聊传**。传了才出现「群成员」页签
+   * （好友会话只有两个人，按人过滤没有意义）。
+   */
+  members?: GroupMember[];
+  /** D7 群内私有备注（user_id → 备注名）：显示名优先用备注，与成员网格同口径 */
+  memberRemarks?: Record<string, string>;
 }
 
 export function ConversationMessageSearch({
   conversationId,
   onBack,
   onJump,
+  members,
+  memberRemarks,
 }: ConversationMessageSearchProps) {
   const [query, setQuery] = useState('');
+  /** 「群成员」页签选中的成员；null = 还停在成员选择列表 */
+  const [selectedMember, setSelectedMember] = useState<GroupMember | null>(null);
   const [category, setCategory] = useState<MessageCategory>('all');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
 
+  const isMemberTab = category === 'member';
   const { items, loading, loadingMore, error, hasMore, loadMore } =
-    useConversationMessageSearch(conversationId, query, category);
+    useConversationMessageSearch(
+      conversationId,
+      query,
+      // 成员页签下不再按类型过滤：用户要看的是「这个人说过什么」的全部
+      isMemberTab ? 'all' : category,
+      isMemberTab ? selectedMember?.user_id ?? null : null,
+    );
 
   // 展开即聚焦输入框（列表已经有内容了，键盘用户可以直接收窄）
   useEffect(() => {
@@ -167,86 +187,139 @@ export function ConversationMessageSearch({
             {tab.label}
           </button>
         ))}
+        {/* 「群成员」仅群聊出现：好友会话只有两个人，按人过滤没有意义 */}
+        {members && members.length > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={category === 'member'}
+            className={`conv-msg-search-tab${category === 'member' ? ' conv-msg-search-tab--active' : ''}`}
+            onClick={() => {
+              setCategory('member');
+              // 回到成员选择：换页签时不保留上次选中的人，避免「点进群成员却直接是某人的记录」
+              setSelectedMember(null);
+            }}
+          >
+            群成员
+          </button>
+        )}
       </div>
 
-      {loading && (
-        <div className="conv-msg-search-status">
-          <LoadingSpinner />
-          <span>加载中...</span>
-        </div>
-      )}
-      {!loading && error && (
-        <div className="conv-msg-search-status conv-msg-search-status--error">{error}</div>
-      )}
-      {showEmpty && (
-        <div className="conv-msg-search-status">
-          {trimmedQuery ? `未找到包含「${trimmedQuery}」的消息` : '该分类暂无内容'}
+      {/* 已选成员：显示「正在看谁」+ 换人入口。没有这条，用户无从知道当前结果被谁过滤着 */}
+      {isMemberTab && selectedMember && (
+        <div className="conv-msg-search-member-bar">
+          <span className="conv-msg-search-member-name">
+            {groupMemberDisplayName(memberRemarks?.[selectedMember.user_id], selectedMember.user_nickname)}
+          </span>
+          <button
+            type="button"
+            className="subtle-btn"
+            onClick={() => setSelectedMember(null)}
+          >
+            换人
+          </button>
         </div>
       )}
 
-      {!loading && !error && items.length > 0 && (
-        <ul className="conv-msg-search-list" onScroll={handleScroll}>
-          {items.map((message) => {
-            const badge = contentTypeBadge(message.content_type);
-            const kind = contentTypeToCategory(message.content_type);
-            return (
-              <li
-                key={message.message_uuid}
-                className="conv-msg-search-hit"
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSelect(message)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleSelect(message);
-                  }
-                }}
+      {/* 成员页签且还没选人：先出成员列表，选了才查记录。
+          这一分支要**整个替换**结果区（含 loading / 空态），否则会同时显示成员列表和
+          「该分类暂无内容」——用户会以为这个人没说过话。 */}
+      {isMemberTab && !selectedMember ? (
+        <ul className="conv-msg-search-member-list">
+          {members?.map((m) => (
+            <li key={m.user_id}>
+              <button
+                type="button"
+                className="conv-msg-search-member-item"
+                onClick={() => setSelectedMember(m)}
               >
-                {(kind === 'image' || kind === 'video') && (
-                  <ConversationSearchMedia message={message} />
-                )}
-                {kind === 'file' && <DocumentIcon />}
-                <div className="conv-msg-search-hit-body">
-                  <div className="conv-msg-search-hit-meta">
-                    <span className="conv-msg-search-hit-sender">
-                      {message.sender_name ?? message.sender_id}
-                    </span>
-                    <span className="conv-msg-search-hit-time">
-                      {formatMessageTime(message.send_time)}
-                    </span>
-                    {badge && <span className="conv-msg-search-hit-badge">{badge}</span>}
-                  </div>
-                  <div className="conv-msg-search-hit-content">
-                    {highlightMatch(message.content, trimmedQuery)}
-                  </div>
-                  {kind !== 'text' && message.file_size !== null && (
-                    <div className="conv-msg-search-hit-size">
-                      {formatFileSize(message.file_size)}
-                    </div>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-
-          <li className="conv-msg-search-foot">
-            {loadingMore && (
-              <span className="conv-msg-search-status">
-                <LoadingSpinner />
-                <span>加载中...</span>
-              </span>
-            )}
-            {!loadingMore && hasMore && (
-              <button type="button" className="conv-msg-search-more" onClick={loadMore}>
-                加载更多
+                {groupMemberDisplayName(memberRemarks?.[m.user_id], m.user_nickname)}
               </button>
-            )}
-            {!loadingMore && !hasMore && (
-              <span className="conv-msg-search-end">没有更多了</span>
-            )}
-          </li>
+            </li>
+          ))}
         </ul>
+      ) : (
+        <>
+          {loading && (
+            <div className="conv-msg-search-status">
+              <LoadingSpinner />
+              <span>加载中...</span>
+            </div>
+          )}
+          {!loading && error && (
+            <div className="conv-msg-search-status conv-msg-search-status--error">{error}</div>
+          )}
+          {showEmpty && (
+            <div className="conv-msg-search-status">
+              {trimmedQuery ? `未找到包含「${trimmedQuery}」的消息` : '该分类暂无内容'}
+            </div>
+          )}
+
+          {!loading && !error && items.length > 0 && (
+            <ul className="conv-msg-search-list" onScroll={handleScroll}>
+              {items.map((message) => {
+                const badge = contentTypeBadge(message.content_type);
+                const kind = contentTypeToCategory(message.content_type);
+                return (
+                  <li
+                    key={message.message_uuid}
+                    className="conv-msg-search-hit"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelect(message)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelect(message);
+                      }
+                    }}
+                  >
+                    {(kind === 'image' || kind === 'video') && (
+                      <ConversationSearchMedia message={message} />
+                    )}
+                    {kind === 'file' && <DocumentIcon />}
+                    <div className="conv-msg-search-hit-body">
+                      <div className="conv-msg-search-hit-meta">
+                        <span className="conv-msg-search-hit-sender">
+                          {message.sender_name ?? message.sender_id}
+                        </span>
+                        <span className="conv-msg-search-hit-time">
+                          {formatMessageTime(message.send_time)}
+                        </span>
+                        {badge && <span className="conv-msg-search-hit-badge">{badge}</span>}
+                      </div>
+                      <div className="conv-msg-search-hit-content">
+                        {highlightMatch(message.content, trimmedQuery)}
+                      </div>
+                      {kind !== 'text' && message.file_size !== null && (
+                        <div className="conv-msg-search-hit-size">
+                          {formatFileSize(message.file_size)}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+
+              <li className="conv-msg-search-foot">
+                {loadingMore && (
+                  <span className="conv-msg-search-status">
+                    <LoadingSpinner />
+                    <span>加载中...</span>
+                  </span>
+                )}
+                {!loadingMore && hasMore && (
+                  <button type="button" className="conv-msg-search-more" onClick={loadMore}>
+                加载更多
+                  </button>
+                )}
+                {!loadingMore && !hasMore && (
+                  <span className="conv-msg-search-end">没有更多了</span>
+                )}
+              </li>
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
