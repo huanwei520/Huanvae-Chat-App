@@ -14,8 +14,10 @@
  *    （见 .claude/rules/common.md）。jsdom 里 `scrollIntoView` 默认是 undefined，
  *    误回退是**静默 noop**、不报错 —— 只有显式断言「从未被调用」拦得住
  *    （见 .claude/rules/frontend-test.md「防回退断言」）。
- * 4. **`onJumpToLatest` 存在时优先调它，且自己不再滚**（那条通路要先重新加载最新一段，
- *    本组件抢先滚会把它的定位打乱）。
+ * 4. **`onJumpToLatest` 存在时先 await 它、再滚**，且滚动推迟到**两帧之后**（`await` 只等到
+ *    上层 `setState` 被调用、React 尚未提交 ⇒ 提前滚就是滚旧 DOM，真机实测踩过）。
+ *    「回调之后到底滚不滚」这一条是**真机实测证伪过一次的**：早期实现只调回调不滚，
+ *    结果数据换成了最新一段、容器还停在原处。所以这里的契约是「必滚，只是要晚两帧」。
  *
  * jsdom 未实现 `Element.prototype.scrollTo` → 本文件挂桩（桩把 top 落到 scrollTop），
  * 这样「走没走平滑通路」与「最终落点」两件事能各自断言。手法同
@@ -105,6 +107,23 @@ function mountHarness(onJumpToLatest?: () => void, forceVisible = false): Mounte
 function scrollAwayFromBottom(container: HTMLElement, distance: number) {
   container.scrollTop = -distance;
   fireEvent.scroll(container);
+}
+
+/**
+ * 排空微任务队列，但**不推进定时器**。
+ *
+ * jsdom（vitest 默认 `pretendToBeVisual: true`）的 `requestAnimationFrame` 由定时器驱动，
+ * 而微任务队列恒在任何定时器之前排空 —— 所以「排空微任务之后 rAF 尚未触发」在这里是
+ * **确定性**的，不是竞态：整条 await 链全是微任务，中途不会把控制权交回事件循环。
+ * 用它把「回调 await 完的那一刻」与「两帧之后」这两个时点分开断言。
+ *
+ * 轮数只需盖过被测实现的 await 深度（handleClick 那条链是 1–2 轮），取 5 留余量；
+ * 多转几轮也不会误推进帧 —— 微任务转不到定时器上去。
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) {
+    await Promise.resolve();
+  }
 }
 
 const BUTTON_NAME = '回到最新消息';
@@ -202,17 +221,35 @@ describe('JumpToLatestButton —— onJumpToLatest 接管', () => {
     vi.restoreAllMocks();
   });
 
-  it('传了 onJumpToLatest：只调回调，本组件不自己滚（否则会打乱上层的重新加载 + 定位）', async () => {
+  /**
+   * 钉的是**滚动的时点**：必须推迟到「两帧之后」，不许在回调 await 完的那个微任务里就滚。
+   *
+   * 真机实测过的失败形态：`await onJumpToLatest()` 只等到上层 `setState` **被调用**，
+   * React 尚未提交渲染 —— 此刻滚的是**旧 DOM**，等新列表渲染出来位置又不对了
+   * （画面停在半路）。实现用双 rAF 把滚动压到「提交 + 绘制」之后（JumpToLatestButton.tsx:128-134）。
+   *
+   * 本文件下方 describe「接管回调之后仍必须滚回底部（真机实测回归）」守「**确实**滚到了
+   * scrollTop=0」这一半；这里守的是它守不到的另一半 —— **不许提前滚**。
+   * （变异实测：只去掉双 rAF、保留 `scrollTop = 0`，那个 describe 的两条**照样全绿**，
+   *   只有本条翻红。两条合起来才是完整契约。）
+   */
+  it('传了 onJumpToLatest：先 await 回调，且滚动推迟到两帧之后（不在微任务里抢跑滚旧 DOM）', async () => {
     const onJumpToLatest = vi.fn();
     const { container, scrollToSpy, scrollIntoViewSpy } = mountHarness(onJumpToLatest);
 
     scrollAwayFromBottom(container, 800);
     fireEvent.click(await screen.findByRole('button', { name: BUTTON_NAME }));
 
+    // 微任务排空 = 回调已 await 完、rAF 已挂上，但帧还没到 ⇒ 此刻**绝不许**已经滚了。
+    // 把实现里的双 rAF 去掉（await 完直接滚）→ 这条立刻翻红。
+    await flushMicrotasks();
     expect(onJumpToLatest).toHaveBeenCalledTimes(1);
-    // 自己不滚：既没走平滑通路，scrollTop 也停在原处
-    expect(scrollToSpy).not.toHaveBeenCalled();
     expect(container.scrollTop).toBe(-800);
+
+    // 两帧到齐后才落地。这一路是**瞬时**滚：不走平滑通路（smooth 会被随后的内容替换打断），
+    // 更不碰会沿祖先链冒泡的 scrollIntoView。
+    await waitFor(() => expect(container.scrollTop).toBe(0));
+    expect(scrollToSpy).not.toHaveBeenCalled();
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
   });
 });

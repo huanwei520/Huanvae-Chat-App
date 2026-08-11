@@ -152,6 +152,8 @@ pub fn get_messages_with_conn(
 ///
 /// - 锚点按 `message_uuid` 找，必须属于该会话且未软删除；找不到返回 `Ok(None)`，
 ///   由调用方决定降级（不吞成空数组 —— 空数组会被误读成「这段真的没有消息」）。
+///   **「找不到」与「查询出错」是两条出口**：前者 `Ok(None)`，后者 `Err`。
+///   压成同一个出口会让真实 DB 故障对上层完全不可见（UI 一律只报「找不到这条消息」）。
 /// - 窗口**只按 seq 取，且排除 `seq = 0`**：`seq = 0` 是本地未同步的新消息，
 ///   概念上恒属"最新那一端"，把它混进一段历史窗口会让顺序错乱。
 /// - 返回顺序与 [`get_messages`] 一致：**[新→旧]**（`seq DESC`），
@@ -163,17 +165,22 @@ pub fn get_messages_around_with_conn(
     before: i64,
     after: i64,
 ) -> Result<Option<Vec<LocalMessage>>, String> {
-    let anchor_seq: Option<i64> = db
-        .query_row(
-            "SELECT seq FROM messages
-             WHERE message_uuid = ? AND conversation_id = ? AND is_deleted = 0",
-            params![anchor_uuid, conversation_id],
-            |row| row.get(0),
-        )
-        .ok();
-
-    let Some(anchor_seq) = anchor_seq else {
-        return Ok(None);
+    // 🔴 「锚点不存在」与「查询出错」必须走**两条**出口。
+    // 原先这里是 `.ok()`：任何 rusqlite 错误（表损坏 / schema 漂移 / 列类型不符）都被
+    // 压成 `None`，与「本地库里真没这条」同一个返回值 ⇒ 上层 `locateMessage` 返回 false
+    // ⇒ UI 只报「找不到这条消息」，真实的 DB 故障在**任何地方都看不出来**。
+    let anchor_seq: i64 = match db.query_row(
+        "SELECT seq FROM messages
+         WHERE message_uuid = ? AND conversation_id = ? AND is_deleted = 0",
+        params![anchor_uuid, conversation_id],
+        |row| row.get(0),
+    ) {
+        Ok(seq) => seq,
+        // 锚点真的不在本地库里（或不属于该会话 / 已软删除）—— 既有语义不变：返回 None，
+        // 由调用方降级成「定位失败」提示，而不是空数组（见本函数「语义」段）。
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        // 其余一律往上抛，与本函数其它查询的 `.map_err(|e| e.to_string())` 口径一致。
+        Err(e) => return Err(e.to_string()),
     };
 
     // 较新的一段 + 锚点自身：seq >= anchor，升序取 after+1 条，再翻成 [新→旧]
@@ -1606,6 +1613,27 @@ mod tests {
         assert!(get_messages_around_with_conn(&conn, "c2", "m5", 5, 5)
             .unwrap()
             .is_none());
+    }
+
+    /// DB 出错 → `Err`，**不许**被吞成 `Ok(None)`
+    ///
+    /// 上一条用例钉的是「锚点不存在 = `Ok(None)`」；这条钉的是它的**另一半**：
+    /// 锚点 seq 查询原先以 `.ok()` 收尾，任何 rusqlite 错误都会掉进同一个 `None` 出口，
+    /// 于是「本地真没这条」和「库炸了」对调用方**完全不可区分** —— UI 一律报「找不到」，
+    /// 真故障永远无人看见。两条用例必须成对存在，只有一条时改坏另一半不会翻红。
+    #[test]
+    fn around_db_error_is_err_not_silent_none() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 10);
+
+        // 制造一个货真价实的 rusqlite 错误：把锚点查询依赖的表撤掉（触发器随表一起没）
+        conn.execute("DROP TABLE messages", []).unwrap();
+
+        let res = get_messages_around_with_conn(&conn, "c1", "m5", 5, 5);
+        assert!(
+            res.is_err(),
+            "DB 错误必须向上抛；吞成 Ok(None) 会与「锚点不存在」混为一谈，实得 {res:?}"
+        );
     }
 
     /// `seq = 0`（本地未同步的新消息）不许混进历史窗口

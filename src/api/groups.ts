@@ -317,12 +317,18 @@ export function getGroupJoinRequests(
   );
 }
 
-/** 通过一条入群申请 */
+/**
+ * 通过一条入群申请
+ *
+ * 返回体镜像后端 `SuccessResponse`（`Huanvae-Chat-Rust/src/common/response.rs:31`）：
+ * `{ success: bool, message: String }` —— `message` 非 Option，故这里也不是可选。
+ * 当前调用方不读它，但类型必须与真值源逐字段对齐（工作区 CLAUDE.md 核心规则一）。
+ */
 export function approveGroupJoinRequest(
   api: ApiClient,
   groupId: string,
   requestId: string,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; message: string }> {
   return api.post(
     `/api/groups/${encodeURIComponent(groupId)}/requests/${encodeURIComponent(requestId)}/approve`,
   );
@@ -334,13 +340,15 @@ export function approveGroupJoinRequest(
  * 后端 body 是 `ProcessJoinRequestBody { reason: Option<String> }`
  * （`Huanvae-Chat-Rust/src/groups/models/request.rs:105`）—— 必须带 body，
  * 不传理由时也要发 `{}`，否则 axum 的 `Json<T>` 提取会因缺 body 而 400。
+ *
+ * 返回体同 [`approveGroupJoinRequest`]：镜像后端 `SuccessResponse { success, message }`。
  */
 export function rejectGroupJoinRequest(
   api: ApiClient,
   groupId: string,
   requestId: string,
   reason?: string,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; message: string }> {
   return api.post(
     `/api/groups/${encodeURIComponent(groupId)}/requests/${encodeURIComponent(requestId)}/reject`,
     { reason: reason ?? null },
