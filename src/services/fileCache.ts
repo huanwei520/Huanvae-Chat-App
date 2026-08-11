@@ -50,7 +50,7 @@ import {
 } from './diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
 import { resolveDisplayUrl } from './secureProxy';
-import { isMobile } from '../utils/platform';
+import { isMobile, isMacOS } from '../utils/platform';
 
 // ============================================
 // Android asset URL 修复
@@ -349,7 +349,10 @@ export async function getFileSource(
  * 调用 Rust 端命令，如果视频已缓存，返回本地服务器 URL
  */
 async function getLocalVideoUrl(fileHash: string): Promise<string | null> {
-  if (!isMobile()) {
+  // Android 与 macOS 都要走本地 HTTP 媒体服务器（原因见 Rust local_media_server 模块头）：
+  // 两者的 WebView 都无法可靠地用自定义协议加载媒体 —— Android 播不了，
+  // macOS 是 WKURLSchemeHandler 收不到 Range 头（WebKit 203302）⇒ 只剩灰块没封面。
+  if (!isMobile() && !isMacOS()) {
     return null;
   }
   try {
@@ -382,15 +385,15 @@ export async function getVideoSource(
     fileType?: 'image' | 'video' | 'document';
   },
 ): Promise<FileSourceResult> {
-  // 1. 移动端：优先尝试本地 HTTP 服务器
-  if (isMobile() && fileHash) {
+  // 1. 移动端 / macOS：优先尝试本地 HTTP 服务器（见 getLocalVideoUrl 注释）
+  if ((isMobile() || isMacOS()) && fileHash) {
     const localVideoUrl = await getLocalVideoUrl(fileHash);
     if (localVideoUrl) {
       // 同步取实际文件系统路径用于 openInFolder / saveToGallery / 「通过其它方式打开」
       // —— src 是 HTTP 服务器 URL（给 <video> 播放），localPath 是磁盘路径（给 Rust 命令）
       const localPath = await getCachedFilePath(fileHash);
       // eslint-disable-next-line no-console
-      console.log('[FileCache] 使用移动端本地视频服务器:', localVideoUrl, 'localPath:', localPath);
+      console.log('[FileCache] 使用本地视频服务器:', localVideoUrl, 'localPath:', localPath);
       return {
         src: localVideoUrl,
         isLocal: true,

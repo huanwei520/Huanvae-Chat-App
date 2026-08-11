@@ -27,7 +27,7 @@ import {
   startProgressListener,
   type FileSourceResult,
 } from '../services/fileCache';
-import { isMobile } from '../utils/platform';
+import { isMobile, isMacOS } from '../utils/platform';
 
 // ============================================
 // 调试日志
@@ -162,9 +162,11 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
 
       logCache('加载文件源', { fileUuid, fileHash, urlType, fileType, isMobile: isMobile() });
 
-      // 移动端视频使用专门的 getVideoSource（本地 HTTP 服务器）
-      // 解决 Android WebView 无法通过 asset:// 播放视频的问题
-      const source = (fileType === 'video' && isMobile())
+      // 移动端 / macOS 视频使用专门的 getVideoSource（本地 HTTP 服务器）
+      // - Android WebView 无法通过 asset:// 播放视频
+      // - macOS 的 WKWebView 不把 Range 头交给自定义协议处理器（WebKit Bug 203302）
+      //   ⇒ <video> 拿不到分段，只显示灰块、没有封面（huanwei 实测「仅 macOS 无视频封面」）
+      const source = (fileType === 'video' && (isMobile() || isMacOS()))
         ? await getVideoSource(api, fileUuid, fileHash, urlType, { friendId, fileType })
         : await getFileSource(api, fileUuid, fileHash, urlType, { friendId, fileType });
 

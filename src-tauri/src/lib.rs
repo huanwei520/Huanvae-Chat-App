@@ -64,11 +64,24 @@ mod clipboard;
 mod updater_download;
 
 // ============================================
-// Android 专属模块（mobile_media_server 用于绕过 WebView 的 asset:// 视频播放
-// 限制；iOS 不需要 — iOS WKWebView 原生支持 file:// 视频 URL）
+// 本地媒体服务器（Android + macOS）
+//
+// 用途：**绕开 WebView 的自定义协议在媒体元素上的限制**，改用 127.0.0.1 上的真 HTTP
+// （带 Range/206），让 <video> 能正常加载首帧与拖动进度。
+//
+// 为什么两个平台都要：
+// - Android WebView 无法通过 `asset://` 播放视频（历史已知，本模块最初就是为它写的）
+// - macOS 上 wry 用 `WKURLSchemeHandler` 注册 `asset://`，而 **WKWebView 不会把 Range 头
+//   交给自定义协议处理器**（WebKit Bug 203302），媒体元素因此拿不到分段 ⇒ 视频只显示灰块。
+//   huanwei 实测「仅 macOS 无视频封面」正是这个。
+//
+// 其它平台不需要：Windows 的 asset 走 `http://asset.localhost`（本就是 HTTP 语义）；
+// iOS WKWebView 原生支持 file:// 视频 URL。
+//
+// 模块内是纯 axum + tokio，无任何平台专有 API —— 故只需放开 cfg，不需要移植。
 // ============================================
-#[cfg(target_os = "android")]
-mod mobile_media_server;
+#[cfg(any(target_os = "android", target_os = "macos"))]
+mod local_media_server;
 
 // ============================================
 // Android 更新模块
@@ -296,20 +309,22 @@ async fn updater_sharded_install() -> Result<(), String> {
 // 移动端本地视频 URL Commands
 // ============================================================================
 
-/// 获取本地视频的 HTTP URL（仅 Android 真实）
+/// 获取本地视频的 HTTP URL（Android + macOS 真实）
 ///
-/// 如果视频已缓存到本地，返回本地服务器 URL；否则返回 None
-#[cfg(target_os = "android")]
+/// 已缓存则返回 127.0.0.1 上的本地服务器 URL；否则 None。
+/// 两个平台都要：见 `local_media_server` 模块声明处的说明
+/// （Android WebView 不能用 asset:// 播视频；macOS 的 WKURLSchemeHandler 收不到 Range 头）。
+#[cfg(any(target_os = "android", target_os = "macos"))]
 #[tauri::command(rename_all = "camelCase")]
 async fn get_local_video_url(file_hash: String) -> Option<String> {
-    mobile_media_server::get_local_video_url(file_hash).await
+    local_media_server::get_local_video_url(file_hash).await
 }
 
-/// 获取本地视频的 HTTP URL（桌面端 / iOS 占位）
+/// 获取本地视频的 HTTP URL（Windows / Linux / iOS 占位）
 ///
-/// 桌面端使用 asset:// 协议；iOS WKWebView 原生支持 file:// 视频 URL，
-/// 都不需要本地 HTTP 媒体服务器
-#[cfg(not(target_os = "android"))]
+/// Windows 的 asset 走 `http://asset.localhost`（本就是 HTTP 语义）；
+/// iOS WKWebView 原生支持 file:// 视频 URL —— 都不需要本地 HTTP 媒体服务器。
+#[cfg(not(any(target_os = "android", target_os = "macos")))]
 #[tauri::command(rename_all = "camelCase")]
 async fn get_local_video_url(_file_hash: String) -> Option<String> {
     None
@@ -814,6 +829,34 @@ pub fn run() {
             }
 
             // Android：初始化应用数据目录 + 启动本地媒体服务器
+            // macOS：启动本地媒体服务器（Android 那块是安卓专属初始化，不整块放开）
+            //
+            // 起因：wry 在 macOS 用 WKURLSchemeHandler 注册 asset://，而 WKWebView **不会**把
+            // Range 头交给自定义协议处理器（WebKit Bug 203302）⇒ <video> 拿不到分段，
+            // 只显示灰块没有封面（huanwei 实测「仅 macOS 无视频封面」）。
+            // 改走 127.0.0.1 上的真 HTTP（本模块自带 Range/206），与 Android 同一条路径。
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                match app.path().app_data_dir() {
+                    Ok(data_dir) => {
+                        let data_dir_str = data_dir.to_string_lossy().to_string();
+                        tauri::async_runtime::spawn(async move {
+                            match local_media_server::start_server(data_dir_str).await {
+                                Ok(port) => {
+                                    println!("[LocalMediaServer] macOS 服务器已启动，端口: {}", port);
+                                }
+                                Err(e) => {
+                                    // 起不来不致命：视频会回退到 asset://（没封面但不影响其它功能）
+                                    eprintln!("[LocalMediaServer] macOS 服务器启动失败: {}", e);
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => eprintln!("[LocalMediaServer] 取 app_data_dir 失败: {}", e),
+                }
+            }
+
             #[cfg(target_os = "android")]
             {
                 use tauri::Manager;
@@ -839,12 +882,12 @@ pub fn run() {
                         // 使用 tauri::async_runtime::spawn 而不是 tokio::spawn
                         // 因为 setup 函数不在 Tokio 异步上下文中
                         tauri::async_runtime::spawn(async move {
-                            match mobile_media_server::start_server(data_dir_str).await {
+                            match local_media_server::start_server(data_dir_str).await {
                                 Ok(port) => {
-                                    println!("[MobileMediaServer] 服务器已启动，端口: {}", port);
+                                    println!("[LocalMediaServer] 服务器已启动，端口: {}", port);
                                 }
                                 Err(e) => {
-                                    eprintln!("[MobileMediaServer] 服务器启动失败: {}", e);
+                                    eprintln!("[LocalMediaServer] 服务器启动失败: {}", e);
                                 }
                             }
                         });

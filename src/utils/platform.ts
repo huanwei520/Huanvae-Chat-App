@@ -51,6 +51,26 @@ export function isMobile(): boolean {
  *
  * @returns 是否为桌面端
  */
+let _isMacOSCached: boolean | null = null;
+
+/**
+ * 检测是否为 macOS 桌面端
+ *
+ * 用途（目前唯一）：本地视频要不要走 127.0.0.1 的本地 HTTP 媒体服务器。
+ * macOS 上 wry 用 WKURLSchemeHandler 注册 `asset://`，而 WKWebView **不会**把 Range 头
+ * 交给自定义协议处理器（WebKit Bug 203302）⇒ <video> 拿不到分段、只剩灰块没有封面。
+ *
+ * 与 isMobile 同样按 UA 判定并缓存（平台运行期不变）。iPhone/iPad 的 UA 也含 "mac"，
+ * 故必须**先排除移动端**，否则 iOS 会被误判成 macOS。
+ */
+export function isMacOS(): boolean {
+  if (_isMacOSCached !== null) {
+    return _isMacOSCached;
+  }
+  _isMacOSCached = !isMobile() && /mac/.test(navigator.userAgent.toLowerCase());
+  return _isMacOSCached;
+}
+
 export function isDesktop(): boolean {
   return !isMobile();
 }
@@ -70,5 +90,6 @@ export function getPlatformType(): 'mobile' | 'desktop' {
  * @internal
  */
 export function _resetPlatformCache(): void {
+  _isMacOSCached = null;
   _isMobileCached = null;
 }
