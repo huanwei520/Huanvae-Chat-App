@@ -196,6 +196,22 @@ print_step "2/7" "对比目标版本与当前版本..."
 echo -e "  ${GRAY}当前版本: v$CURRENT_VERSION${NC}"
 echo -e "  ${GRAY}目标版本: v$TARGET_VERSION${NC}"
 
+# ── 就地编辑：GNU sed 与 BSD(macOS) sed 的 -i 语义不同 ────────────────────
+# GNU:  sed -i  "<脚本>" <文件>
+# BSD:  sed -i '' "<脚本>" <文件>      ← -i **必须**带备份后缀参数
+#
+# 在 BSD 上照 GNU 写法调用，"<脚本>" 会被当成备份后缀，**文件路径反被当成脚本执行**，
+# 于是报出形如 `sed: 1: "/path/to/file": invalid command code M` 的错 ——
+# 错误信息里出现的是路径，很容易被误诊成「路径没加引号 / 路径含空格」，
+# 其实路径一直是带引号的，与空格无关。本仓 v1.1.23 就曾这样误诊并靠手工预设版本号绕过。
+sed_inplace() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"        # GNU
+    else
+        sed -i '' "$@"     # BSD / macOS
+    fi
+}
+
 VERSION_UPDATED=false
 
 if [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
@@ -208,13 +224,13 @@ else
     echo -e "  ${CYAN}正在更新版本号...${NC}"
     
     # 更新 package.json
-    sed -i "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$TARGET_VERSION\"/" "$PROJECT_ROOT/package.json"
+    sed_inplace "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$TARGET_VERSION\"/" "$PROJECT_ROOT/package.json"
     
     # 更新 tauri.conf.json
-    sed -i "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$TARGET_VERSION\"/" "$PROJECT_ROOT/src-tauri/tauri.conf.json"
+    sed_inplace "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$TARGET_VERSION\"/" "$PROJECT_ROOT/src-tauri/tauri.conf.json"
     
     # 更新 Cargo.toml
-    sed -i "/^\[package\]/,/^\[/ s/version = \"$CURRENT_VERSION\"/version = \"$TARGET_VERSION\"/" "$PROJECT_ROOT/src-tauri/Cargo.toml"
+    sed_inplace "/^\[package\]/,/^\[/ s/version = \"$CURRENT_VERSION\"/version = \"$TARGET_VERSION\"/" "$PROJECT_ROOT/src-tauri/Cargo.toml"
     
     # 验证更新
     NEW_PKG=$(grep '"version"' "$PROJECT_ROOT/package.json" | head -1 | sed 's/.*: "\([^"]*\)".*/\1/')
