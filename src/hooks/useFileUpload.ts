@@ -42,11 +42,33 @@ export type StorageLocation =
   | 'group_files';
 
 /** 上传请求参数 */
+/**
+ * 媒体组（相册）元数据
+ *
+ * 后端约束（storage/models/request.rs）：
+ * - `count` 取值 2..10；`index` 取值 0..count-1
+ * - `caption` **只允许**随 `index = 0` 那一项提交，其余位次带 caption 直接 400
+ * - 三件套必须在 `upload/request` **与** `upload/confirm` 两处都带 ——
+ *   非秒传路径的消息是在 confirm 那一步才建的，只在 request 带的话对非秒传分支无效
+ */
+export interface MediaGroupMeta {
+  /** 组标识（客户端生成，同组各项共用） */
+  id: string;
+  /** 组内位次，0-based */
+  index: number;
+  /** 组内总数 */
+  count: number;
+}
+
 export interface UploadRequestParams {
   file: File;
   fileType: FileType;
   storageLocation: StorageLocation;
   relatedId?: string; // 好友ID或群ID
+  /** 相册元数据；单发时不传 */
+  mediaGroup?: MediaGroupMeta;
+  /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+  caption?: string;
 }
 
 /** 上传进度信息 */
@@ -365,7 +387,7 @@ export function useFileUpload() {
    */
   const uploadFile = useCallback(
     async (params: UploadRequestParams): Promise<UploadResult> => {
-      const { file, storageLocation, relatedId } = params;
+      const { file, storageLocation, relatedId, mediaGroup, caption } = params;
       const fileType = params.fileType || getFileType(file, storageLocation);
 
       setUploading(true);
@@ -421,6 +443,11 @@ export function useFileUpload() {
           // 图片尺寸（后端文档：image_width/image_height 仅图片类型需要）
           image_width: imageDimensions?.width ?? null,
           image_height: imageDimensions?.height ?? null,
+          // 相册三件套 + 配文：秒传分支的消息就在这一步建，故必须在这里带
+          media_group_id: mediaGroup?.id ?? null,
+          media_group_index: mediaGroup?.index ?? null,
+          media_group_count: mediaGroup?.count ?? null,
+          caption: caption ?? null,
         });
 
         // 3. 检查是否秒传
@@ -523,6 +550,12 @@ export function useFileUpload() {
 
         const confirmResult = await api.post<ConfirmUploadResponse>('/api/storage/upload/confirm', {
           file_key: uploadInfo.file_key,
+          // 非秒传路径的消息是在**确认**这一步才建的，所以三件套与配文要在这里再带一次；
+          // 只在 request 带对这条分支无效（后端 ConfirmUploadRequest 注释明写此事）
+          media_group_id: mediaGroup?.id ?? null,
+          media_group_index: mediaGroup?.index ?? null,
+          media_group_count: mediaGroup?.count ?? null,
+          caption: caption ?? null,
         });
 
         // 从 URL 中提取 UUID

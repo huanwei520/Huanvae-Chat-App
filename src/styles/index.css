@@ -90,6 +90,9 @@
 /* 相册（媒体组）- 气泡内网格 + 整组配文；格高按 aspect-ratio 预留，避免图片加载引发布局跳动 */
 @import './components/album.css';
 
+/* 相册合成面板 - 选完 N 张后配文再发（Telegram 风格；桌面/移动共用一个组件） */
+@import './components/album-composer.css';
+
 /* 聊天设置侧边滑出面板 - 顶栏「更多操作」的右侧抽屉 + 语义分组（桌面/移动共用） */
 @import './components/chat-menu-sheet.css';
 

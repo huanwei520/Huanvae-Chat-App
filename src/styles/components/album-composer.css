@@ -1,0 +1,141 @@
+/* Album composer (Telegram-style): thumbnail strip + caption + send.
+ *
+ * Desktop and mobile share ONE component; only widths differ here.
+ *
+ * NOTE (deliberate): the panel is animated by framer-motion (opacity/transform),
+ * so this file must NOT declare `transition` for those properties -- see
+ * .claude/rules/animation.md rule 1. The selector is registered in
+ * tests/animation-conflict.test.ts so the static gate keeps it that way.
+ */
+
+.album-composer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.album-composer {
+  width: min(520px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--bg-panel, #fff);
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+
+.album-composer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.album-composer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.album-composer-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Over-limit notice: must stay visible, never silently truncate. */
+.album-composer-notice {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: rgba(255, 193, 7, 0.16);
+  border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+.album-composer-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.album-composer-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(147, 197, 253, 0.1);
+}
+
+.album-composer-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Removed items stay in the strip (so they can be added back) but read as excluded. */
+.album-composer-thumb--removed img {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.album-composer-thumb-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.album-composer-caption {
+  width: 100%;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-input, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.album-composer-caption:focus {
+  outline: none;
+  border-color: var(--accent, #3b82f6);
+}
+
+.album-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .album-composer {
+    width: 100%;
+    max-height: 86vh;
+  }
+
+  .album-composer-thumb {
+    width: 72px;
+    height: 72px;
+  }
+}

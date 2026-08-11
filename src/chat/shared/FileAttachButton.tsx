@@ -35,6 +35,11 @@ export interface FileAttachButtonProps {
   disabled?: boolean;
   /** 文件选择回调（带本地路径） */
   onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
+  /**
+   * 多选回调（仅图片/视频给出；不传则退化为单选，行为与从前完全一致）。
+   * 选中 2 张及以上时走这里，用于相册合成面板；恰好 1 张仍走 onFileSelect。
+   */
+  onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
 }
 
 // ============================================
@@ -165,7 +170,32 @@ export function getMimeType(filename: string, typeHint: AttachmentType): string 
 // 组件实现
 // ============================================
 
-export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonProps) {
+/** 已选中的一个文件（File 对象 + 它的本地路径） */
+export interface PickedFile {
+  file: File;
+  localPath: string;
+}
+
+/**
+ * 本地路径 → File 对象
+ *
+ * 抽出来是因为桌面与 Android 两条分支原先各写了一份逐字相同的转换，
+ * 多选之后还要再按项重复一次 —— 三份拷贝迟早漂移。
+ */
+async function pathToPickedFile(localPath: string, type: AttachmentType): Promise<PickedFile> {
+  const fileName = localPath.split(/[/\\]/).pop() || 'file';
+  const fileStat = await stat(localPath);
+  const fileContent = await readFile(localPath);
+  const mimeType = getMimeType(fileName, type);
+  const blob = new Blob([fileContent], { type: mimeType });
+  const file = new File([blob], fileName, {
+    type: mimeType,
+    lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
+  });
+  return { file, localPath };
+}
+
+export function FileAttachButton({ disabled, onFileSelect, onFilesSelect }: FileAttachButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [isLoading, setIsLoading] = useState(false);
@@ -196,69 +226,41 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
     try {
       const os = await platform();
 
+      // 只有图片/视频允许多选（相册只收媒体），且调用方必须给了 onFilesSelect；
+      // 否则维持原来的单选行为，一行都不变。
+      const allowMultiple = !!onFilesSelect && (item.type === 'image' || item.type === 'video');
+
+      let paths: string[] = [];
       if (os === 'android') {
-        // Android 平台：使用 Android FS 插件处理 content:// URI
-        // selectFilesForTransfer 会自动复制文件到缓存目录并返回可读路径
-        console.warn('[FileAttach] Android 平台，使用 Android FS 插件');
-
-        const paths = await selectFilesForTransfer({ multiple: false });
-
-        if (paths.length > 0) {
-          const localPath = paths[0];
-          const fileName = localPath.split(/[/\\]/).pop() || 'file';
-
-          // 获取文件信息
-          const fileStat = await stat(localPath);
-
-          // 读取文件内容（现在可以正常读取缓存目录中的文件）
-          const fileContent = await readFile(localPath);
-
-          // 创建 File 对象
-          const mimeType = getMimeType(fileName, item.type);
-          const blob = new Blob([fileContent], { type: mimeType });
-          const file = new File([blob], fileName, {
-            type: mimeType,
-            lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
-          });
-
-          // 回调，带上本地路径
-          onFileSelect(file, item.type, localPath);
-        }
+        // Android 平台：selectFilesForTransfer 会把 content:// 复制到缓存并返回可读路径
+        paths = await selectFilesForTransfer({ multiple: allowMultiple });
       } else {
-        // 桌面端：使用标准 Tauri dialog API
         const selected = await openDialog({
-          multiple: false,
+          multiple: allowMultiple,
           filters: item.extensions.length > 0
-            ? [{
-              name: item.label,
-              extensions: item.extensions,
-            }]
+            ? [{ name: item.label, extensions: item.extensions }]
             : undefined,
         });
-
-        if (selected && typeof selected === 'string') {
-          // 获取文件路径
-          const localPath = selected;
-          const fileName = localPath.split(/[/\\]/).pop() || 'file';
-
-          // 获取文件信息
-          const fileStat = await stat(localPath);
-
-          // 读取文件内容
-          const fileContent = await readFile(localPath);
-
-          // 创建 File 对象
-          const mimeType = getMimeType(fileName, item.type);
-          const blob = new Blob([fileContent], { type: mimeType });
-          const file = new File([blob], fileName, {
-            type: mimeType,
-            lastModified: fileStat.mtime ? new Date(fileStat.mtime).getTime() : Date.now(),
-          });
-
-          // 回调，带上本地路径
-          onFileSelect(file, item.type, localPath);
+        if (typeof selected === 'string') {
+          paths = [selected];
+        } else if (Array.isArray(selected)) {
+          paths = selected;
         }
       }
+
+      if (paths.length === 0) {
+        return;
+      }
+
+      // 恰好 1 个仍走单选回调 —— 单发路径与从前完全一致，不因引入相册而改变
+      if (paths.length === 1 || !onFilesSelect) {
+        const picked = await pathToPickedFile(paths[0], item.type);
+        onFileSelect(picked.file, item.type, picked.localPath);
+        return;
+      }
+
+      const picked = await Promise.all(paths.map((pth) => pathToPickedFile(pth, item.type)));
+      onFilesSelect(picked, item.type);
     } catch (error) {
       // 用户取消选择时会抛出错误，这是正常的
       if (!String(error).includes('cancelled') && !String(error).includes('Canceled')) {
@@ -267,7 +269,7 @@ export function FileAttachButton({ disabled, onFileSelect }: FileAttachButtonPro
     } finally {
       setIsLoading(false);
     }
-  }, [onFileSelect]);
+  }, [onFileSelect, onFilesSelect]);
 
   // 点击外部关闭菜单
   useEffect(() => {
