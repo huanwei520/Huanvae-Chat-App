@@ -113,6 +113,11 @@ pub struct MessageSearchFilter {
     pub include_content_types: Option<Vec<String>>,
     /// 排除这些 content_type（None / Some(空) = 不排除）
     pub exclude_content_types: Option<Vec<String>>,
+    /// 只看某个发送者在本会话内的消息（None = 不限）。
+    ///
+    /// 用途：群聊「按群成员查找」—— 单独看某个群员在本群说过什么。
+    /// 与 content_type 过滤**正交**：可以「只看张三发的图片」。
+    pub sender_id: Option<String>,
 }
 
 /// 消息搜索结果（含会话上下文 + 前后相邻消息预览）

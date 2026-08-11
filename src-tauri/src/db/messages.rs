@@ -360,6 +360,11 @@ fn compile_filter(filter: &MessageSearchFilter) -> (String, Vec<Box<dyn rusqlite
         binds.push(Box::new(conversation_id.clone()));
     }
 
+    if let Some(sender_id) = &filter.sender_id {
+        sql.push_str(" AND m.sender_id = ?");
+        binds.push(Box::new(sender_id.clone()));
+    }
+
     if let Some(types) = &filter.include_content_types {
         sql.push_str(" AND m.content_type IN (");
         sql.push_str(&placeholders(types.len()));
@@ -788,6 +793,27 @@ mod tests {
     }
 
     /// 插入测试消息
+    /// 与 insert_msg 相同，但可指定发送者（按成员过滤的用例需要）
+    #[allow(clippy::too_many_arguments)]
+    fn insert_msg_from(
+        conn: &Connection,
+        uuid: &str,
+        conv_id: &str,
+        sender: &str,
+        content: &str,
+        content_type: &str,
+        seq: i64,
+        send_time: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO messages (message_uuid, conversation_id, conversation_type, sender_id,
+             content, content_type, seq, send_time)
+             VALUES (?, ?, 'group', ?, ?, ?, ?, ?)",
+            params![uuid, conv_id, sender, content, content_type, seq, send_time],
+        )
+        .unwrap();
+    }
+
     fn insert_msg(
         conn: &Connection,
         uuid: &str,
@@ -1077,6 +1103,7 @@ mod tests {
             conversation_id: Some("c1".to_string()),
             include_content_types: Some(vec!["image".to_string()]),
             exclude_content_types: None,
+            sender_id: None,
         };
         let results = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
         assert_eq!(results.len(), 1);
@@ -1096,11 +1123,55 @@ mod tests {
                 .map(|v| v.into_iter().map(str::to_string).collect()),
             exclude_content_types: exclude
                 .map(|v| v.into_iter().map(str::to_string).collect()),
+            sender_id: None,
         }
     }
 
     fn browse_uuids(rows: &[LocalMessage]) -> Vec<&str> {
         rows.iter().map(|m| m.message_uuid.as_str()).collect()
+    }
+
+    /// 按群成员过滤：只出该成员在本会话内的消息
+    ///
+    /// 与内容类型过滤**正交** —— 单独一条用例钉「只看某人发的图片」，
+    /// 因为两个条件拼在同一段 WHERE 里，漏掉 AND 会让其中一个静默失效。
+    #[test]
+    fn browse_filters_by_sender_within_conversation() {
+        let conn = setup_test_db();
+        insert_msg_from(&conn, "a1", "c1", "u1", "张三说的", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg_from(&conn, "a2", "c1", "u2", "李四说的", "text", 2, "2026-05-11T02:00:00Z");
+        insert_msg_from(&conn, "a3", "c1", "u1", "张三又说", "text", 3, "2026-05-11T03:00:00Z");
+        // 别的会话里的同一个人：不能串会话
+        insert_msg_from(&conn, "b1", "c2", "u1", "张三在别处", "text", 1, "2026-05-11T04:00:00Z");
+
+        let filter = MessageSearchFilter {
+            conversation_id: Some("c1".into()),
+            sender_id: Some("u1".into()),
+            ..Default::default()
+        };
+        let got = list_conversation_messages_with_conn(&conn, None, 50, 0, &filter).unwrap();
+        let ids: Vec<&str> = got.iter().map(|m| m.message_uuid.as_str()).collect();
+        // 时间倒序，且只有 c1 里 u1 的两条
+        assert_eq!(ids, vec!["a3", "a1"], "只应出本会话内该成员的消息，且按时间倒序");
+    }
+
+    /// 成员过滤与类型过滤正交：只看某人发的图片
+    #[test]
+    fn browse_sender_and_content_type_filters_combine() {
+        let conn = setup_test_db();
+        insert_msg_from(&conn, "t1", "c1", "u1", "张三的字", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg_from(&conn, "i1", "c1", "u1", "张三的图", "image", 2, "2026-05-11T02:00:00Z");
+        insert_msg_from(&conn, "i2", "c1", "u2", "李四的图", "image", 3, "2026-05-11T03:00:00Z");
+
+        let filter = MessageSearchFilter {
+            conversation_id: Some("c1".into()),
+            sender_id: Some("u1".into()),
+            include_content_types: Some(vec!["image".into()]),
+            ..Default::default()
+        };
+        let got = list_conversation_messages_with_conn(&conn, None, 50, 0, &filter).unwrap();
+        let ids: Vec<&str> = got.iter().map(|m| m.message_uuid.as_str()).collect();
+        assert_eq!(ids, vec!["i1"], "两个条件必须同时生效");
     }
 
     #[test]

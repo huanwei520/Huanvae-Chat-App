@@ -271,4 +271,55 @@ describe('useConversationMessageSearch', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.hasMore).toBe(false);
   });
+
+  // ── 群聊「按群成员查找」（huanwei 新需求：单独看某个群员在本群说过什么）──
+  it('传 senderId：作为 sender_id 进 filter，且与分类过滤并存（可「只看某人发的图片」）', async () => {
+    renderHook(() => useConversationMessageSearch(CONV_ID, '', 'image', 'u-zhangsan'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockListConversationMessages).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filter: { include_content_types: ['image'], sender_id: 'u-zhangsan' },
+      }),
+    );
+  });
+
+  it('不传 senderId：filter 里**不出现** sender_id（不能塞 undefined 给 Rust）', async () => {
+    renderHook(() => useConversationMessageSearch(CONV_ID, '', 'all'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    // 不用 .at(-1)：本仓 TS lib target 没有它（v1.1.26 已因此踩过一次）
+    const calls = mockListConversationMessages.mock.calls;
+    const arg = calls[calls.length - 1][0];
+    expect(arg.filter).not.toHaveProperty('sender_id');
+  });
+
+  // 这条是本需求最容易漏的点：senderId 不进依赖数组的话，切成员后仍显示上一个人的结果
+  it('切换 senderId ⇒ 重新查询（否则切了成员还是上一个人的记录）', async () => {
+    const { rerender } = renderHook(
+      ({ sender }: { sender: string }) => useConversationMessageSearch(CONV_ID, '', 'all', sender),
+      { initialProps: { sender: 'u-a' } },
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    const callsAfterFirst = mockListConversationMessages.mock.calls.length;
+
+    rerender({ sender: 'u-b' });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockListConversationMessages.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    expect(mockListConversationMessages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filter: expect.objectContaining({ sender_id: 'u-b' }) }),
+    );
+  });
 });

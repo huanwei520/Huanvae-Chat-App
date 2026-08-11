@@ -48,6 +48,8 @@ export function useConversationMessageSearch(
   conversationId: string | null,
   query: string,
   category: MessageCategory,
+  /** 只看某个群成员发的（群聊「按群成员查找」）；null = 不限 */
+  senderId: string | null = null,
 ): UseConversationMessageSearchReturn {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [items, setItems] = useState<LocalMessage[]>([]);
@@ -95,7 +97,8 @@ export function useConversationMessageSearch(
       query: debouncedQuery || undefined,
       limit: CONVERSATION_PAGE_SIZE,
       offset: 0,
-      filter: categoryToSearchFilter(category),
+      // 成员过滤与分类过滤正交：可以「只看张三发的图片」
+      filter: { ...categoryToSearchFilter(category), ...(senderId ? { sender_id: senderId } : {}) },
     })
       .then((rows) => {
         if (requestIdRef.current !== requestId) { return; }
@@ -114,7 +117,7 @@ export function useConversationMessageSearch(
       });
 
     return undefined;
-  }, [conversationId, debouncedQuery, category]);
+  }, [conversationId, debouncedQuery, category, senderId]);
 
   const loadMore = useCallback(() => {
     if (!conversationId || !hasMore || loading || loadingMore) { return; }
@@ -127,7 +130,8 @@ export function useConversationMessageSearch(
       query: debouncedQuery || undefined,
       limit: CONVERSATION_PAGE_SIZE,
       offset: itemsRef.current.length,
-      filter: categoryToSearchFilter(category),
+      // 成员过滤与分类过滤正交：可以「只看张三发的图片」
+      filter: { ...categoryToSearchFilter(category), ...(senderId ? { sender_id: senderId } : {}) },
     })
       .then((rows) => {
         if (requestIdRef.current !== requestId) { return; }
@@ -143,7 +147,7 @@ export function useConversationMessageSearch(
       .finally(() => {
         if (requestIdRef.current === requestId) { setLoadingMore(false); }
       });
-  }, [conversationId, debouncedQuery, category, hasMore, loading, loadingMore]);
+  }, [conversationId, debouncedQuery, category, senderId, hasMore, loading, loadingMore]);
 
   return { items, loading, loadingMore, error, hasMore, loadMore };
 }

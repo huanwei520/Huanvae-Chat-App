@@ -129,6 +129,9 @@ export interface MessageSearchFilter {
   include_content_types?: string[];
   /** 排除这些 content_type（省略 / 空数组 = 不排除） */
   exclude_content_types?: string[];
+  /** 只看某个发送者在本会话内的消息（省略 = 不限）。
+   *  用途：群聊「按群成员查找」。与 content_type 过滤**正交**（可以「只看张三发的图片」）。 */
+  sender_id?: string;
 }
 
 export interface SearchMessageResult {
@@ -424,8 +427,9 @@ export interface ListConversationMessagesParams {
   limit: number;
   /** 起始偏移（分页） */
   offset: number;
-  /** content_type 白/黑名单（分类映射见 components/search/messageCategory.ts） */
-  filter?: Pick<MessageSearchFilter, 'include_content_types' | 'exclude_content_types'>;
+  /** content_type 白/黑名单（分类映射见 components/search/messageCategory.ts）
+   *  + 发送者过滤（群聊「按群成员查找」） */
+  filter?: Pick<MessageSearchFilter, 'include_content_types' | 'exclude_content_types' | 'sender_id'>;
 }
 
 /**

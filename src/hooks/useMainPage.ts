@@ -68,6 +68,13 @@ import type {
   MemberUnmutedData,
 } from '../types/websocket';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import {
+  ALBUM_MIN_ITEMS,
+  describePartialFailure,
+  planAlbumUpload,
+  runAlbumUpload,
+} from '../chat/shared/albumSend';
+import type { PickedFile } from '../chat/shared/FileAttachButton';
 
 // 侧边栏宽度常量
 const MIN_PANEL_WIDTH = 88;
@@ -284,6 +291,10 @@ export function useMainPage() {
   // 文件上传
   const { uploading, progress, uploadFriendFile, uploadGroupFile, resetUpload } = useFileUpload();
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+  /** 相册合成面板：用户多选后待确认的文件；null = 面板关闭 */
+  const [albumPicked, setAlbumPicked] = useState<PickedFile[] | null>(null);
+  /** 相册整组发送中（禁用面板交互，避免重复提交） */
+  const [albumSending, setAlbumSending] = useState(false);
 
   // 侧边栏宽度调整
   const { panelWidth, isResizing, handleResizeStart } = useResizablePanel({
@@ -742,6 +753,76 @@ export function useMainPage() {
     }
   }, [chatTarget, session, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages, resetUpload, updateLastMessage]);
 
+  /** 多选图片/视频 ⇒ 打开相册合成面板（选中 1 个时 FileAttachButton 仍走单发，不进这里） */
+  const handleFilesSelect = useCallback((picked: PickedFile[]) => {
+    setAlbumPicked(picked);
+  }, []);
+
+  const handleAlbumCancel = useCallback(() => {
+    setAlbumPicked(null);
+  }, []);
+
+  /**
+   * 相册发送：串行上传每一项，三件套与配文由 albumSend 编排
+   *
+   * 「传一半失败」的口径在 runAlbumUpload 里（失败即停、不回滚、如实上报），
+   * 这里只负责把结果翻译成用户看得懂的提示 —— 已成功的那几张对方**已经收到了**，
+   * 说成「发送失败」会让用户重发整组造成重复。
+   */
+  const handleAlbumSend = useCallback(async (files: PickedFile[], caption: string) => {
+    if (!chatTarget || chatTarget.type === 'ai' || !session) { return; }
+    // 少于 2 张不成组：交给既有单发路径，行为与从前一致
+    if (files.length < ALBUM_MIN_ITEMS) {
+      setAlbumPicked(null);
+      if (files.length === 1) {
+        await handleFileSelect(files[0].file, 'image', files[0].localPath);
+      }
+      return;
+    }
+
+    setAlbumSending(true);
+    const groupId = crypto.randomUUID();
+    const plans = planAlbumUpload(files, groupId, caption);
+    const isFriend = isFriendLikeTarget(chatTarget);
+    const relatedId = isFriend ? chatTarget.data.friend_id : chatTarget.data.group_id;
+    const timestamp = new Date().toISOString();
+
+    const result = await runAlbumUpload(plans, async (plan) => {
+      setUploadingFile(plan.file.file);
+      const uploaded = isFriend
+        ? await uploadFriendFile(plan.file.file, relatedId, { id: plan.groupId, index: plan.index, count: plan.count }, plan.caption)
+        : await uploadGroupFile(plan.file.file, relatedId, { id: plan.groupId, index: plan.index, count: plan.count }, plan.caption);
+      if (!uploaded.success) {
+        throw new Error(uploaded.error || '上传失败');
+      }
+      await processUploadSuccess({
+        result: uploaded,
+        file: plan.file.file,
+        localPath: plan.file.localPath,
+        messageType: plan.file.file.type.startsWith('video/') ? 'video' : 'image',
+        timestamp,
+        session,
+        conversationType: isFriend ? 'friend' : 'group',
+        conversationId: isFriend ? getFriendConversationId(session.userId, relatedId) : relatedId,
+      });
+    });
+
+    setAlbumSending(false);
+    setAlbumPicked(null);
+    setUploadingFile(null);
+    resetUpload();
+
+    if (isFriend) { loadFriendMessages(); } else { loadGroupMessages(); }
+    const preview = caption.trim() || `[相册] ${result.succeeded} 张`;
+    updateLastMessage(isFriend ? 'friend' : 'group', relatedId, preview, 'image', timestamp);
+
+    // 传一半：明说已发出几张、对方已能看到，不笼统报「失败」
+    if (!result.complete) {
+      setMessageJumpNotice(describePartialFailure(result));
+    }
+  }, [chatTarget, session, uploadFriendFile, uploadGroupFile, loadFriendMessages, loadGroupMessages,
+    resetUpload, updateLastMessage, setMessageJumpNotice, handleFileSelect]);
+
   // ============================================
   // 选择处理
   // ============================================
@@ -996,6 +1077,12 @@ export function useMainPage() {
     handleSelectTarget,
     handleSendMessage,
     handleFileSelect,
+    // 相册（多选 → 合成面板 → 串行上传）
+    albumPicked,
+    albumSending,
+    handleFilesSelect,
+    handleAlbumSend,
+    handleAlbumCancel,
     handleCancelUpload,
     handleResizeStart,
 
