@@ -99,7 +99,7 @@ effort: high
    **只写"没做" / "后续再补" / "拿不到" 而无卡点说明 ⇒ Critical。**
    
    🔴 **「本机起不了模拟器」本身不构成合法理由**：那是已知的硬件级事实，
-   而本仓**另有既定的远程取图路径**（ai-host 远程编译服务器 + KVM 模拟器 + adb），
+   而本仓**另有既定的远程取图路径**（远程 Android 构建宿主 + KVM 模拟器 + adb），
    **2026-07-25 已实跑通过并留下 10 张真机截图**。
    完整流程见 [.claude/rules/mobile-screenshot.md](../../rules/mobile-screenshot.md)，
    样板产物见 `/Volumes/My Shared Files/shots/req24-mobile/`。

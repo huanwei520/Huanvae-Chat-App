@@ -91,7 +91,7 @@ Plan 执行完成 + 自检通过后，启动独立的 `blind-reviewer` Agent 进
   ② **取图受阻 + 具体到既定流程的第几步失败 + 报错**。
   **只写"没做"/"后续再补"/"拿不到" = FAIL。**
   🔴 **「本机起不了模拟器」不构成合法理由** —— 本仓另有既定远程路径
-  （ai-host 远程编译服务器 + KVM 模拟器 + adb，**2026-07-25 已实跑通过、留下 10 张真机截图**），
+  （远程 Android 构建宿主 + KVM 模拟器 + adb，**2026-07-25 已实跑通过、留下 10 张真机截图**），
   流程见 [.claude/rules/mobile-screenshot.md]，样板产物 `/Volumes/My Shared Files/shots/req24-mobile/`。
   **手机端截图还要核四样**：① 帧缓冲来源（`adb exec-out screencap -p`）②分辨率是移动形态
   ③ `adb logcat` 零崩溃且全文落盘 ④ 有 `mapping.md`（截图→需求→对应实码 file:line）。

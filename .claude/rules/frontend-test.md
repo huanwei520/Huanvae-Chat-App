@@ -698,6 +698,46 @@ await waitFor(() => {
 
 **反例（2026-07-17）**：`tests/components/OAuthClientsPanel.test.tsx:189` 用例"创建成功：关闭表单并以 SecretDisplay 展示 client_secret"，在 `await waitFor(SecretDisplay 出现)` 后同步断言 `queryByText('创建 OAuth 客户端').not.toBeInTheDocument()`。SUT `src/components/oauth/OAuthClientsPanel.tsx:389-397` 创建表单包在 `<AnimatePresence>` 内，`handleCreate` 成功（:307-313）同批 `setShowCreate(false)`+`setSecretInfo(result)`——SecretDisplay 出现不保证表单已卸载。全量 `pnpm test:run` 3 跑 2 红（run1/run3 同一用例，报错 `found <h3 class="oauth-create-title">创建 OAuth 客户端</h3>`），单文件跑绿。非产品 bug（`setShowCreate(false)` 确已调用），是测试竞态；修复=:189 断言移入 waitFor。（③补测前端批3 review 打回 V-1，org-review-1784277277 实测 2026-07-17）
 
+## 滚动 / 布局相关行为：vitest **结构性**测不出，必须真机验
+
+### jsdom 没有布局引擎 ⇒ `scrollHeight` / `clientHeight` / `getBoundingClientRect()` 恒 0
+
+这跟「动画冲突 vitest 测不出（`MotionGlobalConfig.skipAnimations = true`）」是**同族**的结构性盲区，
+但更隐蔽：动画那条至少还有 [tests/animation-conflict.test.ts](../../tests/animation-conflict.test.ts)
+这种静态扫描能兜底，而**滚动补偿类逻辑在单测里根本没有可观测行为** ——
+所有基于「内容高度变化了多少」的判断在 jsdom 里恒等于 0，代码怎么写测试都绿。
+
+**判断口径（任一命中即属"滚动/布局类"，vitest 绿不算数）**：
+
+- 读 `scrollHeight` / `clientHeight` / `scrollTop` / `offsetHeight` 做**算术**（差值、比例、补偿量）
+- `getBoundingClientRect()` 参与判断（位置对齐、可视性、是否贴边）
+- 依赖 `column-reverse` / `overflow-anchor` 等**由浏览器决定**的滚动锚定行为
+- 在 DOM 变更**前后**比较尺寸来决定滚到哪（prepend 保位、跳版补偿）
+- 依赖「React 提交 + 浏览器绘制」时序的滚动（`await setState` 之后立刻滚 = 滚在旧 DOM 上）
+
+**这类改动的验证要求**：
+
+1. 单测只能守住**触发时机**与**调用契约**（"该调的调了、不该调的没调"），
+   例如「离底超阈值才浮出按钮」「绝不调用 `scrollIntoView`」——这些不依赖真实布局，仍要写。
+2. **数值正确性必须真机复核**，走 [.claude/rules/mobile-screenshot.md](mobile-screenshot.md) 的
+   远程 Android 构建宿主 + KVM 模拟器 + adb 路径。交付里要写明「哪一半靠单测、哪一半靠真机」。
+3. 代码注释里**显式写下这条盲区**，免得后人看到全绿以为覆盖到了。
+
+### 反例（2026-08-11，一次任务里连炸两个，全部单测/lint/两个 subagent 门禁均未拦住）
+
+「查找→定位窗口化 + 一键回到最底部」这单，vitest **2930 全过**、`eslint --max-warnings 0` rc=0、
+两个 subagent 各自门禁全绿、连我自己给护栏做的**变异验证**也全绿 —— 真机一拍立刻炸两个：
+
+1. **点「回到最新」只重载数据不滚容器** —— 画面从第 241 条停在第 351 条，最新是第 400 条。
+   成因：组件设计成「传了 `onJumpToLatest` 就只调回调、自己不滚」，而该回调是**异步重载**。
+2. **窗口态下同一动作停在半路**（第 375–382 条）。⚠️ 这个还**归因错了一轮** ——
+   先判定是 prepend 保位 `useLayoutEffect` 把整段替换误判成"底部长出内容"，改完重建 APK 复验
+   **症状一模一样**；真因是时序：`await` 只等到 `setState` 被调用、React 尚未提交，滚的是**旧 DOM**，
+   且 `behavior:'smooth'` 的动画会被紧随其后的内容替换**打断**。
+   改法 = 有重载时等两帧（双 rAF）再滚，且该路径用**瞬时**滚。
+
+两个 bug 的共同点：**它们的失败形态在 jsdom 里没有任何可观测量**。
+
 ## 真后端 e2e（real-e2e，L2.5-web）—— `pnpm check` 之外的跨实例门
 
 `pnpm check`（= `pnpm typecheck && pnpm lint && pnpm test:run`）是 **L1/L2 快门**：vitest 是 jsdom + mock invoke，测不到真 HTTP/WS 帧与跨实例广播（真 webview/真 TLS 更测不到，见本文件顶部"所有 X 必经 Y"节）。**这一层保持不变**。涉及跨实例语义的改动，另过真后端 e2e 门。
