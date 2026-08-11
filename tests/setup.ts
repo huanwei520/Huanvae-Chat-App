@@ -9,11 +9,41 @@
 
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
+import { configure } from '@testing-library/react';
 import { MotionGlobalConfig } from 'framer-motion';
 
 // Skip animation rendering but preserve component state logic
 // (variants, exit callbacks, AnimatePresence mount/unmount timing)
 MotionGlobalConfig.skipAnimations = true;
+
+// ── waitFor / findBy* 的等待预算（asyncUtilTimeout）──
+//
+// RTL 默认 1000ms（`@testing-library/dom/dist/config.js:15`）。它是一条**固定墙钟死线**：
+// `waitFor` 真定时器分支只挂一个 `setTimeout(handleTimeout, timeout)`
+// （`@testing-library/dom/dist/wait-for.js:40`），到点即判负。
+//
+// 而它等待的那件事——AnimatePresence 退场卸载——耗时是**随 CPU 争用线性放大**的：
+// 一次卸载要走 rAF 帧（motion 的 frameloop 由 `requestAnimationFrame` 驱动，
+// `motion-dom/dist/es/frameloop/frame.mjs:4`；vitest 的 jsdom 默认
+// `pretendToBeVisual: true` 所以 rAF 存在）→ React 提交 → DOM 变更 → MutationObserver。
+// 「工作量随争用放大、死线不随争用放大」⇒ 全量高负载时尾部必然穿透死线。
+//
+// 本机实测（2026-08-11，8 vCPU + virtiofs 共享卷）同一处退场卸载耗时：
+//   空载单文件跑：22.5 / 28.9 / 31.8 / 26.7 / 21.0 ms      （对 1000ms 有 ~35x 余量）
+//   全量并发负载：67.5 / 72.0 / 78.9 / 87.6 / 103.2 / 105.6 / 246.2 / **1662.1** ms
+// 最后那个 1662.1ms 已越过 1000ms 死线 —— 这就是 OAuthClientsPanel
+// 「创建成功…」用例在全量下偶发翻红、单文件恒绿的**唯一**成因（非产品 bug：
+// `OAuthClientsPanel.tsx` 的 `setShowCreate(false)` 确实调了，只是卸载没赶上死线）。
+//
+// 取 5000ms = 实测负载峰值(1662ms)的 ~3x 余量，且仍 < `vitest.config.ts` 的
+// `testTimeout: 10000`（失败用例第一个 waitFor 超时即抛出，单个用例最多付一次
+// 5s，不会顶穿 testTimeout 而丢掉有信息量的报错）。
+//
+// 🔴 这只放宽「异步卸载要等多久」的时间预算，**不弱化任何断言**：
+//    - 绿路径零成本 —— waitFor 一旦回调通过就立即返回（50ms 轮询 + MutationObserver），
+//      不会因为死线变长而变慢（实测全量 `tests` 段耗时改前后同量级）；
+//    - 只有**真正该失败**的用例才多等，结论不变、只是报错来得晚一些。
+configure({ asyncUtilTimeout: 5000 });
 
 // ============================================
 // Mock Tauri API

@@ -92,7 +92,7 @@ describe('StockSearchBox', () => {
     const onSelect = vi.fn();
     render(<StockSearchBox api={api} onSelect={onSelect} />);
     fireEvent.change(screen.getByPlaceholderText('搜索股票 / ETF'), { target: { value: '茅台' } });
-    const item = await screen.findByText('贵州茅台', {}, { timeout: 2000 });
+    const item = await screen.findByText('贵州茅台');
     fireEvent.click(item);
     expect(onSelect).toHaveBeenCalledWith({ symbol: '600519', name: '贵州茅台', market: 'cn', display: '贵州茅台' });
   });
@@ -107,7 +107,7 @@ describe('StockSearchBox', () => {
     render(<StockSearchBox api={api} onSelect={onSelect} />);
     const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: '9' } });
-    await screen.findByText('平安银行', {}, { timeout: 2000 });
+    await screen.findByText('平安银行');
 
     // 无高亮 → ↓ 落首项，再 ↓ 到第二项；aria-activedescendant 指向该项
     fireEvent.keyDown(input, { key: 'ArrowDown' });
@@ -130,7 +130,7 @@ describe('StockSearchBox', () => {
     render(<StockSearchBox api={api} onSelect={vi.fn()} />);
     const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: '茅台' } });
-    await screen.findByRole('listbox', {}, { timeout: 2000 });
+    await screen.findByRole('listbox');
     fireEvent.keyDown(input, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
     expect(screen.getByRole('combobox')).toBeInTheDocument();
@@ -197,7 +197,7 @@ describe('总览搜索结果按 market 路由分流（回归：ETF 曾被误开�
     const api = fakeApi({ '/api/stocks/search': { results: [{ symbol: '161226', name: '国投白银LOF', market: 'etf', display: '国投白银LOF' }] } });
     render(<OverviewView api={api} />);
     fireEvent.change(screen.getByPlaceholderText('搜索股票 / ETF'), { target: { value: '161226' } });
-    const item = await screen.findByText('国投白银LOF', {}, { timeout: 2000 });
+    const item = await screen.findByText('国投白银LOF');
     fireEvent.click(item);
     expect(useStockNav.getState().view).toBe('etf');
     expect(useStockNav.getState().selection).toEqual({ symbol: '161226', name: '国投白银LOF', market: 'cn' });
@@ -207,7 +207,7 @@ describe('总览搜索结果按 market 路由分流（回归：ETF 曾被误开�
     const api = fakeApi({ '/api/stocks/search': { results: [{ symbol: '600519', name: '贵州茅台', market: 'cn', display: '贵州茅台' }] } });
     render(<OverviewView api={api} />);
     fireEvent.change(screen.getByPlaceholderText('搜索股票 / ETF'), { target: { value: '600519' } });
-    const item = await screen.findByText('贵州茅台', {}, { timeout: 2000 });
+    const item = await screen.findByText('贵州茅台');
     fireEvent.click(item);
     expect(useStockNav.getState().view).toBe('stock');
     expect(useStockNav.getState().selection).toEqual({ symbol: '600519', name: '贵州茅台', market: 'cn' });
@@ -217,7 +217,7 @@ describe('总览搜索结果按 market 路由分流（回归：ETF 曾被误开�
     const api = fakeApi({ '/api/stocks/search': { results: [{ symbol: 'AAPL', name: '苹果', market: 'us', display: '苹果 AAPL' }] } });
     render(<OverviewView api={api} />);
     fireEvent.change(screen.getByPlaceholderText('搜索股票 / ETF'), { target: { value: 'AAPL' } });
-    const item = await screen.findByText('苹果 AAPL', {}, { timeout: 2000 });
+    const item = await screen.findByText('苹果 AAPL');
     fireEvent.click(item);
     expect(useStockNav.getState().view).toBe('stock');
     expect(useStockNav.getState().selection).toEqual({ symbol: 'AAPL', name: '苹果', market: 'us' });
@@ -231,7 +231,7 @@ describe('总览手动排序触发失败反馈（Info-2：POST /ranking/run 失�
     render(<OverviewView api={api} />);
     fireEvent.click(screen.getByLabelText('手动触发排序'));
     // ErrorToast 复用 App 现有组件，POST 失败后 runError 置位 → 提示出现
-    expect(await screen.findByText('触发排序失败', {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByText('触发排序失败')).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/api/stocks/ranking/run', {});
   });
 });
