@@ -264,15 +264,39 @@ async fn fetch_shard(
             if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
                 return Err(format!("分片响应状态非 206（实际 {}）", resp.status()));
             }
-            resp.bytes()
-                .await
-                .map_err(|e| format!("分片读取失败: {e}"))
+            // 🔴 必须**流式**读，不能 `resp.bytes()` 一次性等整片。
+            //
+            // `resp.bytes()` 会等这一片**全部**下完才返回，于是 `progress` 在整片完成前
+            // 一直是 0；而进度上报器每 200ms 只是读 `progress` ⇒ 用户看到的就是
+            // 「一直 0%，然后突然完成」（八片几乎同时完成时尤其像"卡住后瞬间跳完"）。
+            // 整包路径（下方 download_whole）本来就是流式的，两条路必须一致。
+            use futures_util::StreamExt;
+            let mut stream = resp.bytes_stream();
+            let mut part: Vec<u8> = Vec::new();
+            loop {
+                match stream.next().await {
+                    Some(Ok(chunk)) => {
+                        // 边收边计：这才是「实时进度」的来源
+                        progress.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                        part.extend_from_slice(&chunk);
+                    }
+                    Some(Err(e)) => {
+                        // 本次尝试中断：`part` 会被丢弃并重下这一段，
+                        // 故必须把本次已计入的字节**回滚**，否则重试会重复计数
+                        // ⇒ progress 超过 content_length ⇒ 百分比冲过 100%。
+                        progress.fetch_sub(part.len() as u64, Ordering::Relaxed);
+                        return Err(format!("分片读取失败: {e}"));
+                    }
+                    None => break,
+                }
+            }
+            Ok::<Vec<u8>, String>(part)
         }
         .await;
 
         match result {
             Ok(bytes) => {
-                progress.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                // 注意：progress 已在流式循环里逐 chunk 累加过，这里**不能**再加一次
                 buf.extend_from_slice(&bytes);
                 if buf.len() >= want {
                     break;

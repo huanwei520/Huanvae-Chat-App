@@ -62,6 +62,26 @@ const APK_MARKER_FILE_NAME: &str = "huanvae-chat-update.pending.json";
 #[cfg(target_os = "android")]
 const UI_VISIBILITY_EVENT: &str = "apk-ui-visibility";
 
+/// APK 分片并发数。
+///
+/// 与桌面 updater_download.rs 同一思路（Range 并发），但**实现不同**：
+/// 桌面把每片整块存在内存里，APK 有 120MB+，八片同时驻留会在手机上 OOM ⇒
+/// 这里每片各自 seek 到自己的偏移**直接写盘**，内存只留单个 chunk。
+#[cfg(target_os = "android")]
+const APK_SHARD_COUNT: u64 = 8;
+
+/// 小于该体积不分片：八条连接的握手/TLS/慢启动开销盖过收益（浏览器厂商同样结论）。
+#[cfg(target_os = "android")]
+const APK_MIN_SHARD_TOTAL: u64 = 4 * 1024 * 1024;
+
+/// 单片超时。整包超时不设——大包在弱网上本就慢，按片超时才不会误杀。
+#[cfg(target_os = "android")]
+const APK_SHARD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// 进度上报间隔：分片是并发的，逐 chunk 报会把事件打爆，改为定时读累计值。
+#[cfg(target_os = "android")]
+const APK_PROGRESS_TICK: std::time::Duration = std::time::Duration::from_millis(200);
+
 // ============================================
 // 待安装状态
 // ============================================
@@ -168,6 +188,200 @@ pub async fn fetch_update_json(url: String, timeout_secs: u64) -> Result<String,
     Ok(text)
 }
 
+#[cfg(target_os = "android")]
+/// 下载完成后的收尾（**分片路径与单连接路径共用**）
+///
+/// 抽出来是因为接分片时必须保证两条路的收尾**完全一致** ——
+/// 收尾里的三件事（写标记 / 判可见 / 后台发通知）正是「切后台回来要重下」那个缺陷的修复，
+/// 若只有单连接路径有、分片路径漏掉，那个缺陷就会在安卓上原样复发。
+fn finish_apk_download(
+    file_path_str: String,
+    marker_path: std::path::PathBuf,
+    version: String,
+    downloaded: u64,
+    app: &AppHandle,
+) -> Result<String, String> {
+    println!(
+        "[Android Update] ✓ 下载完成: {} ({} bytes)",
+        file_path_str, downloaded
+    );
+
+
+    // 1) 落「待安装」标记（跨进程存活）
+    let pending = PendingApkInstall {
+        version: version.clone(),
+        path: file_path_str.clone(),
+        size: downloaded,
+    };
+    match serde_json::to_string(&pending) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&marker_path, json) {
+                // 标记写失败不影响本次安装（前台路径仍能直接拉起安装器），
+                // 只是丢掉「重启后免重下」的能力 —— 如实报错，不静默。
+                eprintln!("[Android Update] 写待安装标记失败: {}", e);
+            } else {
+                println!("[Android Update] ✓ 已写待安装标记: {:?}", marker_path);
+            }
+        }
+        Err(e) => eprintln!("[Android Update] 序列化待安装标记失败: {}", e),
+    }
+
+    // 2) 后台则发通知把用户拉回前台（后台直接拉安装器会被系统静默拦掉）
+    if UI_VISIBLE.load(std::sync::atomic::Ordering::Relaxed) {
+        println!("[Android Update] webview 可见，交由前端直接拉起安装器");
+    } else {
+        println!("[Android Update] webview 不可见，发通知提醒用户回到应用安装");
+        // 🔴 另起线程发：`show()` 是一次同步 JNI 往返，要等 Android 主线程处理。
+        //    应用正处于后台（很可能已经 cached），主线程什么时候被调度不由我们说了算。
+        //    若在这里同步等，本命令就可能迟迟不返回 ⇒ 前端的 invoke 也就迟迟不 resolve
+        //    ⇒ 又变回「卡在满进度条」。通知是尽力而为的旁路，绝不能挡住主返回路径。
+        let app_for_notify = app.clone();
+        let version_for_notify = version.clone();
+        std::thread::spawn(move || {
+            notify_download_complete(&app_for_notify, &version_for_notify);
+        });
+    }
+
+    Ok(file_path_str)
+}
+
+#[cfg(target_os = "android")]
+/// 探测服务端是否支持 Range，并拿到总长。
+///
+/// 用 HEAD 而不是「先 GET 再看头」：后者会把整个响应体也拉起来，探测完还得丢掉。
+/// 任何一步不确定就返回 None ⇒ 调用方回退到单连接顺序流（**能用**优先于**快**）。
+async fn probe_apk_ranges(client: &reqwest::Client, url: &str) -> Option<u64> {
+    let resp = client.head(url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let accepts = resp
+        .headers()
+        .get(reqwest::header::ACCEPT_RANGES)?
+        .to_str()
+        .ok()?
+        .to_ascii_lowercase();
+    if !accepts.contains("bytes") {
+        return None;
+    }
+    resp.content_length().filter(|n| *n > 0)
+}
+
+#[cfg(target_os = "android")]
+/// 分片并发下载到文件：每片 seek 到自己的偏移直接写盘，内存只留单个 chunk。
+///
+/// 返回实际写入字节数。任一分片失败即整体失败 —— APK 少一段就是坏包，
+/// 没有「传一半也能用」的余地（与相册那条「失败即停但保留已成功项」的口径不同，
+/// 因为这里的产物是**单个文件**而不是 N 条独立消息）。
+async fn download_apk_sharded(
+    client: &reqwest::Client,
+    url: &str,
+    total: u64,
+    file_path: &std::path::Path,
+    app: &AppHandle,
+) -> Result<u64, String> {
+    use futures_util::StreamExt;
+    use std::io::{Seek, SeekFrom, Write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    // 预分配：各片要按偏移写入，文件必须先有足够长度
+    {
+        let f = std::fs::File::create(file_path).map_err(|e| format!("创建文件失败: {e}"))?;
+        f.set_len(total).map_err(|e| format!("预分配失败: {e}"))?;
+    }
+
+    let progress = Arc::new(AtomicU64::new(0));
+    let chunk = total.div_ceil(APK_SHARD_COUNT);
+
+    // 进度上报器：定时读累计值，保住原有的 apk-download-progress 事件契约
+    let reporter = {
+        let progress = Arc::clone(&progress);
+        let app = app.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(APK_PROGRESS_TICK).await;
+                let done = progress.load(Ordering::Relaxed);
+                let percent = (done * 100).checked_div(total).unwrap_or(0) as u8;
+                let _ = app.emit("apk-download-progress", (percent, done, total));
+                if done >= total {
+                    break;
+                }
+            }
+        })
+    };
+
+    let mut tasks = Vec::new();
+    for i in 0..APK_SHARD_COUNT {
+        let start = i * chunk;
+        if start >= total {
+            break;
+        }
+        let end = ((i + 1) * chunk - 1).min(total - 1);
+        let client = client.clone();
+        let url = url.to_string();
+        let path = file_path.to_path_buf();
+        let progress = Arc::clone(&progress);
+
+        tasks.push(tokio::spawn(async move {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .map_err(|e| format!("分片打开文件失败: {e}"))?;
+            file.seek(SeekFrom::Start(start))
+                .map_err(|e| format!("分片定位失败: {e}"))?;
+
+            let resp = client
+                .get(&url)
+                .header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
+                .timeout(APK_SHARD_TIMEOUT)
+                .send()
+                .await
+                .map_err(|e| format!("分片请求失败: {e}"))?;
+            // 必须 206；200 说明服务端忽略了 Range，会把整包塞回来、写坏偏移
+            if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                return Err(format!("分片响应状态非 206（实际 {}）", resp.status()));
+            }
+
+            let mut stream = resp.bytes_stream();
+            while let Some(item) = stream.next().await {
+                let bytes = item.map_err(|e| format!("分片读取失败: {e}"))?;
+                file.write_all(&bytes)
+                    .map_err(|e| format!("分片写入失败: {e}"))?;
+                // 边收边计：进度的唯一来源（不能等整片下完再加，那样会「0% 然后突然完成」）
+                progress.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            }
+            file.flush().map_err(|e| format!("分片刷新失败: {e}"))?;
+            Ok::<(), String>(())
+        }));
+    }
+
+    let mut first_err: Option<String> = None;
+    for t in tasks {
+        match t.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(format!("分片任务panic: {e}"));
+                }
+            }
+        }
+    }
+    reporter.abort();
+
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+    let done = progress.load(Ordering::Relaxed);
+    let _ = app.emit("apk-download-progress", (100u8, done, total));
+    Ok(done)
+}
+
 /// 下载 APK 文件（仅 Android）
 ///
 /// 下载 APK 到应用缓存目录（无需权限），并通过事件发送进度。
@@ -191,6 +405,49 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
     ensure_ui_visibility_listener(&app);
 
     let client = reqwest::Client::new();
+
+    // 落盘路径要在选择下载方式**之前**准备好：分片路径需要先预分配文件再并发按偏移写。
+    let cache_dir = app
+        .path()
+        .cache_dir()
+        .map_err(|e| format!("获取缓存目录失败: {}", e))?;
+    let file_path = cache_dir.join(APK_FILE_NAME);
+    let file_path_str = file_path.to_string_lossy().to_string();
+    println!("[Android Update] 保存路径: {}", file_path_str);
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        eprintln!("[Android Update] 创建缓存目录失败（可能已存在）: {}", e);
+    }
+    // 先把上一轮的「待安装」标记清掉：接下来要把同名 APK 截断重写，
+    // 标记若留着就会短暂地指向一个半截文件。
+    let marker_path = cache_dir.join(APK_MARKER_FILE_NAME);
+    let _ = std::fs::remove_file(&marker_path);
+
+    // ── 分片并发下载（v1.1.23 桌面已有，安卓此前一直是单连接顺序流 —— 本次补上）──
+    // 探测失败 / 服务端不支持 Range / 包太小 ⇒ 回退到原来的单连接路径。
+    // **能用优先于快**：分片只是加速手段，不能因为它让下载变得不可用。
+    if let Some(total) = probe_apk_ranges(&client, &url).await {
+        if total >= APK_MIN_SHARD_TOTAL {
+            println!(
+                "[Android Update] 服务端支持 Range，改用 {} 段并发下载（{} bytes）",
+                APK_SHARD_COUNT, total
+            );
+            match download_apk_sharded(&client, &url, total, &file_path, &app).await {
+                Ok(done) => {
+                    println!("[Android Update] ✓ 分片下载完成: {} bytes", done);
+                    return finish_apk_download(file_path_str, marker_path, version, done, &app);
+                }
+                Err(e) => {
+                    // 分片失败不直接判死：回退单连接再试一次，用户拿到的是「慢但能成」
+                    eprintln!("[Android Update] 分片下载失败，回退单连接: {}", e);
+                }
+            }
+        } else {
+            println!("[Android Update] 包体 {} bytes 小于分片阈值，走单连接", total);
+        }
+    } else {
+        println!("[Android Update] 服务端未声明 Range 支持，走单连接");
+    }
+
     println!("[Android Update] 发送下载请求...");
     let response = client
         .get(&url)
@@ -211,27 +468,6 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
     let total = response.content_length().unwrap_or(0);
     println!("[Android Update] 文件大小: {} bytes", total);
     let mut downloaded: u64 = 0;
-
-    // 使用应用缓存目录（无需任何权限）
-    // tauri-plugin-android-package-install 会自动处理 FileProvider
-    let cache_dir = app
-        .path()
-        .cache_dir()
-        .map_err(|e| format!("获取缓存目录失败: {}", e))?;
-    let file_path = cache_dir.join(APK_FILE_NAME);
-    let file_path_str = file_path.to_string_lossy().to_string();
-    println!("[Android Update] 保存路径: {}", file_path_str);
-
-    // 确保缓存目录存在
-    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-        eprintln!("[Android Update] 创建缓存目录失败（可能已存在）: {}", e);
-        // 继续尝试，目录可能已存在
-    }
-
-    // 先把上一轮的「待安装」标记清掉：接下来要把同名 APK 截断重写，
-    // 标记若留着就会短暂地指向一个半截文件。
-    let marker_path = cache_dir.join(APK_MARKER_FILE_NAME);
-    let _ = std::fs::remove_file(&marker_path);
 
     // 创建文件
     println!("[Android Update] 创建文件...");
@@ -285,44 +521,7 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
         file_path_str, downloaded
     );
 
-    // ---- 完成收尾：这三步全部不经过前端 JS ----
-
-    // 1) 落「待安装」标记（跨进程存活）
-    let pending = PendingApkInstall {
-        version: version.clone(),
-        path: file_path_str.clone(),
-        size: downloaded,
-    };
-    match serde_json::to_string(&pending) {
-        Ok(json) => {
-            if let Err(e) = std::fs::write(&marker_path, json) {
-                // 标记写失败不影响本次安装（前台路径仍能直接拉起安装器），
-                // 只是丢掉「重启后免重下」的能力 —— 如实报错，不静默。
-                eprintln!("[Android Update] 写待安装标记失败: {}", e);
-            } else {
-                println!("[Android Update] ✓ 已写待安装标记: {:?}", marker_path);
-            }
-        }
-        Err(e) => eprintln!("[Android Update] 序列化待安装标记失败: {}", e),
-    }
-
-    // 2) 后台则发通知把用户拉回前台（后台直接拉安装器会被系统静默拦掉）
-    if UI_VISIBLE.load(std::sync::atomic::Ordering::Relaxed) {
-        println!("[Android Update] webview 可见，交由前端直接拉起安装器");
-    } else {
-        println!("[Android Update] webview 不可见，发通知提醒用户回到应用安装");
-        // 🔴 另起线程发：`show()` 是一次同步 JNI 往返，要等 Android 主线程处理。
-        //    应用正处于后台（很可能已经 cached），主线程什么时候被调度不由我们说了算。
-        //    若在这里同步等，本命令就可能迟迟不返回 ⇒ 前端的 invoke 也就迟迟不 resolve
-        //    ⇒ 又变回「卡在满进度条」。通知是尽力而为的旁路，绝不能挡住主返回路径。
-        let app_for_notify = app.clone();
-        let version_for_notify = version.clone();
-        std::thread::spawn(move || {
-            notify_download_complete(&app_for_notify, &version_for_notify);
-        });
-    }
-
-    Ok(file_path_str)
+    finish_apk_download(file_path_str, marker_path, version, downloaded, &app)
 }
 
 /// 下载完成通知（仅在应用不可见时发）
