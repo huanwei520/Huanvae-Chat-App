@@ -343,6 +343,8 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
   { name: 'replyPreview', path: 'chat/shared/replyPreview', category: 'services', description: '消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位；群聊+私聊共用）' },
   { name: 'AlbumMessage', path: 'chat/shared/AlbumMessage', category: 'chat', description: '相册（媒体组）气泡内容：Telegram 风格网格 + 整组配文在网格下方；格高按 aspect-ratio 预留、缺口按 expectedCount 占位（跨分页不重排）；每格复用 FileMessageContent 以免新增显示点' },
+  { name: 'AlbumComposer', path: 'chat/shared/AlbumComposer', category: 'chat', description: '相册合成面板（Telegram 风格）：多选后缩略图横排 + 可逐张剔除 + 整组配文，确认后交给串行上传；超过上限显式提示不静默截断；桌面/移动共用同一组件' },
+  { name: 'albumSend', path: 'chat/shared/albumSend', category: 'services', description: '相册发送编排纯逻辑（位次分配 + 配文只挂 index=0 + 串行上传 + 传一半失败即停并如实上报）' },
   { name: 'mediaGroup', path: 'chat/shared/mediaGroup', category: 'services', description: '媒体组（相册）聚合纯逻辑（N 条独立消息按 media_group_id 折叠成一个渲染节点，index 升序、保留 expectedCount 供跨分页占位、caption 只认 index=0；群聊+私聊共用）' },
   { name: 'conversationKey', path: 'chat/shared/conversationKey', category: 'services', description: '会话身份 key 纯逻辑（草稿与回复草稿的归属校验共用同一口径，key 格式单一真值源）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },

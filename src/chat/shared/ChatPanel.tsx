@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Session } from '../../types/session';
 import type { Friend, Group, ChatTarget, Message } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
-import type { AttachmentType } from './FileAttachButton';
+import type { AttachmentType, PickedFile } from './FileAttachButton';
 import type { UploadProgress } from '../../hooks/useFileUpload';
 
 import { useState, useCallback } from 'react';
@@ -32,6 +32,7 @@ import { ChatMenuButton } from './ChatMenu';
 import { ConversationShelf } from './ConversationShelf';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
+import { AlbumComposer } from './AlbumComposer';
 import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { useChatStore, useProfileViewStore } from '../../stores';
@@ -51,7 +52,6 @@ interface ChatPanelProps {
   friendMessages: Message[];
   groupMessages: GroupMessage[];
   isLoading: boolean;
-  isSending: boolean;
   totalMessageCount: number;
 
   // 加载更多
@@ -72,6 +72,15 @@ interface ChatPanelProps {
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
   onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
+
+  // 相册（多选 → 合成面板 → 串行上传）；不传则附件按钮退化为单选，行为与从前一致
+  onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
+  /** 待确认的相册文件；null = 面板关闭 */
+  albumPicked?: PickedFile[] | null;
+  /** 整组发送中（禁用面板交互） */
+  albumSending?: boolean;
+  onAlbumSend?: (files: PickedFile[], caption: string) => void;
+  onAlbumCancel?: () => void;
 
   // 文件上传
   uploading: boolean;
@@ -174,7 +183,6 @@ export function ChatPanel({
   friendMessages,
   groupMessages,
   isLoading,
-  isSending,
   totalMessageCount,
   hasMore,
   loadingMore,
@@ -187,6 +195,11 @@ export function ChatPanel({
   onMessageChange,
   onSendMessage,
   onFileSelect,
+  onFilesSelect,
+  albumPicked,
+  albumSending,
+  onAlbumSend,
+  onAlbumCancel,
   uploading,
   uploadingFile,
   uploadProgress,
@@ -486,7 +499,7 @@ export function ChatPanel({
             onMessageChange={onMessageChange}
             onSendMessage={onSendMessage}
             onFileSelect={onFileSelect}
-            isSending={isSending}
+            onFilesSelect={onFilesSelect}
             uploading={uploading}
             uploadingFile={uploadingFile}
             uploadProgress={uploadProgress}
@@ -494,6 +507,16 @@ export function ChatPanel({
           />
         )}
       </AnimatePresence>
+
+      {/* 相册合成面板：多选后在此配文再发（面板自身 portal 到 body） */}
+      {albumPicked && albumPicked.length > 0 && onAlbumSend && onAlbumCancel && (
+        <AlbumComposer
+          picked={albumPicked}
+          onSend={onAlbumSend}
+          onCancel={onAlbumCancel}
+          sending={albumSending}
+        />
+      )}
 
       {chatTarget.type === 'ai' && onVoiceProfileSelect && (
         <VoiceProfileManager

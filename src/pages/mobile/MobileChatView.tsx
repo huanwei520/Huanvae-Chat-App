@@ -12,7 +12,7 @@ import { motion } from 'framer-motion';
 import type { Session } from '../../types/session';
 import type { ChatTarget, Message, AIConversation } from '../../types/chat';
 import type { GroupMessage } from '../../api/groupMessages';
-import type { AttachmentType } from '../../chat/shared/FileAttachButton';
+import type { AttachmentType, PickedFile } from '../../chat/shared/FileAttachButton';
 import type { UploadProgress } from '../../hooks/useFileUpload';
 
 import { ChatMessages } from '../../chat/friend/ChatMessages';
@@ -28,6 +28,7 @@ import { ConversationShelf } from '../../chat/shared/ConversationShelf';
 import { BotBadge } from '../../components/common/BotBadge';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
+import { AlbumComposer } from '../../chat/shared/AlbumComposer';
 import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { useProfileViewStore } from '../../stores';
@@ -60,7 +61,6 @@ interface MobileChatViewProps {
   friendMessages: Message[];
   groupMessages: GroupMessage[];
   isLoading: boolean;
-  isSending: boolean;
 
   // 加载更多
   hasMore: boolean;
@@ -80,6 +80,15 @@ interface MobileChatViewProps {
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
   onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
+
+  // 相册（多选 → 合成面板 → 串行上传）；不传则附件按钮退化为单选，行为与从前一致
+  onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
+  /** 待确认的相册文件；null = 面板关闭 */
+  albumPicked?: PickedFile[] | null;
+  /** 整组发送中（禁用面板交互） */
+  albumSending?: boolean;
+  onAlbumSend?: (files: PickedFile[], caption: string) => void;
+  onAlbumCancel?: () => void;
 
   // 文件上传
   uploading: boolean;
@@ -164,7 +173,6 @@ export function MobileChatView({
   friendMessages,
   groupMessages,
   isLoading,
-  isSending: _isSending,
   hasMore,
   loadingMore,
   onLoadMore,
@@ -176,6 +184,11 @@ export function MobileChatView({
   onMessageChange,
   onSendMessage,
   onFileSelect,
+  onFilesSelect,
+  albumPicked,
+  albumSending,
+  onAlbumSend,
+  onAlbumCancel,
   uploading,
   uploadingFile,
   uploadProgress,
@@ -458,6 +471,7 @@ export function MobileChatView({
             onMessageChange={onMessageChange}
             onSendMessage={onSendMessage}
             onFileSelect={onFileSelect}
+            onFilesSelect={onFilesSelect}
             uploading={uploading}
             uploadingFile={uploadingFile}
             uploadProgress={uploadProgress}
@@ -465,6 +479,16 @@ export function MobileChatView({
           />
         )}
       </div>
+
+      {/* 相册合成面板：与桌面端共用同一组件（本仓两端对齐是硬指标） */}
+      {albumPicked && albumPicked.length > 0 && onAlbumSend && onAlbumCancel && (
+        <AlbumComposer
+          picked={albumPicked}
+          onSend={onAlbumSend}
+          onCancel={onAlbumCancel}
+          sending={albumSending}
+        />
+      )}
 
       {chatTarget.type === 'ai' && onVoiceProfileSelect && (
         <VoiceProfileManager

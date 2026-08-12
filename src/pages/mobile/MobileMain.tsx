@@ -504,7 +504,6 @@ export function MobileMain() {
               friendMessages={page.friendMessages}
               groupMessages={page.groupMessages}
               isLoading={page.isLoading}
-              isSending={page.isSending}
               hasMore={page.hasMore}
               loadingMore={page.loadingMore}
               onLoadMore={page.handleLoadMore}
@@ -516,6 +515,11 @@ export function MobileMain() {
               onMessageChange={page.setMessageInput}
               onSendMessage={page.handleSendMessage}
               onFileSelect={page.handleFileSelect}
+              onFilesSelect={page.handleFilesSelect}
+              albumPicked={page.albumPicked}
+              albumSending={page.albumSending}
+              onAlbumSend={page.handleAlbumSend}
+              onAlbumCancel={page.handleAlbumCancel}
               uploading={page.uploading}
               uploadingFile={page.uploadingFile}
               uploadProgress={page.progress}

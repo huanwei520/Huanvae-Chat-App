@@ -235,7 +235,6 @@ export function Main() {
               friendMessages={page.friendMessages}
               groupMessages={page.groupMessages}
               isLoading={page.isLoading}
-              isSending={page.isSending}
               totalMessageCount={page.totalMessageCount}
               hasMore={page.hasMore}
               loadingMore={page.loadingMore}
@@ -248,6 +247,11 @@ export function Main() {
               onMessageChange={page.setMessageInput}
               onSendMessage={page.handleSendMessage}
               onFileSelect={page.handleFileSelect}
+              onFilesSelect={page.handleFilesSelect}
+              albumPicked={page.albumPicked}
+              albumSending={page.albumSending}
+              onAlbumSend={page.handleAlbumSend}
+              onAlbumCancel={page.handleAlbumCancel}
               uploading={page.uploading}
               uploadingFile={page.uploadingFile}
               uploadProgress={page.progress}

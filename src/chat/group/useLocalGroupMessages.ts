@@ -140,8 +140,6 @@ export function useLocalGroupMessages(groupId: string | null) {
   const setGroupSpecialCares = useChatStore((s) => s.setGroupSpecialCares);
   // D7 群内私有备注：进群时把本群备注集拉进 store，供气泡/成员列表/已读名单显示替换用。
   const setGroupMemberRemarks = useChatStore((s) => s.setGroupMemberRemarks);
-  // sending 状态保留用于向后兼容，但不再使用发送锁
-  const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   // 上次渲染的 groupId —— 用于"切换群组时同步重置 messages"（见下方 reset 块）
   const [prevGroupId, setPrevGroupId] = useState<string | null>(groupId);
@@ -1055,7 +1053,6 @@ export function useLocalGroupMessages(groupId: string | null) {
     loadingMore,
     hasMore,
     error,
-    sending,
     syncing,
     loadMessages,
     loadMoreMessages,

@@ -154,8 +154,6 @@ export function useLocalFriendMessages(friendId: string | null) {
   // 窗口态下「更新方向还有没有」。非窗口态恒 false —— 非窗口态的列表本就顶到最新。
   const [hasNewer, setHasNewer] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // sending 状态保留用于向后兼容，但不再使用发送锁
-  const [sending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   // 上次渲染的 friendId —— 用于"切换好友时同步重置 messages"（见下方 reset 块）
   const [prevFriendId, setPrevFriendId] = useState<string | null>(friendId);
@@ -1126,7 +1124,6 @@ export function useLocalFriendMessages(friendId: string | null) {
     loadingMore,
     hasMore,
     error,
-    sending,
     syncing,
     loadMessages,
     loadMoreMessages,

@@ -14,7 +14,7 @@ import { useRef, useCallback, useEffect, useState, useMemo, useLayoutEffect } fr
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { readFile } from '@tauri-apps/plugin-fs';
-import { FileAttachButton, type AttachmentType, getMimeType } from './FileAttachButton';
+import { FileAttachButton, type AttachmentType, type PickedFile, getMimeType } from './FileAttachButton';
 import { UploadProgress } from './UploadProgress';
 import { panelFadeTransition } from './animations';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
@@ -51,8 +51,13 @@ interface ChatInputAreaProps {
   onMessageChange: (value: string) => void;
   onSendMessage: () => void;
   onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
-  /** @deprecated 不再使用发送锁定逻辑 */
-  isSending?: boolean;
+  /**
+   * 多选图片/视频回调 —— 交给相册合成面板。
+   *
+   * 可选：**不传时 FileAttachButton 退化为单选**（`allowMultiple` 恒 false），
+   * 单发路径逐字节不变。这是相册接入口对既有行为唯一的开关。
+   */
+  onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
   uploading: boolean;
   uploadingFile: File | null;
   uploadProgress: UploadProgressType | null;
@@ -89,7 +94,7 @@ export function ChatInputArea({
   onMessageChange,
   onSendMessage,
   onFileSelect,
-  // isSending 已废弃，不再使用发送锁定逻辑
+  onFilesSelect,
   uploading,
   uploadingFile,
   uploadProgress,
@@ -509,6 +514,7 @@ export function ChatInputArea({
         <FileAttachButton
           disabled={uploading}
           onFileSelect={onFileSelect}
+          onFilesSelect={onFilesSelect}
         />
 
         <textarea

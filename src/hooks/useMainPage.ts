@@ -44,6 +44,7 @@ import { scrollMessageIntoView } from '../chat/shared/scrollMessageIntoView';
 import { draftKeyOf } from '../chat/shared/conversationKey';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
+import type { MediaGroupMeta } from './useFileUpload';
 import { useChatActions } from './useChatActions';
 import { useMultiSelect } from './useMultiSelect';
 import { getPendingRequests } from '../api/friends';
@@ -113,10 +114,28 @@ interface UploadSuccessOptions {
   session: { userId: string; profile: { user_nickname: string; user_avatar_url: string | null } };
   conversationType: 'friend' | 'group';
   conversationId: string;
+  /**
+   * 相册三件套；单发不传。
+   *
+   * 必须在这里落库：本条是**自己发的**消息，服务端不会再经 WS 把它推回来，
+   * 上传后紧跟的 loadXxxMessages() 直接读本地库 —— 这里写 null 的话，
+   * 自己刚发出的相册在自己屏幕上会散成 N 张独立图（对端却是正常一组）。
+   * 这正是 common.md「数据要穿过几段就得验几段」里的第 ② 段。
+   */
+  mediaGroup?: MediaGroupMeta;
+  /**
+   * 本条生效的配文；只有组首项（index 0）会带。
+   *
+   * 后端 `resolve_content`（storage/handlers/upload.rs）在 caption 非空白时**用它取代**
+   * 文件名派生正文，而契约里「`index=0` 那条的 `message_content` 即整组配文」
+   * （backend-docs/messages/好友消息.md）—— 本地这份乐观副本不跟着写，
+   * 自己刚发的相册在自己屏幕上就会把**文件名**当配文显示。
+   */
+  caption?: string;
 }
 
 async function processUploadSuccess(options: UploadSuccessOptions): Promise<void> {
-  const { result, file, localPath, messageType, timestamp, session, conversationType, conversationId } = options;
+  const { result, file, localPath, messageType, timestamp, session, conversationType, conversationId, mediaGroup, caption } = options;
 
   if (!result.fileUuid || !result.fileHash) {
     return;
@@ -164,7 +183,8 @@ async function processUploadSuccess(options: UploadSuccessOptions): Promise<void
       sender_id: session.userId,
       sender_name: session.profile.user_nickname,
       sender_avatar: session.profile.user_avatar_url,
-      content: file.name,
+      // 配文生效时取代文件名（与后端 resolve_content 同口径）；单发不传 caption ⇒ 仍是 file.name
+      content: caption?.trim() || file.name,
       content_type: messageType,
       file_uuid: result.fileUuid,
       file_url: result.fileUrl || null,
@@ -174,11 +194,10 @@ async function processUploadSuccess(options: UploadSuccessOptions): Promise<void
       image_height: result.imageHeight ?? null,
       seq: 0,
       reply_to: null,
-      // 上传落库：本客户端尚不支持创建相册（发送侧未落地），故恒 null。
-      // 发送侧接上后要从上传结果带三件套，否则自己发的相册在本地散架。
-      media_group_id: null,
-      media_group_index: null,
-      media_group_count: null,
+      // 相册三件套：单发时 mediaGroup 为 undefined ⇒ 三列均 null（与从前逐字一致）
+      media_group_id: mediaGroup?.id ?? null,
+      media_group_index: mediaGroup?.index ?? null,
+      media_group_count: mediaGroup?.count ?? null,
       is_recalled: false,
       is_deleted: false,
       send_time: result.messageSendTime || timestamp,
@@ -307,7 +326,6 @@ export function useMainPage() {
   const {
     messages: friendMessages,
     loading: friendMessagesLoading,
-    sending: friendSending,
     hasMore: friendHasMore,
     loadingMore: friendLoadingMore,
     // syncing: friendSyncing, // 后台同步状态（用于 UI 指示）
@@ -329,7 +347,6 @@ export function useMainPage() {
   const {
     messages: groupMessages,
     loading: groupMessagesLoading,
-    sending: groupSending,
     hasMore: groupHasMore,
     loadingMore: groupLoadingMore,
     // syncing: groupSyncing, // 后台同步状态（用于 UI 指示）
@@ -783,7 +800,14 @@ export function useMainPage() {
     if (files.length < ALBUM_MIN_ITEMS) {
       setAlbumPicked(null);
       if (files.length === 1) {
-        await handleFileSelect(files[0].file, 'image', files[0].localPath);
+        // 类型按文件本身判，不能写死 'image' —— 面板里把 3 个视频删到只剩 1 个就会走到这，
+        // 写死会让这条视频在本地被记成图片（缩略图渲染器都不同）
+        const single = files[0];
+        await handleFileSelect(
+          single.file,
+          single.file.type.startsWith('video/') ? 'video' : 'image',
+          single.localPath,
+        );
       }
       return;
     }
@@ -797,9 +821,12 @@ export function useMainPage() {
 
     const result = await runAlbumUpload(plans, async (plan) => {
       setUploadingFile(plan.file.file);
+      // 一个 meta 同时喂给「上传请求」与「本地落库」—— 两处各写一份必然漂移，
+      // 而漂移的症状是静默的（对端正常成组、自己这边散架）
+      const meta: MediaGroupMeta = { id: plan.groupId, index: plan.index, count: plan.count };
       const uploaded = isFriend
-        ? await uploadFriendFile(plan.file.file, relatedId, { id: plan.groupId, index: plan.index, count: plan.count }, plan.caption)
-        : await uploadGroupFile(plan.file.file, relatedId, { id: plan.groupId, index: plan.index, count: plan.count }, plan.caption);
+        ? await uploadFriendFile(plan.file.file, relatedId, meta, plan.caption)
+        : await uploadGroupFile(plan.file.file, relatedId, meta, plan.caption);
       if (!uploaded.success) {
         throw new Error(uploaded.error || '上传失败');
       }
@@ -812,6 +839,9 @@ export function useMainPage() {
         session,
         conversationType: isFriend ? 'friend' : 'group',
         conversationId: isFriend ? getFriendConversationId(session.userId, relatedId) : relatedId,
+        mediaGroup: meta,
+        // planAlbumUpload 已保证只有 index 0 带 caption（后端对其余位次带 caption 直接 400）
+        caption: plan.caption,
       });
     });
 
@@ -999,7 +1029,6 @@ export function useMainPage() {
   // 计算属性
   // ============================================
   const isLoading = isFriendLikeTarget(chatTarget) ? friendMessagesLoading : groupMessagesLoading;
-  const isSending = isFriendLikeTarget(chatTarget) ? friendSending : groupSending;
   const currentMessages = isFriendLikeTarget(chatTarget) ? friendMessages : groupMessages;
   const totalMessageCount = currentMessages.length;
 
@@ -1075,7 +1104,6 @@ export function useMainPage() {
     friendMessages,
     groupMessages,
     isLoading,
-    isSending,
     currentMessages,
     totalMessageCount,
 
@@ -1144,7 +1172,6 @@ export function useMainPage() {
     aiStreamingContent: ai.streamingContent,
     aiStreamingReasoning: ai.streamingReasoning,
     aiIsLoading: ai.isLoading,
-    aiIsSending: ai.isSending,
     aiToolStatus: ai.toolStatus,
     aiPendingToolCall: ai.pendingToolCall,
     aiRetryLastMessage: ai.retryLastMessage,

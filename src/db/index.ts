@@ -312,12 +312,6 @@ export async function updateConversationLastMessage(
   }
 }
 
-/** 删除会话（通过清空数据实现） */
-export function deleteConversation(_id: string): Promise<void> {
-  // 暂时使用 clear 方式，后续可以在 Rust 端添加专门的删除方法
-  return Promise.resolve();
-}
-
 // ============================================================================
 // 消息操作
 // ============================================================================
@@ -417,11 +411,18 @@ export async function saveMessages(
   }
 }
 
-/** 批量插入消息（INSERT OR IGNORE — 仅补本地缺失的，不覆盖本地状态）
+/** 批量插入消息：缺失行整行插入；已存在行**只回填空的 reply_to / 相册三件套**，其余列不动
  *
- * 用途：历史消息加载（loadAllHistoryMessages）—— 服务器响应可能不带 is_recalled
- * 等本地状态字段，用 INSERT OR REPLACE 会把本地已撤回消息覆盖回 0；本函数确保
- * 已有的 message_uuid 不被覆盖，仅插入本地缺失的消息。
+ * 用途：历史消息加载（loadAllHistoryMessages）+ 增量同步的存量回填窗口
+ * （syncService.backfillLegacyFields）。
+ *
+ * - 不整行覆盖：服务器响应可能不带 is_recalled 等本地状态字段，用 INSERT OR REPLACE
+ *   会把本地已撤回消息覆盖回 0。
+ * - 但也不能纯 IGNORE：这四列曾在所有接收侧写入路径上被写死 null（2026-08-10 才修好），
+ *   纯 IGNORE 会让**存量脏行永远补不回来**（表现为"别人的历史回复没有引用块"）。
+ *   已存在行走 `COALESCE(本地值, 服务端值)`，本地已有值优先、为空才吃服务端的。
+ *
+ * SQL 见 `src-tauri/src/db/messages.rs save_messages_skip_existing`。
  */
 export async function saveMessagesSkipExisting(
   messages: Omit<LocalMessage, 'created_at'>[],
