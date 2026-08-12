@@ -46,8 +46,6 @@ export interface DownloadProgress {
   event: 'Started' | 'Progress' | 'Finished';
   /** 总大小（字节）；服务端没给 Content-Length 时为 undefined */
   contentLength?: number;
-  /** 当前块大小（字节） */
-  chunkLength?: number;
   /** 百分比（0-100）；总长未知时为 undefined —— 此时看 indeterminate，别当成 0% */
   percent?: number;
   /** 已下载大小（字节） */

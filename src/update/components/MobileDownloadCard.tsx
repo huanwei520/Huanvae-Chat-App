@@ -7,7 +7,7 @@
 
 import { motion } from 'framer-motion';
 import { useUpdateStore } from '../store';
-import { formatSize } from '../../utils/format';
+import { formatSize, formatSpeed } from '../../utils/format';
 import './MobileDownloadCard.css';
 
 export function MobileDownloadCard() {
@@ -16,6 +16,7 @@ export function MobileDownloadCard() {
   const progress = useUpdateStore((s) => s.progress);
   const downloaded = useUpdateStore((s) => s.downloaded);
   const total = useUpdateStore((s) => s.total);
+  const speed = useUpdateStore((s) => s.speed);
   const indeterminate = useUpdateStore((s) => s.indeterminate);
 
   // 仅在下载状态时显示
@@ -59,9 +60,15 @@ export function MobileDownloadCard() {
           </div>
           <div className="mobile-download-card-meta">
             {/* 总长未知时只报已下载字节，不显示 "x / 0 B" 这种误导文案 */}
-            {indeterminate
-              ? formatSize(downloaded)
-              : `${formatSize(downloaded)} / ${formatSize(total)}`}
+            <span>
+              {indeterminate
+                ? formatSize(downloaded)
+                : `${formatSize(downloaded)} / ${formatSize(total)}`}
+            </span>
+            {/* 速率只在真有读数时出现；0 表示还没起量或已收尾，此时整块不渲染 */}
+            {speed > 0 && (
+              <span className="mobile-download-card-speed">{formatSpeed(speed)}</span>
+            )}
           </div>
         </div>
       </div>

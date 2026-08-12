@@ -79,6 +79,41 @@ describe('AlbumMessage — 装配', () => {
   });
 });
 
+describe('AlbumMessage — 定位锚点（每格一个 data-message-uuid）', () => {
+  // 背景：相册把 N 条独立消息折叠成一个气泡、只用组内首位当代表，于是 index >= 1 的每一张
+  // 在消息列表里**一个节点都不产出**。scrollMessageIntoView 靠 [data-message-uuid] 寻址，
+  // 查不到就返回 false —— 用户搜到一张图点进去只会得到「定位失败」。锚点必须落在格子上。
+  it('每个已到货的格子都带自己那条消息的 uuid（不是代表消息的）', () => {
+    const { container } = render(
+      <AlbumMessage album={album({ items: [item(0), item(1), item(2)], expectedCount: 3 })} />,
+    );
+
+    const anchors = Array.from(container.querySelectorAll('.album-cell'))
+      .map((cell) => cell.getAttribute('data-message-uuid'));
+    expect(anchors).toEqual(['m0', 'm1', 'm2']);
+  });
+
+  it('锚点挂在格子本体上（滚动落点算的是这一格的矩形，不是整块网格的）', () => {
+    const { container } = render(<AlbumMessage album={album()} />);
+
+    const anchored = container.querySelectorAll('[data-message-uuid]');
+    expect(anchored).toHaveLength(2);
+    anchored.forEach((el) => expect(el.classList.contains('album-cell')).toBe(true));
+  });
+
+  it('占位格不带锚点：那一位次还没加载到，本来就定位不了（不能挂个假的骗上层）', () => {
+    const { container } = render(
+      <AlbumMessage album={album({ items: [item(0)], expectedCount: 3, isComplete: false })} />,
+    );
+
+    const cells = Array.from(container.querySelectorAll('.album-cell'));
+    expect(cells).toHaveLength(3);
+    expect(cells[0].getAttribute('data-message-uuid')).toBe('m0');
+    expect(cells[1].hasAttribute('data-message-uuid')).toBe(false);
+    expect(cells[2].hasAttribute('data-message-uuid')).toBe(false);
+  });
+});
+
 describe('AlbumMessage — 配文位置（huanwei 要的效果）', () => {
   it('配文渲染在网格下方，而不是挂在第一张图上', () => {
     const { container } = render(<AlbumMessage album={album({ caption: '整组配文' })} />);

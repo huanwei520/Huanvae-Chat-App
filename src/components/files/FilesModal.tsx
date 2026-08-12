@@ -34,6 +34,7 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { ErrorToast } from '../common/ErrorToast';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
+import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
 import { DocumentDownloadAction, LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession, useApi } from '../../contexts/SessionContext';
@@ -168,7 +169,9 @@ function VideoThumbnail({
   return (
     <div className="thumbnail-video">
       {isLocal && <LocalBadge />}
-      <video src={src} preload="metadata" />
+      {/* 缩略图 src 追 #t=0.1 逼引擎 seek 出封面（WKWebView / Android WebView 不自发画首帧，
+          只有 Windows 会）——详见 chat/shared/videoPosterSrc.ts */}
+      <video src={videoPosterSrc(src)} preload="metadata" />
       <div className="video-play-icon">▶</div>
     </div>
   );

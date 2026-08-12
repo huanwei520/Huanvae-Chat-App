@@ -71,6 +71,7 @@ export const NFC_COMPONENTS: ComponentEntry[] = [
 // ============== 更新模块 Hooks ==============
 export const UPDATE_COMPONENTS: ComponentEntry[] = [
   { name: 'useStartupUpdateCheck', path: 'update/useStartupUpdateCheck', category: 'hooks', description: '启动时更新检查 Hook（App.tsx 顶层用，登录前 5s 后触发一次检测）' },
+  { name: 'downloadSpeed', path: 'update/downloadSpeed', category: 'services', description: '下载实时速率估算（EMA α=0.3，复用两端已有的 200ms 进度上报，不新增定时器）' },
 ];
 
 // ============== 股票研究窗口 ==============
@@ -226,6 +227,7 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'ReadReceiptIcons', path: 'chat/shared/ReadReceiptIcons', category: 'chat', description: '已读回执 SVG 图标基元（时钟/双勾/失败）' },
   { name: 'PrivateReadReceipt', path: 'chat/shared/PrivateReadReceipt', category: 'chat', description: '私聊已读回执（仅自己消息：时钟/红叹号/绿双勾；未读不渲染）' },
   { name: 'readReceiptGate', path: 'chat/shared/readReceiptGate', category: 'chat', description: '已读标记门控纯函数（只挂我发出的最新一条，私聊+群聊共用锚点）' },
+  { name: 'videoPosterSrc', path: 'chat/shared/videoPosterSrc', category: 'chat', description: '视频缩略图 src 追加 #t=0.1 的纯函数（逼 WKWebView / Android WebView seek 出封面；只在元素层用，绝不进 resolver）' },
   { name: 'ReaderAvatarStack', path: 'chat/shared/ReaderAvatarStack', category: 'chat', description: '已读者头像堆叠（16px 重叠，超出显示 +N）' },
   { name: 'GroupReadReceipt', path: 'chat/group/GroupReadReceipt', category: 'chat', description: '群聊已读回执（绿双勾 + N 人已读 + 头像堆叠，点击展开名单）' },
   { name: 'GroupReadListModal', path: 'chat/group/GroupReadListModal', category: 'chat', description: '群已读名单弹层（桌面居中 modal / 移动底部 sheet）' },
@@ -322,6 +324,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useNotificationSounds', path: 'hooks/useNotificationSounds', category: 'hooks', description: '提示音管理 Hook' },
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
   { name: 'useBots', path: 'hooks/useBots', category: 'hooks', description: '机器人管理 Hook（列表/创建/删除/重置token/按 username 加好友）' },
+  { name: 'useTopLayer', path: 'hooks/useTopLayer', category: 'hooks', description: '顶层浮层注册表（portal 兄弟浮层的层级判定：顶层开着时底层「点击外部关闭」短路）' },
 ];
 
 // ============== 服务 ==============

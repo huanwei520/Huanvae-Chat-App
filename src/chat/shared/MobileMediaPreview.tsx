@@ -28,7 +28,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { useMobileBackOverlay } from '../../hooks/useMobileBackHandler';
+import { useTopLayer } from '../../hooks/useTopLayer';
 import { saveToGallery } from '../../utils/saveToGallery';
 
 // 调试日志（Android logcat 不支持 %c 样式，使用 JSON.stringify 显示对象）
@@ -192,8 +193,18 @@ export function MobileMediaPreview({
   // ⋮ 菜单展开状态
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // 打开期间登记为顶层浮层：底下那些 portal 兄弟（侧边设置面板等）的「点击外部关闭」
+  // 据此短路，不再把预览内部的点击当成"点到我外面去了"。见 hooks/useTopLayer.ts。
+  useTopLayer(isOpen);
+
   // 移动端返回手势处理：预览打开时拦截返回操作
-  useMobileBackHandler(() => {
+  //
+  // 必须挂**浮层车道**（useMobileBackOverlay）而不是页面级栈：分发顺序是
+  //「①浮层车道恒先问 → ②页面栈」（见 hooks/useMobileBackHandler.ts）。
+  // 从侧边面板里打开预览时，ChatMenu 已经在浮层车道上；预览若留在页面栈，
+  // 系统返回会被 ChatMenu 抢走（只退回面板主菜单），预览自己的 handler 永远问不到。
+  // 挂浮层车道后，预览是**后**注册的那个 ⇒ 栈语义下先被询问 ⇒ 先关预览。
+  useMobileBackOverlay(() => {
     if (isOpen) {
       logMedia('返回手势关闭预览');
       onClose();

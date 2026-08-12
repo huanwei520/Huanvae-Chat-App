@@ -37,6 +37,7 @@ import { formatFileSize } from '../../utils/format';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { UploadIcon } from '../../components/common/Icons';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
+import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import { LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
@@ -248,17 +249,13 @@ function VideoThumbnail({
   return (
     <div className="mobile-file-thumbnail-video">
       {isLocal && <LocalBadge />}
+      {/* 缩略图 src 追 #t=0.1 逼引擎 seek 出封面（Android WebView 不自发画首帧）
+          ——详见 chat/shared/videoPosterSrc.ts */}
       <video
-        src={src}
+        src={videoPosterSrc(src)}
         preload="metadata"
         muted
         playsInline
-        onLoadedData={(e) => {
-          // 暂停在第一帧作为缩略图
-          const video = e.currentTarget;
-          video.currentTime = 0;
-          video.pause();
-        }}
       />
       <div className="mobile-file-play-icon">▶</div>
     </div>

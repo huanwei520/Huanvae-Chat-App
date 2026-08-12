@@ -44,6 +44,7 @@ import { useFileCache } from '../../hooks/useFileCache';
 import { useSession } from '../../contexts/SessionContext';
 import { openMediaWindow } from '../../media';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
+import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
 import { highlightMatch } from './highlightMatch';
 import { contentTypeBadge, contentTypeToCategory } from './messageCategory';
 import { ConversationSearchHitMenu, useSearchHitMenu } from './ConversationSearchHitMenu';
@@ -178,7 +179,9 @@ function MediaHit({
     media = (
       <video
         className={mediaClass}
-        src={src}
+        // 缩略图专用 src（追 #t=0.1 逼引擎 seek 出封面）。WKWebView / Android WebView
+        // 不会自发画首帧，只有 Windows 会 —— 详见 chat/shared/videoPosterSrc.ts。
+        src={videoPosterSrc(src)}
         preload="metadata"
         muted
         playsInline
@@ -198,6 +201,14 @@ function MediaHit({
   );
 
   // 移动端全屏预览按需挂载：一页几十条结果，每条常驻一个 portal 不划算
+  //
+  // 🔴 它必须渲染在下面那个 <li> 的**外面**（见 return 处）：createPortal 只搬 DOM，
+  // React 合成事件仍沿 **React 树**冒泡 —— 挂在 <li> 里面时，预览里点 ✕ 触发 onClose 后
+  // 会继续冒泡到 <li> 的 onClick 再 openPreview 一次，预览关不掉。
+  // （FileMessageContent 里的同款预览一直就渲染在可点击容器之外，是被验证过的写法。）
+  //
+  // src 是**裸**的显示 src，不是 videoPosterSrc(src)：那个 #t=0.1 只给缩略图，
+  // 加到播放器上会让视频从 0.1s 开始播。
   const mobilePreview = previewOpen && src && (
     <MobileMediaPreview
       isOpen={previewOpen}
@@ -210,39 +221,47 @@ function MediaHit({
     />
   );
 
+  // mobilePreview 是 <li> 的**兄弟**（不是子节点），理由见它的定义处。
+  // 它本身是 portal，不给 <ul> 添任何 DOM 子节点，所以 <ul> 的直接子节点仍只有 <li>。
+  // 反观 {menu}：ConversationSearchHitMenu 在自己的根节点上 stopPropagation 掉了
+  // click / contextMenu / keyDown / touchStart，是事件的封闭边界，留在 <li> 内无碍。
   if (layout === 'cover') {
     return (
-      <li
-        className="conv-msg-search-cell"
-        role="button"
-        tabIndex={0}
-        aria-haspopup="menu"
-        aria-label={`${isVideo ? '视频' : '图片'} ${message.content}`}
-        onClick={guardPrimaryClick(openPreview)}
-        {...triggerProps}
-      >
-        {media}
-        {isVideo && <CoverPlayBadge />}
-        {menu}
+      <>
+        <li
+          className="conv-msg-search-cell"
+          role="button"
+          tabIndex={0}
+          aria-haspopup="menu"
+          aria-label={`${isVideo ? '视频' : '图片'} ${message.content}`}
+          onClick={guardPrimaryClick(openPreview)}
+          {...triggerProps}
+        >
+          {media}
+          {isVideo && <CoverPlayBadge />}
+          {menu}
+        </li>
         {mobilePreview}
-      </li>
+      </>
     );
   }
 
   return (
-    <li
-      className="conv-msg-search-hit"
-      role="button"
-      tabIndex={0}
-      aria-haspopup="menu"
-      onClick={guardPrimaryClick(openPreview)}
-      {...triggerProps}
-    >
-      {media}
-      <HitBody message={message} query={query} />
-      {menu}
+    <>
+      <li
+        className="conv-msg-search-hit"
+        role="button"
+        tabIndex={0}
+        aria-haspopup="menu"
+        onClick={guardPrimaryClick(openPreview)}
+        {...triggerProps}
+      >
+        {media}
+        <HitBody message={message} query={query} />
+        {menu}
+      </li>
       {mobilePreview}
-    </li>
+    </>
   );
 }
 

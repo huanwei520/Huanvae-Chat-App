@@ -92,6 +92,7 @@ import * as nfcTrustStore from '../../src/nfc/trustStore';
 
 // 更新模块 Hooks
 import * as useStartupUpdateCheck from '../../src/update/useStartupUpdateCheck';
+import * as downloadSpeed from '../../src/update/downloadSpeed';
 
 // 通用组件
 import * as Avatar from '../../src/components/common/Avatar';
@@ -164,6 +165,7 @@ import * as ReplyQuote from '../../src/chat/shared/ReplyQuote';
 import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as readReceiptGate from '../../src/chat/shared/readReceiptGate';
+import * as videoPosterSrc from '../../src/chat/shared/videoPosterSrc';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
 import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
 import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
@@ -227,6 +229,7 @@ import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 import * as useBots from '../../src/hooks/useBots';
+import * as useTopLayer from '../../src/hooks/useTopLayer';
 
 // 服务
 import * as deviceInfo from '../../src/services/deviceInfo';
@@ -370,6 +373,7 @@ const COMPONENT_MAP = {
   nfcTrustStore,
   // 更新模块 Hooks
   useStartupUpdateCheck,
+  downloadSpeed,
   // 通用组件
   Avatar,
   AvatarPlaceholder,
@@ -476,6 +480,7 @@ const COMPONENT_MAP = {
   ReadReceiptIcons,
   PrivateReadReceipt,
   readReceiptGate,
+  videoPosterSrc,
   ReaderAvatarStack,
   GroupReadReceipt,
   GroupReadListModal,
@@ -537,6 +542,7 @@ const COMPONENT_MAP = {
   useNotificationSounds,
   useLanTransfer,
   useBots,
+  useTopLayer,
   // 服务
   deviceInfo,
   diagnosticService,

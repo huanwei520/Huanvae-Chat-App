@@ -6,7 +6,7 @@
  *
  * 由 chat/shared/mediaGroup.ts 折叠出的 AlbumNode 驱动，群聊 / 私聊共用同一份。
  *
- * ## 三个设计约束（都不是随手定的）
+ * ## 四个设计约束（都不是随手定的）
  *
  * 1. **配文渲染在整组下方，不挂在第一张图上** —— huanwei 明确要的效果是
  *    「视觉上成为一整个整体」。挂在首图上会让它看起来像"第一张的说明"。
@@ -18,6 +18,11 @@
  * 3. **缺口用占位格补齐** —— 跨分页拆组时（字段对齐提案 R1）只加载到组的一部分，
  *    按已加载条数排版会让 loadMore 之后相册当着用户面从 7 格重排成 10 格。
  *    故按 expectedCount 排版，未到货的位次渲染成静默占位格。
+ *
+ * 4. **每个格子自带 `data-message-uuid` 定位锚点** —— 折叠后组内非代表成员在消息列表里
+ *    不再产出任何节点，锚点只能挂在格子上；相应地相册态下外层消息行不写该属性。
+ *    详见下方 `.album-cell` 处的注释（这是「定位图片后再定位别的消息就报『不在本地库』」
+ *    与「定位图片位置不准」两个缺陷的共同根因）。
  *
  * ## 为什么每格复用 FileMessageContent 而不是自己写 <img>
  * 远程媒体必经安全反代（私有 CA 自签，裸 URL 在真 webview 里证书验不过）。
@@ -94,7 +99,20 @@ export function AlbumMessage({ album, urlType = 'friend', friendId }: AlbumMessa
         data-testid="album-grid"
       >
         {cells.map((item, index) => (
-          <div className="album-cell" key={item?.message_uuid ?? `placeholder-${index}`}>
+          <div
+            className="album-cell"
+            key={item?.message_uuid ?? `placeholder-${index}`}
+            // 🔴 定位锚点必须挂在**格子**上，不能只挂在外层消息行上。
+            // 相册把 N 条独立消息折叠成一个气泡、只用组内首位当代表（见 mediaGroup.ts 的
+            // `emitted` 跳过分支），于是 media_group_index >= 1 的每一张图/视频在 DOM 里
+            // **一个节点都不产出** —— scrollMessageIntoView 靠 [data-message-uuid] 寻址，
+            // 查不到就返回 false，用户点搜索结果 / 引用块只会得到「定位失败」。
+            // 配套：相册态下外层行**不写**该属性（见 MessageBubble / GroupMessageBubble），
+            // 否则代表消息（index=0）会有两个同名锚点，DOM 顺序在前的外层行胜出 ⇒
+            // 定位第一张图仍然居中整块相册，B3「位置不准」修不掉。
+            // 占位格（该位次尚未加载到）没有 uuid ⇒ 定位不到 —— 那是事实，不是缺陷。
+            data-message-uuid={item?.message_uuid}
+          >
             {item
               ? (
                 <FileMessageContent

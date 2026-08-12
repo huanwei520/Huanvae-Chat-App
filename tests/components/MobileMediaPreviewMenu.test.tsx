@@ -14,8 +14,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 
+// MobileMediaPreview 挂的是**浮层车道** useMobileBackOverlay（不是页面级栈）；
+// vi.mock 工厂是整体替换，工厂里没列的导出在被测代码里就是不存在的，故必须列全。
 vi.mock('../../src/hooks/useMobileBackHandler', () => ({
   useMobileBackHandler: vi.fn(),
+  useMobileBackOverlay: vi.fn(),
 }));
 
 vi.mock('../../src/utils/saveToGallery', () => ({

@@ -25,6 +25,7 @@
 
 import { create } from 'zustand';
 import { isMobile } from '../utils/platform';
+import { createDownloadSpeedTracker } from './downloadSpeed';
 import type {
   UpdateToastStatus,
   UpdateToastProps,
@@ -49,6 +50,14 @@ interface UpdateStoreState {
   downloaded: number;
   /** 总字节数；0 表示未知（此时 indeterminate 必为 true） */
   total: number;
+  /**
+   * 实时下载速率（bytes/s）；**0 = 没有可显示的读数**（还没起量 / 不在下载中）。
+   *
+   * 由 `downloadSpeed` 的 EMA 估算，复用两端已有的 200ms 进度上报，不新增定时器。
+   * 0 的语义是「不显示」而不是「速率为零」—— UI 不许渲染 `0 B/s` 这种零信息量文案。
+   * 每次离开 downloading 的转换都会把它清回 0，不留过期读数。
+   */
+  speed: number;
   /** 不定态：总长未知 ⇒ UI 显示滚动动画而不是一个不动的 0% */
   indeterminate: boolean;
   sourceUrl: string;
@@ -134,6 +143,14 @@ function isUiVisible(): boolean {
   return typeof document === 'undefined' || document.visibilityState !== 'hidden';
 }
 
+/**
+ * 速率估算器（进程内单例）
+ *
+ * 同一时刻只可能有一轮下载：`checkUpdate` 有全局锁、`handleUpdate` 由唯一的
+ * 全局弹窗触发，所以单例是够的。每轮 `startDownload` 会 `reset()`。
+ */
+const speedTracker = createDownloadSpeedTracker();
+
 // ============================================
 // 初始状态
 // ============================================
@@ -145,6 +162,7 @@ const initialState: UpdateStoreState = {
   progress: 0,
   downloaded: 0,
   total: 0,
+  speed: 0,
   indeterminate: false,
   sourceUrl: '',
   errorMessage: '',
@@ -176,6 +194,9 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   startDownload: () => {
+    // 上一轮的样本（基线时间戳 / 已下字节 / EMA）对这一轮毫无意义，必须清干净，
+    // 否则新一轮的第一个样本会拿上一轮的基线去减，算出一个荒唐的巨值。
+    speedTracker.reset();
     // 起手总长必然未知（第一个 Started 事件还没到）⇒ 先进不定态，
     // 免得先闪一个「0%」再变成真实百分比。
     set({
@@ -183,6 +204,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       progress: 0,
       downloaded: 0,
       total: 0,
+      speed: 0,
       indeterminate: true,
       // Android：新一轮下载会把同名 APK 截断重写、并删掉旧标记 ⇒ 旧路径此刻指向半截文件，
       // 必须一起作废，免得残留一个指向坏包的「立即安装」。
@@ -196,29 +218,52 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     // 数据源显式给了就听它的；没给才按「有没有总长」推断。
     // 🔴 全程不用 `||`：percent=0 / downloaded=0 都是合法值，`||` 会把它们和 undefined 混掉。
     const isIndeterminate = indeterminate ?? (total === undefined || total <= 0);
-    set((state) => ({
+    const state = get();
+    const nextDownloaded = downloaded ?? state.downloaded;
+    const nextTotal = total ?? state.total;
+
+    // 速率就在这一次上报里顺带算掉 —— 桌面（updater_download.rs 的 200ms sleep）与
+    // 安卓（android_update.rs 的 APK_PROGRESS_TICK）本来就各有一个 200ms tick，
+    // 不新增定时器、不提高上报频率。
+    // 🔴 必须放在 `set` 之外：push 是有状态的（推进基线），而 zustand 的函数式 updater
+    //    语义上不该有副作用。
+    const nextSpeed = speedTracker.push({
+      downloaded: nextDownloaded,
+      total: nextTotal,
+      now: performance.now(),
+    });
+
+    set({
       // 不定态下没有可信百分比，保持 0（UI 按 indeterminate 渲染滚动条，不读这个值）
       progress: isIndeterminate ? 0 : (percent ?? state.progress),
-      downloaded: downloaded ?? state.downloaded,
-      total: total ?? state.total,
+      downloaded: nextDownloaded,
+      total: nextTotal,
+      // null（还没有可显示的读数）在 store 里落成 0 = 「不显示」，见 speed 字段注释
+      speed: nextSpeed ?? 0,
       indeterminate: isIndeterminate,
       ...(sourceUrl ? { sourceUrl } : {}),
-    }));
+    });
   },
 
+  // ⬇️ 下面三个都是「离开 downloading」的出口，一律把 speed 清回 0：
+  //    下载已经结束，留一个过期读数在 state 里就是误导性残留。
   downloadComplete: () => {
-    set({ status: 'ready', progress: 100, indeterminate: false });
+    set({ status: 'ready', progress: 100, speed: 0, indeterminate: false });
   },
 
   showError: (message) => {
-    set({ status: 'error', errorMessage: message });
+    set({ status: 'error', speed: 0, errorMessage: message });
   },
 
   dismiss: () => {
     // 移动端把「已下完待安装」关掉时记一笔，免得每次切回前台都被同一条提示怼一次
     // （仅本次进程内有效，见 pendingInstallDismissed 注释）
     const shouldMutePending = isMobile() && get().status === 'ready';
-    set(shouldMutePending ? { status: 'idle', pendingInstallDismissed: true } : { status: 'idle' });
+    set(
+      shouldMutePending
+        ? { status: 'idle', speed: 0, pendingInstallDismissed: true }
+        : { status: 'idle', speed: 0 },
+    );
   },
 
   // ========== 更新检查（带锁） ==========
@@ -317,6 +362,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
           androidApkPath: localPath,
           status: 'ready',
           progress: 100,
+          speed: 0,
           indeterminate: false,
           pendingInstallDismissed: false,
         });
@@ -426,6 +472,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       version: pending.version,
       androidApkPath: pending.path,
       progress: 100,
+      // 这条路径可能从 downloading 直接接管（见上面的状态白名单注释）⇒ 同样要清读数
+      speed: 0,
       indeterminate: false,
       downloaded: pending.size,
       total: pending.size,
@@ -468,6 +516,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       progress: state.progress,
       downloaded: state.downloaded,
       total: state.total,
+      speed: state.speed,
       indeterminate: state.indeterminate,
       sourceUrl: state.sourceUrl,
       errorMessage: state.errorMessage,
@@ -497,6 +546,7 @@ export function useUpdateToastProps(): UpdateToastProps {
   const progress = useUpdateStore((s) => s.progress);
   const downloaded = useUpdateStore((s) => s.downloaded);
   const total = useUpdateStore((s) => s.total);
+  const speed = useUpdateStore((s) => s.speed);
   const indeterminate = useUpdateStore((s) => s.indeterminate);
   const sourceUrl = useUpdateStore((s) => s.sourceUrl);
   const errorMessage = useUpdateStore((s) => s.errorMessage);
@@ -515,6 +565,7 @@ export function useUpdateToastProps(): UpdateToastProps {
     progress,
     downloaded,
     total,
+    speed,
     indeterminate,
     sourceUrl,
     errorMessage,

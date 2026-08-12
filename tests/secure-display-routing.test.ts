@@ -287,10 +287,15 @@ describe('会话内查找的媒体命中项：src 取自 fileCache 收口点，�
   });
 
   it('img / video / 全屏预览的 src 都绑到 useFileCache 的 src，代码里不出现后端裸地址字段', () => {
-    const bound = SEARCH_MEDIA.match(/src=\{src\}/g) ?? [];
-    // <video src={src}>（缩略图/封面）+ <img src={src}> + <MobileMediaPreview src={src}>
-    // 回归守卫：任一处改回 message.file_url 即 FAIL（已 node 变异验证：3 → 2 且该字段名出现）
-    expect(bound.length).toBe(3);
+    // 三处显示点：<video>（视频封面）+ <img>（图片封面/缩略图）+ <MobileMediaPreview>（全屏）。
+    // 允许的表达式只有两种：`src` 本身，以及缩略图专用的 `videoPosterSrc(src)`
+    //（追 #t=0.1 逼引擎 seek 出封面，取值仍是 useFileCache 的 src，见 chat/shared/videoPosterSrc.ts）。
+    // 用「枚举全部 src={…} 再逐个查白名单」而不是数某个字面量出现几次：
+    // 新增第四个显示点若绑了别的东西，这里会直接把那个表达式打印出来。
+    // 回归守卫：任一处改回 message.file_url 即 FAIL（已 node 变异验证）。
+    const bound = Array.from(SEARCH_MEDIA.matchAll(/src=\{([^}]*)\}/g)).map((m) => m[1].trim());
+    expect(bound).toHaveLength(3);
+    expect(bound.filter((e) => e !== 'src' && e !== 'videoPosterSrc(src)')).toEqual([]);
     expect(SEARCH_MEDIA).not.toMatch(/\bfile_url\b/);
   });
 

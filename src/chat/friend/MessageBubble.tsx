@@ -371,7 +371,12 @@ export function MessageBubble({
           <motion.div
             key="bubble"
             className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
-            data-message-uuid={message.message_uuid}
+            // 定位锚点（scrollMessageIntoView 唯一的寻址面）。相册态下**交给格子**：
+            // 一个相册气泡代表 N 条消息，行上只能挂一个 uuid，挂了代表消息就等于
+            // 「定位第一张图 = 居中整块 3×3 网格」，而其余 N-1 条依旧无处可寻。
+            // AlbumMessage 给每个格子各挂一个，这里必须让位，否则代表消息会有两个同名锚点
+            // 且 DOM 顺序在前的这一个胜出（scrollMessageIntoView 取 querySelectorAll 的首个命中）。
+            data-message-uuid={album ? undefined : message.message_uuid}
             onClick={handleRowClick}
             // 只有发送中的消息才启用 layout 动画，避免切换会话时从顶部掉落
             layout={message.sendStatus === 'sending' ? 'position' : false}

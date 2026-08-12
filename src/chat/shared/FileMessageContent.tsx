@@ -36,6 +36,7 @@ import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheSto
 import { formatFileSize } from '../../utils/format';
 import { FilePreviewModal } from './FilePreviewModal';
 import { MobileMediaPreview } from './MobileMediaPreview';
+import { videoPosterSrc } from './videoPosterSrc';
 import { DocumentDownloadAction, LocalBadge } from './DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
@@ -527,19 +528,14 @@ function VideoMessage({
             {/* 本地文件标识 */}
             {isDownloaded && <LocalBadge />}
 
-            {/* 视频缩略图：统一使用 video 元素，加载后暂停在第一帧 */}
+            {/* 视频缩略图：src 追 #t=0.1 逼引擎 seek 出封面 —— WKWebView / Android WebView
+                都不会自发画首帧（只有 Windows 会），详见 chat/shared/videoPosterSrc.ts */}
             <video
-              src={src}
+              src={videoPosterSrc(src)}
               className="message-video-thumbnail"
               preload="metadata"
               muted
               playsInline
-              onLoadedData={(e) => {
-                // 加载完成后暂停在第一帧作为缩略图
-                const video = e.currentTarget;
-                video.currentTime = 0;
-                video.pause();
-              }}
               onPlay={onPlay}
             />
 
@@ -560,7 +556,8 @@ function VideoMessage({
         )}
       </div>
 
-      {/* 移动端全屏预览 */}
+      {/* 移动端全屏预览 —— 这里喂**裸** src，不是 videoPosterSrc(src)：
+          #t=0.1 只给缩略图，加到播放器上会让视频从 0.1s 开始播。 */}
       {src && (
         <MobileMediaPreview
           isOpen={showMobilePreview}

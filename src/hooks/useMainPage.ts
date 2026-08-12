@@ -81,8 +81,20 @@ import type { PickedFile } from '../chat/shared/FileAttachButton';
 const MIN_PANEL_WIDTH = 88;
 const MAX_PANEL_WIDTH = 280;
 
-/** 消息定位失败（窗口化查询在本地库找不到该锚点）的降级提示文案 */
+/**
+ * 消息定位失败之一：**本地库里没有这条消息**（窗口化查询 getMessagesAround 返回 null）。
+ * 真的取不到数据，重试也没用 —— 文案据此如实说「不在本地记录中」。
+ */
 const MESSAGE_JUMP_NOT_FOUND_NOTICE = '原消息不在本地记录中，无法定位';
+/**
+ * 消息定位失败之二：**数据取到了、DOM 里却找不到那个节点**（渲染层缺陷）。
+ *
+ * 🔴 这两条必须是两句话。它们同源共用一句文案时，排查会被直接带偏到「数据库/同步」方向 ——
+ * 而真因可能纯粹在渲染层（实例：相册折叠后组内非代表成员不产出任何带 data-message-uuid
+ * 的节点，于是每一张 media_group_index >= 1 的图都必然走到这一支，却谎报「不在本地记录中」）。
+ * 同仓 Rust 侧 `src-tauri/src/db/messages.rs` 早就把「锚点不存在」与「查询出错」拆成两条出口。
+ */
+const MESSAGE_JUMP_RENDER_MISS_NOTICE = '定位失败，请重试';
 /** 定位命中后高亮脉冲的存活时长（ms） */
 const HIGHLIGHT_DURATION_MS = 2000;
 /** 定位失败提示条的自动消失时长（ms） */
@@ -976,19 +988,31 @@ export function useMainPage() {
         setPendingScrollToMessageId(null);
         return;
       }
-      // 等一帧让 DOM 渲染目标气泡
+      // 🔴 等**两帧**再滚，不是一帧。`await locate*Message` 只等到 `setMessages` 被**调用**，
+      // React 尚未提交渲染 —— 单帧里滚的可能是**旧 DOM**（定位窗口还没长出来），
+      // 落点自然不对。双 rAF 保证「提交 + 绘制」都已完成，与 JumpToLatestButton 的
+      // 「有重载」分支同款（那条是真机实测踩出来的，见其 handleClick 注释）。
       requestAnimationFrame(() => {
         if (cancelled) {
           return;
         }
-        if (scrollMessageIntoView(targetId)) {
-          // 只有真滚到了才高亮：DOM 里找不到元素（极端时序）时高亮会落到看不见的地方，
-          // 用户只会看到「点了没反应」，那种情况按定位失败给提示更诚实。
-          setHighlightedMessageId(targetId);
-        } else {
-          setMessageJumpNotice(MESSAGE_JUMP_NOT_FOUND_NOTICE);
-        }
-        setPendingScrollToMessageId(null);
+        requestAnimationFrame(() => {
+          if (cancelled) {
+            return;
+          }
+          if (scrollMessageIntoView(targetId)) {
+            // 只有真滚到了才高亮：DOM 里找不到元素时高亮会落到看不见的地方，
+            // 用户只会看到「点了没反应」，那种情况按定位失败给提示更诚实。
+            setHighlightedMessageId(targetId);
+          } else {
+            // 数据层已确认这条消息在本地库里（locate*Message 返回了 true 且窗口已装载），
+            // 走到这里 = 它没能渲染出带 data-message-uuid 的节点 ⇒ 渲染层缺陷，
+            // 与「本地库里没有」是两码事，文案与诊断都必须分开。
+            console.error('[定位] 窗口已装载但 DOM 中无该消息节点', { messageUuid: targetId });
+            setMessageJumpNotice(MESSAGE_JUMP_RENDER_MISS_NOTICE);
+          }
+          setPendingScrollToMessageId(null);
+        });
       });
     };
 

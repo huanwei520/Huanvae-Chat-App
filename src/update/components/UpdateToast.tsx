@@ -22,7 +22,7 @@
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
-import { formatSize } from '../../utils/format';
+import { formatSize, formatSpeed } from '../../utils/format';
 import { extractHostname } from '../../utils/url';
 import './UpdateToast.css';
 
@@ -75,6 +75,11 @@ export interface UpdateToastProps {
   /** 总大小；0 表示未知 */
   total?: number;
   /**
+   * 实时下载速率（bytes/s）；**0 = 无读数 ⇒ 整块不渲染**。
+   * 不许退化成显示 `0 B/s` —— 那是零信息量文案。
+   */
+  speed?: number;
+  /**
    * 不定态：服务端没给 Content-Length，算不出百分比。
    * 此时显示滚动动画 + 已下载字节数，**不要**渲染一个钉死不动的 0%。
    */
@@ -111,6 +116,7 @@ export function UpdateToast({
   progress = 0,
   downloaded = 0,
   total = 0,
+  speed = 0,
   indeterminate = false,
   sourceUrl,
   errorMessage,
@@ -218,6 +224,10 @@ export function UpdateToast({
                     ? formatSize(downloaded)
                     : `${formatSize(downloaded)} / ${formatSize(total)}`}
                 </span>
+                {/* 速率只在真有读数时出现；0 表示还没起量或已收尾，此时整块不渲染 */}
+                {speed > 0 && (
+                  <span className="update-toast-speed">{formatSpeed(speed)}</span>
+                )}
                 {sourceUrl && (
                   <span className="update-toast-source">
                     源: {extractHostname(sourceUrl)}

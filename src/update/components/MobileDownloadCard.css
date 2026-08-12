@@ -134,8 +134,22 @@
   }
 }
 
-/* 元信息 */
+/* 元信息（大小、速率） */
 .mobile-download-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: #60a5fa;
+}
+
+/*
+ * 实时速率：每 200ms 换一次数字，等宽数位是必须的 ——
+ * 比例字体下 "1.1" 与 "8.8" 宽度不同，会让整行元信息每秒抖 5 次。
+ * 🔴 不要给它加 transition：这一整块在 framer-motion 控制的卡片子树里，
+ *    见 .claude/rules/animation.md 规则一。
+ */
+.mobile-download-card-speed {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }

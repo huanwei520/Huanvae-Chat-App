@@ -44,6 +44,7 @@ import {
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
+import { isLocateScrollSettling } from '../shared/scrollMessageIntoView';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
 const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
@@ -221,7 +222,14 @@ export function ChatMessages({
 
     // 向**更新**方向续加载：仅定位窗口态下需要 —— 非窗口态的列表本就顶到最新，
     // 底部之下没有东西可加载。column-reverse 下"接近底部" = |scrollTop| 很小。
+    //
+    // 🔴 定位滚动刚落定的那一小段不触发：定位常把目标停在离窗口最新端很近的位置，
+    // `Math.abs(scrollTop) < threshold` 当场成立 ⇒ 程序化滚动自己派发的 scroll 事件
+    // 就会触发 onLoadNewer ⇒ 一次接 50 条到视觉底部 ⇒ 下面那个 prepend 保位
+    // useLayoutEffect 直接改写 scrollTop，与刚落定的定位位置抢同一个属性。
+    // 判据由 scrollMessageIntoView 自己持有（它才知道定位何时发生），见 isLocateScrollSettling。
     if (onLoadNewer && hasNewer && !loadingMore && Math.abs(scrollTop) < threshold) {
+      if (isLocateScrollSettling()) { return; }
       onLoadNewer();
       return;
     }

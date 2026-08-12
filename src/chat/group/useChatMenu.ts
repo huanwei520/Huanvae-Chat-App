@@ -66,6 +66,7 @@ import {
   type GroupJoinRequestInfo,
 } from '../../api/groups';
 import { loadAllHistoryMessages } from '../../services/historyService';
+import { isTopLayerActive } from '../../hooks/useTopLayer';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
 import type { MenuView } from '../shared/menu/types';
 import type { ChatTarget } from '../../types/chat';
@@ -320,8 +321,19 @@ export function useChatMenu({
   const isFriendBlacklisted = !!friendState?.is_blacklisted;
 
   // 点击外部关闭
+  //
+  // 🔴 首行的顶层判定不是兜底，是**这次指针事件归谁所有**的层级判定：
+  // 面板（ChatMenuPanel）与全屏媒体预览（MobileMediaPreview）各自 portal 到 document.body，
+  // 在 DOM 里是**兄弟**、互不包含 ⇒ 用户在预览里点 ✕ / 点背景 / 点播放键，
+  // 对下面这句 `contains` 而言全都是"点在外部" ⇒ 面板被连带关掉，
+  // 用户关掉预览后发现整个侧边面板也没了、落回聊天页（真机实测过的现象）。
+  // 顶层浮层开着时这次事件属于它，本层根本不该看见，更不该据此推断"用户点到我外面了"。
+  // 与 useMobileBackOverlay 的「浮层车道恒先于页面栈」是同一套层级观，见 hooks/useTopLayer.ts。
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if (isTopLayerActive()) {
+        return;
+      }
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setIsOpen(false);
         setView('main');
