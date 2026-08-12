@@ -227,12 +227,16 @@ class ResizeObserverMock {
 }
 globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 
-// Mock IntersectionObserver
-globalThis.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-})) as unknown as typeof IntersectionObserver;
+// Mock IntersectionObserver（class 形式：被测代码会 new IntersectionObserver(...)，箭头实现不可 new，
+// 与上面 ResizeObserverMock 同款，见 .claude/rules/frontend-test.md「全局 DOM Observer mock 必须写成可构造 class」）。
+// 语义不变：三个方法仍是不做任何事的 vi.fn()，不会自动回报可见性 —— 需要控制可见性的用例
+// 自行 vi.stubGlobal 覆盖（如 tests/hooks/useStickToBottom.test.tsx）。
+class IntersectionObserverMock {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+globalThis.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
 
 // ============================================
 // 全局测试配置

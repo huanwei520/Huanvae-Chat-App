@@ -355,3 +355,162 @@ describe('静态守卫 —— 消息列表容器的 CSS 不得声明 scroll-beha
     expect(scanned).toBeGreaterThan(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 落定窗口内「重新对准」—— 定位落点偏移一族的回归
+//
+// 真机实测（Android 14 / WebView 113，群聊 410 条 · 定位 #200，2026-08-12）：
+//   量位置那一刻容器里是「定位窗口 ∪ 上一批最新 50 条」的并集（111 条 / 9889px），
+//   算出 scrollTop ≈ -6697 写下去当时合法；同帧 React 把列表提交成纯窗口
+//   （61 条 / 5289px）⇒ 浏览器把 scrollTop 静默夹到上限 -4577 ⇒ 落点变成窗口最旧端，
+//   实测恒定偏 26 条（#350→324 / #300→274 / #200→174 / #100→74，四次一模一样）。
+//
+// 下面这组用真实量出来的数搭了一个 column-reverse 滚动模型（scrollTop ∈ [-(内容高-视口), 0]，
+// 写入即夹取），因此它复现的是**那次真机失败本身**，而不是一个想象出来的场景。
+//
+// ⚠️ 仍要真机验的那一半：jsdom 无布局引擎，这里的 scrollHeight / rect 全是模型喂的。
+// 本组守住的是**契约**（几何一变必须重新对准、几何没变一个字节都不写、用户接管即收手）；
+// 「真机上定位 #200 是不是真的停在 #200」只能靠真机复核。
+// ---------------------------------------------------------------------------
+describe('scrollMessageIntoView — 列表在落定窗口内再变时必须重新对准', () => {
+  const VIEWPORT = 711;      // 真机实测 clientHeight
+  const ITEM = 87.6;         // 真机实测单条平均高
+  const MERGED_H = 9889;     // 并集列表内容高（实测）
+  const WINDOW_H = 5289;     // 纯定位窗口内容高（实测）
+  const BELOW_MERGED = 80 * ITEM + ITEM / 2;  // 并集里目标下方 80 条
+  const BELOW_WINDOW = 30 * ITEM + ITEM / 2;  // 窗口里目标下方 30 条
+
+  let rafQueue: FrameRequestCallback[] = [];
+
+  /** 跑完当前排队的这一帧（新排的进下一帧，与浏览器一致） */
+  function flushFrame() {
+    const q = rafQueue;
+    rafQueue = [];
+    for (const cb of q) { cb(0); }
+  }
+
+  interface Model { contentHeight: number; belowPx: number; }
+
+  /**
+   * column-reverse 滚动模型：
+   * - scrollTop ∈ [-(contentHeight - VIEWPORT), 0]，**写入即夹取**（浏览器行为）
+   * - |scrollTop| = 视口底到内容底的距离；目标中心距内容底 belowPx
+   *   ⇒ 目标中心在容器内的 y = VIEWPORT - belowPx + |scrollTop|
+   */
+  function mountModel(model: Model) {
+    const container = document.createElement('div');
+    container.className = 'chat-messages-container chat-messages-container--reverse';
+    const bubble = document.createElement('div');
+    bubble.dataset.messageUuid = 'msg-target';
+    container.appendChild(bubble);
+    document.body.appendChild(container);
+
+    let scrollTop = 0;
+    const writes: number[] = [];
+    Object.defineProperty(container, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        const min = -(model.contentHeight - VIEWPORT);
+        scrollTop = Math.min(0, Math.max(min, v));   // ← 夹取，正是真机那一下
+        writes.push(scrollTop);
+      },
+    });
+    Object.defineProperty(container, 'scrollHeight', {
+      configurable: true,
+      get: () => model.contentHeight,
+    });
+
+    container.getBoundingClientRect = () => ({ top: 0, bottom: VIEWPORT, height: VIEWPORT,
+      left: 0, right: 0, width: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    bubble.getBoundingClientRect = () => {
+      const centerY = VIEWPORT - model.belowPx + Math.abs(scrollTop);
+      const top = centerY - ITEM / 2;
+      return { top, bottom: top + ITEM, height: ITEM, left: 0, right: 0, width: 0,
+        x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    };
+
+    /** 目标中心离容器中心还差多少（0 = 正中）——就是真机 harness 量的 targetOff */
+    const offset = () => (VIEWPORT - model.belowPx + Math.abs(scrollTop)) - VIEWPORT / 2;
+    return { container, offset, writes };
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    rafQueue = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafQueue.push(cb); return rafQueue.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('整段替换把内容缩短、scrollTop 被浏览器夹住 → 下一帧必须重新对准（这条翻红=真机那个偏移回来了）', () => {
+    const model: Model = { contentHeight: MERGED_H, belowPx: BELOW_MERGED };
+    const { container, offset } = mountModel(model);
+
+    expect(scrollMessageIntoView('msg-target')).toBe(true);
+    // 并集布局下这一次是对的（能滚到位，没被夹）
+    expect(Math.abs(offset())).toBeLessThanOrEqual(2);
+
+    // 同帧 React 把列表换成纯窗口：内容高骤降 ⇒ 浏览器夹 scrollTop ⇒ 落点被顶到窗口最旧端
+    model.contentHeight = WINDOW_H;
+    model.belowPx = BELOW_WINDOW;
+    container.scrollTop = container.scrollTop;   // 触发一次夹取（真机由布局变化触发）
+    const driftAfterClamp = offset();
+    // 先证明这个模型**真的复现了**那次失败：偏了一屏以上，且方向朝更旧
+    expect(driftAfterClamp).toBeGreaterThan(VIEWPORT);
+    expect(Math.round(driftAfterClamp)).toBeGreaterThan(1500);
+
+    flushFrame();   // 落定窗口内的重新对准
+
+    expect(Math.abs(offset())).toBeLessThanOrEqual(2);
+  });
+
+  it('几何没变就一个字节都不写 —— 否则每帧重写 scrollTop 会跟用户自己的滚动抢', () => {
+    const model: Model = { contentHeight: WINDOW_H, belowPx: BELOW_WINDOW };
+    const { writes } = mountModel(model);
+
+    expect(scrollMessageIntoView('msg-target')).toBe(true);
+    const afterFirst = writes.length;
+    expect(afterFirst).toBe(1);
+
+    flushFrame();
+    flushFrame();
+    flushFrame();
+
+    expect(writes.length).toBe(afterFirst);
+  });
+
+  it('用户一动就收手：容器上来了 wheel 之后，即便列表再变也不再改 scrollTop', () => {
+    const model: Model = { contentHeight: MERGED_H, belowPx: BELOW_MERGED };
+    const { container, writes } = mountModel(model);
+
+    expect(scrollMessageIntoView('msg-target')).toBe(true);
+    const afterFirst = writes.length;
+
+    container.dispatchEvent(new Event('wheel', { bubbles: true }));
+
+    model.contentHeight = WINDOW_H;
+    model.belowPx = BELOW_WINDOW;
+    flushFrame();
+    flushFrame();
+
+    // 夹取本身仍会记一笔（那是浏览器干的），但定位不得再主动写
+    expect(writes.length).toBe(afterFirst);
+  });
+
+  it('对准过程中这条消息从 DOM 消失（切走会话）：安静收手，不报错、不乱滚别人', () => {
+    const model: Model = { contentHeight: MERGED_H, belowPx: BELOW_MERGED };
+    const { container } = mountModel(model);
+
+    expect(scrollMessageIntoView('msg-target')).toBe(true);
+    container.innerHTML = '';
+    model.contentHeight = WINDOW_H;
+
+    expect(() => { flushFrame(); flushFrame(); }).not.toThrow();
+  });
+});

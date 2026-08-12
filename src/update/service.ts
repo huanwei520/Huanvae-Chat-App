@@ -119,9 +119,15 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
 // 下载并安装更新
 // ============================================
 
-/** Rust 侧 `ShardedEvent` 的线格式（serde tag="event" / content="data"，camelCase） */
+/**
+ * Rust 侧 `ShardedEvent` 的线格式（serde tag="event" / content="data"，camelCase）
+ *
+ * `Started.downloaded` = 本次开跑时**已经在盘上**的字节数（断点续传起点，非续传时为 0）。
+ * 它由 Started 自己带出来，而不是"先报 0 再补一条 Progress"——后者会让速率估算把
+ * 断点那一跳当成瞬时吞吐，读数直接飙到几十 MB/s。
+ */
 type ShardedEvent =
-  | { event: 'Started'; data: { contentLength: number | null } }
+  | { event: 'Started'; data: { contentLength: number | null; downloaded: number } }
   | { event: 'Progress'; data: { downloaded: number; contentLength: number | null } }
   | { event: 'Finished' };
 
@@ -153,13 +159,15 @@ export async function downloadAndInstall(
     switch (msg.event) {
       case 'Started': {
         total = msg.data.contentLength ?? undefined;
+        const resumed = msg.data.downloaded;
         onProgress?.({
           event: 'Started',
           contentLength: total,
-          // 总长未知 ⇒ 不定态；不再把百分比钉死成 0%
-          percent: total === undefined ? undefined : 0,
+          // 总长未知 ⇒ 不定态；不再把百分比钉死成 0%。
+          // 续传时起点就是断点处，不是 0 —— 直接按它算百分比。
+          percent: total === undefined ? undefined : Math.round((resumed / total) * 100),
           indeterminate: total === undefined,
-          downloaded: 0,
+          downloaded: resumed,
         });
         break;
       }

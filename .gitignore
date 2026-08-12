@@ -73,3 +73,8 @@ scripts/icons/app-icon-squircle.png
 # 构建产物安装包不入库（防手动测试构建的 .msi 误提交，2026-07 清理 test-build.msi 后加）
 /*.msi
 
+# 下载器测速台：构建产物与跑分结果都可随时重生成，不入库
+# （脚本本身与 Cargo.toml/main.rs **要**入库 —— 测速台不入仓正是历史上"拿不出数字"的成因）
+scripts/bench/download-bench/target/
+scripts/bench/results/
+

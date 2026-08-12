@@ -3,9 +3,15 @@
  *
  * 这些测试使用 CDP 监听 Animation 事件 + Performance 指标，捕捉以下异常：
  *   - 页面静默期仍有动画在跑（疑似无限循环 / 未清理的 framer-motion 状态机）
- *   - 同一元素并发动画（CSS transition × framer-motion 转换冲突）
+ *   - 同一节点的同一属性被多条动画同时驱动（CSS transition × framer-motion 抢帧，
+ *     即 .claude/rules/animation.md 规则一「单一所有权」的运行时违例）
  *   - 加载/导航期间过度布局抖动（layout thrashing）
  *   - JS 堆使用异常
+ *
+ * ⚠️ 测量纪律：CDP 的 animationStarted **投递有延迟**（本仓实测 2~529ms），
+ * 所以"事件何时到达 Node"绝不能当作"动画何时开始"。判定窗口一律用动画自身的
+ * `startTime`（页面时钟）来算，handler 全程挂着、断言前先排空管道。
+ * 详见下方 `recordAnimations` / `expectNoConcurrentConflicts` 的注释。
  *
  * 另有一组 GSAP 健康检测（见底部 "GSAP read-receipt animations"）：
  *   - 同元素多 tween：同一 DOM 节点是否被多个并发 tween 控制（单一所有权违例）
@@ -71,40 +77,159 @@ async function expectNoExcessiveAnimations(
   ).toBeLessThanOrEqual(threshold);
 }
 
+// ============================================
+// 动画事件记录器（测量层）
+// ============================================
+//
+// 🔴 为什么需要它，而不是在断言前才 `client.on(...)`：
+//
+// CDP 的 `Animation.animationStarted` **不是实时投递**的 —— 它先在渲染进程排队、
+// 再过 CDP 管道、最后进 Node 事件循环。本仓实测该投递延迟为 2~529ms（p50≈100ms）。
+// 于是"在观察窗开始的那一刻才注册 handler"会同时犯两个方向的错：
+//   ① 假阳：窗口**之前**就已开跑的动画，事件晚到落进窗口 → 被算成"窗口内新起的"
+//   ② 假阴：窗口**之内**新起的动画，事件在收集停止后才到 → 被漏掉
+// ①正是 2026-08-12「Auth Form Toggle」6/10 抖动的成因：表单滑入把按钮送到指针下
+// 触发的那批 hover 过渡创建于 click+470~640ms，而窗口 click+1000ms 才开；
+// 延迟 299~529ms 恰好把它们推过窗口边界 —— 推过去的轮次 FAIL，没推过去的 PASS。
+//
+// 修法是把"何时收到事件"与"动画何时开始"彻底解耦：
+//   - handler 在 `Animation.enable` 之后**立刻**注册，全程收集，不漏任何事件；
+//   - 是否落在观察窗内，一律用动画**自身的** `startTime`（页面时钟）判定；
+//   - 窗口关闭后额外 drain 一段时间，让窗口内动画的迟到事件全部落地再断言。
+//
+// `Animation.startTime` 与页面 `performance.now()` 同源（都以 time origin 起算，
+// document timeline 即此时钟）—— 本仓已实测对齐：同一条过渡 CDP 报 startTime=2184，
+// 页面内 `document.getAnimations()` 采样到的 `a.startTime` 同为 2184。
+
+/** CDP 事件投递的排空时间。取值依据：实测最大延迟 529ms，留 ~2x 余量。 */
+const CDP_DELIVERY_DRAIN_MS = 1200;
+
+interface AnimationRecord {
+  id: string;
+  type: string;
+  /** CSSTransition 的过渡属性名（CDP 放在 animation.name）；其余类型 CDP 不提供属性 → '' */
+  property: string;
+  /** 页面时钟（与 performance.now() 同源）上的活跃区间 */
+  activeFrom: number;
+  activeTo: number;
+  backendNodeId: number;
+}
+
 /**
- * 检测同一节点上并发动画 > 2 的情形（多动画转换冲突信号）
+ * 在 `Animation.enable` 之后立刻调用，返回一个持续填充的记录数组。
+ */
+function recordAnimations(client: CDPSession): AnimationRecord[] {
+  const records: AnimationRecord[] = [];
+  client.on('Animation.animationStarted', (event: any) => {
+    const animation = event.animation;
+    const source = animation?.source;
+    if (!source || !(source.duration > 0)) return;
+    const activeFrom = animation.startTime + (source.delay ?? 0);
+    records.push({
+      id: String(animation.id),
+      type: String(animation.type),
+      property: animation.type === 'CSSTransition' ? String(animation.name ?? '') : '',
+      activeFrom,
+      activeTo: activeFrom + source.duration,
+      backendNodeId: source.backendNodeId ?? 0,
+    });
+  });
+  return records;
+}
+
+/** 失败时把 backendNodeId 解成可读的元素描述；解不出就退回裸 id（绝不让它影响判定） */
+async function describeNode(client: CDPSession, backendNodeId: number): Promise<string> {
+  try {
+    const { node } = (await client.send('DOM.describeNode', { backendNodeId })) as any;
+    const attrs: string[] = node?.attributes ?? [];
+    let selector = String(node?.nodeName ?? '?').toLowerCase();
+    for (let i = 0; i < attrs.length; i += 2) {
+      if (attrs[i] === 'id') selector += `#${attrs[i + 1]}`;
+      if (attrs[i] === 'class') selector += `.${String(attrs[i + 1]).trim().split(/\s+/).join('.')}`;
+    }
+    return `${selector} (node ${backendNodeId})`;
+  } catch {
+    return `node ${backendNodeId}`;
+  }
+}
+
+/**
+ * 单一所有权检测：观察窗内，同一节点的**同一个属性**不得同时被一条以上的动画驱动。
+ *
+ * 判据 = .claude/rules/animation.md 规则一（每个属性只能有一个动画主人）的直接翻译：
+ * 取每条动画在页面时钟上的活跃区间 [startTime+delay, +duration]，按 (节点, 属性) 分组，
+ * 组内任意两条区间相交、且相交部分落在观察窗内 → 冲突。
+ *
+ * 🔴 这**不是**放宽原来的「同节点动画数 > 2」，而是把那条粗糙代理换成它本来想代理的东西：
+ *   - 原判据把"一次 :focus 展开的 4 条 border-*-color 长手写"、"一次 hover 起的 6 条
+ *     **不同属性**过渡"当冲突 —— 它们各有各的主人，本就不冲突（假阳）；
+ *   - 原判据又漏掉真冲突：同一属性被反复重启（JS 每帧写 inline style，CSS 对每次写入
+ *     各起一条过渡）时，若只有 2 条落在窗口内就判 PASS（假阴）。
+ *   两者在正对照上的灵敏度差距是实测的：把认证页那颗按钮改回"CSS+JS 双主人"后，
+ *   本判据 5/5 轮报 FAIL（均为 `transform` 自相重叠），原判据只有 2/5。
+ *
+ * ⚠️ 已知边界：CDP 只对 CSSTransition 给出属性名（animation.name）。WebAnimation /
+ * CSSAnimation 的 keyframesRule 里**没有**属性字段，故它们各自成组、永不互判冲突。
+ * 本检测覆盖的正是"CSS transition × JS 逐帧写 inline style 抢同一属性"这一类
+ * —— framer-motion 的 spring 写入正是以 CSSTransition 的形式暴露出来的。
  */
 async function expectNoConcurrentConflicts(
   page: Page,
   client: CDPSession,
+  records: AnimationRecord[],
   options: { settleMs?: number; label: string },
 ) {
   const { settleMs = 3000, label } = options;
-  const animationsByNode = new Map<number, any[]>();
 
-  client.on('Animation.animationStarted', (event: any) => {
-    const nodeId = event.animation.source?.backendNodeId;
-    if (nodeId) {
-      if (!animationsByNode.has(nodeId)) animationsByNode.set(nodeId, []);
-      animationsByNode.get(nodeId)!.push(event.animation);
-    }
-  });
-
+  const windowStart = await page.evaluate(() => performance.now());
   await page.waitForTimeout(settleMs);
+  const windowEnd = await page.evaluate(() => performance.now());
+  // 排空迟到事件：窗口内新起的动画，其 CDP 事件可能此刻还在管道里
+  await page.waitForTimeout(CDP_DELIVERY_DRAIN_MS);
 
-  const conflicts: string[] = [];
-  for (const [nodeId, anims] of animationsByNode) {
-    const concurrent = anims.filter(
-      (a) => a.source?.duration && a.source.duration > 0,
-    );
-    if (concurrent.length > 2) {
-      conflicts.push(`Node ${nodeId}: ${concurrent.length} concurrent`);
+  const byOwner = new Map<string, AnimationRecord[]>();
+  for (const record of records) {
+    // 属性未知的类型按自身身份分桶，不与任何人比较（见上方"已知边界"）
+    const owner = `${record.backendNodeId}|${record.property || `${record.type}:${record.id}`}`;
+    if (!byOwner.has(owner)) byOwner.set(owner, []);
+    byOwner.get(owner)!.push(record);
+  }
+
+  const conflicts: { nodeId: number; property: string; from: number; to: number; count: number }[] = [];
+  for (const group of byOwner.values()) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((a, b) => a.activeFrom - b.activeFrom);
+    let maxEnd = -Infinity;
+    for (const record of sorted) {
+      if (record.activeFrom < maxEnd) {
+        const from = record.activeFrom;
+        const to = Math.min(maxEnd, record.activeTo);
+        // 相交区间必须与观察窗有交集，才算"在本次观察期间发生的冲突"
+        if (to > from && to >= windowStart && from <= windowEnd) {
+          conflicts.push({
+            nodeId: record.backendNodeId,
+            property: record.property,
+            from: Math.round(from - windowStart),
+            to: Math.round(to - windowStart),
+            count: sorted.length,
+          });
+          break;
+        }
+      }
+      maxEnd = Math.max(maxEnd, record.activeTo);
     }
   }
 
+  const detail = await Promise.all(
+    conflicts.map(async (c) =>
+      `  ${await describeNode(client, c.nodeId)}: "${c.property}" ` +
+      `被 ${c.count} 条动画驱动，区间重叠 ${c.from}~${c.to}ms（相对观察窗起点）`,
+    ),
+  );
+
   expect(
-    conflicts,
-    `[${label}] animation conflicts:\n${conflicts.join('\n')}`,
+    detail,
+    `[${label}] 同一属性被多条动画同时驱动（单一所有权违例）:\n${detail.join('\n')}`,
   ).toHaveLength(0);
 }
 
@@ -153,8 +278,9 @@ animTest.describe('Animation Health — Login Page', () => {
   animTest('no animation conflicts on same element', async ({ page }) => {
     const client = await page.context().newCDPSession(page);
     await client.send('Animation.enable');
+    const records = recordAnimations(client);
     await page.goto('/');
-    await expectNoConcurrentConflicts(page, client, { label: 'login default' });
+    await expectNoConcurrentConflicts(page, client, records, { label: 'login default' });
     await client.send('Animation.disable');
   });
 
@@ -185,6 +311,7 @@ animTest.describe('Animation Health — Auth Form Toggle', () => {
   animTest('toggling login/register does not produce concurrent animation conflicts', async ({ page }) => {
     const client = await page.context().newCDPSession(page);
     await client.send('Animation.enable');
+    const records = recordAnimations(client);
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -196,7 +323,7 @@ animTest.describe('Animation Health — Auth Form Toggle', () => {
       await page.waitForTimeout(1000);
     }
 
-    await expectNoConcurrentConflicts(page, client, {
+    await expectNoConcurrentConflicts(page, client, records, {
       settleMs: 1500,
       label: 'auth form toggle',
     });
@@ -251,11 +378,12 @@ animTest.describe('Animation Health — Dark Theme', () => {
   animTest('dark theme: no animation conflicts', async ({ page }) => {
     const client = await page.context().newCDPSession(page);
     await client.send('Animation.enable');
+    const records = recordAnimations(client);
 
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/');
 
-    await expectNoConcurrentConflicts(page, client, { label: 'dark theme' });
+    await expectNoConcurrentConflicts(page, client, records, { label: 'dark theme' });
     await client.send('Animation.disable');
   });
 

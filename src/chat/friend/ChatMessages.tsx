@@ -13,9 +13,12 @@
  * - column-reverse 把 DOM index 0（最新）渲染在视觉底部
  * - 发送中的消息排在 index 0（视觉最底）
  *
- * 滚动机制（全部由 column-reverse 原生保证，无 JS 重滚）：
+ * 滚动机制（骨架由 column-reverse 原生保证；只有「新消息到达」那一条需要 JS 判一次）：
  * - 打开会话：scrollTop=0 即底部，首帧即停在最新
- * - 新消息到达：prepend 到 index 0（视觉底），在底部时原生跟随、上滑时不打扰
+ * - 新消息到达：prepend 到 index 0（视觉底）。原生行为是「贴底时跟随、上滑时保持视位」，
+ *   这对**别人发来的**消息是对的（读历史不该被拽走），但对「我刚按了发送」是错的 ——
+ *   由 useStickToBottom 补一条判据：自己发的无条件滚底；别人发的只在「最新那条插入前
+ *   还看得见（露出任何一部分）」时才跟。判据与实现全在那个 hook，群聊侧调同一个。
  * - 内容增高：滚动锚定在底部，上方增高不推走最新一条
  * - 加载历史：older 追加到 DOM 末尾（视觉顶），底部原生不动，无需补偿
  *
@@ -45,6 +48,7 @@ import {
 import { friendConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
 import { isLocateScrollSettling } from '../shared/scrollMessageIntoView';
+import { useStickToBottom } from '../shared/useStickToBottom';
 
 /** 滚动到顶部触发加载的阈值（可视高度的两倍） */
 const LOAD_MORE_THRESHOLD_MULTIPLIER = 2;
@@ -289,6 +293,10 @@ export function ChatMessages({
     prevScrollHeightRef.current = container.scrollHeight;
     prevFirstKeyRef.current = firstKey;
   }, [sortedMessages]);
+
+  // 新消息到达时是否贴回最新一条：自己发的无条件滚底，别人发的只在「最新那条原本看得见」时跟。
+  // 判据与实现全在 useStickToBottom（群聊侧调同一个），此处只接线 —— 全仓不该有第二处判贴底。
+  useStickToBottom(containerRef, sortedMessages);
 
   // 添加滚动事件监听
   useEffect(() => {

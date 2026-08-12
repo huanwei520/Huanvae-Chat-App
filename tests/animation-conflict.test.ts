@@ -30,7 +30,7 @@
 
 /* eslint-disable no-undef */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, globSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // 项目根目录（vitest 从 package.json 所在目录运行）
@@ -523,7 +523,38 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['width'],
     motionLocation: 'src/update/components/MobileDownloadCard.tsx (animate={{ width }})',
   },
+  // ===== 认证页（2026-08-12 补登记：e2e Auth Form Toggle 并发动画根治）=====
+  // 这两个 selector 上 transform 归 framer-motion 独占，CSS 只准过渡它不碰的属性。
+  // `.back-button` 原本写的是 `transition: all` —— `all` 覆盖 transform，正是规则一禁的形态。
+  {
+    selector: '.back-button',
+    cssFile: 'src/styles/pages/auth.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/Login.tsx + src/pages/Register.tsx (motion.button whileHover scale 1.1 / whileTap scale 0.9)',
+  },
+  {
+    selector: '.glass-input',
+    cssFile: 'src/styles/components/glass-input.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/pages/Login.tsx + src/pages/Register.tsx (motion.input whileFocus scale 1.01；CSS 只准过渡 border-color/background/box-shadow)',
+  },
 ];
+
+/**
+ * `.app-btn` 的 transform 归 **CSS 单一所有**，任何 MotionAppButton 调用点都不得再接管它。
+ *
+ * 为什么是 CSS 当主人（而不是按 animation.md 规则一的一般偏好交给 JS）：
+ * `.app-btn` 的 hover 抬升 / active 按下 / disabled 归位全在 app-button.css 里，
+ * 全应用 40+ 个**普通** `<AppButton>` 调用点都靠它拿反馈 —— CSS 是唯一能覆盖所有调用点的主人。
+ * 少数几个 `<MotionAppButton whileHover={{ scale }}>` 才是多出来的第二个主人。
+ *
+ * 后果（2026-08-12 实测，见 .claude/rules/animation.md 同名实例节）：
+ * framer-motion 的 spring 每帧写一次 inline transform，浏览器就对每一次写入各起一条
+ * 400ms 的 `transition: transform`，于是同一个按钮节点上不断有新的 CSSTransition 开跑，
+ * 一直溢到 e2e 判定窗口里 → `Animation Health — Auth Form Toggle` 40% 概率报
+ * 「同节点并发动画」。
+ */
+const TRANSFORM_OWNING_MOTION_PROPS = ['whileHover', 'whileTap', 'whileFocus', 'variants'] as const;
 
 /**
  * 提取指定 selector 的基础规则块的 transition 字段
@@ -576,5 +607,64 @@ describe('动画冲突静态检查（CSS transition vs JS 动画 framer-motion/G
 
   it('注册表非空（避免被误删）', () => {
     expect(MOTION_CONTROLLED_SELECTORS.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * 从源码里抠出每一个 `<MotionAppButton …>` 的**开标签**文本。
+ *
+ * 花括号感知：`rightIcon={<ArrowRightIcon />}` 里的 `>` 在 `{}` 内，不能当成开标签结束，
+ * 否则会把带 icon 的调用点截断成半句、漏判其后的 whileHover。
+ */
+function extractMotionAppButtonOpenTags(source: string): string[] {
+  const tags: string[] = [];
+  const TAG = '<MotionAppButton';
+  let from = 0;
+  for (;;) {
+    const start = source.indexOf(TAG, from);
+    if (start === -1) { break; }
+    let depth = 0;
+    let i = start + TAG.length;
+    for (; i < source.length; i += 1) {
+      const c = source[i];
+      if (c === '{') { depth += 1; } else if (c === '}') { depth -= 1; } else if (c === '>' && depth === 0) { break; }
+    }
+    tags.push(source.slice(start, i + 1));
+    from = i + 1;
+  }
+  return tags;
+}
+
+describe('.app-btn 的 transform 单一所有权（CSS 独占，MotionAppButton 不得接管）', () => {
+  // globSync 返回相对 cwd 的路径（本版 @types/node 无 absolute 选项）
+  const sourceFiles = globSync('src/**/*.tsx', { cwd: PROJECT_ROOT }) as string[];
+
+  it('扫描面非空（globSync 失效时不许静默空转）', () => {
+    expect(sourceFiles.length).toBeGreaterThan(50);
+  });
+
+  it('自检：开标签抽取是花括号感知的（否则带 icon 的调用点会被截断漏判）', () => {
+    const sample = '<MotionAppButton rightIcon={<Arrow />} whileHover={{ scale: 1.02 }}>x</MotionAppButton>';
+    const [tag] = extractMotionAppButtonOpenTags(sample);
+    expect(tag).toContain('whileHover');
+  });
+
+  it('src/ 内没有任何 MotionAppButton 调用点声明 transform 类 motion props', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles) {
+      const source = readFileSync(resolve(PROJECT_ROOT, file), 'utf-8');
+      if (!source.includes('<MotionAppButton')) { continue; }
+      for (const tag of extractMotionAppButtonOpenTags(source)) {
+        for (const prop of TRANSFORM_OWNING_MOTION_PROPS) {
+          if (new RegExp(`\\b${prop}\\s*=`).test(tag)) {
+            offenders.push(`${file}: <MotionAppButton … ${prop}=…>`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      `这些调用点让 framer-motion 与 CSS 抢 .app-btn 的 transform（每帧 inline 写入各起一条 400ms 过渡）：\n${offenders.join('\n')}\n改法：换成普通 <AppButton>，hover/press 反馈由 app-button.css 提供。`,
+    ).toHaveLength(0);
   });
 });

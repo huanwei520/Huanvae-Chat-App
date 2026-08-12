@@ -493,6 +493,24 @@
 .conv-msg-search-list--grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  /* 🔴 grid-auto-rows 不能省 —— 省掉它，结果一多屏就整片重叠（真实缺陷，两端都中）
+   *
+   * 隐式行默认 `auto`，而 auto 行的下界是**项的 min-content 高度**。本网格里格子的高度
+   * 只来自 .conv-msg-search-cell 的 aspect-ratio：它唯一的子元素是 height:100% 的
+   * <img>/<video>，百分比高度对「尚未定高的行」是循环引用 ⇒ 该格子的 min-content 高度
+   * 约等于 0（实测 21px）。再叠上本列表是 flex:1 + min-height:0 + overflow-y:auto 的
+   * **定高**滚动容器 —— 一旦结果条数多到自然总高超过容器高度，auto 行就被压到 21px，
+   * 而每个格子仍按 aspect-ratio 铺满 ~120px ⇒ 每格溢出自己的行 ~100px、压住下面 4~5 行，
+   * 于是「一张压着另一张，很多张只能看到一部分」。
+   *
+   * 实测（Playwright，Chromium 与 WebKit 同款，非引擎特异）：12 条时容器装得下 ⇒ 行高
+   * 121px、0 对重叠；60 条时 ⇒ 行高 21px、**210 对重叠**、行进距只有 25px。
+   * 这正是它此前没被发现的原因：条数少于一屏时完全正常。
+   *
+   * `max-content` 让行高恒等于内容想要的高度、永不被容器高度压扁（实测 210 → 0 对重叠，
+   * 行进距回到 126px = 格子 122 + gap 4，格子仍是正方形，滚动正常）。
+   * ⚠️ 别改回 auto，也别用 1fr（1fr 会把行高绑死到容器高度，等于换一种压扁方式）。 */
+  grid-auto-rows: max-content;
   gap: 4px;
   align-content: start;
 }

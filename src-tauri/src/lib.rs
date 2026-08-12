@@ -39,6 +39,9 @@ mod device_info;
 mod download;
 mod lan_transfer;
 mod permissions;
+/// 断点续传的 sidecar 清单 + 「远端未变」判定 —— 桌面 updater 与安卓 APK 下载**共用同一份**
+/// （`pub` 是为了让 iOS 这类两边下载器都不编进去的目标上也不算 dead code）
+pub mod resume_meta;
 mod sounds;
 mod storage;
 // macOS 凭据存储：App 私有 AES（替代系统钥匙串，消除未签名 App 的 ACL 弹框）

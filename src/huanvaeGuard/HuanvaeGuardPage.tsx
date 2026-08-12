@@ -805,7 +805,9 @@ export default function HuanvaeGuardPage() {
     : null;
 
   return (
-    <div className="hg-page">
+    // app-scrollbar：整页滚动容器（.hg-page 是 overflow-y:auto）也用全应用统一滚动条。
+    // 只给日志区加而漏掉这里，同一个 VPN 窗口会出现两种滚动条并存，与「统一」直接相悖。
+    <div className="hg-page app-scrollbar">
       {/* 状态冠：常驻回答「通没通」。必须是原生 <header>，
           且服务态文案与「安装服务 / 修复服务」按钮必须同处其中（测试用 closest('header') 定位）。 */}
       <header className="hg-crown">
@@ -1267,7 +1269,8 @@ export default function HuanvaeGuardPage() {
           <span className="hg-log-title">日志</span>
           <span className="hg-log-count">{log.length} 条</span>
         </div>
-        <div className="hg-log">
+        {/* app-scrollbar：全应用统一滚动条（src/styles/scrollbar.css），勿改回本页私有样式 */}
+        <div className="hg-log app-scrollbar">
           {log.length === 0 ? (
             <div className="hg-log-empty">就绪</div>
           ) : (

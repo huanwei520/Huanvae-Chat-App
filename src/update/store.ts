@@ -85,6 +85,18 @@ interface UpdateStoreState {
    * 都会被同一条提示重新怼一次。仅进程内有效，重启后会再提示一次（合理：包确实还等着装）。
    */
   pendingInstallDismissed: boolean;
+
+  /**
+   * 下一次 `startDownload` 是「接着下」而不是「重来」
+   *
+   * 只由 `handleRetry` 置位、被 `startDownload` 消费后立刻清掉（一次性）。
+   *
+   * 🔴 它**只影响进度条的起点显示**：真正的字节续传发生在 Rust 侧，依据是磁盘上的
+   * 断点清单（`src-tauri/src/resume_meta.rs`），与这个标志无关。之所以还需要它，
+   * 是因为重试时会先做一次 HEAD 探测才拿得到断点位置 —— 那段时间里若把进度清零，
+   * 用户看到的就是「又从 0 开始了」，而事实并非如此。弱网上这段探测正好最久。
+   */
+  resumeHint: boolean;
 }
 
 interface UpdateStoreActions {
@@ -171,6 +183,7 @@ const initialState: UpdateStoreState = {
   androidUpdateInfo: null,
   androidApkPath: '',
   pendingInstallDismissed: false,
+  resumeHint: false,
 };
 
 // ============================================
@@ -197,20 +210,27 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     // 上一轮的样本（基线时间戳 / 已下字节 / EMA）对这一轮毫无意义，必须清干净，
     // 否则新一轮的第一个样本会拿上一轮的基线去减，算出一个荒唐的巨值。
     speedTracker.reset();
-    // 起手总长必然未知（第一个 Started 事件还没到）⇒ 先进不定态，
-    // 免得先闪一个「0%」再变成真实百分比。
+    const prev = get();
+    // 「重试」= 接着下（Rust 侧按磁盘断点清单续），此时**保留上次的读数**，
+    // 别把进度清零 —— 清零传达的是「之前下的全白费了」，而那是假的。
+    // 只有在真拿得到上次读数（total > 0）时才保留；否则仍走不定态。
+    const resuming = prev.resumeHint && prev.total > 0 && prev.downloaded > 0;
     set({
       status: 'downloading',
-      progress: 0,
-      downloaded: 0,
-      total: 0,
+      // 起手总长未知时（首次下载，第一个 Started 事件还没到）先进不定态，
+      // 免得先闪一个「0%」再变成真实百分比。
+      progress: resuming ? Math.round((prev.downloaded / prev.total) * 100) : 0,
+      downloaded: resuming ? prev.downloaded : 0,
+      total: resuming ? prev.total : 0,
       speed: 0,
-      indeterminate: true,
-      // Android：新一轮下载会把同名 APK 截断重写、并删掉旧标记 ⇒ 旧路径此刻指向半截文件，
-      // 必须一起作废，免得残留一个指向坏包的「立即安装」。
+      indeterminate: !resuming,
+      // Android：下载中的 APK 是半截的 ⇒ 旧路径此刻不可安装，必须一起作废，
+      // 免得残留一个指向坏包的「立即安装」。
       androidApkPath: '',
       // 用户重新点了更新 = 重新有兴趣了，之前那次「稍后」不该继续压制提示
       pendingInstallDismissed: false,
+      // 一次性标志，用完即清：下一次若是"全新开始"就不该再吃到它
+      resumeHint: false,
     });
   },
 
@@ -502,6 +522,10 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   // ========== 重试 ==========
 
   handleRetry: () => {
+    // 重试 = 接着下。两端 Rust 侧都会按磁盘上的断点清单只补没下完的部分
+    // （见 src-tauri/src/resume_meta.rs），这里只是让 UI 别先把进度清零，
+    // 免得在 HEAD 探测那几百毫秒里骗用户「又从头开始了」。
+    set({ resumeHint: true });
     get().handleUpdate();
   },
 

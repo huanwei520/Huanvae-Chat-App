@@ -41,6 +41,7 @@ import { useAIMessages } from '../chat/ai/useAIMessages';
 import { useVoiceCall } from '../chat/ai/voice/useVoiceCall';
 import { useVoiceProfiles } from '../chat/ai/voice/useVoiceProfiles';
 import { scrollMessageIntoView } from '../chat/shared/scrollMessageIntoView';
+import { markLocalSend } from '../chat/shared/useStickToBottom';
 import { draftKeyOf } from '../chat/shared/conversationKey';
 import { useResizablePanel } from './useResizablePanel';
 import { useFileUpload } from './useFileUpload';
@@ -743,6 +744,11 @@ export function useMainPage() {
             });
           }
 
+          // 文件/图片/视频这条发送路径**没有乐观插入**：消息是落库后由 loadFriendMessages()
+          // 重新读 DB 灌回来的，不带 clientId ⇒ 消息列表会把它当成"非实时加载"而不贴底。
+          // 在重灌**之前**打一次标记，让「我刚发出去的东西」同样无条件滚到底。
+          // 紧贴重灌调用（而不是上传开始时）打，窗口才够短，不会被同期到达的别人消息误消费。
+          markLocalSend();
           loadFriendMessages();
           updateLastMessage('friend', chatTarget.data.friend_id, file.name, messageType, timestamp);
         } else {
@@ -774,6 +780,8 @@ export function useMainPage() {
             });
           }
 
+          // 同私聊分支：无乐观插入，靠标记认领这次「本机发送动作」（理由见上）
+          markLocalSend();
           loadGroupMessages();
           updateLastMessage('group', chatTarget.data.group_id, file.name, messageType, timestamp);
         } else {

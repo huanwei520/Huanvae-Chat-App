@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { scrollToLatestAfterTwoFrames } from './useStickToBottom';
 import './JumpToLatestButton.css';
 
 /**
@@ -125,13 +126,9 @@ export function JumpToLatestButton({
     //      停在半路（实测：数据已是最新 50 条，画面却停在第 375 条附近）。
     // 双 rAF 保证「提交 + 绘制」都已完成；且**这一路用瞬时滚**——
     // 旧内容已经整段换掉了，没有什么可供"平滑滚过"，动画只会制造上面第 2 种失败。
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    });
-    const settled = containerRef.current;
-    if (settled) {
-      settled.scrollTop = 0;
-    }
+    // 实现与「新消息到达时贴底」共用同一份（useStickToBottom.scrollToLatestAfterTwoFrames）——
+    // 这套写法是真机验证过的，全仓只留一份，不要在别处另写。
+    scrollToLatestAfterTwoFrames(containerRef);
   }, [containerRef, onJumpToLatest]);
 
   return (

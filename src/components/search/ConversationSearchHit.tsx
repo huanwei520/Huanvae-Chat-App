@@ -44,7 +44,7 @@ import { useFileCache } from '../../hooks/useFileCache';
 import { useSession } from '../../contexts/SessionContext';
 import { openMediaWindow } from '../../media';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
-import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
+import { VideoThumbnail } from '../../chat/shared/VideoThumbnail';
 import { highlightMatch } from './highlightMatch';
 import { contentTypeBadge, contentTypeToCategory } from './messageCategory';
 import { ConversationSearchHitMenu, useSearchHitMenu } from './ConversationSearchHitMenu';
@@ -176,18 +176,10 @@ function MediaHit({
     // 取源未完成 / 该消息没有 file_uuid（历史脏数据）：同尺寸占位，避免列表逐条抖动
     media = <div className={`${mediaClass} ${mediaClass}--empty`} aria-hidden="true" />;
   } else if (isVideo) {
-    media = (
-      <video
-        className={mediaClass}
-        // 缩略图专用 src（追 #t=0.1 逼引擎 seek 出封面）。WKWebView / Android WebView
-        // 不会自发画首帧，只有 Windows 会 —— 详见 chat/shared/videoPosterSrc.ts。
-        src={videoPosterSrc(src)}
-        preload="metadata"
-        muted
-        playsInline
-        aria-hidden="true"
-      />
-    );
+    // 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
+    // 详见 chat/shared/VideoThumbnail.tsx。递**裸** src —— 片段由组件内部追。
+    // decorative：格子自己已带 aria-label（「视频 {文件名}」），读屏不必再念一遍。
+    media = <VideoThumbnail src={src} className={mediaClass} decorative />;
   } else {
     media = <img className={mediaClass} src={src} alt="" loading="lazy" />;
   }

@@ -7,6 +7,7 @@ src/styles/
 ├── index.css              # 样式入口文件
 ├── variables.css          # 设计 Token（CSS 变量）
 ├── base.css               # 基础布局与动画
+├── scrollbar.css          # 统一滚动条 .app-scrollbar — 全应用唯一的 ::-webkit-scrollbar 定义
 ├── components/            # 可复用组件样式
 │   ├── glass-card.css     # 毛玻璃卡片
 │   ├── app-button.css     # 主按钮（玻璃渐变）— 配合 src/components/common/AppButton.tsx
@@ -310,6 +311,7 @@ box-shadow:
 |------|------|------|
 | `variables.css` | ~150 | 设计 Token |
 | `base.css` | ~190 | 基础布局 |
+| `scrollbar.css` | ~55 | 统一滚动条 `.app-scrollbar`（收敛自散在 7 个文件的各写各的写法） |
 | `glass-card.css` | ~170 | 卡片组件 |
 | `app-button.css` | ~360 | 主按钮组件（AppButton） |
 | `subtle-button.css` | ~80 | 浅色底按钮 |

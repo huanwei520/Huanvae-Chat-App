@@ -18,6 +18,10 @@ scripts/
 ├── hg-connectivity-test.ps1  # VPN 连通性测试（Windows）
 ├── hg-connectivity-test.sh   # VPN 连通性测试（macOS）
 ├── setup-wsl-rust.ps1        # Windows WSL Rust 环境设置
+├── bench/                    # 更新下载器测速台（入仓，随代码走 —— 详见 bench/README.md）
+│   ├── download-bench/       # Rust crate：总耗时 / 峰值·均值速率 / 各分片完成时刻离散度 / 重试数
+│   ├── run-download-bench.sh # 一键：构建 → 跑 → 落 JSON → 人读摘要（URL 经 BENCH_URL 注入）
+│   └── chromium-baseline.mjs # 浏览器单连接对照组（Playwright Chromium）
 ├── dev/                      # 开发辅助脚本
 │   ├── hg-service.ps1        # HuanvaeGuard 服务注册/启停/查询（dev 环境等价于 NSIS 钩子）
 │   ├── hg-tunnel-diag.ps1    # HG 隧道丢包/握手时间线诊断

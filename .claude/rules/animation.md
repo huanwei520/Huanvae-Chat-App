@@ -36,6 +36,66 @@ gsap.to('.hero-card', { x: 24, opacity: 1, duration: 0.4 });
 
 CSS 反馈（如 `:active { transform: scale(0.98); }`）也算"另一个主人"，与 GSAP/motion 的 transform 抢帧——改用 JS 侧反馈（GSAP tween 或 motion `whileTap`）。
 
+⚠️ **但"改用 JS 侧"不是无条件的**：谁当主人要看**哪一方能覆盖全部调用点**。共享组件（design-system 按钮之类）的 transform 往往只能由 CSS 当主人——见下面这条实例。
+
+### 实例：认证页表单切换的同节点并发动画（2026-08-12）
+
+**症状**：门禁 E2E `e2e/animation-health.spec.ts:185`「Animation Health — Auth Form Toggle」
+同一份代码连跑 10 次 **4 FAIL / 6 PASS**，报 `Node NN: 3~8 concurrent`，节点号每次不同。
+看着像 flaky，实则底下是**同一个真实的并发动画**，随机的只是"是否越过检测阈值"。
+
+**那个 Node 是谁**（用 CDP `DOM.resolveNode` 把 `backendNodeId` 解回元素才看清，别猜）：
+`button.app-btn.app-btn--primary.app-btn--lg.app-btn--block`，即注册页第一步的「下一步」提交按钮，
+解析出来时它的 inline style 正是 `transform: translateY(-3px) scale(1.02)` —— framer-motion 的 hover variant。
+
+**为什么它会被 hover**：点「注册新账号」后指针停在原地，注册表单带着 x 位移滑入，
+按钮自己**移动到指针底下** → hover 触发。这一步与 bug 无关，但它是引信。
+
+**成因（两个 transform 主人）**：
+
+| 主人 | 位置 | 原文 |
+|---|---|---|
+| CSS | `src/styles/components/app-button.css` `.app-btn` | `transition: transform var(--transition-bounce, …)` + `:hover { transform: translateY(-2px) scale(1.02) }` + `:active { … }` |
+| framer-motion | `src/pages/Register.tsx` / `Login.tsx` | `<MotionAppButton variants={buttonVariants} whileHover="hover" whileTap="tap">`，`buttonVariants.hover = { scale: 1.02, y: -3, transition: { type: 'spring', … } }` |
+
+spring **每帧写一次 inline transform**，浏览器就对**每一次写入各起一条 400ms 的 `transition: transform`**。
+实测（`document.getAnimations()` 采样）：hover 那一瞬先是一批 7 条过渡（border-\*-color ×4 + box-shadow + transform + 扫光 left），
+**随后只有 `transform` 一条属性在反复重开**——`t=2374 / 2766 / 2940 / 3022 / 3227` 各起一条新的 `CSSTransition(transform, 400ms)`。
+"只有 transform 在重开、其它属性不重开"正是**判据**：它排除了 hover 反复进出（那样每条属性都会重来），
+坐实了 inline 值在被逐帧改写。这串过渡一直溢到检测窗口里，落进去几条就报几条 → 40% 掷骰子。
+
+**修法（恢复单一所有权：CSS 当主人，删掉 JS 那一层）**：
+
+```tsx
+// ✗ 两个主人：CSS 已经 transition+:hover+:active 全包了 transform，这里再写一层
+<MotionAppButton variants={buttonVariants} whileHover="hover" whileTap="tap">下一步</MotionAppButton>
+
+// ✓ 一个主人：hover 抬升 / press 按下全部由 app-button.css 提供，视觉等价
+<AppButton type="submit" variant="primary" size="lg" block>下一步</AppButton>
+```
+
+**为什么这次是 CSS 当主人（与本规则一般偏好相反）**：`.app-btn` 的 hover/active/disabled 反馈写在
+共享 CSS 里，全应用 40+ 个**普通** `<AppButton>` 调用点都靠它——CSS 是**唯一能覆盖所有调用点**的主人；
+少数几个 `<MotionAppButton whileHover>` 才是多出来的第二个。**选主人的判据是覆盖面，不是"JS 更高级"。**
+
+同批一并修的第二处（这个反过来，JS 当主人）：`.back-button` 原本写 `transition: all`，
+而 `motion.button.back-button` 有 `whileHover scale 1.1` —— `all` 覆盖 transform，
+改成只列 `border-color, box-shadow`。
+
+**机器守门**（都做过 node 变异验证，删掉修复必翻红）：
+- `tests/animation-conflict.test.ts` 注册表新增 `.back-button` / `.glass-input`；
+- 同文件新增 describe「`.app-btn` 的 transform 单一所有权」：扫 `src/**/*.tsx`，
+  任何 `<MotionAppButton>` 声明 `whileHover|whileTap|whileFocus|variants` 即 FAIL。
+
+**两个可复用的教训**：
+
+1. **先把节点解回元素，再谈成因。** 报文里只有 `Node 26`，猜"哪两套 variants 打架"会跑偏；
+   `DOM.resolveNode` + `document.getAnimations()`（带 `transitionProperty`）一次就指到人。
+2. 🔴 **CSS 注释里不许出现花括号。** `animation-conflict.test.ts` 抠规则块是"到第一个右花括号为止"，
+   注释里的花括号会把它后面的 `transition` 挡在块外 → 那条注册项**静默空转、恒 PASS**。
+   本次给 `.back-button` 写注释时就踩了（注释里带了 `whileHover={{ scale: 1.1 }}`），
+   **是变异验证发现的**——只跑一次绿的注册项，不能证明它在守门。
+
 ## 规则二：所有 GSAP tween 显式 overwrite，避免同元素叠 tween
 
 **对同一元素/同一属性可能重复触发的 tween（hover、点击、状态切换、列表项复用），必须用 `overwrite: 'auto'`；或在新建 tween 前 `gsap.killTweensOf(target)`。** 否则旧 tween 未结束就叠新 tween，两条 tween 同时写同一属性 → 数值打架、回跳。

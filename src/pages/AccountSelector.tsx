@@ -15,7 +15,7 @@
 
 import { useCallback, useRef, useLayoutEffect, useReducer, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { MotionAppButton } from '../components/common/AppButton';
+import { AppButton } from '../components/common/AppButton';
 import { UserIcon, TrashIcon } from '../components/common/Icons';
 import { CardStack, getLoopIndex } from '../components/account';
 import type { SavedAccount } from '../types/account';
@@ -360,18 +360,16 @@ export function AccountSelector({
       </motion.div>
 
       <motion.div variants={itemVariants}>
-        <MotionAppButton
+        <AppButton
           type="button"
           variant="primary"
           size="lg"
           block
           onClick={handleSelect}
           disabled={!currentAccount || showDeleteConfirm}
-          whileHover={{ scale: 1.02, y: -3 }}
-          whileTap={{ scale: 0.98 }}
         >
           登陆
-        </MotionAppButton>
+        </AppButton>
       </motion.div>
 
       <motion.div className="wheel-actions" variants={itemVariants}>

@@ -3,7 +3,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MotionAppButton } from '../common/AppButton';
+import { AppButton } from '../common/AppButton';
 import { useApi } from '../../contexts/SessionContext';
 import { changePassword } from '../../api/profile';
 
@@ -95,17 +95,15 @@ export function PasswordForm({ onSuccess, onError, hideSubmit = false, onSubmitS
         />
       </div>
       {!hideSubmit && (
-        <MotionAppButton
+        <AppButton
           variant="primary"
           size="lg"
           block
           onClick={handleSubmit}
           disabled={loading || !oldPassword || !newPassword || !confirmPassword}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
         >
           {loading ? '修改中...' : '修改密码'}
-        </MotionAppButton>
+        </AppButton>
       )}
     </>
   );

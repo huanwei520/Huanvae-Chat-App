@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MotionAppButton } from '../common/AppButton';
+import { AppButton } from '../common/AppButton';
 import { useApi } from '../../contexts/SessionContext';
 import { getProfile, updateProfile, type RequestPolicy } from '../../api/profile';
 
@@ -167,17 +167,15 @@ export function PrivacySettingsForm({ onSuccess, onError, hideSubmit = false, on
       </div>
 
       {!hideSubmit && (
-        <MotionAppButton
+        <AppButton
           variant="primary"
           size="lg"
           block
           onClick={handleSubmit}
           disabled={saving}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
         >
           {saving ? '保存中...' : '保存设置'}
-        </MotionAppButton>
+        </AppButton>
       )}
     </div>
   );

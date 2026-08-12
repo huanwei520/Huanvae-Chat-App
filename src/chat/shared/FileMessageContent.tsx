@@ -36,7 +36,7 @@ import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheSto
 import { formatFileSize } from '../../utils/format';
 import { FilePreviewModal } from './FilePreviewModal';
 import { MobileMediaPreview } from './MobileMediaPreview';
-import { videoPosterSrc } from './videoPosterSrc';
+import { VideoThumbnail } from './VideoThumbnail';
 import { DocumentDownloadAction, LocalBadge } from './DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
@@ -528,16 +528,10 @@ function VideoMessage({
             {/* 本地文件标识 */}
             {isDownloaded && <LocalBadge />}
 
-            {/* 视频缩略图：src 追 #t=0.1 逼引擎 seek 出封面 —— WKWebView / Android WebView
-                都不会自发画首帧（只有 Windows 会），详见 chat/shared/videoPosterSrc.ts */}
-            <video
-              src={videoPosterSrc(src)}
-              className="message-video-thumbnail"
-              preload="metadata"
-              muted
-              playsInline
-              onPlay={onPlay}
-            />
+            {/* 视频缩略图：全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted /
+                playsInline 全在组件里），详见 chat/shared/VideoThumbnail.tsx。
+                这里递**裸** src —— 片段由组件内部追。 */}
+            <VideoThumbnail src={src} className="message-video-thumbnail" onPlay={onPlay} />
 
             {/* 下载进度覆盖层 */}
             {isDownloading && downloadTask && (

@@ -70,6 +70,9 @@
 /* 浅色底按钮 SubtleBtn - 与 AppButton 互补的扁平风格按钮（行内动作 / 设置项） */
 @import './components/subtle-button.css';
 
+/* 统一滚动条 AppScrollbar - 全应用唯一的 ::-webkit-scrollbar 样式（滚动容器加 .app-scrollbar） */
+@import './scrollbar.css';
+
 /* 毛玻璃输入框 - 表单输入 */
 @import './components/glass-input.css';
 

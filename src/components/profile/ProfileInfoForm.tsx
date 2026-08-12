@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MotionAppButton } from '../common/AppButton';
+import { AppButton } from '../common/AppButton';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { updateProfile, type Gender, type UpdateProfileRequest } from '../../api/profile';
 import { formatDate } from '../../utils/time';
@@ -187,17 +187,15 @@ export function ProfileInfoForm({ onSuccess, onError, showRegisterTime = true, h
         )}
       </div>
       {!hideSubmit && (
-        <MotionAppButton
+        <AppButton
           variant="primary"
           size="md"
           block
           onClick={handleSubmit}
           disabled={loading}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
         >
           {loading ? '保存中...' : '保存修改'}
-        </MotionAppButton>
+        </AppButton>
       )}
     </>
   );

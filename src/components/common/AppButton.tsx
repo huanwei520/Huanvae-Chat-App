@@ -145,8 +145,18 @@ export const AppButton = forwardRef<HTMLButtonElement, AppButtonProps>(function 
 
 /**
  * Framer-motion 包装版 AppButton。
- * 用法：替换原 `<motion.button className="glass-button" variants={...}>` 为
- *      `<MotionAppButton variant="primary" size="lg" block variants={...}>`
+ *
+ * 🔴 **禁止用它接管 `transform`**（`whileHover` / `whileTap` / `whileFocus` /
+ * 含 scale·x·y·rotate 的 `variants`）。`.app-btn` 的 transform 由 CSS 单一所有：
+ * app-button.css 的 `transition: transform …` + `:hover` 抬升 + `:active` 按下 +
+ * `:disabled { transform: none !important }`，全应用 40+ 个 AppButton 调用点都靠它。
+ * JS 侧再写一层 inline transform，浏览器会对**每一次** spring 帧写入各起一条 400ms
+ * CSS 过渡 —— 2026-08-12 认证页表单切换的同节点并发动画就是这么来的
+ * （成因与实测见 .claude/rules/animation.md 同名实例节）。
+ * 该约束由 tests/animation-conflict.test.ts 的静态门禁强制。
+ *
+ * 因此它只适用于**不碰 transform** 的 motion 能力（如 `animate={{ opacity }}`、
+ * `layout`）。当前 src/ 内无调用点：全部按钮的 hover / press 反馈一律走 CSS。
  *
  * 实现：framer-motion v12 的 `motion.create()`（v11 起替代被废弃的 `motion()`）。
  * forwardRef 已在 AppButton 中处理，motion.create 直接生效。

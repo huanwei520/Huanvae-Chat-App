@@ -37,7 +37,7 @@ import { formatFileSize } from '../../utils/format';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { UploadIcon } from '../../components/common/Icons';
 import { MobileMediaPreview } from '../../chat/shared/MobileMediaPreview';
-import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
+import { VideoThumbnail } from '../../chat/shared/VideoThumbnail';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
 import { LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
@@ -169,7 +169,7 @@ function ImageThumbnail({
  * isLocal 以 useFileCache 为准（订阅下载任务 store，下载完成会自动 reload），
  * 与桌面端 useVideoCache 行为对齐：列表内下载完后徽章自动出现，无需手动刷新。
  */
-function VideoThumbnail({
+function VideoFileThumbnail({
   file,
   onLocalPathFound,
 }: {
@@ -249,14 +249,9 @@ function VideoThumbnail({
   return (
     <div className="mobile-file-thumbnail-video">
       {isLocal && <LocalBadge />}
-      {/* 缩略图 src 追 #t=0.1 逼引擎 seek 出封面（Android WebView 不自发画首帧）
-          ——详见 chat/shared/videoPosterSrc.ts */}
-      <video
-        src={videoPosterSrc(src)}
-        preload="metadata"
-        muted
-        playsInline
-      />
+      {/* 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
+          详见 chat/shared/VideoThumbnail.tsx */}
+      <VideoThumbnail src={src} decorative />
       <div className="mobile-file-play-icon">▶</div>
     </div>
   );
@@ -277,7 +272,7 @@ function FileThumbnail({
   }
 
   if (category === 'video') {
-    return <VideoThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
+    return <VideoFileThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
   }
 
   // 普通文件

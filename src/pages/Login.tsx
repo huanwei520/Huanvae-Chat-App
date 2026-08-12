@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { MotionAppButton } from '../components/common/AppButton';
+import { AppButton } from '../components/common/AppButton';
 
 /** 预填充账号信息（密码丢失重登时回填账号） */
 interface PrefillAccount {
@@ -36,26 +36,11 @@ const itemVariants = {
   },
 };
 
-const buttonVariants = {
-  hover: {
-    scale: 1.02,
-    y: -3,
-    transition: {
-      type: 'spring' as const,
-      stiffness: 400,
-      damping: 25,
-    },
-  },
-  tap: {
-    scale: 0.98,
-    y: -1,
-    transition: {
-      type: 'spring' as const,
-      stiffness: 500,
-      damping: 30,
-    },
-  },
-};
+// 注意：登录按钮（.app-btn）**不再**挂 framer-motion 的 whileHover / whileTap。
+// `.app-btn` 的 transform 由 CSS 单一所有（app-button.css 的 `transition: transform …`
+// + `:hover` 抬升 + `:active` 按下），JS 侧再写一层 inline transform 会让浏览器对
+// 每一次 spring 帧写入各起一条 400ms CSS 过渡 —— 详见 .claude/rules/animation.md
+// 「实例：认证页表单切换的同节点并发动画（2026-08-12）」。
 
 // 服务器图标组件
 const ServerIcon = () => (
@@ -203,15 +188,12 @@ export function Login({
 
         {/* 提交按钮 */}
         <motion.div variants={itemVariants}>
-          <MotionAppButton
+          <AppButton
             type="submit"
             variant="primary"
             size="lg"
             block
             disabled={isLoading}
-            variants={buttonVariants}
-            whileHover={!isLoading ? 'hover' : undefined}
-            whileTap={!isLoading ? 'tap' : undefined}
           >
             {isLoading ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
@@ -227,7 +209,7 @@ export function Login({
             ) : (
               '登陆'
             )}
-          </MotionAppButton>
+          </AppButton>
         </motion.div>
       </form>
 

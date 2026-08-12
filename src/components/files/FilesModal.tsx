@@ -34,7 +34,7 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { ErrorToast } from '../common/ErrorToast';
 import { UploadProgress } from '../../chat/shared/UploadProgress';
 import { FilePreviewModal } from '../../chat/shared/FilePreviewModal';
-import { videoPosterSrc } from '../../chat/shared/videoPosterSrc';
+import { VideoThumbnail } from '../../chat/shared/VideoThumbnail';
 import { DocumentDownloadAction, LocalBadge } from '../../chat/shared/DocumentDownloadAction';
 import { openMediaWindow } from '../../media';
 import { useSession, useApi } from '../../contexts/SessionContext';
@@ -130,8 +130,11 @@ function ImageThumbnail({
   );
 }
 
-/** 视频缩略图 - 使用 useVideoCache */
-function VideoThumbnail({
+/**
+ * 视频类文件卡片的缩略图 - 使用 useVideoCache 取源 + 处理 loading / error 三态。
+ * 真正那个 <video> 元素由共享的 <VideoThumbnail>（chat/shared）渲染，此处不自己写。
+ */
+function VideoFileThumbnail({
   file,
   onLocalPathFound,
 }: {
@@ -169,9 +172,9 @@ function VideoThumbnail({
   return (
     <div className="thumbnail-video">
       {isLocal && <LocalBadge />}
-      {/* 缩略图 src 追 #t=0.1 逼引擎 seek 出封面（WKWebView / Android WebView 不自发画首帧，
-          只有 Windows 会）——详见 chat/shared/videoPosterSrc.ts */}
-      <video src={videoPosterSrc(src)} preload="metadata" />
+      {/* 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
+          详见 chat/shared/VideoThumbnail.tsx。收敛前这里漏了 muted 与 playsInline。 */}
+      <VideoThumbnail src={src} decorative />
       <div className="video-play-icon">▶</div>
     </div>
   );
@@ -192,7 +195,7 @@ function FileThumbnail({
   }
 
   if (category === 'video') {
-    return <VideoThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
+    return <VideoFileThumbnail file={file} onLocalPathFound={onLocalPathFound} />;
   }
 
   // 普通文件

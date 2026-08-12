@@ -166,6 +166,7 @@ import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as readReceiptGate from '../../src/chat/shared/readReceiptGate';
 import * as videoPosterSrc from '../../src/chat/shared/videoPosterSrc';
+import * as VideoThumbnail from '../../src/chat/shared/VideoThumbnail';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
 import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
 import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
@@ -224,6 +225,7 @@ import * as useRegisterForm from '../../src/hooks/useRegisterForm';
 import * as useLocalFriendMessages from '../../src/chat/friend/useLocalFriendMessages';
 import * as useLocalGroupMessages from '../../src/chat/group/useLocalGroupMessages';
 import * as useScrollKeyboardControls from '../../src/chat/shared/useScrollKeyboardControls';
+import * as useStickToBottom from '../../src/chat/shared/useStickToBottom';
 import * as useKbdFocusRing from '../../src/hooks/useKbdFocusRing';
 import * as useAIMessages from '../../src/chat/ai/useAIMessages';
 import * as useWebRTC from '../../src/meeting/useWebRTC';
@@ -481,6 +483,7 @@ const COMPONENT_MAP = {
   PrivateReadReceipt,
   readReceiptGate,
   videoPosterSrc,
+  VideoThumbnail,
   ReaderAvatarStack,
   GroupReadReceipt,
   GroupReadListModal,
@@ -534,6 +537,7 @@ const COMPONENT_MAP = {
   useLocalFriendMessages,
   useLocalGroupMessages,
   useScrollKeyboardControls,
+  useStickToBottom,
   useKbdFocusRing,
   useFriendReadReceipt,
   useGroupReadReceipt,

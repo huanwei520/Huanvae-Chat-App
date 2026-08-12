@@ -9,7 +9,7 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { MotionAppButton } from '../components/common/AppButton';
+import { AppButton } from '../components/common/AppButton';
 import { useRegisterForm } from '../hooks/useRegisterForm';
 
 // ============================================
@@ -55,10 +55,11 @@ const itemVariants = {
   },
 };
 
-const buttonVariants = {
-  hover: { scale: 1.02, y: -3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } },
-  tap: { scale: 0.98, y: -1, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } },
-};
+// 注意：提交按钮（.app-btn）**不再**挂 framer-motion 的 whileHover / whileTap。
+// `.app-btn` 的 transform 由 CSS 单一所有（app-button.css 的 `transition: transform …`
+// + `:hover` 抬升 + `:active` 按下），JS 侧再写一层 inline transform 会让浏览器对
+// 每一次 spring 帧写入各起一条 400ms CSS 过渡 —— 详见 .claude/rules/animation.md
+// 「实例：认证页表单切换的同节点并发动画（2026-08-12）」。
 
 // ============================================
 // 图标组件
@@ -168,9 +169,9 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
                 <motion.input type="email" id="reg-email" className="glass-input" placeholder="请输入邮箱" value={form.email} onChange={(e) => form.setEmail(e.target.value)} whileFocus={{ scale: 1.01 }} />
               </motion.div>
               <motion.div variants={itemVariants}>
-                <MotionAppButton type="submit" variant="primary" size="lg" block rightIcon={<ArrowRightIcon />} variants={buttonVariants} whileHover="hover" whileTap="tap">
+                <AppButton type="submit" variant="primary" size="lg" block rightIcon={<ArrowRightIcon />}>
                   下一步
-                </MotionAppButton>
+                </AppButton>
               </motion.div>
             </motion.form>
           )}
@@ -186,9 +187,9 @@ export function Register({ onRegister, onGoToLogin, isLoading, error }: Register
                 <motion.input type="password" id="reg-confirm-password" className="glass-input" placeholder="请再次输入密码" value={form.confirmPassword} onChange={(e) => form.setConfirmPassword(e.target.value)} whileFocus={{ scale: 1.01 }} required />
               </motion.div>
               <motion.div variants={itemVariants}>
-                <MotionAppButton type="submit" variant="primary" size="lg" block disabled={isLoading} variants={buttonVariants} whileHover="hover" whileTap="tap">
+                <AppButton type="submit" variant="primary" size="lg" block disabled={isLoading}>
                   {isLoading ? '注册中...' : '注册'}
-                </MotionAppButton>
+                </AppButton>
               </motion.div>
             </motion.form>
           )}

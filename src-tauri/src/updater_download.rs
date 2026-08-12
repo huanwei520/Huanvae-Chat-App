@@ -52,7 +52,34 @@
 //! 建 client 时 `:419` push `ProxyMatcher::system()`），即**默认就读环境变量 / 系统代理**；
 //! 反倒是调用 `.proxy()` 或 `.no_proxy()` 会把 `auto_sys_proxy` 置 `false`（`:1416` / `:1429`）。
 //! 所以 `Update.proxy` 只在调用方**显式**传了代理时才有意义。
+//!
+//! # 断点续传：落盘 + sidecar 清单（不是"重试时接着下"那种）
+//!
+//! 历史上这里的"断点续传"只覆盖**一个分片的一次请求失败后重试**那一层；
+//! 分片字节只活在内存（`Vec::with_capacity`），所以整次失败 / 用户点重试 / 进程退出
+//! 一律**从头下**。现在改成：
+//!
+//! - 分片直接 `seek + write` 进 `<app_cache>/huanvae-update.part`（不再整包驻留内存，
+//!   峰值内存从 ≈2× 包大小降到 1×——验签那一下仍需把整包读进来）；
+//! - 每片的进度写进 sidecar 清单 `<app_cache>/huanvae-update.part.json`（1s 节流），
+//!   **失败路径上也会落一次最终清单**，那正是下次接着下的依据；
+//! - 续传前必须证明**远端还是同一份字节**：URL + 总长 + **强校验标识**（ETag，
+//!   弱 ETag 不收；退而用 Last-Modified）三者全等才续，拿不到校验标识就一律重下。
+//!   协议层还有第二道保险：续传请求带 `If-Range`，资源若已变服务端回 200 而不是 206，
+//!   而本模块把"非 206"直接判失败 ⇒ 新旧字节不可能被拼在一起。
+//! - 完整性由**验签**收口（minisign，见 [`verify_signature`]）：验不过就把
+//!   `.part` 连同清单一起删掉重来 —— 否则会永远从同一堆坏字节接着下，每次都在同一处失败。
+//!
+//! # ⚠️ `Response::content_length()` 在 HEAD 上恒失真（踩过）
+//!
+//! 它读的**不是** `content-length` 头，而是 hyper 的 body size hint
+//! （`reqwest-0.12.28/src/async_impl/response.rs:90-94`：`Body::size_hint(self.res.body()).exact()`）。
+//! HEAD 响应按定义没有 body ⇒ 它给 0，与头里的真实长度无关。
+//! 所以 [`probe`] 必须**自己读 `content-length` 头**。
 
+use std::fs::{self, File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -65,6 +92,12 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
 use tauri::{ipc::Channel, Manager, ResourceId, Runtime, Webview};
 use tauri_plugin_updater::Update;
 
+// 断点清单与「远端未变」判定与安卓侧共用同一份实现，见该模块头注释
+use crate::resume_meta::{
+    can_resume, discard_part, fresh_layout, if_range_value, load_meta, remote_validator, save_meta,
+    snapshot_meta, ShardProgress,
+};
+
 /// 分片数。8 段在实测里比 4 段稳定更优（5%丢包 8.10s vs 10.13s）。
 const SHARD_COUNT: u64 = 8;
 /// 每个分片的失败重试次数（不含首次）。
@@ -73,6 +106,12 @@ const MAX_RETRY: u32 = 3;
 const SHARD_TIMEOUT: Duration = Duration::from_secs(120);
 /// 建连超时。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// 断点续传的落盘文件名（应用缓存目录内）。
+const PART_FILE_NAME: &str = "huanvae-update.part";
+/// 断点清单（sidecar）文件名。清单在 ⇒ `.part` 是**半截的**；清单不在 ⇒ 没有可续的东西。
+const PART_META_FILE_NAME: &str = "huanvae-update.part.json";
+/// 清单持久化节流间隔。每个 chunk 都写盘毫无必要（崩溃最多多下 1 秒的量）。
+const META_FLUSH_INTERVAL: Duration = Duration::from_millis(1000);
 
 /// 更新源未声明 `accept-ranges: bytes` 时给用户看的文案。
 ///
@@ -225,7 +264,15 @@ pub enum ShardedEvent {
     /// 走不到这里。`Option` 之所以还留着，只因收窄它要同步改前端
     /// `src/update/service.ts` 的 `contentLength: number | null` 与 `indeterminate`
     /// 分支（跨语言契约，属另一次改动的范围），不是给本模块留降级余地。
-    Started { content_length: Option<u64> },
+    ///
+    /// `downloaded` = **本次开跑时已经在盘上的字节数**（断点续传的起点，非续传时为 0）。
+    /// 🔴 它必须由 `Started` 自己带出去，不能"先报 0 再补一条 Progress" ——
+    /// 那样前端速率估算会看到「0 → 8MB」这一跳，把它当成 200ms 内真下了 8MB，
+    /// 瞬时速率直接飙到几十 MB/s（EMA 要好几秒才落回真值）。
+    Started {
+        content_length: Option<u64>,
+        downloaded: u64,
+    },
     Progress { downloaded: u64, content_length: Option<u64> },
     Finished,
 }
@@ -273,8 +320,20 @@ fn pubkey_from_config<R: Runtime>(webview: &Webview<R>) -> Result<String, String
         .ok_or_else(|| "tauri.conf.json 缺少 plugins.updater.pubkey".to_string())
 }
 
-/// HEAD 探测：拿总长度 + 是否支持 Range
-async fn probe(client: &reqwest::Client, url: &str) -> Result<(Option<u64>, bool), String> {
+// ============================================================
+// 探测与分片抓取
+// ============================================================
+
+/// HEAD 探测结果。
+struct Probe {
+    total: Option<u64>,
+    accepts_range: bool,
+    /// 强校验标识（可能为 None ⇒ 不允许续传）
+    validator: Option<String>,
+}
+
+/// HEAD 探测：拿总长度 + 是否支持 Range + 强校验标识
+async fn probe(client: &reqwest::Client, url: &str) -> Result<Probe, String> {
     let resp = client
         .head(url)
         .timeout(SHARD_TIMEOUT)
@@ -284,85 +343,142 @@ async fn probe(client: &reqwest::Client, url: &str) -> Result<(Option<u64>, bool
     if !resp.status().is_success() {
         return Err(format!("HEAD 探测返回 {}", resp.status()));
     }
-    let len = resp.content_length();
-    let accepts_range = resp
-        .headers()
+    let headers = resp.headers();
+    // 🔴 必须读**头**，不能用 `resp.content_length()`：后者是 hyper 的 body size hint
+    //    （`reqwest-0.12.28/src/async_impl/response.rs:90-94`），而 HEAD 响应没有 body
+    //    ⇒ 它恒给 0，与真实长度无关。用它会让每一次更新都以「更新源未返回有效的内容长度」
+    //    中止（实测：同一 URL 头里是 13766023，`content_length()` 给 Some(0)）。
+    let len = headers
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
+    let accepts_range = headers
         .get(reqwest::header::ACCEPT_RANGES)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v.eq_ignore_ascii_case("bytes"))
+        // `bytes` 可能出现在复合值里（如 `bytes, foo`），用 contains 而不是全等
+        .map(|v| v.to_ascii_lowercase().contains("bytes"))
         .unwrap_or(false);
-    Ok((len, accepts_range))
+    let validator = remote_validator(
+        headers
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok()),
+        headers
+            .get(reqwest::header::LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok()),
+    );
+    Ok(Probe { total: len, accepts_range, validator })
 }
 
-/// 下载单个分片（带重试 + 断点续传：重试时只补没下完的那部分）
+/// 取一段 Range 直接写进 `.part` 的对应偏移，返回本次写入的字节数。
+///
+/// 与旧实现（收进内存 `Vec`）的关键差别：**写盘成功就算数**，所以失败时不需要
+/// 「回滚已计字节」那套 —— 已落盘的字节是真的可以接着下的。
+#[allow(clippy::too_many_arguments)]
+async fn fetch_range_into(
+    client: &reqwest::Client,
+    url: &str,
+    from: u64,
+    end: u64,
+    if_range: Option<&str>,
+    file: &mut File,
+    done_counter: &AtomicU64,
+    progress: &AtomicU64,
+) -> Result<u64, String> {
+    file.seek(SeekFrom::Start(from))
+        .map_err(|e| format!("定位 .part 失败: {e}"))?;
+
+    let mut req = client
+        .get(url)
+        .header(reqwest::header::RANGE, format!("bytes={from}-{end}"))
+        .timeout(SHARD_TIMEOUT);
+    if let Some(v) = if_range {
+        // 🔴 协议层的第二道保险：资源若已变，服务端按 RFC 9110 §13.1.5 回 200（整包）
+        //    而不是 206；下面那句 206 断言随即把这次续传拦下来 —— 新旧字节不可能被拼在一起。
+        req = req.header(reqwest::header::IF_RANGE, v);
+    }
+
+    let resp = req.send().await.map_err(|e| format!("分片请求失败: {e}"))?;
+    // 必须是 206；200 说明服务端忽略了 Range 或资源已变（会把整个文件塞回来）
+    if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(format!("分片响应状态非 206（实际 {}）", resp.status()));
+    }
+
+    // 🔴 必须**流式**读，不能 `resp.bytes()` 一次性等整片：那样 `progress` 在整片完成前
+    // 一直不动，用户看到的就是「一直 0%，然后突然完成」。
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let allowed = end - from + 1;
+    let mut written = 0u64;
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| format!("分片读取失败: {e}"))?;
+        let n = chunk.len() as u64;
+        // 服务端多给字节就会写进**下一片**的区间、把它已下好的内容覆盖掉 ⇒ 坏包。
+        // 宁可判失败重来，也不能越界写。
+        if written + n > allowed {
+            return Err(format!(
+                "服务端返回超出请求区间的字节（请求 {allowed}，已收 {}）",
+                written + n
+            ));
+        }
+        file.write_all(&chunk)
+            .map_err(|e| format!("分片写入失败: {e}"))?;
+        written += n;
+        // 边收边计：写盘成功才计数，这也是「实时进度」的唯一来源
+        done_counter.fetch_add(n, Ordering::Relaxed);
+        progress.fetch_add(n, Ordering::Relaxed);
+    }
+    file.flush().map_err(|e| format!("分片刷新失败: {e}"))?;
+    Ok(written)
+}
+
+/// 下载单个分片到 `.part`（带重试 + 断点续传：每次只请求这片还差的那段）。
 async fn fetch_shard(
     client: reqwest::Client,
     url: String,
-    start: u64,
-    end: u64,
+    part_path: PathBuf,
+    shard: ShardProgress,
+    if_range: Option<String>,
+    done_counter: Arc<AtomicU64>,
     progress: Arc<AtomicU64>,
-) -> Result<Vec<u8>, String> {
-    let want = (end - start + 1) as usize;
-    let mut buf: Vec<u8> = Vec::with_capacity(want);
+) -> Result<(), String> {
+    let ShardProgress { start, end, .. } = shard;
+    let want = end - start + 1;
     let mut attempt = 0u32;
 
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open(&part_path)
+        .map_err(|e| format!("分片打开 .part 失败: {e}"))?;
+
     loop {
-        // 断点续传：已经拿到 buf.len() 字节，本次只请求剩下的
-        let from = start + buf.len() as u64;
-        if from > end {
+        let done = done_counter.load(Ordering::Relaxed);
+        if done >= want {
             break;
         }
-        let range = format!("bytes={}-{}", from, end);
-
-        let result = async {
-            let resp = client
-                .get(&url)
-                .header(reqwest::header::RANGE, &range)
-                .timeout(SHARD_TIMEOUT)
-                .send()
-                .await
-                .map_err(|e| format!("分片请求失败: {e}"))?;
-            // 必须是 206；200 说明服务端忽略了 Range（会把整个文件塞回来）
-            if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-                return Err(format!("分片响应状态非 206（实际 {}）", resp.status()));
-            }
-            // 🔴 必须**流式**读，不能 `resp.bytes()` 一次性等整片。
-            //
-            // `resp.bytes()` 会等这一片**全部**下完才返回，于是 `progress` 在整片完成前
-            // 一直是 0；而进度上报器每 200ms 只是读 `progress` ⇒ 用户看到的就是
-            // 「一直 0%，然后突然完成」（八片几乎同时完成时尤其像"卡住后瞬间跳完"）。
-            use futures_util::StreamExt;
-            let mut stream = resp.bytes_stream();
-            let mut part: Vec<u8> = Vec::new();
-            loop {
-                match stream.next().await {
-                    Some(Ok(chunk)) => {
-                        // 边收边计：这才是「实时进度」的来源
-                        progress.fetch_add(chunk.len() as u64, Ordering::Relaxed);
-                        part.extend_from_slice(&chunk);
-                    }
-                    Some(Err(e)) => {
-                        // 本次尝试中断：`part` 会被丢弃并重下这一段，
-                        // 故必须把本次已计入的字节**回滚**，否则重试会重复计数
-                        // ⇒ progress 超过 content_length ⇒ 百分比冲过 100%。
-                        progress.fetch_sub(part.len() as u64, Ordering::Relaxed);
-                        return Err(format!("分片读取失败: {e}"));
-                    }
-                    None => break,
-                }
-            }
-            Ok::<Vec<u8>, String>(part)
-        }
+        let res = fetch_range_into(
+            &client,
+            &url,
+            start + done,
+            end,
+            if_range.as_deref(),
+            &mut file,
+            &done_counter,
+            &progress,
+        )
         .await;
 
-        match result {
-            Ok(bytes) => {
-                // 注意：progress 已在流式循环里逐 chunk 累加过，这里**不能**再加一次
-                buf.extend_from_slice(&bytes);
-                if buf.len() >= want {
-                    break;
+        match res {
+            // 短读：继续循环补齐，不计入重试
+            Ok(n) if n > 0 => {}
+            // 一个字节都没给却报成功 ⇒ 再循环就是死循环，按失败计
+            Ok(_) => {
+                attempt += 1;
+                if attempt > MAX_RETRY {
+                    return Err(format!(
+                        "分片 [{start}-{end}] 重试 {MAX_RETRY} 次仍失败: 服务端返回 206 但无数据"
+                    ));
                 }
-                // 短读：继续循环补齐（不计入重试）
+                tokio::time::sleep(Duration::from_millis(300 * u64::from(attempt))).await;
             }
             Err(e) => {
                 attempt += 1;
@@ -374,14 +490,13 @@ async fn fetch_shard(
         }
     }
 
-    buf.truncate(want);
-    if buf.len() != want {
+    let done = done_counter.load(Ordering::Relaxed);
+    if done != want {
         return Err(format!(
-            "分片 [{start}-{end}] 字节数不符：期望 {want}，实到 {}",
-            buf.len()
+            "分片 [{start}-{end}] 字节数不符：期望 {want}，实到 {done}"
         ));
     }
-    Ok(buf)
+    Ok(())
 }
 
 /// 把 HEAD 探测结果收敛成「分片下载唯一需要的那个参数」：总字节数。
@@ -457,78 +572,180 @@ pub async fn updater_sharded_install<R: Runtime>(
     };
     let client = build_client(&shaping)?;
 
-    let (total, accepts_range) = probe(&client, &url).await?;
+    // 断点落点：应用**缓存**目录，`.part` 与清单同目录、成对存在。
+    //
+    // 这里刻意**不**用本仓 portable 模式那个 `user_data::get_app_root()`（`<exe_dir>/data`）：
+    // 半截安装包是纯粹的可重建中间产物，属于缓存语义 —— 让系统能回收它是对的，
+    // 也不该跟着 portable 数据目录被用户拷来拷去。安卓侧同理（用 `cache_dir()`）。
+    let cache_dir = webview
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("取应用缓存目录失败: {e}"))?;
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("创建缓存目录失败: {e}"))?;
+    let part_path = cache_dir.join(PART_FILE_NAME);
+    let meta_path = cache_dir.join(PART_META_FILE_NAME);
+
+    let Probe { total, accepts_range, validator } = probe(&client, &url).await?;
 
     // 🔴 先判前提再报 Started：不满足就是这次更新的终点，不该先给用户一个"开始下载"
     // 的假象。这里没有"另一种下载方式"可选 —— 判不过就是 Err，文案直达用户。
     let len = require_shardable(total, accepts_range)?;
 
-    let _ = on_event.send(ShardedEvent::Started {
-        content_length: Some(len),
-    });
-
-    let progress = Arc::new(AtomicU64::new(0));
-
-    let bytes: Vec<u8> = {
-        let mut tasks = Vec::new();
-        for (start, end) in shard_ranges(len) {
-            tasks.push(tokio::spawn(fetch_shard(
-                client.clone(),
-                url.clone(),
-                start,
-                end,
-                progress.clone(),
-            )));
+    // ── 决定「接着下」还是「重下」──
+    //
+    // 三个条件缺一不可：清单存在且自洽、[`can_resume`] 判定远端未变、`.part` 的实际长度
+    // 就是 total（它是预分配出来的；长度对不上说明这文件不是我们这轮的产物）。
+    let layout: Vec<ShardProgress> = match load_meta(&meta_path) {
+        Some(meta)
+            if can_resume(&meta, &url, len, validator.as_deref())
+                && fs::metadata(&part_path).map(|m| m.len() == len).unwrap_or(false) =>
+        {
+            let already: u64 = meta.shards.iter().map(|s| s.done).sum();
+            println!(
+                "[Updater] 断点续传：{already}/{len} 字节已在盘上，只补剩下的"
+            );
+            meta.shards
         }
-
-        // 进度上报：分片是并发的，用累计已下字节数算真实百分比
-        let reporter = {
-            let progress = progress.clone();
-            let ch = on_event.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                    let done = progress.load(Ordering::Relaxed);
-                    let _ = ch.send(ShardedEvent::Progress {
-                        downloaded: done,
-                        content_length: Some(len),
-                    });
-                    if done >= len {
-                        break;
-                    }
-                }
-            })
-        };
-
-        let mut parts: Vec<Vec<u8>> = Vec::with_capacity(tasks.len());
-        for t in tasks {
-            // 任一分片失败 ⇒ 整体失败
-            let part = t.await.map_err(|e| format!("分片任务 panic: {e}"))??;
-            parts.push(part);
+        other => {
+            if other.is_some() {
+                println!("[Updater] 断点清单与当前远端对不上（或 .part 已损坏），丢弃重下");
+            }
+            discard_part(&part_path, &meta_path);
+            fresh_layout(shard_ranges(len))
         }
-        reporter.abort();
-
-        let mut merged = Vec::with_capacity(len as usize);
-        for p in parts {
-            merged.extend_from_slice(&p);
-        }
-        if merged.len() as u64 != len {
-            return Err(format!(
-                "合并后大小不符：期望 {len}，实到 {}",
-                merged.len()
-            ));
-        }
-        merged
     };
 
-    // 🔴 验签：插件的 install() 不验签，这一步丢了就等于装了未经验证的包
-    verify_signature(&bytes, &signature, &pubkey)?;
+    // 预分配：各片按偏移写入，文件必须先有足够长度（续传时这一步是幂等的）
+    {
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&part_path)
+            .map_err(|e| format!("创建 .part 失败: {e}"))?;
+        f.set_len(len).map_err(|e| format!("预分配 .part 失败: {e}"))?;
+    }
+
+    let resumed: u64 = layout.iter().map(|s| s.done).sum();
+    let progress = Arc::new(AtomicU64::new(resumed));
+    let counters: Vec<Arc<AtomicU64>> = layout
+        .iter()
+        .map(|s| Arc::new(AtomicU64::new(s.done)))
+        .collect();
+
+    // 起点直接写进 Started：进度条一上来就停在断点处（不是先 0 再跳），
+    // 且前端速率估算把它当基线而不是"200ms 内下了这么多"。
+    let _ = on_event.send(ShardedEvent::Started {
+        content_length: Some(len),
+        downloaded: resumed,
+    });
+
+    // 清单先落一份：没有 validator 就不可能续（[`can_resume`] 会拒），此时**不写清单**，
+    // 免得留一个注定被丢弃的脏文件（那种情况下的 `.part` 由下一轮的 discard 分支收走）。
+    if let Some(v) = &validator {
+        save_meta(&meta_path, &snapshot_meta(&url, len, v, &layout, &counters));
+    }
+
+    let mut tasks = Vec::new();
+    for (shard, counter) in layout.iter().cloned().zip(counters.iter().cloned()) {
+        tasks.push(tokio::spawn(fetch_shard(
+            client.clone(),
+            url.clone(),
+            part_path.clone(),
+            shard,
+            validator.as_deref().map(|v| if_range_value(v).to_string()),
+            counter,
+            progress.clone(),
+        )));
+    }
+
+    // 进度上报：分片是并发的，用累计已下字节数算真实百分比
+    let reporter = {
+        let progress = progress.clone();
+        let ch = on_event.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let done = progress.load(Ordering::Relaxed);
+                let _ = ch.send(ShardedEvent::Progress {
+                    downloaded: done,
+                    content_length: Some(len),
+                });
+                if done >= len {
+                    break;
+                }
+            }
+        })
+    };
+
+    // 清单持久化：节流 1s。它跑在**独立任务**里，这样长时间下载中途被杀也留得下断点。
+    let persister = validator.clone().map(|v| {
+        let meta_path = meta_path.clone();
+        let url = url.clone();
+        let layout = layout.clone();
+        let counters = counters.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(META_FLUSH_INTERVAL).await;
+                save_meta(&meta_path, &snapshot_meta(&url, len, &v, &layout, &counters));
+            }
+        })
+    });
+
+    // 🔴 必须**等所有分片都结束**再返回错误（旧实现是 `?` 直接早退）：早退会把还在跑的
+    //    分片连同它们刚写下的字节一起扔掉，而那些字节本可以计进断点。
+    let mut first_err: Option<String> = None;
+    for t in tasks {
+        let outcome = match t.await {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("分片任务 panic: {e}")),
+        };
+        if let Err(e) = outcome {
+            first_err.get_or_insert(e);
+        }
+    }
+    reporter.abort();
+    if let Some(p) = persister {
+        p.abort();
+    }
+
+    // 🔴 无论成败都落一次**最终**清单：失败时这正是「下次接着下」的唯一依据。
+    //    少了这一步，最后一秒内下的字节就白下了（更糟的是失败往往就发生在那一秒）。
+    if let Some(v) = &validator {
+        save_meta(&meta_path, &snapshot_meta(&url, len, v, &layout, &counters));
+    }
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+
+    let bytes = fs::read(&part_path).map_err(|e| format!("读取 .part 失败: {e}"))?;
+    if bytes.len() as u64 != len {
+        discard_part(&part_path, &meta_path);
+        return Err(format!(
+            ".part 大小不符：期望 {len}，实到 {}",
+            bytes.len()
+        ));
+    }
+
+    // 🔴 验签：插件的 install() 不验签，这一步丢了就等于装了未经验证的包。
+    //    它同时是断点续传的**完整性收口** —— 拼错一个字节都过不了。
+    if let Err(e) = verify_signature(&bytes, &signature, &pubkey) {
+        // 验不过 = 这堆字节不可信。必须连 .part 一起删，否则下次续传会永远从这堆坏字节
+        // 接着下、每次都在同一处失败，用户永远更新不了。
+        discard_part(&part_path, &meta_path);
+        return Err(e);
+    }
 
     let _ = on_event.send(ShardedEvent::Finished);
 
     update
         .install(&bytes)
         .map_err(|e| format!("安装失败: {e}"))?;
+
+    // 安装成功才清理。安装失败时 `.part` 留着 —— 它已经验签通过，下次「重试」是
+    // 「零重下 + 直接验签安装」。
+    discard_part(&part_path, &meta_path);
     Ok(())
 }
 
@@ -803,6 +1020,100 @@ mod tests {
             debug.contains("proxies"),
             "默认应保留 reqwest 的系统代理探测，实际: {debug}"
         );
+    }
+
+    // ---------- 断点续传：清单与分片布局必须互相认账 ----------
+
+    /// [`shard_ranges`] 生成的布局，必须被清单校验 [`shards_tile_exactly`] 接受。
+    ///
+    /// 这两个函数一个在生产模块、一个在共用模块，是**两份独立的不变量表述**（生成 vs 验收）。
+    /// 它们一旦对不上，表现是「刚写下的清单下一次被自己判为损坏」⇒ 断点续传静默失效、
+    /// 每次都从头下，而且**不会有任何报错**。所以必须有东西把两边钉在一起。
+    #[test]
+    fn fresh_layout_from_shard_ranges_passes_manifest_validation() {
+        use crate::resume_meta::shards_tile_exactly;
+        for len in [1u64, 2, 7, 8, 9, 1023, 1024, 9_284_371, 13_766_023] {
+            let layout = fresh_layout(shard_ranges(len));
+            assert!(
+                shards_tile_exactly(&layout, len),
+                "shard_ranges 生成的布局必须能通过清单校验 (len={len})"
+            );
+        }
+    }
+
+    // ---------- 与测速台的一致性 ----------
+
+    /// 测速台是**另一份代码**，天然会漂移。这条把两个 h2 窗口值钉在一起：
+    /// 谁改了生产的窗口却没同步测速台，测出来的数字就与线上无关 —— 立刻翻红。
+    #[test]
+    fn bench_harness_mirrors_production_http2_windows() {
+        const BENCH: &str = include_str!("../../scripts/bench/download-bench/src/main.rs");
+        assert!(
+            BENCH.contains("const PROD_H2_STREAM_WINDOW: u32 = 4 * 1024 * 1024;"),
+            "测速台的 stream 窗口与生产不一致（生产 = 4 MiB）"
+        );
+        assert!(
+            BENCH.contains("const PROD_H2_CONNECTION_WINDOW: u32 = 8 * 1024 * 1024;"),
+            "测速台的 connection 窗口与生产不一致（生产 = 8 MiB）"
+        );
+        // 正对照：上面两条靠 contains，若把常量整块删了它们会红；这条证明文件本身读得到，
+        // 不是 include_str! 读进了空内容让断言"看着在查其实什么都没查"。
+        assert!(
+            BENCH.len() > 1000,
+            "测速台源码没读进来（include_str! 路径错了？），上面的断言等于没查"
+        );
+    }
+
+    /// 只取**生产代码**那一段（`#[cfg(test)]` 之前）来做静态扫描。
+    ///
+    /// 不切掉测试模块的话，断言里写的那个"禁止出现的字面量"会**命中自己** ⇒ 恒 FAIL。
+    /// （本文件这两条守卫第一次写就这么翻的车。）没有 `#[cfg(test)]` 的文件原样返回。
+    fn production_source(src: &str) -> &str {
+        src.split_once("#[cfg(test)]").map(|(p, _)| p).unwrap_or(src)
+    }
+
+    /// 一行代码（不含 `//` 之后的注释）里是否出现了某个 token。
+    ///
+    /// 必须剥注释：两个下载器和测速台的注释里都**特意**写着
+    /// 「绝对不要改成 `http2_adaptive_window(true)`」—— 那些警告正是要保留的东西，
+    /// 不剥注释就会把它们当成违规。
+    fn code_mentions(src: &str, token: &str) -> bool {
+        production_source(src)
+            .lines()
+            .any(|line| line.split("//").next().unwrap_or("").contains(token))
+    }
+
+    /// 🔴 反面守卫：`http2_adaptive_window(true)` 会**覆盖**上面两个显式窗口
+    /// （reqwest 官方文档原话），且实测更差（单流 4.07 MB/s，连改前 6.31 都不如）。
+    /// 谁"顺手打开自适应"就等于把已生效的优化静默作废 —— 这条把它钉死。
+    #[test]
+    fn http2_adaptive_window_is_never_enabled() {
+        const PROD: &str = include_str!("updater_download.rs");
+        const ANDROID: &str = include_str!("android_update.rs");
+        const BENCH: &str = include_str!("../../scripts/bench/download-bench/src/main.rs");
+        for (name, src) in [
+            ("updater_download.rs", PROD),
+            ("android_update.rs", ANDROID),
+            ("download-bench", BENCH),
+        ] {
+            assert!(src.len() > 1000, "{name} 源码没读进来，本断言等于没查");
+            assert!(
+                !code_mentions(src, "http2_adaptive_window"),
+                "{name} 的**代码**里出现了 http2_adaptive_window —— 它会覆盖两个显式窗口且实测更差"
+            );
+        }
+        // 正对照：确认剥注释这套判据不是"永远查不到东西"——
+        // 三份文件的代码里都必须查得到那两个显式窗口设置。
+        for (name, src) in [
+            ("updater_download.rs", PROD),
+            ("android_update.rs", ANDROID),
+            ("download-bench", BENCH),
+        ] {
+            assert!(
+                code_mentions(src, "http2_initial_stream_window_size"),
+                "{name} 的代码里应当查得到显式窗口设置；查不到说明判据本身失效了"
+            );
+        }
     }
 
     /// timeout（`updater.rs:670-672`）与两个 dangerous TLS 开关（`:664-669`）必须接线。

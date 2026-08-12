@@ -846,19 +846,13 @@
   color: var(--hg-quiet);
 }
 
-.hg-log::-webkit-scrollbar {
-  width: 8px;
-}
-.hg-log::-webkit-scrollbar-track {
-  background: transparent;
-}
-.hg-log::-webkit-scrollbar-thumb {
-  background: var(--color-neutral-5);
-  border-radius: var(--radius-full);
-}
-.hg-log::-webkit-scrollbar-thumb:hover {
-  background: var(--color-neutral-6);
-}
+/*
+ * Scrollbar: intentionally NOT defined here. The log box carries the shared
+ * `app-scrollbar` class (src/styles/scrollbar.css) so it renders the same bar as the
+ * rest of the app. The four rules that used to live here were this page's own variant
+ * (8px wide, opaque --color-neutral-5 thumb, --radius-full corners) and were the only
+ * scrollbar in the app that looked like that. Do not re-add a local override.
+ */
 
 /* ============================================
    Narrow window (min supported size is 600x400)

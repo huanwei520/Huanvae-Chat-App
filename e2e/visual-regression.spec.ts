@@ -11,11 +11,15 @@
  *
  * 注意：
  *   - 触发 register/account-selector 需要先在 login 页交互；用 networkidle + 等待目标元素可见
- *   - 所有截图禁用动画（animations: 'disabled'）以保证稳定
+ *   - `animations: 'disabled'` 只冻结 **CSS** 动画（背景 orb / 渐变），**冻不住 framer-motion**
+ *     （JS 逐帧写 inline style）。凡是有 framer-motion 入场/切换动画的截图，必须再用
+ *     `waitForVisualSettle()` 测到形态稳定再截 —— 裸 `waitForTimeout(ms)` 是在赌，会两头出错：
+ *     赌输时截在动画中途（假红），而若基线本身就抓在动画中途，则赌输反而"匹配"（假绿）。
  *   - 登录后场景（主页/设置/我的文件）需要 Tauri runtime auth flow，不在 e2e 范围
  */
 
 import { test, expect } from './helpers/test-fixtures';
+import { waitForVisualSettle } from './helpers/visual-settle';
 
 const SCREENSHOT_OPTS = {
   maxDiffPixelRatio: 0.02,
@@ -93,7 +97,9 @@ test.describe('Visual Regression — Register Page', () => {
       return;
     }
     await registerToggle.first().click();
-    await page.waitForTimeout(1500);
+    // 不能用裸 sleep：切换动画是 framer-motion（JS 驱动），`animations: 'disabled'` 冻不住它，
+    // 等固定毫秒数只是在赌它跑完了。改为测量到「连续多帧形态完全不变」再截。详见 helper 注释。
+    await waitForVisualSettle(page, '.auth-card');
 
     await expect(page).toHaveScreenshot('visual-register-default.png', REGISTER_SCREENSHOT_OPTS);
   });

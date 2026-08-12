@@ -1,0 +1,54 @@
+/**
+ * ========================================
+ * Huanvae Chat - 统一滚动条（App Scrollbar）
+ * ========================================
+ *
+ * @description 全应用唯一的自定义滚动条样式。抽取自原本散在 7 个 CSS 文件里的
+ *              各写各的 `::-webkit-scrollbar` 声明（共 72 处），统一命名 + 集中管理。
+ * @layer       第三层 - 组件层
+ *
+ * ## 用法
+ * 给**自身产生滚动**的那个元素加 `app-scrollbar` 类（和业务类并列）：
+ *   <div className="hg-log app-scrollbar">
+ * 不要加在它的父容器上 —— `::-webkit-scrollbar` 只作用于滚动容器本体。
+ *
+ * ## 标准取值的由来（2026-08-12 收敛）
+ * 收敛前 7 个文件各写各的，但绝大多数（chat 消息区 / 输入框、主题编辑器两处、
+ * 全局搜索两处、LAN 传输 6 处，共 12 个选择器）渲染出来是**同一套观感**：
+ *   width 6px · track transparent · thumb rgba(147,197,253,.3) r3 · hover rgba(147,197,253,.5)
+ * 所以本文件取的就是这一套 —— 不是新造第 8 种，是把用得最多的那种定为标准。
+ *
+ * ## 但把写死的 rgba 换成了 token（这是本次唯一的实质修正）
+ * `rgba(147,197,253,0.3)` / `rgba(147,197,253,0.5)` 正好逐字等于 variables.css 里
+ * `--border-default` / `--border-strong` 的**浅色主题默认值**。而这两个 token 是被
+ * ThemeProvider 运行时注入的（ThemeProvider.tsx `setProperty('--border-default'|'--border-strong')`），
+ * 写死字面量 = 把浅色默认值冻在那里、**不跟随主题**。改用 token 后深色/自定义主题才正确。
+ *
+ * ## 为什么没有 Firefox 回退（scrollbar-width / scrollbar-color）
+ * 全仓零处使用，本次也刻意不加：① 应用只跑在 WKWebView / WebView2 / Android WebView，
+ * 全是 WebKit/Chromium 系，Firefox 不是目标平台；② 新版 Chromium 已支持这两个标准属性，
+ * 且它们会**覆盖** `::-webkit-scrollbar` —— 顺手加上等于悄悄改掉现有观感。要加须单独立单评估。
+ *
+ * ## height 是刻意的小幅超集
+ * 被收敛的 7 处旧写法都只设 width（只管纵向条）。本文件同时设 height，让这个类的语义
+ * 真的是「这个元素的滚动条 = 应用的滚动条」，横向滚动容器接入时不会只统一一半。
+ * 对当前唯一使用方 `.hg-log`（word-break 换行、不产生横向滚动）无任何视觉影响。
+ */
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}

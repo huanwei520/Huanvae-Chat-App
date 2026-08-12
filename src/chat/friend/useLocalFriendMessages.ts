@@ -41,6 +41,9 @@ import { getFriendConversationId } from '../../utils/conversationId';
 import { sendMessage, recallMessage } from '../../api/messages';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
+// clientId 的前缀是「本机这次发送动作」的唯一物证，消息列表据此把它与「多端回流」区分开
+// （回流走 WS 分支、前缀是 ws_）。生成与判读必须同源，故一律走这个生成器。
+import { newLocalSendClientId } from '../shared/useStickToBottom';
 import type { Message } from '../../types/chat';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -649,7 +652,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     const conversationId = getFriendConversationId(session.userId, friendId);
 
     // 生成临时 UUID 和稳定的 clientId
-    const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const clientId = newLocalSendClientId();
     const tempUuid = clientId; // 临时 UUID 使用 clientId
     const tempSendTime = new Date().toISOString();
 
@@ -766,7 +769,7 @@ export function useLocalFriendMessages(friendId: string | null) {
     const conversationId = getFriendConversationId(session.userId, friendId);
 
     // 生成临时 UUID 和稳定的 clientId
-    const clientId = `client_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const clientId = newLocalSendClientId();
     const tempUuid = clientId; // 临时 UUID 使用 clientId
     const tempSendTime = new Date().toISOString();
 
