@@ -116,7 +116,8 @@ interface ChatState {
   /**
    * 待跳转的目标消息 UUID（来自全局搜索结果点击）
    * ChatMessages / GroupChatMessages 监听此字段：
-   *   非 null → 加载历史至该消息 + scrollIntoView + 清空
+   *   非 null → 窗口化定位（locate*Message → getMessagesAround，取锚点前后各 30 条）
+   *   + scrollMessageIntoView（只滚消息列表容器自己，不冒泡到祖先）+ 清空
    */
   pendingScrollToMessageId: string | null;
 
@@ -131,8 +132,8 @@ interface ChatState {
   /**
    * 消息定位失败的降级提示文案（null = 无提示）
    *
-   * 触发点：loadUntilMessage 把本地历史翻完仍未命中目标（原消息更早于本地保留范围 /
-   * 已被本地删除）。此时**必须**给用户明确反馈，不能静默无反应。
+   * 触发点：窗口化定位（locate*Message → DB getMessagesAround）在本地库里找不到该消息锚点
+   * （原消息更早于本地保留范围 / 已被本地删除）。此时**必须**给用户明确反馈，不能静默无反应。
    *
    * 渲染方：ChatInputArea（桌面 + 移动共用，位于输入区上方）——刻意不放进
    * .chat-messages-container，那是 overflow:auto 的滚动容器，绝对定位浮层会锚到内容顶

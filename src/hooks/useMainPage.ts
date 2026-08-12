@@ -81,7 +81,7 @@ import type { PickedFile } from '../chat/shared/FileAttachButton';
 const MIN_PANEL_WIDTH = 88;
 const MAX_PANEL_WIDTH = 280;
 
-/** 消息定位失败（本地历史翻完仍未命中）的降级提示文案 */
+/** 消息定位失败（窗口化查询在本地库找不到该锚点）的降级提示文案 */
 const MESSAGE_JUMP_NOT_FOUND_NOTICE = '原消息不在本地记录中，无法定位';
 /** 定位命中后高亮脉冲的存活时长（ms） */
 const HIGHLIGHT_DURATION_MS = 2000;
@@ -945,10 +945,10 @@ export function useMainPage() {
   }, [chatTarget, loadFriendMessages, loadGroupMessages]);
 
   // 消息定位（全局搜索结果点击 / 群聊回复引用点击共用同一条通路）：
-  // chatTarget 与 pendingScrollToMessageId 同时存在时，加载历史直到目标进入窗口
-  // → 在 DOM 中查找元素 → 滚消息列表容器自己（scrollMessageIntoView，不冒泡到祖先）
-  // → 高亮 → 清空 pending。
-  // 翻完本地历史仍未命中（原消息早于本地保留范围 / 已被本地删除）→ 写降级提示，
+  // chatTarget 与 pendingScrollToMessageId 同时存在时，走窗口化定位（locate*Message，
+  // 一次性取锚点前后各 30 条，DB 侧 getMessagesAround）→ 在 DOM 中查找元素
+  // → 滚消息列表容器自己（scrollMessageIntoView，不冒泡到祖先）→ 高亮 → 清空 pending。
+  // 窗口化查询在本地库里找不到该锚点（原消息早于本地保留范围 / 已被本地删除）→ 写降级提示，
   // 绝不静默无反应（用户点了引用块必须得到反馈）。
   useEffect(() => {
     if (!pendingScrollToMessageId || !chatTarget) {
