@@ -11,6 +11,9 @@
 #   .\scripts\test-all.ps1 -SkipAndroid    # 跳过 Android clippy 检查
 #   .\scripts\test-all.ps1 -SkipVpn        # 跳过 VPN 连通性测试
 #
+#   # 本机没有 Android NDK 时，把第 9 项交给远程构建宿主真跑（不是跳过）：
+#   $env:ANDROID_CLIPPY_HOST='user@host'; .\scripts\test-all.ps1
+#
 # SKIP 不等于 PASS：
 #   任何被跳过的检查项（参数显式跳过、或运行期环境缺失如 NDK/target 未装）都会进入
 #   跳过登记表，末尾如实列出。只要存在跳过项，就不会打印"所有检查通过!"。
@@ -18,6 +21,20 @@
 #   $env:ALLOW_SKIP  显式放行跳过项（逗号或空格分隔的 id 列表；特殊值 all 放行全部）
 #     可用 id: cargo-check / clippy-desktop / clippy-android / cargo-test / vpn-connectivity
 #     例: $env:ALLOW_SKIP='clippy-android'; .\scripts\test-all.ps1
+#
+# 第 9 项 Android clippy 的远程执行（本机无 NDK 时的正路，见该块注释的三态优先级）：
+#   $env:ANDROID_CLIPPY_HOST            远程 Android 构建宿主的 ssh 目标（形如 user@host）。**无默认值**
+#                                       —— 本仓是 PUBLIC 公开仓，不写任何内网地址 / 主机名 / 账号；
+#                                       该值只在运行时经环境变量注入，不落盘、不入日志
+#   $env:ANDROID_CLIPPY_REMOTE_DIR      该宿主上的源码同步目录   默认 /tmp/hv-clippy-android
+#   $env:ANDROID_CLIPPY_REMOTE_NDK_HOME 远程 NDK 路径；不设则由远程按常见位置自动探测
+#   $env:ANDROID_CLIPPY_SSH_OPTS        追加给 ssh/scp 的参数（如 "-i C:\Users\me\.ssh\somekey"）
+#   $env:ANDROID_CLIPPY_JOBS            远程 cargo 并发度         默认 8（构建宿主常跑着别的服务，别抢爆）
+#
+#   用 Windows 10+ 自带的 ssh.exe / scp.exe / tar.exe，不依赖 rsync（Windows 上通常没有）。
+#
+#   🔴 设了 ANDROID_CLIPPY_HOST 却连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0
+#      一律 FAIL，**绝不自动退回跳过** —— 自动退回等于把"没跑"重新伪装成"环境不具备"。
 #
 # 退出码：
 #   0  全部真跑通过；或有跳过项但已被 ALLOW_SKIP 显式放行
@@ -321,6 +338,150 @@ if (-not $SkipRust) {
 # ============================================
 # 9. Android Cargo Clippy (移动端代码审查)
 # ============================================
+# 三态优先级（本机 → 远程构建宿主 → 才允许跳过），与 scripts/linux/test-all.sh 第 11 项同口径：
+#   ① 本机有 NDK 且装了 aarch64-linux-android target → 本机跑（最快路径，行为与历来一致）
+#   ② 本机不具备，但设了 $env:ANDROID_CLIPPY_HOST    → 同步源码到远程 Android 构建宿主**真跑**，
+#                                                      rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL
+#   ③ 两者都不具备                                    → Record-Skip，文案写**真实**原因（本机无 NDK
+#                                                      **且**未配置远程宿主），仍走「SKIP ≠ PASS」路径
+#
+# 🔴 ② 里任何一步失败（连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0）一律 FAIL，
+#    **绝不自动退回 ③ 的 skip**。
+#
+# ⚠️ 未实测（无 Windows 宿主）：本块的远程分支与 Linux 侧同口径写成，但**一行都没有在 Windows 上跑过**。
+#    Linux/macOS 侧（scripts/linux/test-all.sh 第 11 项）已端到端实测五条分支全部符合预期；
+#    Windows 侧首次使用时按"未验证代码"对待，先单独跑一次核对文案与 $allPassed 结果再拿它发版。
+
+# 远程 Android clippy。结果经 $script:androidRemoteCode 回传（不用 return —— PowerShell 函数
+# 会把任何未被吞掉的输出并入返回值，用脚本作用域变量可杜绝这类污染）：
+#   0  = clippy 通过
+#   20 = 远程宿主缺 Android 工具链（NDK / target）
+#   21 = 打包 / 上传 / 远程解包失败
+#   22 = 远程 clippy 真的报了错误或告警
+#   30 = ssh 连不上远程宿主（与 22 必须分得开：一个是网络/凭据，一个是代码真有问题）
+#   31 = 远程执行异常（拿不到结束哨兵，例如中途断连）
+function Invoke-AndroidClippyRemote {
+    param([string]$OutFile)
+
+    $script:androidRemoteCode = 31
+
+    $remoteHost = $env:ANDROID_CLIPPY_HOST
+    $rdir = if ($env:ANDROID_CLIPPY_REMOTE_DIR) { $env:ANDROID_CLIPPY_REMOTE_DIR } else { '/tmp/hv-clippy-android' }
+    $jobs = if ($env:ANDROID_CLIPPY_JOBS) { $env:ANDROID_CLIPPY_JOBS } else { '8' }
+    $ndkOverride = $env:ANDROID_CLIPPY_REMOTE_NDK_HOME
+
+    $sshOpts = @('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
+    if ($env:ANDROID_CLIPPY_SSH_OPTS) {
+        $sshOpts += ($env:ANDROID_CLIPPY_SSH_OPTS -split '\s+' | Where-Object { $_ })
+    }
+
+    # --- 连通性预检：先把"连不上"与"远程真报错"分开，后面才好给出可区分的文案 ---
+    & ssh.exe @sshOpts $remoteHost 'true' 2>&1 | Out-File -FilePath $OutFile -Encoding utf8 -Append
+    if ($LASTEXITCODE -ne 0) { $script:androidRemoteCode = 30; return }
+
+    $work = Join-Path $env:TEMP ("hv-clippy-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $tgz = Join-Path $work 'src.tgz'
+    $runner = Join-Path $work 'runner.sh'
+
+    try {
+        # --- 打包源码：白名单，只带 clippy 真正需要的东西 ---
+        # 🔴 必须是白名单而不是黑名单：仓根还有 data/（App 本地运行数据，含聊天库与用户文件），
+        #    黑名单漏一条就等于把用户数据推到远程宿主上去。
+        # src-tauri/target 与 src-tauri/gen 是构建产物（gen/schemas 由 tauri-build 自己重生），不带。
+        & tar.exe -czf $tgz --exclude 'src-tauri/target' --exclude 'src-tauri/gen' `
+            -C $projectRoot src-tauri Notification-Sounds 2>&1 |
+            Out-File -FilePath $OutFile -Encoding utf8 -Append
+        if ($LASTEXITCODE -ne 0) { $script:androidRemoteCode = 21; return }
+
+        # --- 生成远程 runner（bash 脚本，在远程 Linux 宿主上跑；与 Linux 侧逐字同义）---
+        # 用 LF 行尾写出：CRLF 会让远程 bash 把 \r 当成命令的一部分。
+        $runnerBody = @"
+RDIR='$rdir'
+NDK_OVERRIDE='$ndkOverride'
+JOBS='$jobs'
+# 非交互 shell 不读 ~/.cargo/env ⇒ rustup 装的 cargo 不在 PATH。
+if ! command -v cargo >/dev/null 2>&1 && [ -f "`$HOME/.cargo/env" ]; then
+    . "`$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "远程宿主 PATH 里找不到 cargo（PATH=`$PATH）"
+    exit 20
+fi
+NDK="`$NDK_OVERRIDE"
+if [ -z "`$NDK" ]; then
+    for c in "`$NDK_HOME" "`$ANDROID_NDK_HOME" "`$ANDROID_HOME"/ndk/*/ "`$ANDROID_SDK_ROOT"/ndk/*/ \
+             "`$HOME"/Android/Sdk/ndk/*/ "`$HOME"/*/android-sdk/ndk/*/ /opt/android-ndk; do
+        [ -n "`$c" ] || continue
+        c="`${c%/}"
+        [ -d "`$c" ] && NDK="`$c"
+    done
+fi
+if [ -z "`$NDK" ] || [ ! -d "`$NDK" ]; then
+    echo "远程宿主未找到 Android NDK（可用 ANDROID_CLIPPY_REMOTE_NDK_HOME 显式指定）"
+    exit 20
+fi
+CLANG="`$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+AR="`$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+if [ ! -x "`$CLANG" ] || [ ! -x "`$AR" ]; then
+    echo "远程 NDK 工具链不完整（缺 `$CLANG 或 `$AR）"
+    exit 20
+fi
+if ! rustup target list --installed </dev/null 2>/dev/null | grep -q '^aarch64-linux-android`$'; then
+    echo "远程宿主未安装 aarch64-linux-android target"
+    exit 20
+fi
+rm -rf "`$RDIR" && mkdir -p "`$RDIR" || exit 21
+tar -xzf "`$RDIR.tgz" -C "`$RDIR" 2>/dev/null || exit 21
+[ -d "`$RDIR/src-tauri" ] || { echo "解包后缺 src-tauri"; exit 21; }
+export CARGO_TARGET_DIR="`${RDIR}-target"
+export CC_aarch64_linux_android="`$CLANG"
+export AR_aarch64_linux_android="`$AR"
+cd "`$RDIR/src-tauri" || exit 21
+echo "远程 NDK: `$NDK"
+echo "远程 clippy: `$(cargo clippy --version </dev/null 2>&1)"
+CLIPPY_RC=0
+cargo clippy --target aarch64-linux-android -j "`$JOBS" -- -D warnings </dev/null 2>&1 || CLIPPY_RC=`$?
+echo "__HV_ANDROID_CLIPPY_DONE__ rc=`$CLIPPY_RC"
+[ "`$CLIPPY_RC" -eq 0 ] || exit 22
+exit 0
+"@
+        [System.IO.File]::WriteAllText($runner, ($runnerBody -replace "`r`n", "`n"),
+            (New-Object System.Text.UTF8Encoding($false)))
+
+        # --- 上传源码包 + runner ---
+        # 这里刻意用「scp 两个文件 + ssh -n 执行」，不用 `ssh "bash -s" < runner`：
+        # PowerShell 的重定向/管道会对送进原生命令的字节做文本处理，靠 stdin 喂脚本并不可靠。
+        & scp.exe @sshOpts $tgz "${remoteHost}:${rdir}.tgz" 2>&1 |
+            Out-File -FilePath $OutFile -Encoding utf8 -Append
+        if ($LASTEXITCODE -ne 0) { $script:androidRemoteCode = 21; return }
+
+        & scp.exe @sshOpts $runner "${remoteHost}:${rdir}.runner.sh" 2>&1 |
+            Out-File -FilePath $OutFile -Encoding utf8 -Append
+        if ($LASTEXITCODE -ne 0) { $script:androidRemoteCode = 21; return }
+
+        # --- 真跑（-n：本函数不经 stdin 喂脚本，不加 -n 会吃掉调用方的 stdin）---
+        & ssh.exe -n @sshOpts $remoteHost "bash '${rdir}.runner.sh'" 2>&1 |
+            Out-File -FilePath $OutFile -Encoding utf8 -Append
+        $rc = $LASTEXITCODE
+
+        # 拿不到结束哨兵 = 远程没跑完（中途断连等），不能当成"通过"
+        $sentinel = Select-String -Path $OutFile -Pattern '__HV_ANDROID_CLIPPY_DONE__' -Quiet
+        if ($rc -eq 0 -and -not $sentinel) { $script:androidRemoteCode = 31; return }
+
+        switch ($rc) {
+            0   { $script:androidRemoteCode = 0 }
+            20  { $script:androidRemoteCode = 20 }
+            21  { $script:androidRemoteCode = 21 }
+            22  { $script:androidRemoteCode = 22 }
+            255 { $script:androidRemoteCode = 30 }   # ssh 自身错误（连接中断 / 认证失败）
+            default { $script:androidRemoteCode = 31 }
+        }
+    } finally {
+        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    }
+}
+
 if (-not $SkipRust -and -not $SkipAndroid) {
     Step-Header "Cargo clippy Android (移动端代码审查)..."
 
@@ -335,32 +496,74 @@ if (-not $SkipRust -and -not $SkipAndroid) {
         }
     }
 
-    if (-not $ndkHome -or -not (Test-Path $ndkHome)) {
-        Record-Skip -Id 'clippy-android' -Reason 'Android NDK 未找到 (设置 NDK_HOME 或使用 -SkipAndroid)'
-    } else {
+    $localAndroidReady = $false
+    if ($ndkHome -and (Test-Path $ndkHome)) {
         $targetInstalled = rustup target list --installed 2>&1 | Out-String
-        if ($targetInstalled -notmatch "aarch64-linux-android") {
-            Record-Skip -Id 'clippy-android' -Reason 'aarch64-linux-android 目标未安装'
-            Write-Host "    运行: rustup target add aarch64-linux-android" -ForegroundColor Gray
+        if ($targetInstalled -match "aarch64-linux-android") { $localAndroidReady = $true }
+    }
+
+    if ($localAndroidReady) {
+        # --- ① 本机跑 ---
+        Push-Location "$projectRoot\src-tauri"
+
+        $env:CC_aarch64_linux_android = "$ndkHome\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android24-clang.cmd"
+        $env:AR_aarch64_linux_android = "$ndkHome\toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-ar.exe"
+
+        $androidClippyOutput = cargo clippy --target aarch64-linux-android -- -D warnings 2>&1 | Out-String
+        $androidClippyExit = $LASTEXITCODE
+
+        if ($androidClippyExit -eq 0) {
+            Write-Host "  ✓ PASS: Cargo clippy Android (本机, 0 warnings)" -ForegroundColor Green
         } else {
-            Push-Location "$projectRoot\src-tauri"
+            Write-Host "  ✗ FAIL: Cargo clippy Android (本机)" -ForegroundColor Red
+            ($androidClippyOutput -split "`n") | Where-Object { $_ -match "^(error|warning)" } | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+            $allPassed = $false
+        }
 
-            $env:CC_aarch64_linux_android = "$ndkHome\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android24-clang.cmd"
-            $env:AR_aarch64_linux_android = "$ndkHome\toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-ar.exe"
+        Pop-Location
+    } elseif ($env:ANDROID_CLIPPY_HOST) {
+        # --- ② 远程构建宿主真跑 ---
+        Write-Host "    本机无 Android NDK/target，改由远程构建宿主执行（主机经 ANDROID_CLIPPY_HOST 注入，不落盘、不入日志）" -ForegroundColor Gray
+        $androidRemoteLog = [System.IO.Path]::GetTempFileName()
+        $script:androidRemoteCode = 31
+        Invoke-AndroidClippyRemote -OutFile $androidRemoteLog
 
-            $androidClippyOutput = cargo clippy --target aarch64-linux-android -- -D warnings 2>&1 | Out-String
-            $androidClippyExit = $LASTEXITCODE
-
-            if ($androidClippyExit -eq 0) {
-                Write-Host "  ✓ PASS: Cargo clippy Android (0 warnings)" -ForegroundColor Green
-            } else {
-                Write-Host "  ✗ FAIL: Cargo clippy Android" -ForegroundColor Red
-                ($androidClippyOutput -split "`n") | Where-Object { $_ -match "^(error|warning)" } | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+        switch ($script:androidRemoteCode) {
+            0 {
+                Write-Host "  ✓ PASS: Cargo clippy Android (远程构建宿主, 0 warnings)" -ForegroundColor Green
+            }
+            30 {
+                Write-Host "  ✗ FAIL: 连不上远程 Android 构建宿主（网络 / 凭据问题，不是代码问题）" -ForegroundColor Red
+                Write-Host "         ANDROID_CLIPPY_HOST 已设置但 ssh 不通；如需临时绕开请用 -SkipAndroid 并如实报告" -ForegroundColor Red
+                Get-Content $androidRemoteLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
                 $allPassed = $false
             }
-
-            Pop-Location
+            21 {
+                Write-Host "  ✗ FAIL: 源码同步到远程构建宿主失败（打包 / scp / 远程解包环节，不是代码问题）" -ForegroundColor Red
+                Get-Content $androidRemoteLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+                $allPassed = $false
+            }
+            20 {
+                Write-Host "  ✗ FAIL: 远程构建宿主不具备 Android 工具链（NDK / aarch64-linux-android target 缺失）" -ForegroundColor Red
+                Get-Content $androidRemoteLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+                $allPassed = $false
+            }
+            22 {
+                Write-Host "  ✗ FAIL: Cargo clippy Android (远程构建宿主报告错误 / 告警 —— 这是代码问题)" -ForegroundColor Red
+                (Get-Content $androidRemoteLog) | Where-Object { $_ -match "^(error|warning)" } | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+                $allPassed = $false
+            }
+            default {
+                Write-Host "  ✗ FAIL: 远程 Android clippy 执行异常（未拿到结束哨兵，判定码 $($script:androidRemoteCode)）" -ForegroundColor Red
+                Get-Content $androidRemoteLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+                $allPassed = $false
+            }
         }
+
+        Remove-Item -Force $androidRemoteLog -ErrorAction SilentlyContinue
+    } else {
+        # --- ③ 本机与远程都不具备：如实写清两个条件都不满足 ---
+        Record-Skip -Id 'clippy-android' -Reason '本机无 Android NDK/target，且未配置远程构建宿主 —— 设 $env:ANDROID_CLIPPY_HOST=''user@host'' 走远程真跑（推荐），或设 NDK_HOME 本机跑，或 -SkipAndroid'
     }
 }
 

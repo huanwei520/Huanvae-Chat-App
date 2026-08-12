@@ -14,11 +14,26 @@
 #   ./scripts/linux/test-all.sh --skip-e2e      # 跳过 Playwright E2E 测试
 #   ./scripts/linux/test-all.sh --skip-vpn      # 跳过 VPN 连通性测试
 #
+#   # 本机没有 Android NDK 时，把第 11 项交给远程构建宿主真跑（不是跳过）：
+#   ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh
+#
 # 环境变量：
 #   ALLOW_SKIP="e2e,clippy-android"   显式放行被跳过的检查项（逗号或空格分隔）
 #                                     可用 id: e2e / cargo-check / clippy-desktop / clippy-android /
 #                                              cargo-test / vpn-connectivity
 #   ALLOW_SKIP=all                    放行全部跳过项
+#
+#   --- 第 11 项 Android clippy 的远程执行（本机无 NDK 时的正路，见该块注释的三态优先级）---
+#   ANDROID_CLIPPY_HOST               远程 Android 构建宿主的 ssh 目标（形如 user@host）。**无默认值**
+#                                     —— 本仓是 PUBLIC 公开仓，不写任何内网地址 / 主机名 / 账号；
+#                                     该值只在运行时经环境变量注入，不落盘、不入日志
+#   ANDROID_CLIPPY_REMOTE_DIR         该宿主上的源码同步目录   默认 /tmp/hv-clippy-android
+#   ANDROID_CLIPPY_REMOTE_NDK_HOME    远程 NDK 路径；不设则由远程按常见位置自动探测
+#   ANDROID_CLIPPY_SSH_OPTS           追加给 ssh/scp 的参数（如 "-i ~/.ssh/somekey"）
+#   ANDROID_CLIPPY_JOBS               远程 cargo 并发度         默认 8（构建宿主常跑着别的服务，别抢爆）
+#
+#   🔴 设了 ANDROID_CLIPPY_HOST 却连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0
+#      一律 FAIL，**绝不自动退回跳过** —— 自动退回等于把"没跑"重新伪装成"环境不具备"。
 #
 # 退出码：
 #   0 = 全部真跑通过，或跳过项已被 ALLOW_SKIP 显式放行
@@ -283,8 +298,10 @@ fi
 # ============================================
 step_header "ESLint 代码检查 (0 errors, 0 warnings)..."
 
-ESLINT_OUTPUT=$(pnpm lint 2>&1) || true
-ESLINT_EXIT=$?
+# rc 必须写成 `|| VAR=$?`：`|| true` 会让 $? 恒为 0（取的是整个列表的退出码），
+# FAIL 分支从而结构上永远进不去。下同（本文件曾有 6 处踩此坑）。
+ESLINT_EXIT=0
+ESLINT_OUTPUT=$(pnpm lint 2>&1) || ESLINT_EXIT=$?
 
 if [[ $ESLINT_EXIT -eq 0 ]]; then
     # 检查是否有警告
@@ -306,8 +323,8 @@ fi
 # ============================================
 step_header "单元测试..."
 
-TEST_OUTPUT=$(pnpm test --run 2>&1) || true
-TEST_EXIT=$?
+TEST_EXIT=0
+TEST_OUTPUT=$(pnpm test --run 2>&1) || TEST_EXIT=$?
 
 if [[ $TEST_EXIT -eq 0 ]]; then
     # 提取测试数量
@@ -329,8 +346,8 @@ fi
 if ! $SKIP_E2E; then
     step_header "E2E 视觉回归测试 (Playwright)..."
 
-    E2E_OUTPUT=$(npx playwright test 2>&1) || true
-    E2E_EXIT=$?
+    E2E_EXIT=0
+    E2E_OUTPUT=$(npx playwright test 2>&1) || E2E_EXIT=$?
 
     if [[ $E2E_EXIT -eq 0 ]]; then
         E2E_PASSED=$(echo "$E2E_OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
@@ -352,8 +369,8 @@ fi
 # ============================================
 step_header "前端构建测试 (检查警告)..."
 
-BUILD_OUTPUT=$(pnpm build 2>&1) || true
-BUILD_EXIT=$?
+BUILD_EXIT=0
+BUILD_OUTPUT=$(pnpm build 2>&1) || BUILD_EXIT=$?
 
 if [[ $BUILD_EXIT -eq 0 ]]; then
     # 检查 Vite 优化警告（忽略无害的 "dynamic import will not move module" 警告）
@@ -416,8 +433,8 @@ if ! $SKIP_RUST; then
     cd "$PROJECT_ROOT/src-tauri"
     
     # 使用 -D warnings 将所有警告视为错误
-    CLIPPY_OUTPUT=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1) || true
-    CLIPPY_EXIT=$?
+    CLIPPY_EXIT=0
+    CLIPPY_OUTPUT=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1) || CLIPPY_EXIT=$?
     
     if [[ $CLIPPY_EXIT -eq 0 ]]; then
         echo -e "  ${GREEN}✓ PASS: Cargo clippy 桌面端 (0 warnings)${NC}"
@@ -433,9 +450,151 @@ fi
 # ============================================
 # 11. Android Cargo Clippy (移动端代码审查)
 # ============================================
+# 三态优先级（本机 → 远程构建宿主 → 才允许跳过）：
+#   ① 本机有 NDK 且装了 aarch64-linux-android target → 本机跑（最快路径，行为与历来一致）
+#   ② 本机不具备，但设了 ANDROID_CLIPPY_HOST         → 同步源码到远程 Android 构建宿主**真跑**，
+#                                                      rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL
+#   ③ 两者都不具备                                    → record_skip，文案写**真实**原因（本机无 NDK
+#                                                      **且**未配置远程宿主），仍走「SKIP ≠ PASS」路径
+#
+# 🔴 ② 里任何一步失败（连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0）一律 FAIL，
+#    **绝不自动退回 ③ 的 skip** —— 自动退回等于把"没跑"重新伪装成"环境不具备"，
+#    正是本块要根治的病（v1.1.30 就是以「本机无 NDK」为由 ALLOW_SKIP 放行的，
+#    而本仓一直有可用的远程 Android 构建宿主）。
+#
+# 判定码在 run_android_clippy_remote 与调用方之间一一对应，**文案必须能区分**
+#   「连不上远程」和「远程 clippy 真报了告警」—— 否则排障时分不清是网络问题还是代码问题。
+
+# 内层：真正干活；临时目录由外层 run_android_clippy_remote 负责建与清，这里只管早返回。
+_android_clippy_remote_run() {
+    local out_file="$1" work="$2" host="$3" rdir="$4"
+    local tgz="$work/src.tgz" runner="$work/runner.sh"
+    local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=15)
+    local extra=()
+
+    if [[ -n "$ANDROID_CLIPPY_SSH_OPTS" ]]; then
+        read -ra extra <<< "$ANDROID_CLIPPY_SSH_OPTS"
+        ssh_opts+=("${extra[@]}")
+    fi
+
+    # --- 连通性预检：先把"连不上"与"远程真报错"分开，后面才好给出可区分的文案 ---
+    # 这里用 -n：本函数不经 stdin 喂脚本，若不加 -n，ssh 会吃掉 test-all.sh 自己的 stdin。
+    if ! ssh -n "${ssh_opts[@]}" "$host" true >>"$out_file" 2>&1; then
+        return 30
+    fi
+
+    # --- 打包源码：白名单，只带 clippy 真正需要的东西 ---
+    # 🔴 必须是白名单而不是黑名单：仓根还有 data/（App 本地运行数据，含聊天库与用户文件，
+    #    实测 150MB+），黑名单漏一条就等于把用户数据推到远程宿主上去。
+    # src-tauri/target 与 src-tauri/gen 是构建产物（gen/schemas 由 tauri-build 自己重生），不带。
+    # Notification-Sounds 是 tauri.conf.json bundle.resources 引用的路径，一并带上。
+    if ! COPYFILE_DISABLE=1 tar -czf "$tgz" \
+            --exclude 'src-tauri/target' --exclude 'src-tauri/gen' \
+            -C "$PROJECT_ROOT" src-tauri Notification-Sounds >>"$out_file" 2>&1; then
+        return 21
+    fi
+
+    # --- 生成远程 runner（值经 printf %q 转义，杜绝注入）---
+    {
+        printf 'RDIR=%s\n' "$(printf '%q' "$rdir")"
+        printf 'NDK_OVERRIDE=%s\n' "$(printf '%q' "$ANDROID_CLIPPY_REMOTE_NDK_HOME")"
+        printf 'JOBS=%s\n' "$(printf '%q' "${ANDROID_CLIPPY_JOBS:-8}")"
+        cat <<'RUNNER_EOF'
+# 非交互 shell 不读 ~/.cargo/env ⇒ rustup 装的 cargo 不在 PATH。
+# 实测踩过：据此误判"远程没有 cargo"，而它其实就在 ~/.cargo/bin 下。
+if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "远程宿主 PATH 里找不到 cargo（PATH=$PATH）"
+    exit 20
+fi
+
+NDK="$NDK_OVERRIDE"
+if [ -z "$NDK" ]; then
+    for c in "$NDK_HOME" "$ANDROID_NDK_HOME" "$ANDROID_HOME"/ndk/*/ "$ANDROID_SDK_ROOT"/ndk/*/ \
+             "$HOME"/Android/Sdk/ndk/*/ "$HOME"/*/android-sdk/ndk/*/ /opt/android-ndk; do
+        [ -n "$c" ] || continue
+        c="${c%/}"
+        [ -d "$c" ] && NDK="$c"
+    done
+fi
+if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
+    echo "远程宿主未找到 Android NDK（可用 ANDROID_CLIPPY_REMOTE_NDK_HOME 显式指定）"
+    exit 20
+fi
+CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+if [ ! -x "$CLANG" ] || [ ! -x "$AR" ]; then
+    echo "远程 NDK 工具链不完整（缺 $CLANG 或 $AR）"
+    exit 20
+fi
+if ! rustup target list --installed </dev/null 2>/dev/null | grep -q '^aarch64-linux-android$'; then
+    echo "远程宿主未安装 aarch64-linux-android target（rustup target add aarch64-linux-android）"
+    exit 20
+fi
+
+rm -rf "$RDIR" && mkdir -p "$RDIR" || exit 21
+tar -xzf "$RDIR.tgz" -C "$RDIR" 2>/dev/null || exit 21
+[ -d "$RDIR/src-tauri" ] || { echo "解包后缺 src-tauri"; exit 21; }
+
+# 构建缓存放在被清空的源码树之外：源码树每次全新解包（不留上次残留），
+# 而 cargo 增量缓存得以跨次保留（否则每次都是冷编）。
+export CARGO_TARGET_DIR="${RDIR}-target"
+export CC_aarch64_linux_android="$CLANG"
+export AR_aarch64_linux_android="$AR"
+cd "$RDIR/src-tauri" || exit 21
+
+echo "远程 NDK: $NDK"
+echo "远程 clippy: $(cargo clippy --version </dev/null 2>&1)"
+CLIPPY_RC=0
+cargo clippy --target aarch64-linux-android -j "$JOBS" -- -D warnings </dev/null 2>&1 || CLIPPY_RC=$?
+echo "__HV_ANDROID_CLIPPY_DONE__ rc=$CLIPPY_RC"
+[ "$CLIPPY_RC" -eq 0 ] || exit 22
+exit 0
+RUNNER_EOF
+    } > "$runner"
+
+    # --- 上传源码包（scp 也吃 stdin，同样要挡住）---
+    if ! scp "${ssh_opts[@]}" "$tgz" "$host:$rdir.tgz" </dev/null >>"$out_file" 2>&1; then
+        return 21
+    fi
+
+    # --- 真跑：runner 经 stdin 喂给远程 bash -s ---
+    # 🔴 这条 ssh 绝不能加 -n：它要靠 stdin 收 runner 正文（加了 = 脚本没送到，rc=0 且输出全空）。
+    #    `< "$runner"` 同时也把 test-all.sh 自己的 stdin 挡在外面。
+    local rc=0
+    ssh "${ssh_opts[@]}" "$host" 'bash -s' < "$runner" >>"$out_file" 2>&1 || rc=$?
+
+    # 拿不到结束哨兵 = 远程没跑完（中途断连等），不能当成"通过"
+    if [[ $rc -eq 0 ]] && ! grep -q '__HV_ANDROID_CLIPPY_DONE__' "$out_file"; then
+        return 31
+    fi
+
+    case "$rc" in
+        0)  return 0  ;;
+        20) return 20 ;;
+        21) return 21 ;;
+        22) return 22 ;;
+        255) return 30 ;;   # ssh 自身错误（连接中断 / 认证失败）
+        *)  return 31 ;;
+    esac
+}
+
+run_android_clippy_remote() {
+    local out_file="$1"
+    local host="$ANDROID_CLIPPY_HOST"
+    local rdir="${ANDROID_CLIPPY_REMOTE_DIR:-/tmp/hv-clippy-android}"
+    local work ret=0
+    work="$(mktemp -d)" || return 21
+    _android_clippy_remote_run "$out_file" "$work" "$host" "$rdir" || ret=$?
+    rm -rf "$work"
+    return $ret
+}
+
 if ! $SKIP_RUST && ! $SKIP_ANDROID; then
     step_header "Cargo clippy Android (移动端代码审查)..."
-    
+
     # 检查 Android NDK 是否存在
     if [[ -z "$NDK_HOME" ]]; then
         # 尝试常见路径
@@ -445,34 +604,76 @@ if ! $SKIP_RUST && ! $SKIP_ANDROID; then
             NDK_HOME="/opt/android-ndk"
         fi
     fi
-    
-    if [[ -z "$NDK_HOME" || ! -d "$NDK_HOME" ]]; then
-        record_skip clippy-android "Android NDK 未找到 (设置 NDK_HOME 或使用 --skip-android)"
-    else
-        # 检查目标是否已安装
-        if ! rustup target list --installed | grep -q "aarch64-linux-android"; then
-            record_skip clippy-android "aarch64-linux-android 目标未安装"
-            echo -e "  ${GRAY}  运行: rustup target add aarch64-linux-android${NC}"
+
+    LOCAL_ANDROID_READY=false
+    if [[ -n "$NDK_HOME" && -d "$NDK_HOME" ]] \
+        && rustup target list --installed 2>/dev/null | grep -q "aarch64-linux-android"; then
+        LOCAL_ANDROID_READY=true
+    fi
+
+    if $LOCAL_ANDROID_READY; then
+        # --- ① 本机跑 ---
+        cd "$PROJECT_ROOT/src-tauri"
+
+        # 设置 NDK 编译器环境变量
+        export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+        export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+
+        ANDROID_CLIPPY_EXIT=0
+        ANDROID_CLIPPY_OUTPUT=$(cargo clippy --target aarch64-linux-android -- -D warnings 2>&1) || ANDROID_CLIPPY_EXIT=$?
+
+        if [[ $ANDROID_CLIPPY_EXIT -eq 0 ]]; then
+            echo -e "  ${GREEN}✓ PASS: Cargo clippy Android (本机, 0 warnings)${NC}"
         else
-            cd "$PROJECT_ROOT/src-tauri"
-            
-            # 设置 NDK 编译器环境变量
-            export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-            export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-            
-            ANDROID_CLIPPY_OUTPUT=$(cargo clippy --target aarch64-linux-android -- -D warnings 2>&1) || true
-            ANDROID_CLIPPY_EXIT=$?
-            
-            if [[ $ANDROID_CLIPPY_EXIT -eq 0 ]]; then
-                echo -e "  ${GREEN}✓ PASS: Cargo clippy Android (0 warnings)${NC}"
-            else
-                echo -e "  ${RED}✗ FAIL: Cargo clippy Android${NC}"
-                echo "$ANDROID_CLIPPY_OUTPUT" | grep -E "^(error|warning)" | head -20
-                ALL_PASSED=false
-            fi
-            
-            cd "$PROJECT_ROOT"
+            echo -e "  ${RED}✗ FAIL: Cargo clippy Android (本机)${NC}"
+            echo "$ANDROID_CLIPPY_OUTPUT" | grep -E "^(error|warning)" | head -20
+            ALL_PASSED=false
         fi
+
+        cd "$PROJECT_ROOT"
+    elif [[ -n "$ANDROID_CLIPPY_HOST" ]]; then
+        # --- ② 远程构建宿主真跑 ---
+        echo -e "  ${GRAY}  本机无 Android NDK/target，改由远程构建宿主执行（主机经 ANDROID_CLIPPY_HOST 注入，不落盘、不入日志）${NC}"
+        ANDROID_REMOTE_LOG=$(mktemp)
+        ANDROID_REMOTE_RC=0
+        run_android_clippy_remote "$ANDROID_REMOTE_LOG" || ANDROID_REMOTE_RC=$?
+
+        case "$ANDROID_REMOTE_RC" in
+            0)
+                echo -e "  ${GREEN}✓ PASS: Cargo clippy Android (远程构建宿主, 0 warnings)${NC}"
+                ;;
+            30)
+                echo -e "  ${RED}✗ FAIL: 连不上远程 Android 构建宿主（网络 / 凭据问题，不是代码问题）${NC}"
+                echo -e "  ${RED}        ANDROID_CLIPPY_HOST 已设置但 ssh 不通；如需临时绕开请用 --skip-android 并如实报告${NC}"
+                tail -20 "$ANDROID_REMOTE_LOG"
+                ALL_PASSED=false
+                ;;
+            21)
+                echo -e "  ${RED}✗ FAIL: 源码同步到远程构建宿主失败（打包 / scp / 远程解包环节，不是代码问题）${NC}"
+                tail -20 "$ANDROID_REMOTE_LOG"
+                ALL_PASSED=false
+                ;;
+            20)
+                echo -e "  ${RED}✗ FAIL: 远程构建宿主不具备 Android 工具链（NDK / aarch64-linux-android target 缺失）${NC}"
+                tail -20 "$ANDROID_REMOTE_LOG"
+                ALL_PASSED=false
+                ;;
+            22)
+                echo -e "  ${RED}✗ FAIL: Cargo clippy Android (远程构建宿主报告错误 / 告警 —— 这是代码问题)${NC}"
+                grep -E "^(error|warning)" "$ANDROID_REMOTE_LOG" | head -20
+                ALL_PASSED=false
+                ;;
+            *)
+                echo -e "  ${RED}✗ FAIL: 远程 Android clippy 执行异常（未拿到结束哨兵，判定码 ${ANDROID_REMOTE_RC}）${NC}"
+                tail -20 "$ANDROID_REMOTE_LOG"
+                ALL_PASSED=false
+                ;;
+        esac
+
+        rm -f "$ANDROID_REMOTE_LOG"
+    else
+        # --- ③ 本机与远程都不具备：如实写清两个条件都不满足 ---
+        record_skip clippy-android "本机无 Android NDK/target，且未配置远程构建宿主 —— 设 ANDROID_CLIPPY_HOST=user@host 走远程真跑（推荐），或设 NDK_HOME 本机跑，或 --skip-android"
     fi
 fi
 
