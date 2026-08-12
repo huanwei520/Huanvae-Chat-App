@@ -517,6 +517,82 @@ jobs:
           # 保存到文件
           echo "$ASSETS" > assets.json
 
+      # ============================================
+      # 下载 Release 产物 + 必需清单断言（整个 job 的闸门）
+      # ============================================
+      #
+      # 🔴 位置很关键：这一步从「两个清单都已发布之后」提到了「任何清单生成之前」。
+      #    旧形态是 `gh release download ... || true`（下载失败被整个吞掉）+ 后面
+      #    无条件 `aws s3 cp latest-r2.json`，于是**只拉到一部分产物时清单照样发布**、
+      #    指向 v<TAG>/ 下并不存在的文件 ⇒ 全体客户端应用内更新 404，
+      #    而 workflow 全绿、无人告警、且不会自己恢复。
+      #    闸门前置之后，缺任何一个必需产物时，下面所有「生成 / 上传清单」的步骤
+      #    都不会执行（GitHub Actions 在某步失败后跳过同 job 的后续步骤）。
+      #
+      #    顺带解掉 sha256 的排序障碍：APK 在这里就已落盘，
+      #    后面的 android-latest.json 才能对**真实产物字节**算摘要。
+      - name: Download release assets and assert required payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p r2-upload
+
+          # 🔴 这里**没有** `|| true`：下载失败（含「通配符零命中」—— gh 自身即非零退出）
+          #    必须让 step 直接红。别再给它加任何兜底。
+          gh release download "${TAG}" -D r2-upload \
+            -p "*.exe" -p "*.exe.sig" \
+            -p "*.AppImage" -p "*.AppImage.sig" \
+            -p "*.dmg" \
+            -p "*.app.tar.gz" -p "*.app.tar.gz.sig" \
+            -p "*_android.apk" \
+            -p "*.deb"
+
+          echo "=== Files downloaded ==="
+          ls -lh r2-upload/
+
+          # ── 必需清单：逐个文件名显式列出（禁止用通配符 / 数个数代替）──
+          #
+          # Tier-1｜更新链路命门：latest.json / android-latest.json 的 URL 直接指向它们，
+          #   缺任一 ⇒ 客户端更新 404。
+          #   ⚠️ .app.tar.gz **不带版本号**（tauri-action 的命名如此），别拼 ${VERSION}。
+          # Tier-2｜上面 glob 声明要拉、但没有清单 URL 指向：
+          #   .sig 本身客户端**不会**去 R2 取（签名以字符串内嵌进 latest.json），
+          #   但它缺失即说明上游构建/签名出了问题，且 latest.json 会拿到空签名字符串
+          #   （空串喂 minisign 必报 Invalid encoding）⇒ 一样要红；
+          #   .dmg / .deb 是手动下载渠道的产物，同样「声明要拉就该拉到」。
+          # ⚠️ *.deb.sig 在 Release 里**存在**，却不在上面的 glob 里（既有的不对称，本次未改），
+          #   所以它**不在**必需清单内 —— 清单必须与 glob 一致，否则会断言一个根本没下载的文件。
+          REQUIRED_FILES=(
+            "Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+            "Huanvae-Chat-App_aarch64.app.tar.gz"
+            "Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+            "Huanvae-Chat-App_${VERSION}_android.apk"
+            "Huanvae-Chat-App_${VERSION}_x64-setup.exe.sig"
+            "Huanvae-Chat-App_${VERSION}_amd64.AppImage.sig"
+            "Huanvae-Chat-App_aarch64.app.tar.gz.sig"
+            "Huanvae-Chat-App_${VERSION}_aarch64.dmg"
+            "Huanvae-Chat-App_${VERSION}_amd64.deb"
+          )
+          # 交给后面的 R2 上传步骤复用（放工作区根，不在 r2-upload/ 里 ⇒ 不会被传上 R2）
+          printf '%s\n' "${REQUIRED_FILES[@]}" > required-r2-files.txt
+
+          MISSING=()
+          for name in "${REQUIRED_FILES[@]}"; do
+            [ -s "r2-upload/${name}" ] || MISSING+=("${name}")
+          done
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ 必需产物缺失 ${#MISSING[@]}/${#REQUIRED_FILES[@]}，拒绝继续（本次不会发布任何更新清单）："
+            for name in "${MISSING[@]}"; do
+              echo "  - ${name}"
+            done
+            exit 1
+          fi
+          echo "✅ 必需产物齐全（${#REQUIRED_FILES[@]}/${#REQUIRED_FILES[@]}）"
+
       - name: Generate latest.json with proxy URLs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -729,6 +805,7 @@ jobs:
       # ============================================
       - name: Generate android-latest.json
         run: |
+          set -eo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
@@ -738,6 +815,26 @@ jobs:
           R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
           PROXY="https://cdn.gh-proxy.org/"
 
+          # ── sha256 的**唯一真值源**：上一步下载下来、随后原样上传到 R2 的那份 APK 字节 ──
+          #
+          # 这也是把 "Download release assets…" 提到本步之前的第二个原因：本步执行时
+          # APK 必须已经在盘上，否则只能写一个占位值，那就又造出一个死字段。
+          #
+          # BACKLOG: 客户端目前**不**校验 sha256 —— src/update/service.android.ts 只读
+          #   version / notes / url（+ 曾经的 size）；src-tauri/src/android_update.rs 下载完
+          #   只比对字节数（PendingApkInstall.size），不算摘要。所以此刻这个字段的
+          #   **唯一消费方是本 workflow 自己**（下面这两条「清单 vs 产物」断言）。
+          #   等客户端落盘校验接上之后，它才成为端到端的完整性校验。
+          #   在那之前不许把它描述成「已实现完整性校验」。
+          APK_PATH="r2-upload/${APK_NAME}"
+          if [ ! -s "$APK_PATH" ]; then
+            echo "❌ 找不到 APK 产物: ${APK_PATH}"
+            echo "   （必需清单断言本应先拦下，这里是第二道保险 —— 没有 APK 就绝不生成清单）"
+            exit 1
+          fi
+          APK_SHA256="$(sha256sum "$APK_PATH" | cut -d' ' -f1)"
+          echo "APK 产物 sha256: ${APK_SHA256}  (${APK_PATH})"
+
           # GitHub Release 版（proxy URL，供代理源回退使用）
           cat > android-latest.json << EOF
           {
@@ -745,7 +842,7 @@ jobs:
             "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
             "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
             "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
-            "size": 0,
+            "sha256": "${APK_SHA256}",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
@@ -757,10 +854,25 @@ jobs:
             "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
             "url": "${R2_BASE}/${APK_NAME}",
             "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
-            "size": 0,
+            "sha256": "${APK_SHA256}",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
+
+          # ── 断言 ①：清单 vs 产物（不是拿清单跟自己比）──
+          # 把刚写进 JSON 的值**解析回来**，与**重新对 APK 文件算一遍**的结果比对。
+          # 它拦的是模板/引号/变量未展开这类静默写坏（写坏时 jq 取到的就不是这个摘要）。
+          VERIFY_SHA256="$(sha256sum "$APK_PATH" | cut -d' ' -f1)"
+          for manifest in android-latest.json android-latest-r2.json; do
+            IN_MANIFEST="$(jq -r '.sha256' "$manifest")"
+            if [ "$IN_MANIFEST" != "$VERIFY_SHA256" ]; then
+              echo "❌ ${manifest} 的 sha256 与 APK 产物不符，拒绝发布："
+              echo "   清单: ${IN_MANIFEST}"
+              echo "   产物: ${VERIFY_SHA256}  (${APK_PATH})"
+              exit 1
+            fi
+          done
+          echo "✅ 两个 android 清单的 sha256 均与 APK 产物一致"
 
           echo "=== GitHub android-latest.json: ==="
           cat android-latest.json
@@ -778,24 +890,8 @@ jobs:
       # ============================================
       # 上传到 Cloudflare R2（自建更新源）
       # ============================================
-      - name: Download release assets for R2
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.ref_name }}"
-          mkdir -p r2-upload
-
-          gh release download "${TAG}" -D r2-upload \
-            -p "*.exe" -p "*.exe.sig" \
-            -p "*.AppImage" -p "*.AppImage.sig" \
-            -p "*.dmg" \
-            -p "*.app.tar.gz" -p "*.app.tar.gz.sig" \
-            -p "*_android.apk" \
-            -p "*.deb" || true
-
-          echo "=== Files to upload ==="
-          ls -lh r2-upload/
-
+      # 产物已由本 job 靠前的 "Download release assets and assert required payload"
+      # 下载并断言过齐全；这里只负责上传 + **发布清单之前的第二道闸门**。
       - name: Upload to Cloudflare R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -803,31 +899,74 @@ jobs:
           AWS_ENDPOINT_URL: ${{ secrets.CF_R2_ENDPOINT }}
           AWS_REGION: auto
         run: |
+          set -eo pipefail
           TAG="${{ github.ref_name }}"
+          VERSION="${{ steps.version.outputs.version }}"
           BUCKET="${{ secrets.CF_R2_BUCKET }}"
 
           # Upload release assets
+          # 逐个记下**真的传上去**的文件名，供下面的闸门核对。
+          : > uploaded-r2-files.txt
           for file in r2-upload/*; do
             [ -f "$file" ] || continue
             filename=$(basename "$file")
             aws s3 cp "$file" "s3://${BUCKET}/huanvae-chat/${TAG}/${filename}" \
               --endpoint-url "$AWS_ENDPOINT_URL"
             echo "✅ ${filename}"
+            echo "${filename}" >> uploaded-r2-files.txt
           done
 
+          # ── 闸门 ①：必需产物逐个核对「确实上传过」──
+          #
+          # 🔴 旧实现里 r2-upload/ 为空时上面这个 for 循环**一次都不执行却照样往下走**，
+          #    latest.json 随后被无条件发布 ⇒ 指向一个空目录 ⇒ 全体客户端 404、流水线全绿。
+          #    清单文件由靠前那个断言步骤写出，两处共用同一份真值源。
+          MISSING=()
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            grep -qxF "$name" uploaded-r2-files.txt || MISSING+=("$name")
+          done < required-r2-files.txt
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ 以下必需产物没有上传到 R2，拒绝发布更新清单："
+            for name in "${MISSING[@]}"; do
+              echo "  - ${name}"
+            done
+            exit 1
+          fi
+
+          # ── 闸门 ②：即将发布的 android 清单 sha256 vs **刚上传的那份 APK 字节** ──
+          # 这是跨 step 的真实比对：清单在别的 step 生成，APK 在这里上传。
+          if [ ! -s android-latest-r2.json ]; then
+            echo "❌ android-latest-r2.json 不存在或为空 —— 上游生成步骤没跑成功，拒绝发布"
+            exit 1
+          fi
+          APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
+          MANIFEST_SHA256="$(jq -r '.sha256' android-latest-r2.json)"
+          ACTUAL_SHA256="$(sha256sum "r2-upload/${APK_NAME}" | cut -d' ' -f1)"
+          if [ "$MANIFEST_SHA256" != "$ACTUAL_SHA256" ]; then
+            echo "❌ android-latest-r2.json 的 sha256 与刚上传的 APK 不符，拒绝发布清单："
+            echo "   清单: ${MANIFEST_SHA256}"
+            echo "   产物: ${ACTUAL_SHA256}  (r2-upload/${APK_NAME})"
+            exit 1
+          fi
+          echo "✅ android 清单 sha256 与已上传 APK 一致: ${ACTUAL_SHA256}"
+
+          # ── 只有上面两道闸门都过了，才发布两个更新清单 ──
           # Upload R2 版 latest.json（下载 URL 指向 R2）
           aws s3 cp latest-r2.json "s3://${BUCKET}/huanvae-chat/latest.json" \
             --endpoint-url "$AWS_ENDPOINT_URL" \
             --content-type "application/json"
 
           # Upload R2 版 android-latest.json（下载 URL 指向 R2）
-          if [ -f android-latest-r2.json ]; then
-            aws s3 cp android-latest-r2.json "s3://${BUCKET}/huanvae-chat/android-latest.json" \
-              --endpoint-url "$AWS_ENDPOINT_URL" \
-              --content-type "application/json"
-          fi
+          # 🔴 不再用 `if [ -f … ]` 静默跳过：文件不在就是缺陷，上面闸门 ② 已让它红。
+          aws s3 cp android-latest-r2.json "s3://${BUCKET}/huanvae-chat/android-latest.json" \
+            --endpoint-url "$AWS_ENDPOINT_URL" \
+            --content-type "application/json"
 
-          echo "✅ All files uploaded to R2"
+          # 🔴 有断言前提的宣告：旧版这里是无条件的 "✅ All files uploaded to R2"，
+          #    即使一个产物都没传也照样打印。
+          REQUIRED_COUNT="$(grep -c . required-r2-files.txt)"
+          echo "✅ 必需产物 ${REQUIRED_COUNT}/${REQUIRED_COUNT} 已上传，两个更新清单已发布到 R2"
 
       - name: Notify soft-store webhook
         if: always()

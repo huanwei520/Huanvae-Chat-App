@@ -192,6 +192,29 @@ Plan 批准后，必须自主连续执行直到整个 Plan 完成，中途不暂
 
 代码实现完成后、编写测试前，**调用 `/code-review` 启动独立 Agent 进行第一轮代码质量审核**。审核重点：无用兜底、过度防御、死代码。审核通过后才可进入测试编写。
 
+#### 🔴 review 环节的必读链（code-review / blind-review 两道都适用，不可跳）
+
+**任何一次 review（含盲审）开工前，第一件事是 Read 下面这一节，不是「建议阅读」：**
+
+> [.claude/skills/code-review/SKILL.md](.claude/skills/code-review/SKILL.md)
+> 「🔴 本仓已实证的失效形态清单（每次 review 必须逐条过）」
+> （盲审读 [.claude/skills/blind-review/SKILL.md](.claude/skills/blind-review/SKILL.md) 的同名节，两份逐字节相同）
+
+该节含**总纪律**（检查器类改动必须「故意弄坏一次」自证、且变异要精准只红一条）
+与 **14 条**带可执行判据的失效形态（A1–A6 / B7–B9 / C10–C12 / D13–D14），并把
+**`.github/workflows/**` 与 `scripts/**` 显式纳入 review 覆盖面** ——
+这两类历史上从来没被审过，正是「发布流水线静默降级」能长期存活的直接原因。
+
+**机械核对（做不到即视为没读，review 打回重做）**：review 报告必须原样带
+「失效形态清单必答块」，默认必答 **A2 / A5 / B7**，每条给出**实际跑过的判据命令 + 实际输出 + 结论**。
+核对命令（在 review 报告文件上跑）：
+
+```bash
+grep -c 'FMC-ANSWER:BEGIN' <review 报告>                        # 必须 == 1
+grep -cE '^\| [A-D][0-9]+ \|' <review 报告>                     # 必须 == 本次指定的必答条数（默认 3）
+grep -cE '^\| [A-D][0-9]+ \|[[:space:]]*\|' <review 报告>       # 必须 == 0（不许空命令格）
+```
+
 ### 编写测试（不可跳过）
 
 代码实现完成后、自检前，必须编写本次新增功能的测试。
@@ -220,6 +243,10 @@ Plan 全部执行完毕后，**必须立即**进行自检 + 独立 Agent 审核�
 ### 独立 Agent 盲审（二次审查）
 
 自检完成后，**调用 `/blind-review` 启动独立盲审流程**。盲审 Agent 拥有独立上下文，零上下文对照 Plan 逐项验证。具体流程、prompt 模板和输出格式见 `/blind-review` skill。
+
+🔴 盲审同样适用上面「review 环节的必读链」：开工先读失效形态清单（blind-review skill 的 D-4），
+报告必须带必答块 —— 盲审的输入是 Plan + diff，而清单里近一半是 **Plan 与 diff 都看不见的存量失效**，
+不主动拿清单去撞就永远撞不到。
 
 ### 审核争议解决
 
