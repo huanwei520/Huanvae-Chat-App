@@ -9,7 +9,11 @@
  * - failed  → 红色感叹号
  * - 已送达 → 绿色双勾 + "N 人已读"/"全部已读" 文案 + 已读者头像堆叠；有已读者时可点击展开名单。
  *
- * text 为 null（占位 seq / 无应读者，如单人群）时不展示已读部分。
+ * text 为 null 时不展示已读部分，三种成因：**无人已读**（产品口径：没人读过就隐藏）/
+ * 占位 seq / 无应读者（单人群）。文案与 null 判定全在 useGroupReadReceipt 的纯函数里
+ * （readReceiptText + groupReadReceiptText），本组件只负责渲染。
+ *
+ * 「挂在哪一条」由列表侧门控（shared/readReceiptGate，只挂我发出的最新一条）。
  */
 
 import type { MessageSendStatus } from '../../types/chat';

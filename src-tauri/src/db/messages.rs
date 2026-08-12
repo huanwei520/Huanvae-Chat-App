@@ -4,7 +4,8 @@
 //! - `get_messages`: 分页获取会话消息（支持 before_seq 游标）
 //! - `save_message`: 保存单条消息
 //! - `save_messages`: 批量保存消息（使用事务，INSERT OR REPLACE — 以服务器为准）
-//! - `save_messages_skip_existing`: 批量插入消息（INSERT OR IGNORE — 仅补本地缺失，不覆盖本地状态）
+//! - `save_messages_skip_existing`: 批量插入消息（缺失行整行插入；已存在行只回填空的引用/相册列，
+//!   其余列一律不覆盖本地状态）
 //! - `mark_message_recalled`: 标记消息为已撤回
 //! - `mark_message_deleted`: 标记消息为已删除（软删除）
 //! - `search_messages`: 搜消息内容（FTS5 主路径 + LIKE fallback；可按会话 + content_type 过滤）
@@ -367,32 +368,63 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
     Ok(())
 }
 
-/// 批量插入消息：仅对本地不存在的 message_uuid 写入（INSERT OR IGNORE）
+/// 批量插入消息：本地缺失的整行写入；本地已存在的**只回填"从未写过"的引用/相册四列**
 ///
-/// 用途：历史消息加载（loadAllHistoryMessages）—— 服务器返回的历史响应可能不带
-/// is_recalled / is_deleted 等本地状态字段，若用 INSERT OR REPLACE 直接覆盖，会把
+/// 用途：历史消息加载（loadAllHistoryMessages）与 sync 的存量回填窗口
+/// （syncService.ts `BACKFILL_WINDOW`）。
+///
+/// ## 为什么不能整行覆盖（INSERT OR REPLACE）
+/// 服务器返回的历史响应可能不带 is_recalled / is_deleted 等本地状态字段，整行覆盖会把
 /// 本地已撤回的消息（is_recalled=1）误覆盖回 0，UI 退化为"普通对方消息形态"。
+///
+/// ## 为什么也不能纯 INSERT OR IGNORE（本函数 2026-08-12 之前的行为，是一条真缺陷）
+/// `reply_to` 与相册三件套曾在多条写入路径上被写死 null（wsHandlers / historyService /
+/// syncService，2026-08-10 才逐条修好）。修好的只是"以后写进来的"——**已经躺在库里的那些行
+/// 永远是 NULL**：sync 只拉 `seq > last_seq` 不会回头，历史加载又 IGNORE 掉已存在行。
+/// 结果就是"别人回复你的历史消息，引用块永远不显示"（自己发的因为走 save_message 本地直写，
+/// 一直带着 reply_to ⇒ 用户看到的现象正是「只看得到自己的」）。
+///
+/// 所以已存在行走 `ON CONFLICT DO UPDATE`，且**只碰这四列、只补空**：
+/// `COALESCE(messages.x, excluded.x)` 保证本地已有值不被服务端值覆盖（撤回后服务端会把
+/// 内容抹成占位，但这四列本身不参与撤回语义），本地为 NULL 时才吃进服务端的值。
+/// content / seq / is_recalled / is_deleted 等其余列一律不动，原「只补本地缺失」的保护不变。
 ///
 /// 与 save_messages 的区别：
 /// - save_messages: INSERT OR REPLACE，用于 sync 增量 / WS 新消息（语义是"以服务器为准"）
-/// - save_messages_skip_existing: INSERT OR IGNORE，用于历史补缺（语义是"只补本地缺失的"）
+/// - save_messages_skip_existing: 插入缺失行 + 回填空的引用/相册列，其余列不动
 pub fn save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), String> {
     let mut guard = DB.lock();
     let db = guard
         .as_mut()
         .ok_or_else(|| "数据库未初始化".to_string())?;
 
-    let tx = db.transaction().map_err(|e| e.to_string())?;
+    save_messages_skip_existing_with_conn(db, messages)
+}
+
+/// [`save_messages_skip_existing`] 的可注入连接版本
+///
+/// 拆出来的理由与 [`get_messages_with_conn`] 同款：单测要对 in-memory 连接跑**同一条真实 SQL**，
+/// 在测试里另抄一份 SQL 就正好测不到 `ON CONFLICT DO UPDATE` 子句本身写错/写漏。
+fn save_messages_skip_existing_with_conn(
+    conn: &mut Connection,
+    messages: Vec<LocalMessage>,
+) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     for msg in messages {
         tx.execute(
-            "INSERT OR IGNORE INTO messages
+            "INSERT INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
               file_hash, image_width, image_height, seq, reply_to,
               media_group_id, media_group_index, media_group_count,
               is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(message_uuid) DO UPDATE SET
+               reply_to = COALESCE(messages.reply_to, excluded.reply_to),
+               media_group_id = COALESCE(messages.media_group_id, excluded.media_group_id),
+               media_group_index = COALESCE(messages.media_group_index, excluded.media_group_index),
+               media_group_count = COALESCE(messages.media_group_count, excluded.media_group_count)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -1009,6 +1041,111 @@ mod tests {
         assert_eq!(hit.content, "整组配文");
         assert_eq!(hit.seq, 1);
         assert!(!hit.is_recalled);
+    }
+
+    /// 构造一条"服务端下发形态"的 LocalMessage（带 reply_to / 相册三件套）
+    fn server_message(uuid: &str, reply_to: Option<&str>) -> LocalMessage {
+        LocalMessage {
+            message_uuid: uuid.to_string(),
+            conversation_id: "c1".to_string(),
+            conversation_type: "group".to_string(),
+            sender_id: "peer".to_string(),
+            sender_name: Some("对方".to_string()),
+            sender_avatar: None,
+            content: "服务端内容".to_string(),
+            content_type: "text".to_string(),
+            file_uuid: None,
+            file_url: None,
+            file_size: None,
+            file_hash: None,
+            image_width: None,
+            image_height: None,
+            seq: 1,
+            reply_to: reply_to.map(str::to_string),
+            media_group_id: Some("grp-9".to_string()),
+            media_group_index: Some(0),
+            media_group_count: Some(2),
+            is_recalled: false,
+            is_deleted: false,
+            send_time: "2026-05-11T01:00:00Z".to_string(),
+            created_at: None,
+        }
+    }
+
+    /// 存量脏行（reply_to 为 NULL）必须能被历史/回填这条路补回来。
+    ///
+    /// 这正是"别人回复你的历史群消息看不到引用块、自己发的却看得到"的成因：
+    /// 写入路径 2026-08-10 才修好，**已经躺在库里的行没有任何路径会回来重写**
+    /// （sync 只拉 seq > last_seq；本函数修前是 INSERT OR IGNORE 直接跳过已存在行）。
+    #[test]
+    fn backfills_null_reply_to_on_existing_row() {
+        let mut conn = setup_test_db();
+        // 存量行：修复前的写入路径把 reply_to / 相册三件套写死成 NULL
+        insert_msg_from(&conn, "m1", "c1", "peer", "别人的回复", "text", 1, "2026-05-11T01:00:00Z");
+
+        save_messages_skip_existing_with_conn(&mut conn, vec![server_message("m1", Some("orig-uuid"))])
+            .unwrap();
+
+        let msgs = get_messages_with_conn(&conn, "c1", 50, None).unwrap();
+        let hit = msgs.iter().find(|m| m.message_uuid == "m1").expect("行应仍在");
+        assert_eq!(hit.reply_to.as_deref(), Some("orig-uuid"), "存量行的空 reply_to 必须被回填");
+        assert_eq!(hit.media_group_id.as_deref(), Some("grp-9"), "相册三件套同理回填");
+        assert_eq!(hit.media_group_index, Some(0));
+        assert_eq!(hit.media_group_count, Some(2));
+    }
+
+    /// 回填**只碰那四列**：本地状态列（撤回/删除/内容）绝不能被服务端响应覆盖。
+    /// 这条守的是本函数原有的存在理由（见 2026-05-10 切 skip-existing 的动机）。
+    #[test]
+    fn backfill_never_overwrites_local_state_columns() {
+        let mut conn = setup_test_db();
+        insert_msg_from(&conn, "m1", "c1", "peer", "本地内容", "text", 7, "2026-05-11T01:00:00Z");
+        conn.execute("UPDATE messages SET is_recalled=1 WHERE message_uuid='m1'", [])
+            .unwrap();
+
+        save_messages_skip_existing_with_conn(&mut conn, vec![server_message("m1", Some("orig-uuid"))])
+            .unwrap();
+
+        // is_recalled=1 的消息不进 get_messages 的过滤？—— get_messages 不过滤撤回，直接读回来核对
+        let (content, seq, recalled): (String, i64, i64) = conn
+            .query_row(
+                "SELECT content, seq, is_recalled FROM messages WHERE message_uuid='m1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(content, "本地内容", "content 不得被服务端响应覆盖");
+        assert_eq!(seq, 7, "seq 不得被覆盖");
+        assert_eq!(recalled, 1, "本地撤回状态不得被覆盖回 0");
+    }
+
+    /// 本地已有的非空 reply_to 不得被服务端值改写（COALESCE 的方向必须是"本地优先"）。
+    #[test]
+    fn backfill_keeps_existing_non_null_reply_to() {
+        let mut conn = setup_test_db();
+        insert_msg_from(&conn, "m1", "c1", "peer", "已有引用", "text", 1, "2026-05-11T01:00:00Z");
+        conn.execute("UPDATE messages SET reply_to='local-orig' WHERE message_uuid='m1'", [])
+            .unwrap();
+
+        save_messages_skip_existing_with_conn(&mut conn, vec![server_message("m1", Some("server-orig"))])
+            .unwrap();
+
+        let msgs = get_messages_with_conn(&conn, "c1", 50, None).unwrap();
+        let hit = msgs.iter().find(|m| m.message_uuid == "m1").unwrap();
+        assert_eq!(hit.reply_to.as_deref(), Some("local-orig"), "本地已有值优先");
+    }
+
+    /// 本地缺失的消息仍然整行插入（原 INSERT 语义不能因为加 ON CONFLICT 而丢失）。
+    #[test]
+    fn inserts_missing_row_as_whole() {
+        let mut conn = setup_test_db();
+        save_messages_skip_existing_with_conn(&mut conn, vec![server_message("new1", Some("orig-uuid"))])
+            .unwrap();
+
+        let msgs = get_messages_with_conn(&conn, "c1", 50, None).unwrap();
+        let hit = msgs.iter().find(|m| m.message_uuid == "new1").expect("缺失行应被整行插入");
+        assert_eq!(hit.content, "服务端内容");
+        assert_eq!(hit.reply_to.as_deref(), Some("orig-uuid"));
     }
 
     #[test]

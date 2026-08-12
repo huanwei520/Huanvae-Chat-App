@@ -2029,12 +2029,7 @@
   color: var(--status-error);
 }
 
-/* 已送达未读 - 灰色双勾 */
-.read-receipt-icon.double-check.unread {
-  color: var(--text-light);
-}
-
-/* 已读 - iOS 绿双勾 */
+/* 已读 - iOS 绿双勾（未读态不再渲染任何图标，故无 .unread 规则） */
 .read-receipt-icon.double-check.read {
   color: var(--read-receipt-green);
 }

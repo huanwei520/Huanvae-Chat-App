@@ -71,7 +71,9 @@ interface GroupMessageBubbleProps {
   onEnterMultiSelect?: () => void;
   /** 当前用户是否为管理员/群主（可撤回任意消息） */
   isAdmin?: boolean;
-  /** 已读回执：仅自己发出的已送达消息传入（文案 + 已读者名单）；对方消息/发送中/失败/已撤回不传 */
+  /** 已读回执：仅**我发出的最新一条**已送达消息传入（文案 + 已读者名单）；更早的自己消息 /
+   *  对方消息 / 发送中 / 失败 / 已撤回都不传（门控在 GroupChatMessages，见 shared/readReceiptGate）。
+   *  不传或 text=null（无人已读 / 占位 seq / 单人群）⇒ 不渲染已读部分。 */
   readReceipt?: { text: string | null; readers: GroupReader[] };
   /** 点击已读回执展开已读名单 */
   onOpenReadList?: (readers: GroupReader[]) => void;

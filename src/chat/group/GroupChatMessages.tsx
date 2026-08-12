@@ -32,6 +32,7 @@ import { JumpToLatestButton } from '../shared/JumpToLatestButton';
 import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import type { GroupReader } from './useGroupReadReceipt';
+import { latestOwnReceiptUuid } from '../shared/readReceiptGate';
 import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
@@ -186,6 +187,16 @@ export function GroupChatMessages({
   // 相册折叠：同一 media_group_id 的 N 条消息折叠成一个渲染节点。
   // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
+  // 已读标记的锚点：我发出的最新一条（更早的自己消息不挂标记，理由见 shared/readReceiptGate）。
+  // 在 map **之外**算一次 O(n)，锚点取渲染代表消息（相册取组内代表），与下面 map 里的 message 同源。
+  const latestOwnReceiptId = useMemo(
+    () => latestOwnReceiptUuid(
+      renderNodes.map((node) => (node.kind === 'album' ? node.items[0] : node.message)),
+      currentUserId,
+    ),
+    [renderNodes, currentUserId],
+  );
 
   // 选中「回复」：把被回复者名字与摘要**当场快照**进草稿，而不是发送时再反查——
   // 用户完全可能在编辑期间翻走历史让原消息离开窗口。
@@ -357,10 +368,12 @@ export function GroupChatMessages({
                 const playEnter = shouldPlayEnter(message.clientId, stableKey, mountedKeysRef.current);
                 const isSelected = selectedMessages.has(message.message_uuid);
 
-                // 仅自己发出的已送达消息显示已读态（含文案 + 已读者名单）：已读人数排除发送者，应读 = member_count − 1；
-                // 发送中/失败由 bubble 内状态槽按 sendStatus 显示，已撤回不显示
+                // 已读态只挂「我发出的最新一条」（含文案 + 已读者名单）：已读人数排除发送者，
+                // 应读 = member_count − 1；无人已读时 groupReadReceiptText 给 null ⇒ 气泡隐藏已读部分。
+                // 资格判定（自己发的 / 未撤回 / 已送达）已在 latestOwnReceiptUuid 内做过，这里只比对锚点；
+                // 发送中/失败仍由 bubble 内状态槽按 sendStatus 显示，不受此门控影响。
                 let readReceipt: { text: string | null; readers: GroupReader[] } | undefined;
-                if (isOwn && message.sendStatus !== 'sending' && message.sendStatus !== 'failed' && !message.is_recalled) {
+                if (message.message_uuid === latestOwnReceiptId) {
                   const text = groupReadReceiptText(message.seq, countReaders(message.seq, message.sender_id), memberCount - 1);
                   // D7：已读者显示名套用我设的私有备注（备注→群昵称/原显示名），覆盖头像堆叠 tooltip + 名单弹层
                   const readers = readersAt(message.seq, message.sender_id).map((r) => ({

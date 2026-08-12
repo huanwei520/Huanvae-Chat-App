@@ -23,13 +23,22 @@
 //!   `Signature::decode` → `verify(data, sig, true)`。
 //! 校验**失败即中止**，绝不安装。
 //!
-//! # 🔴 不做任何兜底 / 降级（产品决定）
+//! # 🔴 Range 分片是唯一下载路径（产品决定：不做任何兜底 / 降级）
 //!
-//! - 服务端不支持 Range → **直接报错**，不退回单连接；
-//! - 分片重试用尽 → **直接报错**，不退回插件默认下载；
-//! - 验签失败 → **直接报错**。
+//! 本模块**只有一条**下载出口：Range 分片并发。除它之外不存在第二种下载实现，
+//! 因此任何前置条件不满足都只有一个结果 —— **报错中止**：
 //!
-//! 失败就明确告诉用户，不静默降级。
+//! - HEAD 探测不到 `accept-ranges: bytes` → 中止（文案见 [`ERR_RANGE_UNSUPPORTED`]）；
+//! - HEAD 拿不到有效内容长度（缺失或为 0）→ 中止（文案见 [`ERR_TOTAL_UNKNOWN`]）；
+//! - 分片重试用尽 → 中止；
+//! - 验签失败 → 中止。
+//!
+//! 失败就把明确文案交给用户，不静默降级。
+//!
+//! 合法性前提（2026-08-12 实测，两条更新源 × 全部五个产物）：纯 HEAD 一律返回
+//! `accept-ranges: bytes` + 非零 `content-length`，Range GET 一律 206；最小产物
+//! 9,284,371 B。即"服务端不支持 Range"在当前所有真实产物上都不成立，
+//! 曾经为它准备的那条非分片路径没有任何真实场景会命中。
 //!
 //! # 🔴 请求整形必须与插件一致
 //!
@@ -64,8 +73,19 @@ const MAX_RETRY: u32 = 3;
 const SHARD_TIMEOUT: Duration = Duration::from_secs(120);
 /// 建连超时。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-/// 低于该大小不值得分片（并发建连开销大于收益）。
-const MIN_SHARD_TOTAL: u64 = 1024 * 1024;
+
+/// 更新源未声明 `accept-ranges: bytes` 时给用户看的文案。
+///
+/// 这条走到用户面前就意味着这次更新到此为止 —— 分片是唯一路径，没有别的下载实现可退，
+/// 所以文案必须自带下一步动作，而不是只说"失败了"。
+const ERR_RANGE_UNSUPPORTED: &str =
+    "更新源不支持分段下载（未声明 accept-ranges: bytes），已中止更新。请稍后重试，或从 GitHub Release 页手动下载安装包。";
+
+/// HEAD 拿不到有效内容长度（缺失或为 0）时给用户看的文案。
+///
+/// 长度未知就切不出分片区间；同样直接中止，不退化成整包顺序拉流。
+const ERR_TOTAL_UNKNOWN: &str =
+    "更新源未返回有效的内容长度，无法分段下载，已中止更新。请稍后重试，或从 GitHub Release 页手动下载安装包。";
 
 /// 插件下载请求用的 User-Agent（`updater.rs:44`）。
 ///
@@ -110,8 +130,8 @@ fn shaping_headers(user_headers: &HeaderMap) -> HeaderMap {
 
 /// 按 [`RequestShaping`] 建 client，逐项对应 `updater.rs:663-681`。
 ///
-/// 整形挂在 **client** 上（而非逐个请求）是有意的：本模块有 HEAD 探测 / 分片 GET /
-/// 单连接 GET 三条出口，共用这一个 client 才能保证三条都被整形。`default_headers`
+/// 整形挂在 **client** 上（而非逐个请求）是有意的：本模块有 HEAD 探测 / 分片 GET
+/// 两条出口，共用这一个 client 才能保证两条都被整形。`default_headers`
 /// 不会覆盖请求级 header（`reqwest-0.12.28/src/async_impl/client.rs:2590-2596`
 /// 只填 `Entry::Vacant`），所以分片那条 `RANGE` 照常生效。
 fn build_client(shaping: &RequestShaping) -> Result<reqwest::Client, String> {
@@ -198,8 +218,13 @@ fn updater_config_flag<R: Runtime>(webview: &Webview<R>, camel: &str, kebab: &st
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase", tag = "event", content = "data")]
 pub enum ShardedEvent {
-    /// 已知总长度才发；`contentLength = None` 表示不定态（前端据此显示不定态进度条，
-    /// 而不是把百分比钉死在 0%）
+    /// 总长度。
+    ///
+    /// BACKLOG（等更新事件契约随前端一并收窄时删掉这个 `Option`）：自「分片是唯一路径」
+    /// 落地起，本模块**恒发 `Some`** —— 长度未知在 [`require_shardable`] 就已报错中止，
+    /// 走不到这里。`Option` 之所以还留着，只因收窄它要同步改前端
+    /// `src/update/service.ts` 的 `contentLength: number | null` 与 `indeterminate`
+    /// 分支（跨语言契约，属另一次改动的范围），不是给本模块留降级余地。
     Started { content_length: Option<u64> },
     Progress { downloaded: u64, content_length: Option<u64> },
     Finished,
@@ -306,7 +331,6 @@ async fn fetch_shard(
             // `resp.bytes()` 会等这一片**全部**下完才返回，于是 `progress` 在整片完成前
             // 一直是 0；而进度上报器每 200ms 只是读 `progress` ⇒ 用户看到的就是
             // 「一直 0%，然后突然完成」（八片几乎同时完成时尤其像"卡住后瞬间跳完"）。
-            // 整包路径（下方 download_whole）本来就是流式的，两条路必须一致。
             use futures_util::StreamExt;
             let mut stream = resp.bytes_stream();
             let mut part: Vec<u8> = Vec::new();
@@ -360,36 +384,36 @@ async fn fetch_shard(
     Ok(buf)
 }
 
-/// 单连接顺序下载（仅用于「总长度未知」或「文件很小」这两种**分片本就不适用**的情形；
-/// 这不是失败降级 —— 分片失败一律直接报错，不会走到这里）
-async fn fetch_whole(
-    client: &reqwest::Client,
-    url: &str,
-    progress: Arc<AtomicU64>,
-    on_event: &Channel<ShardedEvent>,
-    total: Option<u64>,
-) -> Result<Vec<u8>, String> {
-    use futures_util::StreamExt;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("下载请求失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载返回 {}", resp.status()));
+/// 把 HEAD 探测结果收敛成「分片下载唯一需要的那个参数」：总字节数。
+///
+/// 分片是唯一下载路径，所以这里是**产品语义的收口点**：任何一项不满足都直接变成
+/// 面向用户的 `Err`，绝不返回某种"降级模式"的标记。抽成纯函数是为了让这条语义
+/// 能被单测钉死（`updater_sharded_install` 需要真 `Webview`，测不了）。
+fn require_shardable(total: Option<u64>, accepts_range: bool) -> Result<u64, String> {
+    if !accepts_range {
+        return Err(ERR_RANGE_UNSUPPORTED.to_string());
     }
-    let mut out = Vec::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
-        out.extend_from_slice(&chunk);
-        let done = progress.fetch_add(chunk.len() as u64, Ordering::Relaxed) + chunk.len() as u64;
-        let _ = on_event.send(ShardedEvent::Progress {
-            downloaded: done,
-            content_length: total,
-        });
+    match total {
+        Some(len) if len > 0 => Ok(len),
+        // 长度缺失与长度为 0 归同一出口：两者都切不出任何有效 Range 区间
+        _ => Err(ERR_TOTAL_UNKNOWN.to_string()),
     }
-    Ok(out)
+}
+
+/// 切分片区间：返回 `[(start, end_inclusive)]`，闭区间、首尾相接、恰好覆盖 `[0, len)`。
+///
+/// 阈值分支删掉之后**所有**包都走分片，所以它必须对小 `len` 同样正确：
+/// - `len < SHARD_COUNT` 时 `div_ceil` 得 `shard == 1`，只产出 `len` 个单字节区间，
+///   多余的 `i` 因 `start >= len` 被 `take_while` 截掉 ⇒ 不产生**零长**或越界 Range；
+/// - `len == 0` 由 [`require_shardable`] 在更早处挡掉，走不到这里（真收到 0 也只会
+///   返回空 Vec，不会除零、不会下溢）。
+fn shard_ranges(len: u64) -> Vec<(u64, u64)> {
+    let shard = len.div_ceil(SHARD_COUNT);
+    (0..SHARD_COUNT)
+        .map(|i| i * shard)
+        .take_while(|start| *start < len)
+        .map(|start| (start, std::cmp::min(start + shard - 1, len - 1)))
+        .collect()
 }
 
 /// 分片并发下载 + 验签 + 安装。
@@ -414,7 +438,7 @@ pub async fn updater_sharded_install<R: Runtime>(
 
     // 🔴 请求整形必须与插件 download() 一致，否则调用方在 check() 里配的
     // headers / timeout / proxy 会被静默丢弃。这一个 client 同时服务于
-    // probe(HEAD) / fetch_shard(GET Range) / fetch_whole(GET)，三条出口一起覆盖。
+    // probe(HEAD) / fetch_shard(GET Range)，两条出口一起覆盖。
     let shaping = RequestShaping {
         headers: update.headers.clone(),
         timeout: update.timeout,
@@ -434,79 +458,67 @@ pub async fn updater_sharded_install<R: Runtime>(
     let client = build_client(&shaping)?;
 
     let (total, accepts_range) = probe(&client, &url).await?;
+
+    // 🔴 先判前提再报 Started：不满足就是这次更新的终点，不该先给用户一个"开始下载"
+    // 的假象。这里没有"另一种下载方式"可选 —— 判不过就是 Err，文案直达用户。
+    let len = require_shardable(total, accepts_range)?;
+
     let _ = on_event.send(ShardedEvent::Started {
-        content_length: total,
+        content_length: Some(len),
     });
 
     let progress = Arc::new(AtomicU64::new(0));
 
-    let bytes: Vec<u8> = match total {
-        // 已知长度且够大且服务端支持 Range ⇒ 走分片并发
-        Some(len) if len >= MIN_SHARD_TOTAL && accepts_range => {
-            let shard = len.div_ceil(SHARD_COUNT);
-            let mut tasks = Vec::new();
-            for i in 0..SHARD_COUNT {
-                let start = i * shard;
-                if start >= len {
-                    break;
-                }
-                let end = std::cmp::min(start + shard - 1, len - 1);
-                tasks.push(tokio::spawn(fetch_shard(
-                    client.clone(),
-                    url.clone(),
-                    start,
-                    end,
-                    progress.clone(),
-                )));
-            }
+    let bytes: Vec<u8> = {
+        let mut tasks = Vec::new();
+        for (start, end) in shard_ranges(len) {
+            tasks.push(tokio::spawn(fetch_shard(
+                client.clone(),
+                url.clone(),
+                start,
+                end,
+                progress.clone(),
+            )));
+        }
 
-            // 进度上报：分片是并发的，用累计已下字节数算真实百分比
-            let reporter = {
-                let progress = progress.clone();
-                let ch = on_event.clone();
-                tokio::spawn(async move {
-                    loop {
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        let done = progress.load(Ordering::Relaxed);
-                        let _ = ch.send(ShardedEvent::Progress {
-                            downloaded: done,
-                            content_length: Some(len),
-                        });
-                        if done >= len {
-                            break;
-                        }
+        // 进度上报：分片是并发的，用累计已下字节数算真实百分比
+        let reporter = {
+            let progress = progress.clone();
+            let ch = on_event.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let done = progress.load(Ordering::Relaxed);
+                    let _ = ch.send(ShardedEvent::Progress {
+                        downloaded: done,
+                        content_length: Some(len),
+                    });
+                    if done >= len {
+                        break;
                     }
-                })
-            };
+                }
+            })
+        };
 
-            let mut parts: Vec<Vec<u8>> = Vec::with_capacity(tasks.len());
-            for t in tasks {
-                // 任一分片失败 ⇒ 整体失败，不降级
-                let part = t.await.map_err(|e| format!("分片任务 panic: {e}"))??;
-                parts.push(part);
-            }
-            reporter.abort();
+        let mut parts: Vec<Vec<u8>> = Vec::with_capacity(tasks.len());
+        for t in tasks {
+            // 任一分片失败 ⇒ 整体失败
+            let part = t.await.map_err(|e| format!("分片任务 panic: {e}"))??;
+            parts.push(part);
+        }
+        reporter.abort();
 
-            let mut merged = Vec::with_capacity(len as usize);
-            for p in parts {
-                merged.extend_from_slice(&p);
-            }
-            if merged.len() as u64 != len {
-                return Err(format!(
-                    "合并后大小不符：期望 {len}，实到 {}",
-                    merged.len()
-                ));
-            }
-            merged
+        let mut merged = Vec::with_capacity(len as usize);
+        for p in parts {
+            merged.extend_from_slice(&p);
         }
-        // 服务端不支持 Range 而长度已知 ⇒ 明确报错（产品要求：不兜底）
-        Some(_) if !accepts_range => {
-            return Err(
-                "更新源不支持 Range 分片下载（accept-ranges 非 bytes），已中止。".to_string(),
-            );
+        if merged.len() as u64 != len {
+            return Err(format!(
+                "合并后大小不符：期望 {len}，实到 {}",
+                merged.len()
+            ));
         }
-        // 长度未知或文件很小 ⇒ 分片本就不适用，单连接直下
-        _ => fetch_whole(&client, &url, progress.clone(), &on_event, total).await?,
+        merged
     };
 
     // 🔴 验签：插件的 install() 不验签，这一步丢了就等于装了未经验证的包
@@ -557,28 +569,84 @@ mod tests {
         assert!(r.is_err(), "非法 pubkey 必须报错而不是放行");
     }
 
-    /// 分片边界不能重叠、不能漏字节 —— 合并大小必须恰好等于总长
+    // ---------- 分片是唯一路径：前提判定 + 小文件切分 ----------
+
+    /// 服务端不声明 `accept-ranges: bytes` ⇒ 必须报错中止，且给的是**用户能照做**的文案。
+    /// 这条是「不静默降级」的机器化守卫：一旦有人把它改回"探测不到就换种下载方式"，
+    /// 返回值就不再是 Err，本测试立刻翻红。
+    #[test]
+    fn require_shardable_rejects_source_without_range_support() {
+        let e = require_shardable(Some(9_284_371), false)
+            .expect_err("不支持 Range 必须报错中止，绝不降级");
+        assert_eq!(e, ERR_RANGE_UNSUPPORTED);
+        assert!(
+            e.contains("已中止更新") && e.contains("手动下载"),
+            "文案必须说明已中止并给出下一步动作，实际: {e}"
+        );
+    }
+
+    /// 长度缺失 / 长度为 0 都切不出有效 Range ⇒ 同样报错中止。
+    /// 长度为 0 这条尤其重要：阈值分支删掉后它不再有别的出口，
+    /// 若放行会得到「零个分片 → 合并出空字节 → 拿空数据去验签」。
+    #[test]
+    fn require_shardable_rejects_unknown_or_zero_length() {
+        for total in [None, Some(0u64)] {
+            let e = require_shardable(total, true)
+                .expect_err(&format!("total={total:?} 必须报错中止，不得放行"));
+            assert_eq!(e, ERR_TOTAL_UNKNOWN, "total={total:?}");
+            assert!(
+                e.contains("已中止更新") && e.contains("手动下载"),
+                "文案必须说明已中止并给出下一步动作，实际: {e}"
+            );
+        }
+    }
+
+    /// 正对照：前提都满足时必须放行并原样给出总长 —— 否则上面两条"恒 Err"也能全绿，
+    /// 而线上表现是**永远更新不了**。
+    #[test]
+    fn require_shardable_accepts_valid_probe() {
+        assert_eq!(require_shardable(Some(1), true), Ok(1));
+        assert_eq!(require_shardable(Some(9_284_371), true), Ok(9_284_371));
+    }
+
+    /// 分片边界不能重叠、不能漏字节、不能零长 —— 直接测生产函数 [`shard_ranges`]，
+    /// 不在测试里另抄一份切分逻辑（抄一份就只能证明"两份抄写一致"）。
+    ///
+    /// 覆盖面刻意压到 `len < SHARD_COUNT`：阈值分支删除后所有包都走分片，
+    /// 小文件是新暴露出来的输入域。
     #[test]
     fn shard_boundaries_cover_exactly() {
-        for len in [1u64, 1023, 1024 * 1024, 13_646_531, 13_646_532] {
-            let shard = len.div_ceil(SHARD_COUNT);
+        for len in [
+            1u64, 2, 3, 7, 8, 9, 15, 1023, 1024, 1024 * 1024, 9_284_371, 13_646_531, 13_646_532,
+        ] {
+            let ranges = shard_ranges(len);
+            assert!(!ranges.is_empty(), "任何非零长度都必须切出至少一片 (len={len})");
+            assert!(
+                ranges.len() as u64 <= SHARD_COUNT,
+                "分片数不得超过 SHARD_COUNT (len={len})"
+            );
+
             let mut covered = 0u64;
             let mut prev_end: Option<u64> = None;
-            for i in 0..SHARD_COUNT {
-                let start = i * shard;
-                if start >= len {
-                    break;
-                }
-                let end = std::cmp::min(start + shard - 1, len - 1);
+            for (start, end) in &ranges {
+                assert!(end >= start, "区间是闭区间，不得出现零长/倒置 (len={len})");
+                assert!(*end < len, "区间不得越过末字节 (len={len})");
                 if let Some(pe) = prev_end {
-                    assert_eq!(start, pe + 1, "分片之间必须连续无缝 (len={len})");
+                    assert_eq!(*start, pe + 1, "分片之间必须连续无缝 (len={len})");
                 }
                 covered += end - start + 1;
-                prev_end = Some(end);
+                prev_end = Some(*end);
             }
             assert_eq!(covered, len, "分片必须恰好覆盖全部字节 (len={len})");
             assert_eq!(prev_end, Some(len - 1), "最后一片必须到达末字节 (len={len})");
         }
+    }
+
+    /// `len < SHARD_COUNT` 时不该硬凑满 8 片（凑满就必然出现零长 Range）。
+    #[test]
+    fn shard_ranges_of_tiny_file_are_single_bytes() {
+        assert_eq!(shard_ranges(1), vec![(0, 0)]);
+        assert_eq!(shard_ranges(3), vec![(0, 0), (1, 1), (2, 2)]);
     }
 
     // ---------- 请求整形（复刻 updater.rs:657-687）----------

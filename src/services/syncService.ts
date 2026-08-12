@@ -91,6 +91,56 @@ interface SyncResponse {
   conversations: SyncConversationResult[];
 }
 
+/**
+ * 存量字段回填的回溯窗口（条）
+ *
+ * 服务端 sync 单会话一批上限 100 条（`sync_service.rs SYNC_LIMIT`），取同值即一次请求打满一批。
+ */
+const BACKFILL_WINDOW = 100;
+
+/**
+ * 把服务端同步消息映射成本地行
+ *
+ * **本仓踩过的坑就在这个函数存在的理由里**：同一份映射原先在增量同步、分页续拉两处各抄一遍，
+ * 谁漏一个字段谁那条路径就静默丢字段（reply_to / 相册三件套都这么丢过）。收成一处后
+ * "加一个字段"只有一个地方要改。
+ */
+function toLocalMessage(
+  msg: ServerMessage,
+  conversationId: string,
+  conversationType: ConversationType,
+): Omit<LocalMessage, 'created_at'> {
+  return {
+    message_uuid: msg.message_uuid,
+    conversation_id: conversationId,
+    conversation_type: conversationType,
+    sender_id: msg.sender_id,
+    sender_name: msg.sender_nickname || null,
+    sender_avatar: msg.sender_avatar_url || null,
+    content: msg.message_content,
+    content_type: msg.message_type,
+    file_uuid: msg.file_uuid || null,
+    file_url: msg.file_url || null,
+    file_size: msg.file_size || null,
+    file_hash: msg.file_hash || null,
+    image_width: msg.image_width ?? null,
+    image_height: msg.image_height ?? null,
+    seq: msg.seq,
+    reply_to: msg.reply_to || null,
+    media_group_id: msg.media_group_id ?? null,
+    media_group_index: msg.media_group_index ?? null,
+    media_group_count: msg.media_group_count ?? null,
+    is_recalled: msg.is_recalled || false,
+    is_deleted: false,
+    send_time: msg.send_time,
+  };
+}
+
+/** 该条服务端消息是否带着「本地存量行可能缺失」的那几列（都没有就不值得回写一次） */
+function hasBackfillableFields(msg: ServerMessage): boolean {
+  return Boolean(msg.reply_to) || Boolean(msg.media_group_id);
+}
+
 /** 同步状态 */
 export interface SyncState {
   isSyncing: boolean;
@@ -177,6 +227,11 @@ export class SyncService {
     error: null,
   };
   private listeners: Set<(state: SyncState) => void> = new Set();
+  /**
+   * 本次进程内已做过「存量字段回填」的会话（见 {@link backfillLegacyFields}）。
+   * 回填是幂等的，加这层只是别每次同步都白发一个请求。
+   */
+  private backfilledConversations: Set<string> = new Set();
 
   constructor(api: ApiClient) {
     this.api = api;
@@ -302,31 +357,8 @@ export class SyncService {
           }
 
           // 转换并保存消息（仅真正的新消息）
-          const localMessages: Omit<LocalMessage, 'created_at'>[] =
-            newMessages.map(msg => ({
-              message_uuid: msg.message_uuid,
-              conversation_id: convResult.conversation_id,
-              conversation_type: convResult.conversation_type,
-              sender_id: msg.sender_id,
-              sender_name: msg.sender_nickname || null,
-              sender_avatar: msg.sender_avatar_url || null,
-              content: msg.message_content,
-              content_type: msg.message_type,
-              file_uuid: msg.file_uuid || null,
-              file_url: msg.file_url || null,
-              file_size: msg.file_size || null,
-              file_hash: msg.file_hash || null,
-              image_width: msg.image_width ?? null,
-              image_height: msg.image_height ?? null,
-              seq: msg.seq,
-              reply_to: msg.reply_to || null,
-              media_group_id: msg.media_group_id ?? null,
-              media_group_index: msg.media_group_index ?? null,
-              media_group_count: msg.media_group_count ?? null,
-              is_recalled: msg.is_recalled || false,
-              is_deleted: false,
-              send_time: msg.send_time,
-            }));
+          const localMessages: Omit<LocalMessage, 'created_at'>[] = newMessages.map(msg =>
+            toLocalMessage(msg, convResult.conversation_id, convResult.conversation_type));
 
           // eslint-disable-next-line no-await-in-loop
           await db.saveMessages(localMessages);
@@ -394,6 +426,9 @@ export class SyncService {
         }
       }
 
+      // 存量字段回填：与上面的增量同步无关，失败不影响本次同步结果（内部自吞异常）
+      await this.backfillLegacyFields(conversations);
+
       this.updateState({ isSyncing: false, lastSyncTime: new Date() });
       return { updatedConversations, newMessagesCount };
     } catch (error) {
@@ -401,6 +436,72 @@ export class SyncService {
       console.error('[Sync] 同步失败', error);
       this.updateState({ isSyncing: false, error: errorMessage });
       throw error;
+    }
+  }
+
+  /**
+   * 存量行的 `reply_to` / 相册三件套回填（每会话每进程一次）
+   *
+   * ## 为什么必须有这一步
+   * 这四个字段曾在**所有**接收侧写入路径上被写死 `null`（wsHandlers 实时推送 /
+   * historyService 历史加载 / 本方法上面的增量同步），2026-08-10 才逐条修好。
+   * 但修好的只是"之后写进来的"——**已经躺在本地 SQLite 里的行永远是 NULL**：
+   * 增量同步只拉 `seq > last_seq` 不会回头，历史加载对已存在行是跳过的。
+   *
+   * 消息列表是 DB-first 的（`useLocal*Messages` 走 `db.getMessages`），
+   * 于是用户看到的是：**别人回复自己的历史消息没有引用块，自己发的却有**
+   * （自己发的走 `sendMessage` 本地直写，v1.1.25 起就一直带着 reply_to）。
+   * 桌面端看起来正常只是因为它的数据目录跟着可执行文件走（`user_data.rs get_app_root`），
+   * 换一次构建就是一个全新的库、全量重新同步；手机升级 APK 不动 app 数据，脏行原地留着。
+   *
+   * ## 做法
+   * 用一个**回溯窗口**再问一次同一个 sync 端点（`last_seq - BACKFILL_WINDOW`），
+   * 把落在窗口内、已经在本地存在的那段交给 `db.saveMessagesSkipExisting`
+   * —— 它对已存在行只 `COALESCE` 补这四列（Rust 侧 `save_messages_skip_existing`），
+   * content / seq / is_recalled / is_deleted 一律不动。
+   *
+   * 单独发一次请求而不是把主同步请求的 `last_seq` 直接调小：服务端 sync 单会话上限 100 条，
+   * 调小起点会把真正的新消息挤出这一批。
+   */
+  private async backfillLegacyFields(conversations: LocalConversation[]): Promise<void> {
+    const targets = conversations.filter(
+      conv => conv.last_seq > 0 && !this.backfilledConversations.has(conv.id),
+    );
+    if (targets.length === 0) {
+      return;
+    }
+    targets.forEach(conv => this.backfilledConversations.add(conv.id));
+
+    try {
+      const response = await this.api.post<SyncResponse>('/api/messages/sync', {
+        conversations: targets.map(conv => ({
+          conversation_id: conv.id,
+          conversation_type: conv.type,
+          last_seq: Math.max(0, conv.last_seq - BACKFILL_WINDOW),
+        })),
+      });
+
+      const lastSeqById = new Map(targets.map(conv => [conv.id, conv.last_seq]));
+
+      for (const convResult of response.conversations ?? []) {
+        const localLastSeq = lastSeqById.get(convResult.conversation_id) ?? 0;
+        // 只处理"本地理应已有"的那一段；seq > last_seq 的是新消息，归上面的主同步管，
+        // 在这里再写一遍会重复触发预览通知 / 会话列表重排。
+        const legacy = convResult.messages.filter(
+          m => m.seq <= localLastSeq && hasBackfillableFields(m),
+        );
+        if (legacy.length === 0) {
+          continue;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await db.saveMessagesSkipExisting(
+          legacy.map(msg => toLocalMessage(msg, convResult.conversation_id, convResult.conversation_type)),
+        );
+      }
+    } catch (error) {
+      // 回填是尽力而为的修复动作，失败只记日志：主同步已经成功，不该被它拖崩
+      console.warn('[Sync] 存量字段回填失败（不影响本次同步）', error);
     }
   }
 
@@ -442,31 +543,8 @@ export class SyncService {
       }
 
       // 保存消息
-      const localMessages: Omit<LocalMessage, 'created_at'>[] =
-        newMessages.map(msg => ({
-          message_uuid: msg.message_uuid,
-          conversation_id: conversationId,
-          conversation_type: conversationType,
-          sender_id: msg.sender_id,
-          sender_name: msg.sender_nickname || null,
-          sender_avatar: msg.sender_avatar_url || null,
-          content: msg.message_content,
-          content_type: msg.message_type,
-          file_uuid: msg.file_uuid || null,
-          file_url: msg.file_url || null,
-          file_size: msg.file_size || null,
-          file_hash: msg.file_hash || null,
-          image_width: msg.image_width ?? null,
-          image_height: msg.image_height ?? null,
-          seq: msg.seq,
-          reply_to: msg.reply_to || null,
-          media_group_id: msg.media_group_id ?? null,
-          media_group_index: msg.media_group_index ?? null,
-          media_group_count: msg.media_group_count ?? null,
-          is_recalled: msg.is_recalled || false,
-          is_deleted: false,
-          send_time: msg.send_time,
-        }));
+      const localMessages: Omit<LocalMessage, 'created_at'>[] = newMessages.map(msg =>
+        toLocalMessage(msg, conversationId, conversationType));
 
       // eslint-disable-next-line no-await-in-loop
       await db.saveMessages(localMessages);
@@ -491,69 +569,6 @@ export class SyncService {
     }
 
     return currentSeq;
-  }
-
-  /**
-   * 处理 WebSocket 实时消息
-   * @param message WebSocket 推送的新消息
-   */
-  async handleRealtimeMessage(message: {
-    source_type: 'friend' | 'group';
-    source_id: string;
-    message_uuid: string;
-    sender_id: string;
-    sender_nickname?: string;
-    sender_avatar_url?: string;
-    preview: string;
-    message_type: string;
-    timestamp: string;
-    seq?: number;
-    file_uuid?: string;
-    file_url?: string;
-    file_size?: number;
-    file_hash?: string;
-    /** 图片宽度（像素），仅图片类型消息有值 */
-    image_width?: number;
-    /** 图片高度（像素），仅图片类型消息有值 */
-    image_height?: number;
-    /** 媒体组（相册）三件套：不透传的话同步下来的相册会散成 N 条独立图片 */
-    media_group_id?: string | null;
-    media_group_index?: number | null;
-    media_group_count?: number | null;
-  }): Promise<void> {
-    // 保存消息到本地
-    const localMessage: Omit<LocalMessage, 'created_at'> = {
-      message_uuid: message.message_uuid,
-      conversation_id: message.source_id,
-      conversation_type: message.source_type,
-      sender_id: message.sender_id,
-      sender_name: message.sender_nickname || null,
-      sender_avatar: message.sender_avatar_url || null,
-      content: message.preview,
-      content_type: message.message_type,
-      file_uuid: message.file_uuid || null,
-      file_url: message.file_url || null,
-      file_size: message.file_size || null,
-      file_hash: message.file_hash || null,
-      image_width: message.image_width ?? null,
-      image_height: message.image_height ?? null,
-      media_group_id: message.media_group_id ?? null,
-      media_group_index: message.media_group_index ?? null,
-      media_group_count: message.media_group_count ?? null,
-      seq: message.seq || 0,
-      reply_to: null,
-      is_recalled: false,
-      is_deleted: false,
-      send_time: message.timestamp,
-    };
-
-    await db.saveMessage(localMessage);
-
-    // 更新会话的 last_seq
-    if (message.seq) {
-      await db.updateConversationLastSeq(message.source_id, message.seq);
-    }
-
   }
 
   /**

@@ -67,12 +67,20 @@ const UI_VISIBILITY_EVENT: &str = "apk-ui-visibility";
 /// 与桌面 updater_download.rs 同一思路（Range 并发），但**实现不同**：
 /// 桌面把每片整块存在内存里，APK 有 120MB+，八片同时驻留会在手机上 OOM ⇒
 /// 这里每片各自 seek 到自己的偏移**直接写盘**，内存只留单个 chunk。
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 const APK_SHARD_COUNT: u64 = 8;
 
-/// 小于该体积不分片：八条连接的握手/TLS/慢启动开销盖过收益（浏览器厂商同样结论）。
-#[cfg(target_os = "android")]
-const APK_MIN_SHARD_TOTAL: u64 = 4 * 1024 * 1024;
+/// 更新源未声明 `accept-ranges: bytes` 时给用户看的文案。
+///
+/// Range 分片是**唯一**下载路径，判不过就是这次更新的终点，所以文案必须自带下一步动作。
+#[cfg(any(target_os = "android", test))]
+const ERR_APK_RANGE_UNSUPPORTED: &str =
+    "更新源不支持分段下载（未声明 accept-ranges: bytes），已中止更新。请稍后重试，或从 GitHub Release 页手动下载安装包。";
+
+/// HEAD 拿不到有效安装包大小（缺失或为 0）时给用户看的文案。
+#[cfg(any(target_os = "android", test))]
+const ERR_APK_TOTAL_UNKNOWN: &str =
+    "更新源未返回有效的安装包大小，无法分段下载，已中止更新。请稍后重试，或从 GitHub Release 页手动下载安装包。";
 
 /// 单片超时。整包超时不设——大包在弱网上本就慢，按片超时才不会误杀。
 #[cfg(target_os = "android")]
@@ -189,11 +197,13 @@ pub async fn fetch_update_json(url: String, timeout_secs: u64) -> Result<String,
 }
 
 #[cfg(target_os = "android")]
-/// 下载完成后的收尾（**分片路径与单连接路径共用**）
+/// 下载完成后的收尾
 ///
-/// 抽出来是因为接分片时必须保证两条路的收尾**完全一致** ——
-/// 收尾里的三件事（写标记 / 判可见 / 后台发通知）正是「切后台回来要重下」那个缺陷的修复，
-/// 若只有单连接路径有、分片路径漏掉，那个缺陷就会在安卓上原样复发。
+/// 🔴 收尾里的三件事（写标记 / 判可见 / 后台发通知）正是「切后台回来要重下」那个缺陷的修复。
+/// 教训（历史事故，必须留着）：**下载路径分叉时，收尾极易只挂在其中一条路上** ——
+/// 当年就是有一条下载路径带了这三件事、另一条漏掉，缺陷在安卓上原样复发。
+/// 现在下载只剩 Range 分片这一条路，收尾也只有这一个调用点；将来若再引入任何新的下载出口，
+/// **它必须走这个函数**，否则同一个缺陷会再回来一次。
 fn finish_apk_download(
     file_path_str: String,
     marker_path: std::path::PathBuf,
@@ -245,26 +255,63 @@ fn finish_apk_download(
     Ok(file_path_str)
 }
 
+/// 把 HEAD 响应的两个头收敛成「分片下载唯一需要的那个参数」：总字节数。
+///
+/// Range 分片是唯一下载路径，所以这里是**产品语义的收口点**：任何一项不满足都直接变成
+/// 面向用户的 `Err`，绝不返回某种"换种方式下载"的标记。抽成纯函数是为了让这条语义
+/// 能被单测钉死（`probe_apk_ranges` 要发真请求，测不了）。
+#[cfg(any(target_os = "android", test))]
+fn require_shardable_apk(accept_ranges: Option<&str>, content_length: Option<u64>) -> Result<u64, String> {
+    let accepts = accept_ranges
+        .map(|v| v.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !accepts.contains("bytes") {
+        return Err(ERR_APK_RANGE_UNSUPPORTED.to_string());
+    }
+    match content_length {
+        Some(len) if len > 0 => Ok(len),
+        // 长度缺失与长度为 0 归同一出口：两者都切不出任何有效 Range 区间
+        _ => Err(ERR_APK_TOTAL_UNKNOWN.to_string()),
+    }
+}
+
+/// 切分片区间：返回 `[(start, end_inclusive)]`，闭区间、首尾相接、恰好覆盖 `[0, total)`。
+///
+/// 阈值分支删掉之后**所有**包都走分片，所以它必须对小 `total` 同样正确：
+/// `total < APK_SHARD_COUNT` 时 `div_ceil` 得 `chunk == 1`，只产出 `total` 个单字节区间，
+/// 多余的 `i` 因 `start >= total` 被 `take_while` 截掉 ⇒ 不产生**零长**或越界 Range。
+/// `total == 0` 由 [`require_shardable_apk`] 在更早处挡掉，走不到这里。
+#[cfg(any(target_os = "android", test))]
+fn apk_shard_ranges(total: u64) -> Vec<(u64, u64)> {
+    let chunk = total.div_ceil(APK_SHARD_COUNT);
+    (0..APK_SHARD_COUNT)
+        .map(|i| i * chunk)
+        .take_while(|start| *start < total)
+        .map(|start| (start, (start + chunk - 1).min(total - 1)))
+        .collect()
+}
+
 #[cfg(target_os = "android")]
 /// 探测服务端是否支持 Range，并拿到总长。
 ///
 /// 用 HEAD 而不是「先 GET 再看头」：后者会把整个响应体也拉起来，探测完还得丢掉。
-/// 任何一步不确定就返回 None ⇒ 调用方回退到单连接顺序流（**能用**优先于**快**）。
-async fn probe_apk_ranges(client: &reqwest::Client, url: &str) -> Option<u64> {
-    let resp = client.head(url).send().await.ok()?;
+/// 判定本身在纯函数 [`require_shardable_apk`] 里；这里只负责发请求 + 取两个头。
+/// 探测失败（网络错 / 非 2xx / 判定不过）一律是 `Err` —— 分片是唯一路径，没有降级出口。
+async fn probe_apk_ranges(client: &reqwest::Client, url: &str) -> Result<u64, String> {
+    let resp = client
+        .head(url)
+        .send()
+        .await
+        .map_err(|e| format!("HEAD 探测失败: {e}"))?;
     if !resp.status().is_success() {
-        return None;
+        return Err(format!("HEAD 探测返回 {}", resp.status()));
     }
-    let accepts = resp
+    let accept_ranges = resp
         .headers()
-        .get(reqwest::header::ACCEPT_RANGES)?
-        .to_str()
-        .ok()?
-        .to_ascii_lowercase();
-    if !accepts.contains("bytes") {
-        return None;
-    }
-    resp.content_length().filter(|n| *n > 0)
+        .get(reqwest::header::ACCEPT_RANGES)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
+    require_shardable_apk(accept_ranges.as_deref(), resp.content_length())
 }
 
 #[cfg(target_os = "android")]
@@ -292,7 +339,6 @@ async fn download_apk_sharded(
     }
 
     let progress = Arc::new(AtomicU64::new(0));
-    let chunk = total.div_ceil(APK_SHARD_COUNT);
 
     // 进度上报器：定时读累计值，保住原有的 apk-download-progress 事件契约
     let reporter = {
@@ -312,12 +358,7 @@ async fn download_apk_sharded(
     };
 
     let mut tasks = Vec::new();
-    for i in 0..APK_SHARD_COUNT {
-        let start = i * chunk;
-        if start >= total {
-            break;
-        }
-        let end = ((i + 1) * chunk - 1).min(total - 1);
+    for (start, end) in apk_shard_ranges(total) {
         let client = client.clone();
         let url = url.to_string();
         let path = file_path.to_path_buf();
@@ -385,6 +426,8 @@ async fn download_apk_sharded(
 /// 下载 APK 文件（仅 Android）
 ///
 /// 下载 APK 到应用缓存目录（无需权限），并通过事件发送进度。
+/// 唯一下载路径是 Range 分片并发（[`download_apk_sharded`]）；前提判不过一律报错中止，
+/// 不存在第二种下载实现。
 ///
 /// 下载完成后**在 Rust 侧**收尾（见模块头注释）：
 /// 1. 写「待安装」标记文件 —— 进程被系统回收也不丢，重启后不必重下
@@ -395,9 +438,6 @@ async fn download_apk_sharded(
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn download_apk(url: String, version: String, app: AppHandle) -> Result<String, String> {
-    use futures_util::StreamExt;
-    use std::io::Write;
-
     println!("[Android Update] ========== download_apk 开始 ==========");
     println!("[Android Update] 下载 URL: {}", url);
     println!("[Android Update] 目标版本: {}", version);
@@ -437,7 +477,7 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
             format!("创建 HTTP 客户端失败: {}", e)
         })?;
 
-    // 落盘路径要在选择下载方式**之前**准备好：分片路径需要先预分配文件再并发按偏移写。
+    // 落盘路径要在探测**之前**准备好：分片下载需要先预分配文件再并发按偏移写。
     let cache_dir = app
         .path()
         .cache_dir()
@@ -453,106 +493,27 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
     let marker_path = cache_dir.join(APK_MARKER_FILE_NAME);
     let _ = std::fs::remove_file(&marker_path);
 
-    // ── 分片并发下载（v1.1.23 桌面已有，安卓此前一直是单连接顺序流 —— 本次补上）──
-    // 探测失败 / 服务端不支持 Range / 包太小 ⇒ 回退到原来的单连接路径。
-    // **能用优先于快**：分片只是加速手段，不能因为它让下载变得不可用。
-    if let Some(total) = probe_apk_ranges(&client, &url).await {
-        if total >= APK_MIN_SHARD_TOTAL {
-            println!(
-                "[Android Update] 服务端支持 Range，改用 {} 段并发下载（{} bytes）",
-                APK_SHARD_COUNT, total
-            );
-            match download_apk_sharded(&client, &url, total, &file_path, &app).await {
-                Ok(done) => {
-                    println!("[Android Update] ✓ 分片下载完成: {} bytes", done);
-                    return finish_apk_download(file_path_str, marker_path, version, done, &app);
-                }
-                Err(e) => {
-                    // 分片失败不直接判死：回退单连接再试一次，用户拿到的是「慢但能成」
-                    eprintln!("[Android Update] 分片下载失败，回退单连接: {}", e);
-                }
-            }
-        } else {
-            println!("[Android Update] 包体 {} bytes 小于分片阈值，走单连接", total);
-        }
-    } else {
-        println!("[Android Update] 服务端未声明 Range 支持，走单连接");
-    }
-
-    println!("[Android Update] 发送下载请求...");
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| {
-            eprintln!("[Android Update] 下载请求失败: {}", e);
-            format!("下载请求失败: {}", e)
-        })?;
-
-    println!("[Android Update] 响应状态: {}", response.status());
-    if !response.status().is_success() {
-        let err = format!("下载失败: HTTP {}", response.status());
-        eprintln!("[Android Update] {}", err);
-        return Err(err);
-    }
-
-    let total = response.content_length().unwrap_or(0);
-    println!("[Android Update] 文件大小: {} bytes", total);
-    let mut downloaded: u64 = 0;
-
-    // 创建文件
-    println!("[Android Update] 创建文件...");
-    let mut file =
-        std::fs::File::create(&file_path).map_err(|e| {
-            eprintln!("[Android Update] 创建文件失败: {}", e);
-            format!("创建文件失败: {}", e)
-        })?;
-    println!("[Android Update] 文件创建成功");
-
-    // 流式下载
-    println!("[Android Update] 开始流式下载...");
-    let mut stream = response.bytes_stream();
-    let mut last_log_percent: u8 = 0;
-    
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| {
-            eprintln!("[Android Update] 下载数据失败: {}", e);
-            format!("下载数据失败: {}", e)
-        })?;
-
-        file.write_all(&chunk)
-            .map_err(|e| {
-                eprintln!("[Android Update] 写入文件失败: {}", e);
-                format!("写入文件失败: {}", e)
-            })?;
-
-        downloaded += chunk.len() as u64;
-
-        // 发送进度事件
-        let percent = (downloaded * 100).checked_div(total).unwrap_or(0) as u8;
-
-        // 每 10% 输出一次日志
-        if percent >= last_log_percent + 10 {
-            println!("[Android Update] 下载进度: {}% ({}/{})", percent, downloaded, total);
-            last_log_percent = percent;
-        }
-
-        let _ = app.emit("apk-download-progress", (percent, downloaded, total));
-    }
-
-    // 确保写入完成
-    println!("[Android Update] 刷新缓冲区...");
-    file.flush().map_err(|e| {
-        eprintln!("[Android Update] 刷新文件失败: {}", e);
-        format!("刷新文件失败: {}", e)
+    // ── Range 分片并发下载：唯一下载路径 ──
+    //
+    // 🔴 探测判不过（网络错 / 非 2xx / 无 accept-ranges / 无有效长度）⇒ **直接把错误抛给用户**，
+    //    分片自身失败也一样。这里没有第二种下载实现可退 —— 快速失败优于静默降级。
+    //    合法性前提（2026-08-12 实测）：APK 的两条源（R2 与 GitHub Release，后者 302 跳转后）
+    //    纯 HEAD 均返回 accept-ranges: bytes + content-length 128593410，Range GET 均 206。
+    let total = probe_apk_ranges(&client, &url).await.inspect_err(|e| {
+        eprintln!("[Android Update] Range 探测未通过，已中止下载: {}", e);
     })?;
-
     println!(
-        "[Android Update] ✓ 下载完成: {} ({} bytes)",
-        file_path_str, downloaded
+        "[Android Update] 服务端支持 Range，{} 段并发下载（{} bytes）",
+        APK_SHARD_COUNT, total
     );
 
-    finish_apk_download(file_path_str, marker_path, version, downloaded, &app)
+    let done = download_apk_sharded(&client, &url, total, &file_path, &app)
+        .await
+        .inspect_err(|e| {
+            eprintln!("[Android Update] 分片下载失败，已中止: {}", e);
+        })?;
+    println!("[Android Update] ✓ 分片下载完成: {} bytes", done);
+    finish_apk_download(file_path_str, marker_path, version, done, &app)
 }
 
 /// 下载完成通知（仅在应用不可见时发）
@@ -661,4 +622,103 @@ pub fn pending_apk_install(app: AppHandle) -> Result<Option<PendingApkInstall>, 
 #[tauri::command]
 pub fn pending_apk_install(_app: AppHandle) -> Result<Option<PendingApkInstall>, String> {
     Ok(None)
+}
+
+/// APK 下载器的纯逻辑单测。
+///
+/// ⚠️ 这些测试在**桌面 host** 上跑（门禁第 10 项是 `cargo test --lib`，跑不了
+/// aarch64-linux-android）。所以被测的两个纯函数用 `cfg(any(target_os = "android", test))`
+/// 而不是 `cfg(target_os = "android")` —— 否则它们在桌面根本不存在、测不到；
+/// 而在桌面**非** test 构建里它们同样不存在，不会变 dead code 触发 clippy。
+///
+/// 覆盖不到的部分（如实标注，需真机）：`probe_apk_ranges` 的真实 HEAD 往返、
+/// `download_apk_sharded` 的并发 seek 写盘与断点行为、下载完成后的通知/标记收尾。
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 服务端不声明 `accept-ranges: bytes` ⇒ 必须报错中止，且文案要给出下一步动作。
+    /// 这条是「不静默降级」的机器化守卫：谁把它改回"探测不到就换种下载方式"，
+    /// 返回值就不再是 Err，本测试立刻翻红。
+    #[test]
+    fn require_shardable_apk_rejects_source_without_range_support() {
+        for header in [None, Some("none"), Some("")] {
+            let e = require_shardable_apk(header, Some(128_593_410))
+                .expect_err(&format!("accept-ranges={header:?} 必须报错中止，不得放行"));
+            assert_eq!(e, ERR_APK_RANGE_UNSUPPORTED, "accept-ranges={header:?}");
+            assert!(
+                e.contains("已中止更新") && e.contains("手动下载"),
+                "文案必须说明已中止并给出下一步动作，实际: {e}"
+            );
+        }
+    }
+
+    /// 长度缺失 / 长度为 0 都切不出有效 Range ⇒ 同样报错中止。
+    /// 长度为 0 尤其重要：阈值分支删掉后它不再有别的出口，
+    /// 若放行会得到「零个分片 → 0 字节 APK → 却被当成下载成功写进待安装标记」。
+    #[test]
+    fn require_shardable_apk_rejects_unknown_or_zero_length() {
+        for total in [None, Some(0u64)] {
+            let e = require_shardable_apk(Some("bytes"), total)
+                .expect_err(&format!("content-length={total:?} 必须报错中止"));
+            assert_eq!(e, ERR_APK_TOTAL_UNKNOWN, "content-length={total:?}");
+            assert!(
+                e.contains("已中止更新") && e.contains("手动下载"),
+                "文案必须说明已中止并给出下一步动作，实际: {e}"
+            );
+        }
+    }
+
+    /// 正对照：前提都满足时必须放行并原样给出总长 —— 否则上面两条"恒 Err"也能全绿，
+    /// 而线上表现是**永远更不了**。大小写与 `bytes, foo` 这种复合值都要认。
+    #[test]
+    fn require_shardable_apk_accepts_valid_probe() {
+        assert_eq!(require_shardable_apk(Some("bytes"), Some(1)), Ok(1));
+        assert_eq!(
+            require_shardable_apk(Some("Bytes"), Some(128_593_410)),
+            Ok(128_593_410)
+        );
+    }
+
+    /// 分片边界不能重叠、不能漏字节、不能零长 —— 直接测生产函数 [`apk_shard_ranges`]，
+    /// 不在测试里另抄一份切分逻辑（抄一份只能证明"两份抄写一致"）。
+    ///
+    /// 覆盖面刻意压到 `total < APK_SHARD_COUNT`：阈值分支删除后所有包都走分片，
+    /// 小文件是新暴露出来的输入域。
+    #[test]
+    fn apk_shard_boundaries_cover_exactly() {
+        for total in [1u64, 2, 3, 7, 8, 9, 15, 1023, 1024, 4 * 1024 * 1024, 128_593_410] {
+            let ranges = apk_shard_ranges(total);
+            assert!(!ranges.is_empty(), "任何非零长度都必须切出至少一片 (total={total})");
+            assert!(
+                ranges.len() as u64 <= APK_SHARD_COUNT,
+                "分片数不得超过 APK_SHARD_COUNT (total={total})"
+            );
+
+            let mut covered = 0u64;
+            let mut prev_end: Option<u64> = None;
+            for (start, end) in &ranges {
+                assert!(end >= start, "区间是闭区间，不得出现零长/倒置 (total={total})");
+                assert!(*end < total, "区间不得越过末字节 (total={total})");
+                if let Some(pe) = prev_end {
+                    assert_eq!(*start, pe + 1, "分片之间必须连续无缝 (total={total})");
+                }
+                covered += end - start + 1;
+                prev_end = Some(*end);
+            }
+            assert_eq!(covered, total, "分片必须恰好覆盖全部字节 (total={total})");
+            assert_eq!(
+                prev_end,
+                Some(total - 1),
+                "最后一片必须到达末字节 (total={total})"
+            );
+        }
+    }
+
+    /// `total < APK_SHARD_COUNT` 时不该硬凑满 8 片（凑满就必然出现零长 Range）。
+    #[test]
+    fn apk_shard_ranges_of_tiny_file_are_single_bytes() {
+        assert_eq!(apk_shard_ranges(1), vec![(0, 0)]);
+        assert_eq!(apk_shard_ranges(3), vec![(0, 0), (1, 1), (2, 2)]);
+    }
 }

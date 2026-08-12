@@ -60,7 +60,9 @@ interface MessageBubbleProps {
   onDelete?: () => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
-  /** 已读回执：仅自己发出的已送达消息传入 isRead（对方是否已读）；对方消息/发送中/失败/已撤回不传 */
+  /** 已读回执：仅**我发出的最新一条**已送达消息传入 isRead（对方是否已读）；更早的自己消息 /
+   *  对方消息 / 发送中 / 失败 / 已撤回都不传（门控在 ChatMessages，见 shared/readReceiptGate）。
+   *  不传 ⇒ 不渲染已读态；isRead=false 同样不渲染（见 PrivateReadReceipt）。 */
   readReceipt?: { isRead: boolean };
   /** 被引用原消息的解析结果；非回复消息为 null（不渲染引用块） */
   replyQuote?: ResolvedReplyQuote | null;

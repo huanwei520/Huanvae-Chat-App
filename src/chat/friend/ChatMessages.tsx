@@ -31,6 +31,7 @@ import { useScrollKeyboardControls } from '../shared/useScrollKeyboardControls';
 import { JumpToLatestButton } from '../shared/JumpToLatestButton';
 import { MessageBubble } from './MessageBubble';
 import { useFriendReadReceipt, isReadBySeq } from './useFriendReadReceipt';
+import { latestOwnReceiptUuid } from '../shared/readReceiptGate';
 import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import type { SessionInfo } from '../../components/common/Avatar';
 import type { Friend, Message } from '../../types/chat';
@@ -196,8 +197,18 @@ export function ChatMessages({
     mountedKeysRef.current = new Set(sortedMessages.map((m) => getStableKey(m)));
   }
 
-  // 私聊已读回执：按 seq 双向。每条消息显示——我发的看对方是否已读、对方发的看我是否已读
+  // 私聊已读回执：按 seq 判定对方是否已读到我发的消息（Telegram 风单向，只显示自己消息）
   const { peerLastReadSeq } = useFriendReadReceipt(friend.friend_id);
+
+  // 已读标记的锚点：我发出的最新一条（更早的自己消息不挂标记，理由见 shared/readReceiptGate）。
+  // 在 map **之外**算一次 O(n)，锚点取渲染代表消息（相册取组内代表），与下面 map 里的 message 同源。
+  const latestOwnReceiptId = useMemo(
+    () => latestOwnReceiptUuid(
+      renderNodes.map((node) => (node.kind === 'album' ? node.items[0] : node.message)),
+      session.userId,
+    ),
+    [renderNodes, session.userId],
+  );
 
   // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
   // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。
@@ -355,12 +366,12 @@ export function ChatMessages({
                 const playEnter = shouldPlayEnter(message.clientId, stableKey, mountedKeysRef.current);
                 const isSelected = selectedMessages.has(message.message_uuid);
 
-                // 仅自己发出的已送达消息计算"对方是否已读"（Telegram 风单向）；
-                // 发送中/失败由 bubble 内状态槽按 sendStatus 显示，已撤回不显示
-                let readReceipt: { isRead: boolean } | undefined;
-                if (isOwn && !message.is_recalled && message.sendStatus !== 'sending' && message.sendStatus !== 'failed') {
-                  readReceipt = { isRead: isReadBySeq(message.seq, peerLastReadSeq) };
-                }
+                // 已读态只挂「我发出的最新一条」：资格判定（自己发的 / 未撤回 / 已送达）已在
+                // latestOwnReceiptUuid 内做过，这里只比对锚点。更早的自己消息不传 readReceipt ⇒
+                // 气泡不渲染已读态；发送中/失败仍由 bubble 内状态槽按 sendStatus 显示，不受此门控影响。
+                const readReceipt = message.message_uuid === latestOwnReceiptId
+                  ? { isRead: isReadBySeq(message.seq, peerLastReadSeq) }
+                  : undefined;
 
                 return (
                   <MessageBubble

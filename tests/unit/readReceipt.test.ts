@@ -6,14 +6,17 @@
  * - maxGroupSeqOf（取群消息列表最大 seq）
  * - countReadersAtSeq（群聊：读到某 seq 的成员数，排除发送者）
  * - readersAtSeq（群聊：列出读到某 seq 的已读者，排除发送者，按已读时间升序，缺信息兜底）
- * - readReceiptText（群聊文案：全部已读 / N 人已读 / 无应读者 null）
+ * - readReceiptText（群聊文案：全部已读 / N 人已读；无应读者 **或无人已读** → null 隐藏）
  * - groupReadReceiptText（群聊文案 + seq>0 守卫：占位 0 → null，防虚显"全部已读"）
+ * - isReadReceiptEligible / latestOwnReceiptUuid（已读标记只挂"我发出的最新一条"的门控锚点）
  */
 
 import { describe, it, expect } from 'vitest';
 import { isReadBySeq } from '../../src/chat/friend/useFriendReadReceipt';
 import { countReadersAtSeq, readersAtSeq, readReceiptText, groupReadReceiptText, maxGroupSeqOf } from '../../src/chat/group/useGroupReadReceipt';
 import type { GroupReaderInfo } from '../../src/chat/group/useGroupReadReceipt';
+import { isReadReceiptEligible, latestOwnReceiptUuid } from '../../src/chat/shared/readReceiptGate';
+import type { ReceiptGateMessage } from '../../src/chat/shared/readReceiptGate';
 import type { GroupMessage } from '../../src/api/groupMessages';
 
 describe('isReadBySeq（按 seq 已读判定）', () => {
@@ -137,8 +140,11 @@ describe('readReceiptText（群聊文案）', () => {
     expect(readReceiptText(1, 2)).toBe('1 人已读');
   });
 
-  it('无人已读显示"0 人已读"', () => {
-    expect(readReceiptText(0, 2)).toBe('0 人已读');
+  it('无人已读（readers<=0）返回 null —— 隐藏而不是显示"0 人已读"（产品口径回归用例）', () => {
+    expect(readReceiptText(0, 2)).toBeNull();
+    expect(readReceiptText(0, 99)).toBeNull();
+    // 反向锚点：只要有 1 个人读过就必须显示，别把整条口径改成"永不显示"
+    expect(readReceiptText(1, 99)).toBe('1 人已读');
   });
 });
 
@@ -156,5 +162,63 @@ describe('groupReadReceiptText（含 seq>0 守卫的群消息文案）', () => {
 
   it('seq>0 但无应读者（eligible<=0，如单人群）→ null', () => {
     expect(groupReadReceiptText(5, 0, 0)).toBeNull();
+  });
+
+  it('seq>0、有应读者但一个人都没读 → null（隐藏，不显示"0 人已读"）', () => {
+    expect(groupReadReceiptText(5, 0, 3)).toBeNull();
+  });
+});
+
+describe('latestOwnReceiptUuid（已读标记只挂我发出的最新一条）', () => {
+  /** 门控只看这四个字段；列表传进来的是**倒序（新→旧）**的渲染代表消息 */
+  const msg = (uuid: string, over: Partial<ReceiptGateMessage> = {}): ReceiptGateMessage => ({
+    message_uuid: uuid,
+    sender_id: 'me',
+    is_recalled: false,
+    ...over,
+  });
+
+  it('三条自己的消息 → 取最新那条（倒序列表的第一条），不是最旧那条', () => {
+    expect(latestOwnReceiptUuid([msg('u3'), msg('u2'), msg('u1')], 'me')).toBe('u3');
+  });
+
+  it('最新一条是对方发的 → 仍取我发出的最新一条（不因对方回话而消失）', () => {
+    const list = [msg('p1', { sender_id: 'peer' }), msg('u2'), msg('u1')];
+    expect(latestOwnReceiptUuid(list, 'me')).toBe('u2');
+  });
+
+  it('发送中 / 失败 / 已撤回的自己消息不参与锚点竞争（发送状态槽另有显示）', () => {
+    const list = [
+      msg('s1', { sendStatus: 'sending' }),
+      msg('f1', { sendStatus: 'failed' }),
+      msg('r1', { is_recalled: true }),
+      msg('u1'),
+    ];
+    expect(latestOwnReceiptUuid(list, 'me')).toBe('u1');
+  });
+
+  it('没有任何自己发出的已送达消息 → null（一个标记都不挂）', () => {
+    expect(latestOwnReceiptUuid([msg('p1', { sender_id: 'peer' })], 'me')).toBeNull();
+    expect(latestOwnReceiptUuid([], 'me')).toBeNull();
+  });
+
+  it('容忍 undefined 项（相册空组的理论形态），跳过后继续找', () => {
+    expect(latestOwnReceiptUuid([undefined, msg('u2'), msg('u1')], 'me')).toBe('u2');
+  });
+});
+
+describe('isReadReceiptEligible（已读态显示资格）', () => {
+  const base: ReceiptGateMessage = { message_uuid: 'u1', sender_id: 'me', is_recalled: false };
+
+  it('自己发出 + 未撤回 + 已送达 → 有资格', () => {
+    expect(isReadReceiptEligible(base, 'me')).toBe(true);
+    expect(isReadReceiptEligible({ ...base, sendStatus: 'sent' }, 'me')).toBe(true);
+  });
+
+  it('对方的消息 / 已撤回 / 发送中 / 失败 → 无资格', () => {
+    expect(isReadReceiptEligible({ ...base, sender_id: 'peer' }, 'me')).toBe(false);
+    expect(isReadReceiptEligible({ ...base, is_recalled: true }, 'me')).toBe(false);
+    expect(isReadReceiptEligible({ ...base, sendStatus: 'sending' }, 'me')).toBe(false);
+    expect(isReadReceiptEligible({ ...base, sendStatus: 'failed' }, 'me')).toBe(false);
   });
 });

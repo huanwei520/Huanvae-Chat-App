@@ -1,12 +1,15 @@
 /**
- * syncService 单例三件套 + 实时消息落库行为测试
+ * syncService 单例三件套 + 撤回直通行为测试
  *
  * 覆盖 services/syncService.ts 此前无测试的部分：
  *  - initSyncService / getSyncService / destroySyncService 单例生命周期
  *    （init 返回并登记实例、重复 init 替换、destroy 置空）
- *  - handleRealtimeMessage：WS 实时消息 → db.saveMessage 的字段映射契约
- *    （seq 缺省归 0、seq 存在时才推进 updateConversationLastSeq）
  *  - handleMessageRecalled：直通 db.markMessageRecalled，错误不被吞
+ *
+ * 原先这里还测 `handleRealtimeMessage`。该方法 2026-08-12 已删除：全仓零生产调用方
+ * （WS 落库唯一入口是 wsHandlers.saveMessageToLocal），而它内部把 reply_to 写死 null
+ * —— 正是本轮「引用块丢失」那一族缺陷的模板，留着等人接上去就是再踩一次。
+ * 三条只测死代码的用例随之移除。
  *
  * mock 仅限外部边界（db）；SyncService 用真实类。
  */
@@ -38,18 +41,7 @@ function makeApi() {
   };
 }
 
-const realtimeMsg = {
-  source_type: 'group' as const,
-  source_id: 'g1',
-  message_uuid: 'm1',
-  sender_id: 'u2',
-  sender_nickname: 'Bob',
-  preview: 'hi',
-  message_type: 'text',
-  timestamp: '2026-01-01T00:00:00Z',
-};
-
-describe('syncService — 单例三件套 + handleRealtimeMessage / handleMessageRecalled', () => {
+describe('syncService — 单例三件套 + handleMessageRecalled', () => {
   beforeEach(() => {
     dbMock.saveMessage.mockClear();
     dbMock.updateConversationLastSeq.mockClear();
@@ -77,43 +69,6 @@ describe('syncService — 单例三件套 + handleRealtimeMessage / handleMessag
     expect(getSyncService()).toBeNull();
   });
 
-  it('handleRealtimeMessage（带 seq）: 字段映射落库 + 推进会话 last_seq', async () => {
-    const svc = new SyncService(makeApi() as never);
-
-    await svc.handleRealtimeMessage({ ...realtimeMsg, seq: 5 });
-
-    expect(dbMock.saveMessage).toHaveBeenCalledTimes(1);
-    expect(dbMock.saveMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message_uuid: 'm1',
-        conversation_id: 'g1',
-        conversation_type: 'group',
-        content: 'hi',
-        content_type: 'text',
-        seq: 5,
-        sender_id: 'u2',
-        sender_name: 'Bob',
-        send_time: '2026-01-01T00:00:00Z',
-        is_recalled: false,
-        is_deleted: false,
-      }),
-    );
-    expect(dbMock.updateConversationLastSeq).toHaveBeenCalledTimes(1);
-    expect(dbMock.updateConversationLastSeq).toHaveBeenCalledWith('g1', 5);
-  });
-
-  it('handleRealtimeMessage（无 seq）: seq 归 0 落库，且不推进 last_seq（falsy 守卫）', async () => {
-    const svc = new SyncService(makeApi() as never);
-
-    await svc.handleRealtimeMessage({ ...realtimeMsg });
-
-    expect(dbMock.saveMessage).toHaveBeenCalledTimes(1);
-    expect(dbMock.saveMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ message_uuid: 'm1', seq: 0 }),
-    );
-    expect(dbMock.updateConversationLastSeq).not.toHaveBeenCalled();
-  });
-
   it('handleMessageRecalled: 直通 db.markMessageRecalled；DB 失败时错误不被吞', async () => {
     const svc = new SyncService(makeApi() as never);
 
@@ -125,16 +80,13 @@ describe('syncService — 单例三件套 + handleRealtimeMessage / handleMessag
     expect(dbMock.markMessageRecalled).toHaveBeenLastCalledWith('m-y');
   });
 
-  it('单例与实例功能串联：init 后经 getSyncService() 调 handleRealtimeMessage 生效', async () => {
+  it('单例与实例功能串联：init 后经 getSyncService() 调实例方法生效', async () => {
     initSyncService(makeApi() as never);
     const svc = getSyncService();
     expect(svc).not.toBeNull();
 
-    await svc!.handleRealtimeMessage({ ...realtimeMsg, seq: 9 });
+    await svc!.handleMessageRecalled('m-z');
 
-    expect(dbMock.saveMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ message_uuid: 'm1', conversation_id: 'g1', seq: 9 }),
-    );
-    expect(dbMock.updateConversationLastSeq).toHaveBeenCalledWith('g1', 9);
+    expect(dbMock.markMessageRecalled).toHaveBeenCalledWith('m-z');
   });
 });

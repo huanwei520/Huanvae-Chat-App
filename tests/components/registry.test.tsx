@@ -163,6 +163,7 @@ import * as GroupRemarkInputModal from '../../src/chat/group/GroupRemarkInputMod
 import * as ReplyQuote from '../../src/chat/shared/ReplyQuote';
 import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
+import * as readReceiptGate from '../../src/chat/shared/readReceiptGate';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
 import * as GroupReadReceipt from '../../src/chat/group/GroupReadReceipt';
 import * as GroupReadListModal from '../../src/chat/group/GroupReadListModal';
@@ -474,6 +475,7 @@ const COMPONENT_MAP = {
   ReplyQuote,
   ReadReceiptIcons,
   PrivateReadReceipt,
+  readReceiptGate,
   ReaderAvatarStack,
   GroupReadReceipt,
   GroupReadListModal,

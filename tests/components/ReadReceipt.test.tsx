@@ -2,7 +2,7 @@
  * 已读回执组件测试
  *
  * 覆盖（聚焦各组件的条件分支逻辑，非静态字面量 tautology）：
- * - PrivateReadReceipt：status → 图标/类名状态机（时钟/红叹号/灰双勾/绿双勾）
+ * - PrivateReadReceipt：status → 图标/类名状态机（时钟/红叹号/绿双勾；未读 → 不渲染）
  * - ReaderAvatarStack：slice 截断 + "+N" 溢出 + 头像/占位分支 + 空数组渲染 null
  * - GroupReadReceipt：status 分支 + text=null 不渲染 + 有/无已读者的可点击性与回调
  * - GroupReadListModal：开/关 + 名单行渲染 + 关闭回调 + 桌面/移动类名
@@ -40,12 +40,11 @@ describe('PrivateReadReceipt（私聊状态槽）', () => {
     expect(container.querySelector('.read-receipt-icon.failed')).toBeTruthy();
   });
 
-  it('已送达未读 → 灰双勾 .double-check.unread（非 read）', () => {
+  it('已送达但对方未读 → 不渲染任何图标（产品口径：没人读过就隐藏，不再是灰双勾"已送达"）', () => {
     const { container } = render(<PrivateReadReceipt status="sent" isRead={false} />);
-    const icon = container.querySelector('.read-receipt-icon.double-check');
-    expect(icon).toBeTruthy();
-    expect(icon?.classList.contains('unread')).toBe(true);
-    expect(icon?.classList.contains('read')).toBe(false);
+    expect(container.firstChild).toBeNull();
+    // 防回退：灰双勾那档（.unread）已彻底不存在，别哪天又被加回来
+    expect(container.querySelector('.read-receipt-icon')).toBeNull();
   });
 
   it('已读 → 绿双勾 .double-check.read（缺省 status 视为已送达）', () => {
@@ -117,9 +116,12 @@ describe('GroupReadReceipt（群状态槽）', () => {
     expect(onOpenList).toHaveBeenCalledTimes(1);
   });
 
+  // 注：改成"无人已读即隐藏"后，唯一调用方（GroupChatMessages）不会再产生
+  // 「text 非 null + readers 为空」这个组合（readReceiptText 在 readers=0 时给 null）。
+  // 这条锁的是组件**自身 props 域**的保护：名单为空时按钮不可点，不会点开一个空弹层。
   it('无已读者：按钮禁用，点击不触发 onOpenList', () => {
     const onOpenList = vi.fn();
-    render(<GroupReadReceipt status="sent" text="0 人已读" readers={[]} onOpenList={onOpenList} />);
+    render(<GroupReadReceipt status="sent" text="全部已读" readers={[]} onOpenList={onOpenList} />);
     const btn = screen.getByRole('button');
     expect(btn).toBeDisabled();
     fireEvent.click(btn);

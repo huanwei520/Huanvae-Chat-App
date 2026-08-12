@@ -1,8 +1,12 @@
 /**
- * 群聊已读回执 Hook（每条消息显示"全部已读 / N 人已读" + 已读名单）
+ * 群聊已读回执 Hook（显示"全部已读 / N 人已读" + 已读名单）
  *
  * @module chat/group
  * @location src/chat/group/useGroupReadReceipt.ts
+ *
+ * 显示口径两条门控，都不在本 hook 里（本 hook 只负责"谁读到了哪"）：
+ * - **挂在哪一条**：只挂我发出的最新一条（shared/readReceiptGate，由 GroupChatMessages 调用）；
+ * - **无人已读就隐藏**：readReceiptText(readers<=0) → null（见下方该函数）。
  *
  * 维护群内各成员的"已读到的消息序列号"(last-read-seq) 与展示信息（昵称/头像/已读时间），
  * 供每条消息统计已读人数并渲染已读者头像堆叠 + 点击展开已读名单。
@@ -138,10 +142,15 @@ export function readersAtSeq(
 }
 
 /**
- * 纯函数：根据已读人数与应读人数生成展示文案（"全部已读" / "N 人已读"）；无应读者返回 null（不展示）
+ * 纯函数：根据已读人数与应读人数生成展示文案（"全部已读" / "N 人已读"）。
+ *
+ * 两种"不展示"（返回 null）：
+ * - 无应读者（eligible<=0，如单人群）——本就没人能读；
+ * - **无人已读（readers<=0）**——产品口径：没人读过时**隐藏**已读标记，
+ *   而不是显示"0 人已读"（那是在给一条零信息量的行占位）。
  */
 export function readReceiptText(readers: number, eligible: number): string | null {
-  if (eligible <= 0) {
+  if (eligible <= 0 || readers <= 0) {
     return null;
   }
   return readers >= eligible ? '全部已读' : `${readers} 人已读`;
