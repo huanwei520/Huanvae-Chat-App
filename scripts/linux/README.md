@@ -57,7 +57,7 @@ chmod +x scripts/linux/*.sh
 ./scripts/linux/test-all.sh
 ```
 
-**检查内容（共 13 项，`test-all.sh:564` `CANONICAL_TOTAL=13`）：**
+**检查内容（共 13 项，`test-all.sh:765` `CANONICAL_TOTAL=13`）：**
 
 | 步骤 | 检查项 | 说明 |
 |------|--------|------|
@@ -71,7 +71,7 @@ chmod +x scripts/linux/*.sh
 | 8 | 前端构建测试 | 检查构建警告 |
 | 9 | Cargo check | Rust 编译检查 |
 | 10 | Cargo clippy 桌面端 | Rust 代码审查，禁止任何警告 |
-| 11 | Cargo clippy Android | 移动端 Rust 代码审查 |
+| 11 | Cargo clippy Android | 移动端 Rust 代码审查。**三态**：本机有 NDK/target → 本机跑；本机没有但设了 `ANDROID_CLIPPY_HOST` → **交给远程 Android 构建宿主真跑**；两者都没有才跳过（详见下方「Android clippy 的远程执行」） |
 | 12 | **Cargo test** | `cargo test --lib`。既有门禁只跑 `cargo check` + `clippy`、**从不运行测试**，于是 `src-tauri/src/desktop/huanvaeguard_macos.rs` 里那两条**发货件静态守卫**（打包 plist 的每个 `--` 开关必须真出现在打包二进制里；发货二进制不得含 `/Users/`、`/home/`、`C:\Users` 等构建机路径）等于**没接线**。本项把它们接上 |
 | 13 | **VPN 连通性测试** | 调 `../hg-connectivity-test.sh`，判据是**真握手 + 真收发包 + 端到端 ping**，不是"服务起来了"（真实故障形态是服务状态看着正常、上下行包却均为 0）。原始命令输出**原样打印**，不只打结论 |
 
@@ -91,15 +91,18 @@ chmod +x scripts/linux/*.sh
 ```
 
 注意 `--skip-rust` 现在砍掉的是 **4 项**（多了第 12 项 `cargo test`），不是过去的 3 项。
+🔴 `--skip-android` 砍掉的**不再是"一个本机跑不了的项"**，而是**一项本可在远程构建宿主真跑的检查** ——
+本机没 NDK 时的正路是设 `ANDROID_CLIPPY_HOST`（见下），不是 `--skip-android`。
 
 **跳过 ≠ 通过（默认不放行）：**
 
-任何被跳过的检查项——不管是上面参数显式跳过的，还是运行期环境缺失导致的（Android NDK 未找到 /
-`aarch64-linux-android` target 未安装）——都会进入跳过登记表，末尾汇总如实列出：
+任何被跳过的检查项——不管是上面参数显式跳过的，还是运行期环境缺失导致的（clippy Android：
+本机无 NDK/`aarch64-linux-android` target **且**未配置远程构建宿主；VPN 连通性：被调脚本退 `3`）
+——都会进入跳过登记表，末尾汇总如实列出：
 
 ```
 ⚠ 本次有 1 项被跳过（未真跑）
-- clippy-android: Android NDK 未找到 (设置 NDK_HOME 或使用 --skip-android)
+- clippy-android: 本机无 Android NDK/target，且未配置远程构建宿主 —— 设 ANDROID_CLIPPY_HOST=user@host 走远程真跑（推荐），或设 NDK_HOME 本机跑，或 --skip-android
 ```
 
 **只要存在跳过项，就不会打印「所有检查通过!」**，且默认以**退出码 2** 结束（不视为通过，
@@ -111,7 +114,7 @@ ALLOW_SKIP="e2e,clippy-android" ./scripts/linux/test-all.sh  # 多项，逗号�
 ALLOW_SKIP=all ./scripts/linux/test-all.sh                   # 放行全部跳过项
 ```
 
-可用 id（`test-all.sh:18-19`）：`e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` /
+可用 id（`test-all.sh:22-23`）：`e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` /
 `cargo-test` / `vpn-connectivity`。
 放行后汇总打印的是 `真跑通过 X/13`（X = 13 − 跳过项数），**不是** "13/13"——报告时按 X 报。
 
@@ -130,9 +133,43 @@ Linux 上这一项**必然是跳过**（该脚本只覆盖 macOS）；要真跑�
 | 1 | 有检查项 FAIL |
 | 2 | 有检查项被跳过且未显式放行（不视为通过） |
 
-**Android clippy 需要：**
-- 已安装 Android NDK（设置 `$NDK_HOME` 环境变量）
-- 已安装 Rust Android 目标：`rustup target add aarch64-linux-android`
+### Android clippy 的远程执行（本机没 NDK 时的**正路**，不是跳过）
+
+第 11 项按 **本机 → 远程构建宿主 → 才允许跳过** 三态执行（块头注释 `test-all.sh:453`）：
+
+| 态 | 条件 | 行为 |
+|---|---|---|
+| ① | 本机有 NDK（`$NDK_HOME`）且装了 `aarch64-linux-android` target | 本机真跑（最快路径） |
+| ② | 本机不具备，但设了 `ANDROID_CLIPPY_HOST` | 白名单打包源码 → `scp` → 远程 Android 构建宿主**真跑**，rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL |
+| ③ | **两者都没有** | 才 `record_skip clippy-android`（`test-all.sh:676`），仍走「SKIP ≠ PASS」 |
+
+```bash
+# 本机没有 NDK 时这样跑，第 11 项是"真跑"而不是"跳过"
+ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh
+```
+
+**环境变量**（真值源是脚本头注释 `test-all.sh:27` 起）：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `ANDROID_CLIPPY_HOST` | **无默认值** | 远程 Android 构建宿主的 ssh 目标（形如 `user@host`）。不设 = 不启用远程态 |
+| `ANDROID_CLIPPY_REMOTE_DIR` | `/tmp/hv-clippy-android` | 该宿主上的源码同步目录 |
+| `ANDROID_CLIPPY_REMOTE_NDK_HOME` | 远程自动探测 | 显式指定远程 NDK 路径 |
+| `ANDROID_CLIPPY_SSH_OPTS` | 空 | 追加给 `ssh`/`scp` 的参数（如 `-i ~/.ssh/somekey`） |
+| `ANDROID_CLIPPY_JOBS` | `8` | 远程 `cargo` 并发度（构建宿主常跑着别的服务，别抢爆） |
+
+🔴 **主机地址一律经环境变量注入。** 本仓是 PUBLIC 公开仓，脚本与文档里**都不写任何内网地址 /
+内部主机名 / 账号**，示例一律用 `user@host` 占位；该值只在运行时注入，**不落盘、不入日志**
+（与 `HG_WIN_BUILD_HOST` 同一套红线）。
+
+🔴 **设了却连不上 = FAIL，绝不自动退回跳过。** 五种失败全部 FAIL、无一条退回 skip：
+连不上（ssh 预检失败）/ 同步失败 / 远程无 Android 工具链 / 远程 clippy 真报错误告警 /
+中途断连拿不到结束哨兵。文案把「网络 / 凭据问题」与「代码问题」分开，便于排障。
+自动退回等于把"没跑"重新伪装成"环境不具备" —— 那正是这套改造要根治的病。
+
+⚠️ 同步载荷用的是**白名单**（只带 `src-tauri` + `Notification-Sounds`），不是"排除大目录"的黑名单：
+仓根有 `data/`（App portable 模式的本地运行数据落点，含**聊天数据库与用户文件**），
+黑名单漏一条就会把用户数据 `scp` 出本机。
 
 ---
 
@@ -296,12 +333,19 @@ cargo clippy --target aarch64-linux-android
 
 ### Q: Android NDK 未找到怎么办？
 
+**先问一句：有没有远程 Android 构建宿主？有就别装 NDK。**
+
+0. **（推荐）交给远程构建宿主真跑**：`ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh` ——
+   本机一个字节都不用装，第 11 项是真跑而不是跳过。见上文「Android clippy 的远程执行」。
 1. 确保已安装 Android NDK（通过 Android Studio SDK Manager）
 2. 设置 `NDK_HOME` 环境变量：
    ```bash
    export NDK_HOME=$HOME/Android/Sdk/ndk/29.0.14206865
    ```
 3. 或在 `~/.bashrc` 中永久设置
+
+🔴 三条都做不到才允许 `ALLOW_SKIP=clippy-android`，且理由必须如实写成
+「本机无 NDK/target **且**未配置远程构建宿主」，不许只写"本机没有 NDK"。
 
 ### Q: ESLint 报警告怎么办？
 
@@ -315,12 +359,20 @@ pnpm lint
 
 ### Q: 提示"有检查项被跳过且未真跑 —— 发布中止"怎么办？
 
-`test-all.sh` 以退出码 2 结束了，说明有检查项没真跑（明细见它的汇总）。两条正路：
+`test-all.sh` 以退出码 2 结束了，说明有检查项没真跑（明细见它的汇总）。**三条正路，按顺序试**：
 
-1. **补齐环境后重跑**（推荐）：例如装 NDK（`export NDK_HOME=...`）或
+1. **交给远程构建宿主真跑**（推荐，跳过项是 `clippy-android` 时的首选）：
+   ```bash
+   ANDROID_CLIPPY_HOST=user@host ./scripts/linux/release.sh
+   ```
+   本机一个字节都不用装，rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL，**照样拿满 13/13**。
+   见上文「Android clippy 的远程执行」。
+2. **补齐本机环境后重跑**：装 NDK（`export NDK_HOME=...`）或
    `rustup target add aarch64-linux-android`，然后重跑 `./scripts/linux/release.sh`。
-2. **确认可以不跑，显式放行**：`ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`。
-   这是一个决策，不是绕过——发布记录里要写清放行了哪几项、真跑 X/13。
+3. **确认确实跑不了，才显式放行**：`ALLOW_SKIP=clippy-android ./scripts/linux/release.sh`。
+   这是一个决策，不是绕过——发布记录里要写清放行了哪几项、真跑 X/13，
+   且 `clippy-android` 的放行理由**必须写成双条件**「本机无 NDK/target **且**未配置远程构建宿主」，
+   🔴 **不许只写"本机没有 NDK"**（v1.1.30 就是这么放行的，而当时远程构建宿主一直可用）。
 
 不要用 `--skip-*` 参数跑 `release.sh`：参数会被原样透传给 `test-all.sh`，等于主动降门槛。
 
@@ -380,6 +432,17 @@ git push origin main --force
 ---
 
 ## 更新日志
+
+- **2026-08-12**: 第 11 项 clippy Android 由「本机跑不了就跳过」改为**三态：本机 → 远程构建宿主 → 才允许跳过**
+  - 新增 `ANDROID_CLIPPY_HOST`（**无默认值**，形如 `user@host`）等 5 个 `ANDROID_CLIPPY_*` 环境变量：
+    本机无 NDK 时把源码同步到远程 Android 构建宿主**真跑**，rc 与完整输出取回本机
+  - 🔴 设了却连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0 / 中途断连 —— **五种失败全部 FAIL，
+    无一条退回跳过**；跳过文案改成**双条件**（本机无 NDK/target **且**未配置远程宿主）
+  - 动机：v1.1.30 以「本机无 Android NDK」为由 `ALLOW_SKIP` 放行，而本仓一直有可用的远程 Android
+    构建宿主（实测 NDK / 4 个 android target / clippy 全部现成，远程真跑 `rc=0`、0 warnings）
+  - 同批修掉 6 处 `OUT=$(cmd) || true` 紧跟 `EXIT=$?` 的 rc 捕获缺陷（rc 恒为 0 ⇒ FAIL 分支不可达）
+  - 本文件：检查项表第 11 项补三态说明、新增「Android clippy 的远程执行」小节、
+    「两条正路」改**三条**（远程真跑排第 1）、行号锚点重锚
 
 - **2026-08-06**: 发货 VPN 二进制改为源码构建 + 新增 VPN 连通性测试 + `cargo test` 接进门禁
   - `release.sh` 新增**步骤 3/7**：调 `../build-hg-binaries.sh` 从 HuanvaeGuard 源码构建各平台

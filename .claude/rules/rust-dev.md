@@ -633,3 +633,18 @@ macOS 侧当天那起「安装/修复恒失败」故障，除了本文件前面�
 3. **二进制字节从构建产物拷到安装位置后要重算 sha256 比对**，别默认 `cp` 一定成功 —— 这是本文件前面「打包件与 plist 参数同版本」守卫的运行期补充。
 
 **反例（2026-08-06，实测）**：按上面第 2 条对当天新构建的发货件跑第二实例验证 —— `bootstrap_rc=0`、`state = running`、`last exit code = (never exited)`、控制端口回 `{"success":true,...}`，生产实例全程不受影响；同批还实测到落点 sha256 与构建产物 sha256 完全一致。而未经显式重签（`flags=0x20002` linker-signed）的那份，正是「修复恒失败」的成因之一。
+
+## 只跑 `cargo check` / `clippy` 时，`tauri-build` **不要求** `frontendDist` 真实存在
+
+要在一台干净机器（CI / 远程构建宿主）上只做 Rust 侧静态检查时，直觉会先跑一遍 `pnpm build`
+把 `dist/` 造出来喂给 `tauri-build`。**本仓实测不需要**：`tauri-build 2.6.1` 在
+`cargo clippy` / `cargo check` 路径下**不校验 `../dist` 是否存在** ——
+故意不建 `dist/` 跑 `cargo clippy --target aarch64-linux-android -- -D warnings`，
+结果 `Finished dev profile ... in 31.91s`、`CLIPPY_RC=0`。同理 `src-tauri/gen` 也不用同步
+（`gen/schemas` 由 `tauri-build` 自己重生）。
+
+⇒ 远程/CI 上做 Android clippy，**只需同步 `src-tauri`（+ 打包脚本要求的少量资源），
+不必先花 26 分钟构建前端**。这条直接决定了远程 clippy 是"半分钟"还是"半小时"。
+
+⚠️ 边界：这只对**静态检查**成立。真出包（`tauri build` / `tauri android build`）当然要 `dist/`。
+版本升级后重验一次这个假设 —— 它是 `tauri-build` 的实现行为，不是文档承诺的契约。

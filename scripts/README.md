@@ -120,7 +120,7 @@ App 发货两个 VPN 守护进程二进制（macOS `hg-macos`、Windows `huanvae
 | | |
 |---|---|
 | **用途** | 量真实数字判定隧道是否**真的在承载流量**，并把**原始命令输出**打印出来备查（不只打结论） |
-| **谁调用** | `scripts/linux/test-all.sh` 第 **13** 项（`test-all.sh:534`）、`scripts/test-all.ps1` 第 **11** 项（`test-all.ps1:422`） |
+| **谁调用** | `scripts/linux/test-all.sh` 第 **13** 项（块头 `test-all.sh:723`）、`scripts/test-all.ps1` 第 **11** 项（块头 `test-all.ps1:613`） |
 | **平台** | `.sh` 只覆盖 **macOS**（launchctl / ifconfig / netstat -ibn / route），其它系统直接退 `3`；`.ps1` 覆盖 **Windows**（sc.exe / Get-NetAdapterStatistics / ping.exe） |
 
 **五项必测**（任一不过即 FAIL）：
@@ -171,6 +171,46 @@ HG_PEER_VIP=<对端VIP> HG_PEER_INITIAL_TTL=128 ./scripts/hg-connectivity-test.s
 ```powershell
 $env:HG_PEER_VIP='<对端VIP>'; .\scripts\hg-connectivity-test.ps1
 ```
+
+## `test-all.sh` / `test-all.ps1` —— Android clippy 交给远程构建宿主真跑
+
+clippy Android（`test-all.sh` 第 **11** 项 / `test-all.ps1` 第 **9** 项）按
+**本机 → 远程构建宿主 → 才允许跳过** 三态执行：本机有 NDK 且装了 `aarch64-linux-android` target 就本机跑；
+本机不具备但设了 `ANDROID_CLIPPY_HOST` 就把源码同步到远程 Android 构建宿主**真跑**
+（rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL）；**两者都没有**才登记为跳过。
+
+```bash
+ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh
+```
+```powershell
+$env:ANDROID_CLIPPY_HOST='user@host'; .\scripts\test-all.ps1
+```
+
+**环境变量**（真值源是脚本头注释：`scripts/linux/test-all.sh:27` 起、`scripts/test-all.ps1:26` 起）：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `ANDROID_CLIPPY_HOST` | **无默认值** | 远程 Android 构建宿主的 ssh 目标（形如 `user@host`）。不设 = 不启用远程态 |
+| `ANDROID_CLIPPY_REMOTE_DIR` | `/tmp/hv-clippy-android` | 该宿主上的源码同步目录 |
+| `ANDROID_CLIPPY_REMOTE_NDK_HOME` | 远程自动探测 | 显式指定远程 NDK 路径 |
+| `ANDROID_CLIPPY_SSH_OPTS` | 空 | 追加给 `ssh`/`scp` 的参数（如 `-i ~/.ssh/somekey`） |
+| `ANDROID_CLIPPY_JOBS` | `8` | 远程 `cargo` 并发度（构建宿主常跑着别的服务，别抢爆） |
+
+🔴 **构建宿主地址一律经环境变量注入**（与 `HG_WIN_BUILD_HOST` 同一套红线）。本仓是 PUBLIC 公开仓，
+脚本、文档里**都不写任何内网地址 / 内部主机名 / 账号**，示例一律用 `user@host` 这类占位符；
+该值只在运行时注入，**不落盘、不入日志**。
+
+🔴 **设了却连不上 = FAIL，绝不自动退回跳过。** 连不上 / 同步失败 / 远程无 Android 工具链 /
+远程 clippy 真报错误告警 / 中途断连拿不到结束哨兵 —— 五种失败**全部 FAIL**。
+自动退回等于把"没跑"重新伪装成"环境不具备"。文案把「网络 / 凭据问题」与「代码问题」分开，便于排障。
+
+⚠️ 同步载荷是**白名单**（只带 `src-tauri` + `Notification-Sounds`），不是"排除大目录"的黑名单 ——
+仓根有 `data/`（App portable 模式的本地运行数据落点，含**聊天数据库与用户文件**），
+黑名单漏一条就会把用户数据 `scp` 出本机。
+
+⚠️ `test-all.ps1` 的远程分支**未在 Windows 上实测**（写它时无 Windows 宿主），见 `test-all.ps1:351` 的自述。
+
+---
 
 ## 快速开始
 

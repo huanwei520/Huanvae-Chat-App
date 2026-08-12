@@ -87,47 +87,79 @@ TEST_EXIT=0
 "$SCRIPT_DIR/test-all.sh" "$@" || TEST_EXIT=$?
 ```
 
-`"$@"` = **把 release.sh 收到的参数原样透传给 test-all.sh**。而 test-all.sh:54-61 解析**四个**开关：
+`"$@"` = **把 release.sh 收到的参数原样透传给 test-all.sh**。而 test-all.sh:69-76 解析**四个**开关：
 
 ```bash
---skip-rust) SKIP_RUST=true ;;       # :56  砍掉 cargo check + clippy 桌面 + clippy Android + cargo test（4 项）
---skip-android) SKIP_ANDROID=true ;; # :57  砍掉 clippy Android
---skip-e2e) SKIP_E2E=true ;;         # :58  砍掉 Playwright E2E
---skip-vpn) SKIP_VPN=true ;;         # :59  砍掉 VPN 连通性测试
+--skip-rust) SKIP_RUST=true ;;       # :71  砍掉 cargo check + clippy 桌面 + clippy Android + cargo test（4 项）
+--skip-android) SKIP_ANDROID=true ;; # :72  砍掉 clippy Android
+--skip-e2e) SKIP_E2E=true ;;         # :73  砍掉 Playwright E2E
+--skip-vpn) SKIP_VPN=true ;;         # :74  砍掉 VPN 连通性测试
 ```
 
 ⇒ `./scripts/linux/release.sh --skip-e2e` = 要求发布一个没跑过 E2E 的版本，属**降门槛硬推**，红线。
 `--skip-vpn` 同理，而且更要命：它砍掉的正是「隧道是不是真的在承载流量」这条唯一的真机复查。
 注意 `--skip-rust` 现在砍的是 **4 项**（多了 `cargo test` —— 连带把两条**发货件静态守卫**一起砍了）。
+🔴 `--skip-android` 的代价也变了：它砍掉的**不再是"一个本机跑不了的项"**，而是**一项本可在远程构建宿主真跑的检查**
+（`clippy-android` 现在是三态，见下方「同族的软跳过」）。在本机没 NDK 的机器上，正路是设
+`ANDROID_CLIPPY_HOST` 让它远程真跑，不是 `--skip-android`。
 
 **这类降门槛现在不再是静默的**（脚本已修）。flag 触发的跳过在开跑时就登记进跳过表
-（`record_skip`，:43-49 / :96-110）；末尾汇总先列 `⚠ 本次有 N 项被跳过（未真跑）` + 每项
-`- id: 原因`（:586-592），然后**默认以退出码 2 结束**（:626-634）。release.sh 步骤 4 接住 2，
+（`record_skip` 函数 :58-62；flag 登记 :112-125）；末尾汇总先列 `⚠ 本次有 N 项被跳过（未真跑）` + 每项
+`- id: 原因`（:787-793），然后**默认以退出码 2 结束**（:827-835）。release.sh 步骤 4 接住 2，
 打印「有检查项被跳过且未真跑 —— 发布中止（跳过 ≠ 通过）」后 `exit 1`（:260-264 / :274）——
 **不提交、不推送**。只有 `ALLOW_SKIP` 显式放行时才走「⚠ 放行：本次有 N 项被跳过」+
-`真跑通过 X/13` 并 exit 0（:618-623）。
+`真跑通过 X/13` 并 exit 0（:819-825）。
 
-🔴 **只要存在跳过项，任何分支都不再打印「所有检查通过!」**——那句只在零跳过时出现（:602-607）。
+🔴 **只要存在跳过项，任何分支都不再打印「所有检查通过!」**——那句只在零跳过时出现（:803-809）。
 
 **判据不变**：`release.sh` 后面跟任何东西 = 违规。`ALLOW_SKIP` 是给"环境确实装不上"的兜底闸，
-不是给"懒得跑"用的 —— 用它是一个**决策**，得有人拍板，且交付里必须写清放行了哪几项、真跑 X/11。
+不是给"懒得跑"用的 —— 用它是一个**决策**，得有人拍板，且交付里必须写清放行了哪几项、真跑 X/13
+（Linux 侧全量 13；Windows `test-all.ps1` 是 X/11）。
+🔴 **`clippy-android` 尤其不要顺手放行**：本机没 NDK 时它还有一条"设 `ANDROID_CLIPPY_HOST` 远程真跑"的正路，
+放行前必须先排除那条（见下方三阶梯）。
 要调试测试就单独跑 `./scripts/linux/test-all.sh --skip-xxx`，但那条命令的结果**不能**当作发布门禁的通过凭据。
 
-**计数器已修**：`TOTAL_STEPS` 现在按 flag 实算（:81-88，恒定 7 块 + E2E / VPN / Rust 三块 / Android 各按需加），
-`step_header` 递增（:91-94），打印的 `[n/N]` 与本次**实际执行**的块数一致（旧版"跳 3 块只减 2"的错已不存在）。
-但注意 **N 是"本次跑了几块"，不是全量 13** —— 验收口径看末尾那行 `X/13 真跑通过`（:605 / :621）
+**计数器已修**：`TOTAL_STEPS` 现在按 flag 实算（:96-103，恒定 7 块 + E2E / VPN / Rust 三块 / Android 各按需加），
+`step_header` 递增（:106-109），打印的 `[n/N]` 与本次**实际执行**的块数一致（旧版"跳 3 块只减 2"的错已不存在）。
+但注意 **N 是"本次跑了几块"，不是全量 13** —— 验收口径看末尾那行 `X/13 真跑通过`（:806 / :822）
 和跳过清单，别拿 `[n/N]` 当交付依据。
 
 **同族的软跳过（运行期跳过，走完全相同的路径）**：
 
-- Android clippy 在 NDK 未找到（:450）或 `aarch64-linux-android` target 未安装（:454）时调
-  `record_skip clippy-android`。
+- **Android clippy** 只在**双条件同时成立**时才 `record_skip clippy-android`（:676）：
+  **本机无 NDK / `aarch64-linux-android` target 未安装，且未配置 `ANDROID_CLIPPY_HOST`**。
+  （旧文档写的"NDK 未找到 / target 未安装两个站点"已不存在 —— 本次改造把它们合并成这一处双条件站点。）
 - **VPN 连通性测试**在被调脚本返回退出码 **3**（本机物理上跑不了 = **未执行**）时调
-  `record_skip vpn-connectivity`（:550）。
+  `record_skip vpn-connectivity`（:751；另有 `--skip-vpn` 参数态在 :124）。
 
 ⇒ 一样进汇总、一样默认 exit 2、一样拦住发布。所以"这台机器没装 NDK / 没有对端所以那项没跑"
-不会再混进"全绿"里；要在这种机器上发版，只能显式
-`ALLOW_SKIP=clippy-android ./scripts/linux/release.sh` 并**如实报告"Android clippy 未真跑，真跑 12/13"**。
+不会再混进"全绿"里。
+
+### 🔴 clippy Android 是**三阶梯**，「本机没 NDK」不是发版时跳过它的理由
+
+块头注释把优先级写死在代码里（:453 `# 三态优先级（本机 → 远程构建宿主 → 才允许跳过）：`）：
+
+| 阶梯 | 条件 | 做法 | 结果 |
+|---|---|---|---|
+| ① | 本机有 NDK 且装了 `aarch64-linux-android` target | 直接跑 `./scripts/linux/release.sh` | 本机真跑，**13/13** |
+| ② **（推荐）** | 本机没有，但有远程 Android 构建宿主 | `ANDROID_CLIPPY_HOST=user@host ./scripts/linux/release.sh` | 远程**真跑**，rc 与完整输出取回本机，**照样 13/13** |
+| ③ | **两者都没有** | `ALLOW_SKIP=clippy-android ./scripts/linux/release.sh` | 放行，**必须如实报告**「Android clippy 未真跑，真跑 12/13，原因：本机无 NDK/target **且**未配置远程构建宿主」 |
+
+- ⚠️ **③ 只是最后一条路，不是唯一一条。** v1.1.30 那次以「本机无 Android NDK」为由 `ALLOW_SKIP` 放行，
+  其源头就是本 skill 旧版把 ③ 写成了「只能」—— 而本仓一直有可用的远程 Android 构建宿主
+  （实测该宿主 NDK / 四个 android target / clippy 全部现成，一个字节都不用装，远程真跑 `rc=0`、0 warnings）。
+  **发版前先问一句「远程构建宿主能不能跑」，再决定要不要放行。**
+- 🔴 **设了 `ANDROID_CLIPPY_HOST` 却连不上 = FAIL，绝不自动退回跳过**：连不上 / 同步失败 / 远程无工具链 /
+  远程 clippy 非 0 / 中途断连拿不到结束哨兵，五种失败**全部 FAIL**。自动退回等于把"没跑"重新伪装成"环境不具备"。
+- 📌 **待裁决（本单未做，需要人拍板的策略）**：③ 现在仍是一条**走得通**的路 —— 任何人只要
+  「不设 `ANDROID_CLIPPY_HOST`」就能合法退回 skip + `ALLOW_SKIP` 放行，形式上就是 v1.1.30 那条路子。
+  本次改造只把它从「唯一的路」降级成「最后一条路」，并强制放行文案承认双条件。
+  要彻底堵死得定一条策略：**发布机必须配 `ANDROID_CLIPPY_HOST`，否则 `clippy-android` 不可放行**。
+  那是策略决定（会让"没有远程宿主就发不了版"），不由 agent 自行收紧。
+- 相关环境变量（真值源是脚本头注释 :27 起）：`ANDROID_CLIPPY_HOST`（**无默认值**，形如 `user@host`）/
+  `ANDROID_CLIPPY_REMOTE_DIR` / `ANDROID_CLIPPY_REMOTE_NDK_HOME` / `ANDROID_CLIPPY_SSH_OPTS` / `ANDROID_CLIPPY_JOBS`。
+  与 `HG_WIN_BUILD_HOST` 同一套红线：**公开仓内不写任何内网地址 / 内部主机名 / 账号，示例一律 `user@host`**，
+  值只在运行时经环境变量注入，**不落盘、不入日志**。
 
 ## 🔴 坑 2：`git add -A` 会把整棵工作树裹进这次发布
 
@@ -331,7 +363,7 @@ App 发货两个 VPN 守护进程二进制（macOS `hg-macos`、Windows `huanvae
    **公开仓内不写任何内网地址 / 内部主机名 / 账号**，示例一律 `user@host`。
    `HG_SKIP_WINDOWS=1` 只用于临时排障，**发布前不许这么跑**（manifest 会缺 Windows 产物）。
 
-### 新流程 ②：VPN 连通性测试（test-all.sh 第 13 项，:521-556）
+### 新流程 ②：VPN 连通性测试（test-all.sh 第 13 项，:723-756）
 
 调 [scripts/hg-connectivity-test.sh](../../../scripts/hg-connectivity-test.sh)（`.ps1` 是 Windows 侧镜像）。
 
@@ -360,11 +392,11 @@ App 发货两个 VPN 守护进程二进制（macOS `hg-macos`、Windows `huanvae
 |--------|------|-------------------|
 | `0` | 五项全过 | PASS |
 | `1` | 有项 FAIL（**真跑了**，没通过） | `ALL_PASSED=false` → exit 1 → 发布中止 |
-| `3` | 本机物理上跑不了，**未执行** | `record_skip vpn-connectivity`(:550) → 走既有「SKIP ≠ PASS」路径 → 默认 exit 2 → **发布中止**，除非 `ALLOW_SKIP=vpn-connectivity` 显式放行并**如实报告** |
+| `3` | 本机物理上跑不了，**未执行** | `record_skip vpn-connectivity`(:751) → 走既有「SKIP ≠ PASS」路径 → 默认 exit 2 → **发布中止**，除非 `ALLOW_SKIP=vpn-connectivity` 显式放行并**如实报告** |
 
 ⚠️ `3` **既不是通过也不是失败**。把它当 0 处理 = 把"没测"报成"测过了"，正是这两项要根治的病。
 
-### 新流程 ③（配套补的洞）：`cargo test` 接进门禁（test-all.sh 第 12 项，:479-518）
+### 新流程 ③（配套补的洞）：`cargo test` 接进门禁（test-all.sh 第 12 项，:681-720）
 
 既有门禁只跑 `cargo check` + `clippy`，**从不运行测试** —— 于是
 `src-tauri/src/desktop/huanvaeguard_macos.rs` 里那两条**发货件静态守卫**等于**没接线**：
@@ -384,28 +416,30 @@ App 发货两个 VPN 守护进程二进制（macOS `hg-macos`、Windows `huanvae
 
 ## 测试没全绿就停 —— 如实报，不许改测试
 
-release.sh:256 调的 test-all.sh 覆盖 **13 项**（test-all.sh:564 `CANONICAL_TOTAL=13`，与脚本里 13 个检查块一一对应）：
+release.sh:256 调的 test-all.sh 覆盖 **13 项**（test-all.sh:765 `CANONICAL_TOTAL=13`，与脚本里 13 个检查块一一对应）：
 
-| # | 检查 | 行号 |
+> 下表「块头行」= 脚本里那行 `# N. xxx` 注释。行号会随脚本改动整体位移，**用 `grep -n '^# [0-9]\+\.' scripts/linux/test-all.sh` 现查**，别只信这里的数字。
+
+| # | 检查 | 块头行 |
 |---|------|------|
-| 1 | Windows NSIS 安装配置 | :115 |
-| 2 | package.json 验证（重复键 + JSON 格式） | :153 |
-| 3 | Tauri 版本一致性（Rust crate ↔ NPM 包，major/minor 必须对齐） | :196 |
-| 4 | TypeScript `pnpm tsc --noEmit` | :272 |
-| 5 | ESLint（0 errors, **0 warnings**） | :284 |
-| 6 | 单元测试 `pnpm test --run` | :307 |
-| 7 | Playwright E2E | :330 |
-| 8 | 前端 `pnpm build`（查 Vite 警告） | :353 |
-| 9 | `cargo check` | :389 |
-| 10 | `cargo clippy` 桌面（`-D warnings`） | :414 |
-| 11 | `cargo clippy` Android | :437 |
-| 12 | **`cargo test --lib`**（Rust 单元测试 + 两条**发货件静态守卫**） | :491 |
-| 13 | **VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping；退出码三态，`3` = 未执行 → 跳过） | :534 |
+| 1 | Windows NSIS 安装配置 | :128 |
+| 2 | package.json 验证（重复键 + JSON 格式） | :166 |
+| 3 | Tauri 版本一致性（Rust crate ↔ NPM 包，major/minor 必须对齐） | :209 |
+| 4 | TypeScript `pnpm tsc --noEmit` | :285 |
+| 5 | ESLint（0 errors, **0 warnings**） | :297 |
+| 6 | 单元测试 `pnpm test --run` | :322 |
+| 7 | Playwright E2E | :344 |
+| 8 | 前端 `pnpm build`（查 Vite 警告） | :368 |
+| 9 | `cargo check` | :403 |
+| 10 | `cargo clippy` 桌面（`-D warnings`） | :428 |
+| 11 | `cargo clippy` Android（**三态：本机 → 远程构建宿主 → 才允许跳过**，见坑 1 下的三阶梯） | :451 |
+| 12 | **`cargo test --lib`**（Rust 单元测试 + 两条**发货件静态守卫**） | :681 |
+| 13 | **VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping；退出码三态，`3` = 未执行 → 跳过） | :723 |
 
-任一 FAIL → `ALL_PASSED=false` → `exit 1`(:594-600) → release.sh 中止在步骤 4(:274)，**不会提交、不会推送**
+任一 FAIL → `ALL_PASSED=false` → `exit 1`(:795-801) → release.sh 中止在步骤 4(:274)，**不会提交、不会推送**
 （版本号已改、VPN 二进制已替换，工作树留脏——修完重跑即可，步骤 2 会识别"已是目标版本"并跳过）。
 
-**test-all.sh 退出码三态**（脚本头 :22-26 有注释；release.sh:258-274 逐个接住）：
+**test-all.sh 退出码三态**（脚本头 :38-41 有注释；release.sh:258-274 逐个接住）：
 
 | 退出码 | 含义 | release.sh 行为 |
 |--------|------|----------------|
@@ -432,11 +466,12 @@ animation-conflict 注册、AnimatePresence 消失断言竞态）、
 | 调测试 | `"$SCRIPT_DIR/test-all.sh" "$@"`(:256) — **透传参数**（坑 1） | `& powershell ... test-all.ps1`(:266) — **不传参数**，无透传面 |
 | 构建 VPN 二进制（步骤 3/7） | `build-hg-binaries.sh`(:222) — 本机构建 macOS，ssh 到 Windows 构建机产出 Windows | `build-hg-binaries.ps1`(:233) — 本机构建 Windows，ssh 到 macOS 构建机产出 macOS |
 | 构建失败即中止 | `exit 1`(:233) | `exit 1`(:244) |
-| 测试项数（canonical） | **13**（test-all.sh:564，含 Tauri 版本一致性 + E2E） | **11**（test-all.ps1:451，无这两项） |
-| 跳过登记 / `ALLOW_SKIP` 可用 id | `e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity`（test-all.sh:18-19） | `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity` —— **无 `e2e`**（test-all.ps1:19） |
-| 跳过 flag | `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn`(:56-59) | `-SkipRust` / `-SkipAndroid` / `-SkipVpn`(:28-30) —— 无 `-SkipE2e` |
+| 测试项数（canonical） | **13**（test-all.sh:765，含 Tauri 版本一致性 + E2E） | **11**（test-all.ps1:654，无这两项） |
+| 跳过登记 / `ALLOW_SKIP` 可用 id | `e2e` / `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity`（test-all.sh:22-23） | `cargo-check` / `clippy-desktop` / `clippy-android` / `cargo-test` / `vpn-connectivity` —— **无 `e2e`**（test-all.ps1:22） |
+| 跳过 flag | `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn`(:71-74) | `-SkipRust` / `-SkipAndroid` / `-SkipVpn`(:45-47) —— 无 `-SkipE2e` |
+| clippy Android 远程真跑 | `ANDROID_CLIPPY_HOST=user@host`（第 11 项，块头 :451） | `$env:ANDROID_CLIPPY_HOST='user@host'`（第 9 项，块头 test-all.ps1:339）—— **Windows 侧未实测**，见 :351 的自述 |
 | VPN 连通性取数手段 | `launchctl print` / `ifconfig` / `netstat -ibn` / `route -n get`（**只覆盖 macOS**，Linux 上恒退 3） | `sc.exe query` / `Get-NetAdapterStatistics` / `ping.exe -n` |
-| 跳过未放行 → 退出码 2 | test-all.sh:634；release.sh:260-264 接住 | test-all.ps1:512；release.ps1:270-275 接住 |
+| 跳过未放行 → 退出码 2 | test-all.sh:835；release.sh:260-264 接住 | test-all.ps1:715；release.ps1:270-275 接住 |
 | 标签指向断言 | `assert_tag_points_at_head`(:83-104，调用 :322) | `Assert-TagPointsAtHead`(release.ps1:67，调用 :343) |
 | 版本号改写 | `sed -i`(:188/:191/:194) | UTF-8 无 BOM `WriteAllText`(:181/:186/:193) + 正则 |
 | 提交 / 标签 / 推送 | :309-310 / :315-319 / :336-337 | :329-331 / :338-340 / :355-356（行为相同，含 `--force` 推 tag） |
@@ -465,6 +500,19 @@ substitute pattern`，带地址范围的 Cargo.toml 那条报 `undefined label`�
 
 [scripts/linux/README.md](../../../scripts/linux/README.md) 与
 [scripts/README.md](../../../scripts/README.md) 均已与当前脚本同步。
+
+2026-08-12 那批（clippy-android 三态 + 行号重锚）订正的：
+
+- 本 skill：坑 1 补 `--skip-android` 的新代价、`ALLOW_SKIP` 段补"clippy-android 别顺手放行"、
+  「同族的软跳过」改成**双条件**并新增**三阶梯**表（① 本机 / ② `ANDROID_CLIPPY_HOST` 远程真跑 / ③ 才允许放行）；
+  **删掉了把 ③ 说成唯一出路的那句措辞**（旧文写的是「要在这种机器上发版，*只能*显式 `ALLOW_SKIP=clippy-android`」）
+  —— 它正是 v1.1.30 那次放行的源头。
+- `scripts/linux/README.md`：示例里已从脚本删除的旧 skip 文案换成现行双条件文案；「两条正路」改**三条**
+  （远程真跑排第 1）；新增「Android clippy 的远程执行」小节（5 个 `ANDROID_CLIPPY_*` env + 五种失败一律 FAIL）。
+- `scripts/README.md`：修 VPN 调用方的两个失效行锚点；新增 `test-all.*` 的 `ANDROID_CLIPPY_*` 环境变量表。
+- **全批重锚**：`2f3e4dd` 让 `test-all.sh` / `test-all.ps1` 行号整体位移，四份文档里指向这两个脚本的
+  `文件:行` 锚点**全部失效**，已逐条现查重锚（判据：`grep -rn "test-all\.\(sh\|ps1\):[0-9]" .claude scripts`
+  + 各处裸 `:NNN`）。
 
 2026-08-06 那批（两项新流程）订正的：
 

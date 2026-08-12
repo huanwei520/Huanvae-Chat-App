@@ -389,13 +389,13 @@ Agent(subagent_type="test-runner", prompt="在 App 目录下运行 pnpm typechec
 
 ### 第 2 步：全量门禁 `scripts/test-all.ps1`（不可跳过）
 
-**任何任务完成前必须跑一次，11/11 全绿才允许进入 completion-summary。** 11 项检查（`test-all.ps1:451` `$canonicalTotal = 11`）：
+**任何任务完成前必须跑一次，11/11 全绿才允许进入 completion-summary。** 11 项检查（`test-all.ps1:654` `$canonicalTotal = 11`）：
 
-1. NSIS 安装配置 / 2. package.json 验证 / 3. TypeScript / 4. ESLint 严格模式 / 5. Vitest / 6. 前端 build / 7. cargo check / 8. clippy 桌面 / 9. clippy Android / **10. cargo test**（Rust 单元测试 + 两条发货件静态守卫）/ **11. VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping）
+1. NSIS 安装配置 / 2. package.json 验证 / 3. TypeScript / 4. ESLint 严格模式 / 5. Vitest / 6. 前端 build / 7. cargo check / 8. clippy 桌面 / **9. clippy Android**（三态：本机 → 远程构建宿主 → 才允许跳过，见下）/ **10. cargo test**（Rust 单元测试 + 两条发货件静态守卫）/ **11. VPN 连通性测试**（真握手 + 真收发包 + 端到端 ping）
 
-> Linux 侧对应的 `scripts/linux/test-all.sh` 是 **13 项**（多「Tauri 版本一致性」与「Playwright E2E」两项，`test-all.sh:564` `CANONICAL_TOTAL=13`）。两边项数不同，别互相套用。
+> Linux 侧对应的 `scripts/linux/test-all.sh` 是 **13 项**（多「Tauri 版本一致性」与「Playwright E2E」两项，`test-all.sh:765` `CANONICAL_TOTAL=13`）。两边项数不同，别互相套用。clippy Android 在 Linux 侧是第 **11** 项、Windows 侧是第 **9** 项。
 >
-> 第 11 项的判据是**真握手 + 真收发包**，不是"服务起来了"；它的退出码是**三态**，`3` = 本机物理上跑不了（**未执行**）→ 登记为跳过 → 默认走「SKIP ≠ PASS」的退出码 2。**跳过不算通过**：放行必须显式 `ALLOW_SKIP=vpn-connectivity` 并在交付里如实写明真跑 X/11。
+> VPN 连通性那一项（Windows 第 11 / Linux 第 13）的判据是**真握手 + 真收发包**，不是"服务起来了"；它的退出码是**三态**，`3` = 本机物理上跑不了（**未执行**）→ 登记为跳过 → 默认走「SKIP ≠ PASS」的退出码 2。**跳过不算通过**：放行必须显式 `ALLOW_SKIP=vpn-connectivity` 并在交付里如实写明真跑 X/11。
 
 **委托 test-runner Agent（haiku）执行**：
 
@@ -404,6 +404,21 @@ Agent(subagent_type="test-runner", prompt="在 App 目录下用 PowerShell 运�
 ```
 
 任何一项 FAIL 必须修复后**重新跑完整 11/11**，不许只重跑失败那项。常见坑见 [.claude/rules/rust-dev.md](.claude/rules/rust-dev.md)（HG 服务文件锁、发货二进制必须验「服务能被拉起」）和 [.claude/rules/frontend-test.md](.claude/rules/frontend-test.md)（vi.hoisted、animation-conflict 注册）。
+
+#### clippy Android 是三态，「本机没 NDK」不再是跳过的合法理由（2026-08-12 起）
+
+`clippy-android` 按 **本机 → 远程构建宿主 → 才允许跳过** 三态执行（块头注释 `test-all.sh:453` `# 三态优先级（本机 → 远程构建宿主 → 才允许跳过）：`，ps1 同口径在 `test-all.ps1:341`）：
+
+| 态 | 条件 | 行为 |
+|---|---|---|
+| ① | 本机有 NDK 且装了 `aarch64-linux-android` target | 本机真跑（最快路径，行为与历来一致） |
+| ② | 本机不具备，但设了 `ANDROID_CLIPPY_HOST` | 源码同步到远程 Android 构建宿主**真跑**，rc 与完整输出取回本机，按与本机完全相同的口径判 PASS/FAIL |
+| ③ | **两者都没有** | 才 `record_skip clippy-android`（`test-all.sh:676`），仍走「SKIP ≠ PASS」 |
+
+- **环境变量 `ANDROID_CLIPPY_HOST`**（本次新增）：远程构建宿主的 ssh 目标，形如 `user@host`，**无默认值**，只在运行时经环境变量注入，**不落盘、不入日志**。本仓是 PUBLIC 公开仓 —— **任何文件里都不写真实内网地址 / 内部主机名 / 账号**，示例一律写 `user@host`。配套还有 `ANDROID_CLIPPY_REMOTE_DIR` / `ANDROID_CLIPPY_REMOTE_NDK_HOME` / `ANDROID_CLIPPY_SSH_OPTS` / `ANDROID_CLIPPY_JOBS`，真值源是脚本头注释（`test-all.sh:27` 起、`test-all.ps1:26` 起）。
+- 🔴 **设了却连不上 = FAIL，不是 skip。** 连不上 / 同步失败 / 远程无工具链 / 远程 clippy 非 0 / 中途断连拿不到结束哨兵，**五种失败全部 FAIL，无一条退回跳过** —— 自动退回等于把"没跑"重新伪装成"环境不具备"。文案把「网络 / 凭据问题」与「代码问题」分开，便于排障。
+- 🔴 **跳过 clippy-android 的合法理由只剩一条：本机无 NDK/target，且未配置远程构建宿主。** 放行时必须如实这么写，**不许再拿"本机没有 NDK"当唯一理由**。v1.1.30 那次正是以「本机无 Android NDK」为由 `ALLOW_SKIP` 放行的 —— 而本仓一直有可用的远程 Android 构建宿主（实测 NDK / 四个 android target / clippy 全部现成，一个字节都不用装，远程真跑 `rc=0`、0 warnings）。
+- 判断动作与全量跳过分支盘点见 [.claude/rules/common.md「说『本机没有 X 所以跳过』之前，先问『远程构建宿主能不能跑』」](.claude/rules/common.md)。
 
 ### 动画类变更的额外门禁（不可跳过）
 
@@ -447,7 +462,7 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 **完整步骤、行号对照、脱敏核命令、坑的成因见 [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md)。** 三条最要命的红线先记住：
 
 1. **一条龙不切开** — 不存在"只跑前半段、后面手动补"。步骤 2 已把三处版本号改脏工作树，中途中断会留下"版本已升、没测没提交"的脏树，下一次发布被 `git add -A` 裹走。
-2. **不带参数跑** — `release.sh` 把收到的参数**原样透传**给 `test-all.sh`，而后者有 `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn` 开关。`./scripts/linux/release.sh --skip-e2e` 会**静默**发出一个没跑 E2E 的版本且照样打印"全部通过" = 降门槛，属红线。同理：测试没全绿就停下如实报，**不许改测试 / 加 skip / 降阈值硬推**。（`--skip-vpn` 砍掉的是「隧道是不是真在承载流量」这条唯一的真机复查；`--skip-rust` 现在砍 4 项，连 `cargo test` 里两条发货件静态守卫一起砍。）
+2. **不带参数跑** — `release.sh` 把收到的参数**原样透传**给 `test-all.sh`，而后者有 `--skip-rust` / `--skip-android` / `--skip-e2e` / `--skip-vpn` 开关。`./scripts/linux/release.sh --skip-e2e` 会**静默**发出一个没跑 E2E 的版本且照样打印"全部通过" = 降门槛，属红线。同理：测试没全绿就停下如实报，**不许改测试 / 加 skip / 降阈值硬推**。（`--skip-vpn` 砍掉的是「隧道是不是真在承载流量」这条唯一的真机复查；`--skip-rust` 现在砍 4 项，连 `cargo test` 里两条发货件静态守卫一起砍，其中也含 clippy Android；`--skip-android` 砍掉的**不再是"一个本机跑不了的项"** —— 配上 `ANDROID_CLIPPY_HOST` 它本可在远程构建宿主真跑，所以用它 = **主动放弃一项本可真跑的检查**。）
 3. **PUBLIC 仓 push 前必做脱敏核** — 文本面 grep 私钥 / 连接串 / 凭据 env / 私网地址；**并对所有 tracked 二进制跑 `strings` 扫**（编译机绝对路径、内部主机名、构建元数据）。这条踩过：未 strip 的二进制曾随公开仓一起发布并泄露内部结构（见 `git log edbb439`）。tag 是 `--force` 推、push 即不可撤销。
 
 排查工作树归属时注意：本仓是巨树，**禁用 `git status` / `git add -A` 做排查**（会超时），改用 `git diff --name-only`、`git diff --cached --name-only`、`git ls-files --others --exclude-standard -- <目录>`。
