@@ -486,10 +486,12 @@ fn db_save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
     db::save_messages(messages)
 }
 
-/// 批量插入消息（INSERT OR IGNORE — 仅补本地缺失的，不覆盖本地状态）
+/// 批量插入消息（缺失行整行插入；已存在行只回填空的引用/相册四列，不覆盖本地状态）
 ///
-/// 历史消息加载专用：保护本地已有的 is_recalled / is_deleted 等状态，
-/// 防止服务器响应不带这些字段时把本地撤回标记覆盖回 0。
+/// 历史消息加载与 sync 存量回填共用：保护本地已有的 is_recalled / is_deleted 等状态，
+/// 防止服务器响应不带这些字段时把本地撤回标记覆盖回 0；同时用
+/// `COALESCE(本地, 服务端)` 把从未写过的 reply_to / media_group_* 四列补上。
+/// 语义细节见 `db::save_messages_skip_existing` 的文档注释。
 #[tauri::command]
 fn db_save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), String> {
     db::save_messages_skip_existing(messages)

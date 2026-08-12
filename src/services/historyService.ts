@@ -5,16 +5,22 @@
  * 支持好友和群聊两种类型
  *
  * ## 关键约束
- * 保存历史消息必须使用 `db.saveMessagesSkipExisting`（INSERT OR IGNORE），不可用 saveMessages。
+ * 保存历史消息必须使用 `db.saveMessagesSkipExisting`，不可用 saveMessages。
  * 理由：好友消息接口 GET `/api/messages` 响应不包含 is_recalled 字段
  * （见 backend-docs/messages/好友消息.md 字段说明），若用 INSERT OR REPLACE 覆盖，
  * 会把本地已撤回消息（is_recalled=1）误覆盖回 0，UI 退化为"普通对方消息形态"。
  *
- * 历史加载的语义就是"补本地缺失的消息"，已存在的消息以本地状态为准。
+ * 历史加载的语义是"补本地缺失的消息 + 回填从未写过的引用/相册四列"：
+ * 已存在的行只被 `COALESCE` 补 reply_to / media_group_id / media_group_index /
+ * media_group_count 这四列（本地非空值优先），content / seq / is_recalled / is_deleted
+ * 等其余列一律以本地状态为准。
  *
  * ## 更新日志
  * - 2026-01-22: 修复外键约束失败问题，保存消息前确保会话存在
  * - 2026-05-10: 切换到 saveMessagesSkipExisting，保护本地撤回状态不被历史覆盖
+ * - 2026-08-12: Rust 侧由 INSERT OR IGNORE 改为 ON CONFLICT DO UPDATE（只补空的四列）——
+ *   本文件因此不再是"已存在行原样跳过"，历史加载同时承担存量脏行的引用/相册列回填
+ *   （成因见 src-tauri/src/db/messages.rs save_messages_skip_existing 的文档注释）
  */
 
 import type { ApiClient } from '../api/client';
@@ -105,8 +111,9 @@ export async function loadAllHistoryMessages(
         }
 
         // 转换并保存到本地数据库（使用正确的 conversation_id）
-        // is_recalled 用 INSERT OR IGNORE 路径：本地已有的消息（含 is_recalled=1）不会被覆盖；
-        // 仅对本地缺失的消息插入；GET /api/messages 不返回 is_recalled，仅作初始值占位
+        // 走 saveMessagesSkipExisting：本地缺失的整行插入；本地已有的行只被 COALESCE 补
+        // 引用/相册四列，is_recalled=1 等本地状态列不会被覆盖。
+        // GET /api/messages 不返回 is_recalled，这里的 false 仅作新插入行的初始值占位
         const localMessages = messages.map((msg: Message) => ({
           message_uuid: msg.message_uuid,
           conversation_id: conversationId,
@@ -166,7 +173,8 @@ export async function loadAllHistoryMessages(
         }
 
         // 转换并保存到本地数据库（群聊的 conversation_id 就是 group_id）
-        // 用 INSERT OR IGNORE 路径：本地已有的消息（含 is_recalled=1）不会被覆盖
+        // 走 saveMessagesSkipExisting：本地缺失的整行插入；本地已有的行只被 COALESCE 补
+        // 引用/相册四列，is_recalled=1 等本地状态列不会被覆盖
         const localMessages = messages.map((msg: GroupMessage) => ({
           message_uuid: msg.message_uuid,
           conversation_id: conversationId,
