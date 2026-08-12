@@ -48,7 +48,6 @@ function extractMessages(respData: unknown): AIMessage[] {
 export interface UseAIMessagesReturn {
   messages: AIMessage[];
   isLoading: boolean;
-  isSending: boolean;
   streamingContent: string;
   streamingReasoning: string;
   toolStatus: AIToolStatus | null;
@@ -73,7 +72,6 @@ export interface UseAIMessagesReturn {
 export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingReasoning, setStreamingReasoning] = useState('');
   const [toolStatus, setToolStatus] = useState<AIToolStatus | null>(null);
@@ -134,7 +132,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
-    setIsSending(true);
     setStreamingContent('');
     setStreamingReasoning('');
     setToolStatus(null);
@@ -226,7 +223,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
         setStreamingReasoning('');
       }
     } finally {
-      setIsSending(false);
       setToolStatus(null);
     }
   }, [api, conversationId]);
@@ -266,7 +262,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
       ? `[系统通知] 用户已确认执行工具「${result.tool_name}」，执行${result.success ? '成功' : '失败'}。请基于执行结果继续回复。`
       : `[系统通知] 用户拒绝了工具「${result.tool_name}」的执行。请告知用户操作已取消。`;
 
-    setIsSending(true);
     setStreamingContent('');
     setStreamingReasoning('');
     setToolStatus(null);
@@ -333,8 +328,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
       );
     } catch (err) {
       console.error('[AI] 工具确认后续请求失败:', err);
-    } finally {
-      setIsSending(false);
     }
   }, [api, conversationId]);
 
@@ -427,7 +420,6 @@ export function useAIMessages(api: ApiClient | null): UseAIMessagesReturn {
   return {
     messages,
     isLoading,
-    isSending,
     streamingContent,
     streamingReasoning,
     toolStatus,
