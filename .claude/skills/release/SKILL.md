@@ -528,3 +528,39 @@ substitute pattern`，带地址范围的 Cargo.toml 那条报 `undefined label`�
 
 ⇒ 它们现在可以当入门说明读，但**仍是二手描述**，脚本再改时可能又落后。
 引用发布流程的**具体行号 / 项数 / 退出码**时，直接读脚本。
+
+## 🔴 步骤 7/7 的 push 在本环境**必然失败** —— 每次发版都会卡在最后一步（2026-08-13 v1.1.33 实证）
+
+**现象**（`release.sh` 已把 1–6 步全做完并自校验通过，只在最末失败）：
+
+```
+[7/7] 推送到 GitHub...
+remote: Invalid username or token. Password authentication is not supported for Git operations.
+fatal: Authentication failed for 'https://github.com/<owner>/<repo>.git/'
+```
+
+**根因**：脚本的 `git push` 走**继承的系统 credential helper**（本机全局是 Git Credential Manager），
+**不读你注入的 `GH_TOKEN`**。GCM 在无 tty 环境要么走交互式 OAuth（挂死）、要么按用户名/密码认证被 GitHub 拒。
+⇒ **这不是偶发、不是网络问题，是每次发版都会重演的结构性缺陷。**
+
+**已验证的修法**（`common.md`「无 tty 环境的 git push 挂死」同款，v1.1.33 实测 `rc=0`、3.8s）：
+
+```bash
+GIT_TERMINAL_PROMPT=0 git \
+  -c credential.helper= \
+  -c credential.helper='!f(){ echo username=<owner>; echo "password=$GH_TOKEN"; };f' \
+  push origin main
+```
+
+🔴 **第一个 `-c credential.helper=`（空值）不可省** —— git 的 helper 是**列表**语义、只追加不覆盖；
+不先清空就仍会回落到 GCM，照样失败。tag 同理（`push origin <tag>`）。
+
+**这算不算「把一条龙切开」——不算，口径已由总管写死（2026-08-13）**：
+> 红线禁的是「**主动把流程拆成几段分别跑**」，不是「**流程跑到最后一步失败后补完同一个动作**」。
+
+脚本已把版本号、二进制构建、13 项门禁、commit、tag 全部做完并自校验通过，
+补 push 是**同一动作的收尾**，且用的是本仓自己记过的写法，不是自创绕法。
+
+**建议（尚未落地，下一版该做）**：把这段内联 helper 直接写进 `release.sh` 的 7/7 步，
+或至少在脚本失败时打印这条修法 —— **别让它只活在文档里等人想起来**。
+每次发版都要人肉补最后一步，本身就是流程缺陷。
