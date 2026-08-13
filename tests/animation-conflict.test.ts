@@ -538,6 +538,15 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform'],
     motionLocation: 'src/pages/Login.tsx + src/pages/Register.tsx (motion.input whileFocus scale 1.01；CSS 只准过渡 border-color/background/box-shadow)',
   },
+  // ===== 预发送待发区（M-5，2026-08-13）=====
+  // 缩略图的入场/退场由 framer-motion 内联 initial/animate/exit 控制（opacity + scale），
+  // CSS 只准过渡 border-color / box-shadow。
+  {
+    selector: '.composer-tray-thumb',
+    cssFile: 'src/styles/components/album-composer.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/shared/ComposerTray.tsx (motion.div initial/animate/exit: opacity + scale)',
+  },
 ];
 
 /**

@@ -3,11 +3,21 @@
  *
  * 包含：
  * - 文件附件按钮
+ * - **预发送待发区**（输入框上方的缩略图条；粘贴 / 选择 / 拖入先落这里，回车才发）
  * - 文本输入框（支持多行）
  * - 发送按钮
- * - 上传进度条
  * - 禁言状态检测和提示
- * - 剪贴板图片粘贴（桌面端，类似 QQ/微信）
+ * - 剪贴板粘贴（桌面端：图片数据 + 从访达复制的文件，两种都进待发区）
+ *
+ * ## 发送态不在这里（spec §三，2026-08-13 改）
+ * 上传进度**已从输入框上方搬进消息气泡里的每个媒体自身**
+ * （{@link import('./SendingMediaOverlay').SendingMediaOverlay}）。
+ * 本组件不再渲染整条总进度条。
+ *
+ * ## 为什么发送编排也在这里
+ * {@link useComposerTrayOutbox} 自取 chatTarget / session / 上传器，
+ * 于是待发区这套东西**不需要给本组件加任何 props**，两个父容器
+ * （桌面 ChatPanel、移动 MobileChatView）一行都不用改。
  */
 
 import { useRef, useCallback, useEffect, useState, useMemo, useLayoutEffect } from 'react';
@@ -15,11 +25,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { FileAttachButton, type AttachmentType, type PickedFile, getMimeType } from './FileAttachButton';
-import { UploadProgress } from './UploadProgress';
+import { ComposerTray } from './ComposerTray';
+import { useComposerTrayOutbox } from './useComposerTrayOutbox';
+import {
+  useComposerTrayStore,
+  selectTrayItems,
+  TRAY_MAX_FILE_BYTES,
+  TRAY_MAX_ITEMS,
+  type TrayItemInput,
+} from '../../stores/composerTrayStore';
+import { formatFileSize } from '../../utils/format';
 import { panelFadeTransition } from './animations';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
-import type { UploadProgress as UploadProgressType } from '../../hooks/useFileUpload';
 import { isMobile } from '../../utils/platform';
 import { useApi } from '../../contexts/SessionContext';
 import { useBotCommandsStore } from '../../stores/botCommandsStore';
@@ -46,22 +64,34 @@ function getAttachmentType(filename: string): AttachmentType {
   return 'file';
 }
 
+/**
+ * 浏览器给的 File → 待发区条目。
+ *
+ * `localPath` 恒为空串：webview 的 `DataTransfer` / `ClipboardData` 只给文件**内容**，
+ * 不给磁盘路径（这是浏览器安全模型，不是本仓的疏漏）。空 localPath 意味着这一份
+ * 不进本地文件缓存映射，只是正常上传 —— 见 TrayItem.localPath 的说明。
+ *
+ * MIME 不准（空 / `application/octet-stream`）时按扩展名重建 File，
+ * 否则后端会把一张 png 当二进制文档存，缩略图与在线预览全废。
+ */
+function normalizeToTrayInput(file: File): TrayItemInput {
+  const kind = getAttachmentType(file.name);
+  if (!file.type || file.type === 'application/octet-stream') {
+    const mimeType = getMimeType(file.name, kind);
+    return {
+      file: new File([file], file.name, { type: mimeType, lastModified: file.lastModified }),
+      localPath: '',
+      kind,
+    };
+  }
+  return { file, localPath: '', kind };
+}
+
 interface ChatInputAreaProps {
   messageInput: string;
   onMessageChange: (value: string) => void;
+  /** 只有文字、没有附件时走它（既有纯文本发送路径，行为不变） */
   onSendMessage: () => void;
-  onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
-  /**
-   * 多选图片/视频回调 —— 交给相册合成面板。
-   *
-   * 可选：**不传时 FileAttachButton 退化为单选**（`allowMultiple` 恒 false），
-   * 单发路径逐字节不变。这是相册接入口对既有行为唯一的开关。
-   */
-  onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
-  uploading: boolean;
-  uploadingFile: File | null;
-  uploadProgress: UploadProgressType | null;
-  onCancelUpload: () => void;
 }
 
 /**
@@ -93,12 +123,6 @@ export function ChatInputArea({
   messageInput,
   onMessageChange,
   onSendMessage,
-  onFileSelect,
-  onFilesSelect,
-  uploading,
-  uploadingFile,
-  uploadProgress,
-  onCancelUpload,
 }: ChatInputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // IME 组字标志：compositionstart 置真、compositionend 置假。
@@ -143,7 +167,8 @@ export function ChatInputArea({
   // 用户继续打字（query 变化）→ 重置 dismissed 与选中项
   useEffect(() => { setSlashDismissed(false); setSlashActiveIndex(0); }, [slashQuery]);
 
-  const slashPanelOpen = slashQuery !== null && filteredCommands.length > 0 && !slashDismissed && !uploading;
+  // 上传不再阻塞输入（进度已搬进气泡），故命令面板的开合不再看上传状态
+  const slashPanelOpen = slashQuery !== null && filteredCommands.length > 0 && !slashDismissed;
 
   useLayoutEffect(() => {
     if (slashPanelOpen && inputWrapperRef.current) {
@@ -179,6 +204,49 @@ export function ChatInputArea({
   const activeReplyDraft = replyDraft && conversationKey && replyDraft.conversationKey === conversationKey
     ? replyDraft
     : null;
+
+  // ==================== 预发送待发区 ====================
+  // 粘贴 / 附件选择 / 拖入统一进这里，回车才连同文字一起发。
+  const trayItems = useComposerTrayStore(selectTrayItems(conversationKey));
+  const addToTrayAction = useComposerTrayStore((s) => s.add);
+  const removeFromTray = useComposerTrayStore((s) => s.remove);
+  const clearTray = useComposerTrayStore((s) => s.clear);
+  const [trayNotice, setTrayNotice] = useState<string | null>(null);
+  const outbox = useComposerTrayOutbox(conversationKey);
+
+  /**
+   * 把一批文件塞进待发区，并把**被挡下的**如实回报（不静默截断）。
+   *
+   * 两类挡：单个超 {@link TRAY_MAX_FILE_BYTES}（spec §四「超限当场提示，不进待发区」），
+   * 以及总数超 {@link TRAY_MAX_ITEMS}。
+   */
+  const addToTray = useCallback((inputs: readonly TrayItemInput[]) => {
+    if (!conversationKey || inputs.length === 0) { return; }
+    const result = addToTrayAction(conversationKey, inputs);
+    const parts: string[] = [];
+    if (result.rejectedOversize.length > 0) {
+      parts.push(
+        `${result.rejectedOversize.join('、')} 超过单个 ${formatFileSize(TRAY_MAX_FILE_BYTES)} 上限，未加入`,
+      );
+    }
+    if (result.rejectedOverflow.length > 0) {
+      parts.push(`一次最多 ${TRAY_MAX_ITEMS} 个，${result.rejectedOverflow.join('、')} 未加入`);
+    }
+    setTrayNotice(parts.length > 0 ? parts.join('；') : null);
+  }, [conversationKey, addToTrayAction]);
+
+  const handleRemoveTrayItem = useCallback((itemId: string) => {
+    if (!conversationKey) { return; }
+    removeFromTray(conversationKey, itemId);
+  }, [conversationKey, removeFromTray]);
+
+  /**
+   * 附件按钮选完文件 ⇒ 进待发区（**不再选完即发**，spec §三 移动端要点）。
+   * 这一批**有**真实本地路径（系统文件选择器给的），可进本地缓存映射。
+   */
+  const handleAttachPicked = useCallback((picked: PickedFile[], type: AttachmentType) => {
+    addToTray(picked.map((p) => ({ file: p.file, localPath: p.localPath, kind: type })));
+  }, [addToTray]);
 
   const jumpNoticeNode = (
     <AnimatePresence>
@@ -243,6 +311,26 @@ export function ChatInputArea({
     return `您已被禁言，剩余 ${timeStr}`;
   }, [isMuted, muteRemaining]);
 
+  /**
+   * 回车 / 点发送：有附件 ⇒ 走待发区（附件 + 文字一起）；没有 ⇒ 既有纯文本路径不变。
+   *
+   * 形态（相册 / 单条）在 `outbox.send` 里一次性定死，之后取消或失败都不再改变它 ——
+   * 否则一条 count=3 的相册会在中途退化成 count=2，对端排版直接算错（spec §五 第 5 问）。
+   */
+  const handleSend = useCallback(() => {
+    if (isMuted) { return; }
+    if (trayItems.length > 0 && conversationKey) {
+      const outcome = outbox.send(trayItems, messageInput);
+      if (outcome.enqueued > 0) {
+        clearTray(conversationKey);
+        setTrayNotice(null);
+        onMessageChange('');
+      }
+      return;
+    }
+    onSendMessage();
+  }, [isMuted, trayItems, conversationKey, outbox, messageInput, clearTray, onMessageChange, onSendMessage]);
+
   // 自动调整输入框高度
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -285,11 +373,10 @@ export function ChatInputArea({
     if (e.key === 'Enter' && !e.shiftKey) {
       if (composing) { return; }
       e.preventDefault();
-      if (!isMuted) {
-        onSendMessage();
-      }
+      // 回车 = 发送「待发区附件 + 文字」；没有附件时 handleSend 退回原来的纯文本路径
+      handleSend();
     }
-  }, [onSendMessage, isMuted, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
+  }, [handleSend, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
 
   // IME 组字事件：维护 isComposingRef，供 handleKeyDown 判断「Enter 是否为确认候选词」。
   const handleCompositionStart = useCallback(() => { isComposingRef.current = true; }, []);
@@ -328,73 +415,55 @@ export function ChatInputArea({
     dragCounterRef.current = 0;
     setIsDragging(false);
 
-    // 禁用状态下不处理
-    if (uploading || isMuted) { return; }
+    if (isMuted) { return; }
 
     const files = e.dataTransfer.files;
     if (files.length === 0) { return; }
 
-    // 只处理第一个文件
-    const file = files[0];
-    const attachmentType = getAttachmentType(file.name);
-
-    // 如果浏览器提供的 MIME 类型不准确，使用扩展名推断
-    let finalFile = file;
-    if (!file.type || file.type === 'application/octet-stream') {
-      const mimeType = getMimeType(file.name, attachmentType);
-      finalFile = new File([file], file.name, {
-        type: mimeType,
-        lastModified: file.lastModified,
-      });
-    }
-
-    // 调用文件选择回调（无本地路径，因为是从浏览器拖入）
-    onFileSelect(finalFile, attachmentType);
-  }, [uploading, isMuted, onFileSelect]);
+    // 拖入的**全部**文件都进待发区（原来只取第一个 —— 待发区支持多个，没有理由再丢）
+    addToTray(Array.from(files).map((f) => normalizeToTrayInput(f)));
+  }, [isMuted, addToTray]);
 
   // ============================================
-  // 剪贴板图片粘贴处理（仅桌面端）
+  // 剪贴板粘贴（仅桌面端）—— 两条来源，都进待发区，都不直接发送
   // ============================================
 
   /**
-   * 处理粘贴事件
-   * 如果剪贴板包含图片，则调用 Tauri 后端保存为 PNG 文件并上传
-   * 类似 QQ/微信 的粘贴图片功能
+   * 处理粘贴事件（spec §四「桌面端粘贴范围」：图片数据 + 从访达复制的文件，两种都支持）
+   *
+   * 顺序不能反：先看 `clipboardData.files`（访达复制文件 / 从别的应用拖来的图片文件都在这里，
+   * **可能有多个**），没有再走 Tauri 剪贴板插件读位图（截图工具那条路，只可能有一张）。
+   *
+   * ⚠️ 已知限制：`clipboardData.files` 给的是内容不是路径 ⇒ 这一批的 `localPath` 为空，
+   * 不进本地文件缓存映射。要拿到访达复制文件的真实路径需要 Tauri 侧新增命令
+   * （`src-tauri/**` 本轮归 B 路，见交付「需要跨路改动的文件」）。
    */
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    // 禁用状态或移动端不处理
-    if (uploading || isMuted || isMobile()) {
+    if (isMuted || isMobile()) {
       return;
     }
 
-    // 检查剪贴板是否包含图片文件
+    // ① 剪贴板里的文件（访达复制的文件、其它应用放进来的图片文件）—— 全部收下，不限类型、不限个数
     const files = e.clipboardData?.files;
     if (files && files.length > 0) {
-      const file = files[0];
-
-      // 检查是否是图片
-      if (file.type.startsWith('image/')) {
-        e.preventDefault(); // 阻止默认粘贴行为
-
-        // 生成文件名（截图默认没有名称）
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      e.preventDefault(); // 阻止默认粘贴行为（否则文件名会被当文本插进输入框）
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      addToTray(Array.from(files).map((file, i) => {
+        // 截图类数据没有文件名，得自己造一个，否则后端按文件名派生的正文是空的
+        if (file.name) {
+          return normalizeToTrayInput(file);
+        }
         const ext = file.type.split('/')[1] || 'png';
-        const filename = file.name || `clipboard-${timestamp}.${ext}`;
-
-        // 创建带正确文件名的 File 对象
-        const imageFile = new File([file], filename, {
-          type: file.type,
+        const named = new File([file], `clipboard-${timestamp}-${i}.${ext}`, {
+          type: file.type || 'image/png',
           lastModified: Date.now(),
         });
-
-        // 调用已有的 onFileSelect 回调（无本地路径）
-        onFileSelect(imageFile, 'image');
-        return;
-      }
+        return normalizeToTrayInput(named);
+      }));
+      return;
     }
 
-    // 尝试使用 Tauri 剪贴板插件读取图片（桌面端专属）
-    // 这可以处理通过截图工具复制到剪贴板的图片
+    // ② Tauri 剪贴板插件里的位图（截图工具复制的图，不以文件形式出现在 clipboardData 里）
     try {
       // 动态导入，避免移动端加载失败
       const { readImage } = await import('@tauri-apps/plugin-clipboard-manager');
@@ -427,13 +496,13 @@ export function ChatInputArea({
         lastModified: Date.now(),
       });
 
-      // 调用现有的文件选择回调，传入本地路径
-      onFileSelect(file, 'image', localPath);
+      // 这一条**有**真实本地路径（Rust 刚落的盘），可以进本地缓存映射
+      addToTray([{ file, localPath, kind: 'image' }]);
     } catch {
       // 剪贴板没有图片或读取失败，继续默认粘贴行为（粘贴文本）
       // 这是正常情况，不需要记录错误
     }
-  }, [uploading, isMuted, onFileSelect]);
+  }, [isMuted, addToTray]);
 
   // 禁言状态变化后重新聚焦（移动端禁用自动聚焦以避免键盘弹出）
   useEffect(() => {
@@ -497,25 +566,21 @@ export function ChatInputArea({
         )}
       </AnimatePresence>
 
-      {/* 上传进度条 */}
-      <AnimatePresence>
-        {uploading && uploadingFile && uploadProgress && (
-          <UploadProgress
-            filename={uploadingFile.name}
-            fileSize={uploadingFile.size}
-            progress={uploadProgress}
-            onCancel={onCancelUpload}
-          />
-        )}
-      </AnimatePresence>
+      {/*
+        预发送待发区。输入框上方的缩略图条 —— 附件先落这里，回车才发。
+        原来这个位置是整条上传总进度条，spec §三 已把进度搬进消息气泡里的每个媒体自身
+        （SendingMediaOverlay），故这里不再有进度条。
+      */}
+      <ComposerTray
+        items={trayItems}
+        onRemove={handleRemoveTrayItem}
+        notice={trayNotice}
+        onDismissNotice={() => setTrayNotice(null)}
+      />
 
       <div className="input-wrapper multiline" ref={inputWrapperRef}>
-        {/* 文件附件按钮 */}
-        <FileAttachButton
-          disabled={uploading}
-          onFileSelect={onFileSelect}
-          onFilesSelect={onFilesSelect}
-        />
+        {/* 文件附件按钮 —— 选完进待发区（不再选完即发），故只给 onFilesSelect */}
+        <FileAttachButton onFilesSelect={handleAttachPicked} />
 
         <textarea
           ref={textareaRef}
@@ -529,17 +594,17 @@ export function ChatInputArea({
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
           onPaste={handlePaste}
-          disabled={uploading}
           rows={1}
         />
         <motion.button
           className="send-btn"
           onClick={() => {
-            onSendMessage();
+            handleSend();
             // 点击按钮发送后，将焦点返回输入框以便继续输入
             textareaRef.current?.focus();
           }}
-          disabled={!messageInput.trim() || uploading}
+          // 待发区有东西时即便没打字也能发（纯媒体，四格矩阵的「无文字」两格）
+          disabled={!messageInput.trim() && trayItems.length === 0}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >

@@ -200,6 +200,8 @@ async fn serve_video(
                     format!("bytes {}-{}/{}", start, end, file_size),
                 )
                 .header(header::ACCEPT_RANGES, "bytes")
+                // 见下方 6b 分支同一行的注释：封面截帧要求本响应可跨源读取
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                 .body(body)
                 .unwrap()
         }
@@ -213,6 +215,14 @@ async fn serve_video(
                 .header(header::CONTENT_TYPE, content_type)
                 .header(header::CONTENT_LENGTH, file_size.to_string())
                 .header(header::ACCEPT_RANGES, "bytes")
+                // 🔴 视频封面持久化要求本响应**可跨源读取**：webview 源（`tauri://localhost` /
+                // `http://tauri.localhost`）≠ `127.0.0.1:<port>`，截帧那个 <video> 必须带
+                // crossOrigin="anonymous" 才不会把 canvas 污染成 tainted（污染后 toBlob 抛
+                // SecurityError，封面永远存不下来）；而带了它，响应没有本头就直接**加载失败**。
+                // 另外两条取源通路本来就有：回环安全反代 `secure_proxy.rs` 的 with_cors（`*`）、
+                // Tauri asset 协议（`Access-Control-Allow-Origin: <window_origin>`，
+                // tauri-2.11.1/src/protocol/asset.rs）。同文件 serve_audio 早已是同款写法。
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                 .body(body)
                 .unwrap()
         }

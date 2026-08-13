@@ -10,6 +10,7 @@
 //!       └── file/           # 下载的文件
 //!           ├── videos/     # 视频文件
 //!           ├── pictures/   # 图片文件
+//!           ├── posters/    # 视频封面帧（截一次落盘，索引在 video_posters 表）
 //!           └── documents/  # 文档文件
 //! ```
 //!
@@ -249,6 +250,11 @@ pub fn get_user_documents_dir(user_id: &str, server_url: &str) -> PathBuf {
     get_user_file_dir(user_id, server_url).join("documents")
 }
 
+/// 获取视频封面目录（与 pictures/ 平级，同一个文件缓存根 —— 「和图片的加载一样」）
+pub fn get_user_posters_dir(user_id: &str, server_url: &str) -> PathBuf {
+    get_user_file_dir(user_id, server_url).join("posters")
+}
+
 /// 获取用户数据库文件路径
 pub fn get_user_db_path(user_id: &str, server_url: &str) -> PathBuf {
     get_user_chat_dir(user_id, server_url).join("chat_data.db")
@@ -310,6 +316,7 @@ pub fn ensure_user_directories(user_id: &str, server_url: &str) -> Result<(), St
         get_user_chat_dir(user_id, server_url),
         get_user_videos_dir(user_id, server_url),
         get_user_pictures_dir(user_id, server_url),
+        get_user_posters_dir(user_id, server_url),
         get_user_documents_dir(user_id, server_url),
     ];
 

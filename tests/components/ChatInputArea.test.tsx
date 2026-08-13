@@ -16,9 +16,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // 稳定的 api 引用（组件 useEffect 依赖 [api, botUserId]，不稳定会导致重复 fetch）
 const apiMock = vi.hoisted(() => ({}));
+// ChatInputArea 自 M-5 起还经 useComposerTrayOutbox 读 useSession（发送编排要 session.userId）。
+// 这里只补一个**稳定引用**的假 session：本文件测的是斜杠命令面板，不碰发送编排。
+// （引用必须稳定 —— 每次 render 返回新对象会虚假触发下游依赖 session 的 effect，
+//   见 .claude/rules/frontend-test.md「mock context hook 的返回值必须引用稳定」）
+const sessionMock = vi.hoisted(() => ({
+  session: { userId: 'me', profile: { user_nickname: '我', user_avatar_url: '' } },
+}));
 vi.mock('../../src/contexts/SessionContext', async (orig) => ({
   ...(await orig()),
   useApi: () => apiMock,
+  useSession: () => sessionMock,
 }));
 
 // bot 命令拉取确定化（与下面 seed 同值，effect 重取不 clobber）
@@ -63,11 +71,6 @@ function Harness({ onSend }: { onSend: () => void }) {
       messageInput={v}
       onMessageChange={setV}
       onSendMessage={onSend}
-      onFileSelect={() => {}}
-      uploading={false}
-      uploadingFile={null}
-      uploadProgress={null}
-      onCancelUpload={() => {}}
     />
   );
 }

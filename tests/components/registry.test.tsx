@@ -232,11 +232,15 @@ import * as useWebRTC from '../../src/meeting/useWebRTC';
 import * as useNotificationSounds from '../../src/hooks/useNotificationSounds';
 import * as useBots from '../../src/hooks/useBots';
 import * as useTopLayer from '../../src/hooks/useTopLayer';
+import * as useVideoPoster from '../../src/chat/shared/useVideoPoster';
 
 // 服务
 import * as deviceInfo from '../../src/services/deviceInfo';
 import * as diagnosticService from '../../src/services/diagnosticService';
 import * as fileCache from '../../src/services/fileCache';
+import * as assetUrl from '../../src/services/assetUrl';
+import * as videoPoster from '../../src/services/videoPoster';
+import * as videoPosterCapture from '../../src/services/videoPosterCapture';
 import * as fileService from '../../src/services/fileService';
 import * as sessionLock from '../../src/services/sessionLock';
 import * as historyService from '../../src/services/historyService';
@@ -251,6 +255,7 @@ import * as botCommandsStore from '../../src/stores/botCommandsStore';
 import * as slashCommands from '../../src/chat/shared/slashCommands';
 import * as replyPreview from '../../src/chat/shared/replyPreview';
 import * as AlbumMessage from '../../src/chat/shared/AlbumMessage';
+import * as MediaBubbleFrame from '../../src/chat/shared/MediaBubbleFrame';
 import * as AlbumComposer from '../../src/chat/shared/AlbumComposer';
 import * as albumSend from '../../src/chat/shared/albumSend';
 import * as mediaGroup from '../../src/chat/shared/mediaGroup';
@@ -299,6 +304,17 @@ import * as chatAnimations from '../../src/chat/shared/animations';
 import * as aiApi from '../../src/api/ai';
 // 会议 WebRTC 纯函数核心
 import * as webrtcCore from '../../src/meeting/webrtcCore';
+// 预发送待发区（M-5）
+import * as ComposerTray from '../../src/chat/shared/ComposerTray';
+import * as SendingMediaOverlay from '../../src/chat/shared/SendingMediaOverlay';
+import * as composerTrayPlan from '../../src/chat/shared/composerTrayPlan';
+import * as composerTrayStore from '../../src/stores/composerTrayStore';
+import * as sendingMediaStore from '../../src/stores/sendingMediaStore';
+import * as uploadPersist from '../../src/chat/shared/uploadPersist';
+import * as sendingMediaActions from '../../src/chat/shared/sendingMediaActions';
+import * as uploadAbortRegistry from '../../src/chat/shared/uploadAbortRegistry';
+import * as useComposerTrayOutbox from '../../src/chat/shared/useComposerTrayOutbox';
+import * as useSendingOutboxMerge from '../../src/chat/shared/useSendingOutboxMerge';
 
 // 主题系统
 import * as themeIndex from '../../src/theme/index';
@@ -547,10 +563,14 @@ const COMPONENT_MAP = {
   useLanTransfer,
   useBots,
   useTopLayer,
+  useVideoPoster,
   // 服务
   deviceInfo,
   diagnosticService,
   fileCache,
+  assetUrl,
+  videoPoster,
+  videoPosterCapture,
   fileService,
   sessionLock,
   historyService,
@@ -565,6 +585,7 @@ const COMPONENT_MAP = {
   slashCommands,
   replyPreview,
   AlbumMessage,
+  MediaBubbleFrame,
   AlbumComposer,
   albumSend,
   mediaGroup,
@@ -579,6 +600,17 @@ const COMPONENT_MAP = {
   aiApi,
   // 会议 WebRTC 纯函数核心
   webrtcCore,
+  // 预发送待发区（M-5）
+  ComposerTray,
+  SendingMediaOverlay,
+  composerTrayPlan,
+  composerTrayStore,
+  sendingMediaStore,
+  uploadPersist,
+  sendingMediaActions,
+  uploadAbortRegistry,
+  useComposerTrayOutbox,
+  useSendingOutboxMerge,
 };
 
 // ============== 页面组件测试 ==============

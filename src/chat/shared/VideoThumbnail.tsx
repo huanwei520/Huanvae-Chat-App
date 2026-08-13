@@ -40,9 +40,28 @@
  * 调用方传进来的 `src` 要是取源收口点解析出来的裸地址（本地媒体服务器 URL 或回环反代 URL），
  * `#t=0.1` 由本组件内部追加。**别在调用方先追一次**：同一个 src 变量通常还会被递给全屏播放器，
  * 带上片段会让视频从 0.1 秒开始播（见 videoPosterSrc.ts「只能在元素层用」）。
+ *
+ * ## 封面本地持久化：传了 `fileHash` 就走本地图片，不再建 `<video>`
+ *
+ * 上面那套「靠引擎 seek 出首帧」的机制有个结构性代价：**那一帧只活在这个 `<video>` 元素里**，
+ * 元素一销毁就没了 —— 切回会话、进「查找记录 → 视频」、杀掉 App 重开，每次都要重拉元数据 +
+ * seek + 解码，用户看到的就是「先黑再显示 / 每次都重新加载」。
+ *
+ * 传入 `fileHash` 后，本组件改由 `useVideoPoster` 驱动：
+ * - 本地已存过封面 ⇒ 渲染 `<img>`（与图片消息**完全同一条**显示通路），`<video>` 连建都不建；
+ * - 没存过 ⇒ 照旧渲染 `<video>`（用户立刻有画面），同时在离屏元素上截一帧落盘，
+ *   落好后当场切成 `<img>`，此后永久走本地；
+ * - 正在问「有没有存过」的那几毫秒 ⇒ 什么都不渲染（**不能**先渲染 `<video>`：
+ *   一屏几十个格子会各开一次元数据拉取，恰是本功能要消灭的成本，理由见 useVideoPoster.ts）。
+ *
+ * 不传 `fileHash` 的调用点行为与此前**逐字节相同**（恒走 `<video>` 分支）。
+ *
+ * ⚠️ `onPlay` 只在 `<video>` 分支上有意义 —— 走本地封面时没有媒体元素，自然不会有播放事件。
+ * 气泡那处靠它触发的后台缓存另有点击入口（`FileMessageContent` 的 `handleClick`），不受影响。
  */
 
 import { videoPosterSrc } from './videoPosterSrc';
+import { useVideoPoster } from './useVideoPoster';
 
 export interface VideoThumbnailProps {
   /**
@@ -50,6 +69,11 @@ export interface VideoThumbnailProps {
    * 本组件内部追 `#t=0.1`，调用方不要自己追（理由见文件头）。
    */
   src: string;
+  /**
+   * 视频的稳定身份 —— 本地封面缓存的键（与图片本地缓存同一把键）。
+   * 不传 = 不启用封面持久化，行为与本功能落地前相同。
+   */
+  fileHash?: string | null;
   /** 落到 `<video>` 上的类名（各调用点的尺寸 / 裁切样式仍归各自的 CSS） */
   className?: string;
   /**
@@ -64,7 +88,32 @@ export interface VideoThumbnailProps {
   decorative?: boolean;
 }
 
-export function VideoThumbnail({ src, className, onPlay, decorative }: VideoThumbnailProps) {
+export function VideoThumbnail({
+  src,
+  fileHash,
+  className,
+  onPlay,
+  decorative,
+}: VideoThumbnailProps) {
+  const { status, posterSrc } = useVideoPoster(fileHash, src);
+
+  if (status === 'pending') {
+    // 解析本地封面的那几毫秒：不渲染任何媒体元素（理由见文件头）
+    return null;
+  }
+
+  if (status === 'poster' && posterSrc) {
+    // 本地已有封面：与图片消息同一条显示通路（asset 协议），零解码、零网络
+    return (
+      <img
+        className={className}
+        src={posterSrc}
+        alt=""
+        aria-hidden={decorative ? true : undefined}
+      />
+    );
+  }
+
   return (
     <video
       className={className}

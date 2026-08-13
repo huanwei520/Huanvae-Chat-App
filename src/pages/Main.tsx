@@ -246,16 +246,6 @@ export function Main() {
               messageInput={page.messageInput}
               onMessageChange={page.setMessageInput}
               onSendMessage={page.handleSendMessage}
-              onFileSelect={page.handleFileSelect}
-              onFilesSelect={page.handleFilesSelect}
-              albumPicked={page.albumPicked}
-              albumSending={page.albumSending}
-              onAlbumSend={page.handleAlbumSend}
-              onAlbumCancel={page.handleAlbumCancel}
-              uploading={page.uploading}
-              uploadingFile={page.uploadingFile}
-              uploadProgress={page.progress}
-              onCancelUpload={page.handleCancelUpload}
               isMultiSelectMode={page.isMultiSelectMode}
               selectedMessages={page.selectedMessages}
               canBatchRecall={page.canBatchRecall}

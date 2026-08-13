@@ -179,7 +179,17 @@ function MediaHit({
     // 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
     // 详见 chat/shared/VideoThumbnail.tsx。递**裸** src —— 片段由组件内部追。
     // decorative：格子自己已带 aria-label（「视频 {文件名}」），读屏不必再念一遍。
-    media = <VideoThumbnail src={src} className={mediaClass} decorative />;
+    // fileHash 是本地封面缓存的键：递的是与聊天气泡（chat/shared/FileMessageContent.tsx）
+    // **同一个** message.file_hash ⇒ 两处命中同一个封面文件、就是同一帧；也正是靠它，
+    // 这里从「先黑再显示」变成「重开就立刻有画面」。
+    media = (
+      <VideoThumbnail
+        src={src}
+        fileHash={message.file_hash}
+        className={mediaClass}
+        decorative
+      />
+    );
   } else {
     media = <img className={mediaClass} src={src} alt="" loading="lazy" />;
   }

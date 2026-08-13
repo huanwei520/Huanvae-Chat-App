@@ -90,8 +90,11 @@
 /* 消息回复引用 - 气泡内引用块 + 输入区「正在回复」条 + 定位失败提示 + 定位高亮脉冲（群聊 + 私聊共用） */
 @import './components/reply-quote.css';
 
-/* 相册（媒体组）- 气泡内网格 + 整组配文；格高按 aspect-ratio 预留，避免图片加载引发布局跳动 */
+/* 相册（媒体组）- 气泡内网格；格高按 aspect-ratio 预留，避免图片加载引发布局跳动 */
 @import './components/album.css';
+
+/* 媒体 + 配文的同一个大气泡（Telegram 式 media + caption）- 相册 / 单图 / 单视频共用 */
+@import './components/media-bubble.css';
 
 /* 相册合成面板 - 选完 N 张后配文再发（Telegram 风格；桌面/移动共用一个组件） */
 @import './components/album-composer.css';

@@ -67,9 +67,31 @@ export interface UploadRequestParams {
   relatedId?: string; // 好友ID或群ID
   /** 相册元数据；单发时不传 */
   mediaGroup?: MediaGroupMeta;
-  /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+  /**
+   * 配文。两种合法用法（backend-docs/storage/文件存储管理.md `caption` 参数行）：
+   * ① **不成组的单条**媒体消息可直接带（单图配文）；
+   * ② 成组时**只在 `mediaGroup.index === 0` 那一项**传。挂到组内其它位次 → 后端 400。
+   */
   caption?: string;
+  /**
+   * 逐次上传的进度回调。
+   *
+   * hook 自带的 `progress` state 是**单例**：串行上传 N 项时它只反映"当前这一项"，
+   * 而类 Telegram 的发送态要求「每个媒体在自己的位置转圈」⇒ 调用方需要一条
+   * 与自己那一项绑定的进度流。故这里给每次调用一个独立回调，
+   * 与全局 `progress` 并行推送同样的值（不是二选一，两者同源）。
+   */
+  onProgress?: (progress: UploadProgress) => void;
+  /**
+   * 取消信号。粒度 = **分片边界**：只在开始下一个分片前检查，
+   * 不中断已经在飞的那个 XHR（中断它需要把 xhr 实例透传出来，收益不抵复杂度）。
+   * ⇒ 用户点取消后最长要等当前分片传完才真正停，UI 应显示"正在取消"而不是立刻消失。
+   */
+  signal?: AbortSignal;
 }
+
+/** 取消时抛出的错误信息 —— 调用方据此把"用户主动取消"与"真失败"分开 */
+export const UPLOAD_CANCELLED = '上传已取消';
 
 /** 上传进度信息 */
 export interface UploadProgress {
@@ -387,11 +409,13 @@ export function useFileUpload() {
    */
   const uploadFile = useCallback(
     async (params: UploadRequestParams): Promise<UploadResult> => {
-      const { file, storageLocation, relatedId, mediaGroup, caption } = params;
+      const { file, storageLocation, relatedId, mediaGroup, caption, onProgress, signal } = params;
       const fileType = params.fileType || getFileType(file, storageLocation);
 
-      setUploading(true);
-      setProgress({
+      // 进度的**唯一**真值持有在这个局部变量里，再同时推给 hook state 与本次调用的回调。
+      // 原先各处用 `setProgress(prev => ...)` 更新器，无法在同一处把值也交给 onProgress
+      // （在更新器里调回调 = 在 React 的状态计算里做副作用，StrictMode 下会跑两次）。
+      let current: UploadProgress = {
         percent: 0,
         loaded: 0,
         total: file.size,
@@ -399,16 +423,24 @@ export function useFileUpload() {
         totalChunks: 0,
         status: 'hashing',
         statusDetail: '准备计算文件指纹...',
-      });
+      };
+      const pushProgress = (patch: Partial<UploadProgress>) => {
+        current = { ...current, ...patch };
+        setProgress(current);
+        onProgress?.(current);
+      };
+
+      setUploading(true);
+      setProgress(current);
+      onProgress?.(current);
 
       try {
         // 1. 计算文件哈希（带进度回调）
         const fileHash = await calculateSHA256(file, (detail) => {
-          setProgress((prev) => {
-            if (!prev) { return prev; }
-            return { ...prev, statusDetail: detail };
-          });
+          pushProgress({ statusDetail: detail });
         });
+
+        if (signal?.aborted) { throw new Error(UPLOAD_CANCELLED); }
 
         // 1.5 读取媒体尺寸（图片/视频文件）
         const imageDimensions = await getMediaDimensionsFromFile(file);
@@ -425,10 +457,7 @@ export function useFileUpload() {
           },
         });
 
-        setProgress((prev) => {
-          if (!prev) { return prev; }
-          return { ...prev, status: 'requesting', percent: 5, statusDetail: '正在请求上传...' };
-        });
+        pushProgress({ status: 'requesting', percent: 5, statusDetail: '正在请求上传...' });
 
         // 2. 请求上传（包含图片尺寸，后端文档要求）
         const uploadInfo = await api.post<UploadRequestResponse>('/api/storage/upload/request', {
@@ -452,7 +481,7 @@ export function useFileUpload() {
 
         // 3. 检查是否秒传
         if (uploadInfo.instant_upload) {
-          setProgress({
+          pushProgress({
             percent: 100,
             loaded: file.size,
             total: file.size,
@@ -484,15 +513,11 @@ export function useFileUpload() {
         const totalChunks =
           uploadInfo.total_chunks || Math.ceil(file.size / chunkSize);
 
-        setProgress((prev) => {
-          if (!prev) { return prev; }
-          return {
-            ...prev,
-            status: 'uploading',
-            totalChunks,
-            percent: 10,
-            statusDetail: `0 / ${formatFileSize(file.size)}`,
-          };
+        pushProgress({
+          status: 'uploading',
+          totalChunks,
+          percent: 10,
+          statusDetail: `0 / ${formatFileSize(file.size)}`,
         });
 
         let completedChunksSize = 0; // 已完成分片的总大小
@@ -501,6 +526,8 @@ export function useFileUpload() {
         const uploadId = uploadInfo.multipart_upload_id || '';
 
         for (let i = 0; i < totalChunks; i++) {
+          // 取消检查放在分片边界（见 UploadRequestParams.signal 的粒度说明）
+          if (signal?.aborted) { throw new Error(UPLOAD_CANCELLED); }
           // 获取分片预签名 URL
           // eslint-disable-next-line no-await-in-loop
           const partUrlData = await api.get<{ part_url: string }>(
@@ -526,7 +553,7 @@ export function useFileUpload() {
               // 计算总进度：已完成分片 + 当前分片已上传
               const totalUploaded = completedChunksSize + chunkLoaded;
               const uploadPercent = 10 + (totalUploaded / file.size) * 80; // 10%-90%
-              setProgress({
+              pushProgress({
                 percent: uploadPercent,
                 loaded: totalUploaded,
                 total: file.size,
@@ -543,10 +570,7 @@ export function useFileUpload() {
         }
 
         // 5. 确认上传
-        setProgress((prev) => {
-          if (!prev) { return prev; }
-          return { ...prev, status: 'confirming', percent: 95, statusDetail: '正在确认上传...' };
-        });
+        pushProgress({ status: 'confirming', percent: 95, statusDetail: '正在确认上传...' });
 
         const confirmResult = await api.post<ConfirmUploadResponse>('/api/storage/upload/confirm', {
           file_key: uploadInfo.file_key,
@@ -561,7 +585,7 @@ export function useFileUpload() {
         // 从 URL 中提取 UUID
         const fileUuid = confirmResult.file_url.split('/').pop();
 
-        setProgress({
+        pushProgress({
           percent: 100,
           loaded: file.size,
           total: file.size,
@@ -586,10 +610,7 @@ export function useFileUpload() {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : '上传失败';
-        setProgress((prev) => {
-          if (!prev) { return prev; }
-          return { ...prev, status: 'error' };
-        });
+        pushProgress({ status: 'error', statusDetail: errorMessage });
         setUploading(false);
 
         return {
@@ -611,8 +632,10 @@ export function useFileUpload() {
       friendId: string,
       /** 相册元数据；单发时不传（传了才成组） */
       mediaGroup?: MediaGroupMeta,
-      /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+      /** 配文；不成组的单条可直接带，成组时只在 index === 0 那一项传（后端约束） */
       caption?: string,
+      /** 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变） */
+      opts?: Pick<UploadRequestParams, 'onProgress' | 'signal'>,
     ): Promise<UploadResult> => {
       return uploadFile({
         file,
@@ -621,6 +644,8 @@ export function useFileUpload() {
         relatedId: friendId,
         mediaGroup,
         caption,
+        onProgress: opts?.onProgress,
+        signal: opts?.signal,
       });
     },
     [uploadFile],
@@ -635,8 +660,10 @@ export function useFileUpload() {
       groupId: string,
       /** 相册元数据；单发时不传（传了才成组） */
       mediaGroup?: MediaGroupMeta,
-      /** 整组配文；**只在 mediaGroup.index === 0 那一项传**（后端约束） */
+      /** 配文；不成组的单条可直接带，成组时只在 index === 0 那一项传（后端约束） */
       caption?: string,
+      /** 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变） */
+      opts?: Pick<UploadRequestParams, 'onProgress' | 'signal'>,
     ): Promise<UploadResult> => {
       return uploadFile({
         file,
@@ -645,6 +672,8 @@ export function useFileUpload() {
         relatedId: groupId,
         mediaGroup,
         caption,
+        onProgress: opts?.onProgress,
+        signal: opts?.signal,
       });
     },
     [uploadFile],

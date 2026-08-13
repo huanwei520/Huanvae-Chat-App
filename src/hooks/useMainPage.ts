@@ -32,7 +32,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, useApi } from '../contexts/SessionContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useChatStore } from '../stores';
-import { useSettingsStore } from '../stores/settingsStore';
 import { useFriends } from './useFriends';
 import { useGroups } from './useGroups';
 import { useLocalFriendMessages } from '../chat/friend/useLocalFriendMessages';
@@ -50,8 +49,8 @@ import { useChatActions } from './useChatActions';
 import { useMultiSelect } from './useMultiSelect';
 import { getPendingRequests } from '../api/friends';
 import { getGroupInvitations } from '../api/groups';
-import { invoke } from '@tauri-apps/api/core';
-import { saveFileUuidHash, saveMessage, clearCurrentUser } from '../db';
+import { clearCurrentUser } from '../db';
+import { persistUploadedMessage } from '../chat/shared/uploadPersist';
 import { getFriendConversationId } from '../utils/conversationId';
 import { isFriendLikeTarget } from '../utils/chatTarget';
 import type { NavTab } from '../components/sidebar/Sidebar';
@@ -104,127 +103,12 @@ const JUMP_NOTICE_DURATION_MS = 4000;
 // ============================================
 // 文件上传成功后的公共处理逻辑
 // ============================================
-
-/**
- * 上传成功后处理：缓存文件、保存消息、保存映射
- *
- * 提取此函数是为了消除好友/群聊文件上传的重复代码（约 80 行）
- */
-interface UploadSuccessOptions {
-  result: {
-    fileHash?: string;
-    fileUuid?: string;
-    fileUrl?: string;
-    messageUuid?: string;
-    messageSendTime?: string;
-    imageWidth?: number | null;
-    imageHeight?: number | null;
-  };
-  file: File;
-  localPath?: string;
-  messageType: 'image' | 'video' | 'file';
-  timestamp: string;
-  session: { userId: string; profile: { user_nickname: string; user_avatar_url: string | null } };
-  conversationType: 'friend' | 'group';
-  conversationId: string;
-  /**
-   * 相册三件套；单发不传。
-   *
-   * 必须在这里落库：本条是**自己发的**消息，服务端不会再经 WS 把它推回来，
-   * 上传后紧跟的 loadXxxMessages() 直接读本地库 —— 这里写 null 的话，
-   * 自己刚发出的相册在自己屏幕上会散成 N 张独立图（对端却是正常一组）。
-   * 这正是 common.md「数据要穿过几段就得验几段」里的第 ② 段。
-   */
-  mediaGroup?: MediaGroupMeta;
-  /**
-   * 本条生效的配文；只有组首项（index 0）会带。
-   *
-   * 后端 `resolve_content`（storage/handlers/upload.rs）在 caption 非空白时**用它取代**
-   * 文件名派生正文，而契约里「`index=0` 那条的 `message_content` 即整组配文」
-   * （backend-docs/messages/好友消息.md）—— 本地这份乐观副本不跟着写，
-   * 自己刚发的相册在自己屏幕上就会把**文件名**当配文显示。
-   */
-  caption?: string;
-}
-
-async function processUploadSuccess(options: UploadSuccessOptions): Promise<void> {
-  const { result, file, localPath, messageType, timestamp, session, conversationType, conversationId, mediaGroup, caption } = options;
-
-  if (!result.fileUuid || !result.fileHash) {
-    return;
-  }
-
-  // 1. 保存 file_uuid 到 file_hash 的映射
-  await saveFileUuidHash(result.fileUuid, result.fileHash);
-  // eslint-disable-next-line no-console
-  console.log('%c[FileUpload] 保存 UUID-Hash 映射', 'color: #FF9800; font-weight: bold', {
-    fileUuid: result.fileUuid,
-    fileHash: result.fileHash,
-  });
-
-  // 2. 如果有本地路径，复制到统一缓存目录（大文件≥阈值不复制，记录原始路径）
-  if (localPath) {
-    try {
-      const { fileCache } = useSettingsStore.getState();
-      const thresholdBytes = fileCache.largeFileThresholdMB * 1024 * 1024;
-      const cachedPath = await invoke<string>('copy_file_to_cache', {
-        sourcePath: localPath,
-        fileHash: result.fileHash,
-        fileName: file.name,
-        fileType: messageType,
-        fileSize: file.size,
-        largeFileThreshold: thresholdBytes,
-      });
-      // eslint-disable-next-line no-console
-      console.log('%c[FileUpload] 文件已缓存到统一目录', 'color: #2196F3; font-weight: bold', {
-        fileHash: result.fileHash,
-        originalPath: localPath,
-        cachedPath,
-        isLargeFile: file.size >= thresholdBytes,
-      });
-    } catch (cacheErr) {
-      console.error('[FileUpload] 缓存文件失败:', cacheErr);
-    }
-  }
-
-  // 3. 保存消息到本地数据库（后端上传时会自动发送消息）
-  if (result.messageUuid) {
-    await saveMessage({
-      message_uuid: result.messageUuid,
-      conversation_id: conversationId,
-      conversation_type: conversationType,
-      sender_id: session.userId,
-      sender_name: session.profile.user_nickname,
-      sender_avatar: session.profile.user_avatar_url,
-      // 配文生效时取代文件名（与后端 resolve_content 同口径）；单发不传 caption ⇒ 仍是 file.name
-      content: caption?.trim() || file.name,
-      content_type: messageType,
-      file_uuid: result.fileUuid,
-      file_url: result.fileUrl || null,
-      file_size: file.size,
-      file_hash: result.fileHash,
-      image_width: result.imageWidth ?? null,
-      image_height: result.imageHeight ?? null,
-      seq: 0,
-      reply_to: null,
-      // 相册三件套：单发时 mediaGroup 为 undefined ⇒ 三列均 null（与从前逐字一致）
-      media_group_id: mediaGroup?.id ?? null,
-      media_group_index: mediaGroup?.index ?? null,
-      media_group_count: mediaGroup?.count ?? null,
-      is_recalled: false,
-      is_deleted: false,
-      send_time: result.messageSendTime || timestamp,
-    });
-    // eslint-disable-next-line no-console
-    console.log('%c[FileUpload] 保存消息到本地数据库', 'color: #9C27B0; font-weight: bold', {
-      messageUuid: result.messageUuid,
-      fileName: file.name,
-      conversationId,
-      imageWidth: result.imageWidth,
-      imageHeight: result.imageHeight,
-    });
-  }
-}
+//
+// 实现已收口到 chat/shared/uploadPersist.ts（待发区新路径与这条旧路径共用同一份）。
+// 原先这里有一份同语义的私有 processUploadSuccess —— 两份并存必然漂移，
+// 而漂移的症状是静默的（其中一条路径上"自己发的相册在自己屏幕上散架"），故已删除。
+// 这个薄封装只保留旧调用点的名字，签名逐字不变。
+const processUploadSuccess = persistUploadedMessage;
 
 export function useMainPage() {
   const { session, clearSession } = useSession();

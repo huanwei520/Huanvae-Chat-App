@@ -33,11 +33,21 @@ export type AttachmentType = 'image' | 'video' | 'file';
 export interface FileAttachButtonProps {
   /** 是否禁用 */
   disabled?: boolean;
-  /** 文件选择回调（带本地路径） */
-  onFileSelect: (file: File, type: AttachmentType, localPath?: string) => void;
   /**
-   * 多选回调（仅图片/视频给出；不传则退化为单选，行为与从前完全一致）。
-   * 选中 2 张及以上时走这里，用于相册合成面板；恰好 1 张仍走 onFileSelect。
+   * 单选回调（带本地路径）。
+   *
+   * 🔴 BACKLOG（跨路遗留，等 M-5 接线单一并删除）：
+   * 现在唯一的调用方 ChatInputArea 已改走待发区、只传 `onFilesSelect`，
+   * 本回调因此没有活着的使用者。留着是因为删掉它要同时改
+   * `src/chat/shared/ChatPanel.tsx` / `src/hooks/useMainPage.ts` 的旧上传路径，
+   * 而那两个文件本轮不归本单所有（并行隔离）。
+   */
+  onFileSelect?: (file: File, type: AttachmentType, localPath?: string) => void;
+  /**
+   * 选择结果回调 —— **所有类型、任意个数**都走这里（进待发区，spec §三）。
+   *
+   * 不传时退化为单选并走 {@link FileAttachButtonProps.onFileSelect}（旧路径）；
+   * 两者都不传则选完什么也不做（属编程错误，非兜底场景）。
    */
   onFilesSelect?: (picked: PickedFile[], type: AttachmentType) => void;
 }
@@ -226,9 +236,10 @@ export function FileAttachButton({ disabled, onFileSelect, onFilesSelect }: File
     try {
       const os = await platform();
 
-      // 只有图片/视频允许多选（相册只收媒体），且调用方必须给了 onFilesSelect；
-      // 否则维持原来的单选行为，一行都不变。
-      const allowMultiple = !!onFilesSelect && (item.type === 'image' || item.type === 'video');
+      // 走待发区时**所有类型**都允许多选：待发区本身支持混合类型与多个（spec §三），
+      // 而"文档只能单选"是旧的选完即发路径留下的限制，没有理由再保留。
+      // 没有 onFilesSelect（旧路径）时仍是单选，一行都不变。
+      const allowMultiple = !!onFilesSelect;
 
       let paths: string[] = [];
       if (os === 'android') {
@@ -252,15 +263,16 @@ export function FileAttachButton({ disabled, onFileSelect, onFilesSelect }: File
         return;
       }
 
-      // 恰好 1 个仍走单选回调 —— 单发路径与从前完全一致，不因引入相册而改变
-      if (paths.length === 1 || !onFilesSelect) {
-        const picked = await pathToPickedFile(paths[0], item.type);
-        onFileSelect(picked.file, item.type, picked.localPath);
+      const picked = await Promise.all(paths.map((pth) => pathToPickedFile(pth, item.type)));
+
+      // 有待发区就一律交给它 —— **包括只选了 1 个**。
+      // 「1 个直接发、2 个才进面板」是旧相册面板的分叉，在待发区模型里是错的：
+      // 用户可能先加 1 张、再加 1 张，中间还要打字，不该有一条会绕过待发区的路径。
+      if (onFilesSelect) {
+        onFilesSelect(picked, item.type);
         return;
       }
-
-      const picked = await Promise.all(paths.map((pth) => pathToPickedFile(pth, item.type)));
-      onFilesSelect(picked, item.type);
+      onFileSelect?.(picked[0].file, item.type, picked[0].localPath);
     } catch (error) {
       // 用户取消选择时会抛出错误，这是正常的
       if (!String(error).includes('cancelled') && !String(error).includes('Canceled')) {

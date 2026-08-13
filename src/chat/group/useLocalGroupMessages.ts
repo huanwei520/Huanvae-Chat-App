@@ -22,7 +22,7 @@
  *   快速切换时丢弃旧会话的异步结果，防止消息污染
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import * as db from '../../db';
 import type { LocalMessage, LocalConversation } from '../../db';
@@ -36,6 +36,10 @@ import { useChatStore } from '../../stores/chatStore';
 // clientId 的前缀是「本机这次发送动作」的唯一物证，消息列表据此把它与「多端回流」区分开
 // （回流走 WS 分支、前缀是 ws_）。生成与判读必须同源，故一律走这个生成器。
 import { newLocalSendClientId } from '../shared/useStickToBottom';
+import { useSendingOutboxMerge } from '../shared/useSendingOutboxMerge';
+import { resolveUploadedContent } from '../shared/uploadPersist';
+import { groupConversationKey } from '../shared/conversationKey';
+import type { SendingMediaEntry } from '../../stores/sendingMediaStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
 // ============================================================================
@@ -1050,8 +1054,52 @@ export function useLocalGroupMessages(groupId: string | null) {
     return () => { cancelled = true; };
   }, [api, groupId, setGroupMemberRemarks]);
 
-  return {
+  // ============================================
+  // 待发区在途媒体的乐观插入（类 Telegram 发送态）
+  // ============================================
+  // 群会话的 key 由 groupConversationKey 产出，与 ChatInputArea 入队时用的 draftKeyOf
+  // 在群分支上是同一个函数（draftKeyOf 内部就调它）—— 两边不会漂。
+  const outboxKey = useMemo(
+    () => (groupId ? groupConversationKey(groupId) : null),
+    [groupId],
+  );
+
+  const outboxToMessage = useCallback((entry: SendingMediaEntry): GroupMessage => ({
+    message_uuid: entry.clientId,
+    group_id: groupId ?? '',
+    sender_id: session?.userId ?? '',
+    sender_nickname: session?.profile.user_nickname ?? '',
+    sender_avatar_url: session?.profile.user_avatar_url ?? '',
+    // 与后端 resolve_content 同口径（无配文时是 `[图片] 文件名`，不是裸文件名）——
+    // 用裸文件名会让这条消息在「确认落库」那一刻正文形状突变，肉眼可见地闪一下
+    message_content: resolveUploadedContent(entry.caption, entry.preview.kind, entry.preview.name),
+    message_type: entry.preview.kind,
+    file_uuid: null,
+    // 服务端 URL 此刻还不存在；本地预览走 useSendingMediaState(clientId).preview.previewUrl
+    file_url: null,
+    file_size: entry.preview.size,
+    file_hash: null,
+    reply_to: null,
+    // 形态发送前定死；single 时三者恒 null =「单条不包相册」
+    media_group_id: entry.shape.groupId,
+    media_group_index: entry.shape.index,
+    media_group_count: entry.shape.count,
+    send_time: entry.sendTime,
+    is_recalled: false,
+    seq: 0,
+    sendStatus: entry.status === 'failed' ? 'failed' : 'sending',
+    clientId: entry.clientId,
+  }), [groupId, session]);
+
+  const messagesWithSending = useSendingOutboxMerge(
+    outboxKey,
     messages,
+    outboxToMessage,
+    loadMessages,
+  );
+
+  return {
+    messages: messagesWithSending,
     loading,
     loadingMore,
     hasMore,

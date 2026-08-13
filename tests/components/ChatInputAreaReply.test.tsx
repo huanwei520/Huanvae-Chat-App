@@ -18,9 +18,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { Friend, Group } from '../../src/types/chat';
 
 const apiMock = vi.hoisted(() => ({}));
+// ChatInputArea 自 M-5 起还经 useComposerTrayOutbox 读 useSession（发送编排要 session.userId）。
+// 稳定引用的假 session：本文件测的是回复条与提示条，不碰发送编排。
+const sessionMock = vi.hoisted(() => ({
+  session: { userId: 'me', profile: { user_nickname: '我', user_avatar_url: '' } },
+}));
 vi.mock('../../src/contexts/SessionContext', async (orig) => ({
   ...(await orig()),
   useApi: () => apiMock,
+  useSession: () => sessionMock,
 }));
 
 import { ChatInputArea } from '../../src/chat/shared/ChatInputArea';
@@ -53,11 +59,6 @@ function renderInput() {
       messageInput=""
       onMessageChange={() => {}}
       onSendMessage={() => {}}
-      onFileSelect={() => {}}
-      uploading={false}
-      uploadingFile={null}
-      uploadProgress={null}
-      onCancelUpload={() => {}}
     />,
   );
 }

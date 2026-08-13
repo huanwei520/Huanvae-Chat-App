@@ -173,8 +173,10 @@ function VideoFileThumbnail({
     <div className="thumbnail-video">
       {isLocal && <LocalBadge />}
       {/* 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
-          详见 chat/shared/VideoThumbnail.tsx。收敛前这里漏了 muted 与 playsInline。 */}
-      <VideoThumbnail src={src} decorative />
+          详见 chat/shared/VideoThumbnail.tsx。收敛前这里漏了 muted 与 playsInline。
+          fileHash 是本地封面缓存的键（与图片本地缓存同一把键）：给了它，封面截一次就落盘，
+          之后渲染 <img> 走本地、不再建 <video>；不给就退回「每次挂载重新 seek」。 */}
+      <VideoThumbnail src={src} fileHash={file.file_hash} decorative />
       <div className="video-play-icon">▶</div>
     </div>
   );

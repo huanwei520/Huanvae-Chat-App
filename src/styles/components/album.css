@@ -11,33 +11,71 @@
  * selector in tests/animation-conflict.test.ts.
  */
 
-.album-message {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 280px;
-}
-
+/* Column count is NOT fixed: AlbumMessage.albumGridPlan emits
+ * grid-template-columns plus a per-cell span so every row is exactly full.
+ * A fixed 2-column grid put three photos in a 2x2 and left the fourth slot
+ * empty, which showed the bubble tint through -- rejected 2026-08-13.
+ *
+ * The seams between cells expose THIS element's background, so it has to be an
+ * opaque neutral: the media area must carry no bubble tint at all. Do NOT paint
+ * it black to match the cells below -- the seams are the one part huanwei asked
+ * to leave grey-white, and this element is the only thing showing through them. */
 .album-grid {
   display: grid;
   gap: 3px;
+  max-width: 280px;
   border-radius: 12px;
   overflow: hidden;
+  background: var(--bg-tertiary);
 }
 
-/* Square cells: height is reserved before the image loads. */
+/* Square cells: height is reserved before the image loads.
+ *
+ * THIS is the cell layer, and its background is what `object-fit: contain`
+ * letterboxes are painted with. huanwei 2026-08-13 04:49: "the background is
+ * the background -- the seams are just the grey-white page behind. What I mean
+ * is the SQUARE a photo or video is shown in: turn its background from
+ * transparent to black. I want the Telegram effect."
+ *
+ * So: black here (the cell), and the grid container above keeps its neutral
+ * (that neutral is what the 3px seams expose). Painting the container black
+ * instead would black out the seams too, which is exactly what he did not ask
+ * for. The single-media shape follows the same rule one layer up, on
+ * .media-bubble-media -- see src/styles/components/media-bubble.css.
+ *
+ * Black is literal, not a token: every neutral token here follows the theme and
+ * would be near-white in the light theme.
+ *
+ * The one thing inside a cell that stays neutral is .album-cell-placeholder
+ * below: that slot holds no media at all, so the rule above does not reach it,
+ * and a black square there would read as a broken photo rather than as a page
+ * the user has not scrolled back to yet. */
 .album-cell {
   position: relative;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  background: rgba(147, 197, 253, 0.08);
+  background: #000000;
 }
 
-/* Inside an album cell the media fills the square (cover), unlike the bubble
- * variant which uses contain to show the whole picture at its natural ratio. */
+/* HARD RULE: every picture in an album must be visible IN FULL -- all four
+ * edges of the original still present in the thumbnail, whatever its aspect
+ * ratio is. `cover` scales to fill the square and center-crops whatever sticks
+ * out, so a tall screenshot showed only a middle strip and a wide one lost its
+ * right edge; `contain` scales the whole picture into the square instead.
+ *
+ * Why not size each cell from the real aspect ratio: the media metadata is not
+ * available in time. AlbumMediaItem carries no width/height at all, and a
+ * just-sent message stores image_width as null, so a ratio-driven cell would
+ * either crop anyway or resize when the metadata lands -- and the list is
+ * column-reverse, where any height jump pushes the reading position away.
+ * `contain` needs zero metadata and satisfies the rule unconditionally; the
+ * price is a letterbox band, which the cell background above paints.
+ *
+ * Video poster frames follow the same rule -- a cover frame is a picture too.
+ */
 .album-cell .image-message .message-image,
 .album-cell .video-message .message-video-thumbnail {
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 0;
 }
 
@@ -53,15 +91,10 @@
 .album-cell-placeholder {
   width: 100%;
   height: 100%;
-  background: rgba(147, 197, 253, 0.08);
+  background: var(--bg-tertiary);
 }
 
 /* Caption belongs to the WHOLE album, hence it sits under the grid rather than
- * on the first image. */
-.album-caption {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  word-break: break-word;
-  white-space: pre-wrap;
-}
+ * on the first image. It is rendered by chat/shared/MediaBubbleFrame.tsx, which
+ * wraps grid + caption into one bubble shared with the single-media shapes --
+ * see src/styles/components/media-bubble.css. */

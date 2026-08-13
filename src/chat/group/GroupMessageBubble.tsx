@@ -48,6 +48,7 @@ import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { ReplyQuote } from '../shared/ReplyQuote';
 import { AlbumMessage, type AlbumMediaItem } from '../shared/AlbumMessage';
+import { MediaBubbleFrame, isCaptionableMediaType } from '../shared/MediaBubbleFrame';
 import type { AlbumNode } from '../shared/mediaGroup';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -640,16 +641,27 @@ export function GroupMessageBubble({
                       && message.message_type !== 'system'
                       && message.message_type !== 'meeting_invite'
                       && message.message_type !== 'card' && (
-                          <FileMessageContent
-                            messageType={message.message_type as 'image' | 'video' | 'file'}
-                            messageContent={message.message_content}
-                            fileUuid={message.file_uuid}
-                            fileSize={message.file_size}
-                            fileHash={message.file_hash}
-                            urlType="group"
-                            imageWidth={message.image_width}
-                            imageHeight={message.image_height}
-                          />
+                        // 单图 / 单视频 + 配文 ⇒ 与相册同一个大气泡（Telegram 式 media + caption）。
+                        // 这里只是**套样式**，绝不把单条塞进 media_group —— 折叠会抹掉 DOM 锚点。
+                        // 文档类不进这层：它自带白底卡片，套进气泡是两层背景叠着。
+                          <MediaBubbleFrame
+                            content={isCaptionableMediaType(message.message_type) ? message.message_content : null}
+                            media="single"
+                          >
+                            <FileMessageContent
+                              messageType={message.message_type as 'image' | 'video' | 'file'}
+                              messageContent={message.message_content}
+                              fileUuid={message.file_uuid}
+                              fileSize={message.file_size}
+                              fileHash={message.file_hash}
+                              urlType="group"
+                              // 与私聊气泡同款：在途发送项的钥匙。真实历史消息没有 clientId
+                              // ⇒ 这一路完全不生效，行为逐字节不变。
+                              clientId={message.clientId}
+                              imageWidth={message.image_width}
+                              imageHeight={message.image_height}
+                            />
+                          </MediaBubbleFrame>
                         )}
                       </>
                     )}

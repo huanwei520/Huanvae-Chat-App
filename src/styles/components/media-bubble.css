@@ -1,0 +1,135 @@
+/* Media + caption inside ONE bubble (Telegram-style media + caption).
+ *
+ * Covers three shapes: album + caption, single image + caption, single video +
+ * caption. Rendered by chat/shared/MediaBubbleFrame.tsx, which emits NOTHING at
+ * all when there is no caption -- a bare media message keeps its own rounded
+ * corners and gets no extra box, per the Telegram convention.
+ *
+ * The media is flush with the top edge: the frame owns the rounding, only the
+ * caption is padded. Inner media radius is reset to 0 so the frame's overflow
+ * clipping is the single source of the rounded shape.
+ *
+ * The frame paints NOTHING. The bubble tint sits on the caption band alone --
+ * see the comment above the .message-bubble.own|.other .media-bubble rules.
+ * Own vs other side colors mirror .bubble-text in pages/main.css so a media
+ * bubble and a text bubble read as the same family.
+ *
+ * NOTE (deliberate): no `transition: all` and no transform/opacity transitions
+ * here. If this ever gets wrapped in motion.*, transform/opacity must stay
+ * owned by JS only -- see .claude/rules/animation.md rule 1 and register the
+ * selector in tests/animation-conflict.test.ts.
+ */
+
+.media-bubble {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 280px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* TINT BELONGS TO THE CAPTION BAND ONLY -- the frame paints nothing.
+ *
+ * huanwei 2026-08-13: "do not let the background be blue, only the caption
+ * bubble at the bottom should be blue, like the single-image-with-text case".
+ * Painting the frame tinted the WHOLE media area: it bled through the album
+ * grid gaps and through every letterbox band, so a three-photo album read as
+ * one big blue slab with pictures floating in it.
+ *
+ * The frame still owns the SHAPE -- border-radius plus overflow: hidden above.
+ * Because the caption is the last child and stretches to the full frame width,
+ * its own background is clipped into the frame's bottom corners, tail corner
+ * included. That is why the 4px tail radius stays here and not on the caption.
+ */
+.message-bubble.own .media-bubble {
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.message-bubble.other .media-bubble {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+/* SINGLE MEDIA + CAPTION: the media band is exactly as wide as the caption.
+ *
+ * huanwei 2026-08-13: "a single photo has to be as wide as the text; whatever it
+ * cannot fill shows the photo centred on black -- no more pictures half the
+ * width of the text, line everything up".
+ *
+ * Two rules do it, and both are needed:
+ *
+ * 1. The frame pins itself to the cap instead of shrinking to fit. Without it
+ *    the frame is max(media, caption): a SHORT caption would pull the frame
+ *    back down to the media's own width and the band would be narrow again.
+ *    `max-width: 100%` replaces the 280px cap above -- `width` already caps at
+ *    280, and the percentage lets the frame shrink with .bubble-content on
+ *    viewports too narrow for 280 (that element is a flex item with
+ *    min-width: 0, so its width IS definite and the percentage resolves).
+ *
+ * 2. The band centres the media and paints the leftover black. The media box
+ *    keeps its inline width/height -- that size is what stops the bubble from
+ *    jumping when the image finishes loading, and this list is column-reverse
+ *    where any height jump pushes the reading position away.
+ *
+ * The band IS the cell layer for a single media message, the counterpart of
+ * .album-cell in album.css. huanwei 2026-08-13 04:49: "what I mean is the
+ * SQUARE a photo or video is shown in: turn its background from transparent to
+ * black. I want the Telegram effect." Both shapes now answer that with one
+ * rule: the box a picture is displayed in is black, the picture is centred in
+ * it and still uncropped.
+ *
+ * Black is literal, not a token: every neutral token here follows the theme and
+ * would be near-white in the light theme.
+ * Album bubbles get NEITHER rule -- AlbumMessage passes media="album", which
+ * emits no band and no modifier class, so the grid renders byte-identical and
+ * its own cells carry the black.
+ */
+.media-bubble--single {
+  width: 280px;
+  max-width: 100%;
+}
+
+.media-bubble-media {
+  display: flex;
+  justify-content: center;
+  background: #000000;
+}
+
+/* The frame owns the rounded shape, so everything inside goes square. */
+.media-bubble .album-grid,
+.media-bubble .file-message,
+.media-bubble .image-message,
+.media-bubble .video-message,
+.media-bubble .image-message .message-image,
+.media-bubble .video-message .message-video-thumbnail {
+  border-radius: 0;
+}
+
+.media-bubble-caption {
+  padding: 8px 12px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* The tint that used to sit on the frame lives here, and only here. Colors are
+ * the same values .bubble-text uses in pages/main.css, so a captioned media
+ * message and a plain text message read as the same family.
+ *
+ * The other side loses the 1px outline the frame used to carry: an outline on
+ * the caption alone would draw a hairline between media and caption, and an
+ * outline on the frame would be back to tinting the media area's edge. Neither
+ * side outlines the media now, which keeps the two sides symmetrical. */
+.message-bubble.own .media-bubble-caption {
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: #ffffff;
+}
+
+.message-bubble.other .media-bubble-caption {
+  background: var(--white-alpha-70);
+  color: var(--text-primary);
+}

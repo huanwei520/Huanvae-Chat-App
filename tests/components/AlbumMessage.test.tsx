@@ -25,7 +25,12 @@ vi.mock('../../src/chat/shared/FileMessageContent', () => ({
   ),
 }));
 
-import { AlbumMessage, albumColumns, type AlbumMediaItem } from '../../src/chat/shared/AlbumMessage';
+import {
+  AlbumMessage,
+  albumRowLengths,
+  albumGridPlan,
+  type AlbumMediaItem,
+} from '../../src/chat/shared/AlbumMessage';
 import type { AlbumNode } from '../../src/chat/shared/mediaGroup';
 
 function item(index: number, uuid = `f${index}`): AlbumMediaItem {
@@ -52,13 +57,83 @@ function album(overrides: Partial<AlbumNode<AlbumMediaItem>> = {}): AlbumNode<Al
   };
 }
 
-describe('albumColumns', () => {
-  it('4 张及以内 2 列，5 张及以上 3 列（两端同一口径，保证同样张数长得一样）', () => {
-    expect(albumColumns(2)).toBe(2);
-    expect(albumColumns(3)).toBe(2);
-    expect(albumColumns(4)).toBe(2);
-    expect(albumColumns(5)).toBe(3);
-    expect(albumColumns(10)).toBe(3);
+describe('相册排布必须铺满：任何张数都不留空槽', () => {
+  /**
+   * 这条替换掉的是旧的「固定列数」用例（albumColumns：<=4 → 2 列，>=5 → 3 列）。
+   * 固定列数下 3 张排成 2×2、右下空一整格，那一格露出气泡底色 ——
+   * huanwei 2026-08-13 原话「三张图那种奇数图就让其自适应排列铺满」。
+   *
+   * 断言强度是**升高**的，不是放宽：旧用例只对 5 个点位断言了一个标量列数
+   * （而且列数正确 ≠ 铺满，2×2 放 3 张时它照样是「对」的）；这里对 1..24 每一个 n
+   * 断言两条结构性不变量 —— 行长度之和 === n（不多不少正好这么多格子），
+   * 且每一行的 span 之和 === 列基数（每一行都被恰好铺满，一格不空）。
+   * 1..10 的具体分法另行逐个定死，保住「同样张数在两端长得一样」那条原意。
+   */
+  it('行长度之和 === 张数，每行 span 之和 === 列基数，且 1..10 的分法逐个定死', () => {
+    // 1..10 逐个定死：同样张数的相册在两端必须长得一样
+    expect(albumRowLengths(1)).toEqual([1]);
+    expect(albumRowLengths(2)).toEqual([2]);
+    expect(albumRowLengths(3)).toEqual([3]);
+    expect(albumRowLengths(4)).toEqual([2, 2]);
+    expect(albumRowLengths(5)).toEqual([2, 3]);
+    expect(albumRowLengths(6)).toEqual([3, 3]);
+    expect(albumRowLengths(7)).toEqual([3, 4]);
+    expect(albumRowLengths(8)).toEqual([4, 4]);
+    expect(albumRowLengths(9)).toEqual([3, 3, 3]);
+    expect(albumRowLengths(10)).toEqual([3, 3, 4]);
+
+    // 越过发送端上限（ALBUM_MAX_ITEMS=10）继续核：expectedCount 来自后端下发的
+    // media_group_count，是外部输入，一条脏数据就能给出 11+。
+    for (let n = 1; n <= 24; n++) {
+      const rows = albumRowLengths(n);
+      expect(rows.reduce((a, b) => a + b, 0), `n=${n}: 行长度之和必须等于张数`).toBe(n);
+
+      const { columnBase, spans } = albumGridPlan(n);
+      expect(spans, `n=${n}: 每一格恰好一个 span`).toHaveLength(n);
+
+      // 逐行核对：这一行所有格子的 span 加起来必须正好铺满一整行
+      let cursor = 0;
+      for (const [rowIndex, len] of rows.entries()) {
+        const rowSpans = spans.slice(cursor, cursor + len);
+        expect(
+          rowSpans.reduce((a, b) => a + b, 0),
+          `n=${n}: 第 ${rowIndex} 行铺不满（空槽就是从这里来的）`,
+        ).toBe(columnBase);
+        cursor += len;
+      }
+    }
+  });
+
+  it('渲染出的格子数 === 张数，且每一格都带自己的 span（DOM 上没有无主的空位）', () => {
+    for (const n of [1, 2, 3, 5, 7, 10]) {
+      const { container, unmount } = render(
+        <AlbumMessage
+          album={album({
+            items: Array.from({ length: n }, (_, i) => item(i)),
+            expectedCount: n,
+          })}
+        />,
+      );
+
+      const grid = container.querySelector<HTMLElement>('.album-grid');
+      expect(grid, `n=${n}: 网格必须存在`).not.toBeNull();
+
+      const cells = Array.from(container.querySelectorAll<HTMLElement>('.album-cell'));
+      expect(cells, `n=${n}: 格子数必须等于张数`).toHaveLength(n);
+      // 每一格都必须真的写上了 span：漏写会退化成默认的 span 1，行就铺不满了
+      cells.forEach((cell, i) => {
+        expect(cell.style.gridColumn, `n=${n}: 第 ${i} 格缺 grid-column`).toMatch(/^span \d+$/);
+      });
+      // 列基数确实被写进了 grid-template-columns（不是留给浏览器猜）
+      expect(grid!.style.gridTemplateColumns).toBe(`repeat(${albumGridPlan(n).columnBase}, 1fr)`);
+
+      unmount();
+    }
+  });
+
+  it('张数为 0 时不产出格子，列基数也不会退化成非法的 repeat(0, 1fr)', () => {
+    expect(albumRowLengths(0)).toEqual([]);
+    expect(albumGridPlan(0)).toEqual({ columnBase: 1, spans: [] });
   });
 });
 
@@ -128,9 +203,28 @@ describe('AlbumMessage — 配文位置（huanwei 要的效果）', () => {
     expect(grid!.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('无配文时不渲染配文行（不留空行）', () => {
+  it('无配文时不渲染配文行、也不多出一层气泡框（Telegram 惯例：纯媒体不加背景框）', () => {
     const { container } = render(<AlbumMessage album={album({ caption: '' })} />);
-    expect(container.querySelector('.album-caption')).toBeNull();
+    expect(container.querySelector('.media-bubble-caption')).toBeNull();
+    expect(container.querySelector('[data-testid="media-bubble"]')).toBeNull();
+    // 网格直接就是顶层节点（没被任何包裹层套住）
+    expect(container.firstElementChild?.classList.contains('album-grid')).toBe(true);
+  });
+
+  it('无配文的相册不会把「[图片] 文件名」派生正文当配文显示出来', () => {
+    // 后端契约：不给 caption 时组首项正文就是 `[图片] xxx.jpg`（backend-docs/storage/文件存储管理.md）
+    const { container } = render(<AlbumMessage album={album({ caption: '[图片] IMG_0042.jpg' })} />);
+    expect(container.querySelector('.media-bubble-caption')).toBeNull();
+    expect(screen.queryByText(/IMG_0042/)).not.toBeInTheDocument();
+  });
+
+  it('有配文时配文与网格在同一个大气泡节点内（Telegram 式 media + caption）', () => {
+    const { container } = render(<AlbumMessage album={album({ caption: '整组配文' })} />);
+
+    const bubble = container.querySelector('[data-testid="media-bubble"]');
+    expect(bubble).not.toBeNull();
+    expect(bubble!.querySelector('.album-grid')).not.toBeNull();
+    expect(bubble!.contains(screen.getByText('整组配文'))).toBe(true);
   });
 });
 

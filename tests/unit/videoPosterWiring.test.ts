@@ -97,6 +97,10 @@ const THUMBNAIL_CONSUMERS = [
   'src/components/search/ConversationSearchHit.tsx',
   'src/components/files/FilesModal.tsx',
   'src/pages/mobile/MobileFilesPage.tsx',
+  // 第 5 处：预发送待发区。它的 previewUrl 是本地 object URL、**没有 file_hash**
+  // （hash 是上传时才算出来的），所以不传 fileHash ⇒ 组件走纯 <video> 分支、
+  // 不读也不写 video_posters（那张表的键就是 file_hash、语义是"已发出媒体的封面缓存"）。
+  'src/chat/shared/ComposerTray.tsx',
 ] as const;
 
 /**

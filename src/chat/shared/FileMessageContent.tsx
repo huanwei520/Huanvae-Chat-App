@@ -38,6 +38,9 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { MobileMediaPreview } from './MobileMediaPreview';
 import { VideoThumbnail } from './VideoThumbnail';
 import { DocumentDownloadAction, LocalBadge } from './DocumentDownloadAction';
+import { SendingMediaOverlay, useSendingMediaState } from './SendingMediaOverlay';
+import { retrySendingItem, cancelSendingItem } from './sendingMediaActions';
+import type { SendingMediaEntry } from '../../stores/sendingMediaStore';
 import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
 import { CircularProgress } from '../../components/common/CircularProgress';
@@ -105,6 +108,13 @@ export interface FileMessageContentProps {
   urlType?: 'user' | 'friend' | 'group';
   /** 好友 ID（用于错误上报） */
   friendId?: string;
+  /**
+   * 乐观消息的 clientId（真实历史消息为 undefined）。
+   *
+   * 给了它，本组件就会去 sendingMediaStore 查这一项还在不在途；在途 ⇒ 渲染
+   * 「本地预览 + 覆盖层」而不是走正常取源路径。理由见下方 SendingMediaMessage 的注释。
+   */
+  clientId?: string;
   /** 图片宽度（像素），从消息中获取 */
   imageWidth?: number | null;
   /** 图片高度（像素），从消息中获取 */
@@ -530,8 +540,17 @@ function VideoMessage({
 
             {/* 视频缩略图：全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted /
                 playsInline 全在组件里），详见 chat/shared/VideoThumbnail.tsx。
-                这里递**裸** src —— 片段由组件内部追。 */}
-            <VideoThumbnail src={src} className="message-video-thumbnail" onPlay={onPlay} />
+                这里递**裸** src —— 片段由组件内部追。
+                fileHash 是本地封面缓存的键（与图片本地缓存同一把键）：给了它，封面截一次就
+                落盘，之后本组件渲染 <img> 走本地、不再建 <video>，杀掉 App 重开也立刻有画面。
+                「查找记录 → 视频」那处（components/search/ConversationSearchHit.tsx）递的是
+                同一个 file_hash ⇒ 两处命中**同一个封面文件**，天然是同一帧。 */}
+            <VideoThumbnail
+              src={src}
+              fileHash={fileHash}
+              className="message-video-thumbnail"
+              onPlay={onPlay}
+            />
 
             {/* 下载进度覆盖层 */}
             {isDownloading && downloadTask && (
@@ -693,6 +712,98 @@ function DocumentMessage({
 }
 
 // ============================================
+// 在途发送项（乐观消息）
+// ============================================
+
+/**
+ * 还在上传中的那一条：本地预览 + 覆盖层（类 Telegram「媒体自己在原地转圈」）
+ *
+ * ## 为什么必须有这个分支
+ *
+ * 乐观消息是上传**开始前**就插进列表的，此刻服务端还没建消息 ⇒ 它的 `file_uuid` / `file_url`
+ * 恒为 null。走正常取源路径的话，`FileMessageContent` 会在 `!fileUuid` 那里早返回一个
+ * **「文件不可用」**的错误块 —— 用户发出去的每一张图在上传期间都会显示成"不可用"。
+ * 所以在途项必须走本地预览：`entry.preview.previewUrl` 是待发区就生成好的 object URL。
+ *
+ * ## 覆盖层的宿主就是这里的容器
+ *
+ * `<SendingMediaOverlay>` 对宿主的唯一要求是父元素非 static。这里复用的三个类名里
+ * `.image-message` / `.video-message` 本来就是 `position: relative`（它们要放播放按钮 /
+ * 下载进度覆盖层）；`.document-message` 本来不是，已在 pages/main.css 里补上，
+ * 并由 tests/styles/SendingOverlayHost.test.ts 钉住。
+ *
+ * ## 三条「不要踩」（接线契约原文，逐条对应）
+ * 1. **不给覆盖层传 percent** —— 它自己按 clientId 订阅 store；走 props 会让每次百分比
+ *    变化都从消息列表顶层重渲一整棵树。这里只递 `clientId` 与两个**模块级**回调。
+ * 2. `status === 'done'` 时它自己返回 null，本组件不判断（`done` 到真实消息进列表之间
+ *    仍要显示这张本地预览，否则会闪一下空白）。
+ * 3. **不在气泡里再写一套滚底** —— 乐观条目的 `client_` 前缀已经让 useStickToBottom
+ *    无条件滚底，本文件里没有任何 scrollTop / scrollIntoView。
+ */
+function SendingMediaMessage({
+  entry,
+  displayVariant,
+}: {
+  entry: SendingMediaEntry;
+  displayVariant?: 'bubble' | 'album';
+}) {
+  const { kind, previewUrl, name, size } = entry.preview;
+
+  const overlay = (
+    <SendingMediaOverlay
+      clientId={entry.clientId}
+      onRetry={retrySendingItem}
+      onCancel={cancelSendingItem}
+    />
+  );
+
+  // 文档：待发区也收文档，它同样要能在自己的卡片上转圈
+  if (kind === 'file') {
+    return (
+      <div className="file-message document-message">
+        <div className="document-icon">
+          <FileIcon />
+        </div>
+        <div className="document-info">
+          <span className="document-name" title={name}>
+            {name.length > 20 ? `${name.slice(0, 17)}...` : name}
+          </span>
+          {size > 0 && <span className="document-size">{formatFileSize(size)}</span>}
+        </div>
+        {overlay}
+      </div>
+    );
+  }
+
+  const isVideo = kind === 'video';
+  // 乐观消息没有服务端下发的宽高（那要等 upload 回包），只能用与正式渲染同一套默认占位尺寸
+  // —— 尺寸一致才不会在"乐观条目换成真实消息"那一刻跳版。相册态照旧交给外层 grid。
+  const containerStyle: React.CSSProperties = displayVariant === 'album'
+    ? { width: '100%', height: '100%' }
+    : {
+      width: isVideo ? VIDEO_DEFAULT_WIDTH : IMAGE_DEFAULT_WIDTH,
+      height: isVideo ? VIDEO_DEFAULT_HEIGHT : IMAGE_DEFAULT_HEIGHT,
+    };
+
+  return (
+    <div
+      className={`file-message ${isVideo ? 'video-message' : 'image-message'}`}
+      style={containerStyle}
+    >
+      {previewUrl && (
+        <img
+          className={isVideo ? 'message-video-thumbnail' : 'message-image'}
+          src={previewUrl}
+          alt={name}
+          draggable={false}
+        />
+      )}
+      {overlay}
+    </div>
+  );
+}
+
+// ============================================
 // 主组件
 // ============================================
 
@@ -704,12 +815,21 @@ export function FileMessageContent({
   fileHash,
   urlType = 'friend',
   friendId,
+  clientId,
   imageWidth,
   imageHeight,
   displayVariant = 'bubble',
 }: FileMessageContentProps) {
+  // 在途发送项（clientId 有值且还在 store 里）⇒ 走本地预览 + 覆盖层。
+  // Hook 必须在所有早返回之前无条件调用；clientId 为 undefined 时选择器直接给 undefined。
+  const sendingEntry = useSendingMediaState(clientId);
+
   // 从消息内容中提取文件名
   const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
+
+  if (sendingEntry) {
+    return <SendingMediaMessage entry={sendingEntry} displayVariant={displayVariant} />;
+  }
 
   // 没有 fileUuid 无法加载
   if (!fileUuid) {

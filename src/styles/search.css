@@ -534,11 +534,17 @@
   outline-offset: -2px;
 }
 
+/* 与相册同口径的硬判据：格子里那张图，**原图四条边都要在**（见
+ * src/styles/components/album.css 的 HARD RULE 段）。cover 会把超出正方形的部分
+ * 居中裁掉——竖版长截图只剩中间一条、宽图丢掉左右边缘；contain 把整张缩进格子里。
+ * 代价是极端宽高比会有留白带，由 .conv-msg-search-cell 的底色画。
+ * ⚠️ 只动 paint 层：格子的 aspect-ratio 与 .conv-msg-search-list--grid 的
+ * grid-auto-rows: max-content（v1.1.31 修重叠的那一行）一个字都没碰。 */
 .conv-msg-search-cover {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .conv-msg-search-cover--empty {

@@ -21,7 +21,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 
 const mockUseFileCache = vi.hoisted(() => vi.fn());
 const mockOpenMediaWindow = vi.hoisted(() => vi.fn());
@@ -131,14 +131,22 @@ describe('ConversationSearchHit', () => {
       expect(container.innerHTML).not.toContain('RAW-SHOULD-NEVER-BE-USED');
     });
 
-    it('视频：渲染 <video preload="metadata">，不是 <img>', () => {
+    it('视频（本地还没存过封面）：渲染 <video preload="metadata">，不是 <img>', async () => {
+      // ⚠️ 断言必须 await：自「视频封面本地持久化」落地起，<VideoThumbnail> 拿到 fileHash 后
+      // 会先异步问一次 Rust「这个视频有没有存过封面」（invoke get_video_poster_path），
+      // 那几毫秒里它**什么都不渲染**（渲染 <video> 会让一屏几十个格子各拉一次元数据，
+      // 正是该功能要消灭的成本，见 src/chat/shared/useVideoPoster.ts）。
+      // 本用例里全局 invoke mock 返回 undefined = 没存过 ⇒ 落到 <video> 分支，
+      // 与本功能落地前一致；存过的路径由 tests/components/VideoThumbnailPoster.test.tsx 覆盖。
       const { container } = renderHit(
         buildMessage({ content_type: 'video', content: 'clip.mp4' }),
       );
 
-      const video = container.querySelector('video');
-      expect(video?.getAttribute('preload')).toBe('metadata');
-      expect(container.querySelector('img')).toBeNull();
+      await waitFor(() => {
+        const video = container.querySelector('video');
+        expect(video?.getAttribute('preload')).toBe('metadata');
+        expect(container.querySelector('img')).toBeNull();
+      });
     });
 
     it('取源参数：群消息走 group 域、好友/bot 走 friend 域，且 autoCache 关闭', () => {

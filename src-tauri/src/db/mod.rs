@@ -9,6 +9,7 @@
 //! - `conversations`: 会话操作（增删改查、未读数管理）
 //! - `messages`: 消息操作（增删改查、撤回、批量保存）
 //! - `files`: 文件映射操作（hash->path 映射、uuid->hash 映射）
+//! - `video_posters`: 视频封面索引（hash->封面图 path，见该模块头「为什么另起一张表」）
 //!
 //! ## 数据库路径
 //!
@@ -41,6 +42,7 @@ pub mod group_read_positions;
 pub mod messages;
 pub mod nfc;
 pub mod types;
+pub mod video_posters;
 
 // 重新导出类型和函数
 pub use contacts::*;
@@ -50,6 +52,7 @@ pub use files::{delete_file_mapping, get_file_mapping, save_file_mapping, save_f
 pub use messages::*;
 pub use nfc::*;
 pub use types::*;
+pub use video_posters::{delete_video_poster, get_video_poster, save_video_poster};
 
 // ============================================================================
 // 数据库连接管理
@@ -331,6 +334,11 @@ pub fn init_database() -> Result<(), String> {
     )
     .ok();
 
+    // 创建视频封面索引表（file_hash -> 封面图本地路径，schema 定义在 video_posters 模块内，
+    // 单测用同一个 create_table 建内存库，避免"测试里的表"与"生产里的表"漂移）
+    video_posters::create_table(&conn)
+        .map_err(|e| format!("创建 video_posters 表失败: {}", e))?;
+
     // 创建头像缓存表
     conn.execute(
         "CREATE TABLE IF NOT EXISTS avatars (
@@ -434,6 +442,7 @@ pub fn clear_all_data() -> Result<(), String> {
              DELETE FROM group_read_positions;
              DELETE FROM file_mappings;
              DELETE FROM file_uuid_hash;
+             DELETE FROM video_posters;
              DELETE FROM avatars;
              DELETE FROM friends;
              DELETE FROM groups;

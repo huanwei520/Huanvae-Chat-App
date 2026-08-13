@@ -40,7 +40,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { localPathToDisplaySrc } from './assetUrl';
 import { directIpUrl } from './discovery';
 import type { ApiClient } from '../api/client';
 import { useFileCacheStore } from '../stores/fileCacheStore';
@@ -51,45 +51,6 @@ import {
 import { optimizePresignedUrl } from '../utils/network';
 import { resolveDisplayUrl } from './secureProxy';
 import { isMobile, isMacOS } from '../utils/platform';
-
-// ============================================
-// Android asset URL 修复
-// ============================================
-
-/**
- * 修复 Android 上 convertFileSrc 返回的 URL
- *
- * 问题：Tauri 的 convertFileSrc 在 Android 上返回的 URL 路径被 URL 编码
- * 例如：http://asset.localhost/%2Fdata%2Fuser%2F0%2F...
- * 应该是：http://asset.localhost/data/user/0/...
- *
- * 这导致 video/audio 元素报告 MEDIA_ERR_SRC_NOT_SUPPORTED 错误
- */
-function fixAssetUrl(url: string): string {
-  // 只在移动端处理
-  if (!isMobile()) {
-    return url;
-  }
-
-  // 检查是否是 asset 协议 URL（Android 上是 http://asset.localhost/...）
-  if (url.startsWith('http://asset.localhost/')) {
-    // 提取路径部分并解码
-    const prefix = 'http://asset.localhost/';
-    const encodedPath = url.substring(prefix.length);
-    const decodedPath = decodeURIComponent(encodedPath);
-    return prefix + decodedPath;
-  }
-
-  // 桌面端格式 asset://localhost/...
-  if (url.startsWith('asset://localhost/')) {
-    const prefix = 'asset://localhost/';
-    const encodedPath = url.substring(prefix.length);
-    const decodedPath = decodeURIComponent(encodedPath);
-    return prefix + decodedPath;
-  }
-
-  return url;
-}
 
 // ============================================
 // 类型定义
@@ -319,9 +280,9 @@ export async function getFileSource(
   if (fileHash) {
     const localPath = await getCachedFilePath(fileHash);
     if (localPath) {
-      // 使用 fixAssetUrl 修复 Android 上的 URL 编码问题
-      const rawSrc = convertFileSrc(localPath);
-      const src = fixAssetUrl(rawSrc);
+      // 本地路径 → asset 协议显示 src（含 Android 的百分号编码修复），
+      // 与视频封面共用同一个转换点，见 services/assetUrl.ts
+      const src = localPathToDisplaySrc(localPath);
       return {
         src,
         isLocal: true,

@@ -52,6 +52,7 @@ mod macos_credential_store;
 #[cfg(target_os = "macos")]
 mod macos_biometric;
 mod user_data;
+mod video_poster;
 
 // ============================================
 // 桌面专属模块 (Windows/macOS/Linux)
@@ -1014,6 +1015,10 @@ pub fn run() {
             download::copy_file_to_cache,
             download::show_in_folder,
             download::is_file_exists,
+            // 视频封面本地持久化（截一次帧落盘 + 索引，之后走本地图片）
+            video_poster::get_video_poster_path,
+            video_poster::save_video_poster,
+            video_poster::invalidate_video_poster,
             // 统一安全 HTTP(发现面系统信任 / 数据面内置 CA + 直连源站 IP)
             secure_net::secure_http,
             // 流式安全 HTTP(SSE,Channel 逐块推回)

@@ -282,6 +282,8 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'MuteSettings', path: 'chat/shared/menu/MuteSettings', category: 'chat', description: '静音设置' },
   { name: 'NoticesList', path: 'chat/shared/menu/NoticesList', category: 'chat', description: '公告列表' },
   { name: 'TransferOwner', path: 'chat/shared/menu/TransferOwner', category: 'chat', description: '转让群主' },
+  { name: 'ComposerTray', path: 'chat/shared/ComposerTray', category: 'chat', description: '预发送待发区（Telegram 式）：粘贴/选择/拖入的附件先落输入框上方的缩略图条，可逐个删除、继续追加、混合类型；超体积/超数量当场明说不静默截断；桌面/移动共用' },
+  { name: 'SendingMediaOverlay', path: 'chat/shared/SendingMediaOverlay', category: 'chat', description: '单项上传态覆盖层：进度从输入框上方搬进气泡里的每个媒体自身（pending 转圈 / uploading 环形百分比 + 取消 / failed 只重试这一项 / done 不渲染）' },
 ];
 
 // ============== 会议组件 ==============
@@ -327,6 +329,9 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useLanTransfer', path: 'hooks/useLanTransfer', category: 'hooks', description: '局域网传输 Hook' },
   { name: 'useBots', path: 'hooks/useBots', category: 'hooks', description: '机器人管理 Hook（列表/创建/删除/重置token/按 username 加好友）' },
   { name: 'useTopLayer', path: 'hooks/useTopLayer', category: 'hooks', description: '顶层浮层注册表（portal 兄弟浮层的层级判定：顶层开着时底层「点击外部关闭」短路）' },
+  { name: 'useVideoPoster', path: 'chat/shared/useVideoPoster', category: 'hooks', description: '视频封面解析状态机（pending/poster/capture 三态；VideoThumbnail 的内部 Hook，本地已存封面就渲染 <img> 不建 <video>）' },
+  { name: 'useComposerTrayOutbox', path: 'chat/shared/useComposerTrayOutbox', category: 'hooks', description: '待发区发送编排（四格矩阵定形 → 全量乐观插入 → 串行逐项上传 → 逐项落库；单项失败只重试那一项，形态发送前定死不再改）' },
+  { name: 'useSendingOutboxMerge', path: 'chat/shared/useSendingOutboxMerge', category: 'hooks', description: '在途媒体并进消息列表（乐观条目排最前 + 真 uuid 到位后收口，同一 uuid 只渲染一条；私聊/群共用同一合并口径）' },
 ];
 
 // ============== 服务 ==============
@@ -334,6 +339,9 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'deviceInfo', path: 'services/deviceInfo', category: 'services', description: '设备信息服务' },
   { name: 'diagnosticService', path: 'services/diagnosticService', category: 'services', description: '诊断上报服务' },
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
+  { name: 'assetUrl', path: 'services/assetUrl', category: 'services', description: '本地文件路径 → webview 显示 src 的唯一转换点（convertFileSrc + Android 百分号编码修复；图片缓存与视频封面共用）' },
+  { name: 'videoPoster', path: 'services/videoPoster', category: 'services', description: '视频封面本地持久化编排（读 video_posters 索引 / 未命中截一次落盘 / 同 hash 去重 + 并发上限 2 / 失败本会话不重试）' },
+  { name: 'videoPosterCapture', path: 'services/videoPosterCapture', category: 'services', description: '视频首帧截取（离屏 crossOrigin video + canvas → JPEG 字节；离屏是为了不给可见缩略图引入 CORS 失败风险）' },
   { name: 'fileService', path: 'services/fileService', category: 'services', description: '文件服务' },
   { name: 'historyService', path: 'services/historyService', category: 'services', description: '历史服务' },
   { name: 'notificationService', path: 'services/notificationService', category: 'services', description: '通知服务' },
@@ -349,6 +357,7 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'slashCommands', path: 'chat/shared/slashCommands', category: 'services', description: '斜杠命令面板纯逻辑（parseSlashQuery + filterCommands）' },
   { name: 'replyPreview', path: 'chat/shared/replyPreview', category: 'services', description: '消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位；群聊+私聊共用）' },
   { name: 'AlbumMessage', path: 'chat/shared/AlbumMessage', category: 'chat', description: '相册（媒体组）气泡内容：Telegram 风格网格 + 整组配文在网格下方；格高按 aspect-ratio 预留、缺口按 expectedCount 占位（跨分页不重排）；每格复用 FileMessageContent 以免新增显示点' },
+  { name: 'MediaBubbleFrame', path: 'chat/shared/MediaBubbleFrame', category: 'chat', description: '媒体 + 配文的同一个大气泡（Telegram 式 media + caption）：相册 / 单图 / 单视频共用一层渲染包裹，媒体贴气泡上沿、配文在下方有内边距；无配文时一个节点都不产生；配文判定单一收口 resolveMediaCaption（带「[图片] 文件名」前缀 = 无配文）；形态由 media 声明——single 多出一层 .media-bubble-media 媒体带（撑满气泡宽、图居中、余下补黑），album 原样放网格' },
   { name: 'AlbumComposer', path: 'chat/shared/AlbumComposer', category: 'chat', description: '相册合成面板（Telegram 风格）：多选后缩略图横排 + 可逐张剔除 + 整组配文，确认后交给串行上传；超过上限显式提示不静默截断；桌面/移动共用同一组件' },
   { name: 'albumSend', path: 'chat/shared/albumSend', category: 'services', description: '相册发送编排纯逻辑（位次分配 + 配文只挂 index=0 + 串行上传 + 传一半失败即停并如实上报）' },
   { name: 'mediaGroup', path: 'chat/shared/mediaGroup', category: 'services', description: '媒体组（相册）聚合纯逻辑（N 条独立消息按 media_group_id 折叠成一个渲染节点，index 升序、保留 expectedCount 供跨分页占位、caption 只认 index=0；群聊+私聊共用）' },
@@ -362,6 +371,13 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },
   // 会议 WebRTC 纯函数核心
   { name: 'webrtcCore', path: 'meeting/webrtcCore', category: 'services', description: 'WebRTC perfect-negotiation 纯函数（极性/忽略判定/媒体分类/退避/候选缓冲）' },
+  // 预发送待发区（M-5）数据面
+  { name: 'composerTrayPlan', path: 'chat/shared/composerTrayPlan', category: 'services', description: '待发区→发送计划纯逻辑（四格矩阵；单条绝不带 media_group 三件套；按后端类型分族切形态；caption 只挂整批第一项）' },
+  { name: 'composerTrayStore', path: 'stores/composerTrayStore', category: 'services', description: '待发区状态（按会话分桶，逐个删除/继续追加，超体积与超数量当场挡下并回报文件名）' },
+  { name: 'sendingMediaStore', path: 'stores/sendingMediaStore', category: 'services', description: '发送态状态机（pending/uploading/done/failed + 单项重试；形态发送前定死不再改；乐观条目并入消息列表的唯一去重口径）' },
+  { name: 'uploadPersist', path: 'chat/shared/uploadPersist', category: 'services', description: '上传成功后的本地落库（UUID↔Hash 映射 + 文件缓存 + 消息入本地库，caption 生效时取代文件名派生正文）' },
+  { name: 'sendingMediaActions', path: 'chat/shared/sendingMediaActions', category: 'services', description: '在途发送项的重试/取消收口（模块级函数直接操作 store；气泡里不许再起 useComposerTrayOutbox 实例——那会多出一个泵导致并发上传）' },
+  { name: 'uploadAbortRegistry', path: 'chat/shared/uploadAbortRegistry', category: 'services', description: '在途上传的 AbortController 模块级注册表（原先是 useComposerTrayOutbox 的实例内 useRef，气泡侧的取消入口够不着它 ⇒ abort 恒为 no-op ⇒ 点了取消消息照样落库）' },
 ];
 
 // ============== 所有组件汇总 ==============

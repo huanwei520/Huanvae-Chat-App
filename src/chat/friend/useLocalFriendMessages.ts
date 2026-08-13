@@ -31,7 +31,7 @@
  * - [FileLink] 文件本地链接
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as db from '../../db';
 import type { LocalMessage, LocalConversation } from '../../db';
 import { getSyncService } from '../../services/syncService';
@@ -44,6 +44,10 @@ import { useChatStore } from '../../stores/chatStore';
 // clientId 的前缀是「本机这次发送动作」的唯一物证，消息列表据此把它与「多端回流」区分开
 // （回流走 WS 分支、前缀是 ws_）。生成与判读必须同源，故一律走这个生成器。
 import { newLocalSendClientId } from '../shared/useStickToBottom';
+import { useSendingOutboxMerge } from '../shared/useSendingOutboxMerge';
+import { resolveUploadedContent } from '../shared/uploadPersist';
+import { draftKeyOf } from '../shared/conversationKey';
+import type { SendingMediaEntry } from '../../stores/sendingMediaStore';
 import type { Message } from '../../types/chat';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -1121,8 +1125,56 @@ export function useLocalFriendMessages(friendId: string | null) {
     wasConnectedRef.current = ws.connected;
   }, [ws.connected, syncMessagesInBackground]);
 
-  return {
+  // ============================================
+  // 待发区在途媒体的乐观插入（类 Telegram 发送态）
+  // ============================================
+  // key 必须与 ChatInputArea 入队时用的完全一致（都走 draftKeyOf），否则条目进得来出不去。
+  // 再用 friendId 兜一道：切会话时 chatTarget 与本 hook 的 friendId 有一帧不同步，
+  // 不兜会把上一个会话的在途条目短暂并进这个会话的列表。
+  const chatTargetForOutbox = useChatStore((s) => s.chatTarget);
+  const outboxKey = useMemo(() => {
+    const key = draftKeyOf(chatTargetForOutbox);
+    if (!key || !friendId) { return null; }
+    return key.endsWith(`:${friendId}`) ? key : null;
+  }, [chatTargetForOutbox, friendId]);
+
+  const outboxToMessage = useCallback((entry: SendingMediaEntry): Message => ({
+    // 临时 uuid 就是 clientId（与 sendTextMessage 的 tempUuid 同口径）
+    message_uuid: entry.clientId,
+    sender_id: session?.userId ?? '',
+    receiver_id: friendId ?? '',
+    // 与后端 resolve_content 同口径（无配文时是 `[图片] 文件名`，不是裸文件名）——
+    // 用裸文件名会让这条消息在「确认落库」那一刻正文形状突变，肉眼可见地闪一下
+    message_content: resolveUploadedContent(entry.caption, entry.preview.kind, entry.preview.name),
+    message_type: entry.preview.kind,
+    file_uuid: null,
+    // 还没上传完，服务端 URL 尚不存在。本地预览由 SendingMediaOverlay 侧的
+    // useSendingMediaState(clientId).preview.previewUrl 提供 —— 不把 object URL
+    // 塞进 file_url，那条字段的消费方会拿它去做远程解析。
+    file_url: null,
+    file_size: entry.preview.size,
+    file_hash: null,
+    reply_to: null,
+    // 形态发送前定死；single 时三者恒 null =「单条不包相册」
+    media_group_id: entry.shape.groupId,
+    media_group_index: entry.shape.index,
+    media_group_count: entry.shape.count,
+    send_time: entry.sendTime,
+    seq: 0,
+    is_recalled: false,
+    sendStatus: entry.status === 'failed' ? 'failed' : 'sending',
+    clientId: entry.clientId,
+  }), [session, friendId]);
+
+  const messagesWithSending = useSendingOutboxMerge(
+    outboxKey,
     messages,
+    outboxToMessage,
+    loadMessages,
+  );
+
+  return {
+    messages: messagesWithSending,
     loading,
     loadingMore,
     hasMore,

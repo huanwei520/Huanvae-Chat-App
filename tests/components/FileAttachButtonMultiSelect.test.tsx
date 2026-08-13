@@ -63,8 +63,12 @@ describe('单发不回归：没有 onFilesSelect 时，文件选择器恒为单�
     expect(onFileSelect.mock.calls[0][2]).toBe('/tmp/a.jpg');
   });
 
-  it('给了 onFilesSelect 但选的是「文件」⇒ 仍单选（相册只收媒体）', async () => {
-    mockOpenDialog.mockResolvedValue('/tmp/a.pdf' as never);
+  // ⚠️ 下面两条自 M-5（预发送待发区）起**口径已变**，不是回归：
+  // 待发区支持混合类型与任意个数，且「选 1 个」也必须先进待发区
+  // （用户可能先加 1 张、再加 1 张，中间还要打字，不该有绕过待发区的路径）。
+  // 原来的两条断言写的是旧相册面板的分叉（文件只能单选 / 1 张直接发），已随该面板一同作废。
+  it('给了 onFilesSelect + 选「文件」⇒ 同样允许多选，并整批交给待发区', async () => {
+    mockOpenDialog.mockResolvedValue(['/tmp/a.pdf', '/tmp/b.pdf'] as never);
     const onFileSelect = vi.fn();
     const onFilesSelect = vi.fn();
 
@@ -72,12 +76,15 @@ describe('单发不回归：没有 onFilesSelect 时，文件选择器恒为单�
     await pickMenu('文件');
 
     await waitFor(() => expect(mockOpenDialog).toHaveBeenCalledTimes(1));
-    expect(mockOpenDialog.mock.calls[0][0]).toMatchObject({ multiple: false });
-    await waitFor(() => expect(onFileSelect).toHaveBeenCalledTimes(1));
-    expect(onFilesSelect).not.toHaveBeenCalled();
+    expect(mockOpenDialog.mock.calls[0][0]).toMatchObject({ multiple: true });
+    await waitFor(() => expect(onFilesSelect).toHaveBeenCalledTimes(1));
+    expect(onFilesSelect.mock.calls[0][1]).toBe('file');
+    expect(onFilesSelect.mock.calls[0][0].map((p: { localPath: string }) => p.localPath))
+      .toEqual(['/tmp/a.pdf', '/tmp/b.pdf']);
+    expect(onFileSelect).not.toHaveBeenCalled();
   });
 
-  it('给了 onFilesSelect 但只选中 1 张 ⇒ 仍走单发回调，不进相册', async () => {
+  it('给了 onFilesSelect 且只选中 1 个 ⇒ 也走 onFilesSelect（进待发区），不绕过', async () => {
     mockOpenDialog.mockResolvedValue(['/tmp/only.jpg'] as never);
     const onFileSelect = vi.fn();
     const onFilesSelect = vi.fn();
@@ -85,9 +92,10 @@ describe('单发不回归：没有 onFilesSelect 时，文件选择器恒为单�
     render(<FileAttachButton onFileSelect={onFileSelect} onFilesSelect={onFilesSelect} />);
     await pickMenu('图片');
 
-    await waitFor(() => expect(onFileSelect).toHaveBeenCalledTimes(1));
-    expect(onFileSelect.mock.calls[0][2]).toBe('/tmp/only.jpg');
-    expect(onFilesSelect).not.toHaveBeenCalled();
+    await waitFor(() => expect(onFilesSelect).toHaveBeenCalledTimes(1));
+    expect(onFilesSelect.mock.calls[0][0]).toHaveLength(1);
+    expect(onFilesSelect.mock.calls[0][0][0].localPath).toBe('/tmp/only.jpg');
+    expect(onFileSelect).not.toHaveBeenCalled();
   });
 });
 

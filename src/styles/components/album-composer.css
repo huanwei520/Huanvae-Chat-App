@@ -79,7 +79,10 @@
 .album-composer-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* `contain`, not `cover`: this is the "decide whether to send it" preview. Cropping
+   * here shows the user something other than what they are about to send -- same
+   * requirement as M-1 ("every picture fully visible"), just on the compose side. */
+  object-fit: contain;
   display: block;
 }
 
@@ -137,5 +140,262 @@
   .album-composer-thumb {
     width: 72px;
     height: 72px;
+  }
+}
+
+/* ==========================================================================
+ * Composer tray (pre-send staging strip above the chat input) + per-item
+ * sending overlay. Lives in this file on purpose: `album-composer.css` is
+ * already imported by src/styles/index.css, and index.css is owned by another
+ * concurrent work stream this round -- adding a new @import there would be a
+ * cross-stream edit. Split into its own file once that stream lands.
+ *
+ * NOTE (deliberate): `.composer-tray-thumb` is animated by framer-motion
+ * (opacity + scale), so this file must NOT declare `transition` for
+ * transform/opacity on it -- see .claude/rules/animation.md rule 1.
+ * Both selectors are registered in tests/animation-conflict.test.ts.
+ * ========================================================================== */
+
+.composer-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.composer-tray-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-warning, #b45309);
+  background: var(--bg-warning-subtle, rgba(245, 158, 11, 0.12));
+}
+
+.composer-tray-notice-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+}
+
+.composer-tray-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.composer-tray-thumb {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  /* Only non-animated properties may be transitioned here (rule 1). */
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.composer-tray-thumb img {
+  width: 100%;
+  height: 100%;
+  /* Same reason as .album-composer-thumb img above: the staging preview must show the
+   * whole frame, otherwise the user decides "send / don't send" on a cropped image. */
+  object-fit: contain;
+  display: block;
+}
+
+/* Video items render <VideoThumbnail> (a <video> seeked to #t=0.1), not <img>:
+ * an object URL of a video fed to <img> is a broken-image icon.
+ * Same contain rule as the image branch -- the staging preview must show the whole frame. */
+.composer-tray-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.composer-tray-doc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.composer-tray-doc-name {
+  width: 100%;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-tray-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.composer-tray-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* -------------------------------------------------------------------------
+ * Per-item sending overlay. Absolutely positioned; the host element only has
+ * to be non-static. No dependency on the host's internal structure.
+ * ------------------------------------------------------------------------- */
+
+.sending-media-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+}
+
+.sending-media-overlay--failed {
+  background: rgba(127, 29, 29, 0.55);
+}
+
+.sending-media-ring-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #fff;
+}
+
+.sending-media-ring {
+  transform: rotate(-90deg);
+}
+
+.sending-media-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 3;
+}
+
+.sending-media-ring-value {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  /* Progress is driven by stroke-dashoffset only; transform belongs to the
+   * static -90deg rotation above and is never animated by JS here. */
+  transition: stroke-dashoffset 0.2s linear;
+}
+
+.sending-media-ring-value--indeterminate {
+  transform-origin: 22px 22px;
+  animation: sending-media-spin 1s linear infinite;
+}
+
+@keyframes sending-media-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.sending-media-cancel-mark {
+  position: absolute;
+  font-size: 16px;
+  line-height: 1;
+  color: #fff;
+}
+
+.sending-media-percent {
+  font-size: 11px;
+  color: #fff;
+}
+
+.sending-media-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sending-media-failed-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(239, 68, 68, 0.9);
+}
+
+.sending-media-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sending-media-btn {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 600px) {
+  .composer-tray-thumb {
+    width: 64px;
+    height: 64px;
   }
 }
