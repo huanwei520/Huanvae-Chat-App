@@ -50,6 +50,7 @@ import {
 } from './diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
 import { resolveDisplayUrl } from './secureProxy';
+import { resolveGroupFileRelatedId } from './groupFileScope';
 import { isMobile, isMacOS } from '../utils/platform';
 
 // ============================================
@@ -204,10 +205,26 @@ export async function getPresignedUrl(
   // eslint-disable-next-line no-console
   console.log('[FileCache] 请求预签名 URL:', { fileUuid, urlType, endpoint });
 
+  // 群文件端点 2026-08-13 起 related_id 必填（= 发起本次访问的群 ID），缺失 / 非 UUID 一律 400，
+  // 后端明确不做兼容。这里先解析、拿不到就地抛错 —— 比让后端回一句 400 更容易定位到
+  // 「群消息在非该群会话下被渲染」这种真正的上游问题。非群路径不碰这段。
+  let groupRelatedId: string | null = null;
+  if (urlType === 'group') {
+    groupRelatedId = resolveGroupFileRelatedId();
+    if (!groupRelatedId) {
+      throw new Error('群文件预签名缺少 related_id：当前会话不是群聊，无法确定发起访问的群');
+    }
+  }
+
   try {
-    const response = await api.post<PresignedUrlResponse>(endpoint, {
-      operation: 'preview',
-    });
+    // 🔴 逐键显式构造：字段不写进这个字面量就是静默丢掉（有类型也不报错）。
+    // friend / user 两条路径的请求体必须逐字节保持 `{ operation: 'preview' }`。
+    const response = await api.post<PresignedUrlResponse>(
+      endpoint,
+      groupRelatedId
+        ? { operation: 'preview', related_id: groupRelatedId }
+        : { operation: 'preview' },
+    );
 
     // 3. 优化 URL（用当前服务器地址替换公网域名）
     const optimizedUrl = optimizePresignedUrl(response.presigned_url, api.getBaseUrl());

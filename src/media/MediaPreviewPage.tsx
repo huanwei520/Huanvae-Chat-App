@@ -68,6 +68,11 @@ interface MediaState {
   fileHash?: string | null;
   /** URL 类型 */
   urlType: 'user' | 'friend' | 'group';
+  /**
+   * 群文件预签名必填的 related_id（= 发起本次访问的群 ID），非群媒体为 null。
+   * 由主窗口的 openMediaWindow 在 handoff 时写入（本窗口读不到 chatStore）。
+   */
+  groupId?: string | null;
   /** 本地文件路径 */
   localPath?: string | null;
   /** 预获取的预签名 URL */
@@ -133,6 +138,8 @@ async function getPresignedUrl(
   accessToken: string,
   fileUuid: string,
   urlType: 'user' | 'friend' | 'group',
+  /** 群文件必填的 related_id（发起本次访问的群 ID）；非群路径传 null */
+  groupId: string | null | undefined,
   fileType?: 'image' | 'video' | 'document',
 ): Promise<string> {
   // 验证必要参数
@@ -144,6 +151,12 @@ async function getPresignedUrl(
   }
   if (!fileUuid) {
     throw new Error('文件 UUID 为空');
+  }
+
+  // 群文件端点 2026-08-13 起 related_id 必填（= 发起本次访问的群 ID），缺失 / 非 UUID 一律 400。
+  // 本窗口不解析、只消费 handoff 递来的值；拿不到就地抛错，别让它变成一句看不懂的 400。
+  if (urlType === 'group' && !groupId) {
+    throw new Error('群文件预签名缺少 related_id：预览窗未收到发起访问的群 ID');
   }
 
   let endpoint: string;
@@ -172,7 +185,13 @@ async function getPresignedUrl(
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ operation: 'preview' }),
+      // 🔴 逐键显式构造：字段不写进这个字面量就是静默丢掉。
+      // friend / user 两条路径的请求体必须逐字节保持 `{"operation":"preview"}`。
+      body: JSON.stringify(
+        urlType === 'group'
+          ? { operation: 'preview', related_id: groupId }
+          : { operation: 'preview' },
+      ),
       ...(resolveForSecureHttp() ?? { pin_ca: true }),
     });
 
@@ -317,6 +336,7 @@ async function getFileSource(
     state.accessToken,
     state.fileUuid,
     state.urlType,
+    state.groupId,
     state.type, // image 或 video
   );
 

@@ -9,6 +9,7 @@
  */
 
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { resolveGroupFileRelatedId } from '../services/groupFileScope';
 
 // ============================================================================
 // 类型定义
@@ -43,6 +44,14 @@ interface MediaStorageData extends MediaWindowData {
   serverUrl: string;
   /** 访问令牌 */
   accessToken: string;
+  /**
+   * 群文件预签名必填的 related_id（= 发起本次访问的群 ID），非群媒体为 null。
+   *
+   * **不在 `MediaWindowData` 里**：调用方（气泡 / 查找命中项）不该也不必自己传，
+   * 由 `openMediaWindow` 在主窗口侧统一解析 —— 预览窗是另一个 webview、chatStore 是空的，
+   * 拿不到这个值就只能 400。解析口径见 services/groupFileScope.ts。
+   */
+  groupId: string | null;
 }
 
 // ============================================================================
@@ -109,11 +118,13 @@ export async function openMediaWindow(
   data: MediaWindowData,
   auth: MediaAuthInfo,
 ): Promise<void> {
-  // 保存数据到 localStorage（含认证信息）
+  // 保存数据到 localStorage（含认证信息 + 群文件预签名要用的 related_id）
   saveMediaDataInternal({
     ...data,
     serverUrl: auth.serverUrl,
     accessToken: auth.accessToken,
+    // 主窗口侧解析：预览窗自己读不到 chatStore（另一个 webview）
+    groupId: data.urlType === 'group' ? resolveGroupFileRelatedId() : null,
   });
 
   // 检查是否已有媒体窗口
