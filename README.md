@@ -51,3 +51,5 @@ Apple 的公证服务需要付费的开发者账号，本应用目前**还没有
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
 当前为测试版本，不对用户账户数据，聊天记录，后端接口做任何数据保留和兼容承诺
+
+<!-- ci-paths-probe: 一次性路径探针分支，不用于合并 -->
