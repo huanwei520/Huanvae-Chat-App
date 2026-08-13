@@ -1,17 +1,17 @@
 {
-  "source_repo_commit": "77118794c7c8d1c153fa404d705240e67665617d",
+  "source_repo_commit": "10cce9d19e0ab7fe1d497925b48a7df536e5cd86",
   "source_repo_dirty": true,
   "source_repo_dirty_files": [
     ".claude/skills/hg-daemon-debug/SKILL.md"
   ],
-  "built_at_utc": "2026-08-13T06:34:43Z",
+  "built_at_utc": "2026-08-13T19:36:10Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
       "crate": "hg-macos",
       "target": "aarch64-apple-darwin",
       "arch": "arm64",
-      "sha256": "a2a6858f45071f04264d4fd04fd6d3dc0b812274676288638dcdb20276b046bf",
+      "sha256": "c757e82accf04561daf1130c1f29f960c8762f55cb9600dbe5c313f151f2b473",
       "codesign_flags": "CodeDirectory v=20400 size=5130 flags=0x2(adhoc) hashes=154+2 location=embedded"
     },
     {
@@ -19,7 +19,7 @@
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "b4d1ce198e2f28dac94cf6dfa7e26837f8451dee90516ceef6db6564aed9aa04"
+      "sha256": "3f384d3f33c8e4332d8551b26a41b463f326f04b6c96a9dc1c772f5e57b7afda"
     }
   ]
 }
