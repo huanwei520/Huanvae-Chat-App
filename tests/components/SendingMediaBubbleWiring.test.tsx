@@ -17,7 +17,7 @@
  * tests/styles/SendingOverlayHost.test.ts 静态守着。
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { FileMessageContent } from '../../src/chat/shared/FileMessageContent';
 import {
@@ -27,10 +27,32 @@ import {
 
 const KEY = 'friend:u1';
 
+/**
+ * jsdom 没有 `URL.createObjectURL`（sendingMediaStore 靠能力判断退成 null）。
+ * 在途预览的 src 是本用例要断言的东西，所以这里补上一个可预期的实现。
+ */
+type UrlPatch = { createObjectURL?: (b: Blob) => string; revokeObjectURL?: (u: string) => void };
+let objectUrlSeq = 0;
+
+beforeEach(() => {
+  objectUrlSeq = 0;
+  (URL as unknown as UrlPatch).createObjectURL = () => {
+    objectUrlSeq += 1;
+    return `blob:preview/${objectUrlSeq}`;
+  };
+  (URL as unknown as UrlPatch).revokeObjectURL = () => {};
+  useSendingMediaStore.setState({ entries: {}, orderByConversation: {} });
+});
+
+afterEach(() => {
+  delete (URL as unknown as UrlPatch).createObjectURL;
+  delete (URL as unknown as UrlPatch).revokeObjectURL;
+});
+
 function seed(
   clientId: string,
   kind: 'image' | 'video' | 'file',
-  previewUrl: string | null = 'blob:preview',
+  dimensions: { width: number | null; height: number | null } = { width: null, height: null },
 ): SendingMediaSeed {
   return {
     clientId,
@@ -39,14 +61,17 @@ function seed(
     conversationType: 'friend',
     targetId: 'u1',
     shape: { kind: 'single', groupId: null, index: null, count: null },
-    preview: { name: 'a.png', kind, size: 2048, localPath: '', previewUrl },
+    preview: {
+      name: 'a.png',
+      kind,
+      size: 2048,
+      localPath: '',
+      width: dimensions.width,
+      height: dimensions.height,
+    },
     sendTime: '2026-08-13T00:00:00.000Z',
   };
 }
-
-beforeEach(() => {
-  useSendingMediaStore.setState({ entries: {}, orderByConversation: {} });
-});
 
 describe('在途发送项：本地预览 + 单项覆盖层', () => {
   it('🔴 图片在途 ⇒ 渲染本地预览与覆盖层，而不是「文件不可用」', () => {
@@ -66,12 +91,23 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
 
     const img = container.querySelector('img.message-image');
     expect(img).not.toBeNull();
-    expect(img).toHaveAttribute('src', 'blob:preview');
+    expect(img).toHaveAttribute('src', 'blob:preview/1');
     expect(screen.getByTestId('sending-media-overlay')).toBeInTheDocument();
     expect(screen.queryByText('文件不可用')).toBeNull();
   });
 
-  it('视频在途 ⇒ 用同一张本地预览当封面（不建 <video>，此刻也没有可播的源）', () => {
+  /**
+   * 🔴 视频那一格必须是**首帧封面**，不是破图（huanwei 2026-08-13 08:16
+   * 「上传进度条中就以图片/视频封面来进行显示」）。
+   *
+   * `previewUrl` 是 blob 地址：图片解得出、**视频解不出** —— 喂给 `<img>` 得到的是破图图标。
+   * 完成态用的是 `<VideoThumbnail>`（内部追 `#t=0.1` 逼引擎 seek 出首帧），在途必须用同一个，
+   * 否则「上传中」与「完成后」画面根本不是同一种东西，谈不上"样式完全一致"。
+   *
+   * jsdom 不解码也不 seek，这里能钉的是**接线**：出来的是 `<video>`、src 带片段、
+   * 三个播放属性齐全、类名与完成态相同。首帧真画得出来是真机的事。
+   */
+  it('🔴 视频在途 ⇒ <VideoThumbnail> 首帧封面（带 #t=0.1 与三个播放属性），不是喂给 <img> 的破图', () => {
     useSendingMediaStore.getState().enqueue([seed('client_vid', 'video')]);
 
     const { container } = render(
@@ -84,13 +120,19 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
       />,
     );
 
-    expect(container.querySelector('img.message-video-thumbnail')).not.toBeNull();
-    expect(container.querySelector('video')).toBeNull();
+    const video = container.querySelector('video.message-video-thumbnail');
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute('src')).toBe('blob:preview/1#t=0.1');
+    expect(video?.getAttribute('preload')).toBe('metadata');
+    expect((video as HTMLVideoElement).muted).toBe(true);
+    expect(video?.hasAttribute('playsinline')).toBe(true);
+    // 反向：这一格里不许再出现 <img>（那正是破图的来源）
+    expect(container.querySelector('.video-message img')).toBeNull();
     expect(screen.getByTestId('sending-media-overlay')).toBeInTheDocument();
   });
 
   it('文档在途 ⇒ 卡片上也有覆盖层（待发区收文档，文件也要能转圈）', () => {
-    useSendingMediaStore.getState().enqueue([seed('client_doc', 'file', null)]);
+    useSendingMediaStore.getState().enqueue([seed('client_doc', 'file')]);
 
     const { container } = render(
       <FileMessageContent

@@ -221,7 +221,14 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         kind: p.item.kind,
         size: p.item.file.size,
         localPath: p.item.localPath,
-        previewUrl: p.item.previewUrl,
+        // 原始像素尺寸：待发区加入时就探测好了。在途占位据此走与完成态**同一个**
+        // calculateDisplaySize ⇒ 上传完成那一刻容器尺寸不变（零跳变）。
+        width: p.item.width,
+        height: p.item.height,
+        // 🔴 **不递 previewUrl**：待发区那把 object URL 在本次发送的收尾
+        // （ChatInputArea.handleSend → clearTray）就会被 revoke，递过去等于递一个死链接
+        // ——这正是"上传中显示破图"的真因。发送态自己从 file 造一把，见 sendingMediaStore。
+        // 类型上也递不进来：SendingMediaSeed 的 preview 已 Omit 掉该字段。
       },
       caption: p.caption,
       sendTime,

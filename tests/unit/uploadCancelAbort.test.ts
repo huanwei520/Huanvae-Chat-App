@@ -83,7 +83,7 @@ function seed(clientId = CLIENT_ID): SendingMediaSeed {
     conversationType: 'friend',
     targetId: 'f-1',
     shape: { kind: 'single', groupId: null, index: null, count: null },
-    preview: { name: 'v.mp4', kind: 'video', size: 5, localPath: '/tmp/v.mp4', previewUrl: null },
+    preview: { name: 'v.mp4', kind: 'video', size: 5, localPath: '/tmp/v.mp4', width: null, height: null },
     caption: undefined,
     sendTime: '2026-08-12T00:00:00.000Z',
   };

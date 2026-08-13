@@ -253,9 +253,27 @@ fn updater_config_flag<R: Runtime>(webview: &Webview<R>, camel: &str, kebab: &st
         .unwrap_or(false)
 }
 
-/// 下载进度事件（字段名与前端 `src/update/service.ts` 的解析保持一致）
+/// 下载进度事件（变体名与字段名都必须与前端 `src/update/service.ts` 的解析逐字对齐）
+///
+/// 🔴 这里**只能**写 `rename_all_fields`，不能写 `rename_all` —— 它俩在 enum 上作用于
+/// 完全不同的东西，写错的那一版在编译期毫无征兆，只在运行时把线格式整个换掉：
+///
+/// | 属性 | 作用对象（serde 语义） | 本 enum 的实际线格式 |
+/// |---|---|---|
+/// | `rename_all = "camelCase"` | **变体名**（字段不动） | `{"event":"started","data":{"content_length":…}}` |
+/// | `rename_all_fields = "camelCase"` | **变体内的字段名**（变体名不动） | `{"event":"Started","data":{"contentLength":…}}` |
+///
+/// 前端 `service.ts` 的 `switch (msg.event)` 只认 `'Started' / 'Progress' / 'Finished'`，
+/// 所以写成 `rename_all` 时**一条进度都进不了前端**（switch 无分支命中 ⇒ `onProgress`
+/// 一次都不调），进度条全程停在 `startDownload()` 的初值 —— 表现为「0 B 不定态直到完成」。
+/// 这正是 v1.1.23（`1f42b3e` 引入自建分片下载器时）～v1.1.32 十个版本一直在犯的错：
+/// 它不报错、不告警，唯一症状就是进度条不动，因此没人把它跟"格式"联系起来。
+/// 上面那张表的两行都是 serde 1.0.228 实跑出来的，不是推断。
+///
+/// 守卫：`tests/update/updateWireContract.test.ts` 从本文件**解析出真实线格式**再喂给
+/// 前端真实 handler；改动本行或任一变体名/字段名而不同步前端，那条测试立刻翻红。
 #[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase", tag = "event", content = "data")]
+#[serde(rename_all_fields = "camelCase", tag = "event", content = "data")]
 pub enum ShardedEvent {
     /// 总长度。
     ///
@@ -661,12 +679,22 @@ pub async fn updater_sharded_install<R: Runtime>(
     }
 
     // 进度上报：分片是并发的，用累计已下字节数算真实百分比
+    //
+    // 🔴 顺序是「先发一条再睡」，不是「先睡再发」。所有分片跑完后本任务会被
+    // `reporter.abort()` 立刻掐掉（见下方），所以「睡够一个 tick」是**上报能不能发生**的
+    // 前提，不只是延迟：整次下载短于一个 tick 时，旧写法一条 `Progress` 都发不出去。
+    // 本机 13.8 MB 包实测 0.73s（够 3 个 tick）没暴露，但 Windows 安装包只有 9.3 MB，
+    // 更快的链路就会掉进这个窗口。
+    // ⚠️ 把 200ms 调小**不是**修法：那只是把窗口挪窄，窗口本身还在。
+    //
+    // 首帧那条的 `downloaded` 就是断点起点（非续传时为 0），与 `Started` 同值 ——
+    // 两条之间 Δt≈0，前端速率估算的 `MIN_SAMPLE_INTERVAL_MS`（50ms）会整条丢弃它，
+    // 不会因为除以一个极小的 dt 而算出假的瞬时速率（见 `src/update/downloadSpeed.ts`）。
     let reporter = {
         let progress = progress.clone();
         let ch = on_event.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(200)).await;
                 let done = progress.load(Ordering::Relaxed);
                 let _ = ch.send(ShardedEvent::Progress {
                     downloaded: done,
@@ -675,6 +703,7 @@ pub async fn updater_sharded_install<R: Runtime>(
                 if done >= len {
                     break;
                 }
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
         })
     };

@@ -55,17 +55,19 @@ function stripComments(src: string): string {
 }
 
 /**
- * 抓出每个 `<VideoThumbnail …/>` 标签内 `fileHash={…}` 的表达式原文。
+ * 抓出每个 `<VideoThumbnail …/>` 标签的属性原文。
  * `[^>]` 把匹配限制在标签内（JSX 属性值里不会出现 `>`），不会跨到别的标签去。
  */
+function videoThumbnailTagsOf(code: string): string[] {
+  return [...code.matchAll(/<VideoThumbnail([^>]*)>/g)].map((m) => m[1]);
+}
+
+/** 每个 `<VideoThumbnail>` 递进去的 `fileHash={…}` 表达式原文；没递为 `<缺失>` */
 function fileHashPropsOf(code: string): string[] {
-  const found: string[] = [];
-  for (const m of code.matchAll(/<VideoThumbnail([^>]*)>/g)) {
-    const attrs = m[1];
+  return videoThumbnailTagsOf(code).map((attrs) => {
     const hit = /fileHash=\{([^}]*)\}/.exec(attrs);
-    found.push(hit ? hit[1].trim() : '<缺失>');
-  }
-  return found;
+    return hit ? hit[1].trim() : '<缺失>';
+  });
 }
 
 const SHARED_THUMBNAIL = 'src/chat/shared/VideoThumbnail.tsx';
@@ -80,7 +82,6 @@ const POSTER_SERVICE = 'src/services/videoPoster.ts';
  * 四处递的都是同一行数据的 `file_hash` ⇒ 同一个视频在四个入口命中**同一个封面文件**。
  */
 const WIRED_CONSUMERS: Array<[string, string]> = [
-  ['src/chat/shared/FileMessageContent.tsx', 'fileHash'],
   ['src/components/search/ConversationSearchHit.tsx', 'message.file_hash'],
   ['src/components/files/FilesModal.tsx', 'file.file_hash'],
   ['src/pages/mobile/MobileFilesPage.tsx', 'file.file_hash'],
@@ -96,6 +97,38 @@ describe('A. 气泡与查找记录递同一把键 ⇒ 两处必然是同一帧',
     expect(props).toContain(expected);
     // 漏传即退化成「每次重新截」，这条把它翻红
     expect(props).not.toContain('<缺失>');
+  });
+
+  /**
+   * 气泡这个文件里有**两个** `<VideoThumbnail>`，只有一个该递键 —— 逐个点名，不许有第三种形态。
+   *
+   * - **完成态**（`VideoMessage`）：视频已经发出去了，有 `file_hash` ⇒ 必须递，
+   *   漏了就退回「每次挂载重新 seek」，且与「查找记录 → 视频」那处不再是同一帧。
+   * - **在途态**（`SendingMediaMessage`，2026-08-13 起）：文件**还没上传**，
+   *   `file_hash` 是上传时才算出来的、此刻在世界上不存在；而 `video_posters` 那张表的键就是它。
+   *   ⇒ 这里**不能**递，也没得递。不传 ⇒ useVideoPoster 同步落到 capture 分支 ⇒
+   *   纯 `<video>` 显示首帧，**不读也不写封面库**（与待发区那格同一条口径）。
+   *
+   * 用「递了键的必带 onPlay / 没递键的必带 decorative + previewUrl」把两者分辨开，
+   * 而不是靠出现顺序 —— 顺序会随任何一次代码搬动而变，那种断言迟早变成噪音。
+   */
+  it('src/chat/shared/FileMessageContent.tsx：完成态递 fileHash，在途态没有键可递（逐个点名）', () => {
+    const code = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
+    const tags = videoThumbnailTagsOf(code);
+
+    // 恰两个。多出第三个 ⇒ 有人新增了消费点却没在这里表态，翻红逼他来定性
+    expect(tags).toHaveLength(2);
+
+    const settled = tags.filter((a) => /fileHash=\{fileHash\}/.test(a));
+    const inflight = tags.filter((a) => !/fileHash=/.test(a));
+    expect(settled).toHaveLength(1);
+    expect(inflight).toHaveLength(1);
+
+    // 完成态：递键那个就是气泡里那个（带 onPlay 收「加载中」占位）
+    expect(settled[0]).toMatch(/onPlay=/);
+    // 在途态：源是本地那把 object URL，且是装饰性的（可读名字由覆盖层的 aria-label 承担）
+    expect(inflight[0]).toMatch(/src=\{previewUrl\}/);
+    expect(inflight[0]).toMatch(/\bdecorative\b/);
   });
 
   it('两处的键同源：都取自消息行的 file_hash（而不是各自另造一个标识）', () => {

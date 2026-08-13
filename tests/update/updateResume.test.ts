@@ -12,14 +12,12 @@
  *    后者会让速率估算把断点那一跳（0 → 8MB）当成 200ms 内的真实吞吐，
  *    读数瞬间飙到几十 MB/s，EMA 要好几秒才落回真值。
  *
- * 第 3 组是跨语言契约的静态守卫：Rust 的 `ShardedEvent::Started` 与 TS 的线格式类型
- * 必须同时带 `downloaded` 字段。本仓踩过「改了类型但请求体没传字段 ⇒ 字段被静默丢掉」
- * 的坑（见 .claude/CLAUDE.md 契约链一节），这里正好是反方向的同一个坑。
+ * 跨语言线格式（Rust `ShardedEvent` 与 TS 解析的 tag / 字段名是否对得上）**不在本文件**，
+ * 归 `tests/update/updateWireContract.test.ts` —— 原先放在这里的那组只是 grep 字段名，
+ * 对格式漂移结构上不可能翻红，已删（见文件末尾的说明）。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { invoke } from '@tauri-apps/api/core';
 import type { DownloadProgress } from '../../src/update/service';
 
@@ -174,26 +172,10 @@ describe('Started 事件自带断点起点（不是先报 0 再补 Progress）',
   });
 });
 
-describe('跨语言契约：Started.downloaded 两侧都要有', () => {
-  const RUST = readFileSync(
-    resolve(__dirname, '../../src-tauri/src/updater_download.rs'),
-    'utf-8',
-  );
-  const TS = readFileSync(resolve(__dirname, '../../src/update/service.ts'), 'utf-8');
-
-  it('Rust 的 ShardedEvent::Started 带 downloaded 字段', () => {
-    // 正对照：先确认文件真读进来了，否则下面的 match 等于没查
-    expect(RUST.length).toBeGreaterThan(1000);
-    // 块内有界：只在 Started 这个变体的花括号里找，不跨到 Progress 去
-    expect(RUST).toMatch(/Started\s*\{[^}]*content_length[^}]*downloaded:\s*u64[^}]*\}/);
-  });
-
-  it('TS 线格式类型里 Started 也带 downloaded', () => {
-    expect(TS.length).toBeGreaterThan(1000);
-    expect(TS).toMatch(/event:\s*'Started';\s*data:\s*\{[^}]*downloaded:\s*number[^}]*\}/);
-    // 🔴 反向断言：光有类型不算数，必须真的把它取出来用了
-    //    （本仓踩过「改了类型但没传字段 ⇒ 字段被静默丢掉」的坑，这是同族）
-    expect(TS).toMatch(/const resumed = msg\.data\.downloaded;/);
-    expect(TS).not.toMatch(/event: 'Started',[\s\S]{0,200}downloaded:\s*0,/);
-  });
-});
+// 原「跨语言契约：Started.downloaded 两侧都要有」那一组已**删除**（不是搬走）。
+// 它只 grep 两边源码里有没有这几个字，对**格式漂移**在结构上不可能翻红 —— 事实上
+// v1.1.23~v1.1.32 期间 Rust 真实线格式是 `{"event":"started","data":{"content_length":…}}`
+// （enum 上的 `rename_all` 改的是**变体名**、不是字段名），前端一条事件都收不到、
+// 进度条恒 0，而这两条断言全程绿着。
+// 替代者：`tests/update/updateWireContract.test.ts` —— 从 Rust 源码**派生**真实线格式、
+// 钉到真 serde 输出，再把派生结果喂进前端真实 handler（tag/字段名任一漂移即红）。

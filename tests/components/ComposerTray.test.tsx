@@ -14,6 +14,9 @@ function item(id: string, name: string, kind: TrayItem['kind'], previewUrl: stri
     localPath: `/tmp/${name}`,
     kind,
     previewUrl,
+    // 原始像素尺寸（待发区异步探测的产物）；本组件不消费它，给固定值即可
+    width: null,
+    height: null,
   };
 }
 

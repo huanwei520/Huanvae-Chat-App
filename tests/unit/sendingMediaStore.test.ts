@@ -26,7 +26,8 @@ function seed(clientId: string, index: number, count: number, groupId = 'G1'): S
     conversationType: 'friend',
     targetId: 'u1',
     shape: { kind: 'album', groupId, index, count },
-    preview: { name: `${clientId}.png`, kind: 'image', size: 1, localPath: '', previewUrl: null },
+    // previewUrl 不在 seed 里（本 store 自己造 / 自己释放，见下方「在途预览的 object URL 归属」）
+    preview: { name: `${clientId}.png`, kind: 'image', size: 1, localPath: '', width: null, height: null },
     sendTime: '2026-08-13T00:00:00.000Z',
   };
 }

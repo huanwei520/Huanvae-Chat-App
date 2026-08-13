@@ -17,10 +17,24 @@
  * `previewUrl` 由本 store 在 `add` 时创建、在 `remove` / `clear` 时 revoke。
  * 由创建方负责释放是唯一不会漏的口径 —— 交给组件 unmount 释放的话，
  * 「待发区还在、组件因切会话卸载了」这条路径会把还要用的 URL 提前吊销。
+ *
+ * 🔴 **这把 URL 只归待发区用，绝不能递给发送态**（2026-08-13 修）：`clear` 是发送动作的
+ * 收尾（ChatInputArea.handleSend 发完就清空待发区），它会当场 revoke 这里每一把 URL。
+ * 把它交给 sendingMediaStore ⇒ 在途气泡里的 `<img src>` 指向一个刚被吊销的 blob ⇒ 破图。
+ * 发送态那边自己从 `File` 造一把、自己释放，见 stores/sendingMediaStore.ts。
+ * 机器口径：`SendingMediaSeed` 的 preview **类型上就没有** previewUrl 这个字段，递不进去。
+ *
+ * ## 为什么这里要读原始像素尺寸（`width` / `height`）
+ * 「上传中的占位」与「上传完成的气泡」要**逐像素同形**，而完成态的容器尺寸是
+ * `calculateDisplaySize(image_width, image_height)` 算的，那两个数来自上传链路的
+ * {@link readMediaDimensions}。占位要拿到同一组数字，才能算出同一个尺寸 ⇒ 不跳版。
+ * 放在 `add`（而不是发送那一刻）是因为读尺寸是异步的：用户从"加进待发区"到"按回车"
+ * 通常有秒级间隔，这一步早就跑完了；发送那一刻才起会在画面上先按默认尺寸画一帧再跳。
  */
 
 import { create } from 'zustand';
 import { ALBUM_MAX_ITEMS, splitByCapacity, type TrayItemKind } from '../chat/shared/composerTrayPlan';
+import { readMediaDimensions } from '../utils/mediaDimensions';
 
 /**
  * 待发区一次最多放几个。
@@ -56,6 +70,14 @@ export interface TrayItem {
   kind: TrayItemKind;
   /** 图片/视频的缩略图 object URL；文件为 null */
   previewUrl: string | null;
+  /**
+   * 媒体的原始像素宽 / 高；还没读出来（或读不出来 / 文件类型）时为 null。
+   *
+   * 加入待发区时异步探测一次（见 {@link probeDimensions}），发送时随乐观条目一起交给
+   * 发送态 —— 它与完成态用同一个 `calculateDisplaySize`，这是「零跳变」的依据。
+   */
+  width: number | null;
+  height: number | null;
 }
 
 /** 加入待发区时的原始输入（id / previewUrl 由 store 生成） */
@@ -116,6 +138,34 @@ function nextItemId(): string {
   return `tray_${idSeq}`;
 }
 
+/**
+ * 异步读一项的原始像素尺寸，读到就写回那一项。
+ *
+ * 三条刻意的取舍：
+ * - **fire-and-forget**：`add` 是同步 action（UI 要当帧看到缩略图），尺寸晚几毫秒到没关系。
+ * - **按 id 定位回写**：期间用户可能删了这一项 / 清空了整个待发区 ⇒ 找不到就什么都不做。
+ * - **jsdom 没有 `URL.createObjectURL`**（`readMediaDimensions` 内部要用它），
+ *   与 {@link makePreviewUrl} 同一个能力判断：没有就不探测，`width/height` 留 null。
+ */
+function probeDimensions(conversationKey: string, itemId: string, kind: TrayItemKind, file: File): void {
+  if (kind === 'file' || typeof URL.createObjectURL !== 'function') { return; }
+  void readMediaDimensions(file).then((dim) => {
+    if (!dim || dim.width <= 0 || dim.height <= 0) { return; }
+    useComposerTrayStore.setState((state) => {
+      const list = state.itemsByConversation[conversationKey];
+      if (!list || !list.some((i) => i.id === itemId)) { return state; }
+      return {
+        itemsByConversation: {
+          ...state.itemsByConversation,
+          [conversationKey]: list.map((i) => (
+            i.id === itemId ? { ...i, width: dim.width, height: dim.height } : i
+          )),
+        },
+      };
+    });
+  });
+}
+
 export const useComposerTrayStore = create<ComposerTrayStore>((set, get) => ({
   itemsByConversation: {},
 
@@ -138,6 +188,8 @@ export const useComposerTrayStore = create<ComposerTrayStore>((set, get) => ({
         localPath: i.localPath,
         kind: i.kind,
         previewUrl: makePreviewUrl(i.kind, i.file),
+        width: null,
+        height: null,
       }));
       set((state) => ({
         itemsByConversation: {
@@ -145,6 +197,8 @@ export const useComposerTrayStore = create<ComposerTrayStore>((set, get) => ({
           [conversationKey]: [...(state.itemsByConversation[conversationKey] ?? []), ...newItems],
         },
       }));
+      // 尺寸随后补上（异步）。写在 set 之后：探测的回写要能在 state 里找到这一项。
+      newItems.forEach((i) => probeDimensions(conversationKey, i.id, i.kind, i.file));
     }
 
     return {

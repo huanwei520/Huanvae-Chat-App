@@ -20,7 +20,8 @@ function seed(clientId: string): SendingMediaSeed {
     conversationType: 'friend',
     targetId: 'u1',
     shape: { kind: 'single', groupId: null, index: null, count: null },
-    preview: { name: 'a.png', kind: 'image', size: 1, localPath: '', previewUrl: null },
+    // previewUrl 不在 seed 里：那把 object URL 归 sendingMediaStore 自己造 / 自己释放
+    preview: { name: 'a.png', kind: 'image', size: 1, localPath: '', width: null, height: null },
     sendTime: '2026-08-13T00:00:00.000Z',
   };
 }

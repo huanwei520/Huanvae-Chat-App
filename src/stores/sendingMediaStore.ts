@@ -33,6 +33,18 @@
  * 上传成功后写 `realUuid`；消息列表侧的 {@link mergeSendingIntoMessages} 见到
  * `realUuid` 已经在真实消息里出现，就**不再渲染这个乐观条目** ——
  * 「先增后减」的交叉窗口里两者共存，但画面上永远只有一条，所以不闪也不重。
+ *
+ * ### 4. 在途预览的 object URL **由本 store 自己造、自己释放**（2026-08-13 修）
+ * 此前是把待发区那把 URL 原样递进来的 —— 而发送动作的收尾恰恰是
+ * `ChatInputArea.handleSend` 调 `composerTrayStore.clear`，它会当场 revoke 待发区每一把 URL。
+ * 于是「上传中」那张图的 `<img src>` 指向一个刚被吊销的 blob ⇒ **破图**，
+ * 用户看到的就是「一整块灰底 + 进度圈 + 破图问号」。
+ *
+ * 修法不是"晚一点再 revoke"（那要在两个 store 之间维护一份共享引用计数，必漏），
+ * 而是**换所有权**：本 store 在 `enqueue` 时从 `seed.file` 现造一把，
+ * 在条目离开队列的两条路径（`cancel` / `pruneConfirmed`）上释放。
+ * 机器口径：{@link SendingMediaSeed} 的 `preview` 类型上**没有** `previewUrl` 字段 ——
+ * 想把待发区那把递进来，TypeScript 直接不让过。
  */
 
 import { create } from 'zustand';
@@ -58,7 +70,21 @@ export interface SendingMediaPreview {
   size: number;
   /** 本地绝对路径（可能为空串，见 TrayItem.localPath 说明） */
   localPath: string;
-  /** 缩略图 object URL（图片/视频），文件为 null */
+  /**
+   * 媒体的原始像素宽 / 高（待发区提前探测好的，读不出来为 null）。
+   *
+   * 在途占位用它走 `FileMessageContent.calculateDisplaySize`，与完成态那条
+   * `image_width` / `image_height` 是**同一个函数、同一组数字** ⇒ 上传完成不跳版。
+   */
+  width: number | null;
+  height: number | null;
+  /**
+   * 缩略图 object URL（图片/视频），文件为 null。
+   *
+   * 🔴 **本 store 自己造、自己释放**（见文件头第 4 点）。它不出现在
+   * {@link SendingMediaSeed} 里 —— 调用方递不进来，也就不可能再递进一把
+   * 「马上会被待发区 revoke 掉」的 URL。
+   */
   previewUrl: string | null;
 }
 
@@ -92,8 +118,14 @@ export interface SendingMediaEntry {
   sendTime: string;
 }
 
-/** enqueue 的入参：除运行期字段外全部由调用方给定 */
-export type SendingMediaSeed = Omit<SendingMediaEntry, 'status' | 'percent' | 'error' | 'realUuid'>;
+/**
+ * enqueue 的入参：除运行期字段外全部由调用方给定。
+ *
+ * `preview.previewUrl` **不在这里** —— 那把 object URL 归本 store 所有（文件头第 4 点）。
+ */
+export type SendingMediaSeed =
+  Omit<SendingMediaEntry, 'status' | 'percent' | 'error' | 'realUuid' | 'preview'>
+  & { preview: Omit<SendingMediaPreview, 'previewUrl'> };
 
 interface SendingMediaState {
   entries: Record<string, SendingMediaEntry>;
@@ -118,6 +150,24 @@ export type SendingMediaStore = SendingMediaState & SendingMediaActions;
 
 const EMPTY_ORDER: string[] = [];
 
+/**
+ * 造本 store 自己那把在途预览 URL。
+ *
+ * 抽成函数与 composerTrayStore.makePreviewUrl 同一理由：jsdom 没有
+ * `URL.createObjectURL`，直接调会抛，而那会让"入队"这条主路径在单测里根本跑不起来。
+ */
+function makeSendingPreviewUrl(kind: TrayItemKind, file: File): string | null {
+  if (kind === 'file') { return null; }
+  if (typeof URL.createObjectURL !== 'function') { return null; }
+  return URL.createObjectURL(file);
+}
+
+function revokeSendingPreviewUrl(url: string | null | undefined): void {
+  if (url && typeof URL.revokeObjectURL === 'function') {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
   entries: {},
   orderByConversation: {},
@@ -128,7 +178,17 @@ export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
       const entries = { ...state.entries };
       const order = { ...state.orderByConversation };
       for (const seed of seeds) {
-        entries[seed.clientId] = { ...seed, status: 'pending', percent: 0, realUuid: null };
+        entries[seed.clientId] = {
+          ...seed,
+          // 自己造一把（不接待发区那把：它在发送收尾时就被 revoke 了，见文件头第 4 点）
+          preview: {
+            ...seed.preview,
+            previewUrl: makeSendingPreviewUrl(seed.preview.kind, seed.file),
+          },
+          status: 'pending',
+          percent: 0,
+          realUuid: null,
+        };
         const key = seed.conversationKey;
         order[key] = [...(order[key] ?? []), seed.clientId];
       }
@@ -193,6 +253,8 @@ export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
   cancel: (clientId) => {
     const entry = get().entries[clientId];
     if (!entry) { return; }
+    // 条目离开队列 ⇒ 没有任何地方还会渲染它的预览，释放（本 store 造的，本 store 收）
+    revokeSendingPreviewUrl(entry.preview.previewUrl);
     set((state) => {
       const entries = { ...state.entries };
       delete entries[clientId];
@@ -215,6 +277,8 @@ export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
       return e && e.realUuid !== null && presentUuids.has(e.realUuid);
     });
     if (settled.length === 0) { return; }
+    // 真实消息已经在列表里了（它自己走本地缓存 / 反代取源），乐观条目这一份预览到此为止
+    settled.forEach((id) => revokeSendingPreviewUrl(state.entries[id]?.preview.previewUrl));
     set((s) => {
       const entries = { ...s.entries };
       settled.forEach((id) => delete entries[id]);

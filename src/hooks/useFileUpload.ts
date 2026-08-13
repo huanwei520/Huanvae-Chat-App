@@ -17,6 +17,7 @@ import { useState, useCallback } from 'react';
 import { useApi } from '../contexts/SessionContext';
 import { formatFileSize } from '../utils/format';
 import { optimizePresignedUrl } from '../utils/network';
+import { readMediaDimensions } from '../utils/mediaDimensions';
 import { proxyRequestUrl } from '../services/secureProxy';
 
 // ============================================
@@ -240,66 +241,9 @@ async function calculateSHA256(
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * 读取图片文件的原始尺寸
- * 返回 { width, height } 或 null（加载失败）
- */
-function getImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-
-    img.src = url;
-  });
-}
-
-/**
- * 读取视频文件的原始尺寸
- * 返回 { width, height } 或 null（加载失败）
- */
-function getVideoDimensions(file: File): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    const url = URL.createObjectURL(file);
-
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: video.videoWidth, height: video.videoHeight });
-    };
-
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-
-    // 设置预加载元数据
-    video.preload = 'metadata';
-    video.src = url;
-  });
-}
-
-/**
- * 读取媒体文件（图片/视频）的原始尺寸
- * 返回 { width, height } 或 null（非媒体文件或加载失败）
- */
-function getMediaDimensionsFromFile(file: File): Promise<{ width: number; height: number } | null> {
-  if (file.type.startsWith('image/')) {
-    return getImageDimensions(file);
-  } else if (file.type.startsWith('video/')) {
-    return getVideoDimensions(file);
-  }
-  return Promise.resolve(null);
-}
+// 媒体原始像素尺寸的读法收敛在 utils/mediaDimensions.ts（readMediaDimensions）——
+// 待发区要用**同一个**函数提前算出同一组数字，才能让"上传中的占位"与"完成后的气泡"
+// 走同一条 calculateDisplaySize 得到同一个容器尺寸（零跳变）。两处各写一份必漂。
 
 /**
  * 根据 MIME 类型确定文件类型
@@ -443,7 +387,7 @@ export function useFileUpload() {
         if (signal?.aborted) { throw new Error(UPLOAD_CANCELLED); }
 
         // 1.5 读取媒体尺寸（图片/视频文件）
-        const imageDimensions = await getMediaDimensionsFromFile(file);
+        const imageDimensions = await readMediaDimensions(file);
 
         // 调试：确认是否获取到了媒体尺寸
         // eslint-disable-next-line no-console

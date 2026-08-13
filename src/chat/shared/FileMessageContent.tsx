@@ -732,6 +732,20 @@ function DocumentMessage({
  * 下载进度覆盖层）；`.document-message` 本来不是，已在 pages/main.css 里补上，
  * 并由 tests/styles/SendingOverlayHost.test.ts 钉住。
  *
+ * ## 🔴 判据是「与完成态逐像素同形，唯一差别是进度圈」（huanwei 2026-08-13 08:16）
+ *
+ * 他的原话：「发出去上传进度条中就以图片/视频封面来进行显示，保证上传进度条和上传完成的
+ * 样式完全一致」。所以这一支不是"另画一个占位"，而是**把完成态那套渲染原样搭一遍**，
+ * 只把取源换成本地那份。三处逐条对齐（改动一处就会重新出现跳变）：
+ *
+ * | | 完成态 | 在途（本组件） |
+ * |---|---|---|
+ * | 容器尺寸 | `calculateDisplaySize(image_width, image_height, MAX…)` | **同一个函数、同一组数字**（`preview.width/height` 由待发区提前探测，与上传链路共用 `readMediaDimensions`） |
+ * | 类名 | `.image-message` / `.video-message` + `.message-image` / `.message-video-thumbnail` | 逐字相同 ⇒ 圆角、`object-fit: contain`、黑底全部同一条 CSS |
+ * | 视频画面 | `<VideoThumbnail>`（`#t=0.1` 逼引擎 seek 首帧） | **同一个组件**（不传 `fileHash` ⇒ 恒走 `<video>` 分支，不读也不写封面库） |
+ *
+ * | 播放角标 | `.video-play-overlay` | **同样画**（见下方注释：少画它就是第二处差别，违反验收口径） |
+ *
  * ## 三条「不要踩」（接线契约原文，逐条对应）
  * 1. **不给覆盖层传 percent** —— 它自己按 clientId 订阅 store；走 props 会让每次百分比
  *    变化都从消息列表顶层重渲一整棵树。这里只递 `clientId` 与两个**模块级**回调。
@@ -747,7 +761,7 @@ function SendingMediaMessage({
   entry: SendingMediaEntry;
   displayVariant?: 'bubble' | 'album';
 }) {
-  const { kind, previewUrl, name, size } = entry.preview;
+  const { kind, previewUrl, name, size, width, height } = entry.preview;
 
   const overlay = (
     <SendingMediaOverlay
@@ -776,27 +790,58 @@ function SendingMediaMessage({
   }
 
   const isVideo = kind === 'video';
-  // 乐观消息没有服务端下发的宽高（那要等 upload 回包），只能用与正式渲染同一套默认占位尺寸
-  // —— 尺寸一致才不会在"乐观条目换成真实消息"那一刻跳版。相册态照旧交给外层 grid。
-  const containerStyle: React.CSSProperties = displayVariant === 'album'
-    ? { width: '100%', height: '100%' }
+  // 容器尺寸与完成态**同源同算法**：ImageMessage / VideoMessage 用的是
+  // calculateDisplaySize(image_width, image_height, 各自的 MAX)，而那两个数与这里的
+  // width/height 都出自 utils/mediaDimensions.readMediaDimensions（同一个文件、同一次读法）。
+  // 读不出尺寸时两边一起退到同一套默认值 —— 缺尺寸的那条路上也不会跳版。
+  // 判定与 ImageMessage / VideoMessage 的 hasPresetDimensions 逐字同形
+  const hasPresetDimensions = width && height && width > 0 && height > 0;
+  const displaySize = hasPresetDimensions
+    ? calculateDisplaySize(
+      width,
+      height,
+      isVideo ? VIDEO_MAX_WIDTH : IMAGE_MAX_WIDTH,
+      isVideo ? VIDEO_MAX_HEIGHT : IMAGE_MAX_HEIGHT,
+    )
     : {
       width: isVideo ? VIDEO_DEFAULT_WIDTH : IMAGE_DEFAULT_WIDTH,
       height: isVideo ? VIDEO_DEFAULT_HEIGHT : IMAGE_DEFAULT_HEIGHT,
     };
+  // 相册态照旧交给外层 grid（内联宽高会跟 grid 打架）
+  const containerStyle: React.CSSProperties = displayVariant === 'album'
+    ? { width: '100%', height: '100%' }
+    : { width: displaySize.width, height: displaySize.height };
 
   return (
     <div
       className={`file-message ${isVideo ? 'video-message' : 'image-message'}`}
       style={containerStyle}
     >
-      {previewUrl && (
-        <img
-          className={isVideo ? 'message-video-thumbnail' : 'message-image'}
-          src={previewUrl}
-          alt={name}
-          draggable={false}
-        />
+      {previewUrl && (isVideo
+        ? (
+          // 完成态用的就是这个组件（`#t=0.1` 逼引擎 seek 出首帧）。把 blob 直接喂 <img>
+          // 是画不出视频画面的 —— 那正是"上传中一个破图问号"的另一半成因。
+          // 🔴 不传 fileHash：此刻文件还没上传、根本没有 file_hash，而 video_posters
+          // 那张表的键就是它 ⇒ 不传即恒走 <video> 分支，不读也不写封面缓存。
+          <VideoThumbnail src={previewUrl} className="message-video-thumbnail" decorative />
+        )
+        : (
+          <img
+            className="message-image"
+            src={previewUrl}
+            alt={name}
+            draggable={false}
+          />
+        ))}
+      {/* 播放角标：完成态的 VideoMessage 有，所以在途也必须有。
+          验收口径是「上传中与上传完成**唯一**的差别是进度圈在不在」——少画一个角标
+          就是第二处差别。它 `pointer-events: none`、只是装饰，不会让"还不能播的东西"变得可点；
+          进度圈 z-index 3 盖在它上面，所以上传中看到的是"被遮罩压暗的角标 + 环"。
+          （视觉上更干净的做法是上传中不画它，但那属于改验收口径，得 huanwei 拍板，不自造。） */}
+      {isVideo && (
+        <div className="video-play-overlay">
+          <PlayIcon />
+        </div>
       )}
       {overlay}
     </div>
