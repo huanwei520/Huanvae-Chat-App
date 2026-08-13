@@ -648,3 +648,83 @@ macOS 侧当天那起「安装/修复恒失败」故障，除了本文件前面�
 
 ⚠️ 边界：这只对**静态检查**成立。真出包（`tauri build` / `tauri android build`）当然要 `dist/`。
 版本升级后重验一次这个假设 —— 它是 `tauri-build` 的实现行为，不是文档承诺的契约。
+
+## macOS 真机载体必须是 `.app`：`cargo build --release` 的裸二进制**渲染白屏**
+
+**症状**：想在 macOS 上真机复现一个前端行为，图省事直接跑 `cargo build --release` 然后启动
+`target/release/<可执行文件>` —— **窗口起得来，但内容白屏**。
+
+**根因不是 App 缺陷**：裸二进制**没有 `Info.plist`、不是 bundle**。
+Tauri 的 webview 依赖 bundle 环境，裸可执行文件跑起来只有壳。
+⇒ 看到白屏**第一反应应当是"我的载体不对"**，而不是"这个版本坏了"——
+本仓 2026-08-13 实测就在这里绕了一次。
+（这条同时**回填**了 [common.md](common.md) Touch ID 一节里那句「`tauri dev` 裸二进制无 .app
+Info.plist 时行为待验」：**已验，白屏**。）
+
+### 🔴 但 `tauri build --bundles app` 在**共享盘（virtiofs）**上会失败
+
+实测（rc=1，耗时 316s）：
+
+```
+failed to bundle project Failed to create Info.plist:
+Io(Os { code: 25, kind: Uncategorized, message: "Inappropriate ioctl for device" })
+```
+
+**不是权限问题** —— 随后手工往**同一路径**写 `Info.plist` 是**能成功**的，
+所以这是共享盘（virtiofs）上的**写入语义**问题（与"virtiofs 慢 IO"是同一个盘的另一形态：那条是慢，这条是某些写入语义直接不支持）。
+
+### ⇒ 可行做法：在**本地盘**手工组装最小 `.app`
+
+1. 在**本地盘**（如 `/private/tmp/…`，不要在共享盘）建 `X.app/Contents/{MacOS,Resources}`；
+2. 拷同一份 `cargo build --release` 的二进制进 `Contents/MacOS/`；
+3. 自写 `Info.plist`（`CFBundleExecutable` / `CFBundleIdentifier` / `CFBundlePackageType=APPL`）；
+4. 🔴 **给它一个与正式包不同的 `CFBundleIdentifier`** —— 否则 LaunchServices 会因
+   **bundle identifier 相同**而激活**已在运行的那个实例**（正是 [common.md](common.md)
+   「多线共用一台 mac 做真机实验：`open` 不是可靠的启动方式」那条坑），
+   你以为在测自己的产物，其实看的是别人的进程。
+5. 用完把临时 `.app` 删掉（`target/` 本就 gitignore，但 `/private/tmp` 下的要自己清）。
+
+## serde 在 enum 上：`rename_all` 与 `rename_all_fields` **作用对象不同**，写错在编译期毫无征兆
+
+**两者改的根本不是同一层东西**，而名字只差三个字母：
+
+| 属性（写在 **enum** 上） | 改的是 | 不改的是 |
+|---|---|---|
+| `rename_all = "camelCase"` | **变体名**（tag 值） | 变体内的**字段名** |
+| `rename_all_fields = "camelCase"` | 变体内的**字段名** | **变体名** |
+
+**真 serde 实跑坐实（2026-08-13，独立 probe crate，`serde 1.0.228` / `serde_json 1.0.149`，
+与 `src-tauri/Cargo.lock` 锁定版本一致；两组只差 enum 上那一个属性）**：
+
+```
+A 组  #[serde(rename_all = "camelCase", tag = "event", content = "data")]
+{"event":"started","data":{"content_length":9700000,"downloaded":0}}
+{"event":"progress","data":{"downloaded":123456,"content_length":9700000}}
+{"event":"finished"}
+
+B 组  #[serde(rename_all_fields = "camelCase", tag = "event", content = "data")]
+{"event":"Started","data":{"contentLength":9700000,"downloaded":0}}
+{"event":"Progress","data":{"downloaded":123456,"contentLength":9700000}}
+{"event":"Finished"}
+```
+
+⇒ A 组把 **tag 全降成小写、字段名反而不动**；B 组恰好相反。
+**写错哪一个，编译期零告警、零报错 —— 只是把整条线格式换掉**，
+而对面（TS 侧）按另一套解析 ⇒ 事件全部落空，且没有任何一层会报错。
+
+### 🔴 只 grep 字段名的守卫，结构上不可能翻红
+
+守「跨语言线格式」的测试如果只是 `grep` 源码里有没有出现某个字段名，
+那么把 `rename_all_fields` 写成 `rename_all` 时**字段名一个字都没变** ⇒ 守卫恒绿。
+本仓旧守卫就是这样，**十个版本零告警**。
+
+**有效守卫的形状**：**从源码派生出真实线格式，再喂给真 handler / 与黄金样本逐字节比对** ——
+即断言的对象必须是**线格式本身**（tag 名 + content 键 + 变体 wire 名 + 字段 wire 名），
+不是源码里的标识符。参考件：`tests/update/updateWireContract.test.ts`（本代已做变异自证）。
+
+### 配套：核这类属性时 naive `grep -c` 会多数一条注释
+
+现查实测：`grep -c 'rename_all_fields = "camelCase"' src-tauri/src/updater_download.rs` = **2**,
+第二条是**注释表格行**（文件里那张解释两个属性区别的表）。
+锚定属性行才是 1：`grep -cE '^#\[serde\(rename_all_fields = "camelCase"'` = **1**。
+（同族：[common.md](common.md)「『命中了』不等于命中的是那一类行」。）

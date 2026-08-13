@@ -734,6 +734,10 @@ pnpm tauri icon scripts/icons/app-icon-squircle.png
 **落地方案(macOS only,仅 macOS 改,Win/Linux 保留 keyring)**：[macos_credential_store.rs](../../src-tauri/src/macos_credential_store.rs) —— 密码 AES-256-GCM 加密写 App 私有 `credentials.enc`(0600)；密钥 `SHA256(内置salt ‖ gethostuuid())`(换机不可解、不存盘)；读取前 `LAContext.evaluatePolicy(.biometrics)` Touch ID 门禁(objc2-local-authentication + block2 + mpsc 同步),失败/取消/无硬件 → 返回错误,前端 desktop 分支转手动登录(回退)。`storage.rs` 三套 cfg(macOS AES / Win-Linux keyring / mobile stub),`StorageError::Keyring`+`From<keyring::Error>` cfg 排除 macOS、`Crypto`/`Biometric` cfg macOS(否则 dead_code → clippy FAIL)。`Info.plist` 加 `NSFaceIDUsageDescription`。
 - **安全取舍(已与用户确认)**：未签名拿不到 Secure Enclave,密钥必须 App 无提示可派生 → 本质"强混淆 + Touch ID 体验门禁",非强加密,比系统钥匙串安全性下降,换 0 弹框 + Touch ID。
 - **Touch ID 未签名 dev 可行性需真机实测**(LAContext 不像钥匙串 ACL 依赖稳定签名,大概率可用;`tauri dev` 裸二进制无 .app Info.plist 时行为待验)。
+  - 🔴 **「裸二进制无 .app Info.plist 时行为」已于 2026-08-13 验掉：窗口起得来但渲染白屏**，
+    详见 [rust-dev.md](rust-dev.md)「macOS 真机载体必须是 `.app`」一节 —— 那不是 App 缺陷，是没有 bundle。
+  - 🔴 **「无硬件 → 转手动登录」这半句当前只是设计意图，未验证**：2026-08-13 在无 Touch ID 硬件的
+    macOS 上实测到两条通道都零反馈，见本文件末尾「已知遗留 · macOS 无 Touch ID 硬件时…」一节。
 - **Developer ID 签名**仍是另一条路(签名稳定后系统钥匙串点一次「始终允许」永久生效)。
 
 ### 反例(2026-06-04)
@@ -1498,3 +1502,44 @@ grep -rn "<被改文件名>:[0-9]" <文档目录>     # 例：grep -rn "test-all
 🔴 **绝不允许为了让门禁变绿而调阈值、加重试、或跳过该项** —— 那与「假实现」是同一类病：
 把「没通过」伪装成「通过了」。`ALLOW_SKIP` 只覆盖 SKIP、**覆盖不了 FAIL**，
 所以遇到 FAIL 时合规路径只有两条：**修掉它**，或**由授权方明确拍板带着它发**（并如实记账）。
+
+## 🔴 正对照必须与被测对象**同类** —— 类别不同的正对照，验不到那一类失效
+
+本文件已有三条同族纪律：「grep 字符类漏数字 ⇒『查不到』是假的」（先拿**已知存在**的样本验判据）、
+「用 grep 判有没有发生前先确认时间窗」、「『不复现』有三种假法」。它们都停在**要跑正对照**这一步。
+这一条再进一层：**正对照跑了、也命中了，判据仍然可能是废的 —— 因为正对照和被测对象不是同一类东西。**
+
+**判据**：写下正对照之前，先答一句「**我的被测对象属于哪一类？我的正对照属于哪一类？**」
+两者必须落在**同一条会失效的通道**上。类别对不上 ⇒ 那条正对照只证明了「工具能跑」，
+证明不了「这条查询对那一类对象有效」。
+
+**判决性实例（2026-08-13 本仓实测，两个执行单都没拦住，leader 跑 5×3 跨类矩阵才定性）**：
+
+要判「某段新代码在不在 `dist/` 构建产物里」，用的是
+`grep -c readMediaDimensions dist/` —— 被测对象是**函数标识符**。
+正对照用的是 `grep -c video-play-overlay dist/` = 2 ⇒ 看着"判据有区分力"。
+**但 `vite build` 的 minify 只改标识符、不改字符串字面量**：正对照是**字面量**、被测是**标识符**，
+两者根本不在同一条失效通道上 ⇒ 那条正对照**结构上不可能**验到 minify 改名这一类失效。
+
+**反证一步到位**：`calculateDisplaySize` 是项目里早就存在、必然被打进包的老函数，
+同一条 `grep dist/` 同样 **0 命中** ⇒ 「0 命中」与「代码不在包里」毫无关系，判据本身是废的。
+
+⇒ **同类正对照的选法**：挑一个**与被测对象同类、且已知必然成立**的样本。
+上例的正确正对照不是任何字面量，而是**另一个已知在包里的函数标识符**——
+而它同样 0 命中，正好当场判死这条判据（见 `frontend-test.md`「`dist/` 是 minified 产物」一节的替代判据）。
+
+**这条与「命中了不等于命中的是那一类行」是镜像**：那条防**假阳**（命中的不是你以为的那类行），
+这条防**假阴被正对照背书**（没命中，而你的正对照让你以为没命中是真的）。
+
+## 已知遗留 · macOS 无 Touch ID 硬件时，已保存账号「登陆」按钮两条通道均零反馈（未定性）
+
+**现象（2026-08-13 观察，未定性）**：在**没有 Touch ID 硬件**的 macOS 上，选中一个已保存账号后点「登陆」，
+**鼠标与键盘两条通道都没有任何反馈** —— 不弹 Touch ID、不回退手动登录、不报错、stdout 也无新行。
+
+**为什么必须记**：这与本文件「彻底消除弹框 —— macOS 已改 App 私有 AES + Touch ID」一节记载的设计
+**不符**。那节写的是「失败/取消/**无硬件** → 返回错误，前端 desktop 分支转手动登录（回退）」——
+即无硬件本应触发**可见的回退**，而不是静默。
+
+**定性需要 webview devtools**（看前端那次 `invoke` 的返回与 catch 分支是否真的进了），本 run 未做。
+⇒ 在定性之前，**不要**把上述那节的「无硬件 → 转手动登录」当成已验证行为引用；
+它当前是**设计意图**，不是实测结论。
