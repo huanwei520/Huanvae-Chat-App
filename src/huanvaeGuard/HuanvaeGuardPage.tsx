@@ -42,7 +42,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { formatSize } from '../utils/format';
 import { formatHandshake, osLabel } from './format';
-import { isDeviceOccupiedElsewhere, OCCUPIED_HINT } from './deviceState';
+import { isDeviceOccupiedElsewhere, reconcileSelfHeldIps, OCCUPIED_HINT } from './deviceState';
 import { decodeGroupInvite, encodeGroupInvite } from './inviteCode';
 import { freshestHandshakeAge } from './tunnelSummary';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
@@ -151,6 +151,12 @@ export default function HuanvaeGuardPage() {
   // Devices
   const [devices, setDevices] = useState<HgDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  /**
+   * 本终端持有的 VPN 地址（含**刚刚放开、服务端读数还没刷新**的那条）。
+   * 语义与维护规则见 deviceState.ts `reconcileSelfHeldIps` —— 它是「断开后那台设备
+   * 当帧就重新可选」与「别人真占着的仍然灰掉」两条同时成立的唯一依据。
+   */
+  const [selfHeldIps, setSelfHeldIps] = useState<readonly string[]>([]);
 
   // Links
   const [links, setLinks] = useState<HgDeviceLink[]>([]);
@@ -382,22 +388,29 @@ export default function HuanvaeGuardPage() {
       .catch(e => addLog(`加载群组详情失败：${e}`));
   }, [windowData, selectedGroupId, addLog]);
 
+  // 本机此刻隧道在用的 VPN 地址（去掉 CIDR 前缀）；未连接为 null。
+  // 必须算在所有 Hook 之前：占用判定的自愈 effect 与渲染期共用**同一份**，
+  // 早先两处各自同式重算，判定式一改就会漂移。
+  const localTunnelIp = tunnelStatus?.active && tunnelStatus.address
+    ? tunnelStatus.address.split('/')[0]
+    : null;
+  // 渲染期就把集合对齐到当前隧道 / 设备状态：纯函数、内容不变时原样返回 prev，
+  // 所以「渲染期算 + effect 落回 state」不会自激（下一轮 reconcile 返回同一引用 ⇒ effect 不再触发）。
+  // 放在渲染期而不是只放 effect 里，是为了消掉一帧延迟 —— 刚连上的那一帧集合里就有它。
+  const selfHeldIpsNow = reconcileSelfHeldIps(selfHeldIps, localTunnelIp, devices);
+  useEffect(() => { setSelfHeldIps(selfHeldIpsNow); }, [selfHeldIpsNow]);
+  const isHeldByThisTerminal = (d: HgDevice): boolean => selfHeldIpsNow.includes(d.virtual_ip);
+
   // 选中态自愈：当前选中的设备一旦变成「已被其它终端占用」（别的终端把它连起来了），
   // 立刻清空选中 —— 否则下方详情区 / 按钮会一直指着一台本终端已经不能操作的设备。
-  // 注：这里必须自己算一次本机隧道 IP。渲染期那份（localTunnelIp / isSelfDevice）位于
-  // `if (!windowData) return` 之后，Hook 不能写在早退之后，只能同式重算，判定式与渲染期一致。
   useEffect(() => {
     if (selectedDeviceId === null) { return; }
     const selected = devices.find(d => d.device_id === selectedDeviceId);
     if (!selected) { return; }
-    const tunnelIp = tunnelStatus?.active && tunnelStatus.address
-      ? tunnelStatus.address.split('/')[0]
-      : null;
-    const isSelf = tunnelIp !== null && selected.virtual_ip === tunnelIp;
-    if (isDeviceOccupiedElsewhere(selected.status, isSelf)) {
+    if (isDeviceOccupiedElsewhere(selected.status, selfHeldIpsNow.includes(selected.virtual_ip))) {
       setSelectedDeviceId(null);
     }
-  }, [devices, selectedDeviceId, tunnelStatus]);
+  }, [devices, selectedDeviceId, selfHeldIpsNow]);
 
   // ─── Handlers: Devices ───
 
@@ -456,8 +469,12 @@ export default function HuanvaeGuardPage() {
     setLoading(true);
     try {
       const r = await localApi.stopTunnel();
-      if (r.success) { addLog('隧道已停止'); }
-      else { addLog(`停止失败：${r.error}`); }
+      if (r.success) {
+        addLog('隧道已停止');
+        // 立刻复查一次，别等常驻轮询下一拍：否则「已连接」冠 + 那台设备的可选态
+        // 最长要滞后一个 POLL_INTERVAL_MS 才更新。写状态的仍然只有 probeService 这一个权威。
+        await probeService();
+      } else { addLog(`停止失败：${r.error}`); }
     } catch (e) {
       addLog(`错误：${e}`);
     } finally {
@@ -755,11 +772,8 @@ export default function HuanvaeGuardPage() {
   // 管理、没有"安装"这一步，仍沿用两态文案。
   const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installed);
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
-  // 本机当前隧道 IP（去掉 CIDR 前缀），用于覆盖 server 返回的 offline 状态
-  // 服务端状态依赖 heartbeat（目前客户端未发送），但本机隧道在用就是确凿 online
-  const localTunnelIp = isActive && tunnelStatus?.address
-    ? tunnelStatus.address.split('/')[0]
-    : null;
+  // 本机隧道在用的那台强制显示 online：服务端状态靠心跳，本机隧道在用就是确凿 online。
+  // （localTunnelIp 已在上方 Hook 之前算好，与自愈 effect 共用同一份）
   const isSelfDevice = (d: HgDevice): boolean =>
     localTunnelIp !== null && d.virtual_ip === localTunnelIp;
   const displayStatusKey = (d: HgDevice): string =>
@@ -768,7 +782,7 @@ export default function HuanvaeGuardPage() {
   // 它随后被别的终端连起来"——那时选中态仍在（自愈 effect 与本次渲染之间也有一帧空档），
   // 所以按钮自身也要对当前选中设备复核一次。用服务端原值判定，不用 displayStatusKey。
   const selectedOccupied = selectedDevice !== undefined
-    && isDeviceOccupiedElsewhere(selectedDevice.status, isSelfDevice(selectedDevice));
+    && isDeviceOccupiedElsewhere(selectedDevice.status, isHeldByThisTerminal(selectedDevice));
 
   const tabLabel: Record<Tab, string> = {
     devices: '设备',
@@ -914,7 +928,7 @@ export default function HuanvaeGuardPage() {
                   const statusKey = displayStatusKey(d);
                   // 占用判定用服务端原值 d.status（不是 statusKey）：statusKey 会把本机这台
                   // 强制显示成 online，拿它判定会把本机自己误判成被占用。
-                  const occupied = isDeviceOccupiedElsewhere(d.status, isSelfDevice(d));
+                  const occupied = isDeviceOccupiedElsewhere(d.status, isHeldByThisTerminal(d));
                   // 连接在途时整列表暂时禁选：中途换选目标会造成"点了没反应 / 连错设备"
                   const rowDisabled = occupied || loading;
                   const online = statusKey === 'online';
