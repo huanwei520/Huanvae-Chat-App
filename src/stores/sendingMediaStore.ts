@@ -45,10 +45,20 @@
  * 在条目离开队列的两条路径（`cancel` / `pruneConfirmed`）上释放。
  * 机器口径：{@link SendingMediaSeed} 的 `preview` 类型上**没有** `previewUrl` 字段 ——
  * 想把待发区那把递进来，TypeScript 直接不让过。
+ *
+ * ### 5. 原始像素尺寸**在这里兜底**，待发区那次探测只是抢跑（2026-08-13 修）
+ * 「上传完成不跳版」靠的是在途占位与完成态用同一组 `width/height`。这组数有两个读取点，
+ * 而且**都是异步**的：待发区 `composerTrayStore.probeDimensions`（加入待发区那刻起跑，
+ * fire-and-forget）与上传链路 `hooks/useFileUpload`（`await`，结果交给后端 ⇒ 完成态恒是真实尺寸）。
+ * 用户**粘贴后立刻按回车**时前者还没 resolve ⇒ seed 的 `width/height` 是 null ⇒
+ * 在途走默认尺寸、完成态走真实尺寸 ⇒ 跳变原样复发。
+ * ⇒ `enqueue` 对仍为 null 的项**再探一次**（{@link probeMissingDimensions}，同一个
+ * `readMediaDimensions`），条目在队列里要活整个上传过程，毫秒级的探测有的是时间回填。
  */
 
 import { create } from 'zustand';
 import type { TrayItemKind } from '../chat/shared/composerTrayPlan';
+import { readMediaDimensions } from '../utils/mediaDimensions';
 
 /** 单项发送状态机的状态 */
 export type SendingMediaStatus = 'pending' | 'uploading' | 'done' | 'failed';
@@ -71,10 +81,13 @@ export interface SendingMediaPreview {
   /** 本地绝对路径（可能为空串，见 TrayItem.localPath 说明） */
   localPath: string;
   /**
-   * 媒体的原始像素宽 / 高（待发区提前探测好的，读不出来为 null）。
+   * 媒体的原始像素宽 / 高（读不出来为 null）。
    *
    * 在途占位用它走 `FileMessageContent.calculateDisplaySize`，与完成态那条
    * `image_width` / `image_height` 是**同一个函数、同一组数字** ⇒ 上传完成不跳版。
+   *
+   * 🔴 入队时**可能是 null**（用户没等待发区探测完就按了回车），此时由
+   * {@link probeMissingDimensions} 异步补上 —— 见文件头第 5 点。
    */
   width: number | null;
   height: number | null;
@@ -168,6 +181,54 @@ function revokeSendingPreviewUrl(url: string | null | undefined): void {
   }
 }
 
+/**
+ * 补探一项的原始像素尺寸 —— 待发区那次探测还没 resolve、用户就按了回车的那条路径。
+ *
+ * ## 它修的是「零跳变」上一处结构性的漏
+ *
+ * 待发区 `composerTrayStore.probeDimensions` 是 fire-and-forget 的**抢跑**，不是保证：
+ * 粘贴完立刻回车时它还没 resolve，`seed.preview.width/height` 就是 null。
+ * 而上传侧（`hooks/useFileUpload`）自己 `await readMediaDimensions` 一次、无条件交给后端
+ * ⇒ **完成态拿到的恒是真实尺寸**。两态一个默认、一个真实 ⇒ 上传完成那一刻跳版。
+ * ⇒ 保证放在这里：条目在队列里要活整个上传过程（秒级），毫秒级的探测有的是时间回填。
+ *
+ * ## 三条取舍（与 composerTrayStore.probeDimensions 逐条同口径）
+ * - **fire-and-forget**：`enqueue` 必须同步 —— 回车那一帧消息就要出现在列表最新处
+ *   （`useComposerTrayOutbox.send` 也是同步的，改成 async 会动它所有调用方的契约）。
+ * - **复用 {@link readMediaDimensions}**：全仓读媒体尺寸只有这一个函数。另写一份读法，
+ *   两边的数迟早会漂 —— 而漂了的表现恰恰就是这里要修的"完成时跳一下"。
+ * - **jsdom 没有 `URL.createObjectURL`**（`readMediaDimensions` 内部要用它），
+ *   与 {@link makeSendingPreviewUrl} 同一个能力判断：没有就不探测，留 null。
+ *
+ * 回写前按 **File 身份**核对：期间这一项可能已被取消、或已被真实消息收掉
+ * （`cancel` / `pruneConfirmed` 两条离队路径）⇒ 找不到就什么都不做，不复活它。
+ *
+ * ⚠️ **残余窗口（如实标注）**：上传比探测还快时（秒传命中的极小文件），回填会晚于条目离队
+ * ⇒ 那一次仍按默认尺寸画完全程。它严格好于修复前（修复前是**永远**不回填），但不是零窗口。
+ * 真要零窗口只能让 `send` 变成 async 去 await 探测，那会推迟"消息立刻出现"——
+ * 拿一个更显眼的退化换一个更隐蔽的，不划算。
+ */
+function probeMissingDimensions(clientId: string, file: File, kind: TrayItemKind): void {
+  if (kind === 'file' || typeof URL.createObjectURL !== 'function') { return; }
+  void readMediaDimensions(file).then((dim) => {
+    if (!dim || dim.width <= 0 || dim.height <= 0) { return; }
+    useSendingMediaStore.setState((state) => {
+      const prev = state.entries[clientId];
+      if (!prev || prev.file !== file) { return state; }
+      return {
+        ...state,
+        entries: {
+          ...state.entries,
+          [clientId]: {
+            ...prev,
+            preview: { ...prev.preview, width: dim.width, height: dim.height },
+          },
+        },
+      };
+    });
+  });
+}
+
 export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
   entries: {},
   orderByConversation: {},
@@ -194,6 +255,13 @@ export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
       }
       return { entries, orderByConversation: order };
     });
+    // 尺寸补探（异步）。写在 set 之后：回写要能在 state 里找到这一项。
+    // 只补 null 的那些 —— 待发区抢跑成功是常见路径，那时已经是同一个函数读出的同一组数字。
+    for (const seed of seeds) {
+      if (seed.preview.width === null || seed.preview.height === null) {
+        probeMissingDimensions(seed.clientId, seed.file, seed.preview.kind);
+      }
+    }
   },
 
   markUploading: (clientId, percent) => {

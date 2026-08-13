@@ -221,8 +221,8 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         kind: p.item.kind,
         size: p.item.file.size,
         localPath: p.item.localPath,
-        // 原始像素尺寸：待发区加入时就探测好了。在途占位据此走与完成态**同一个**
-        // calculateDisplaySize ⇒ 上传完成那一刻容器尺寸不变（零跳变）。
+        // 原始像素尺寸：待发区加入时抢跑探测，**可能仍是 null**（没等探测完就回车）——
+        // 那时由 sendingMediaStore.enqueue 用同一个 readMediaDimensions 补上，仍然零跳变。
         width: p.item.width,
         height: p.item.height,
         // 🔴 **不递 previewUrl**：待发区那把 object URL 在本次发送的收尾
