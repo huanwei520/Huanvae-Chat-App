@@ -6,7 +6,7 @@
 # - 构建 Linux (AppImage + .deb)
 # - 构建 macOS (DMG 供手动下载 + .app.tar.gz 供内置更新, ARM64)
 # - 构建 Android (APK)
-# - 自动生成带代理 URL 的 latest.json 和 android-latest.json
+# - 自动生成 latest.json 和 android-latest.json（下载 URL 一律直连原始仓库）
 # - 上传到 GitHub Releases
 
 name: Release
@@ -21,13 +21,7 @@ on:
 permissions:
   contents: write
 
-# 代理源配置
 env:
-  PROXY_URLS: |
-    https://edgeone.gh-proxy.org/
-    https://cdn.gh-proxy.org/
-    https://hk.gh-proxy.org/
-    https://gh-proxy.org/
   # 让 JavaScript actions（actions/checkout / actions/setup-node 等）自身
   # 用 Node 24 runtime 跑，对齐 GitHub Actions 2026-06-02 强制 Node 24 的时间线。
   # 注意：这与 setup-node 的 node-version 是两个独立维度，前者控制 action 内部
@@ -140,8 +134,6 @@ jobs:
             | Linux | `.AppImage` (免安装) 或 `.deb` (安装到 /opt) |
             | macOS M1/M2 | `_aarch64.dmg` |
             | Android | `_android.apk` |
-            
-            > 💡 国内用户如下载缓慢，可使用代理链接（Release 附件中的 `latest.json` 包含加速链接）
             
             > 📦 Linux deb 包安装到 `/opt/huanvae-chat/`，支持普通用户运行
           releaseDraft: false
@@ -593,18 +585,16 @@ jobs:
           fi
           echo "✅ 必需产物齐全（${#REQUIRED_FILES[@]}/${#REQUIRED_FILES[@]}）"
 
-      - name: Generate latest.json with proxy URLs
+      - name: Generate latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           REPO="${{ github.repository }}"
           TAG="${{ github.ref_name }}"
-          
+
           # 自建 R2 更新源
           R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
-          # GitHub 代理备用
-          PROXY="https://cdn.gh-proxy.org/"
 
           # 获取 release 资产信息
           echo "Fetching release assets..."
@@ -686,7 +676,7 @@ jobs:
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           NOTES="Huanvae Chat ${TAG} 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}"
 
-          # GitHub Release 版（proxy URL，供 tauri.conf.json 的备用 endpoint 使用）
+          # GitHub Release 版（直连原始仓库链接，供 tauri.conf.json 的备用 endpoint 使用）
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
@@ -695,23 +685,23 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "${WIN_NSIS_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "windows-x86_64-msi": {
                 "signature": "${WIN_NSIS_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_x64-setup.exe"
               },
               "darwin-aarch64": {
                 "signature": "${MAC_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_aarch64.app.tar.gz"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_aarch64.app.tar.gz"
               },
               "linux-x86_64": {
                 "signature": "${LINUX_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               },
               "linux-x86_64-appimage": {
                 "signature": "${LINUX_SIG}",
-                "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/Huanvae-Chat-App_${VERSION}_amd64.AppImage"
               }
             }
           }
@@ -748,7 +738,7 @@ jobs:
           }
           EOF
 
-          echo "=== GitHub Release latest.json (proxy URLs): ==="
+          echo "=== GitHub Release latest.json (direct GitHub URLs): ==="
           cat latest.json
           echo ""
           echo "=== R2 latest-r2.json (R2 URLs): ==="
@@ -760,45 +750,6 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} latest.json --clobber
           echo "✅ Uploaded latest.json to release"
-
-      - name: Create latest.json with all proxy URLs (for reference)
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          REPO="${{ github.repository }}"
-          TAG="${{ github.ref_name }}"
-          
-          # 生成包含所有代理的参考文件（文件名与 tauri 实际生成的一致）
-          cat > latest-all-proxies.json << EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Huanvae Chat ${TAG}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "proxy_urls": {
-              "edgeone": "https://edgeone.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
-              "cdn": "https://cdn.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
-              "hk": "https://hk.gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
-              "default": "https://gh-proxy.org/https://github.com/${REPO}/releases/download/${TAG}/",
-              "direct": "https://github.com/${REPO}/releases/download/${TAG}/"
-            },
-            "files": {
-              "windows-msi": "Huanvae-Chat-App_${VERSION}_x64_zh-CN.msi",
-              "linux-appimage": "Huanvae-Chat-App_${VERSION}_amd64.AppImage",
-              "linux-deb": "Huanvae-Chat-App_${VERSION}_amd64.deb",
-              "macos-arm64": "Huanvae-Chat-App_${VERSION}_aarch64.dmg",
-              "macos-arm64-updater": "Huanvae-Chat-App_aarch64.app.tar.gz"
-            }
-          }
-          EOF
-          
-          echo "Generated proxy reference file:"
-          cat latest-all-proxies.json
-
-      - name: Upload proxy reference file
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.ref_name }} latest-all-proxies.json --clobber
-          echo "✅ Uploaded proxy reference file"
 
       # ============================================
       # 生成 Android 更新清单
@@ -813,7 +764,6 @@ jobs:
           # Android APK 文件名格式（与 build-android job 上传的文件名一致）
           APK_NAME="Huanvae-Chat-App_${VERSION}_android.apk"
           R2_BASE="https://store.huanvae.cn/update/huanvae-chat/${TAG}"
-          PROXY="https://cdn.gh-proxy.org/"
 
           # ── sha256 的**唯一真值源**：上一步下载下来、随后原样上传到 R2 的那份 APK 字节 ──
           #
@@ -835,12 +785,12 @@ jobs:
           APK_SHA256="$(sha256sum "$APK_PATH" | cut -d' ' -f1)"
           echo "APK 产物 sha256: ${APK_SHA256}  (${APK_PATH})"
 
-          # GitHub Release 版（proxy URL，供代理源回退使用）
+          # GitHub Release 版（直连原始仓库链接，供 GitHub 源回退使用）
           cat > android-latest.json << EOF
           {
             "version": "${VERSION}",
             "notes": "Huanvae Chat ${TAG} Android 更新\n\n查看完整更新日志: https://github.com/${REPO}/releases/tag/${TAG}",
-            "url": "${PROXY}https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
+            "url": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
             "directUrl": "https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}",
             "sha256": "${APK_SHA256}",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

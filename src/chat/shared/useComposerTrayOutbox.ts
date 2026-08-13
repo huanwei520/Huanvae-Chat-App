@@ -203,7 +203,7 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
     const plan = planComposerTraySend(items, text, groupIds);
 
     const sendTime = new Date().toISOString();
-    const seeds: SendingMediaSeed[] = plan.items.map((p) => ({
+    const seeds: SendingMediaSeed[] = plan.items.map((p): SendingMediaSeed => ({
       // 前缀 client_ ⇒ useStickToBottom 判成「本机这次发送动作」⇒ 无条件滚到底
       clientId: newLocalSendClientId(),
       file: p.item.file,
@@ -229,6 +229,11 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         // （ChatInputArea.handleSend → clearTray）就会被 revoke，递过去等于递一个死链接
         // ——这正是"上传中显示破图"的真因。发送态自己从 file 造一把，见 sendingMediaStore。
         // 类型上也递不进来：SendingMediaSeed 的 preview 已 Omit 掉该字段。
+        // ⚠️ 让上面那句成立的是 :206 那个**回调显式返回类型注解**，它不是冗余的：
+        // 去掉它则 map 的 U 由回调自身推断、再把 U[] 赋给已注解的 seeds，
+        // 这个位置**不触发 TS 的 excess property(freshness) 检查** ⇒ 多递一个
+        // previewUrl 时 tsc 零报错（2026-08-13 实测 rc=0）。守它的机器锁见
+        // tests/unit/sendingPreviewLifetime.test.ts 的「第 1 道锁：类型」那组。
       },
       caption: p.caption,
       sendTime,

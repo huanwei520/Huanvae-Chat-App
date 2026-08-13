@@ -14,7 +14,14 @@
  * ## 三道锁，各锁一半
  *
  * 1. **类型**（typecheck 守）：`SendingMediaSeed.preview` 已 `Omit` 掉 `previewUrl`，
- *    想把待发区那把递进去根本编译不过。这是防"改回去"最硬的一道。
+ *    想把待发区那把递进去编译不过。**但它要两个零件同时在场才成立**（2026-08-13 实测订正）：
+ *    - `SendingMediaSeed` 的 `preview` 是 `Omit<SendingMediaPreview, 'previewUrl'>`；
+ *    - **且** `useComposerTrayOutbox` 里那个 `.map()` 回调带**显式返回类型注解**
+ *      `(p): SendingMediaSeed => ({...})`。
+ *    少了后者，`U` 由回调自身推断、再把 `U[]` 赋给已注解的 `seeds` ——
+ *    这个位置**不触发 TS 的 excess property(freshness) 检查**，多递一个 `previewUrl`
+ *    时 `tsc` **rc=0 零报错**（此前正是如此，那句"编译不过"当时是假的）。
+ *    两个零件由下方「第 1 道锁：类型」那组**静态契约**钉住 —— tsc 自己护不住那个注解。
  * 2. **机制**（下方第一个 describe）：`composerTrayStore.clear` 确实会 revoke 它造的每一把 ——
  *    这条一旦不成立，上面那条推理就失效了，所以要钉住。
  * 3. **行为**（下方第二个 describe）：待发区清空之后，在途条目手里那把**仍然活着**；
@@ -24,6 +31,8 @@
  * （没有就退成 null）。这里补上可观测的实现，才测得到"谁造的、谁放的"。
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   useComposerTrayStore,
@@ -148,5 +157,47 @@ describe('不泄漏：条目离开队列的两条路径都会释放', () => {
     // b 还在队列里（真实消息没到），它那把绝不能提前放 —— 那就是本次修的缺陷换了个位置复发
     expect(revoked).not.toContain(b);
     expect(sendingEntries().map((e) => e.clientId)).toEqual(['client_b']);
+  });
+});
+
+/**
+ * 第 1 道锁：类型 —— 静态契约（tsc 自己护不住的那半边）
+ *
+ * 为什么必须有这一组：文件头第 1 点那条"编译不过"的保证由**两个零件**共同成立，
+ * 而其中一个（`.map()` 回调的显式返回类型注解）**看上去完全冗余** ——
+ * `seeds` 这个变量本身已经注解成 `SendingMediaSeed[]` 了，任何人"顺手删掉重复注解"
+ * 都不会让 `tsc` 红一下，那条保证就当场静默失效（2026-08-13 之前正是这个状态）。
+ * ⇒ 只能由静态契约钉住。
+ *
+ * 这一组**防不住什么**（如实写）：它按源码文本判形态，拦不住"换个等价写法但仍安全"的重写
+ * （例如改成 `for` 循环逐个 push 到已注解的数组），那种情况下这条会误红、需要人来重锚。
+ */
+describe('第 1 道锁：类型 —— 两个零件都必须在场（静态契约）', () => {
+  const STORE_SRC = readFileSync(
+    resolve(__dirname, '../../src/stores/sendingMediaStore.ts'),
+    'utf-8',
+  );
+  const OUTBOX_SRC = readFileSync(
+    resolve(__dirname, '../../src/chat/shared/useComposerTrayOutbox.ts'),
+    'utf-8',
+  );
+
+  it('正对照：两个扫描器确实读到了目标文件（否则下面两条的"命中"没有意义）', () => {
+    // 各取一条与本组无关、但一定存在的锚串；它们若不在，说明路径/读取本身坏了。
+    expect(STORE_SRC).toMatch(/export type SendingMediaSeed =/);
+    expect(OUTBOX_SRC).toMatch(/useSendingMediaStore\.getState\(\)\.enqueue\(seeds\);/);
+  });
+
+  it('零件 A：SendingMediaSeed 的 preview 仍是 Omit 掉 previewUrl 的形态', () => {
+    expect(STORE_SRC).toMatch(
+      /export type SendingMediaSeed =[^;]*&\s*\{\s*preview:\s*Omit<SendingMediaPreview,\s*'previewUrl'>\s*\}/,
+    );
+  });
+
+  it('零件 B：enqueue 的入参字面量由带显式返回类型注解的 map 回调产出', () => {
+    // 没有 `(p): SendingMediaSeed =>` 这段注解，多递一个 previewUrl 时 tsc 不报错。
+    expect(OUTBOX_SRC).toMatch(
+      /const seeds:\s*SendingMediaSeed\[\]\s*=\s*plan\.items\.map\(\(p\):\s*SendingMediaSeed\s*=>\s*\(\{/,
+    );
   });
 });
