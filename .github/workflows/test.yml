@@ -1,17 +1,60 @@
 name: Frontend Tests
 
+# 路径前缀订正（2026-08-13）：本仓的仓库根目录【就是】App 工程根 —— src/ tests/ e2e/
+# package.json 全在根下，仓内不存在以本仓名命名的那一层子目录。此前 paths /
+# working-directory / cache-dependency-path / upload-artifact.path 共 8 处都带着同一个
+# 仓名前缀（那是按「work 多仓工作区根仓」的布局写的，在本仓 0 命中），其中 paths 那两处
+# 让本 workflow 在结构上永不触发。全部去掉该前缀，并删掉整个 defaults.run.working-directory
+# 块（默认就是仓库根，正是我们要的）。
+#
+# paths 是白名单，不是"全放行"：只列本 workflow 两个 job 真正读取的输入
+#   unit-tests: pnpm install → pnpm test:run / pnpm test:coverage（vitest）
+#   e2e-tests : pnpm install → npx playwright install chromium → pnpm test:e2e（playwright 主 config）
+# 不在白名单里的改动（README.md / CONTRIBUTING.md / .gitignore / scripts/** / src-tauri/** /
+# .claude/** / e2e-real/**（走独立 playwright.real-e2e.config.ts）/ e2e-album/**（走
+# playwright.album-crop.config.ts）/ eslint.config.js（本 workflow 无 lint 步骤））
+# 不进这两个 job 的输入，故不触发。
 on:
   push:
     branches: [main]
     paths:
-      - 'Huanvae-Chat-App/**'
+      # 被测源码与测试用例本体
+      - 'src/**'
+      - 'tests/**'
+      - 'e2e/**'
+      # e2e 由 playwright webServer 起 vite dev 真实加载页面，静态资源与入口页属其输入
+      - 'public/**'
+      - 'index.html'
+      # pnpm install 的输入
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+      # 这两个 job 真正读取的构建 / 测试配置
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'playwright.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.node.json'
+      # 本 workflow 自身：改了它就得让它自己跑一遍
+      - '.github/workflows/test.yml'
   pull_request:
     paths:
-      - 'Huanvae-Chat-App/**'
-
-defaults:
-  run:
-    working-directory: Huanvae-Chat-App
+      - 'src/**'
+      - 'tests/**'
+      - 'e2e/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'playwright.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.node.json'
+      - '.github/workflows/test.yml'
 
 # 让 JavaScript actions（actions/checkout / actions/setup-node 等）自身用
 # Node 24 runtime 跑，对齐 GitHub Actions 2026-06-02 强制 Node 24 的时间线。
@@ -29,7 +72,7 @@ jobs:
         with:
           node-version: 24
           cache: 'pnpm'
-          cache-dependency-path: Huanvae-Chat-App/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install
       - run: pnpm test:run
       - run: pnpm test:coverage
@@ -37,7 +80,7 @@ jobs:
         if: always()
         with:
           name: coverage-report
-          path: Huanvae-Chat-App/coverage/
+          path: coverage/
 
   e2e-tests:
     name: Playwright E2E & Visual Regression
@@ -49,7 +92,7 @@ jobs:
         with:
           node-version: 24
           cache: 'pnpm'
-          cache-dependency-path: Huanvae-Chat-App/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install
       - run: npx playwright install chromium --with-deps
       - run: pnpm test:e2e
@@ -57,9 +100,9 @@ jobs:
         if: always()
         with:
           name: playwright-report
-          path: Huanvae-Chat-App/playwright-report/
+          path: playwright-report/
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: visual-diff
-          path: Huanvae-Chat-App/e2e/test-results/
+          path: e2e/test-results/
