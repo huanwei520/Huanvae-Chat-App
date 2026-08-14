@@ -1154,7 +1154,10 @@ export function useLocalFriendMessages(friendId: string | null) {
     file_url: null,
     file_size: entry.preview.size,
     file_hash: null,
-    reply_to: null,
+    // 🔴 与上面 message_content 完全同一条理由：这里写死 null，在途气泡就没有引用块，
+    // 而「确认落库」那一刻引用块会**突然冒出来** —— 同样是肉眼可见地闪一下。
+    // 引用回复只在好友侧有值（群侧后端丢弃，门在 useComposerTrayOutbox.send）。
+    reply_to: entry.replyTo ?? null,
     // 形态发送前定死；single 时三者恒 null =「单条不包相册」
     media_group_id: entry.shape.groupId,
     media_group_index: entry.shape.index,

@@ -178,6 +178,31 @@ describe('🔴「用媒体回复」在输入区这一段：传值与清草稿必
   });
 });
 
+describe('🔴 在途（乐观）气泡也要带引用块，否则落库那一刻它会突然冒出来', () => {
+  // 与同一个对象字面量里 message_content 那条注释完全同源：形状在「确认落库」那一刻突变 =
+  // 肉眼可见地闪一下。7-A 的定位只数到 4 段，这是第 6 段（本单实现时现查发现）。
+  const FRIEND_HOOK = stripComments(read('src/chat/friend/useLocalFriendMessages.ts'));
+  const GROUP_HOOK = stripComments(read('src/chat/group/useLocalGroupMessages.ts'));
+
+  function outboxMapper(source: string): string {
+    return sliceBetween(source, 'const outboxToMessage = useCallback', 'const messagesWithSending');
+  }
+
+  it('切片非空（切空了下面两条会恒真）', () => {
+    expect(outboxMapper(FRIEND_HOOK).length).toBeGreaterThan(100);
+    expect(outboxMapper(GROUP_HOOK).length).toBeGreaterThan(100);
+  });
+
+  it('好友侧乐观条目带 entry.replyTo（不带 ⇒ 引用块在落库那一帧才出现）', () => {
+    expect(outboxMapper(FRIEND_HOOK)).toMatch(/reply_to:\s*entry\.replyTo\s*\?\?\s*null/);
+  });
+
+  it('🔴 群侧刻意保持 null（后端群分支丢弃 ⇒ 带了会显示一个落库后就消失的引用块）', () => {
+    expect(outboxMapper(GROUP_HOOK)).toMatch(/reply_to:\s*null\b/);
+    expect(outboxMapper(GROUP_HOOK)).not.toMatch(/reply_to:\s*entry\.replyTo/);
+  });
+});
+
 describe('🔴 引用回复的位次判定与 caption 复用同一个 isFirstOfBatch（不许造第二套）', () => {
   const PLAN = stripComments(read('src/chat/shared/composerTrayPlan.ts'));
 

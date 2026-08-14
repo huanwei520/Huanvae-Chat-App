@@ -1079,6 +1079,12 @@ export function useLocalGroupMessages(groupId: string | null) {
     file_url: null,
     file_size: entry.preview.size,
     file_hash: null,
+    // 🔴 群侧刻意保持 null，**不是**漏了对齐好友侧那一行：
+    // 后端 storage/handlers/upload.rs 的群分支硬编码 `reply_to: None` ⇒ 群里用媒体回复，
+    // 服务端那条本来就没有引用关系。这里若跟着写 entry.replyTo，在途气泡会显示一个
+    // 落库后就消失的引用块 —— 比没有更糟。
+    // （门在 useComposerTrayOutbox.send：群会话下 entry.replyTo 恒 undefined，
+    //   所以这一行今天写哪种都等价；写死 null 是为了让「等后端改好再打开」这件事只有一个开关。）
     reply_to: null,
     // 形态发送前定死；single 时三者恒 null =「单条不包相册」
     media_group_id: entry.shape.groupId,
