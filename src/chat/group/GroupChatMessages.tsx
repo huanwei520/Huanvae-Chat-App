@@ -36,7 +36,7 @@ import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import type { GroupReader } from './useGroupReadReceipt';
 import { latestOwnReceiptUuid } from '../shared/readReceiptGate';
-import { avatarAnchorKeys, senderNameAnchorKeys, type SenderRunNode } from '../shared/senderRunGate';
+import { avatarAnchorKeys, senderNameAnchorKeys, runTightKeys, type SenderRunNode } from '../shared/senderRunGate';
 import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
@@ -216,6 +216,11 @@ export function GroupChatMessages({
   // 昵称锚点：同一组里昵称只显示在**该组最旧那条**（视觉最上面那条），一人连发 3 条只出现 1 次。
   // 与头像分处一组的两端 —— telegram 参照图就是这个形态（名字在顶、头像在底）。
   const nameAnchors = useMemo(() => senderNameAnchorKeys(runNodes), [runNodes]);
+
+  // 收窄间距的行：视觉上紧挨在**下面**的那条属于同一连发组（huanwei 12:16「相连的气泡中间间隙将其缩小」）。
+  // 与头像锚点是同一次分组的互补面 —— 不是「!avatarAnchors.has(...)」照抄一遍，因为撤回行
+  // 两边都不该贴紧，那一条只有 runTightKeys 自己表达得出来。
+  const tightKeys = useMemo(() => runTightKeys(runNodes), [runNodes]);
 
   // 已读标记的锚点：我发出的最新一条（更早的自己消息不挂标记，理由见 shared/readReceiptGate）。
   // 在 map **之外**算一次 O(n)，锚点取渲染代表消息（相册取组内代表），与下面 map 里的 message 同源。
@@ -440,6 +445,8 @@ export function GroupChatMessages({
                     showAvatar={avatarAnchors.has(stableKey)}
                     // 昵称只显示在同一组里最旧的一条（视觉最上）；气泡自己再滤掉 isOwn / 被折叠两种
                     showName={nameAnchors.has(stableKey)}
+                    // 下面紧挨着的那条也是同一组 ⇒ 收窄本行下边距（组间间距保持不变）
+                    tightBelow={tightKeys.has(stableKey)}
                     isMultiSelectMode={isMultiSelectMode}
                     isSelected={isSelected}
                     onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

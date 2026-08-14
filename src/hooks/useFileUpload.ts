@@ -535,7 +535,7 @@ export function useFileUpload() {
           // 非秒传路径的消息是在**确认**这一步才建的，所以三件套 / 配文 / 引用回复要在这里再带一次；
           // 只在 request 带对这条分支无效（后端 ConfirmUploadRequest 注释明写此事）。
           // 🔴 少了这里的 reply_to 会变成「小文件（秒传）能带引用、大文件不能带」——
-          // 这种半好半坏最难查，两处必须同生同灭（守卫见 tests/unit/mediaReplyToContract.test.ts）
+          // 这种半好半坏最难查，两处必须同生同灭（守卫见 tests/unit/mediaReplyTo.test.ts）
           media_group_id: mediaGroup?.id ?? null,
           media_group_index: mediaGroup?.index ?? null,
           media_group_count: mediaGroup?.count ?? null,

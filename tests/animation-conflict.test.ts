@@ -131,6 +131,15 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (普通气泡行：getMessageVariants own/other 入场退场，x/y/scale/opacity)',
   },
   {
+    // 连发组内相邻两条的收窄修饰符（huanwei 2026-08-14 12:16「相连的气泡中间间隙将其缩小」）。
+    // 登记的是**两个类连写的形态**，与 CSS 里那条规则逐字一致 —— 只写 `.message-row--tight`
+    // 抽不到规则块（抽取正则要求 selector 前是空白/逗号/右花括号），会变成一条恒过的空登记。
+    selector: '.message-row.message-row--tight',
+    cssFile: 'src/styles/components/chat-bubble-meta.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/chat/friend/MessageBubble.tsx + src/chat/group/GroupMessageBubble.tsx (同一个 motion.div 消息行，只是多挂一个收窄下边距的修饰符；transform/opacity 仍归 getMessageVariants)',
+  },
+  {
     selector: '.chat-messages-container--reverse',
     cssFile: 'src/styles/pages/main.css',
     controlledProps: ['opacity'],

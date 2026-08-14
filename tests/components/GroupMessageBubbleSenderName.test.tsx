@@ -74,14 +74,21 @@ describe('GroupMessageBubble — 发送者昵称显示门控', () => {
   });
   afterEach(cleanup);
 
-  it('别人的单条消息：显示昵称，且落在气泡内容区里', () => {
+  /**
+   * 🔴 这条原先断言的是「昵称是 `.bubble-content` 的直接子节点」——
+   * huanwei 2026-08-14 12:16「群聊的昵称让其放在气泡里」把那条契约作废了：
+   * `.bubble-content` 的直接子节点等于**飘在气泡外面**（气泡本体是 `.bubble-text`，
+   * 底色 / 圆角 / 内边距都在它身上）。旧断言留着会恒绿地守一条已被推翻的口径。
+   * 位置契约的完整版在下面「昵称落进气泡内部」那个 describe 里，正反两侧都断言。
+   */
+  it('别人的单条消息：显示昵称，且落在气泡本体里', () => {
     render(<GroupMessageBubble message={makeMessage({ sender_nickname: 'Alice' })} isOwn={false} />);
 
     const name = nameEl();
     expect(name).toBeInTheDocument();
     expect(name).toHaveTextContent('Alice');
-    // 必须挂在 .bubble-content 内（而不是飘在 message-row 上），否则左缘对不齐头像位
-    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeInTheDocument();
+    // 必须在气泡本体 .bubble-text 之内（不是它上面那一行）
+    expect(document.querySelector('.bubble-text > .bubble-sender-name')).toBeInTheDocument();
   });
 
   it('showName=false（连发组里非最上面那条）→ 不显示昵称', () => {
@@ -134,6 +141,117 @@ describe('GroupMessageBubble — 发送者昵称显示门控', () => {
     expect(name).toHaveTextContent(longName);
     // 鼠标悬停能看到全名（CSS 只截显示，不截内容）
     expect(name).toHaveAttribute('title', longName);
+  });
+});
+
+/**
+ * 昵称的**落点**（huanwei 2026-08-14 12:16「群聊的昵称让其放在气泡里，参考 Telegram」）。
+ *
+ * 落点规则与时间戳逐字同一条（17e1c5a 已拍板）：有气泡就进气泡，没气泡（文档 / 卡片这种
+ * 独立白底卡片）就留在卡片外。每条都配一个**反向断言** —— 只查「新位置有」会被
+ * 「新旧两处并存」蒙混过去，那正是「移进去」这件事最可能出的错。
+ */
+describe('GroupMessageBubble — 昵称落进气泡内部（不再飘在气泡外）', () => {
+  beforeEach(() => {
+    mockChatState.groupMemberRemarks = {};
+    mockChatState.groupMessageBlocks = {};
+    mockChatState.friendBlacklistTimes = {};
+  });
+  afterEach(cleanup);
+
+  it('文本气泡：昵称在 .bubble-text 内，且不再是 .bubble-content 的直接子节点', () => {
+    render(<GroupMessageBubble message={makeMessage()} isOwn={false} />);
+
+    const bubbleText = document.querySelector('.bubble-text')!;
+    const name = nameEl()!;
+
+    expect(bubbleText.contains(name)).toBe(true);
+    expect(name.parentElement).toBe(bubbleText);
+    // 反向断言：气泡外面那一行已经没有了（防「两处并存」）
+    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeNull();
+  });
+
+  it('文本气泡：昵称与「正文+时间戳」那一行是兄弟，不是同一条 flex 行里的项', () => {
+    render(<GroupMessageBubble message={makeMessage()} isOwn={false} />);
+
+    const name = nameEl()!;
+    const metafoot = document.querySelector('.bubble-metafoot')!;
+
+    // .bubble-metafoot 是 justify-content:flex-end 的换行 flex 行；昵称若成为它的项
+    // 会被推到右边跟时间戳挤在一起 ⇒ 必须在它外面、在它上面
+    expect(metafoot.contains(name)).toBe(false);
+    expect(name.nextElementSibling).toBe(metafoot);
+    // 同类正对照：时间戳确实还在那一行里（证明查的是同一棵活的树）
+    expect(metafoot.querySelector('.bubble-meta')).toBeInTheDocument();
+  });
+
+  it('带配文的图片：昵称在大气泡 .media-bubble 内、且排在媒体之前', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_type: 'image', file_uuid: 'f-1', message_content: '看这个' })}
+        isOwn={false}
+      />,
+    );
+
+    const mediaBubble = document.querySelector('.media-bubble')!;
+    const name = nameEl()!;
+
+    expect(mediaBubble.contains(name)).toBe(true);
+    expect(mediaBubble.firstElementChild).toBe(name);
+    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeNull();
+  });
+
+  it('无配文的纯图片：昵称落进定位壳 .media-bubble-bare（左上角药丸）', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_type: 'image', file_uuid: 'f-1', message_content: '[图片] a.jpg' })}
+        isOwn={false}
+      />,
+    );
+
+    const bare = document.querySelector('.media-bubble-bare')!;
+    expect(bare.contains(nameEl()!)).toBe(true);
+    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeNull();
+  });
+
+  it('文档（白底卡片，没有气泡可进）：昵称仍留在卡片外，与时间戳留在卡片下方对称', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_type: 'file', file_uuid: 'f-1', message_content: '[文件] a.pdf' })}
+        isOwn={false}
+      />,
+    );
+
+    // 这一路**不该**被收进任何气泡 —— 它没有气泡
+    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeInTheDocument();
+    // 反向对照：文档确实没有产生媒体气泡壳（否则上面那条就不是「没气泡」而是「漏进去了」）
+    expect(document.querySelector('.media-bubble')).toBeNull();
+    expect(document.querySelector('.media-bubble-bare')).toBeNull();
+  });
+});
+
+describe('GroupMessageBubble — 相连气泡收窄下边距（tightBelow）', () => {
+  afterEach(cleanup);
+
+  it('tightBelow=true → 行上带 message-row--tight', () => {
+    render(<GroupMessageBubble message={makeMessage()} isOwn={false} tightBelow />);
+
+    expect(document.querySelector('.message-row.message-row--tight')).toBeInTheDocument();
+  });
+
+  it('默认（单条自成一组）→ 不带该修饰符，维持组间常规间距', () => {
+    render(<GroupMessageBubble message={makeMessage()} isOwn={false} />);
+
+    // 同类正对照在先：行本身渲染出来了，不是整块没渲染
+    expect(document.querySelector('.message-row')).toBeInTheDocument();
+    expect(document.querySelector('.message-row--tight')).toBeNull();
+  });
+
+  it('撤回态渲染的是居中系统行，不套用收窄（两边贴紧会让人以为它属于某一组）', () => {
+    render(<GroupMessageBubble message={makeMessage({ is_recalled: true })} isOwn={false} tightBelow />);
+
+    expect(document.querySelector('.recall-system-row')).toBeInTheDocument();
+    expect(document.querySelector('.message-row--tight')).toBeNull();
   });
 });
 

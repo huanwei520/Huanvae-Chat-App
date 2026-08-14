@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import {
   avatarAnchorKeys,
   senderNameAnchorKeys,
+  runTightKeys,
   type SenderRunNode,
 } from '../../src/chat/shared/senderRunGate';
 
@@ -153,5 +154,79 @@ describe('senderNameAnchorKeys（昵称锚点：组内最旧那条）', () => {
 
   it('空列表 → 空集合（不抛错）', () => {
     expect(senderNameAnchorKeys([])).toEqual(new Set());
+  });
+});
+
+/**
+ * runTightKeys —— 「下面紧挨着的那条是同一组」⇒ 收窄本行下边距
+ * （huanwei 2026-08-14 12:16「相连的气泡中间间隙将其缩小」）。
+ *
+ * 列表是 column-reverse：DESC 的 index i 视觉上在 i-1 的**上方**，
+ * 而 `.message-row` 的 margin-bottom 隔开的正是 i 与 i-1 之间那道缝。
+ */
+describe('runTightKeys（相连气泡收窄间距）', () => {
+  it('一人连发 3 条 → 上面两条收窄，最底下那条不收窄（它下面已经不是同伴了）', () => {
+    // DESC：a3 最新（视觉最底）、a1 最旧（视觉最上）
+    const tight = runTightKeys(nodes(['a3', 'A'], ['a2', 'A'], ['a1', 'A']));
+
+    expect(tight).toEqual(new Set(['a2', 'a1']));
+    // 最底那条不在集合里 —— 它的下边距要留给下一组
+    expect(tight.has('a3')).toBe(false);
+  });
+
+  it('与头像锚点是同一次分组的互补面：非撤回节点里两者恰好互不相交且并起来是全集', () => {
+    const list = nodes(['a4', 'A'], ['a3', 'A'], ['b1', 'B'], ['a2', 'A'], ['a1', 'A']);
+    const anchors = avatarAnchorKeys(list);
+    const tight = runTightKeys(list);
+
+    for (const n of list) {
+      // 每个节点恰好落在其中一边，不可能两边都是 / 两边都不是
+      expect(anchors.has(n.key) !== tight.has(n.key)).toBe(true);
+    }
+    // 形状对照：两个集合确实都非空（否则上面那条恒真）
+    expect(anchors).toEqual(new Set(['a4', 'b1', 'a2']));
+    expect(tight).toEqual(new Set(['a3', 'a1']));
+  });
+
+  it('换人处不收窄：A 发 2 条 → B 发 1 条 → A 又发 2 条', () => {
+    // 时间顺序 a1 a2 b1 a3 a4 ⇒ DESC：a4 a3 b1 a2 a1
+    const tight = runTightKeys(
+      nodes(['a4', 'A'], ['a3', 'A'], ['b1', 'B'], ['a2', 'A'], ['a1', 'A']),
+    );
+
+    // a3 下面是 a4（同组）⇒ 收窄；a1 下面是 a2（同组）⇒ 收窄
+    expect(tight).toEqual(new Set(['a3', 'a1']));
+    // b1 下面是 a3（换人）、a2 下面是 b1（换人）⇒ 都不收窄，断组看得见
+    expect(tight.has('b1')).toBe(false);
+    expect(tight.has('a2')).toBe(false);
+  });
+
+  it('撤回行：自己不收窄，且把上下两侧断开', () => {
+    // DESC：a2（新） / r1 撤回 / a1（旧），同一个人 A
+    const tight = runTightKeys(nodes(['a2', 'A'], ['r1', null], ['a1', 'A']));
+
+    // a1 下面是撤回行 ⇒ 不贴紧；撤回行自己也不贴紧上面的 a2
+    expect(tight).toEqual(new Set());
+  });
+
+  it('相册按一条算：与相邻同发送者的单条合并成一组', () => {
+    // DESC：album-g1 最新、a1 次之 ⇒ a1 下面就是同一人的相册 ⇒ 收窄
+    const tight = runTightKeys(nodes(['album-g1', 'A'], ['a1', 'A'], ['b1', 'B']));
+
+    expect(tight).toEqual(new Set(['a1']));
+  });
+
+  it('undefined 项被跳过，不影响分组', () => {
+    const withHole: Array<SenderRunNode | undefined> = [
+      { key: 'a2', senderKey: 'A' },
+      undefined,
+      { key: 'a1', senderKey: 'A' },
+    ];
+
+    expect(runTightKeys(withHole)).toEqual(new Set(['a1']));
+  });
+
+  it('空列表 → 空集合（不抛错）', () => {
+    expect(runTightKeys([])).toEqual(new Set());
   });
 });

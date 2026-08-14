@@ -137,6 +137,16 @@ interface GroupMessageBubbleProps {
    * 🔴 默认 `true`：单条自成一组，它就是该组最旧那条。
    */
   showName?: boolean;
+  /**
+   * 视觉上**紧挨在下面**的那条是否属于同一连发组（huanwei 2026-08-14 12:16：
+   * 「相连的气泡中间间隙将其缩小」）。`true` ⇒ 行的下边距收窄，两条贴成一组。
+   *
+   * 由列表层用 `senderRunGate.runTightKeys` 一次算出（与头像锚点同源同序），
+   * 气泡自己看不到邻居，不能也不该在这里推。
+   *
+   * 🔴 默认 `false`：单条自成一组，下面不是同伴 ⇒ 维持组间的常规间距。
+   */
+  tightBelow?: boolean;
 }
 
 // 使用统一的消息动画配置
@@ -190,6 +200,7 @@ export function GroupMessageBubble({
   album,
   showAvatar = true,
   showName = true,
+  tightBelow = false,
 }: GroupMessageBubbleProps) {
   const api = useApi();
   // 右键菜单状态
@@ -562,6 +573,26 @@ export function GroupMessageBubble({
     && message.message_type !== 'system'
     && !isCaptionableMediaType(message.message_type);
 
+  // 发送者昵称节点（huanwei 2026-08-14 12:16：「群聊的昵称让其放在气泡里」）。
+  //
+  // 落点规则与**时间戳逐字同一条**（17e1c5a 已拍板的那套，这里只是让名字跟着走）：
+  //   ① 文本气泡 / 折叠占位 ⇒ 气泡内顶部（`.bubble-text` 的第一个孩子）
+  //   ② 媒体（单图 / 单视频 / 相册）⇒ 有配文落大气泡内顶部；无配文落媒体左上角药丸浮层
+  //   ③ 文档 / 会议邀请 / 卡片 ⇒ 这三类是独立白底卡片、**没有气泡可进**，名字仍在卡片上方一行
+  //      （时间戳同样留在卡片下方一行 —— 两者对称，不是这里单独开的例外）
+  const senderNameNode = shouldShowSenderName ? (
+    <div
+      className="bubble-sender-name"
+      data-sender-hue={senderNameHue}
+      title={senderDisplayName}
+    >
+      {senderDisplayName}
+    </div>
+  ) : null;
+  // ② 那一路：名字交给 MediaBubbleFrame 摆进媒体气泡内；其余各路仍由本文件自己摆
+  const nameInsideMedia = !!senderNameNode && (!!album || isCaptionableMediaType(message.message_type));
+  const nameAboveCard = !!senderNameNode && !nameInsideMedia && metaBelowBubble;
+
   // 撤回切换动画：普通气泡 / 撤回胶囊作为 AnimatePresence 的两个 sibling motion.div
   // - 切换时（is_recalled false → true）：
   //     旧 motion.div(key="bubble") unmount → 触发 getMessageVariants(isOwn).exit
@@ -591,7 +622,7 @@ export function GroupMessageBubble({
         ) : (
           <motion.div
             key="bubble"
-            className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
+            className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}${tightBelow ? ' message-row--tight' : ''}`}
             // 定位锚点（scrollMessageIntoView 唯一的寻址面）。相册态下**交给格子**：
             // 一个相册气泡代表 N 条消息，行上只能挂一个 uuid，挂了代表消息就等于
             // 「定位第一张图 = 居中整块 3×3 网格」，而其余 N-1 条依旧无处可寻。
@@ -677,21 +708,10 @@ export function GroupMessageBubble({
                 <div className="bubble-avatar bubble-avatar--hole" aria-hidden="true" />
               )}
               <div className="bubble-content">
-                {/* 发送者昵称：连发组的**最旧那条**才画（组内其余各条不重复），自己的消息不画。
-                    放在 .bubble-content 的第一个孩子 = 所有消息形态（文本 / 图片 / 视频 / 相册 /
-                    文档 / 卡片 / 会议邀请）统一走同一条路径 —— 塞进 .bubble-text 只有文本能拿到，
-                    图片消息就永远认不出是谁发的。位置与既有的 .reply-quote 同一层级（名字在引用块之上），
-                    这也是本仓一贯的「气泡内容按块竖排」写法。
-                    title 给鼠标悬停看全名（CSS 已把它截断成一行）。 */}
-                {shouldShowSenderName && (
-                  <div
-                    className="bubble-sender-name"
-                    data-sender-hue={senderNameHue}
-                    title={senderDisplayName}
-                  >
-                    {senderDisplayName}
-                  </div>
-                )}
+                {/* 文档 / 会议邀请 / 卡片：这三类是独立白底卡片、**没有气泡可进**，昵称留在卡片
+                    上方一行（时间戳同样留在卡片下方一行，见 metaBelowBubble）。其余各形态的昵称
+                    都已经进到气泡内部，由下面各自的渲染分支摆放。 */}
+                {nameAboveCard && senderNameNode}
                 {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
                     放在折叠判定之外：引用块只暴露"被回复的那条"的摘要，与本条发送者是否被屏蔽无关；
                     但被屏蔽者自己发的引用块也一并折叠掉更符合"屏蔽此人消息"的预期 → 故仍受 isSenderHidden 门控。 */}
@@ -715,15 +735,29 @@ export function GroupMessageBubble({
                   <>
                     {/* 相册：整组渲染成一个网格，本条自己的媒体不再单独出现。
                         仍在 isSenderHidden 之内 —— 被屏蔽者发的相册同样要折叠掉。 */}
-                    {album && <AlbumMessage album={album} urlType="group" meta={metaNode} />}
+                    {album && (
+                      <AlbumMessage
+                        album={album}
+                        urlType="group"
+                        meta={metaNode}
+                        senderName={nameInsideMedia ? senderNameNode : undefined}
+                      />
+                    )}
                     {!album && (
                       <>
+                        {/* 文本气泡：昵称是气泡本体的第一个孩子（在 padding 之内 = 视觉上在气泡里），
+                            正文 + 时间戳那一行整体降一层裹进 .bubble-metafoot。
+                            🔴 昵称**不能**直接当 .bubble-metafoot 的 flex 项 —— 那是一条
+                            `flex-wrap + justify-content:flex-end` 的行，名字会被推到右边去跟时间戳挤。 */}
                         {(message.message_type === 'text' || message.message_type === 'system') && (
-                          <div className="bubble-text bubble-metafoot">
-                            <div className="bubble-metafoot-body">
-                              <MarkdownRenderer content={message.message_content} />
+                          <div className="bubble-text">
+                            {senderNameNode}
+                            <div className="bubble-metafoot">
+                              <div className="bubble-metafoot-body">
+                                <MarkdownRenderer content={message.message_content} />
+                              </div>
+                              {metaNode}
                             </div>
-                            {metaNode}
                           </div>
                         )}
                         {message.message_type === 'meeting_invite' && (
@@ -749,6 +783,9 @@ export function GroupMessageBubble({
                             // 与私聊同口径：只有图片 / 视频把时间戳收进气泡内；
                             // 文档自带白底卡片、不是气泡，它的时间戳留在卡片下方一行
                             meta={isCaptionableMediaType(message.message_type) ? metaNode : undefined}
+                            // 昵称同理：只有图片 / 视频这种「有气泡可进」的形态才交给它摆；
+                            // 文档走 nameAboveCard 留在卡片上方（递进来会给白底卡片套一层浮层壳）
+                            senderName={nameInsideMedia ? senderNameNode : undefined}
                           >
                             <FileMessageContent
                               messageType={message.message_type as 'image' | 'video' | 'file'}

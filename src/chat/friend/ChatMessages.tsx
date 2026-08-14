@@ -47,6 +47,7 @@ import {
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
+import { runTightKeys, type SenderRunNode } from '../shared/senderRunGate';
 import { isLocateScrollSettling } from '../shared/scrollMessageIntoView';
 import { useStickToBottom } from '../shared/useStickToBottom';
 
@@ -201,6 +202,25 @@ export function ChatMessages({
   if (mountedKeysRef.current === null && sortedMessages.length > 0) {
     mountedKeysRef.current = new Set(sortedMessages.map((m) => getStableKey(m)));
   }
+
+  // 收窄间距的行：视觉上紧挨在**下面**的那条与本条是同一个人连发的
+  //（huanwei 2026-08-14 12:16「相连的气泡中间间隙将其缩小」）。
+  //
+  // 1:1 的气泡区已经没有头像了（17e1c5a 把双方头像整块搬去顶栏），所以这里只借
+  // senderRunGate 的**分组**语义、不涉及头像锚点；分组键仍用 sender_id ——「同一人连发」
+  // 在 1:1 里就是「连着几条都是我」或「连着几条都是对方」。撤回态照旧断组（senderKey=null）。
+  const runNodes = useMemo<Array<SenderRunNode | undefined>>(
+    () => renderNodes.map((node) => {
+      const m = node.kind === 'album' ? node.items[0] : node.message;
+      if (!m) { return undefined; }
+      return {
+        key: node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
+        senderKey: m.is_recalled ? null : m.sender_id,
+      };
+    }),
+    [renderNodes],
+  );
+  const tightKeys = useMemo(() => runTightKeys(runNodes), [runNodes]);
 
   // 私聊已读回执：按 seq 判定对方是否已读到我发的消息（Telegram 风单向，只显示自己消息）
   const { peerLastReadSeq } = useFriendReadReceipt(friend.friend_id);
@@ -409,6 +429,8 @@ export function ChatMessages({
                     isHighlighted={highlightedMessageId === message.message_uuid}
                     album={album}
                     playEnter={playEnter}
+                    // 下面紧挨着的那条也是同一人连发 ⇒ 收窄本行下边距（换人 / 撤回行断开时不收窄）
+                    tightBelow={tightKeys.has(stableKey)}
                   />
                 );
               })}

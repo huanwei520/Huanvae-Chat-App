@@ -96,6 +96,13 @@ interface MediaBubbleFrameProps {
    * 不递（文档 / 会议邀请 / 卡片那几类）⇒ 由调用方自己摆在气泡下方，本组件不管。
    */
   meta?: ReactNode;
+  /**
+   * 群聊发送者昵称（`.bubble-sender-name`）。递了就落进**气泡内部**，与 `meta` 对称：
+   * 有配文 ⇒ 大气泡内顶部、媒体之上；无配文 ⇒ 媒体**左上角**的半透明药丸浮层
+   * （时间戳药丸在右下角，两者不会撞）。
+   * 不递（私聊 / 自己的消息 / 组内非最上面那条 / 文档卡片）⇒ 本组件当它不存在。
+   */
+  senderName?: ReactNode;
   /** 媒体本体：相册网格 或 单条的 FileMessageContent */
   children: ReactNode;
 }
@@ -121,16 +128,17 @@ interface MediaBubbleFrameProps {
  * 黑底为什么落在带子上、不落在气泡框上：对方那侧的配文底色是**半透明**白
  * （`--white-alpha-70`），涂黑气泡框会从它底下透出来、把配文条压成深灰。
  */
-export function MediaBubbleFrame({ content, media, meta, children }: MediaBubbleFrameProps) {
+export function MediaBubbleFrame({ content, media, meta, senderName, children }: MediaBubbleFrameProps) {
   const caption = resolveMediaCaption(content);
 
   // 无配文：媒体自身圆角即可，一个多余节点都不产生
   if (!caption) {
-    // 但时间戳要落进气泡内时，得有个定位参照系 —— 只加一层不画背景的定位壳
-    if (meta) {
+    // 但时间戳 / 昵称要落进气泡内时，得有个定位参照系 —— 只加一层不画背景的定位壳
+    if (meta || senderName) {
       return (
         <div className="media-bubble-bare" data-testid="media-bubble-bare">
           {children}
+          {senderName}
           {meta}
         </div>
       );
@@ -143,6 +151,9 @@ export function MediaBubbleFrame({ content, media, meta, children }: MediaBubble
       className={media === 'single' ? 'media-bubble media-bubble--single' : 'media-bubble'}
       data-testid="media-bubble"
     >
+      {/* 昵称在媒体之上、气泡之内（telegram 参照图的形态）；它自己带内边距，
+          媒体仍然贴着气泡上沿 —— 只有在真有昵称时才占一行。 */}
+      {senderName}
       {media === 'single'
         ? (
           <div className="media-bubble-media" data-testid="media-bubble-media">

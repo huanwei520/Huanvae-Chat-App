@@ -9,6 +9,8 @@
  * - 组内其余各条**留出头像位**（`.bubble-avatar--hole`，`visibility:hidden`），保持气泡左缘对齐；
  * - **昵称只显示在该组最旧那条**（视觉最上面那条）—— 与头像**分处一组的两端**，
  *   正是参照图里 telegram 的形态：名字在一组的顶部、头像在一组的底部。
+ * - **组内相邻两条之间的垂直间距收窄**（huanwei 2026-08-14 12:16 追加）—— 见 {@link runTightKeys}。
+ *   组间仍是常规间距，两者拉开差距，断组一眼可辨。
  *
  * ⚠️ 本文件原先写的是「组内一个昵称都不显示」（方案 C 的原始口径）。
  * 2026-08-14 总管按 huanwei 亲手发来的 telegram 参照图裁决：**群聊要显示发送者昵称**，
@@ -107,4 +109,39 @@ export function senderNameAnchorKeys(nodes: readonly (SenderRunNode | undefined)
   }
 
   return anchors;
+}
+
+/**
+ * 在同一份 **DESC（新 → 旧）** 节点列表里，算出「**下面紧挨着的那条是同一组**」的节点 key 集合
+ * —— 也就是**该收窄下边距**的那些行（huanwei 2026-08-14 12:16：「相连的气泡中间间隙将其缩小」）。
+ *
+ * 列表是 `column-reverse`：DESC 的 index i 在视觉上位于 index i-1 的**上方**，
+ * 而 `.message-row` 的 `margin-bottom` 隔开的正是它与 **i-1** 之间的那道缝。
+ * ⇒ 「i 与 i-1 同组」时收窄，否则维持组间的常规间距。
+ *
+ * 判据与 {@link avatarAnchorKeys} 是**同一次扫描的互补面**：头像锚点 = 组内最新那条
+ * （`senderKey !== previousSender`），本集合 = 组内**非**最新那几条（`senderKey === previousSender`）。
+ * 两者同源 ⇒ 「留了头像位」与「贴紧下面那条」在任何一条消息上都不可能给出矛盾的答案。
+ *
+ * 撤回态（`senderKey === null`）自己永不入集合，且把上下两侧断成两组 —— 一条居中系统行
+ * 两边贴紧会让人以为它属于某一组。
+ */
+export function runTightKeys(nodes: readonly (SenderRunNode | undefined)[]): Set<string> {
+  const tight = new Set<string>();
+  // 上一个（更新的、视觉上更靠下的）节点的发送者；undefined = 还没开始扫
+  let previousSender: string | null | undefined;
+
+  for (const node of nodes) {
+    if (!node) { continue; }
+    if (node.senderKey === null) {
+      previousSender = null;
+      continue;
+    }
+    if (node.senderKey === previousSender) {
+      tight.add(node.key);
+    }
+    previousSender = node.senderKey;
+  }
+
+  return tight;
 }

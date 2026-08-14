@@ -87,6 +87,14 @@ interface MessageBubbleProps {
   /** 是否播放入场滑入动画：仅"挂载后新增"的实时新消息为 true（由列表用 shouldPlayEnter 判定）；
    *  切换/打开时已有的历史为 false → 不并拢，整体走面板渐变。 */
   playEnter?: boolean;
+  /**
+   * 视觉上**紧挨在下面**的那条是否也是同一人连发的（huanwei 2026-08-14 12:16：
+   * 「相连的气泡中间间隙将其缩小」）。`true` ⇒ 行的下边距收窄，两条贴成一组。
+   *
+   * 由列表层用 `senderRunGate.runTightKeys` 一次算出（O(n)，不在 map 里各扫一遍）；
+   * 气泡看不到邻居，不能在这里推。默认 `false` = 维持组间的常规间距。
+   */
+  tightBelow?: boolean;
 }
 
 // 私聊已读回执（仅自己消息，统一状态槽：时钟/灰双勾/绿双勾/红叹号）
@@ -132,6 +140,7 @@ export function MessageBubble({
   isHighlighted = false,
   album,
   playEnter = false,
+  tightBelow = false,
 }: MessageBubbleProps) {
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -373,7 +382,7 @@ export function MessageBubble({
         ) : (
           <motion.div
             key="bubble"
-            className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}`}
+            className={`message-row ${isOwn ? 'own' : 'other'} ${isMultiSelectMode ? 'multi-select-mode' : ''} ${isSelected ? 'selected' : ''}${tightBelow ? ' message-row--tight' : ''}`}
             // 定位锚点（scrollMessageIntoView 唯一的寻址面）。相册态下**交给格子**：
             // 一个相册气泡代表 N 条消息，行上只能挂一个 uuid，挂了代表消息就等于
             // 「定位第一张图 = 居中整块 3×3 网格」，而其余 N-1 条依旧无处可寻。

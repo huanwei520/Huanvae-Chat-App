@@ -74,6 +74,11 @@ interface AlbumMessageProps {
    * 有配文落配文条内、无配文落网格右下角药丸浮层。本组件不摆它。
    */
   meta?: ReactNode;
+  /**
+   * 群聊发送者昵称（`.bubble-sender-name`）。同样原样透传给 MediaBubbleFrame：
+   * 有配文落大气泡内顶部、无配文落网格左上角药丸浮层。本组件不摆它。
+   */
+  senderName?: ReactNode;
 }
 
 /** 一行最多放几张（再多单格就细到看不清内容了） */
@@ -164,7 +169,7 @@ function albumItemMediaType(rawType: string): MessageType {
   return rawType === 'video' ? 'video' : 'image';
 }
 
-export function AlbumMessage({ album, urlType = 'friend', friendId, meta }: AlbumMessageProps) {
+export function AlbumMessage({ album, urlType = 'friend', friendId, meta, senderName }: AlbumMessageProps) {
   const { columnBase, spans } = useMemo(
     () => albumGridPlan(album.expectedCount),
     [album.expectedCount],
@@ -187,7 +192,7 @@ export function AlbumMessage({ album, urlType = 'friend', friendId, meta }: Albu
     // 递的是**原始正文**（组首项的 message_content）—— 它到底算不算配文由
     // MediaBubbleFrame.resolveMediaCaption 一处判定：没给配文时后端下发的是
     // 「[图片] 文件名」派生正文，直接当配文渲染就会在每个无配文相册下面显示一行文件名。
-    <MediaBubbleFrame content={album.caption} media="album" meta={meta}>
+    <MediaBubbleFrame content={album.caption} media="album" meta={meta} senderName={senderName}>
       <div
         className="album-grid"
         style={{ gridTemplateColumns: `repeat(${columnBase}, 1fr)` }}
