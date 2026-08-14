@@ -128,9 +128,10 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
     expect(document.querySelector('.recall-system-bubble')).toBeInTheDocument();
     // 不渲染普通气泡容器
     expect(document.querySelector('.message-bubble')).not.toBeInTheDocument();
-    // 原本这里还断言了「不渲染 sender 昵称」。2026-08-14 群聊改方案 C（组内一个昵称都不显示）
-    // ⇒ .bubble-sender 已从组件里整块删除，该断言对**任何**群消息恒成立，变成恒真断言（假测试），
-    // 删掉而不是留着凑数。「方案 C 不显昵称」由 tests/components/GroupBubbleRunMerge.test.tsx 正面守着。
+    // 撤回态不渲染昵称：撤回走的是 .recall-system-row 这条独立分支，整块 .message-bubble
+    // 都不存在，昵称自然也不在里面。这条断言在撤回态下不是恒真的——同一份 message 只要
+    // is_recalled=false 就会渲染出昵称（见 GroupMessageBubbleSenderName.test.tsx）。
+    expect(document.querySelector('.bubble-sender-name')).not.toBeInTheDocument();
     // 不渲染头像
     expect(document.querySelector('.bubble-avatar')).not.toBeInTheDocument();
     // 但保留时间戳

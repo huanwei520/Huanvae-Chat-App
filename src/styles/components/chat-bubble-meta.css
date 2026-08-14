@@ -137,6 +137,84 @@
 }
 
 /* ============================================================
+   2b. Sender name at the top of a group bubble
+   ============================================================
+   huanwei's telegram reference shot: the sender name sits at the TOP of a run,
+   in a per-sender colour, while the avatar sits at the BOTTOM of the same run.
+   Which message carries it is decided in senderRunGate.senderNameAnchorKeys;
+   this file only paints it.
+
+   The palette lives here rather than in variables.css for one reason: another
+   change was in flight on the shared files during this task, and the whole
+   chat-bubble rework already lands in this one file. Same shape as the tokens
+   in variables.css though -- light values on :root, a dark override below --
+   so it can be lifted over later without touching a single call site.
+
+   Colours are static brand-ish hues, deliberately NOT var(--color-primary-*):
+   the whole point is that different senders look different, and every theme
+   accent would collapse them onto one hue. Seven of them, matching
+   SENDER_NAME_COLOR_COUNT in chat/shared/senderNameColor.ts -- a unit test
+   counts the tokens in this file and fails if the two drift apart.
+
+   No transition / transform / opacity here either, for the reason in the file
+   header: this node lives inside a framer-motion driven subtree.
+*/
+:root {
+  --sender-name-0: #d5556b;
+  --sender-name-1: #2e9e5b;
+  --sender-name-2: #b7791f;
+  --sender-name-3: #2b7fd4;
+  --sender-name-4: #7c5cd6;
+  --sender-name-5: #c2559e;
+  --sender-name-6: #12868c;
+}
+
+[data-theme='dark'] {
+  --sender-name-0: #f2879b;
+  --sender-name-1: #6fd08c;
+  --sender-name-2: #e8c169;
+  --sender-name-3: #6db3f2;
+  --sender-name-4: #b39ff0;
+  --sender-name-5: #ef8fc8;
+  --sender-name-6: #4fd0d6;
+}
+
+/* One line, ellipsised. A long nickname must not deform the bubble, so:
+   - white-space: nowrap + overflow hidden + text-overflow: ellipsis truncate it
+   - max-width: 100% keeps it inside .bubble-content (which is already capped by
+     .message-bubble max-width), so it can never push past the bubble's own cap
+   align-self: flex-start stops the column flex from stretching it across the
+   full content width when a short bubble sits under it. */
+.bubble-sender-name {
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 2px;
+  padding: 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* fallback keeps the name visible if a hue token ever goes missing */
+  color: var(--sender-name-3);
+}
+
+.bubble-sender-name[data-sender-hue='0'] { color: var(--sender-name-0); }
+.bubble-sender-name[data-sender-hue='1'] { color: var(--sender-name-1); }
+.bubble-sender-name[data-sender-hue='2'] { color: var(--sender-name-2); }
+.bubble-sender-name[data-sender-hue='3'] { color: var(--sender-name-3); }
+.bubble-sender-name[data-sender-hue='4'] { color: var(--sender-name-4); }
+.bubble-sender-name[data-sender-hue='5'] { color: var(--sender-name-5); }
+.bubble-sender-name[data-sender-hue='6'] { color: var(--sender-name-6); }
+
+/* Mobile bubbles are narrower and the whole sheet runs a notch smaller. */
+.mobile-chat-messages .bubble-sender-name {
+  font-size: 12px;
+}
+
+/* ============================================================
    3. Timestamp inside the bubble (Telegram-style)
    ============================================================
    huanwei: "move the message time inside the message box, like Telegram, not

@@ -19,17 +19,28 @@
  * - 撤回/删除：反方向播放退出动画
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  *
- * ## 连发合并 = 方案 C（huanwei 2026-08-14 拍板）
+ * ## 连发合并（huanwei 2026-08-14 拍板；昵称一条当日按 telegram 参照图订正）
  *
- * 同一个人**连续**发的若干条算一「组」：头像**只挂该组最新那条**（视觉最下面那条），
- * 组内其余各条渲染一个**同尺寸的占位孔**（`.bubble-avatar--hole`）保持气泡左缘对齐；
- * 且**组内一个昵称都不显示**（方案 C 与方案 A 的唯一差别就在这一句）。
+ * 同一个人**连续**发的若干条算一「组」：
+ * - 头像**只挂该组最新那条**（视觉最下面那条），组内其余各条渲染一个**同尺寸的占位孔**
+ *   （`.bubble-avatar--hole`）保持气泡左缘对齐；
+ * - 昵称**只显示在该组最旧那条**（视觉最上面那条），一人连发 3 条只出现 1 次昵称。
+ *
+ * 名字在组的顶、头像在组的底 —— 这正是参照图里 telegram 的形态。
  * 断组的唯一条件是中间出现了别人的消息 —— **没有时间窗**。
- * 「谁是该组最新那条」由列表层 O(n) 算一次后经 `showAvatar` 下发，见
+ * 两个锚点都由列表层各 O(n) 算一次后经 `showAvatar` / `showName` 下发，见
  * `chat/shared/senderRunGate.ts` 与 `chat/group/GroupChatMessages.tsx`。
  *
- * 🔴 `showAvatar` 默认值必须是 `true`：单条消息自成一组、本就该显示头像，
+ * ⚠️ 本文件原先写的是「组内一个昵称都不显示」（内部编号里的方案 C）。总管 2026-08-14 裁决：
+ * huanwei 亲手发来的 telegram 参照图里昵称是**显示**的，且「群聊保留头像」的理由链
+ * （要能认人）对昵称同样成立 ⇒ 内部编号与他给的实图冲突时**以实图为准**，该句作废。
+ *
+ * 🔴 `showAvatar` / `showName` 默认值都必须是 `true`：单条消息自成一组，
+ * 它既是组内最新（该挂头像）也是组内最旧（该显示昵称）；
  * 而既有测试（GroupMessageBubbleAvatarClick）只渲染单条并断言 `.bubble-avatar` 存在。
+ *
+ * 🔴 昵称只画在**别人**的消息上（`!isOwn`）：右侧那串蓝气泡就是自己发的，
+ * 再标一遍自己的名字是纯噪音，参照图里的 telegram 也不标。
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -59,6 +70,7 @@ import { groupMemberDisplayName } from '../../utils/groupRemark';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { ReplyQuote } from '../shared/ReplyQuote';
+import { senderNameColorIndex } from '../shared/senderNameColor';
 import { AlbumMessage, type AlbumMediaItem } from '../shared/AlbumMessage';
 import { MediaBubbleFrame, isCaptionableMediaType } from '../shared/MediaBubbleFrame';
 import type { AlbumNode } from '../shared/mediaGroup';
@@ -116,6 +128,15 @@ interface GroupMessageBubbleProps {
    * 只渲染单条的既有测试也依赖这条默认值。
    */
   showAvatar?: boolean;
+  /**
+   * 是否显示发送者昵称：`true` = 本条是「同一人连发那一组」里**最旧**的一条（视觉最上面）；
+   * `false` = 组内更晚的一条 ⇒ 不重复显示昵称（一人连发 3 条只出现 1 次）。
+   *
+   * 只对**别人**的消息有效 —— 自己的消息无论本值如何都不显示昵称（见文件头注释）。
+   *
+   * 🔴 默认 `true`：单条自成一组，它就是该组最旧那条。
+   */
+  showName?: boolean;
 }
 
 // 使用统一的消息动画配置
@@ -168,6 +189,7 @@ export function GroupMessageBubble({
   isHighlighted = false,
   album,
   showAvatar = true,
+  showName = true,
 }: GroupMessageBubbleProps) {
   const api = useApi();
   // 右键菜单状态
@@ -360,6 +382,14 @@ export function GroupMessageBubble({
 
   // 发送者在本群对我显示的名字：备注优先，否则用消息携带的发送者名（群昵称/用户昵称）
   const senderDisplayName = groupMemberDisplayName(senderRemark, message.sender_nickname);
+
+  // 气泡内顶部那行昵称的显示门控 —— 三条**与**关系，任一不成立就不画：
+  //  ① showName：本条是「同一人连发那一组」里最旧的一条（锚点由列表层 O(n) 算，单条自成一组恒 true）
+  //  ② !isOwn：自己的消息不标自己的名字（右侧蓝气泡本身就是身份，参照图里 telegram 也不标）
+  //  ③ !isSenderHidden：被屏蔽/拉黑的消息整块只剩一句占位，此时把名字亮出来与「屏蔽此人消息」相悖
+  const shouldShowSenderName = showName && !isOwn && !isSenderHidden;
+  // 配色索引只由 sender_id 决定（改名/改备注不变色），真色值在 CSS 按 data-sender-hue 选
+  const senderNameHue = senderNameColorIndex(message.sender_id);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -647,6 +677,21 @@ export function GroupMessageBubble({
                 <div className="bubble-avatar bubble-avatar--hole" aria-hidden="true" />
               )}
               <div className="bubble-content">
+                {/* 发送者昵称：连发组的**最旧那条**才画（组内其余各条不重复），自己的消息不画。
+                    放在 .bubble-content 的第一个孩子 = 所有消息形态（文本 / 图片 / 视频 / 相册 /
+                    文档 / 卡片 / 会议邀请）统一走同一条路径 —— 塞进 .bubble-text 只有文本能拿到，
+                    图片消息就永远认不出是谁发的。位置与既有的 .reply-quote 同一层级（名字在引用块之上），
+                    这也是本仓一贯的「气泡内容按块竖排」写法。
+                    title 给鼠标悬停看全名（CSS 已把它截断成一行）。 */}
+                {shouldShowSenderName && (
+                  <div
+                    className="bubble-sender-name"
+                    data-sender-hue={senderNameHue}
+                    title={senderDisplayName}
+                  >
+                    {senderDisplayName}
+                  </div>
+                )}
                 {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
                     放在折叠判定之外：引用块只暴露"被回复的那条"的摘要，与本条发送者是否被屏蔽无关；
                     但被屏蔽者自己发的引用块也一并折叠掉更符合"屏蔽此人消息"的预期 → 故仍受 isSenderHidden 门控。 */}

@@ -36,7 +36,7 @@ import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import type { GroupReader } from './useGroupReadReceipt';
 import { latestOwnReceiptUuid } from '../shared/readReceiptGate';
-import { avatarAnchorKeys } from '../shared/senderRunGate';
+import { avatarAnchorKeys, senderNameAnchorKeys, type SenderRunNode } from '../shared/senderRunGate';
 import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
@@ -194,20 +194,28 @@ export function GroupChatMessages({
   // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
 
-  // 方案 C 的头像锚点：同一人连发的一组里，头像只挂**该组最新那条**（视觉最下面那条）。
-  // 与已读锚点同一形状 —— 在 map **之外** O(n) 算一次，不在 map 里每条各扫一遍（O(n²)）。
-  // 撤回态映射成 senderKey=null ⇒ 它自己不挂头像、且把上下断成两组（见 senderRunGate 注释）。
-  const avatarAnchors = useMemo(
-    () => avatarAnchorKeys(renderNodes.map((node) => {
+  // 连发分组的输入：一份节点、两个锚点集合共用，保证两者的分界逐字一致。
+  // 撤回态映射成 senderKey=null ⇒ 它自己既不挂头像也不显示昵称、且把上下断成两组
+  //（见 senderRunGate 注释）。
+  const runNodes = useMemo<Array<SenderRunNode | undefined>>(
+    () => renderNodes.map((node) => {
       const m = node.kind === 'album' ? node.items[0] : node.message;
       if (!m) { return undefined; }
       return {
         key: node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
         senderKey: m.is_recalled ? null : m.sender_id,
       };
-    })),
+    }),
     [renderNodes],
   );
+
+  // 头像锚点：同一人连发的一组里，头像只挂**该组最新那条**（视觉最下面那条）。
+  // 与已读锚点同一形状 —— 在 map **之外** O(n) 算一次，不在 map 里每条各扫一遍（O(n²)）。
+  const avatarAnchors = useMemo(() => avatarAnchorKeys(runNodes), [runNodes]);
+
+  // 昵称锚点：同一组里昵称只显示在**该组最旧那条**（视觉最上面那条），一人连发 3 条只出现 1 次。
+  // 与头像分处一组的两端 —— telegram 参照图就是这个形态（名字在顶、头像在底）。
+  const nameAnchors = useMemo(() => senderNameAnchorKeys(runNodes), [runNodes]);
 
   // 已读标记的锚点：我发出的最新一条（更早的自己消息不挂标记，理由见 shared/readReceiptGate）。
   // 在 map **之外**算一次 O(n)，锚点取渲染代表消息（相册取组内代表），与下面 map 里的 message 同源。
@@ -428,8 +436,10 @@ export function GroupChatMessages({
                     onReply={onReplyOrUndefined}
                     isHighlighted={highlightedMessageId === message.message_uuid}
                     album={album}
-                    // 方案 C：头像只挂「同一人连发那一组」里最新的一条；其余各条留占位孔
+                    // 头像只挂「同一人连发那一组」里最新的一条（视觉最下）；其余各条留占位孔
                     showAvatar={avatarAnchors.has(stableKey)}
+                    // 昵称只显示在同一组里最旧的一条（视觉最上）；气泡自己再滤掉 isOwn / 被折叠两种
+                    showName={nameAnchors.has(stableKey)}
                     isMultiSelectMode={isMultiSelectMode}
                     isSelected={isSelected}
                     onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

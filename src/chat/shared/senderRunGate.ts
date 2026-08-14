@@ -1,13 +1,19 @@
 /**
- * 群聊「连续同一人多条消息」的头像挂载门控（方案 C 纯逻辑）
+ * 群聊「连续同一人多条消息」的头像 / 昵称挂载门控（纯逻辑）
  *
  * @module chat/shared
  * @location src/chat/shared/senderRunGate.ts
  *
- * 产品口径（huanwei 2026-08-14 拍板的方案 C）：
+ * 产品口径（huanwei 2026-08-14 拍板，昵称一条是同日按 telegram 参照图订正的）：
  * - 同一个人**连续**发的若干条合并成一「组」，头像**只挂该组最新那条**（视觉最下面那条）；
  * - 组内其余各条**留出头像位**（`.bubble-avatar--hole`，`visibility:hidden`），保持气泡左缘对齐；
- * - **组内一个昵称都不显示**（这正是 C 与 A 的唯一差别）。
+ * - **昵称只显示在该组最旧那条**（视觉最上面那条）—— 与头像**分处一组的两端**，
+ *   正是参照图里 telegram 的形态：名字在一组的顶部、头像在一组的底部。
+ *
+ * ⚠️ 本文件原先写的是「组内一个昵称都不显示」（方案 C 的原始口径）。
+ * 2026-08-14 总管按 huanwei 亲手发来的 telegram 参照图裁决：**群聊要显示发送者昵称**，
+ * 「不显昵称」只是我们内部的编号约定，与他给的实图冲突时以实图为准。故该句已作废，
+ * 改由 {@link senderNameAnchorKeys} 提供「每组只显示一次」的锚点。
  *
  * 断组的**唯一**条件：中间出现了别人的消息。**没有时间窗**，没有任何其它条件。
  *
@@ -57,6 +63,40 @@ export function avatarAnchorKeys(nodes: readonly (SenderRunNode | undefined)[]):
     if (!node) { continue; }
     if (node.senderKey === null) {
       // 撤回态：自己不挂头像，且把「上一个发送者」清空 ⇒ 它下面那条必然重新起一组
+      previousSender = null;
+      continue;
+    }
+    if (node.senderKey !== previousSender) {
+      anchors.add(node.key);
+    }
+    previousSender = node.senderKey;
+  }
+
+  return anchors;
+}
+
+/**
+ * 在同一份 **DESC（新 → 旧）** 节点列表里，算出「每一组该显示昵称的那个节点」的 key 集合。
+ *
+ * 昵称挂**组内最旧那条**（视觉最上面那条），与 {@link avatarAnchorKeys} 的头像锚点
+ * （组内最新 / 视觉最下面）分处一组的两端 —— 这就是 telegram 参照图里的形态。
+ * 一人连发 3 条 ⇒ 昵称只出现 1 次，不会出现 3 次。
+ *
+ * 实现上是同一套扫描，只是**反着走**：DESC 数组倒着遍历就是 ASC（旧 → 新），
+ * 于是「每组第一个遇到的」从「组内最新」变成「组内最旧」。分组规则逐字复用上面那套
+ * （`senderKey === null` 的撤回行断组、且自己永不成为锚点），两个集合不可能对同一组给出
+ * 不一致的分界。
+ */
+export function senderNameAnchorKeys(nodes: readonly (SenderRunNode | undefined)[]): Set<string> {
+  const anchors = new Set<string>();
+  // 上一个（更旧的）节点的发送者；undefined = 还没开始扫
+  let previousSender: string | null | undefined;
+
+  for (let i = nodes.length - 1; i >= 0; i -= 1) {
+    const node = nodes[i];
+    if (!node) { continue; }
+    if (node.senderKey === null) {
+      // 撤回态：自己不显示昵称，且把「上一个发送者」清空 ⇒ 它上面那条必然重新起一组
       previousSender = null;
       continue;
     }

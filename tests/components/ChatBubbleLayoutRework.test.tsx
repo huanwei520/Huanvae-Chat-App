@@ -2,7 +2,8 @@
  * 聊天布局改版的结构契约（huanwei 2026-08-14 拍板的三件事）
  *
  * 1. **1:1 气泡区不再有头像** —— 双方头像移到顶栏（`ChatTargetAvatar`）
- * 2. **群聊方案 C** —— 同一人连发只在最新那条挂头像，其余留同尺寸占位孔；**组内不显昵称**
+ * 2. **群聊连发合并** —— 同一人连发只在最新那条挂头像，其余留同尺寸占位孔；
+ *    昵称只挂**组内最旧那条**（2026-08-14 当日按 telegram 参照图订正，见下面 ② 组内注释）
  * 3. **时间戳落进气泡内** —— `.bubble-meta` 从 `.bubble-content` 的直接子节点
  *    变成 `.bubble-text` 内部的子节点（类 Telegram）
  *
@@ -136,7 +137,7 @@ describe('① 1:1 气泡区不再有头像（头像移到顶栏）', () => {
   });
 });
 
-describe('② 群聊方案 C：头像只挂组内最新那条 + 组内不显昵称', () => {
+describe('② 群聊连发合并：头像只挂组内最新那条 + 昵称只挂组内最旧那条', () => {
   it('showAvatar 默认 true（单条自成一组）：渲染真头像，不是占位孔', () => {
     render(<GroupMessageBubble message={makeGroupMessage()} isOwn={false} />);
 
@@ -162,13 +163,29 @@ describe('② 群聊方案 C：头像只挂组内最新那条 + 组内不显昵�
     expect(hole.querySelector('img')).toBeNull();
   });
 
-  it('方案 C：任何情况下都不渲染发送者昵称（.bubble-sender 已整块删除）', () => {
-    // 对方消息 —— 改版前正是这一路会显示昵称
+  /**
+   * 🔴 这条原先断言的是「方案 C：任何情况下都不渲染发送者昵称」。
+   * 2026-08-14 当日总管按 huanwei 亲手发来的 telegram 参照图裁决：**群聊要显示发送者昵称**
+   * ——「不显昵称」只是内部编号约定，与他给的实图冲突时以实图为准 ⇒ 原断言表达的契约已作废，
+   * 整条改写成新口径。旧断言查的是 `.bubble-sender`，而新节点叫 `.bubble-sender-name`
+   * （class 选择器按整个 token 匹配，`.bubble-sender` 匹配不到它）⇒ 旧断言即使留着也是**恒绿**的，
+   * 会变成一条「看着在守门、其实守的是已作废契约」的误导性残留，故必须改掉而不是放着。
+   * 完整门控（isOwn / 折叠 / 备注 / 配色 / 长名截断）见 GroupMessageBubbleSenderName.test.tsx。
+   */
+  it('showName 默认 true（单条自成一组）：渲染发送者昵称', () => {
     render(<GroupMessageBubble message={makeGroupMessage()} isOwn={false} />);
 
     // 同类正向对照：同一棵树、同一种查询，气泡本体查得到
     expect(document.querySelector('.bubble-text')).toBeInTheDocument();
-    expect(document.querySelector('.bubble-sender')).not.toBeInTheDocument();
+    expect(document.querySelector('.bubble-sender-name')).toBeInTheDocument();
+  });
+
+  it('showName=false（组内更晚的一条）：不重复渲染昵称，但气泡本体照常', () => {
+    render(<GroupMessageBubble message={makeGroupMessage()} isOwn={false} showName={false} />);
+
+    // 同类正向对照在先：负向断言只有在同一棵树查得到气泡时才说明问题
+    expect(document.querySelector('.bubble-text')).toBeInTheDocument();
+    expect(document.querySelector('.bubble-sender-name')).not.toBeInTheDocument();
   });
 });
 
