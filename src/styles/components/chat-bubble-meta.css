@@ -250,16 +250,32 @@
 /* Bare media has no caption band and no background of its own: put the name on
    the same translucent pill the timestamp uses, mirrored to the top-left. */
 .media-bubble-bare > .bubble-sender-name {
+  /* one inset serves both the pill's own offset and the left half of its cap */
+  --media-pill-inset: 6px;
+  /* breathing room between the pill's right end and the local-cache badge */
+  --media-pill-badge-gap: 4px;
   position: absolute;
-  left: 6px;
-  top: 6px;
+  left: var(--media-pill-inset);
+  top: var(--media-pill-inset);
   margin: 0;
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
-  max-width: calc(100% - 12px);
+  /* The cap must clear .file-local-badge, which sits top-RIGHT of the SAME media
+     box. The previous calc(100% - 12px) only mirrored the pill's own two 6px
+     insets, so a long enough nickname ran under the badge -- measured overlap
+     18x18 px on a 280px-wide bubble. The badge's strip is NOT re-typed here: it
+     comes from --file-local-badge-reserve, declared next to the badge itself in
+     styles/pages/main.css, so there is a single source of truth for it.
+     Reserved unconditionally, i.e. also on media with no badge. The narrower
+     alternative -- .media-bubble-bare:has(.file-local-badge) > ... -- buys back
+     the strip when the badge is absent, but an engine without :has() drops the
+     WHOLE rule and the overlap comes straight back: a silent regression traded
+     for a cosmetic gain. Truncation is unaffected: nowrap + ellipsis live on the
+     base .bubble-sender-name rule, a narrower cap just clips a bit earlier. */
+  max-width: calc(100% - var(--media-pill-inset) - var(--media-pill-badge-gap) - var(--file-local-badge-reserve));
   box-sizing: border-box;
   /* The pill is a dark chip in BOTH themes, so the hue must come from the
      on-dark set, not from --sender-name-N: in the light theme the latter holds

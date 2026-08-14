@@ -5016,14 +5016,32 @@
   justify-content: center;
 }
 
-/* Local-cached file indicator: glass-white circular badge with white checkmark */
+/* Local-cached file indicator: glass-white circular badge with white checkmark.
+
+   The geometry lives in tokens because a SECOND element has to keep out of this
+   badge's way: on bare media (no caption) the sender-name pill sits top-left of
+   the very same media box and grows to the right, so its width cap has to know
+   how much of the top-right corner this badge eats. That cap is derived from
+   --file-local-badge-reserve below, which makes this rule the one and only
+   source of truth for the badge's footprint -- resize the badge here and the
+   pill follows, with nothing to keep in sync by hand.
+   Consumer: .media-bubble-bare > .bubble-sender-name in
+   styles/components/chat-bubble-meta.css.
+   Contract asserted by tests/unit/mediaBubbleSenderNamePillClearance.test.ts. */
+:root {
+  --file-local-badge-inset: 4px;
+  --file-local-badge-size: 20px;
+  /* Horizontal strip the badge occupies at the right edge of its media box. */
+  --file-local-badge-reserve: calc(var(--file-local-badge-inset) + var(--file-local-badge-size));
+}
+
 .file-local-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: var(--file-local-badge-inset);
+  right: var(--file-local-badge-inset);
   z-index: 10;
-  width: 20px;
-  height: 20px;
+  width: var(--file-local-badge-size);
+  height: var(--file-local-badge-size);
   display: inline-flex;
   align-items: center;
   justify-content: center;

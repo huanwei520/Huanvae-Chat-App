@@ -127,9 +127,14 @@ describe('昵称尺寸契约：三个落点的宿主各自都有宽度上界', (
   it('③ 药丸浮层：自己带 max-width(含左右余量) + border-box，且宿主 .media-bubble-bare 也有帽子', () => {
     const pill = ruleBody(META_CSS, '.media-bubble-bare > .bubble-sender-name');
     expect(pill, '.media-bubble-bare > .bubble-sender-name 规则不见了').not.toBeNull();
-    // 绝对定位 + 左右各留 6px ⇒ 帽子必须扣掉这 12px，直接 100% 会顶出媒体右缘
+    // 绝对定位 ⇒ 帽子必须从 100% 里**扣掉**余量，直接 100% 会顶出媒体右缘。
+    // 扣多少不在这里钉：原先写死的 calc(100% - 12px) 只镜像了药丸自己左右两侧的
+    // 6px，没算右上角 .file-local-badge 的占位，长昵称因此钻到角标底下（实测重叠
+    // 18x18 px）。预留量的真值源在角标自己那条规则里，由
+    // tests/unit/mediaBubbleSenderNamePillClearance.test.ts 逐项钉死；本文件只守
+    // 本节自己的口径 —— 「这一路的宿主确实有一顶帽子」。
     expect(decl(pill!, 'position')).toBe('absolute');
-    expect(decl(pill!, 'max-width')).toBe('calc(100% - 12px)');
+    expect(decl(pill!, 'max-width')).toMatch(/^calc\(\s*100%\s*-\s*\S/);
     expect(decl(pill!, 'box-sizing')).toBe('border-box');
 
     const shell = ruleBody(META_CSS, '.media-bubble-bare');
