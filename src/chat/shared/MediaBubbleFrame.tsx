@@ -11,8 +11,11 @@
  *
  * ## 四条硬约束
  *
- * 1. **无配文时不产生任何多余节点** —— 直接把 children 原样吐回去。
+ * 1. **无配文且不递 `meta` 时不产生任何多余节点** —— 直接把 children 原样吐回去。
  *    Telegram 惯例：纯媒体只有媒体自身的圆角，不额外套一层背景框。
+ *    ⚠️ 2026-08-14 起多一条例外：递了 `meta`（时间戳要落进气泡内）时，纯媒体也要套一层
+ *    **定位容器** `.media-bubble-bare`，否则时间戳药丸没有定位参照系。这一层不画任何背景、
+ *    不改圆角、宽度贴着媒体本身（`width: fit-content`），视觉上仍是「只有媒体自身的圆角」。
  *
  * 2. **这是渲染层的视觉包裹，不改消息结构** —— 给单图/单视频套气泡只是套样式；
  *    绝不把单条塞进 media_group。相册折叠会抹掉组内非代表成员的 DOM 锚点
@@ -86,6 +89,13 @@ interface MediaBubbleFrameProps {
    * 所以由调用方声明，不猜。
    */
   media: 'single' | 'album';
+  /**
+   * 时间戳 + 已读状态槽（`.bubble-meta`）。递了就落进**气泡内部**：
+   * 有配文 ⇒ 内联在配文末尾右下（与文本气泡同一套 flex 布局）；
+   * 无配文 ⇒ 媒体右下角的半透明深色药丸浮层（Telegram 同款）。
+   * 不递（文档 / 会议邀请 / 卡片那几类）⇒ 由调用方自己摆在气泡下方，本组件不管。
+   */
+  meta?: ReactNode;
   /** 媒体本体：相册网格 或 单条的 FileMessageContent */
   children: ReactNode;
 }
@@ -111,11 +121,20 @@ interface MediaBubbleFrameProps {
  * 黑底为什么落在带子上、不落在气泡框上：对方那侧的配文底色是**半透明**白
  * （`--white-alpha-70`），涂黑气泡框会从它底下透出来、把配文条压成深灰。
  */
-export function MediaBubbleFrame({ content, media, children }: MediaBubbleFrameProps) {
+export function MediaBubbleFrame({ content, media, meta, children }: MediaBubbleFrameProps) {
   const caption = resolveMediaCaption(content);
 
   // 无配文：媒体自身圆角即可，一个多余节点都不产生
   if (!caption) {
+    // 但时间戳要落进气泡内时，得有个定位参照系 —— 只加一层不画背景的定位壳
+    if (meta) {
+      return (
+        <div className="media-bubble-bare" data-testid="media-bubble-bare">
+          {children}
+          {meta}
+        </div>
+      );
+    }
     return <>{children}</>;
   }
 
@@ -131,7 +150,11 @@ export function MediaBubbleFrame({ content, media, children }: MediaBubbleFrameP
           </div>
         )
         : children}
-      <div className="media-bubble-caption">{caption}</div>
+      {/* 配文条：时间戳内联在文末右下（与 .bubble-text 同一套 flex 布局，见 chat-bubble-meta.css） */}
+      <div className={meta ? 'media-bubble-caption bubble-metafoot' : 'media-bubble-caption'}>
+        <div className="bubble-metafoot-body">{caption}</div>
+        {meta}
+      </div>
     </div>
   );
 }

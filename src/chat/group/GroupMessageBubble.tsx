@@ -18,6 +18,18 @@
  * - 对方的消息：从左往右、从下往上滑入
  * - 撤回/删除：反方向播放退出动画
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
+ *
+ * ## 连发合并 = 方案 C（huanwei 2026-08-14 拍板）
+ *
+ * 同一个人**连续**发的若干条算一「组」：头像**只挂该组最新那条**（视觉最下面那条），
+ * 组内其余各条渲染一个**同尺寸的占位孔**（`.bubble-avatar--hole`）保持气泡左缘对齐；
+ * 且**组内一个昵称都不显示**（方案 C 与方案 A 的唯一差别就在这一句）。
+ * 断组的唯一条件是中间出现了别人的消息 —— **没有时间窗**。
+ * 「谁是该组最新那条」由列表层 O(n) 算一次后经 `showAvatar` 下发，见
+ * `chat/shared/senderRunGate.ts` 与 `chat/group/GroupChatMessages.tsx`。
+ *
+ * 🔴 `showAvatar` 默认值必须是 `true`：单条消息自成一组、本就该显示头像，
+ * 而既有测试（GroupMessageBubbleAvatarClick）只渲染单条并断言 `.bubble-avatar` 存在。
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -96,6 +108,14 @@ interface GroupMessageBubbleProps {
    * 此时 `message` 是该组的**代表消息**（组内最小位次那条）。
    */
   album?: AlbumNode<AlbumMediaItem> | null;
+  /**
+   * 是否挂头像（方案 C）：`true` = 本条是「同一人连发那一组」里最新的一条；
+   * `false` = 组内的更早一条 ⇒ 渲染同尺寸占位孔，保持气泡左缘对齐但不显示头像。
+   *
+   * 🔴 默认 `true`（不是必填、也不是默认 false）：单条自成一组本就该显示头像，
+   * 只渲染单条的既有测试也依赖这条默认值。
+   */
+  showAvatar?: boolean;
 }
 
 // 使用统一的消息动画配置
@@ -147,6 +167,7 @@ export function GroupMessageBubble({
   onReply,
   isHighlighted = false,
   album,
+  showAvatar = true,
 }: GroupMessageBubbleProps) {
   const api = useApi();
   // 右键菜单状态
@@ -488,6 +509,29 @@ export function GroupMessageBubble({
     onToggleSelect?.();
   }, [isMultiSelectMode, onToggleSelect]);
 
+  // 元信息（时间戳 + 已读状态槽）—— 结构固定，只是**落点**按消息形态分三处，与私聊逐字同口径：
+  //   ① 文本气泡（含被屏蔽占位）⇒ 内联在文末右下（`.bubble-metafoot`，类 Telegram）
+  //   ② 媒体（单图 / 单视频 / 相册）⇒ 有配文落配文条内、无配文落媒体右下角药丸浮层
+  //   ③ 文档 / 会议邀请 / 卡片 ⇒ 这三类是独立白底卡片、不是气泡，仍摆在卡片下方一行
+  const metaNode = (
+    <div className="bubble-meta">
+      <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
+      {isOwn && (
+        <GroupReadReceipt
+          status={message.sendStatus}
+          text={readReceipt?.text ?? null}
+          readers={readReceipt?.readers ?? []}
+          onOpenList={() => onOpenReadList?.(readReceipt?.readers ?? [])}
+        />
+      )}
+    </div>
+  );
+  const metaBelowBubble = !isSenderHidden
+    && !album
+    && message.message_type !== 'text'
+    && message.message_type !== 'system'
+    && !isCaptionableMediaType(message.message_type);
+
   // 撤回切换动画：普通气泡 / 撤回胶囊作为 AnimatePresence 的两个 sibling motion.div
   // - 切换时（is_recalled false → true）：
   //     旧 motion.div(key="bubble") unmount → 触发 getMessageVariants(isOwn).exit
@@ -572,33 +616,37 @@ export function GroupMessageBubble({
               onTouchEnd={handleTouchEnd}
               onTouchMove={handleTouchMove}
             >
-              <div
-                className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
-                onClick={handleAvatarClick}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') { return; }
-                  // 键盘=单击语义（共用 activateAvatar），不走 250ms 双击计时器
-                  e.preventDefault();
-                  e.stopPropagation();
-                  activateAvatar();
-                }}
-                role="button"
-                tabIndex={0}
-                aria-label={`查看${senderDisplayName}资料`}
-                onPointerDown={avatarKbdHandlers.onPointerDown}
-                onFocus={avatarKbdHandlers.onFocus}
-                onBlur={avatarKbdHandlers.onBlur}
-              >
-                {message.sender_avatar_url ? (
-                  <img src={message.sender_avatar_url} alt={senderDisplayName} />
-                ) : (
-                  <AvatarPlaceholder name={senderDisplayName} fontSize={14} />
-                )}
-              </div>
+              {showAvatar ? (
+                <div
+                  className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
+                  onClick={handleAvatarClick}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                    // 键盘=单击语义（共用 activateAvatar），不走 250ms 双击计时器
+                    e.preventDefault();
+                    e.stopPropagation();
+                    activateAvatar();
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看${senderDisplayName}资料`}
+                  onPointerDown={avatarKbdHandlers.onPointerDown}
+                  onFocus={avatarKbdHandlers.onFocus}
+                  onBlur={avatarKbdHandlers.onBlur}
+                >
+                  {message.sender_avatar_url ? (
+                    <img src={message.sender_avatar_url} alt={senderDisplayName} />
+                  ) : (
+                    <AvatarPlaceholder name={senderDisplayName} fontSize={14} />
+                  )}
+                </div>
+              ) : (
+                // 方案 C 的「留空位」：同尺寸占位孔，只占位不显示、不可点、不进 tab 序、
+                // 对读屏隐藏。走 visibility:hidden 而不是 display:none —— 后者会把
+                // .message-bubble 的 gap:10px 一起吃掉，同组气泡左缘就参差了。
+                <div className="bubble-avatar bubble-avatar--hole" aria-hidden="true" />
+              )}
               <div className="bubble-content">
-                {!isOwn && (
-                  <div className="bubble-sender">{senderDisplayName}</div>
-                )}
                 {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
                     放在折叠判定之外：引用块只暴露"被回复的那条"的摘要，与本条发送者是否被屏蔽无关；
                     但被屏蔽者自己发的引用块也一并折叠掉更符合"屏蔽此人消息"的预期 → 故仍受 isSenderHidden 门控。 */}
@@ -612,19 +660,25 @@ export function GroupMessageBubble({
                 )}
                 {/* 折叠占位（内容隐藏）：D6 群屏蔽右键可取消；好友拉黑在私聊/设置取消后自动恢复 */}
                 {isSenderHidden ? (
-                  <div className="bubble-text bubble-blocked-placeholder">
-                    {isSenderBlocked ? '已屏蔽此人消息' : '已拉黑此人消息'}
+                  <div className="bubble-text bubble-blocked-placeholder bubble-metafoot">
+                    <div className="bubble-metafoot-body">
+                      {isSenderBlocked ? '已屏蔽此人消息' : '已拉黑此人消息'}
+                    </div>
+                    {metaNode}
                   </div>
                 ) : (
                   <>
                     {/* 相册：整组渲染成一个网格，本条自己的媒体不再单独出现。
                         仍在 isSenderHidden 之内 —— 被屏蔽者发的相册同样要折叠掉。 */}
-                    {album && <AlbumMessage album={album} urlType="group" />}
+                    {album && <AlbumMessage album={album} urlType="group" meta={metaNode} />}
                     {!album && (
                       <>
                         {(message.message_type === 'text' || message.message_type === 'system') && (
-                          <div className="bubble-text">
-                            <MarkdownRenderer content={message.message_content} />
+                          <div className="bubble-text bubble-metafoot">
+                            <div className="bubble-metafoot-body">
+                              <MarkdownRenderer content={message.message_content} />
+                            </div>
+                            {metaNode}
                           </div>
                         )}
                         {message.message_type === 'meeting_invite' && (
@@ -647,6 +701,9 @@ export function GroupMessageBubble({
                           <MediaBubbleFrame
                             content={isCaptionableMediaType(message.message_type) ? message.message_content : null}
                             media="single"
+                            // 与私聊同口径：只有图片 / 视频把时间戳收进气泡内；
+                            // 文档自带白底卡片、不是气泡，它的时间戳留在卡片下方一行
+                            meta={isCaptionableMediaType(message.message_type) ? metaNode : undefined}
                           >
                             <FileMessageContent
                               messageType={message.message_type as 'image' | 'video' | 'file'}
@@ -667,18 +724,9 @@ export function GroupMessageBubble({
                     )}
                   </>
                 )}
-                {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
-                <div className="bubble-meta">
-                  <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
-                  {isOwn && (
-                    <GroupReadReceipt
-                      status={message.sendStatus}
-                      text={readReceipt?.text ?? null}
-                      readers={readReceipt?.readers ?? []}
-                      onOpenList={() => onOpenReadList?.(readReceipt?.readers ?? [])}
-                    />
-                  )}
-                </div>
+                {/* 文档 / 会议邀请 / 卡片：这三类本身是独立白底卡片、不是气泡，
+                    时间戳仍摆在卡片下方一行（塞进卡片里会压在卡片自己的内容上）。 */}
+                {metaBelowBubble && metaNode}
               </div>
             </div>
           </motion.div>

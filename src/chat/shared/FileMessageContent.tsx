@@ -45,48 +45,8 @@ import { openMediaWindow } from '../../media';
 import { useSession } from '../../contexts/SessionContext';
 import { CircularProgress } from '../../components/common/CircularProgress';
 import { isMobile } from '../../utils/platform';
+import { calculateDisplaySize, mediaContainerStyle } from './mediaDisplaySize';
 
-/**
- * 计算显示尺寸（保持比例，限制最大尺寸）
- *
- * @param originalWidth - 原始宽度
- * @param originalHeight - 原始高度
- * @param maxWidth - 最大宽度（默认 280）
- * @param maxHeight - 最大高度（默认 300）
- * @returns 计算后的显示尺寸
- */
-function calculateDisplaySize(
-  originalWidth: number,
-  originalHeight: number,
-  maxWidth = 280,
-  maxHeight = 300,
-): { width: number; height: number } {
-  if (originalWidth <= 0 || originalHeight <= 0) {
-    return { width: maxWidth, height: maxHeight };
-  }
-
-  const aspectRatio = originalWidth / originalHeight;
-
-  let displayWidth = originalWidth;
-  let displayHeight = originalHeight;
-
-  // 限制最大宽度
-  if (displayWidth > maxWidth) {
-    displayWidth = maxWidth;
-    displayHeight = displayWidth / aspectRatio;
-  }
-
-  // 限制最大高度
-  if (displayHeight > maxHeight) {
-    displayHeight = maxHeight;
-    displayWidth = displayHeight * aspectRatio;
-  }
-
-  return {
-    width: Math.round(displayWidth),
-    height: Math.round(displayHeight),
-  };
-}
 import type { MessageType } from '../../types/chat';
 
 // ============================================
@@ -154,7 +114,7 @@ const FileIcon = () => (
 
 /** 图片显示的最大尺寸 */
 const IMAGE_MAX_WIDTH = 280;
-const IMAGE_MAX_HEIGHT = 300;
+const IMAGE_MAX_HEIGHT = 320;
 
 /** 没有尺寸信息时的默认占位尺寸 */
 const IMAGE_DEFAULT_WIDTH = 200;
@@ -288,7 +248,7 @@ function ImageMessage({
   // 容器样式：气泡态固定尺寸（不会因图片加载而改变）；相册态铺满格子（尺寸归外层 grid）
   const containerStyle: React.CSSProperties = displayVariant === 'album'
     ? { width: '100%', height: '100%' }
-    : { width: displaySize.width, height: displaySize.height };
+    : mediaContainerStyle(displaySize);
 
   // 合并 API 级别和浏览器级别的错误
   const showError = error || imgLoadFailed;
@@ -359,7 +319,7 @@ function ImageMessage({
 
 /** 视频显示的最大尺寸 */
 const VIDEO_MAX_WIDTH = 280;
-const VIDEO_MAX_HEIGHT = 300;
+const VIDEO_MAX_HEIGHT = 320;
 
 /** 没有尺寸信息时的默认占位尺寸 */
 const VIDEO_DEFAULT_WIDTH = 280;
@@ -519,7 +479,7 @@ function VideoMessage({
   // 容器样式（同 ImageMessage：相册态铺满格子）
   const containerStyle: React.CSSProperties = displayVariant === 'album'
     ? { width: '100%', height: '100%' }
-    : { width: displaySize.width, height: displaySize.height };
+    : mediaContainerStyle(displaySize);
 
   return (
     <>
@@ -810,7 +770,7 @@ function SendingMediaMessage({
   // 相册态照旧交给外层 grid（内联宽高会跟 grid 打架）
   const containerStyle: React.CSSProperties = displayVariant === 'album'
     ? { width: '100%', height: '100%' }
-    : { width: displaySize.width, height: displaySize.height };
+    : mediaContainerStyle(displaySize);
 
   return (
     <div

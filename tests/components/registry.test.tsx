@@ -165,6 +165,9 @@ import * as ReplyQuote from '../../src/chat/shared/ReplyQuote';
 import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as readReceiptGate from '../../src/chat/shared/readReceiptGate';
+import * as senderRunGate from '../../src/chat/shared/senderRunGate';
+import * as mediaDisplaySize from '../../src/chat/shared/mediaDisplaySize';
+import * as ChatTargetAvatar from '../../src/chat/shared/ChatTargetAvatar';
 import * as videoPosterSrc from '../../src/chat/shared/videoPosterSrc';
 import * as VideoThumbnail from '../../src/chat/shared/VideoThumbnail';
 import * as ReaderAvatarStack from '../../src/chat/shared/ReaderAvatarStack';
@@ -498,6 +501,9 @@ const COMPONENT_MAP = {
   ReadReceiptIcons,
   PrivateReadReceipt,
   readReceiptGate,
+  senderRunGate,
+  mediaDisplaySize,
+  ChatTargetAvatar,
   videoPosterSrc,
   VideoThumbnail,
   ReaderAvatarStack,

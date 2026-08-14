@@ -36,6 +36,7 @@ import { GroupMessageBubble } from './GroupMessageBubble';
 import { useGroupReadReceipt, groupReadReceiptText } from './useGroupReadReceipt';
 import type { GroupReader } from './useGroupReadReceipt';
 import { latestOwnReceiptUuid } from '../shared/readReceiptGate';
+import { avatarAnchorKeys } from '../shared/senderRunGate';
 import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
@@ -192,6 +193,21 @@ export function GroupChatMessages({
   // 相册折叠：同一 media_group_id 的 N 条消息折叠成一个渲染节点。
   // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
+  // 方案 C 的头像锚点：同一人连发的一组里，头像只挂**该组最新那条**（视觉最下面那条）。
+  // 与已读锚点同一形状 —— 在 map **之外** O(n) 算一次，不在 map 里每条各扫一遍（O(n²)）。
+  // 撤回态映射成 senderKey=null ⇒ 它自己不挂头像、且把上下断成两组（见 senderRunGate 注释）。
+  const avatarAnchors = useMemo(
+    () => avatarAnchorKeys(renderNodes.map((node) => {
+      const m = node.kind === 'album' ? node.items[0] : node.message;
+      if (!m) { return undefined; }
+      return {
+        key: node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
+        senderKey: m.is_recalled ? null : m.sender_id,
+      };
+    })),
+    [renderNodes],
+  );
 
   // 已读标记的锚点：我发出的最新一条（更早的自己消息不挂标记，理由见 shared/readReceiptGate）。
   // 在 map **之外**算一次 O(n)，锚点取渲染代表消息（相册取组内代表），与下面 map 里的 message 同源。
@@ -412,6 +428,8 @@ export function GroupChatMessages({
                     onReply={onReplyOrUndefined}
                     isHighlighted={highlightedMessageId === message.message_uuid}
                     album={album}
+                    // 方案 C：头像只挂「同一人连发那一组」里最新的一条；其余各条留占位孔
+                    showAvatar={avatarAnchors.has(stableKey)}
                     isMultiSelectMode={isMultiSelectMode}
                     isSelected={isSelected}
                     onToggleSelect={() => onToggleSelect?.(message.message_uuid)}

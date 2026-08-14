@@ -27,6 +27,7 @@ import { VoiceProfileManager } from '../ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from './ChatMenu';
+import { ChatTargetAvatar, hasChatTargetAvatar } from './ChatTargetAvatar';
 import { ConversationShelf } from './ConversationShelf';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
 import { ChatInputArea } from './ChatInputArea';
@@ -245,6 +246,10 @@ export function ChatPanel({
   );
   const subtitle = friendOnline ? '在线' : getChatSubtitle(chatTarget);
 
+  // 顶栏头像（气泡区那两个头像搬来的落点）：放谁的头像由 ChatTargetAvatar 一处判定，
+  // 桌面与移动两个顶栏共用同一条规则（AI 会话没有头像可放）。
+  const showHeaderAvatar = hasChatTargetAvatar(chatTarget);
+
   // 私聊拉黑提示：从 store 读实时拉黑态（资料页拉黑后即时反映，不依赖 chatTarget 快照）
   const friendBlacklisted = useChatStore((s) =>
     isFriendLikeTarget(chatTarget)
@@ -266,30 +271,39 @@ export function ChatPanel({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      {/* 聊天头部 */}
+      {/* 聊天头部。头像 + 昵称并排在一条水平中心线上（`.chat-header-lead` 的
+          align-items: center）—— huanwei 2026-08-14「我需要这个头像和名称的中心点对齐」。
+          私聊气泡区的头像已整块删除，这里是它唯一的落点（群聊气泡仍有头像）。 */}
       <div className="chat-header">
-        <div
-          className={`chat-header-info${friendIdForProfile && headerKbd.isKbdFocused('header') ? ' a11y-kbd-focus' : ''}`}
-          onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
-          onKeyDown={friendIdForProfile
-            ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                openProfile(friendIdForProfile);
+        <div className="chat-header-lead">
+          {showHeaderAvatar && (
+            <div className="chat-header-avatar" aria-hidden="true">
+              <ChatTargetAvatar chatTarget={chatTarget} />
+            </div>
+          )}
+          <div
+            className={`chat-header-info${friendIdForProfile && headerKbd.isKbdFocused('header') ? ' a11y-kbd-focus' : ''}`}
+            onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+            onKeyDown={friendIdForProfile
+              ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openProfile(friendIdForProfile);
+                }
               }
-            }
-            : undefined}
-          role={friendIdForProfile ? 'button' : undefined}
-          tabIndex={friendIdForProfile ? 0 : undefined}
-          aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
-          onPointerDown={friendIdForProfile ? headerKbdHandlers.onPointerDown : undefined}
-          onFocus={friendIdForProfile ? headerKbdHandlers.onFocus : undefined}
-          onBlur={friendIdForProfile ? headerKbdHandlers.onBlur : undefined}
-          style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
-          title={friendIdForProfile ? '查看资料' : undefined}
-        >
-          <h2>{getChatTitle(chatTarget)}</h2>
-          <span className="chat-subtitle">{subtitle}</span>
+              : undefined}
+            role={friendIdForProfile ? 'button' : undefined}
+            tabIndex={friendIdForProfile ? 0 : undefined}
+            aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+            onPointerDown={friendIdForProfile ? headerKbdHandlers.onPointerDown : undefined}
+            onFocus={friendIdForProfile ? headerKbdHandlers.onFocus : undefined}
+            onBlur={friendIdForProfile ? headerKbdHandlers.onBlur : undefined}
+            style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
+            title={friendIdForProfile ? '查看资料' : undefined}
+          >
+            <h2>{getChatTitle(chatTarget)}</h2>
+            <span className="chat-subtitle">{subtitle}</span>
+          </div>
         </div>
         {chatTarget.type === 'ai' ? (
           <div className="chat-header-actions">

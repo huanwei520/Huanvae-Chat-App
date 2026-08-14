@@ -181,7 +181,11 @@ function boxOf(container: HTMLElement, kind: 'image' | 'video') {
   const el = container.querySelector(
     kind === 'video' ? '.video-message' : '.image-message',
   ) as HTMLElement;
-  return { width: el.style.width, height: el.style.height };
+  // 2026-08-14 起容器尺寸的写法从「width + height 两个绝对 px」改成
+  // 「width + max-width:100% + aspect-ratio」（窄屏要按可用宽收缩，绝对宽会被气泡裁掉角）。
+  // 所以「盒子」的可比对量必须一起带上 aspectRatio —— 只比 width 的话，
+  // 默认占位 280x160 与真实 280x320 会撞成同一个值，这条守卫就静默失效了。
+  return { width: el.style.width, aspectRatio: el.style.aspectRatio, height: el.style.height };
 }
 
 describe('🔴 待发区探测未完成就发送：在途占位最终也拿到真实尺寸', () => {

@@ -38,7 +38,7 @@
  * <img src={远程URL}> 的地方就多一处会漏的口子**。复用 = 不新增显示点。
  */
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { FileMessageContent } from './FileMessageContent';
 import { MediaBubbleFrame } from './MediaBubbleFrame';
 import type { MessageType } from '../../types/chat';
@@ -69,6 +69,11 @@ interface AlbumMessageProps {
   urlType?: 'user' | 'friend' | 'group';
   /** 好友 ID（用于错误上报，与单条媒体消息同口径） */
   friendId?: string;
+  /**
+   * 时间戳 + 已读状态槽（`.bubble-meta`）。原样透传给 MediaBubbleFrame，由它决定落点：
+   * 有配文落配文条内、无配文落网格右下角药丸浮层。本组件不摆它。
+   */
+  meta?: ReactNode;
 }
 
 /** 一行最多放几张（再多单格就细到看不清内容了） */
@@ -159,7 +164,7 @@ function albumItemMediaType(rawType: string): MessageType {
   return rawType === 'video' ? 'video' : 'image';
 }
 
-export function AlbumMessage({ album, urlType = 'friend', friendId }: AlbumMessageProps) {
+export function AlbumMessage({ album, urlType = 'friend', friendId, meta }: AlbumMessageProps) {
   const { columnBase, spans } = useMemo(
     () => albumGridPlan(album.expectedCount),
     [album.expectedCount],
@@ -182,7 +187,7 @@ export function AlbumMessage({ album, urlType = 'friend', friendId }: AlbumMessa
     // 递的是**原始正文**（组首项的 message_content）—— 它到底算不算配文由
     // MediaBubbleFrame.resolveMediaCaption 一处判定：没给配文时后端下发的是
     // 「[图片] 文件名」派生正文，直接当配文渲染就会在每个无配文相册下面显示一行文件名。
-    <MediaBubbleFrame content={album.caption} media="album">
+    <MediaBubbleFrame content={album.caption} media="album" meta={meta}>
       <div
         className="album-grid"
         style={{ gridTemplateColumns: `repeat(${columnBase}, 1fr)` }}

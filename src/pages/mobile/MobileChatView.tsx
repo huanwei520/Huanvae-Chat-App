@@ -22,6 +22,7 @@ import { VoiceProfileManager } from '../../chat/ai/voice/VoiceProfileManager';
 import type { VoiceCallState, VoiceTurn } from '../../chat/ai/voice/useVoiceCall';
 import type { VoiceProfile } from '../../api/ai';
 import { ChatMenuButton } from '../../chat/shared/ChatMenu';
+import { ChatTargetAvatar, hasChatTargetAvatar } from '../../chat/shared/ChatTargetAvatar';
 import { ConversationShelf } from '../../chat/shared/ConversationShelf';
 import { BotBadge } from '../../components/common/BotBadge';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
@@ -226,6 +227,8 @@ export function MobileChatView({
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
   const titleKbd = useKbdFocusRing();
   const titleKbdHandlers = titleKbd.handlersFor('title');
+  // 顶栏头像（气泡区那两个头像搬来的落点）：放谁的头像与桌面顶栏同一条规则，见 ChatTargetAvatar
+  const showHeaderAvatar = hasChatTargetAvatar(chatTarget);
 
   // 获取实际的 friend/group 对象（bot 的 data 也是 Friend，走 friend 消息链路）
   const friend = isFriendLikeTarget(chatTarget) ? chatTarget.data : undefined;
@@ -247,33 +250,44 @@ export function MobileChatView({
       exit={{ x: '100%' }}
       transition={{ type: 'tween', duration: 0.3 }}
     >
-      {/* 顶部栏 */}
+      {/* 顶部栏。头像 + 标题并排在一条水平中心线上（`.mobile-chat-lead` 的 align-items: center）
+          —— huanwei 2026-08-14「我需要这个头像和名称的中心点对齐」。
+          标题因此从「居中」改为「左对齐」：居中标题旁边塞头像会把标题挤偏。 */}
       <header className="mobile-chat-header">
         <div className="mobile-chat-back" onClick={onBack}>
           <BackIcon />
         </div>
-        <div
-          className={`mobile-chat-title${friendIdForProfile && titleKbd.isKbdFocused('title') ? ' a11y-kbd-focus' : ''}`}
-          onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
-          onKeyDown={friendIdForProfile
-            ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                openProfile(friendIdForProfile);
+        <div className="mobile-chat-lead">
+          {showHeaderAvatar && (
+            <div className="mobile-chat-avatar" aria-hidden="true">
+              <ChatTargetAvatar chatTarget={chatTarget} />
+            </div>
+          )}
+          <div
+            className={`mobile-chat-title${friendIdForProfile && titleKbd.isKbdFocused('title') ? ' a11y-kbd-focus' : ''}`}
+            onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
+            onKeyDown={friendIdForProfile
+              ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openProfile(friendIdForProfile);
+                }
               }
-            }
-            : undefined}
-          role={friendIdForProfile ? 'button' : undefined}
-          tabIndex={friendIdForProfile ? 0 : undefined}
-          aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
-          onPointerDown={friendIdForProfile ? titleKbdHandlers.onPointerDown : undefined}
-          onFocus={friendIdForProfile ? titleKbdHandlers.onFocus : undefined}
-          onBlur={friendIdForProfile ? titleKbdHandlers.onBlur : undefined}
-          style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
-        >
-          {getChatTitle(chatTarget)}
-          {/* bot 会话：标题旁 Bot 徽章（对齐桌面 ChatPanel 的 bot 标识） */}
-          {chatTarget.type === 'bot' && <BotBadge />}
+              : undefined}
+            role={friendIdForProfile ? 'button' : undefined}
+            tabIndex={friendIdForProfile ? 0 : undefined}
+            aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+            onPointerDown={friendIdForProfile ? titleKbdHandlers.onPointerDown : undefined}
+            onFocus={friendIdForProfile ? titleKbdHandlers.onFocus : undefined}
+            onBlur={friendIdForProfile ? titleKbdHandlers.onBlur : undefined}
+            style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
+          >
+            {/* ellipsis 下移到内层文字节点：外层已是 flex 行，对 flex 子项直接写
+                text-overflow 不生效（见 chat-bubble-meta.css 的 .mobile-chat-title-text） */}
+            <span className="mobile-chat-title-text">{getChatTitle(chatTarget)}</span>
+            {/* bot 会话：标题旁 Bot 徽章（对齐桌面 ChatPanel 的 bot 标识） */}
+            {chatTarget.type === 'bot' && <BotBadge />}
+          </div>
         </div>
         {chatTarget.type === 'ai' ? (
           <div className="mobile-chat-menu ai-actions">

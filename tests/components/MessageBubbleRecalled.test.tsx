@@ -129,7 +129,7 @@ describe('MessageBubble (好友) — 撤回状态优先于消息类型分支', (
     expect(document.querySelector('[data-testid="markdown"]')).not.toBeInTheDocument();
   });
 
-  it('Telegram 风格契约：is_recalled=true → 走 .recall-system-row 独立 DOM 分支，不渲染头像/普通气泡容器，但保留时间戳', () => {
+  it('Telegram 风格契约：is_recalled=true → 走 .recall-system-row 独立 DOM 分支，不渲染普通气泡容器，但保留时间戳', () => {
     const msg = makeMessage({ message_type: 'text', is_recalled: true });
     render(<MessageBubble message={msg} isOwn={false} session={session} friend={friend} />);
 
@@ -138,10 +138,10 @@ describe('MessageBubble (好友) — 撤回状态优先于消息类型分支', (
     expect(document.querySelector('.recall-system-bubble')).toBeInTheDocument();
     // 不渲染普通气泡容器（无 own/other 对齐 + 无右键菜单 hook）
     expect(document.querySelector('.message-bubble')).not.toBeInTheDocument();
-    // 不渲染头像
-    expect(document.querySelector('[data-testid="user-avatar"]')).not.toBeInTheDocument();
-    expect(document.querySelector('[data-testid="friend-avatar"]')).not.toBeInTheDocument();
-    expect(document.querySelector('.bubble-avatar')).not.toBeInTheDocument();
+    // 原本这里还断言了「不渲染头像」（.bubble-avatar / user-avatar / friend-avatar 三条）。
+    // 2026-08-14 私聊气泡区的头像整块移到了顶栏 ⇒ 这三条对**任何**私聊消息都恒成立，
+    // 变成了恒真断言（假测试），删掉而不是留着凑数。头像现在的落点由
+    // tests/components/ChatHeaderAvatar.test.tsx 正面守着。
     // 但保留时间戳
     expect(document.querySelector('.recall-system-time')).toBeInTheDocument();
   });

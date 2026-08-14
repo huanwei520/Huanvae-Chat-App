@@ -1,0 +1,257 @@
+/*
+ * Chat layout rework, 2026-08-14 (huanwei sign-off).
+ *
+ * Three things live here, all of them layout-only:
+ *   1. header avatar row  -- the 1:1 bubble avatars moved to the top bar
+ *   2. group run merging  -- plan C: avatar only on the newest of a run, the
+ *      others keep a same-sized empty slot so the bubbles stay left-aligned
+ *   3. timestamp inside the bubble (Telegram-style), plus the mobile media
+ *      scaling that stops wide media from being clipped by the bubble
+ *
+ * WHY A SEPARATE FILE INSTEAD OF pages/main.css
+ * ---------------------------------------------
+ * pages/main.css was held by another change in flight during this task, so
+ * touching it would have meant two writers on one 5000-line file. Everything
+ * new is additive and lands here; it is imported AFTER pages/main.css in
+ * styles/index.css, and anything that has to beat an existing rule does it by
+ * SPECIFICITY (an extra ancestor class), not by import order -- the mobile
+ * sheet is imported from a different entry point, so order alone is not a
+ * guarantee.
+ *
+ * DELIBERATE: no `transition` and no transform/opacity declarations anywhere in
+ * this file. Every selector below is inside a subtree that framer-motion drives
+ * per-frame; declaring a transition on the same properties is the exact
+ * conflict .claude/rules/animation.md rule 1 forbids. If that ever changes,
+ * register the selector in tests/animation-conflict.test.ts first.
+ * Note also: no curly braces inside comments in this file -- that scanner cuts
+ * a rule block at the first closing brace it sees, comments included.
+ */
+
+/* ============================================================
+   1. Top bar: avatar + title share one horizontal centre line
+   ============================================================
+   huanwei: "the avatar and the name have to be centred on each other".
+   One flex row with align-items: center is what makes that true by
+   construction -- no magic offsets to drift.
+*/
+.chat-header-lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-header-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-50) 100%
+  );
+  border: 1.5px solid var(--white-alpha-80);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Long-nickname protection. The desktop title never had ellipsis; it did not
+   need it while the whole header width was its own. The avatar takes 52px of
+   that width, so a long nickname would now run into the action buttons. */
+.chat-header-lead .chat-header-info h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-header-lead .chat-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- mobile top bar ----
+   The title used to be `flex: 1; text-align: center`. An avatar next to a
+   centred title pushes the title off-centre, so the title goes left-aligned
+   and the avatar sits beside it. Two extra ancestor classes here so this wins
+   over mobile/chat-view.css regardless of which entry point loads first. */
+.mobile-chat-header .mobile-chat-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-chat-header .mobile-chat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(
+    135deg,
+    var(--white-alpha-80) 0%,
+    var(--white-alpha-50) 100%
+  );
+  border: 1.5px solid var(--white-alpha-80);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-chat-header .mobile-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 0;
+}
+
+/* text-overflow does nothing on a flex container, so the ellipsis moves down
+   onto the text node itself. */
+.mobile-chat-header .mobile-chat-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   2. Group run merging (plan C): the empty avatar slot
+   ============================================================
+   visibility: hidden, NOT display: none. display: none would also swallow the
+   10px flex gap on .message-bubble, and then the bubbles inside one run would
+   no longer line up on the left edge -- which is the whole point of keeping a
+   slot. The box still occupies its 38px, it just paints nothing.
+*/
+.bubble-avatar--hole {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ============================================================
+   3. Timestamp inside the bubble (Telegram-style)
+   ============================================================
+   huanwei: "move the message time inside the message box, like Telegram, not
+   outside the bubble".
+
+   Before: .bubble-meta was a SIBLING of .bubble-text inside .bubble-content, so
+   it rendered as a separate little line under the tinted bubble -- outside it.
+   Now the same .bubble-meta node is rendered INSIDE the bubble body, and this
+   pair of rules lays it out:
+
+   - short text  -> body and meta share one flex line, meta hugging the right
+                    edge. The bubble is shrink-to-fit, so it grows by exactly
+                    the width of the meta. It cannot deform the bubble and it
+                    cannot sit on top of the text: they are siblings in flow,
+                    never overlapping.
+   - long text   -> the body fills the line, the meta wraps to a second flex
+                    line and justify-content pins it bottom-right.
+
+   align-items: flex-end keeps the timestamp sitting on the last text line's
+   bottom edge in the short case.
+*/
+.bubble-metafoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+.bubble-metafoot > .bubble-metafoot-body {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* pushes the meta to the right edge while both fit on one line */
+  margin-right: auto;
+}
+
+.bubble-metafoot > .bubble-meta {
+  flex: 0 0 auto;
+}
+
+/* On the own side the bubble body is a saturated blue gradient, so the muted
+   grey the timestamp used on the page background is unreadable there. Only the
+   time text is recoloured -- the read-receipt icons carry their own semantic
+   colours (grey pending / green read / red failed) and must not be flattened. */
+.message-bubble.own .bubble-metafoot .bubble-time,
+.message-bubble.own .media-bubble-caption .bubble-time {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* ---- bare media: the pill overlay ----
+   A photo or video with no caption has no caption band to put the time in, so
+   it goes where Telegram puts it: bottom-right corner of the media itself, on
+   a translucent dark pill so it stays readable over any picture.
+   .media-bubble-bare is a positioning shell only -- no background, no radius,
+   width hugging the media, so the media keeps being the only visible box. */
+.media-bubble-bare {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.message-bubble.own .media-bubble-bare {
+  align-self: flex-end;
+}
+
+.message-bubble.other .media-bubble-bare {
+  align-self: flex-start;
+}
+
+.media-bubble-bare > .bubble-meta {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  max-width: calc(100% - 12px);
+}
+
+.media-bubble-bare > .bubble-meta .bubble-time {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* ============================================================
+   4. Mobile media scaling -- stop the bubble from clipping media
+   ============================================================
+   Root cause of the reported clipped corners: the media container carried an
+   ABSOLUTE inline width (280px) while the bubble is capped at
+   `calc(100% - 58px)` on mobile. On a 361pt-wide phone that cap is ~245px, so
+   the 280px box overflowed and .bubble-content overflow: hidden ate the right
+   edge -- top-right and bottom-right corners gone.
+
+   FileMessageContent now emits `width + max-width: 100% + aspect-ratio`
+   instead of `width + height`, so the box shrinks with the bubble and the
+   height follows the ratio. .image-message already had max-width: 100%;
+   .video-message did NOT -- it only had `max-width: 280px`, which is exactly
+   why video was the shape that got clipped. Extra ancestor class so this wins
+   over pages/main.css no matter the import order.
+
+   The black backing is the letterbox band for the one case where the box ratio
+   and the picture ratio differ on purpose: a very tall portrait image is now
+   capped at 320px tall while keeping its full width (it used to be shrunk down
+   to a ~20px-wide sliver instead). object-fit: contain already guarantees no
+   crop -- see the comments on .image-message .message-image in pages/main.css.
+   Black is literal, not a token: every neutral token here follows the theme and
+   would be near-white in the light theme.
+*/
+.message-bubble .video-message {
+  max-width: 100%;
+}
+
+.message-bubble .image-message,
+.message-bubble .video-message {
+  background: #000000;
+}

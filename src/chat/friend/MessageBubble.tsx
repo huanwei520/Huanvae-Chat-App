@@ -9,9 +9,16 @@
  * - 退出动画（反方向滑出）
  * - 右键菜单（桌面端右键/移动端长按触发：复制、撤回、删除、多选）
  * - 多选模式选中效果
- * - 点击头像查看对方公开资料（只读资料页）
  * - 移动端双击全屏预览（仅文本消息）
  * - 文本消息使用 MarkdownRenderer 渲染（支持 GFM、代码高亮）
+ *
+ * ## 私聊气泡区【没有头像】（huanwei 2026-08-14 拍板）
+ *
+ * 双方头像从气泡区整块删除，改由顶栏承担 —— 桌面 `chat/shared/ChatPanel.tsx` 的
+ * `.chat-header-lead`、移动 `pages/mobile/MobileChatView.tsx` 的 `.mobile-chat-lead`，
+ * 两处都放**对方**头像（自己的头像常驻左侧边栏左上角，会话里再画一遍没有信息量）。
+ * 「点头像看资料」这个入口没有丢，只是搬到了顶栏（顶栏那块本来就可点、本来就打开资料页）。
+ * ⚠️ 群聊气泡**仍然有**头像（只是同一人连发时只挂最新那条），别把这条推广过去。
  *
  * 动画机制：
  * - 自己的消息：从右往左、从下往上滑入
@@ -22,7 +29,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { UserAvatar, FriendAvatar, type SessionInfo } from '../../components/common/Avatar';
+import type { SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
@@ -38,9 +45,7 @@ import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { FailedIcon } from '../shared/ReadReceiptIcons';
 import { MobileMessageFullPreview } from '../shared/MobileMessageFullPreview';
 import { useFileCache } from '../../hooks/useFileCache';
-import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import { isMobile } from '../../utils/platform';
-import { useProfileViewStore } from '../../stores';
 import { saveToGallery } from '../../utils/saveToGallery';
 import type { Friend, Message } from '../../types/chat';
 
@@ -174,27 +179,6 @@ export function MessageBubble({
   const [showFullPreview, setShowFullPreview] = useState(false);
   // 双击检测
   const lastTapTimeRef = useRef<number>(0);
-
-  // 打开公开资料只读页（点头像统一走资料页，桌面/移动一致）
-  const openProfileView = useProfileViewStore((s) => s.open);
-  // 头像键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
-  const avatarKbd = useKbdFocusRing();
-  const avatarKbdHandlers = avatarKbd.handlersFor('avatar');
-
-  // 头像激活语义（鼠标单击与键盘 Enter/Space 共用）：多选切换选中，否则看资料
-  const activateAvatar = useCallback(() => {
-    if (isMultiSelectMode) {
-      onToggleSelect?.();
-      return;
-    }
-    openProfileView(isOwn ? session.userId : friend.friend_id);
-  }, [isMultiSelectMode, onToggleSelect, isOwn, session.userId, friend.friend_id, openProfileView]);
-
-  // 点击头像查看对方（或自己）的公开资料只读页
-  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    activateAvatar();
-  }, [activateAvatar]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -342,6 +326,24 @@ export function MessageBubble({
     onToggleSelect?.();
   }, [isMultiSelectMode, onToggleSelect]);
 
+  // 元信息（时间戳 + 已读状态槽）—— 结构固定，只是**落点**按消息形态分三处：
+  //   ① 文本气泡 ⇒ 内联在文末右下（`.bubble-metafoot`，类 Telegram）
+  //   ② 媒体（单图 / 单视频 / 相册）⇒ 有配文落配文条内、无配文落媒体右下角药丸浮层
+  //   ③ 文档 / 会议邀请 / 卡片 ⇒ 这三类是独立白底卡片、不是气泡，仍摆在卡片下方一行
+  // huanwei 2026-08-14 的口径是「时间不要在消息气泡之外」，指的正是 ①②；
+  // ③ 没有「气泡」可进，硬塞会压住卡片自己的内容。
+  const metaNode = (
+    <div className="bubble-meta">
+      <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
+      {isOwn && (
+        <PrivateReadReceipt status={message.sendStatus} isRead={readReceipt?.isRead ?? false} />
+      )}
+    </div>
+  );
+  const metaBelowBubble = !album
+    && message.message_type !== 'text'
+    && !isCaptionableMediaType(message.message_type);
+
   // 撤回切换动画：普通气泡 / 撤回胶囊作为 AnimatePresence 的两个 sibling motion.div
   // - 切换时（is_recalled false → true）：
   //     旧 motion.div(key="bubble") unmount → 触发 getMessageVariants(isOwn).exit
@@ -426,25 +428,6 @@ export function MessageBubble({
               onTouchEnd={handleTouchEnd}
               onTouchMove={handleTouchMove}
             >
-              <div
-                className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
-                onClick={handleAvatarClick}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') { return; }
-                  // 键盘=单击语义，与 handleAvatarClick 共用 activateAvatar
-                  e.preventDefault();
-                  e.stopPropagation();
-                  activateAvatar();
-                }}
-                role="button"
-                tabIndex={0}
-                aria-label={isOwn ? '查看我的资料' : `查看${friendDisplayName(friend)}资料`}
-                onPointerDown={avatarKbdHandlers.onPointerDown}
-                onFocus={avatarKbdHandlers.onFocus}
-                onBlur={avatarKbdHandlers.onBlur}
-              >
-                {isOwn ? <UserAvatar session={session} /> : <FriendAvatar friend={friend} />}
-              </div>
               <div className="bubble-content">
                 {/* 被引用的原消息（Telegram 风格引用块，点击定位）。
                     私聊 reply_to 自 migration 036 起后端支持，与群聊共用同一套 shared/replyPreview。 */}
@@ -458,12 +441,15 @@ export function MessageBubble({
                 )}
                 {album ? (
                   // 相册：整组渲染成一个网格，本条自己的媒体不再单独出现
-                  <AlbumMessage album={album} urlType="friend" friendId={friend.friend_id} />
+                  <AlbumMessage album={album} urlType="friend" friendId={friend.friend_id} meta={metaNode} />
                 ) : (
                   <>
                     {message.message_type === 'text' && (
-                      <div className="bubble-text">
-                        <MarkdownRenderer content={message.message_content} />
+                      <div className="bubble-text bubble-metafoot">
+                        <div className="bubble-metafoot-body">
+                          <MarkdownRenderer content={message.message_content} />
+                        </div>
+                        {metaNode}
                       </div>
                     )}
                     {message.message_type === 'meeting_invite' && (
@@ -484,6 +470,9 @@ export function MessageBubble({
                       <MediaBubbleFrame
                         content={isCaptionableMediaType(message.message_type) ? message.message_content : null}
                         media="single"
+                        // 时间戳只对图片 / 视频落进气泡内；文档（file）自带白底卡片、不是气泡，
+                        // 它的时间戳仍留在卡片下方一行（见下方 metaBelowBubble 的注释）
+                        meta={isCaptionableMediaType(message.message_type) ? metaNode : undefined}
                       >
                         <FileMessageContent
                           messageType={message.message_type}
@@ -503,13 +492,9 @@ export function MessageBubble({
                     )}
                   </>
                 )}
-                {/* 元信息行：时间戳 + 已读状态槽（固定结构，各消息类型落点一致） */}
-                <div className="bubble-meta">
-                  <span className="bubble-time">{formatMessageTime(message.send_time)}</span>
-                  {isOwn && (
-                    <PrivateReadReceipt status={message.sendStatus} isRead={readReceipt?.isRead ?? false} />
-                  )}
-                </div>
+                {/* 文档 / 会议邀请 / 卡片：这三类本身是独立白底卡片、不是气泡，
+                    时间戳仍摆在卡片下方一行（塞进卡片里会压在卡片自己的内容上）。 */}
+                {metaBelowBubble && metaNode}
               </div>
               {/* 拉黑未送达标记：我发出且 seq=0（拉黑关系下被静默丢弃）→ 气泡左侧红叹号。
                   own 消息行为 row-reverse，此处置于 bubble-content 之后即渲染在气泡左侧。 */}

@@ -158,7 +158,11 @@ function renderSettled(
 }
 
 function boxOf(el: HTMLElement) {
-  return { width: el.style.width, height: el.style.height };
+  // 2026-08-14 起容器尺寸的写法从「width + height 两个绝对 px」改成
+  // 「width + max-width:100% + aspect-ratio」（窄屏要按可用宽收缩，绝对宽会被气泡裁掉角）。
+  // 所以「盒子」的可比对量必须一起带上 aspectRatio —— 只比 width 的话，
+  // 默认占位 280x160 与真实 280x320 会撞成同一个值，这条守卫就静默失效了。
+  return { width: el.style.width, aspectRatio: el.style.aspectRatio, height: el.style.height };
 }
 
 describe('🔴 单图：上传中与完成后的容器尺寸完全相同', () => {
@@ -175,7 +179,7 @@ describe('🔴 单图：上传中与完成后的容器尺寸完全相同', () =>
     expect(sending).toEqual(settled);
     // 反向：真的算出了非空尺寸（两边都空也会 toEqual 通过）
     expect(sending.width).not.toBe('');
-    expect(sending.height).not.toBe('');
+    expect(sending.aspectRatio).not.toBe('');
   });
 
   it('读不出尺寸时两态一起退到同一套默认值（缺尺寸的那条路上也不跳版）', () => {
@@ -204,13 +208,17 @@ describe('🔴 相册每一格：两态都把尺寸交给外层 grid', () => {
     const sending = boxOf(renderSending('image', 1179, 2556, 'album'));
     expect(sending).toEqual(boxOf(renderSettled('image', 1179, 2556, 'album')));
     // 相册态的正确形态是 100%/100%（写死内联像素会跟 grid 打架）
-    expect(sending).toEqual({ width: '100%', height: '100%' });
+    // 相册态**不该**有 aspect-ratio：格子的比例归外层 grid（album.css 的 .album-cell），
+    // 内联比例会跟 grid 抢尺寸。这条空串断言就是拦这个的。
+    expect(sending).toEqual({ width: '100%', aspectRatio: '', height: '100%' });
   });
 
   it('视频格', () => {
     const sending = boxOf(renderSending('video', 1080, 1920, 'album'));
     expect(sending).toEqual(boxOf(renderSettled('video', 1080, 1920, 'album')));
-    expect(sending).toEqual({ width: '100%', height: '100%' });
+    // 相册态**不该**有 aspect-ratio：格子的比例归外层 grid（album.css 的 .album-cell），
+    // 内联比例会跟 grid 抢尺寸。这条空串断言就是拦这个的。
+    expect(sending).toEqual({ width: '100%', aspectRatio: '', height: '100%' });
   });
 });
 

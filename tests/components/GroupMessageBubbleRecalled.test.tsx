@@ -119,7 +119,7 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
     expect(document.querySelector('[data-testid="markdown"]')).not.toBeInTheDocument();
   });
 
-  it('Telegram 风格契约：is_recalled=true → 走 .recall-system-row 独立 DOM 分支，不渲染普通气泡/sender 名字/头像，但保留时间戳', () => {
+  it('Telegram 风格契约：is_recalled=true → 走 .recall-system-row 独立 DOM 分支，不渲染普通气泡/头像，但保留时间戳', () => {
     const msg = makeMessage({ message_type: 'text', is_recalled: true });
     render(<GroupMessageBubble message={msg} isOwn={false} />);
 
@@ -128,8 +128,9 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
     expect(document.querySelector('.recall-system-bubble')).toBeInTheDocument();
     // 不渲染普通气泡容器
     expect(document.querySelector('.message-bubble')).not.toBeInTheDocument();
-    // 不渲染 sender 昵称（群聊原本会在 !isOwn 时显示）
-    expect(document.querySelector('.bubble-sender')).not.toBeInTheDocument();
+    // 原本这里还断言了「不渲染 sender 昵称」。2026-08-14 群聊改方案 C（组内一个昵称都不显示）
+    // ⇒ .bubble-sender 已从组件里整块删除，该断言对**任何**群消息恒成立，变成恒真断言（假测试），
+    // 删掉而不是留着凑数。「方案 C 不显昵称」由 tests/components/GroupBubbleRunMerge.test.tsx 正面守着。
     // 不渲染头像
     expect(document.querySelector('.bubble-avatar')).not.toBeInTheDocument();
     // 但保留时间戳
