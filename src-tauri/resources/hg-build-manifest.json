@@ -1,10 +1,10 @@
 {
-  "source_repo_commit": "10cce9d19e0ab7fe1d497925b48a7df536e5cd86",
+  "source_repo_commit": "1c0a4d7ef983958d110184c0e6f909c0fad3af6e",
   "source_repo_dirty": true,
   "source_repo_dirty_files": [
     ".claude/skills/hg-daemon-debug/SKILL.md"
   ],
-  "built_at_utc": "2026-08-13T19:36:10Z",
+  "built_at_utc": "2026-08-14T16:55:52Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
@@ -19,7 +19,7 @@
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "3f384d3f33c8e4332d8551b26a41b463f326f04b6c96a9dc1c772f5e57b7afda"
+      "sha256": "a7f8f2a8d619f745297afe170a741794eea8c5bfe1242c34ec2024d03db4bf2f"
     }
   ]
 }
