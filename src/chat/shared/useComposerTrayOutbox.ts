@@ -101,8 +101,11 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         },
         signal: controller.signal,
       };
+      // 引用回复只出现在**好友**这一支：`uploadGroupFile` 的 opts 类型里根本没有 replyTo
+      // （后端群分支硬编码丢弃，见 useFileUpload 那两处注释）⇒ 群侧结构上递不进来。
+      const friendOpts = { ...uploadOpts, replyTo: entry.replyTo };
       const result = isFriend
-        ? await upFriend(entry.file, entry.targetId, mediaGroup, entry.caption, uploadOpts)
+        ? await upFriend(entry.file, entry.targetId, mediaGroup, entry.caption, friendOpts)
         : await upGroup(entry.file, entry.targetId, mediaGroup, entry.caption, uploadOpts);
 
       // 🔴 取消的最后一道闸：signal 只在**分片边界**被检查（useFileUpload 的 signal 粒度说明），
@@ -130,6 +133,9 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
           : entry.targetId,
         mediaGroup,
         caption: entry.caption,
+        // 本地也要落 reply_to：服务端不把"自己发的"这条推回来，不写就成了
+        // 「对端看得到引用块、自己看不到」（uploadPersist.replyTo 说明）
+        replyTo: entry.replyTo,
       });
 
       if (!realUuid) {
@@ -184,8 +190,15 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
    * 回车：把待发区 + 文字变成消息。
    *
    * 形态在这一刻定死（{@link planComposerTraySend}），之后取消/失败都不再改变它。
+   *
+   * @param replyTo 被引用原消息的 `message_uuid`（调用方从 `chatStore.replyDraft` 取）。
+   *                🔴 **会话类型的门在本函数内**，见下面 `effectiveReplyTo`。
    */
-  const send = useCallback((items: readonly TrayItem[], text: string): ComposerTraySendOutcome => {
+  const send = useCallback((
+    items: readonly TrayItem[],
+    text: string,
+    replyTo?: string,
+  ): ComposerTraySendOutcome => {
     const trimmed = text.trim();
     if (!session || !conversationKey || !chatTarget || chatTarget.type === 'ai') {
       return { enqueued: 0, standaloneText: null };
@@ -197,10 +210,18 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
     const conversationType: 'friend' | 'group' = chatTarget.type === 'group' ? 'group' : 'friend';
     const targetId = chatTarget.type === 'group' ? chatTarget.data.group_id : chatTarget.data.friend_id;
 
+    // 🔴 全链路**唯一**一道会话类型的门：引用回复只在好友会话透传。
+    // 后端 storage/handlers/upload.rs 的群分支硬编码 `reply_to: None`（秒传与 confirm 两处同型），
+    // backend-docs 参数表也明写「仅好友会话生效」⇒ 群侧传了必被丢弃。
+    // 这一关，entry.replyTo 恒 undefined ⇒ 上传参数与本地落库**同时**不带
+    // （本机绝不能写出一个对端根本不存在的引用关系）。
+    // 等后端群分支改好，把这一行的三元去掉 + 给 uploadGroupFile 的 Pick 加上 'replyTo' 即可。
+    const effectiveReplyTo = conversationType === 'friend' ? replyTo : undefined;
+
     // 先数出要几个组标识再生成 —— 纯计划函数不产生随机数（与 albumSend 同口径，便于单测）
     const albumShapes = splitIntoShapes(items).filter((s) => s.length >= ALBUM_MIN_ITEMS).length;
     const groupIds = Array.from({ length: albumShapes }, () => newGroupId());
-    const plan = planComposerTraySend(items, text, groupIds);
+    const plan = planComposerTraySend(items, text, groupIds, effectiveReplyTo);
 
     const sendTime = new Date().toISOString();
     const seeds: SendingMediaSeed[] = plan.items.map((p): SendingMediaSeed => ({
@@ -236,6 +257,8 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         // tests/unit/sendingPreviewLifetime.test.ts 的「第 1 道锁：类型」那组。
       },
       caption: p.caption,
+      // 与 caption 同一判定的产物（planComposerTraySend 里那**一个** isFirstOfBatch）
+      replyTo: p.replyTo,
       sendTime,
     }));
 

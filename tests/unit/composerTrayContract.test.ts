@@ -78,6 +78,21 @@ function bodyOf(source: string, endpoint: string): string {
   return m ? m[1] : '';
 }
 
+/**
+ * 取两个标记之间的源码片段（用于「某个函数体内有没有 X」这类块内有界断言）。
+ *
+ * 用字符串定位而不是正则：这些 useCallback 的收尾形状各不相同
+ * （`}, [dep],` / `},\n    [dep],`），一条正则套两处必然有一处静默匹空 ——
+ * 而匹空的后果是**断言恒真**。所以每个调用点都必须先断言切片非空。
+ */
+function sliceBetween(source: string, startMarker: string, endMarker: string): string {
+  const s = source.indexOf(startMarker);
+  if (s < 0) { return ''; }
+  const e = source.indexOf(endMarker, s + startMarker.length);
+  if (e < 0) { return ''; }
+  return source.slice(s, e);
+}
+
 describe('caption 只走 storage 上传链路，且两处都要带', () => {
   it('upload/request 的 body 字面量里真的有 caption', () => {
     expect(bodyOf(USE_FILE_UPLOAD, '/api/storage/upload/request')).toMatch(/caption:\s*caption\s*\?\?\s*null/);
@@ -102,6 +117,77 @@ describe('caption 只走 storage 上传链路，且两处都要带', () => {
 
   it('🔴 反向：群消息端点同样不许带 caption', () => {
     expect(GROUP_MESSAGES_API).not.toMatch(/caption/);
+  });
+});
+
+describe('🔴 引用回复（reply_to）真的进了两个上传端点的 body 字面量', () => {
+  // 修的缺陷：「用媒体（图片±文字）回复别人」时 reply_to 结构上从未离开客户端 ——
+  // 媒体消息本身发出去了、后端也没理由报错（它压根没收到这个字段），
+  // 于是用户看到的是「我在回复，回复发不出去」。
+  //
+  // 🔴 判据必须钉在 **body 字面量** 这一层，不是 interface：
+  // 本仓踩过「改了类型 ≠ 传了字段」——`UploadRequestParams` 里加上 replyTo 而
+  // `api.post` 的 body 不加，字段会被静默丢掉，typecheck / vitest 全绿。
+  it('upload/request 的 body 字面量里真的有 reply_to（秒传分支的消息在这一步建）', () => {
+    expect(bodyOf(USE_FILE_UPLOAD, '/api/storage/upload/request')).toMatch(/reply_to:\s*replyTo\s*\?\?\s*null/);
+  });
+
+  it('upload/confirm 的 body 字面量里也真的有 reply_to（非秒传分支的消息在这一步才建）', () => {
+    // 两处同生同灭。只改一处 ⇒「小文件（秒传）能带引用、大文件不能带」这种半好半坏最难查。
+    expect(bodyOf(USE_FILE_UPLOAD, '/api/storage/upload/confirm')).toMatch(/reply_to:\s*replyTo\s*\?\?\s*null/);
+  });
+
+  it('🔴 反向：群上传路径**结构上**递不进 replyTo（后端群分支硬编码丢弃）', () => {
+    // 后端 storage/handlers/upload.rs 群分支写死 `reply_to: None`，backend-docs 参数表也明写
+    // 「仅好友会话生效」⇒ 留一条「递得进去但不生效」的通路 = 造一个静默失效的假象。
+    const friendFn = sliceBetween(USE_FILE_UPLOAD, 'const uploadFriendFile', 'const uploadGroupFile');
+    const groupFn = sliceBetween(USE_FILE_UPLOAD, 'const uploadGroupFile', 'const resetUpload');
+    // 先证明切片真切到了东西 —— 空字符串会让下面两条断言恒真
+    expect(friendFn.length).toBeGreaterThan(100);
+    expect(groupFn.length).toBeGreaterThan(100);
+
+    expect(friendFn).toMatch(/replyTo:\s*opts\?\.replyTo/);
+    expect(groupFn).not.toMatch(/replyTo/);
+  });
+
+  it('本地落库也写 reply_to（不写 ⇒ 对端看得到引用块、自己看不到）', () => {
+    const PERSIST_SRC = stripComments(read('src/chat/shared/uploadPersist.ts'));
+    expect(PERSIST_SRC).toMatch(/reply_to:\s*replyTo\s*\?\?\s*null/);
+    // 反向：被修掉的那个硬编码不许回潮（`reply_to: replyTo ?? null` 不会命中这条）
+    expect(PERSIST_SRC).not.toMatch(/reply_to:\s*null\b/);
+  });
+});
+
+describe('🔴「用媒体回复」在输入区这一段：传值与清草稿必须同批', () => {
+  const HAND_SEND = sliceBetween(INPUT_AREA, 'const handleSend = useCallback', 'const adjustTextareaHeight');
+
+  it('切片非空（切空了下面两条会恒真）', () => {
+    expect(HAND_SEND.length).toBeGreaterThan(100);
+  });
+
+  it('tray 分支把「正在回复」的 messageUuid 交给 outbox.send（此前只传两个实参）', () => {
+    // 这条 tray 分支 return 掉了，永远走不到下面的 onSendMessage() ——
+    // 而后者是纯文本路径里唯一读 replyDraft 的入口。所以不在这里传，reply_to 就永远发不出去。
+    expect(HAND_SEND).toMatch(/outbox\.send\(trayItems,\s*messageInput,\s*activeReplyDraft\?\.messageUuid\)/);
+  });
+
+  it('🔴 同批：enqueued > 0 的那个块里清掉草稿（块内有界，别 latch 到 JSX 里的 onCancel）', () => {
+    // 只传值不清草稿 ⇒ 用户下一条纯文本会意外带上上一次的引用（useMainPage 只按
+    // conversationKey 匹配草稿、不管新旧）——把一个看得见的缺陷换成一个更隐蔽的。
+    expect(HAND_SEND).toMatch(/if \(outcome\.enqueued > 0\) \{[^}]*setReplyDraft\(null\);[^}]*\}/);
+  });
+});
+
+describe('🔴 引用回复的位次判定与 caption 复用同一个 isFirstOfBatch（不许造第二套）', () => {
+  const PLAN = stripComments(read('src/chat/shared/composerTrayPlan.ts'));
+
+  it('全文只有一处「第一个形态的第一项」判定', () => {
+    const hits = PLAN.match(/shapeIndex === 0 && indexInShape === 0/g) ?? [];
+    expect(hits).toHaveLength(1);
+  });
+
+  it('replyTo 由那个 isFirstOfBatch 变量派生，不是另写一遍条件', () => {
+    expect(PLAN).toMatch(/const thisReplyTo = isFirstOfBatch \? replyTo : undefined;/);
   });
 });
 

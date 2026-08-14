@@ -125,6 +125,15 @@ export interface SendingMediaEntry {
   preview: SendingMediaPreview;
   /** 本项的配文（整批只有第一项有） */
   caption?: string;
+  /**
+   * 本项的引用回复（被引用原消息的 `message_uuid`）。整批只有第一项有，与 {@link caption} 同一判定。
+   *
+   * 放进条目而不是留在发起处的闭包里，理由与 {@link file} 同：**单项重试**要能重发同一条引用；
+   * 而"正在回复"那条草稿在发送收尾就被清掉了（ChatInputArea.handleSend），闭包里取不到。
+   *
+   * 🔴 群会话恒为 `undefined` —— 门开在 `useComposerTrayOutbox.send`（后端群分支丢弃 reply_to）。
+   */
+  replyTo?: string;
   /** 服务端确认后的真实 message_uuid；未确认为 null */
   realUuid: string | null;
   /** enqueue 时刻（ISO），乐观消息的 send_time */

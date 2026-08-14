@@ -75,6 +75,19 @@ export interface UploadRequestParams {
    */
   caption?: string;
   /**
+   * 引用回复：被引用的原消息 `message_uuid`。
+   *
+   * 🔴 **仅好友会话生效**（backend-docs/storage/文件存储管理.md 参数表 `reply_to` 行原文
+   * 「仅**好友会话**生效；群文件消息的引用回复走 `POST /api/group_messages`」）：
+   * 后端 `storage/handlers/upload.rs` 的**好友**分支把它透传给消息创建，
+   * **群**分支硬编码 `reply_to: None` ⇒ 群侧带上它只会制造「看起来传了其实没生效」的假象。
+   *
+   * 机器口径不是靠这段注释，而是靠类型：{@link uploadGroupFile} 的 `opts`
+   * 那个 `Pick` 里**没有** `replyTo` ⇒ 群路径**结构上递不进来**，
+   * 而 {@link uploadFriendFile} 的 `Pick` 里有。
+   */
+  replyTo?: string;
+  /**
    * 逐次上传的进度回调。
    *
    * hook 自带的 `progress` state 是**单例**：串行上传 N 项时它只反映"当前这一项"，
@@ -353,7 +366,7 @@ export function useFileUpload() {
    */
   const uploadFile = useCallback(
     async (params: UploadRequestParams): Promise<UploadResult> => {
-      const { file, storageLocation, relatedId, mediaGroup, caption, onProgress, signal } = params;
+      const { file, storageLocation, relatedId, mediaGroup, caption, replyTo, onProgress, signal } = params;
       const fileType = params.fileType || getFileType(file, storageLocation);
 
       // 进度的**唯一**真值持有在这个局部变量里，再同时推给 hook state 与本次调用的回调。
@@ -416,11 +429,12 @@ export function useFileUpload() {
           // 图片尺寸（后端文档：image_width/image_height 仅图片类型需要）
           image_width: imageDimensions?.width ?? null,
           image_height: imageDimensions?.height ?? null,
-          // 相册三件套 + 配文：秒传分支的消息就在这一步建，故必须在这里带
+          // 相册三件套 + 配文 + 引用回复：秒传分支的消息就在这一步建，故必须在这里带
           media_group_id: mediaGroup?.id ?? null,
           media_group_index: mediaGroup?.index ?? null,
           media_group_count: mediaGroup?.count ?? null,
           caption: caption ?? null,
+          reply_to: replyTo ?? null,
         });
 
         // 3. 检查是否秒传
@@ -518,12 +532,15 @@ export function useFileUpload() {
 
         const confirmResult = await api.post<ConfirmUploadResponse>('/api/storage/upload/confirm', {
           file_key: uploadInfo.file_key,
-          // 非秒传路径的消息是在**确认**这一步才建的，所以三件套与配文要在这里再带一次；
-          // 只在 request 带对这条分支无效（后端 ConfirmUploadRequest 注释明写此事）
+          // 非秒传路径的消息是在**确认**这一步才建的，所以三件套 / 配文 / 引用回复要在这里再带一次；
+          // 只在 request 带对这条分支无效（后端 ConfirmUploadRequest 注释明写此事）。
+          // 🔴 少了这里的 reply_to 会变成「小文件（秒传）能带引用、大文件不能带」——
+          // 这种半好半坏最难查，两处必须同生同灭（守卫见 tests/unit/mediaReplyToContract.test.ts）
           media_group_id: mediaGroup?.id ?? null,
           media_group_index: mediaGroup?.index ?? null,
           media_group_count: mediaGroup?.count ?? null,
           caption: caption ?? null,
+          reply_to: replyTo ?? null,
         });
 
         // 从 URL 中提取 UUID
@@ -578,8 +595,11 @@ export function useFileUpload() {
       mediaGroup?: MediaGroupMeta,
       /** 配文；不成组的单条可直接带，成组时只在 index === 0 那一项传（后端约束） */
       caption?: string,
-      /** 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变） */
-      opts?: Pick<UploadRequestParams, 'onProgress' | 'signal'>,
+      /**
+       * 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变）
+       * + 引用回复 `replyTo`（**只有好友这一侧的 Pick 里有它**，见 {@link UploadRequestParams.replyTo}）
+       */
+      opts?: Pick<UploadRequestParams, 'onProgress' | 'signal' | 'replyTo'>,
     ): Promise<UploadResult> => {
       return uploadFile({
         file,
@@ -588,6 +608,7 @@ export function useFileUpload() {
         relatedId: friendId,
         mediaGroup,
         caption,
+        replyTo: opts?.replyTo,
         onProgress: opts?.onProgress,
         signal: opts?.signal,
       });
@@ -606,7 +627,14 @@ export function useFileUpload() {
       mediaGroup?: MediaGroupMeta,
       /** 配文；不成组的单条可直接带，成组时只在 index === 0 那一项传（后端约束） */
       caption?: string,
-      /** 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变） */
+      /**
+       * 逐项进度 / 取消（类 Telegram 发送态用；旧路径不传，行为逐字节不变）。
+       *
+       * 🔴 这个 `Pick` 里**刻意没有** `replyTo` —— 后端 `upload.rs` 的群分支硬编码
+       * `reply_to: None`（秒传与 confirm 两处同型）⇒ 群侧传了也会被丢弃。
+       * 留一条「递得进来但不生效」的通路，就是在造一个静默失效的假象。
+       * 等后端群分支改好，再把 `'replyTo'` 加进这个 Pick，一行即可打开。
+       */
       opts?: Pick<UploadRequestParams, 'onProgress' | 'signal'>,
     ): Promise<UploadResult> => {
       return uploadFile({

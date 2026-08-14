@@ -316,20 +316,32 @@ export function ChatInputArea({
    *
    * 形态（相册 / 单条）在 `outbox.send` 里一次性定死，之后取消或失败都不再改变它 ——
    * 否则一条 count=3 的相册会在中途退化成 count=2，对端排版直接算错（spec §五 第 5 问）。
+   *
+   * ## 🔴 「正在回复」条为什么必须在这里读、也必须在这里清
+   * 这条 tray 分支 **return 掉了**，永远走不到下面的 `onSendMessage()` —— 而后者是纯文本路径里
+   * **唯一**读 `replyDraft` 的入口。所以在补上第三个实参之前，「用媒体回复」这个动作里
+   * `reply_to` 结构上从未离开客户端，且草稿一直挂着 ⇒ 用户看到的正是「我在回复，回复发不出去」。
+   *
+   * 清草稿与传值必须**同批**：只传值不清，下一条纯文本会意外带上上一次的引用
+   * （`useMainPage` 那边只按 conversationKey 匹配草稿，不管新旧）——
+   * 那是把一个看得见的缺陷换成一个更隐蔽的。
+   * 清的时机对齐纯文本路径「先清草稿再 await」：这里 `enqueued > 0` 即视为这次回复已被消费。
    */
   const handleSend = useCallback(() => {
     if (isMuted) { return; }
     if (trayItems.length > 0 && conversationKey) {
-      const outcome = outbox.send(trayItems, messageInput);
+      const outcome = outbox.send(trayItems, messageInput, activeReplyDraft?.messageUuid);
       if (outcome.enqueued > 0) {
         clearTray(conversationKey);
         setTrayNotice(null);
         onMessageChange('');
+        setReplyDraft(null);
       }
       return;
     }
     onSendMessage();
-  }, [isMuted, trayItems, conversationKey, outbox, messageInput, clearTray, onMessageChange, onSendMessage]);
+  }, [isMuted, trayItems, conversationKey, outbox, messageInput, clearTray, onMessageChange,
+    onSendMessage, activeReplyDraft, setReplyDraft]);
 
   // 自动调整输入框高度
   const adjustTextareaHeight = useCallback(() => {

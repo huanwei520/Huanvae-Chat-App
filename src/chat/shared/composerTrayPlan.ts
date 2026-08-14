@@ -87,6 +87,17 @@ export interface TraySendPlanItem<T> {
    * 其余位次带 caption 会被后端直接 400。
    */
   caption?: string;
+  /**
+   * 本项要提交的引用回复（被引用原消息的 `message_uuid`）。
+   *
+   * 落点与 {@link caption} **是同一条规则、同一个判定**（下面那个 `isFirstOfBatch`）：
+   * 整批只有第一个形态的第一项带。理由也同源 —— 一次发送动作是"回复了一次"，
+   * 挂到每一项上会让对端看到 N 个引用块。
+   *
+   * 🔴 **不要为它另写一套位次判定**：两套判定迟早会漂，而漂了的表现是
+   * 「配文挂在第一张、引用挂在第二张」这种没人会想到去查的形态。
+   */
+  replyTo?: string;
 }
 
 export interface ComposerTraySendPlan<T> {
@@ -139,11 +150,14 @@ export function splitIntoShapes<T extends PlannableItem>(items: readonly T[]): T
  * @param text    输入框里的文字（未 trim）
  * @param groupIds 调用方预先生成的组标识，个数需 >= album 形态数；不足时抛错
  *                （宁可当场炸，也不要静默降级成单条 —— 那会让"多个"悄悄退化成 N 条散图）
+ * @param replyTo 被引用原消息的 `message_uuid`；与 caption 落在**同一项**（见 {@link TraySendPlanItem.replyTo}）。
+ *                会话类型的门在调用方（`useComposerTrayOutbox.send`）——本模块是纯计划函数，不认识会话。
  */
 export function planComposerTraySend<T extends PlannableItem>(
   items: readonly T[],
   text: string,
   groupIds: readonly string[],
+  replyTo?: string,
 ): ComposerTraySendPlan<T> {
   const caption = text.trim();
 
@@ -173,6 +187,8 @@ export function planComposerTraySend<T extends PlannableItem>(
       const isFirstOfBatch = shapeIndex === 0 && indexInShape === 0;
       const thisCaption = isFirstOfBatch && caption && !captionUsed ? caption : undefined;
       if (thisCaption) { captionUsed = true; }
+      // 引用回复复用**上面这一个** isFirstOfBatch —— 不是复制一份同义判定（见 TraySendPlanItem.replyTo）
+      const thisReplyTo = isFirstOfBatch ? replyTo : undefined;
 
       plans.push({
         item,
@@ -183,6 +199,7 @@ export function planComposerTraySend<T extends PlannableItem>(
         index: isAlbum ? indexInShape : undefined,
         count: isAlbum ? shape.length : undefined,
         caption: thisCaption,
+        replyTo: thisReplyTo,
       });
     });
   });

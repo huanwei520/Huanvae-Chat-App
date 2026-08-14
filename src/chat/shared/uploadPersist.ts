@@ -77,6 +77,16 @@ export interface UploadPersistOptions {
    * 本地这份不跟着写的话，自己刚发的那条会把文件名当正文显示（对端却是配文）。
    */
   caption?: string;
+  /**
+   * 本条的引用回复（被引用原消息的 `message_uuid`）。
+   *
+   * 服务端不会把**自己发的**这条经 WS 推回本机（见文件头）⇒ 本地这份不写的话，
+   * 就是「**对端看得到引用块、自己看不到**」——比整条丢失更难查，因为发送方一切正常。
+   *
+   * 🔴 只有当上传参数里**真的带了** `reply_to` 时才传进来。群会话后端会丢弃它，
+   * 那时这里必须也是 `undefined`，否则本地会写出一个对端根本不存在的引用关系。
+   */
+  replyTo?: string;
 }
 
 /**
@@ -85,7 +95,7 @@ export interface UploadPersistOptions {
 export async function persistUploadedMessage(options: UploadPersistOptions): Promise<string | null> {
   const {
     result, file, localPath, messageType, timestamp, session,
-    conversationType, conversationId, mediaGroup, caption,
+    conversationType, conversationId, mediaGroup, caption, replyTo,
   } = options;
 
   if (!result.fileUuid || !result.fileHash) {
@@ -133,7 +143,7 @@ export async function persistUploadedMessage(options: UploadPersistOptions): Pro
     image_width: result.imageWidth ?? null,
     image_height: result.imageHeight ?? null,
     seq: 0,
-    reply_to: null,
+    reply_to: replyTo ?? null,
     media_group_id: mediaGroup?.id ?? null,
     media_group_index: mediaGroup?.index ?? null,
     media_group_count: mediaGroup?.count ?? null,
