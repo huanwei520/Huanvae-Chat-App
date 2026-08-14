@@ -13,7 +13,10 @@ import { render, cleanup } from '@testing-library/react';
 import type { Message, Friend } from '../../src/types/chat';
 import type { SessionInfo } from '../../src/components/common/Avatar';
 
-// ============== Mock 重型依赖（镜像 MessageBubbleAvatarClick.test.tsx）==============
+// ============== Mock 重型依赖 ==============
+// （这块 mock 原是从 tests/components/MessageBubbleAvatarClick.test.tsx 抄来的，
+//   那个文件已随 17e1c5a「1:1 头像移顶栏」整块删除 —— 别再照那个路径去找模板，
+//   现存的同款样板在 tests/components/GroupMessageBubbleSenderName.test.tsx。）
 vi.mock('../../src/chat/shared/MessageContextMenu', () => ({ MessageContextMenu: () => null }));
 vi.mock('../../src/chat/shared/FileMessageContent', () => ({ FileMessageContent: () => null }));
 vi.mock('../../src/chat/shared/MeetingInviteCard', () => ({ MeetingInviteCard: () => null }));

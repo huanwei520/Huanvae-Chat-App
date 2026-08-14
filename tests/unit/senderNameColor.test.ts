@@ -119,3 +119,64 @@ describe('昵称配色：TS 常量与 CSS token 的对齐契约', () => {
     }
   });
 });
+
+/**
+ * 「深底上可读」的那套色只许有**一份**定义（`--sender-name-on-dark-N`）。
+ *
+ * 它有两个消费方，而两者从来没有任何东西检查它们是否一致：
+ *   1. 深色主题：`[data-theme='dark']` 把 `--sender-name-N` 重绑到它；
+ *   2. 无配文媒体的昵称药丸（`.media-bubble-bare > .bubble-sender-name`）——
+ *      那是**两个主题下都是深色**的半透明小胶囊，所以它不能读 `--sender-name-N`
+ *      （浅色主题下那是浅底用的色，压在深胶囊上看不清）。
+ *
+ * 昵称移进气泡那一版（2026-08-14 12:16）把第 2 个消费方写成了**七个字面 hex**，
+ * 与深色主题那七个逐字相同 ⇒ 两份真值源、无人复查：改深色主题的色，药丸不跟，
+ * 而且没有任何测试会红。本组断言把它钉成一份。
+ */
+describe('昵称配色：深底色只有一份真值源（--sender-name-on-dark-N）', () => {
+  /** `:root` 那一块的正文（与上面同一套按块取法，理由见 blockBody 的注释） */
+  const ROOT_BLOCK = /\n:root\s*\{([^}]*)\}/;
+  const DARK_THEME_BLOCK = /\n\[data-theme='dark'\]\s*\{([^}]*)\}/;
+
+  function block(re: RegExp): string {
+    const m = CSS.match(re);
+    expect(m).not.toBeNull();
+    return m![1];
+  }
+
+  it(':root 里定义了 0..N-1 全套 on-dark 色值，且都是字面色值（不是再指向别处）', () => {
+    const root = block(ROOT_BLOCK);
+    // 正对照：真的扫到了东西
+    expect(root.length).toBeGreaterThan(0);
+    for (let i = 0; i < SENDER_NAME_COLOR_COUNT; i += 1) {
+      const m = root.match(new RegExp(`--sender-name-on-dark-${i}\\s*:\\s*([^;]+);`));
+      expect(m, `:root 缺 --sender-name-on-dark-${i}`).not.toBeNull();
+      expect(m![1].trim()).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it('深色主题把 --sender-name-N 逐个重绑到 on-dark 那份，不再自己写 hex', () => {
+    const dark = block(DARK_THEME_BLOCK);
+    for (let i = 0; i < SENDER_NAME_COLOR_COUNT; i += 1) {
+      const m = dark.match(new RegExp(`--sender-name-${i}\\s*:\\s*([^;]+);`));
+      expect(m, `深色主题缺 --sender-name-${i}`).not.toBeNull();
+      expect(m![1].trim()).toBe(`var(--sender-name-on-dark-${i})`);
+    }
+    // 反向断言：整块里一个字面 hex 都不许剩（剩一个就是第二份真值源）
+    expect(dark).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+  });
+
+  it('药丸（.media-bubble-bare 内）每个色号都走 on-dark token，且不含任何字面 hex', () => {
+    for (let i = 0; i < SENDER_NAME_COLOR_COUNT; i += 1) {
+      const ruleRe = new RegExp(
+        `\\.media-bubble-bare\\s*>\\s*\\.bubble-sender-name\\[data-sender-hue='${i}'\\]\\s*\\{([^}]*)\\}`,
+      );
+      const m = CSS.match(ruleRe);
+      expect(m, `药丸缺 data-sender-hue='${i}' 的规则`).not.toBeNull();
+      const body = m![1];
+      expect(body).toContain(`var(--sender-name-on-dark-${i})`);
+      // 同一条规则里再冒出字面色值 = 又分叉了
+      expect(body).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    }
+  });
+});

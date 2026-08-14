@@ -230,6 +230,95 @@ describe('GroupMessageBubble — 昵称落进气泡内部（不再飘在气泡�
   });
 });
 
+/**
+ * 极短正文 + 长昵称：昵称进气泡后**不许把正文挤掉**（huanwei 要核的场景，
+ * 原话是「发一个「好」字的群聊消息，昵称进气泡后不许把气泡撑变形、不许把正文挤掉」）。
+ *
+ * 🔴 这里能守什么、守不了什么，写清楚，别让全绿被读成「像素也验过了」：
+ * - **守得住（本 describe）**：结构不变形 —— 正文仍在自己的容器里、昵称是气泡的第一个孩子、
+ *   昵称**没有**掉进 `.bubble-metafoot` 那条 `justify-content:flex-end` 的 flex 行
+ *   （掉进去就会被推到右边跟时间戳挤在一起，正文那一行就被压扁 = 「把正文挤掉」的真实形态），
+ *   以及长名带 title 属性（截断后靠悬停看全名）。
+ * - **守不住**：气泡到底被撑多宽、名字有没有真的省略号截断 —— jsdom 没有布局引擎，
+ *   宽度恒 0（见 .claude/rules/frontend-test.md「滚动 / 布局相关行为：vitest 结构性测不出」）。
+ *   声明层的帽子由 tests/unit/senderNameBubbleFit.test.ts 静态扫 CSS 守，像素只能真机复核。
+ */
+describe('GroupMessageBubble — 极短正文 + 长昵称不变形', () => {
+  const LONG_NAME = '这是一个非常非常长的群成员昵称用来测试截断行为不会撑破气泡';
+
+  beforeEach(() => {
+    mockChatState.groupMemberRemarks = {};
+    mockChatState.groupMessageBlocks = {};
+    mockChatState.friendBlacklistTimes = {};
+  });
+  afterEach(cleanup);
+
+  it('一个「好」字 + 长昵称：正文照常渲染，没有被昵称吃掉', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_content: '好', sender_nickname: LONG_NAME })}
+        isOwn={false}
+      />,
+    );
+
+    // 同类正对照在先：昵称确实渲染了（否则下面「正文还在」是白给的）
+    expect(nameEl()).toHaveTextContent(LONG_NAME);
+    const metafootBody = document.querySelector('.bubble-metafoot-body')!;
+    expect(metafootBody).toBeInTheDocument();
+    expect(metafootBody).toHaveTextContent('好');
+  });
+
+  it('一个「好」字 + 长昵称：昵称是气泡第一个孩子，且不在时间戳那条 flex 行里', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_content: '好', sender_nickname: LONG_NAME })}
+        isOwn={false}
+      />,
+    );
+
+    const bubbleText = document.querySelector('.bubble-text')!;
+    const metafoot = document.querySelector('.bubble-metafoot')!;
+    const name = nameEl()!;
+
+    expect(bubbleText.firstElementChild).toBe(name);
+    expect(name.nextElementSibling).toBe(metafoot);
+    // 🔴 反向断言：掉进 metafoot 就会被 justify-content:flex-end 推去跟时间戳挤
+    expect(metafoot.contains(name)).toBe(false);
+    // 同类正对照：时间戳确实在那一行里（证明查的是同一棵活的树）
+    expect(metafoot.querySelector('.bubble-meta')).toBeInTheDocument();
+  });
+
+  it('长昵称带 title=全名（CSS 截断后靠悬停看全）', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({ message_content: '好', sender_nickname: LONG_NAME })}
+        isOwn={false}
+      />,
+    );
+
+    expect(nameEl()).toHaveAttribute('title', LONG_NAME);
+  });
+
+  it('无配文纯图 + 长昵称：昵称落进药丸壳，媒体区不被它顶开一行', () => {
+    render(
+      <GroupMessageBubble
+        message={makeMessage({
+          message_type: 'image', file_uuid: 'f-1',
+          message_content: '[图片] a.jpg', sender_nickname: LONG_NAME,
+        })}
+        isOwn={false}
+      />,
+    );
+
+    const bare = document.querySelector('.media-bubble-bare')!;
+    const name = nameEl()!;
+    // 药丸是绝对定位浮层：它必须在壳内（脱流不占位），而不是在壳外多占一行
+    expect(bare.contains(name)).toBe(true);
+    expect(document.querySelector('.bubble-content > .bubble-sender-name')).toBeNull();
+    expect(name).toHaveAttribute('title', LONG_NAME);
+  });
+});
+
 describe('GroupMessageBubble — 相连气泡收窄下边距（tightBelow）', () => {
   afterEach(cleanup);
 

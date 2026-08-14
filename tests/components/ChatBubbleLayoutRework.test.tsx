@@ -253,3 +253,46 @@ describe('③ 时间戳落进气泡内（类 Telegram）', () => {
     expect(document.querySelector('.bubble-metafoot')).toBeNull();
   });
 });
+
+/**
+ * ④ 连发气泡收窄下边距，**1:1 侧**（huanwei 2026-08-14 12:16「相连的气泡中间间隙将其缩小」）。
+ *
+ * 🔴 他那句话的上下文说的是群聊，实现却同时给 1:1 也挂了 `tightBelow`
+ * （src/chat/friend/ChatMessages.tsx 用同一个 senderRunGate.runTightKeys 分组，
+ *   在 1:1 里「同一人连发」= 连着几条都是我 / 连着几条都是对方）。
+ * 保留它是为了两侧同一条视觉规则，但**这一路此前一个测试都没有** ——
+ * 群聊侧有三条（GroupMessageBubbleSenderName.test.tsx），1:1 侧是空的。
+ * 三条补齐：开、默认关、撤回态不套用。
+ */
+describe('④ 相连气泡收窄下边距（1:1 侧的 tightBelow）', () => {
+  it('tightBelow=true → 行上带 message-row--tight', () => {
+    render(
+      <MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} tightBelow />,
+    );
+
+    expect(document.querySelector('.message-row.message-row--tight')).toBeInTheDocument();
+  });
+
+  it('默认（单条自成一组）→ 不带该修饰符，维持组间常规间距', () => {
+    render(<MessageBubble message={makeMessage()} isOwn={false} session={session} friend={friend} />);
+
+    // 同类正对照在先：行本身渲染出来了，不是整块没渲染
+    expect(document.querySelector('.message-row')).toBeInTheDocument();
+    expect(document.querySelector('.message-row--tight')).toBeNull();
+  });
+
+  it('撤回态渲染的是居中系统行，不套用收窄（两边贴紧会让人以为它属于某一组）', () => {
+    render(
+      <MessageBubble
+        message={makeMessage({ is_recalled: true })}
+        isOwn={false}
+        session={session}
+        friend={friend}
+        tightBelow
+      />,
+    );
+
+    expect(document.querySelector('.recall-system-row')).toBeInTheDocument();
+    expect(document.querySelector('.message-row--tight')).toBeNull();
+  });
+});

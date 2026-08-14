@@ -580,13 +580,18 @@ const TRANSFORM_OWNING_MOTION_PROPS = ['whileHover', 'whileTap', 'whileFocus', '
  * - 仅匹配 `selector { ... }` 的基础规则，不匹配 `selector:hover` / `selector:active` 等伪类
  * - 返回 transition 字段的值（去除前后空白）；selector 不存在或无 transition 时返回 null
  */
-function extractBaseTransition(css: string, selector: string): string | null {
+function findBaseRuleBlock(css: string, selector: string): string | null {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // 基础规则：selector 后紧跟空白和 `{`，不允许伪类/伪元素
   const ruleRe = new RegExp(`(?:^|[\\s,}])${escaped}\\s*\\{([^}]*)\\}`, 'g');
   const match = ruleRe.exec(css);
-  if (!match) { return null; }
-  let block = match[1];
+  return match ? match[1] : null;
+}
+
+function extractBaseTransition(css: string, selector: string): string | null {
+  const found = findBaseRuleBlock(css, selector);
+  if (found === null) { return null; }
+  let block = found;
   // 移除 CSS 注释（/* ... */），避免注释内容被误当作属性值
   block = block.replace(/\/\*[\s\S]*?\*\//g, '');
   // 提取 transition 字段（仅基础 transition，不取 transition-property 等长写）
@@ -602,9 +607,21 @@ describe('动画冲突静态检查（CSS transition vs JS 动画 framer-motion/G
     ({ selector, cssFile, controlledProps, motionLocation }) => {
       const cssPath = resolve(PROJECT_ROOT, cssFile);
       const css = readFileSync(cssPath, 'utf-8');
+
+      // 🔴 先断言这条登记项**抓得到规则块**。
+      // 原实现里「selector 在 CSS 里根本不存在」与「存在但没写 transition」都返回 null，
+      // 下面一律早返回 ⇒ 登记项写错 selector（少一个类、改了名、CSS 注释里的花括号把块截断）
+      // 会变成一条**恒 PASS 的空登记**：看着在守门、其实一个字节都没查。
+      // 现查：全部 77 条登记项都抓得到块，所以这条断言是纯收紧、不放过任何现存项。
+      expect(
+        findBaseRuleBlock(css, selector),
+        `${selector} 在 ${cssFile} 里抓不到基础规则块 —— 这条登记项是空转的（守不住 ${motionLocation}）。`
+        + '常见成因：selector 写法与 CSS 不一致（如只写修饰符类）、规则被 CSS 注释里的花括号截断。',
+      ).not.toBeNull();
+
       const transition = extractBaseTransition(css, selector);
 
-      // 未声明 transition = 不存在冲突
+      // 抓到了块、但块里没声明 transition = 不存在冲突
       if (transition === null) { return; }
 
       // 不允许 transition: all（覆盖所有属性，必含 transform/opacity）

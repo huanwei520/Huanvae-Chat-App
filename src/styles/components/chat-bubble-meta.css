@@ -163,6 +163,7 @@
    header: this node lives inside a framer-motion driven subtree.
 */
 :root {
+  /* readable on a LIGHT ground -- the in-bubble name in the light theme */
   --sender-name-0: #d5556b;
   --sender-name-1: #2e9e5b;
   --sender-name-2: #b7791f;
@@ -170,16 +171,31 @@
   --sender-name-4: #7c5cd6;
   --sender-name-5: #c2559e;
   --sender-name-6: #12868c;
+  /* readable on a DARK ground. Two consumers, one definition:
+       - the dark theme rebinds --sender-name-N to these below;
+       - the bare-media name pill (2c) is a dark translucent chip in BOTH
+         themes, so it reads these directly instead of --sender-name-N.
+     They used to be written out twice (once here, once as seven literal hexes
+     on the pill rules) -- two truth sources with nothing checking they agree.
+     senderNameColor.test.ts now asserts both consumers go through these
+     tokens and that no pill rule carries a bare hex. */
+  --sender-name-on-dark-0: #f2879b;
+  --sender-name-on-dark-1: #6fd08c;
+  --sender-name-on-dark-2: #e8c169;
+  --sender-name-on-dark-3: #6db3f2;
+  --sender-name-on-dark-4: #b39ff0;
+  --sender-name-on-dark-5: #ef8fc8;
+  --sender-name-on-dark-6: #4fd0d6;
 }
 
 [data-theme='dark'] {
-  --sender-name-0: #f2879b;
-  --sender-name-1: #6fd08c;
-  --sender-name-2: #e8c169;
-  --sender-name-3: #6db3f2;
-  --sender-name-4: #b39ff0;
-  --sender-name-5: #ef8fc8;
-  --sender-name-6: #4fd0d6;
+  --sender-name-0: var(--sender-name-on-dark-0);
+  --sender-name-1: var(--sender-name-on-dark-1);
+  --sender-name-2: var(--sender-name-on-dark-2);
+  --sender-name-3: var(--sender-name-on-dark-3);
+  --sender-name-4: var(--sender-name-on-dark-4);
+  --sender-name-5: var(--sender-name-on-dark-5);
+  --sender-name-6: var(--sender-name-on-dark-6);
 }
 
 /* One line, ellipsised. A long nickname must not deform the bubble, so:
@@ -245,19 +261,20 @@
   backdrop-filter: blur(4px);
   max-width: calc(100% - 12px);
   box-sizing: border-box;
-  /* dark pill: the light-theme hues are unreadable on it, and the dark-theme set
-     is exactly the "readable on a dark ground" variant, so reuse it verbatim
-     rather than inventing an eighth palette. */
-  color: var(--sender-name-3);
+  /* The pill is a dark chip in BOTH themes, so the hue must come from the
+     on-dark set, not from --sender-name-N: in the light theme the latter holds
+     the light-ground hues, which are unreadable here. This is the fallback for
+     a missing data-sender-hue; the seven rules below carry the real mapping. */
+  color: var(--sender-name-on-dark-3);
 }
 
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='0'] { color: #f2879b; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='1'] { color: #6fd08c; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='2'] { color: #e8c169; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='3'] { color: #6db3f2; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='4'] { color: #b39ff0; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='5'] { color: #ef8fc8; }
-.media-bubble-bare > .bubble-sender-name[data-sender-hue='6'] { color: #4fd0d6; }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='0'] { color: var(--sender-name-on-dark-0); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='1'] { color: var(--sender-name-on-dark-1); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='2'] { color: var(--sender-name-on-dark-2); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='3'] { color: var(--sender-name-on-dark-3); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='4'] { color: var(--sender-name-on-dark-4); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='5'] { color: var(--sender-name-on-dark-5); }
+.media-bubble-bare > .bubble-sender-name[data-sender-hue='6'] { color: var(--sender-name-on-dark-6); }
 
 .bubble-sender-name[data-sender-hue='0'] { color: var(--sender-name-0); }
 .bubble-sender-name[data-sender-hue='1'] { color: var(--sender-name-1); }

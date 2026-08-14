@@ -141,7 +141,10 @@ describe('MessageBubble (好友) — 撤回状态优先于消息类型分支', (
     // 原本这里还断言了「不渲染头像」（.bubble-avatar / user-avatar / friend-avatar 三条）。
     // 2026-08-14 私聊气泡区的头像整块移到了顶栏 ⇒ 这三条对**任何**私聊消息都恒成立，
     // 变成了恒真断言（假测试），删掉而不是留着凑数。头像现在的落点由
-    // tests/components/ChatHeaderAvatar.test.tsx 正面守着。
+    // tests/components/ChatHeaderAvatarA11y.test.tsx 的「私聊 / 群聊顶栏都渲染
+    // .chat-header-avatar」正面守着。
+    // （原注释指向的 tests/components/ChatHeaderAvatar.test.tsx **从来不存在**，
+    //   那条接管者是假的；2026-08-14 gen-21 现查后补了真接管者并把指向改到这里。）
     // 但保留时间戳
     expect(document.querySelector('.recall-system-time')).toBeInTheDocument();
   });

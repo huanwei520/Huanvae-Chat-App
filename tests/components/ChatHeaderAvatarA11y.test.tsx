@@ -146,6 +146,52 @@ describe('ChatPanel 顶栏 .chat-header-info a11y（仅私聊）', () => {
     expect(header).toHaveAttribute('aria-label', '查看Them资料');
   });
 
+  /**
+   * 头像**落点**的正面守卫。
+   *
+   * 17e1c5a 把 1:1 的气泡头像整块搬到顶栏，随手删掉了 MessageBubbleRecalled.test.tsx 里
+   * 「撤回态不渲染头像」那三条（改版后对任何私聊消息恒真 = 假测试，删得对），
+   * 但它留下的注释把接管者写成 `tests/components/ChatHeaderAvatar.test.tsx`
+   * —— **那个文件从来不存在**，现查全仓 `.chat-header-avatar` 在 tests/ 里零命中，
+   * 即「头像搬到了顶栏」这件事此前根本没有任何测试守着（与 GroupBubbleRunMerge
+   * 那条假接管者同一族）。这两条把它真正接管起来，那边的注释同步改指到这里。
+   */
+  it('私聊 / 群聊顶栏都渲染 .chat-header-avatar（头像的新落点）', () => {
+    const friendRender = render(<ChatPanel {...baseChatPanelProps(friendTarget)} />);
+    expect(friendRender.container.querySelector('.chat-header-avatar')).not.toBeNull();
+    cleanup();
+
+    const groupRender = render(<ChatPanel {...baseChatPanelProps(groupTarget)} />);
+    expect(groupRender.container.querySelector('.chat-header-avatar')).not.toBeNull();
+  });
+
+  it('AI 顶栏不渲染 .chat-header-avatar（反向断言：不是谁都有头像）', () => {
+    const { container } = render(<ChatPanel {...baseChatPanelProps(aiTarget)} />);
+    expect(container.querySelector('.chat-header-avatar')).toBeNull();
+  });
+
+  /**
+   * 鼠标单击这一路的接管者。
+   *
+   * 17e1c5a 把 1:1 的气泡头像整块搬去顶栏，同一笔删掉了
+   * tests/components/MessageBubbleAvatarClick.test.tsx（167 行 / 9 个 it），其中
+   * 「点他人头像 → openProfileView」是**鼠标单击**语义。本文件此前只覆盖了键盘
+   * （Enter / Space / 无关键）与属性，**单击那一路在 1:1 侧一直没有接管者** ——
+   * 补上这条，改名的键盘处理器与 onClick 是两个独立 prop，删掉一个另一个照绿。
+   */
+  it('私聊顶栏鼠标单击 → openProfile(friendId)', () => {
+    const { container } = render(<ChatPanel {...baseChatPanelProps(friendTarget)} />);
+    fireEvent.click(headerEl(container));
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('them');
+  });
+
+  it('群聊顶栏鼠标单击不触发 openProfile（反向断言：不是谁点都开）', () => {
+    const { container } = render(<ChatPanel {...baseChatPanelProps(groupTarget)} />);
+    fireEvent.click(headerEl(container));
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
   it('私聊顶栏 Enter → openProfile(friendId)', () => {
     const { container } = render(<ChatPanel {...baseChatPanelProps(friendTarget)} />);
     fireEvent.keyDown(headerEl(container), { key: 'Enter' });
@@ -215,6 +261,20 @@ describe('MobileChatView 顶栏 .mobile-chat-title a11y（仅私聊）', () => {
     expect(title).toHaveAttribute('role', 'button');
     expect(title).toHaveAttribute('tabindex', '0');
     expect(title).toHaveAttribute('aria-label', '查看Them资料');
+  });
+
+  /** 移动端同一路的接管者，理由见桌面侧同名用例上的注释 */
+  it('私聊标题鼠标单击 → openProfile(friendId)', () => {
+    const { container } = render(<MobileChatView {...baseMobileChatViewProps(friendTarget)} />);
+    fireEvent.click(titleEl(container));
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith('them');
+  });
+
+  it('群聊标题鼠标单击不触发 openProfile（反向断言）', () => {
+    const { container } = render(<MobileChatView {...baseMobileChatViewProps(groupTarget)} />);
+    fireEvent.click(titleEl(container));
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it('私聊标题 Enter → openProfile(friendId)', () => {
