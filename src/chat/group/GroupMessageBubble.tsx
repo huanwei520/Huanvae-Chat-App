@@ -681,7 +681,7 @@ export function GroupMessageBubble({
             >
               {showAvatar ? (
                 <div
-                  className={`bubble-avatar clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
+                  className={`bubble-avatar bubble-avatar--bottom clickable${avatarKbd.isKbdFocused('avatar') ? ' a11y-kbd-focus' : ''}`}
                   onClick={handleAvatarClick}
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') { return; }
@@ -707,7 +707,7 @@ export function GroupMessageBubble({
                 // 方案 C 的「留空位」：同尺寸占位孔，只占位不显示、不可点、不进 tab 序、
                 // 对读屏隐藏。走 visibility:hidden 而不是 display:none —— 后者会把
                 // .message-bubble 的 gap:10px 一起吃掉，同组气泡左缘就参差了。
-                <div className="bubble-avatar bubble-avatar--hole" aria-hidden="true" />
+                <div className="bubble-avatar bubble-avatar--bottom bubble-avatar--hole" aria-hidden="true" />
               )}
               <div className="bubble-content">
                 {/* 文档 / 会议邀请 / 卡片：这三类是独立白底卡片、**没有气泡可进**，昵称留在卡片

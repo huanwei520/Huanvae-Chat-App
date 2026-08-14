@@ -140,6 +140,39 @@
 }
 
 /* ============================================================
+   2a. The avatar sits at the FOOT of its run, not at the top of the row
+   ============================================================
+   huanwei 2026-08-14: "put the avatar at the BOTTOM of the bubble instead of
+   the top of the last message".
+
+   senderRunGate.avatarAnchorKeys already picks the right MESSAGE (the newest of
+   a run, i.e. the visually lowest one -- the list is column-reverse). What was
+   wrong is the alignment INSIDE that row: .message-bubble is a flex row with no
+   align-items, so the default is stretch; the avatar has a definite 38px height
+   so stretch does nothing for it and it lands at the cross-axis START -- the
+   top. align-self on the item is the whole fix; the logic layer is untouched.
+
+   Why a modifier class instead of styling .bubble-avatar globally: the AI chat
+   reuses the very same class name for its assistant avatar, in three places
+   -- chat/ai/AIMessageBubble.tsx and two in chat/ai/AIChatMessages.tsx -- and
+   all three sit directly inside .message-bubble too, so no descendant or child
+   selector can tell them apart. huanwei asked about the group run only, so the
+   opt-in lives on the group bubble. 1:1 needs nothing: its bubbles carry no
+   avatar at all since the pair moved to the header.
+
+   The placeholder hole gets the same class on purpose -- it is 38px tall and
+   visibility: hidden, so where it sits changes nothing visually, and keeping
+   both branches on one rule means the two can never drift apart.
+
+   Not an animated property: no transform, no opacity, no transition is added
+   here, so this does not enter the motion-controlled registry in
+   tests/animation-conflict.test.ts.
+*/
+.bubble-avatar--bottom {
+  align-self: flex-end;
+}
+
+/* ============================================================
    2b. Sender name at the top of a group bubble
    ============================================================
    huanwei's telegram reference shot: the sender name sits at the TOP of a run,
@@ -408,11 +441,16 @@
    why video was the shape that got clipped. Extra ancestor class so this wins
    over pages/main.css no matter the import order.
 
-   The black backing is the letterbox band for the one case where the box ratio
-   and the picture ratio differ on purpose: a very tall portrait image is now
-   capped at 320px tall while keeping its full width (it used to be shrunk down
-   to a ~20px-wide sliver instead). object-fit: contain already guarantees no
-   crop -- see the comments on .image-message .message-image in pages/main.css.
+   The black backing is the letterbox band for the ONE case where the box ratio
+   and the picture ratio differ on purpose: a ratio outside the 1:2.5 .. 2.5:1
+   window (huanwei 2026-08-14: "anything inside the ratio window must not be
+   padded out to one uniform size with black; only the wildly-off ratios may").
+   Inside the window calculateDisplaySize now hands back the picture's OWN
+   ratio, so contain paints no band at all and this rule is a no-op there.
+   Outside it the box is pinned to the nearest boundary ratio and the leftover
+   is black -- see the RATIO_WINDOW block in chat/shared/mediaDisplaySize.ts.
+   object-fit: contain already guarantees no crop -- see the comments on
+   .image-message .message-image in pages/main.css.
    Black is literal, not a token: every neutral token here follows the theme and
    would be near-white in the light theme.
 */

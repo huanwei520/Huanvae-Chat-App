@@ -637,6 +637,105 @@
 }
 
 /* ============================================
+   终端下载 tab (hg-cli reference card)
+   ============================================
+   A static reference card: numbered steps, each one a short sentence plus the
+   literal command. No transform anywhere, in line with the rest of this page.
+
+   Tab-row overflow was the one layout risk of adding a fourth tab, and it does
+   not materialise: the four labels are 10 CJK glyphs at --text-md 14px, so the
+   row is about 10x14 + 4x2x2 padding + 4x20 margin-right = 236px, while the HG
+   window has minWidth 600 (huanvaeGuard/index.ts). No overflow rule is added --
+   an overflow-x on .hg-tabs would also compute overflow-y to auto and clip the
+   2px-offset focus ring on the tab buttons. */
+.hg-cli-warn {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--hg-ink);
+  background: var(--white-alpha-50);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--hg-fault);
+  border-radius: var(--radius-md);
+}
+
+.hg-cli-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hg-cli-steps > li + li {
+  margin-top: var(--space-4);
+}
+
+.hg-cli-step-title {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--hg-ink);
+}
+
+/* The command block: selectable literal text. pre-wrap, not nowrap -- a command
+   the user cannot read in full is worse than one that wraps. */
+.hg-cli-cmd {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  line-height: 1.8;
+  color: var(--hg-ink);
+  background: var(--white-alpha-70);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.hg-cli-note {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--hg-quiet);
+}
+
+.hg-cli-note--warn {
+  color: var(--hg-fault);
+}
+
+.hg-cli-paths {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+}
+
+.hg-cli-paths > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hg-cli-paths > li:last-child {
+  border-bottom: none;
+}
+
+.hg-cli-path-key {
+  min-width: 76px;
+  font-weight: 600;
+  color: var(--hg-ink);
+}
+
+.hg-cli-path-note {
+  color: var(--hg-quiet);
+}
+
+/* ============================================
    Fields / inputs
    ============================================
    Flattened: a card holds "label + input row" directly. The old .hg-invite-section

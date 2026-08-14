@@ -1,8 +1,15 @@
 /**
  * HuanvaeGuard VPN management page
  *
- * Tabs: 设备 | 链接 | 群组
+ * Tabs: 设备 | 链接 | 群组 | 终端下载
  * Runs in a dedicated Tauri window.
+ *
+ * ## 终端下载 tab
+ *   Static reference card for the Linux CLI client (hg-cli): install / verify /
+ *   enroll / upgrade / uninstall. No network call, no API, no state — every
+ *   command on it is a literal. Two things it must never do: hard-code a version
+ *   number (the release manifest moves) and hard-code a real enrolment server or
+ *   key (this repo is PUBLIC). See the CLI_* constants below.
  *
  * ## Data sources
  *   - Local service on loopback for tunnel control (start/stop/status). Its control
@@ -71,7 +78,7 @@ interface WindowData {
   installError: string | null;
 }
 
-type Tab = 'devices' | 'links' | 'groups';
+type Tab = 'devices' | 'links' | 'groups' | 'cli';
 
 interface GroupInviteDisplay {
   groupId: string;
@@ -90,6 +97,38 @@ const LINK_SOURCE_LABELS: Record<string, string> = {
   invite: '邀请',
   group: '群组',
 };
+
+// ── 终端下载 tab 的命令真值 ────────────────────────────────────────────────
+// 全部来自 HuanvaeGuard 仓的安装器自身（client/cli/deploy/install.sh 的 env 默认值
+// 与 client/cli/src/main.rs 的子命令），不是转述。三条红线写在这里，别在下面的
+// JSX 里各写一遍：
+//   1. **只装 Linux** —— 安装器对非 Linux 内核直接 die，所以页面每一处都要写明
+//      「在你的 Linux 终端里执行」。App 自己跑在 Windows / macOS 上，照抄必然失败。
+//   2. **不写死版本号** —— 发布清单 latest.json 的 version 是移动靶。本页因此
+//      **不显示**版本号，改为让用户自己跑 `hg-cli --version`；要在页面上显示就必须
+//      运行时去取清单，而这个 tab 是纯静态内容、刻意不发任何网络请求。
+//   3. **本仓是 PUBLIC 仓** —— enroll 的服务器地址与 key 是凭据，只以尖括号占位符出现。
+const CLI_INSTALL_CMD = 'curl -fsSL https://store.huanvae.cn/update/hg-cli/install.sh | sh';
+const CLI_VERSION_CMD = 'hg-cli --version';
+const CLI_ENROLL_INLINE_CMD =
+  'HG_ENROLL_SERVER=https://<你的服务器>:<端口> HG_ENROLL_KEY=<你的-enroll-key> \\\n'
+  + "  sh -c 'curl -fsSL https://store.huanvae.cn/update/hg-cli/install.sh | sh'";
+const CLI_ENROLL_LATER_CMD = 'hg-cli enroll <你的-enroll-key> --server https://<你的服务器>:<端口>';
+const CLI_HEADLESS_CMD = 'hg-cli pull run --headless';
+const CLI_UPDATE_CMD = 'hg-cli update';
+const CLI_UNINSTALL_CMD = [
+  'sudo systemctl disable --now hg-cli',
+  'sudo rm -f /etc/systemd/system/hg-cli.service && sudo systemctl daemon-reload',
+  'sudo rm -f /usr/local/bin/hg-cli /usr/local/bin/huanvae',
+  'sudo rm -rf /etc/huanvae',
+].join('\n');
+/** 落盘位置（安装器 env 默认值）。都是本机路径，公开安全。 */
+const CLI_PATHS: readonly { label: string; path: string; note?: string }[] = [
+  { label: '二进制', path: '/usr/local/bin/hg-cli' },
+  { label: '命令别名', path: '/usr/local/bin/huanvae' },
+  { label: '配置目录', path: '/etc/huanvae', note: '权限 0700，存放本机设备身份' },
+  { label: 'systemd 单元', path: '/etc/systemd/system/hg-cli.service', note: '服务名 hg-cli' },
+];
 
 /** 常驻状态复查节拍（ms）：探活的唯一定时来源 */
 const POLL_INTERVAL_MS = 3000;
@@ -400,6 +439,29 @@ export default function HuanvaeGuardPage() {
   const selfHeldIpsNow = reconcileSelfHeldIps(selfHeldIps, localTunnelIp, devices);
   useEffect(() => { setSelfHeldIps(selfHeldIpsNow); }, [selfHeldIpsNow]);
   const isHeldByThisTerminal = (d: HgDevice): boolean => selfHeldIpsNow.includes(d.virtual_ip);
+
+  // 选中态回读：VPN 窗口关掉再打开，selectedDeviceId 会从 useState(null) 重新开始 ——
+  // 那是一个全新的 React 树，而守护进程是**独立进程**，隧道原样在跑。于是重开后
+  // 「正在运行的那台」没有任何选中痕迹（单选框全空、下方动作区整块消失），
+  // 看起来像状态丢了（huanwei 2026-08-14：「正在运行的配置选项其选中状态会消失」）。
+  //
+  // 真值只有一份，就在守护进程那边：/api/tunnel/status 回的 address 即 localTunnelIp，
+  // 拿它在设备列表里找 virtual_ip 相同的那台，就是此刻真正在跑的设备。
+  // 🔴 刻意**不**在本地另存一份（localStorage / Tauri store 之类）：守护进程是无状态的，
+  // 它一重启配置就没了（rust-dev.md 已记），别的终端也可能把设备接管走 ——
+  // 本地那份很快会指向一台根本没在跑的设备，比不恢复更糟。
+  //
+  // 不变量写成一句话：**没有任何选中、而本机隧道正在跑时，选中的就是在跑的那台**。
+  // `prev ?? …` 是这句话里「没有任何选中」那半 —— 用户已经手点了一台（不管是重开前
+  // 状态先到、还是重开后为了锁定 / 删除另一台而改选），一律不覆盖他的选择。
+  // 不额外加「只做一次」的 ref 门控：有了这一句，那个 ref 在任何路径上都改变不了结果
+  // （= 死机制）；而选中被清空后（例如刚删掉手选的那台）重新指回在跑的那台，本身就是对的。
+  useEffect(() => {
+    if (localTunnelIp === null) { return; }
+    const running = devices.find(d => d.virtual_ip === localTunnelIp);
+    if (running === undefined) { return; }
+    setSelectedDeviceId(prev => prev ?? running.device_id);
+  }, [devices, localTunnelIp]);
 
   // 选中态自愈：当前选中的设备一旦变成「已被其它终端占用」（别的终端把它连起来了），
   // 立刻清空选中 —— 否则下方详情区 / 按钮会一直指着一台本终端已经不能操作的设备。
@@ -788,6 +850,7 @@ export default function HuanvaeGuardPage() {
     devices: '设备',
     links: '链接',
     groups: '群组',
+    cli: '终端下载',
   };
 
   // ─── 状态冠的陈述句素材 ───
@@ -891,7 +954,8 @@ export default function HuanvaeGuardPage() {
 
       {/* Tabs */}
       <nav className="hg-tabs">
-        {(['devices', 'links', 'groups'] as Tab[]).map(tab => (
+        {/* 'cli' 紧跟 'groups'：huanwei 2026-08-14「将其放置在群组的旁边」 */}
+        {(['devices', 'links', 'groups', 'cli'] as Tab[]).map(tab => (
           <button
             key={tab}
             type="button"
@@ -1275,6 +1339,102 @@ export default function HuanvaeGuardPage() {
             </section>
           )}
         </>
+      )}
+
+      {/* ─── 终端下载 Tab（hg-cli，Linux 命令行客户端） ───
+          纯静态说明卡：不发任何请求、不读任何 state。命令真值全部来自上方 CLI_* 常量。 */}
+      {activeTab === 'cli' && (
+        <section className="hg-card">
+          <div className="hg-section-head">
+            <span className="hg-section-title">终端下载 · hg-cli</span>
+            <span className="hg-section-note">Linux 命令行客户端</span>
+          </div>
+
+          {/* 「只装 Linux」必须是本卡片最先读到的一句：安装器对非 Linux 内核直接拒绝，
+              而这个窗口本身跑在 Windows / macOS 上 —— 在本机终端照抄必然失败。 */}
+          <p className="hg-cli-warn">
+            hg-cli 只能装在 <b>Linux</b> 上（安装器检测到非 Linux 内核会直接拒绝）。
+            下面每一条命令都请在<b>你的 Linux 终端</b>（服务器或 Linux 设备）里执行；
+            在当前这台机器的终端里照抄不会成功。
+          </p>
+
+          <ol className="hg-cli-steps">
+            <li>
+              <span className="hg-cli-step-title">1 · 安装</span>
+              <pre className="hg-cli-cmd hg-mono">{CLI_INSTALL_CMD}</pre>
+            </li>
+
+            <li>
+              <span className="hg-cli-step-title">2 · 验证</span>
+              <pre className="hg-cli-cmd hg-mono">{CLI_VERSION_CMD}</pre>
+              {/* 版本号刻意不写在页面上：发布清单里的版本随时会变，写死就会过期骗人 */}
+              <p className="hg-cli-note">
+                本页不标版本号（发布清单里的版本随时会变），装了哪一版以这条命令的输出为准。
+                安装器还会建一个同功能的命令别名 <span className="hg-mono">huanvae</span>。
+              </p>
+            </li>
+
+            <li>
+              <span className="hg-cli-step-title">3 · 接入你的网络（可选）</span>
+              <p className="hg-cli-note">
+                装的时候一并接入（两个变量要一起给，只给其中一个会报错）：
+              </p>
+              <pre className="hg-cli-cmd hg-mono">{CLI_ENROLL_INLINE_CMD}</pre>
+              <p className="hg-cli-note">先装后接也可以：</p>
+              <pre className="hg-cli-cmd hg-mono">{CLI_ENROLL_LATER_CMD}</pre>
+              <p className="hg-cli-note">
+                尖括号里的都是<b>占位符</b>，换成你自己的服务器地址与接入口令；
+                接入口令是一次性凭据，别贴到公开的地方。两个变量都不给时，安装器只装、不接入。
+              </p>
+            </li>
+
+            <li>
+              <span className="hg-cli-step-title">4 · 运行</span>
+              <p className="hg-cli-note">
+                有 systemd 的系统：安装器已经把服务 <span className="hg-mono">hg-cli</span> 启用并启动，
+                之后开机自起。没有 systemd 的环境（例如容器）安装器会打印
+                {' '}<span className="hg-mono">unit: skipped</span>，改用：
+              </p>
+              <pre className="hg-cli-cmd hg-mono">{CLI_HEADLESS_CMD}</pre>
+            </li>
+
+            <li>
+              <span className="hg-cli-step-title">5 · 升级</span>
+              <pre className="hg-cli-cmd hg-mono">{CLI_UPDATE_CMD}</pre>
+            </li>
+
+            <li>
+              <span className="hg-cli-step-title">6 · 卸载</span>
+              {/* 事实：该仓没有官方卸载子命令，也没有 --uninstall 开关，只能手工四步 */}
+              <p className="hg-cli-note">目前没有一键卸载命令，只能手工四步：</p>
+              <pre className="hg-cli-cmd hg-mono">{CLI_UNINSTALL_CMD}</pre>
+              <p className="hg-cli-note hg-cli-note--warn">
+                最后一条会删掉 <span className="hg-mono">/etc/huanvae</span> ——
+                那是<b>本机的设备身份</b>，删掉之后要重新接入才能再用，不是单纯的清理残留。
+              </p>
+            </li>
+          </ol>
+
+          <div className="hg-section-head">
+            <span className="hg-section-title">装到哪里</span>
+          </div>
+          <ul className="hg-cli-paths">
+            {CLI_PATHS.map(p => (
+              <li key={p.path}>
+                <span className="hg-cli-path-key">{p.label}</span>
+                <span className="hg-mono">{p.path}</span>
+                {p.note !== undefined && <span className="hg-cli-path-note">{p.note}</span>}
+              </li>
+            ))}
+          </ul>
+
+          {/* 不承诺「装完即显示在线」：hg-cli 的 push 模式不向服务端心跳，那台设备在
+              「设备」列表里会一直是离线。这是设计如此，不是故障，先说清免得当成装坏了。 */}
+          <p className="hg-cli-note">
+            接入后这台设备会出现在「设备」列表里，但它在列表里的状态可能一直显示<b>离线</b> ——
+            hg-cli 以 push 方式运行时不向服务端上报心跳，这是设计如此，不代表隧道没通。
+          </p>
+        </section>
       )}
 
       {/* Log panel：本单 Console 不可得时的证据来源，所以常驻可见、刻意不做折叠开关 */}

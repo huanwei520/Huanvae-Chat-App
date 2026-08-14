@@ -18,6 +18,24 @@
 import type { CSSProperties } from 'react';
 
 /**
+ * 比例窗口半径。窗口内（`1/R ≤ ar ≤ R`）容器比例 = **原图比例**，零黑边；
+ * 窗口外容器比例钉在最近的那条边界，差额才由黑底信箱带补齐。
+ *
+ * ## 为什么是 2.5（三条依据，都可自行复算，不引用任何外部实现的常量）
+ *
+ * 1. **手机竖屏截图的真实比例全部落在窗口内**：16:9 = 1:1.78 · 19.5:9 = 1:2.17 ·
+ *    20:9 = 1:2.22 · iPhone 15 的 1179×2556 = 1:2.168 —— 全部 ≤ 1:2.5；而**滚动长截图**
+ *    （整页截屏）普遍 1:4 以上，落在窗口外。这条线正好把「随手拍的竖版截图」判进按原比例，
+ *    把长截图判进可以 letterbox。
+ * 2. **横版侧同理**：16:9 = 1.78、21:9 影院 = 2.33 在窗口内；全景 3:1、32:9 超宽 = 3.56 在窗口外。
+ * 3. **边界处的短边仍在本仓已经在展示的图片尺度内**：窗口边界短边 = 128px（竖，`320 × 0.4`）
+ *    / 112px（横，`280 ÷ 2.5`）。相册一行 3 格 ≈ `(280 − 2×3)/3 = 91.3px`、
+ *    一行 2 格 ≈ `(280 − 3)/2 = 138.5px`（album.css 的 `max-width: 280px` + `gap: 3px`），
+ *    chat-menu-sheet.css 也把「每格 ≥ 64px」当可接受下限 ⇒ 128 / 112 都看得清。
+ */
+const RATIO_WINDOW = 2.5;
+
+/**
  * 计算显示**上限盒**（宽高都只是上限，不是定值）
  *
  * @param originalWidth - 原始宽度
@@ -26,17 +44,25 @@ import type { CSSProperties } from 'react';
  * @param maxHeight - 高度上限（默认 320）
  * @returns 容器的目标宽高（真正落地的宽度还会被 `max-width: 100%` 按可用宽收缩）
  *
- * ## 🔴 「限高不再倒着缩宽度」（huanwei 2026-08-14 手机端媒体缩放）
+ * ## 🔴 一条规则（huanwei 2026-08-14：「在最大范围长宽比例以内的，就不要硬用黑背景将其
+ * 撑大为一个统一的大小，只有比例极其不对的才这么做」）
  *
- * 旧实现是「先卡宽、再卡高」，而卡高那一步会把**宽度按比例缩回去**：
- * 一张 200×3000 的超高竖图，卡宽这一步不动它（200 < 280），卡高那一步把高截到 300 后
- * 又按比例把宽算成 **20px** ⇒ 屏幕上是一条 20×300 的细条 —— 不是被裁，是被算小了。
- * 素材再宽一点更刺眼：600×9000 会从 280×4200 一路被算成 21×300。
- * 修法是卡高时**只截高**，宽度留在（不超过上限的）原宽上，
- * 画面靠 `object-fit: contain` + 黑底信箱带补齐（`.image-message` / `.video-message`
- * 早就是 contain，黑底见 chat-bubble-meta.css）。
+ * 记 `ar = W/H`：
+ * - **窗口内**（`1/2.5 ≤ ar ≤ 2.5`）：容器比例 = **原图比例** ⇒ 零黑边；
+ * - **窗口外**：容器比例钉在最近的边界（`ar > 2.5` → `2.5:1`；`ar < 0.4` → `1:2.5`），
+ *   差额由 `object-fit: contain` + 黑底补齐 —— 正是他允许的那一档。
  *
- * 高度上限同批 300 → 320（方案文档 §6.3 H1）。
+ * 两支合成同一段算术：先求「以目标比例 `r` **恰好装下原图**的自然盒」，再等比缩进上限盒，
+ * 且 `scale ≤ 1`（永不放大）。窗口内 `r === ar` ⇒ 自然盒就是原图本身，这段退化成
+ * 「等比缩到同时满足 `宽 ≤ maxWidth` 且 `高 ≤ maxHeight`」。
+ *
+ * ### 🔴 为什么不能简单回退到「先卡宽再卡高」（那是这一版之前的两条规则之一）
+ *
+ * 上一版是「只截高、宽度不动」，它自己是为了修更早那版「先卡宽、再卡高」——
+ * 后者会把 200×3000 算成 **20×300 的细条**（不是被裁，是被算小了）。
+ * 本版必须**同时**满足两头：窗口内不再落进统一盒（`1080×2400` → 144×320 而不是 280×320），
+ * 且窗口外也不回细条（`200×3000` → **128×320**，画面 21×320 居中，黑边比上一版的
+ * 280×320 少一半）。两个方向在 tests/unit/mediaDisplaySize.test.ts 各有用例。
  *
  * ⚠️ 返回值**不再**内联成容器的绝对宽高，调用方一律用
  * `{ width, maxWidth: '100%', aspectRatio }` —— 绝对宽度在窄屏上会溢出气泡、
@@ -54,15 +80,20 @@ export function calculateDisplaySize(
   }
 
   const aspectRatio = originalWidth / originalHeight;
+  // 容器比例：窗口内取原图比例（零黑边），窗口外钉到最近的边界（letterbox 只留这一档）
+  const boxRatio = Math.min(Math.max(aspectRatio, 1 / RATIO_WINDOW), RATIO_WINDOW);
 
-  // 限制最大宽度
-  const displayWidth = Math.min(originalWidth, maxWidth);
-  // 限制最大高度：**只截高**，不再把宽度倒着缩小
-  const displayHeight = Math.min(displayWidth / aspectRatio, maxHeight);
+  // 以 boxRatio 恰好装下原图的「自然盒」：图比盒窄就由高定宽，否则宽度就是原宽。
+  // 窗口内 boxRatio === aspectRatio ⇒ 自然盒 === 原图，两支在此汇合。
+  const naturalWidth = aspectRatio >= boxRatio ? originalWidth : originalHeight * boxRatio;
+  const naturalHeight = naturalWidth / boxRatio;
+
+  // 等比缩进上限盒；`1` 那一项保证永不放大（小图仍按原尺寸显示）
+  const scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1);
 
   return {
-    width: Math.round(displayWidth),
-    height: Math.round(displayHeight),
+    width: Math.round(naturalWidth * scale),
+    height: Math.round(naturalHeight * scale),
   };
 }
 
