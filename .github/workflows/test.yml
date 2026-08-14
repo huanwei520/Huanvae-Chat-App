@@ -1,17 +1,50 @@
 name: Frontend Tests
 
+# 路径一律【仓相对】—— 本仓【本身就是】App 仓，仓内没有「工作区里那层仓名目录」。
+# 历史上这些路径全带了那层前缀 ⇒ paths 恒不匹配 ⇒ 本 workflow 对 push 从未触发过，
+# 而仓库页面上看不出任何异常（「从没跑过」与「跑了都绿」在 UI 上完全同形）。
+# 成因与验收口径见 .claude/rules/common.md「CI 门禁的 paths 前缀写错」一节。
+#
+# 白名单只列「改了就该重跑前端测试」的面；.github/workflows/test.yml 自己也在内
+# （改测试 workflow 就该重跑测试）。
+# 🔴 e2e-real/** 故意【不在】白名单：pnpm test:e2e 走主 playwright.config.ts
+#    （testDir ./e2e，projects 只有 chromium + animation-health），而 real-e2e 需要
+#    本地双实例后端集群（127.0.0.1:18801/18802），公开仓 runner 上够不到 ——
+#    放进来等于让 CI 恒红。详见 .claude/rules/frontend-test.md「与存量 GitHub CI 的隔离」。
 on:
   push:
     branches: [main]
     paths:
-      - 'Huanvae-Chat-App/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'e2e/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'playwright.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.node.json'
+      - 'eslint.config.js'
+      - '.github/workflows/test.yml'
   pull_request:
     paths:
-      - 'Huanvae-Chat-App/**'
-
-defaults:
-  run:
-    working-directory: Huanvae-Chat-App
+      - 'src/**'
+      - 'tests/**'
+      - 'e2e/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'vite.config.ts'
+      - 'vitest.config.ts'
+      - 'playwright.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.node.json'
+      - 'eslint.config.js'
+      - '.github/workflows/test.yml'
 
 # 让 JavaScript actions（actions/checkout / actions/setup-node 等）自身用
 # Node 24 runtime 跑，对齐 GitHub Actions 2026-06-02 强制 Node 24 的时间线。
@@ -29,7 +62,7 @@ jobs:
         with:
           node-version: 24
           cache: 'pnpm'
-          cache-dependency-path: Huanvae-Chat-App/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install
       - run: pnpm test:run
       - run: pnpm test:coverage
@@ -37,7 +70,7 @@ jobs:
         if: always()
         with:
           name: coverage-report
-          path: Huanvae-Chat-App/coverage/
+          path: coverage/
 
   e2e-tests:
     name: Playwright E2E & Visual Regression
@@ -49,7 +82,7 @@ jobs:
         with:
           node-version: 24
           cache: 'pnpm'
-          cache-dependency-path: Huanvae-Chat-App/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install
       - run: npx playwright install chromium --with-deps
       - run: pnpm test:e2e
@@ -57,9 +90,9 @@ jobs:
         if: always()
         with:
           name: playwright-report
-          path: Huanvae-Chat-App/playwright-report/
+          path: playwright-report/
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: visual-diff
-          path: Huanvae-Chat-App/e2e/test-results/
+          path: e2e/test-results/
