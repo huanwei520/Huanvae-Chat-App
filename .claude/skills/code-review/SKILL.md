@@ -133,12 +133,17 @@ git ls-files | grep -c '^\.github/'              # 正对照：已知存在的�
 
 **判 FAIL**：前缀在 `git ls-files` 里 0 命中，而正对照 > 0 ⇒ 触发条件写错，该 workflow 是死的。
 
-**现查（2026-08-12，本机实跑，这是仍然存在的真缺陷）**：
-`.github/workflows/test.yml:6-9` 写 `paths: - 'Huanvae-Chat-App/**'`，`:12-14` 写
-`defaults.run.working-directory: Huanvae-Chat-App`；而 `git rev-parse --show-toplevel` =
-`…/work/Huanvae-Chat-App` **本身就是仓根**，其下**没有**同名子目录
-（`git ls-files | grep -c '^Huanvae-Chat-App/'` = **0**，正对照 `^\.github/` = **3**）
-⇒ 该 workflow 结构上永不触发。**本清单只把它当范例，修它属另单。**
+**本仓的实例（2026-08-12 现查发现，2026-08-13 已修 —— 保留在此当范例）**：
+`.github/workflows/test.yml` 当时的 `paths` / `defaults.run.working-directory` /
+`cache-dependency-path` / 三处 `upload-artifact.path` 共 **8 处**都带着一个**仓名前缀**，
+那是按「work 多仓工作区根仓」的布局写的；而 `git rev-parse --show-toplevel` 指的这个仓
+**本身就是 App 工程根**，其下**没有**同名子目录（前缀在 `git ls-files` 里 0 命中，
+正对照 `^\.github/` = **3**）⇒ 该 workflow 结构上永不触发。
+
+🔴 **已于 2026-08-13 修掉，并且是**真触发自证**过的**（不是"配置看起来对了"）：
+`paths` 改成按两个 job 的真实输入写的白名单，并在一次性探针分支上取到两条真实事件记录 ——
+改 `src/**` 的 PR **触发**、只改 `README.md` 的 PR **不触发**。
+⇒ 引用本条时注意：**范例仍然成立，但"它现在还是死的"这句已作废**。
 
 #### A3 · 空集静默跳过：空目录 = 什么都没做，却不报错
 
@@ -158,9 +163,9 @@ grep -nE '\|\| continue|\|\| break' .github/workflows/*.yml scripts/linux/*.sh
 **判 FAIL**：命中的循环**没有**配套的「至少处理了 N 个」计数断言
 （如 `n=0; …; n=$((n+1)); done; [ "$n" -ge <期望> ] || exit 1`）。
 
-**范例（现查确认原文）**：`.github/workflows/release.yml:810-811`
+**范例（2026-08-14 重锚；行号后跟原文，再漂可 grep 回来）**：`.github/workflows/release.yml:860-861`
 `for file in r2-upload/*; do` / `[ -f "$file" ] || continue` —— 上游 `gh release download` 若
-一个产物都没下到，这里**静默零次上传**，然后照常走到 `:830` 打印成功。
+一个产物都没下到，这里**静默零次上传**。⚠️ 该缺陷其后已被 `:869` 的「闸门 ①」修掉，本条**留作范例**。
 
 🔴 **上面那两条 `grep` 是筛子，不是判决 —— 命中必须逐条打开读原文。**
 
@@ -189,9 +194,9 @@ grep -nE 'echo .*(✅|SUCCESS|全部通过|All .* (uploaded|passed|succeeded))' 
 **判 FAIL**：逐条向上读到该 step / 函数开头，这中间**没有任何** `exit` / `|| exit` /
 `if … fail` / 断言 ⇒ 这句「✅」只证明**脚本执行到了这一行**，不证明事情做成了。
 
-**范例（现查确认原文）**：`.github/workflows/release.yml:830` `echo "✅ All files uploaded to R2"`
-—— 其上 `:810-816` 的上传循环可零次执行、`:819` 的 `aws s3 cp latest-r2.json …` 无条件发布，
-全程无断言。**「latest.json 已发布」与「产物真的在 R2 上」是两件事**，这句话把它们混为一谈。
+**范例（2026-08-14 重锚）**：`.github/workflows/release.yml:916` 起 —— **旧版**这里是无条件的
+`echo "✅ All files uploaded to R2"`（其上的上传循环可零次执行），**现已改成有断言前提的宣告**
+（`:918-919` 先算 `REQUIRED_COUNT` 再打印）。留作范例：**「清单已发布」与「产物真在 R2 上」是两件事**。
 
 #### A5 · 缺「产出齐不齐」的断言：只数个数 / 用通配符，没有显式必需清单
 
@@ -207,9 +212,9 @@ grep -cE 'aws s3 cp' .github/workflows/release.yml   # 正对照：同文件已�
 **判 FAIL**：发布类 job 里**找不到**显式必需产物清单（每平台各要哪几个文件）**也找不到**
 数量断言 ⇒ 少发一个平台的包不会红，用户侧表现为「该平台永远更新不到」。
 
-**现查（2026-08-12，本机实跑）**：必需清单 / 数量断言命中 **0**，正对照 `aws s3 cp` 命中 **3**
-⇒ 0 是真 0，不是查法坏。`release.yml:788-794` 的 `gh release download … -p "*.exe" … || true`
-是纯通配 + 失败吞掉，**下到几个都算成功**。
+**现查（2026-08-14 复算，推翻上一版）**：必需清单 / 数量断言命中 **13**，正对照 `aws s3 cp` 命中 **4**
+⇒ `release.yml` 现已有显式 `REQUIRED_FILES=(`（`:560`）+ 缺产物 `exit 1` 闸门 ⇒ **A5 在本仓当前未命中**。
+🔴 上一版写的「命中 0 / 正对照 3」是 2026-08-12 读数、**现已为假** —— **「曾经查过的非零」也会过期**。
 
 #### A6 · 测量方法本身错：观测动作改变/错开了被测对象的时间线
 
@@ -288,7 +293,7 @@ HEAD 响应无 body ⇒ **恒 0** ⇒ 更新功能死了 7 个版本。
 原话是「This value does not directly represents the value of the Content-Length header,
 but rather the size of the response's body」。
 现行正例（已修）：`src-tauri/src/updater_download.rs:73` 的 `//! # ⚠️ Response::content_length() 在 HEAD 上恒失真（踩过）`
-与 `:352` `.get(reqwest::header::CONTENT_LENGTH)`；安卓侧同款在 `src-tauri/src/android_update.rs:377-383`。
+与 `:370`（2026-08-14 重锚，原 `:352` 已漂成空行）`.get(reqwest::header::CONTENT_LENGTH)`；安卓侧同款在 `src-tauri/src/android_update.rs:377-383`。
 
 ---
 

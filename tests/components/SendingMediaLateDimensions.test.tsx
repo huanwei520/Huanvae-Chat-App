@@ -39,7 +39,12 @@ import { render, waitFor, act } from '@testing-library/react';
  * 尺寸读取被换成替身：真实现依赖 `new Image()` / `<video>` 的解码事件，
  * jsdom 两者都不触发（既不 onload 也不 onerror）⇒ promise 永远挂着，测不出"回填之后"。
  */
-const dimensionsMock = vi.hoisted(() => ({ readMediaDimensions: vi.fn() }));
+const dimensionsMock = vi.hoisted(() => ({
+  readMediaDimensions: vi.fn(),
+  // 同步记忆口（真实现见 utils/mediaDimensions）。本文件测的是"异步回填"那条路，
+  // 所以这里恒不命中；命中路径由 tests/unit/mediaDimensionsMemo.test.ts 覆盖。
+  peekMediaDimensions: vi.fn(() => null),
+}));
 vi.mock('../../src/utils/mediaDimensions', () => dimensionsMock);
 
 vi.mock('../../src/hooks/useFileCache', () => ({

@@ -146,6 +146,11 @@ function nextItemId(): string {
  * - **按 id 定位回写**：期间用户可能删了这一项 / 清空了整个待发区 ⇒ 找不到就什么都不做。
  * - **jsdom 没有 `URL.createObjectURL`**（`readMediaDimensions` 内部要用它），
  *   与 {@link makePreviewUrl} 同一个能力判断：没有就不探测，`width/height` 留 null。
+ *
+ * 🔴 「找不到就什么都不做」曾经等于**把已经算出来的那组数字扔掉**（用户粘贴完立刻回车 ⇒
+ * `clear` 先跑 ⇒ 回写落空 ⇒ 在途占位只能按默认尺寸画 ⇒ 上传完成时跳版）。
+ * 现在 `readMediaDimensions` 按 `File` 记住结果（见 utils/mediaDimensions 模块头），
+ * 这里回写落空**不再丢数**：`sendingMediaStore.enqueue` 入队那一帧同步取回同一组数字。
  */
 function probeDimensions(conversationKey: string, itemId: string, kind: TrayItemKind, file: File): void {
   if (kind === 'file' || typeof URL.createObjectURL !== 'function') { return; }

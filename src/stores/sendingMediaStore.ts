@@ -58,7 +58,7 @@
 
 import { create } from 'zustand';
 import type { TrayItemKind } from '../chat/shared/composerTrayPlan';
-import { readMediaDimensions } from '../utils/mediaDimensions';
+import { peekMediaDimensions, readMediaDimensions } from '../utils/mediaDimensions';
 
 /** 单项发送状态机的状态 */
 export type SendingMediaStatus = 'pending' | 'uploading' | 'done' | 'failed';
@@ -207,6 +207,12 @@ function revokeSendingPreviewUrl(url: string | null | undefined): void {
  * ⇒ 那一次仍按默认尺寸画完全程。它严格好于修复前（修复前是**永远**不回填），但不是零窗口。
  * 真要零窗口只能让 `send` 变成 async 去 await 探测，那会推迟"消息立刻出现"——
  * 拿一个更显眼的退化换一个更隐蔽的，不划算。
+ *
+ * 🔴 **2026-08-13 收窄**：`readMediaDimensions` 现在按 `File` 记忆结果，于是
+ * - 待发区那次**已经 resolve**（哪怕回写时那一项已离开待发区、数字被丢掉）
+ *   ⇒ {@link resolveSeedDimensions} 在入队那一帧**同步**就取到了，本函数根本不会被调用；
+ * - 待发区那次**还在飞** ⇒ 本函数复用同一个 promise，接着等，不再从零重启一次解码。
+ * 剩下的残余窗口只有「待发区那次根本还没 resolve，且上传先完成」这一种。
  */
 function probeMissingDimensions(clientId: string, file: File, kind: TrayItemKind): void {
   if (kind === 'file' || typeof URL.createObjectURL !== 'function') { return; }
@@ -229,21 +235,43 @@ function probeMissingDimensions(clientId: string, file: File, kind: TrayItemKind
   });
 }
 
+/**
+ * 入队那一刻能确定的尺寸 —— seed 自带优先，其次查**同步**记忆。
+ *
+ * 第二条修的是「已经算出来的数字被丢掉」这条路径：待发区的探测是 fire-and-forget，
+ * 它 resolve 时那一项可能已被 `composerTrayStore.clear`（= 发送收尾）清掉 ⇒ 回写落空 ⇒
+ * seed 里仍是 null。而那次解码的结果现在被 `utils/mediaDimensions` 按 `File` 记住了，
+ * 这里同步就能取到 ⇒ 在途占位从第一帧起就是正确尺寸，**一帧默认尺寸都不画**。
+ */
+function resolveSeedDimensions(seed: SendingMediaSeed): { width: number | null; height: number | null } {
+  if (seed.preview.width !== null && seed.preview.height !== null) {
+    return { width: seed.preview.width, height: seed.preview.height };
+  }
+  const remembered = peekMediaDimensions(seed.file);
+  if (remembered && remembered.width > 0 && remembered.height > 0) {
+    return { width: remembered.width, height: remembered.height };
+  }
+  return { width: seed.preview.width, height: seed.preview.height };
+}
+
 export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
   entries: {},
   orderByConversation: {},
 
   enqueue: (seeds) => {
     if (seeds.length === 0) { return; }
+    // 先算一遍，set 与随后的补探判定用**同一组**结果 —— 两处各算一次必漂。
+    const dimensions = seeds.map(resolveSeedDimensions);
     set((state) => {
       const entries = { ...state.entries };
       const order = { ...state.orderByConversation };
-      for (const seed of seeds) {
+      seeds.forEach((seed, i) => {
         entries[seed.clientId] = {
           ...seed,
           // 自己造一把（不接待发区那把：它在发送收尾时就被 revoke 了，见文件头第 4 点）
           preview: {
             ...seed.preview,
+            ...dimensions[i],
             previewUrl: makeSendingPreviewUrl(seed.preview.kind, seed.file),
           },
           status: 'pending',
@@ -252,16 +280,17 @@ export const useSendingMediaStore = create<SendingMediaStore>((set, get) => ({
         };
         const key = seed.conversationKey;
         order[key] = [...(order[key] ?? []), seed.clientId];
-      }
+      });
       return { entries, orderByConversation: order };
     });
     // 尺寸补探（异步）。写在 set 之后：回写要能在 state 里找到这一项。
-    // 只补 null 的那些 —— 待发区抢跑成功是常见路径，那时已经是同一个函数读出的同一组数字。
-    for (const seed of seeds) {
-      if (seed.preview.width === null || seed.preview.height === null) {
+    // 只补**同步也拿不到**的那些 —— 待发区抢跑成功（或其结果已被记住）是常见路径，
+    // 那时已经是同一个函数读出的同一组数字，不必再走一次异步。
+    seeds.forEach((seed, i) => {
+      if (dimensions[i].width === null || dimensions[i].height === null) {
         probeMissingDimensions(seed.clientId, seed.file, seed.preview.kind);
       }
-    }
+    });
   },
 
   markUploading: (clientId, percent) => {

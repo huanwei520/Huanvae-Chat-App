@@ -498,3 +498,27 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 
 - **交流语言**: 中文
 - **代码语言**: 英文（变量名、函数名、注释使用英文；文档字符串可用中文）
+
+## 🔴 适用条件订正：`test-runner` / `blind-reviewer` 子 Agent **不一定存在**（2026-08-13 实测）
+
+上文多处写「**所有测试执行必须委托 `test-runner` 子 Agent（haiku）**，主对话禁止直接运行测试命令」，
+并给了 `Agent(subagent_type="test-runner", …)` 的调用样例。**这两个 agent 是【项目约定】，不是内建的** ——
+它们需要一份 agent 定义文件才存在，而**本仓没有**：`.claude/agents/`、`~/.claude/agents/`、
+工作区 `../.claude/agents/` **三处目录全部不存在**。在没有该定义的会话里调用会直接报
+`Agent type 'test-runner' not found`，于是**每一个新来的执行方都会在这里撞一次**，
+而撞的时候上面那段规则**看起来是完整的**（同族于「给用法不给出处」那个病）。
+
+**开工先自查一句**（别等报错）：
+
+```bash
+ls .claude/agents/ ~/.claude/agents/ ../.claude/agents/ 2>&1
+```
+
+- **列得出定义** ⇒ 照上文执行，委托子 Agent 跑测试；
+- **三处都没有** ⇒ **主对话直接跑测试命令**（`pnpm typecheck` / `pnpm lint:strict` / `pnpm test:run` /
+  `scripts/test-all.ps1`），并在交付里**如实标注这处偏离**（写明"本会话无 `test-runner` 定义，测试由主对话直跑"）。
+  🔴 **不许因为"没有 test-runner"就不跑测试** —— 委托与否是**执行方式**，
+  「测试通过才算完成」是**硬要求**，两者不能互相顶替。
+
+⚠️ 同理适用于 `blind-reviewer`：`/blind-review` 流程本身照走，只是**由谁来跑**取决于定义在不在。
+（一手来源：gen-19 单 1 交付 §8 —— 实测报 `Agent type 'test-runner' not found`，只能自己跑并如实标注。）

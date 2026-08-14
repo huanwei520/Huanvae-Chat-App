@@ -772,9 +772,12 @@ await waitFor(() => {
 - **别**改 `test:e2e` 脚本使其扫到 `e2e-real/`；`e2e:real` 与 `test:e2e` 是两条不相交的路径。
 - 改 playwright 配置后自检：`playwright test --list`（主 config）grep `real|e2e-real` 必须 NONE。
 
-### 运行产物 gitignore（commit 前须补）
+### 运行产物 gitignore（2026-08-13 已补）
 
-`e2e:real` 生成 `e2e-real/test-results/`、`playwright-report-real/`，当前 `.gitignore` 仅有 `playwright-report/`。commit 前补两行忽略，且用显式 `git add <file>`（非 `-A`）避免误纳运行产物（W3/W4 已记同一遗留）。
+`e2e:real` 生成 `e2e-real/test-results/`、`playwright-report-real/`。`.gitignore` 已补上这两行
+（此前只有 `e2e/test-results/` 与 `playwright-report/`，都不匹配它们）。
+仍然用显式 `git add <file>`（非 `-A`）避免误纳运行产物。
+⚠️ 补 ignore 之前已经被 track 的两个文件另需 `git rm --cached` —— 见本文件末尾同名一节。
 
 ## 🔴 `dist/` 是 minified 产物：用**标识符** grep 判「这段代码在不在包里」结构上无效
 
@@ -837,20 +840,36 @@ const _fwmark = 'FWMARK_2026_08_13';   // 字面量：与被测同类；挂活�
 
 **并排看两张静态图，这两条都会漏掉** —— 静态图取的是稳态，而这两条差异只存在于**过渡帧**。
 
-### 已知遗留（本版未改，留给真机终验）
+### 上面两条已于 2026-08-13 处理（原「已知遗留」就地改写，别再当未修项引用）
 
-- **`VideoThumbnail` pending 空白帧**：`status === 'pending'` 时 `return null`
-  ⇒ 上传完成切换那一帧媒体区**短暂空白**。三条腿（typecheck / lint / vitest）**覆盖不到**。
-- **秒传命中的极小文件**：上传快过毫秒级尺寸探测时，尺寸回填落空 ⇒ 那一次仍走默认尺寸。
-  **不是新引入的** —— 修复前永远不回填、修复后几乎总会回填，**窗口只缩不增**。
+- **`VideoThumbnail` pending 空白帧** —— 已改：`status === 'pending'` 不再 `return null`，
+  改为渲染一个**同尺寸空占位**（同一个 `className` + `width/height: 100%` 行内样式，
+  后者是给 FilesModal / MobileFilesPage 这类**不传 className**、靠 `video` / `img`
+  元素选择器定尺寸的调用点兜的）。
+  ⚠️ 它保证的是**盒子**同形，**不保证像素连续** —— 这几毫秒画面仍是容器底色。
+  要让画面也连续就得在 pending 期建媒体元素，而那正是该组件刻意消灭的成本
+  （一屏几十个格子各拉一次元数据）。**「还闪不闪」仍然只能靠真机录屏**，三条腿覆盖不到。
+- **秒传命中的极小文件** —— 已**收窄**，但**没有清零**：`utils/mediaDimensions` 现在按 `File`
+  记忆结果（`WeakMap` + 在飞 promise 复用），并新增**同步**读口 `peekMediaDimensions`；
+  `sendingMediaStore.enqueue` 用它在入队那一帧同步把尺寸填对。
+  ⇒ 修掉的是「**已经算出来的数字被丢掉**」（待发区探测 resolve 时那一项已被 `clear` 清掉 ⇒ 回写落空）。
+  ⇒ **仍存在**的窗口只剩「待发区那次探测**根本还没 resolve**，而上传已经完成」这一种。
+  **两代都不是新引入的**：修复前永远不回填 → 上一版几乎总会回填 → 本版把"算出来又丢掉"也堵上，
+  **窗口只缩不增**。机器口径见 `tests/unit/mediaDimensionsMemo.test.ts`（含三次变异自证）。
 
-### 已知遗留 · 上面那节「运行产物 gitignore」里的两个文件**已经被 git 跟踪了**
+### 那两个被 git 跟踪的运行产物 —— 已于 2026-08-13 处理完（原「已知遗留」就地改写）
 
-现查（2026-08-13，`git ls-files`）：**不是"将来别提交"，是"已经在里面了"**——
+曾经**已经在 index 里**（不是"将来别提交"）的两个文件：
 
 - `e2e-real/test-results/.last-run.json`
 - `playwright-report-real/index.html`
 
-正对照：`git ls-files | grep -c '^e2e-real/'` = **9**（证明 grep 有效，9 里含 spec 等应当跟踪的文件）。
-`.gitignore` 现有的只有 `e2e/test-results/` 与 `playwright-report/`，**都不匹配上面两条路径**。
-⇒ 补 `.gitignore` **不会**让已跟踪的文件消失，还需要一次 `git rm --cached`。本 run 未做（属另单）。
+处置是**两件事，缺一不可**（补 ignore **不会**让已跟踪的文件消失）：
+
+1. `.gitignore` 补 `e2e-real/test-results/` 与 `playwright-report-real/` 两行；
+2. 对这两个文件跑 `git rm --cached` 停止跟踪。
+   **App 是 PUBLIC 仓 —— 只做「停止跟踪 + 补 ignore」，不重写历史。**
+
+现查判据（改后）：`git ls-files | grep -cE 'e2e-real/test-results|playwright-report-real'` = **0**，
+**同类正对照** `git ls-files | grep -c '^e2e-real/'` = **8**（spec / helpers / README 仍然跟踪，
+证明 grep 有效、那个 0 是真 0；改前该正对照是 9，差的就是被移出的那一个）。

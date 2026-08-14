@@ -51,8 +51,27 @@
  * - 本地已存过封面 ⇒ 渲染 `<img>`（与图片消息**完全同一条**显示通路），`<video>` 连建都不建；
  * - 没存过 ⇒ 照旧渲染 `<video>`（用户立刻有画面），同时在离屏元素上截一帧落盘，
  *   落好后当场切成 `<img>`，此后永久走本地；
- * - 正在问「有没有存过」的那几毫秒 ⇒ 什么都不渲染（**不能**先渲染 `<video>`：
- *   一屏几十个格子会各开一次元数据拉取，恰是本功能要消灭的成本，理由见 useVideoPoster.ts）。
+ * - 正在问「有没有存过」的那几毫秒 ⇒ 渲染一个**同尺寸的空占位**（见下一节）。
+ *   这几毫秒里**不能**先渲染 `<video>`：一屏几十个格子会各开一次元数据拉取，
+ *   恰是本功能要消灭的成本，理由见 useVideoPoster.ts。
+ *
+ * ## pending 期渲染同尺寸占位，而不是 `return null`
+ *
+ * 原实现在 pending 分支 `return null` —— 媒体元素**整个从 DOM 里消失**那几毫秒。
+ * 最明显的一帧是**上传完成的切换**：在途气泡走的是不带 `fileHash` 的分支（同步 `capture`，
+ * 画面一直在），换成完成态那一刻带上了 `fileHash` ⇒ 进 pending ⇒ 画面先没了再回来。
+ *
+ * 占位的**尺寸必须与两个完成态同源**，否则「空一下」就换成了「跳一下」，等于没修：
+ * 本组件三条分支（占位 / `<img>` / `<video>`）都只戴调用方给的同一个 `className`，
+ * 而各调用点的容器尺寸本来就由 `FileMessageContent.calculateDisplaySize` 一处算出
+ * （气泡）或由格子的 `aspect-ratio` 决定（九宫格 / 我的文件）——
+ * 占位再补一条 `width/height: 100%` 的行内样式，让**没传 className 的调用点**
+ * （FilesModal / MobileFilesPage：它们的 CSS 用 `video` / `img` 元素选择器定尺寸，
+ * 选不到 `<div>`）也拿到与 `<video>` 完全相同的盒子。
+ *
+ * ⚠️ 它只保证**盒子**同形，不保证**像素**连续：这几毫秒里画面仍是容器底色。
+ * 要让画面也连续得让 pending 期就有媒体元素，而那正是本组件刻意消灭的成本。
+ * 这一帧的视觉结论只能靠真机录屏（jsdom 无布局引擎，见 .claude/rules/frontend-test.md）。
  *
  * 不传 `fileHash` 的调用点行为与此前**逐字节相同**（恒走 `<video>` 分支）。
  *
@@ -98,8 +117,16 @@ export function VideoThumbnail({
   const { status, posterSrc } = useVideoPoster(fileHash, src);
 
   if (status === 'pending') {
-    // 解析本地封面的那几毫秒：不渲染任何媒体元素（理由见文件头）
-    return null;
+    // 解析本地封面的那几毫秒：不建媒体元素，但把盒子占住 —— 尺寸与下面两条分支同源
+    // （同一个 className + 同样填满父容器），理由见文件头「pending 期渲染同尺寸占位」。
+    return (
+      <div
+        className={className}
+        style={{ width: '100%', height: '100%' }}
+        aria-hidden
+        data-video-poster-pending=""
+      />
+    );
   }
 
   if (status === 'poster' && posterSrc) {

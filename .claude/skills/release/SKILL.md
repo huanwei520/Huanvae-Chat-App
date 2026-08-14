@@ -555,6 +555,24 @@ GIT_TERMINAL_PROMPT=0 git \
 🔴 **第一个 `-c credential.helper=`（空值）不可省** —— git 的 helper 是**列表**语义、只追加不覆盖；
 不先清空就仍会回落到 GCM，照样失败。tag 同理（`push origin <tag>`）。
 
+🔴 **那个 token 从哪儿取（2026-08-13 补，此前这一段只写用法不写出处，人人卡在同一处）**：
+
+- **金库**：`~/.claude/secrets/credentials.env`（权限 `0600`，**不在任何 git 仓内**，`KEY=value` 一行一条）。
+- **键名现枚举，不照抄任何文档里的例子**（键名会漂）：
+
+  ```bash
+  /usr/bin/grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Za-z0-9_]+=' ~/.claude/secrets/credentials.env
+  ```
+
+  字符类**必须含数字**（`common.md`「grep 字符类漏数字」那条坑就是在金库里找 token 时栽的）。
+  GitHub PAT 只有一把就直接用，**有多把就停下上报**。
+- **先验最小权限再用**：做一次只读调用确认 scope 够；发布要推 tag 与 `main`，
+  改到 `.github/workflows/*` 时还需要 `workflow` scope。
+  🔴 **scope 不够就停下上报 —— 不许换别的 token、不许降级绕过、不许扩权。**
+- 🔴 只在**运行时**取值，**不落盘 / 不打印 / 不进提交物 / 不进交付**（交付写 `<REDACTED>`）；
+  自证遮蔽的命令里也不许出现明文。**本仓是 PUBLIC 公开仓**，这条与本 skill 的脱敏核同级。
+- `gh` 同理：`export GH_TOKEN=<运行时取到的值>` 即可，**不要跑 `gh auth login`**（交互式，无 tty 会挂死）。
+
 **这算不算「把一条龙切开」——不算，口径已由总管写死（2026-08-13）**：
 > 红线禁的是「**主动把流程拆成几段分别跑**」，不是「**流程跑到最后一步失败后补完同一个动作**」。
 

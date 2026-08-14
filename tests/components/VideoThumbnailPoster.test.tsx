@@ -65,6 +65,50 @@ describe('本地已有封面：走 <img>，不建 <video>、不再截帧', () =>
   });
 });
 
+describe('pending（正在问本地有没有存过）：占住盒子，但不建媒体元素', () => {
+  /**
+   * 修的是「上传完成切换的那一帧媒体区短暂空白」：在途气泡走的是不带 fileHash 的分支
+   * （同步 capture，画面一直在），换成完成态那一刻带上了 fileHash ⇒ 进 pending。
+   * 原实现 `return null` ⇒ 媒体元素整个从 DOM 消失。
+   *
+   * ⚠️ 层级：jsdom 无布局引擎，这里只能守**结构契约**（占位在、className 一致、
+   * 仍然不建媒体元素）。「视觉上还闪不闪」是 L3 真机录屏的事。
+   */
+  it('pending 期渲染带同一个 className 的占位，且 <video> / <img> 都不建', () => {
+    // 永不 resolve ⇒ 组件停在 pending 这一态，可被同步观察
+    posterService.loadVideoPosterSrc.mockReturnValue(new Promise<string | null>(() => {}));
+
+    const { container } = render(
+      <VideoThumbnail src={SRC} fileHash="pend1" className="message-video-thumbnail" />,
+    );
+
+    const placeholder = container.querySelector('[data-video-poster-pending]');
+    expect(placeholder).not.toBeNull();
+    // 尺寸同源的机器口径：占位戴的是**同一个** className（完成态两条分支也戴它）
+    expect(placeholder).toHaveClass('message-video-thumbnail');
+    // 没传 className 的调用点靠这条行内样式拿到与 <video> 相同的盒子
+    expect(placeholder).toHaveStyle({ width: '100%', height: '100%' });
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+
+    // 这几毫秒里仍然一个媒体元素都不建（一屏几十个格子各拉一次元数据正是本功能要消灭的成本）
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('解析结束后占位让位给真正的显示元素（不残留）', async () => {
+    posterService.loadVideoPosterSrc.mockResolvedValue(POSTER);
+
+    const { container } = render(
+      <VideoThumbnail src={SRC} fileHash="pend2" className="message-video-thumbnail" />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', POSTER);
+      expect(container.querySelector('[data-video-poster-pending]')).toBeNull();
+    });
+  });
+});
+
 describe('本地没有封面：照旧渲染 <video>，同时截一次存下来', () => {
   it('渲染 <video src=…#t=0.1>，并对 (fileHash, 裸 src) 恰发起一次截帧', async () => {
     posterService.loadVideoPosterSrc.mockResolvedValue(null);

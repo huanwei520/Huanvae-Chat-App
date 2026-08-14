@@ -54,6 +54,11 @@ e2e/test-results/
 playwright-report/
 blob-report/
 
+# 真后端 e2e（playwright.real-e2e.config.ts）的运行产物 —— 与上面两条同性质，
+# 只是路径不同，此前漏配，且已有两个文件被 track（本次一并 git rm --cached 停止跟踪）
+e2e-real/test-results/
+playwright-report-real/
+
 # Playwright snapshot — 仅保留 CI 平台基线（Linux），开发机生成的 win32/darwin 基线本地用不入库
 # 避免不同开发者本机生成的快照互相覆盖造成无意义 diff
 e2e/snapshots/**/*-chromium-win32.png
@@ -78,3 +83,5 @@ scripts/icons/app-icon-squircle.png
 scripts/bench/download-bench/target/
 scripts/bench/results/
 
+# 覆盖率报告（pnpm test:coverage 在仓根生成）——每次跑都可重生成，不入公开仓
+coverage/
