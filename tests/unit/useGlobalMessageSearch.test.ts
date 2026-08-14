@@ -7,6 +7,10 @@
  * 3. 快速连续输入只在最后一次触发 DB 调用（防抖）
  * 4. 返回结果按 conversation_id 分组
  * 5. DB 抛错时 error 字段被填充
+ * 6. **filter 真的被透传到 searchMessages 第三参**（全局搜索六分类页签靠它把过滤下推到
+ *    SQL 层；只断言"调了"是无效断言 —— 参数丢了照样"调了"）
+ * 7. **filter 内容没变时不重查**（调用方每次 render 新建一个字面量对象是常态，
+ *    对象身份进 deps 会让 effect 每帧重跑、防抖永远等不到头）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -19,7 +23,7 @@ vi.mock('../../src/db', () => ({
 }));
 
 import { useGlobalMessageSearch } from '../../src/hooks/useGlobalMessageSearch';
-import type { SearchMessageResult } from '../../src/db';
+import type { MessageSearchFilter, SearchMessageResult } from '../../src/db';
 
 const buildHit = (
   messageUuid: string,
@@ -88,7 +92,9 @@ describe('useGlobalMessageSearch', () => {
     });
 
     expect(mockSearchMessages).toHaveBeenCalledTimes(1);
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50);
+    // 不传 filter ⇒ 第三参 undefined（db.searchMessages 内部再落成 null），
+    // 与改造前"不限类型"的行为一致
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, undefined);
   });
 
   it('rapid input: only the last query is searched (debounce)', async () => {
@@ -112,7 +118,7 @@ describe('useGlobalMessageSearch', () => {
     });
 
     expect(mockSearchMessages).toHaveBeenCalledTimes(1);
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('abc', 50);
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('abc', 50, undefined);
   });
 
   it('groups results by conversation_id', async () => {
@@ -159,6 +165,68 @@ describe('useGlobalMessageSearch', () => {
 
     expect(result.current.error).toBe('搜索失败');
     expect(result.current.groups).toEqual([]);
+  });
+
+  it('filter 原样透传给 searchMessages 第三参（过滤下推到 SQL 层）', async () => {
+    mockSearchMessages.mockResolvedValue([]);
+    renderHook(() => useGlobalMessageSearch('hello', { include_content_types: ['image'] }));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, {
+      include_content_types: ['image'],
+    });
+  });
+
+  it('filter 变化触发重查，且带的是新 filter（切页签即换过滤条件）', async () => {
+    mockSearchMessages.mockResolvedValue([]);
+    const { rerender } = renderHook<
+      ReturnType<typeof useGlobalMessageSearch>,
+      { f: MessageSearchFilter }
+    >(({ f }) => useGlobalMessageSearch('hello', f), {
+      initialProps: { f: { include_content_types: ['image'] } },
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mockSearchMessages).toHaveBeenCalledTimes(1);
+
+    rerender({ f: { exclude_content_types: ['image', 'video'] } });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockSearchMessages).toHaveBeenCalledTimes(2);
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, {
+      exclude_content_types: ['image', 'video'],
+    });
+  });
+
+  it('filter 内容不变、只是每次 render 新建对象：不重查（否则防抖永远等不到头）', async () => {
+    mockSearchMessages.mockResolvedValue([]);
+    const { rerender } = renderHook(
+      // 每次调用都造一个**新的**字面量对象 —— 这是调用方最自然的写法
+      ({ q }: { q: string }) => useGlobalMessageSearch(q, { include_content_types: ['video'] }),
+      { initialProps: { q: 'hello' } },
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mockSearchMessages).toHaveBeenCalledTimes(1);
+
+    // 连续三次重渲染，filter 内容一字未变
+    rerender({ q: 'hello' });
+    rerender({ q: 'hello' });
+    rerender({ q: 'hello' });
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockSearchMessages).toHaveBeenCalledTimes(1);
   });
 
   it('query cleared after results: groups reset, loading false', async () => {

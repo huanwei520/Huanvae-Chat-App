@@ -8,6 +8,8 @@
  * - 调 db.searchMessages 拿命中列表（含会话名 + 头像 + 前后上下文）
  * - 按 conversation_id 分组返回
  * - query 为空时返回空结果，不触发 DB 调用
+ * - 可选 filter 原样透传给 `db_search_messages`，让 content_type 过滤发生在 **SQL 层**
+ *   （全局搜索的六分类页签用它；不传 = 不限类型，与改造前行为一致）
  *
  * 使用场景：
  * - 移动端 MobileChatList 搜索框
@@ -15,7 +17,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { searchMessages, type SearchMessageResult } from '../db';
+import { searchMessages, type MessageSearchFilter, type SearchMessageResult } from '../db';
 
 /** 按会话分组后的搜索结果 */
 export interface MessageSearchGroup {
@@ -42,13 +44,26 @@ interface UseGlobalMessageSearchReturn {
 
 /** 防抖延迟（ms） */
 const DEBOUNCE_DELAY = 500;
-/** 单次搜索返回的最大命中数 */
-const SEARCH_LIMIT = 50;
+/**
+ * 单次搜索返回的最大命中数
+ *
+ * 导出给调用方：命中数触顶时要如实提示"只显示了前 N 条"，
+ * 否则用户会以为后面真的没有了（`db_search_messages` 无 offset，本链路无翻页）。
+ */
+export const GLOBAL_SEARCH_LIMIT = 50;
 
-export function useGlobalMessageSearch(query: string): UseGlobalMessageSearchReturn {
+export function useGlobalMessageSearch(
+  query: string,
+  filter?: MessageSearchFilter,
+): UseGlobalMessageSearchReturn {
   const [groups, setGroups] = useState<MessageSearchGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // filter 是对象：调用方若每次 render 新建一个，直接进 deps 会让 effect 每帧重跑、
+  // 防抖永远等不到头。故以**序列化后的值**进 deps（内容相等即不重查），
+  // 真正下发的对象在 effect 内由该 key 反解 —— 不依赖调用方记得 useMemo。
+  const filterKey = JSON.stringify(filter ?? null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -61,10 +76,15 @@ export function useGlobalMessageSearch(query: string): UseGlobalMessageSearchRet
 
     setLoading(true);
     let cancelled = false;
+    const activeFilter = JSON.parse(filterKey) as MessageSearchFilter | null;
 
     const timer = setTimeout(async () => {
       try {
-        const results = await searchMessages(trimmed, SEARCH_LIMIT);
+        const results = await searchMessages(
+          trimmed,
+          GLOBAL_SEARCH_LIMIT,
+          activeFilter ?? undefined,
+        );
         if (cancelled) { return; }
 
         // 按 conversation_id 分组
@@ -103,7 +123,7 @@ export function useGlobalMessageSearch(query: string): UseGlobalMessageSearchRet
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, filterKey]);
 
   return { groups, loading, error };
 }

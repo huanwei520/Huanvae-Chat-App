@@ -43,8 +43,9 @@ export const MOBILE_COMPONENTS: ComponentEntry[] = [
 
 // ============== 全局搜索组件 ==============
 export const SEARCH_COMPONENTS: ComponentEntry[] = [
-  { name: 'GlobalMessageSearchResults', path: 'components/search/GlobalMessageSearchResults', category: 'components', description: '跨会话消息内容/文件名搜索结果（移动+桌面共用）' },
-  { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 按会话分组）' },
+  { name: 'GlobalMessageSearchResults', path: 'components/search/GlobalMessageSearchResults', category: 'components', description: '跨会话搜索结果浮层（六分类页签：消息/视频/图片/用户/群聊/机器人；移动+桌面共用）' },
+  { name: 'globalSearchTabs', path: 'components/search/globalSearchTabs', category: 'services', description: '全局搜索六分类页签定义 + 页签→SQL 过滤映射（纯函数）' },
+  { name: 'useGlobalMessageSearch', path: 'hooks/useGlobalMessageSearch', category: 'hooks', description: '全局消息搜索 Hook（500ms 防抖 + 可选 filter 下推 SQL + 按会话分组）' },
   { name: 'useDiscoverySearch', path: 'hooks/useDiscoverySearch', category: 'hooks', description: '服务端发现搜索 Hook（500ms 防抖；人/群/bot；头像边界解析）' },
   { name: 'ConversationMessageSearch', path: 'components/search/ConversationMessageSearch', category: 'components', description: '会话内消息查找视图（侧边面板内；点分类即按时间倒序列出，关键词再收窄）' },
   { name: 'ConversationSearchHit', path: 'components/search/ConversationSearchHit', category: 'components', description: '查找结果单条命中项（行/九宫格封面；左键打开预览、右键长按定位；媒体 src 经 useFileCache → 反代收口点）' },
@@ -227,7 +228,8 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'ReadReceiptIcons', path: 'chat/shared/ReadReceiptIcons', category: 'chat', description: '已读回执 SVG 图标基元（时钟/双勾/失败）' },
   { name: 'PrivateReadReceipt', path: 'chat/shared/PrivateReadReceipt', category: 'chat', description: '私聊已读回执（仅自己消息：时钟/红叹号/绿双勾；未读不渲染）' },
   { name: 'readReceiptGate', path: 'chat/shared/readReceiptGate', category: 'chat', description: '已读标记门控纯函数（只挂我发出的最新一条，私聊+群聊共用锚点）' },
-  { name: 'senderRunGate', path: 'chat/shared/senderRunGate', category: 'chat', description: '群聊连发合并的头像锚点纯函数（方案 C：只挂组内最新那条，撤回行断组）' },
+  { name: 'senderRunGate', path: 'chat/shared/senderRunGate', category: 'chat', description: '群聊连发合并的两个锚点纯函数（头像挂组内最新那条 / 昵称挂组内最旧那条，撤回行断组）' },
+  { name: 'senderNameColor', path: 'chat/shared/senderNameColor', category: 'chat', description: '群聊气泡昵称的配色索引纯函数（按 sender_id 稳定散列，色值在 CSS 按 data-sender-hue 取）' },
   { name: 'mediaDisplaySize', path: 'chat/shared/mediaDisplaySize', category: 'chat', description: '气泡内媒体的显示上限盒 + 容器样式纯函数（限高只截高、宽度走 max-width:100% + aspect-ratio）' },
   { name: 'ChatTargetAvatar', path: 'chat/shared/ChatTargetAvatar', category: 'chat', description: '会话顶栏头像（1:1 给对方头像 / 群给群头像 / AI 无），桌面+移动两个顶栏共用同一条归属规则' },
   { name: 'videoPosterSrc', path: 'chat/shared/videoPosterSrc', category: 'chat', description: '视频缩略图 src 追加 #t=0.1 的纯函数（逼 WKWebView / Android WebView seek 出封面；只在元素层用，绝不进 resolver）' },

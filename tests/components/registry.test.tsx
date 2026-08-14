@@ -43,6 +43,7 @@ import * as MobileProfilePage from '../../src/pages/mobile/MobileProfilePage';
 
 // 全局搜索组件
 import * as GlobalMessageSearchResults from '../../src/components/search/GlobalMessageSearchResults';
+import * as globalSearchTabs from '../../src/components/search/globalSearchTabs';
 import * as useGlobalMessageSearch from '../../src/hooks/useGlobalMessageSearch';
 // 会话内消息查找
 import * as ConversationMessageSearch from '../../src/components/search/ConversationMessageSearch';
@@ -166,6 +167,7 @@ import * as ReadReceiptIcons from '../../src/chat/shared/ReadReceiptIcons';
 import * as PrivateReadReceipt from '../../src/chat/shared/PrivateReadReceipt';
 import * as readReceiptGate from '../../src/chat/shared/readReceiptGate';
 import * as senderRunGate from '../../src/chat/shared/senderRunGate';
+import * as senderNameColor from '../../src/chat/shared/senderNameColor';
 import * as mediaDisplaySize from '../../src/chat/shared/mediaDisplaySize';
 import * as ChatTargetAvatar from '../../src/chat/shared/ChatTargetAvatar';
 import * as videoPosterSrc from '../../src/chat/shared/videoPosterSrc';
@@ -347,6 +349,7 @@ const COMPONENT_MAP = {
   MobileProfilePage,
   // 全局搜索
   GlobalMessageSearchResults,
+  globalSearchTabs,
   useGlobalMessageSearch,
   // 会话内消息查找
   ConversationMessageSearch,
@@ -502,6 +505,7 @@ const COMPONENT_MAP = {
   PrivateReadReceipt,
   readReceiptGate,
   senderRunGate,
+  senderNameColor,
   mediaDisplaySize,
   ChatTargetAvatar,
   videoPosterSrc,

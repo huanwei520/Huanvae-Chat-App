@@ -90,26 +90,55 @@
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
   z-index: 50;
+  /* 🔴 根不再滚动：分类页签栏要常驻顶部（切分类是这个浮层的主交互，滚走了就够不着）。
+   * 滚动下沉到 .global-msg-search-body，浮层因此只有一层滚动。
+   * 不用 position: sticky 顶栏 —— 本浮层底色是半透明 var(--white-alpha-85)，
+   * sticky 顶栏会被下面滚过去的结果透出来，字压字。 */
+  overflow: hidden;
+}
+
+/* ============================================
+ * 分类页签栏（消息 · 视频 · 图片 · 用户 · 群聊 · 机器人）
+ * src/components/search/globalSearchTabs.ts 定义顺序与文案
+ *
+ * 胶囊本体样式与会话内查找的 .conv-msg-search-tab **共用同一条规则**（见文件末尾），
+ * 只在这里给容器自己的间距 —— 复制一份 20 行会两处漂移。
+ * 页签是普通 <button>，无 framer-motion；transition 只列 background-color / color /
+ * border-color，不碰 transform / opacity（那两个归浮层根的 variants）。
+ * ============================================ */
+.global-msg-search-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+/* 结果区：浮层内唯一的滚动层 */
+.global-msg-search-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 8px;
 }
 
 /* 统一滚动条样式（与 conversation-list / chat-messages-container 一致） */
-.global-msg-search::-webkit-scrollbar {
+.global-msg-search-body::-webkit-scrollbar {
   width: 6px;
 }
 
-.global-msg-search::-webkit-scrollbar-track {
+.global-msg-search-body::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.global-msg-search::-webkit-scrollbar-thumb {
+.global-msg-search-body::-webkit-scrollbar-thumb {
   background: rgba(147, 197, 253, 0.3);
   border-radius: 3px;
 }
 
-.global-msg-search::-webkit-scrollbar-thumb:hover {
+.global-msg-search-body::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.5);
 }
 
@@ -326,6 +355,44 @@
 }
 
 /* ============================================
+ * 「图片」/「视频」页签：正方形九宫格封面
+ *
+ * 格子本体（.conv-msg-search-cell / .conv-msg-search-cover）由 ConversationSearchHit
+ * 自带，与会话内查找同一份；这里只给全局搜索自己的网格容器。
+ *
+ * grid-auto-rows: max-content 与会话内查找那份同口径（见 .conv-msg-search-list--grid 上
+ * 那段注释里的重叠实测）。本容器**不自带滚动** —— 滚动只有 .global-msg-search-body 一层，
+ * 嵌套滚动会让浮层里出现两条滚动条。
+ *
+ * ⚠️ 已知视觉偏差（真机实测，未修）：格子**不是正方形**。native 分辨率量得 244×138pt，
+ * 图片铺满、零留白 ⇒ .conv-msg-search-cell 自带的 aspect-ratio: 1/1 在这个上下文里
+ * 没有参与定高。已试过三种改法（max-content / auto / align-items:start）渲染完全一致，
+ * 并用 dev server 现查确认改后的 CSS 确实送到了浏览器（负对照 0 命中、正对照命中）
+ * ⇒ 不是"CSS 没生效"，是这条路在这里定不了高。换成写死宽高的定长方格能把**宽**改掉
+ * （244→104 实测生效），但**高**仍跟着图片走，故未采纳、已回滚到本版。
+ * 不影响功能（不重叠、可点、可滚），留待后续单独定位 —— 需要能看 DOM 计算值的手段，
+ * 靠截图量不出"格子盒子"与"图片"的边界（格子底色 var(--white-alpha-50) 近乎不可见）。
+ * ============================================ */
+.global-msg-search-grid {
+  list-style: none;
+  margin: 0;
+  padding: 2px 12px 6px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: max-content;
+  gap: 4px;
+  align-content: start;
+}
+
+/* 命中触顶提示：本链路无翻页（db_search_messages 无 offset），要如实说"只显示了前 N 条" */
+.global-msg-search-foot {
+  padding: 10px 16px 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* ============================================
  * 会话内消息查找视图
  * src/components/search/ConversationMessageSearch.tsx
  *
@@ -384,7 +451,10 @@
   padding: 8px 16px 0;
 }
 
-.conv-msg-search-tab {
+/* 胶囊本体：会话内查找与**全局搜索六分类**共用同一条规则（容器间距各自给）。
+ * 合并的是选择器列表，声明一个字没动 —— 分成两份写必然漂移成两种胶囊。 */
+.conv-msg-search-tab,
+.global-msg-search-tab {
   padding: 3px 10px;
   border: 1px solid var(--glass-border-subtle);
   border-radius: 999px;
@@ -395,11 +465,13 @@
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.conv-msg-search-tab:hover {
+.conv-msg-search-tab:hover,
+.global-msg-search-tab:hover {
   background: var(--white-alpha-50);
 }
 
-.conv-msg-search-tab--active {
+.conv-msg-search-tab--active,
+.global-msg-search-tab--active {
   background: rgba(147, 197, 253, 0.35);
   border-color: rgba(147, 197, 253, 0.6);
   color: var(--text-primary);
