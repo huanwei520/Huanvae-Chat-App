@@ -110,6 +110,10 @@ Step-Header "Windows NSIS 安装配置检查..."
 $tauriConfPath = "$projectRoot\src-tauri\tauri.conf.json"
 $nsisHooksPath = "$projectRoot\src-tauri\windows\hooks.nsi"
 $tauriContent = Get-Content $tauriConfPath -Raw
+# 🔴 installMode 这个键名在本文件里出现两次（bundle.windows.nsis 与 plugins.updater.windows），
+# 语义完全不同 —— 纯文本 grep 在这里是**假阳判据**（会把另一处的命中算到自己头上）。
+# 凡是判 installMode 一律走结构化取键，别退回 -match。
+$tauriConfJson = $tauriContent | ConvertFrom-Json
 
 if ($tauriContent -match '"nsis"') {
     Write-Host "  ✓ PASS: 使用 NSIS 安装包配置" -ForegroundColor Green
@@ -128,13 +132,39 @@ if ($tauriContent -match '"nsis"') {
         $allPassed = $false
     }
 } else {
-    Write-Host "  ⚠ WARN: 未检测到 NSIS 安装包配置" -ForegroundColor Yellow
+    # 🔴 WARN -> FAIL（2026-08-16）：只打黄字的守卫等于没有守卫 —— ⚠ WARN 既不 FAIL、
+    # 也不登记进跳过表，末尾汇总里完全看不见，与"根本没有这条检查"逐字同形。
+    # NSIS 是本仓 Windows 唯一发货形态，这里落空就是配置真的坏了，必须红。
+    Write-Host "  ✗ FAIL: 未检测到 NSIS 安装包配置" -ForegroundColor Red
+    $allPassed = $false
 }
 
-if ($tauriContent -match '"installMode".*"passive"') {
-    Write-Host "  ✓ PASS: 更新器配置为静默安装模式" -ForegroundColor Green
+# 更新器 installMode：必须【显式】为 passive。
+# 上游 WindowsUpdateInstallMode 把 Passive 标成 #[default]，所以"没写这个键"= 仍是 passive、
+# 只是看不见 —— 本仓要求写出来并被钉住。极性与 scripts/pre-release.ps1 的配置检查一致。
+$updaterInstallMode = $null
+if ($tauriConfJson -and $tauriConfJson.plugins -and $tauriConfJson.plugins.updater -and $tauriConfJson.plugins.updater.windows) {
+    $updaterInstallMode = $tauriConfJson.plugins.updater.windows.installMode
+}
+if ($updaterInstallMode -eq 'passive') {
+    Write-Host "  ✓ PASS: 更新器配置为静默安装模式 (installMode = passive)" -ForegroundColor Green
 } else {
-    Write-Host "  ⚠ WARN: 更新器未配置 installMode: passive" -ForegroundColor Yellow
+    Write-Host "  ✗ FAIL: plugins.updater.windows.installMode 必须显式为 'passive'（实际: '$updaterInstallMode'）" -ForegroundColor Red
+    $allPassed = $false
+}
+
+# NSIS 安装模式：必须 perMachine。hooks.nsi 的 sc.exe create/sdset 要 SCM 写权限，
+# 而安装器是否提权完全由这个键决定（perMachine -> RequestExecutionLevel admin）。
+# 退回 currentUser = 服务注册在每台机器上静默失败，正是 v1.1.35 之前的原始故障。
+$nsisInstallMode = $null
+if ($tauriConfJson -and $tauriConfJson.bundle -and $tauriConfJson.bundle.windows -and $tauriConfJson.bundle.windows.nsis) {
+    $nsisInstallMode = $tauriConfJson.bundle.windows.nsis.installMode
+}
+if ($nsisInstallMode -eq 'perMachine') {
+    Write-Host "  ✓ PASS: NSIS 安装模式为 perMachine（安装器提权，服务注册才可能成功）" -ForegroundColor Green
+} else {
+    Write-Host "  ✗ FAIL: bundle.windows.nsis.installMode 必须为 'perMachine'（实际: '$nsisInstallMode'）" -ForegroundColor Red
+    $allPassed = $false
 }
 
 # ============================================

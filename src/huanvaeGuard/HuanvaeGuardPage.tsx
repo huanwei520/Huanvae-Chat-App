@@ -135,6 +135,8 @@ const POLL_INTERVAL_MS = 3000;
 
 // launchctl bootstrap 只是把 job **提交**给 launchd，返回时守护进程还没绑好端口 ——
 // 修复后零等待探活必然读到 false，故按 500/1000/2000/4000ms 退避重试。
+// Windows 同理：`sc.exe start` 一返回就只代表 SCM 收下了启动请求，服务进程此刻还在起、
+// 更没绑上回环控制端口，所以两个平台共用这张表。
 // 注意这张表只是**加速**表：它的作用仅仅是让用户点完「修复」后更快看到结论，正确性不依赖它。
 // 退避预算耗尽也没关系 —— 常驻单飞探活从不停摆，晚于预算才起来的守护进程最多一拍就被接上。
 const REPAIR_BACKOFF_MS = [500, 1000, 2000, 4000] as const;
@@ -149,12 +151,62 @@ function localizeLinkSource(source: string): string {
   return LINK_SOURCE_LABELS[source] ?? source;
 }
 
-// macOS 三态：未安装 / 已安装未运行 / 运行中。Windows 的服务由 Tauri 进程生命周期
-// 管理、没有"安装"这一步，仍沿用两态文案。
-function serviceStatusLabel(os: string, running: boolean, isInstalled: boolean): string {
+/**
+ * 服务「装没装」的三值判定。
+ *
+ * 🔴 `unknown` **不是**「未安装」的同义词，两者的处置正好相反：
+ *   - `not_installed` = 确实没装（Windows 上判据是 `sc query` 明确返回 1060）⇒ 该去装；
+ *   - `unknown`       = 查询本身没成功（权限 / SCM 异常 / `sc.exe` 起不来 / invoke 失败）
+ *                       ⇒ 该重试或报错，**绝不能**据此去装一个可能已经存在的服务。
+ *
+ * 把这两者压成一个 boolean，正是本次要修的那个病：两个不同成因给出同一个读数。
+ * Rust 侧对称地把 `hg_is_installed` 从 `bool` 改成 `Result<bool, String>`。
+ */
+type ServiceInstallState = 'installed' | 'not_installed' | 'unknown';
+
+// 四态文案：服务运行中 / 已安装未运行 / 未安装 / 服务状态未知。
+// macOS 与 Windows 都给全，其余平台无安装入口，只给「服务未运行」。
+//
+// 「已安装」在两个平台的判据不同源，但对用户是同一句话，所以共用这一份文案：
+//   - macOS  = LaunchDaemon 二进制 + plist 均就位；
+//   - Windows = 服务已在 SCM 注册。
+// 🔴 Windows 上把状态拆开是有诊断价值的、不是文案洁癖：「未安装」直指安装器注册失败那一类成因，
+// 「已安装未运行」直指进程起不来那一类，「服务状态未知」直指查询链路本身坏了 ——
+// 旧实现把这三类压成同一句「服务未运行」，用户与排查者都无从区分
+// （这正是本次 Windows VPN 故障最难定位的一环）。
+function serviceStatusLabel(os: string, running: boolean, install: ServiceInstallState): string {
   if (running) { return '服务运行中'; }
-  if (os !== 'macos') { return '服务未运行'; }
-  return isInstalled ? '已安装未运行' : '未安装';
+  if (os !== 'macos' && os !== 'windows') { return '服务未运行'; }
+  if (install === 'installed') { return '已安装未运行'; }
+  if (install === 'unknown') { return '服务状态未知'; }
+  return '未安装';
+}
+
+/**
+ * 「修复」退避预算耗尽、服务仍未起来时给用户的下一步。按平台 × 安装态分六句，
+ * 每句都指向一个**用户真的能执行**的动作 —— 泛泛一句"请重试"等于没说。
+ *
+ * 抽成纯函数是为了让这六句话有单一真值源：它同时要进错误横幅、进日志、并被
+ * probeService 按**原文**比对收掉（见 repairHintRef），三处任何一处漂了都会留下永不消失的横幅。
+ *
+ * 🔴 `unknown` 必须自成一句：它既不能说"已注册但没起来"（我们并不知道注册没注册），
+ * 也不能说"注册未完成"（那是在替一个没查到的读数下结论）。
+ */
+function repairPendingHint(os: string, install: ServiceInstallState): string {
+  if (os === 'windows') {
+    if (install === 'unknown') {
+      return '没能确认服务是否已注册（查询服务状态失败）。请重试；若仍失败，请以管理员身份运行本应用';
+    }
+    return install === 'installed'
+      ? '服务已注册，但守护进程未启动。请查看守护进程日志 %ProgramData%\\HuanvaeGuard\\logs\\hg-svc.log.<日期>'
+      : '服务注册未完成。请重试，并在系统弹出「用户账户控制」时点击「是」';
+  }
+  if (install === 'unknown') {
+    return '没能确认服务是否已安装（查询安装状态失败）。请重试；若仍失败，请重新安装应用';
+  }
+  return install === 'installed'
+    ? '服务文件已安装，但守护进程未启动。请查看守护进程日志 /var/log/huanvaeguard/launchd-stderr.log'
+    : '服务安装未完成。请重试，并在系统弹出管理员授权时点击「允许」';
 }
 
 function parseWindowData(): WindowData | null {
@@ -182,8 +234,9 @@ export default function HuanvaeGuardPage() {
   const [windowData, setWindowData] = useState<WindowData | null>(null);
   const [osPlatform, setOsPlatform] = useState<string>('');
   const [serviceRunning, setServiceRunning] = useState(false);
-  // 「文件是否装好」与「守护进程是否在跑」是两件事：半装态 = installed && !serviceRunning
-  const [installed, setInstalled] = useState(false);
+  // 「文件是否装好」与「守护进程是否在跑」是两件事：半装态 = 'installed' && !serviceRunning。
+  // 初值取 'unknown'：挂载那一刻我们**确实还没查过**，写 'not_installed' 等于先替它下了个结论。
+  const [installState, setInstallState] = useState<ServiceInstallState>('unknown');
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('devices');
 
@@ -289,18 +342,25 @@ export default function HuanvaeGuardPage() {
     return p;
   }, [addLog]);
 
-  // macOS 专用：查询 LaunchDaemon 是否已安装，返回最新值（调用方常需要立即用，不能等 state 落地）
-  const refreshInstalled = useCallback(async (): Promise<boolean> => {
-    if (osPlatform !== 'macos') { return false; }
+  // 查询「服务是否已安装」，返回最新值（调用方常需要立即用，不能等 state 落地）。
+  // macOS = LaunchDaemon 文件是否就位；Windows = 是否已在 SCM 注册（Rust 侧一次 `sc query`）。
+  // 🔴 只在挂载与「修复」之后各查一次，**绝不挂进 3s 常驻轮询** —— Windows 上它每次都要
+  // fork 一个 sc.exe（~10–30ms），挂进轮询就是每 3 秒白烧一个进程。
+  const refreshInstalled = useCallback(async (): Promise<ServiceInstallState> => {
+    if (osPlatform !== 'macos' && osPlatform !== 'windows') { return 'not_installed'; }
     try {
       const ok = await invoke<boolean>('hg_is_installed');
-      setInstalled(ok);
-      return ok;
+      const next: ServiceInstallState = ok ? 'installed' : 'not_installed';
+      setInstallState(next);
+      return next;
     } catch (e) {
-      // 查询失败按"未安装"处理，但必须留痕（静默吞会让三态文案凭空退回"未安装"且无从解释）
-      setInstalled(false);
+      // 🔴 查询失败 ≠ 未安装。旧实现在这里 setInstalled(false)，等于替一个**没查到**的读数
+      // 下了「没装」的结论 —— 与 Rust 侧「`sc query` 非零一律读成 NotInstalled」是同一个病，
+      // 只是换了一层。落到第三态 'unknown'：界面说「服务状态未知」，按钮说「修复服务」
+      // （而不是「安装服务」——后者是在断言一件我们并不知道的事）。
+      setInstallState('unknown');
       addLog(`查询服务安装状态失败：${e}`);
-      return false;
+      return 'unknown';
     }
   }, [osPlatform, addLog]);
 
@@ -544,8 +604,13 @@ export default function HuanvaeGuardPage() {
     }
   };
 
-  // macOS 专用：强制重装/修复 LaunchDaemon（恢复"文件在但服务没起"的半装态）
-  // Windows 服务由 Tauri 进程生命周期管理，无需此入口（按钮仅 macOS + 服务未运行时显示）
+  // 强制重装/修复本机守护进程（macOS = LaunchDaemon，Windows = SCM 服务）。
+  // 两个平台的 hg_repair 都是**幂等重装**而不是"只 start"：
+  //   - macOS：repair() = install()，见 huanvaeguard_macos.rs；
+  //   - Windows：stop → delete → create → sdset → start，见 desktop/huanvaeguard.rs。
+  // 之所以必须重建而不是只 start：安装位置一变（或安装器当时没权限建成），SCM 里那条记录的
+  // binPath 就指向一个已经不存在的 exe，`sc start` 对它永远失败 —— 只有重建才能刷新 binPath。
+  // 按钮在 macOS / Windows 且服务未运行时显示。
   const handleRepair = async () => {
     setError(null);
     // 上一轮的"修复超时"提示已随 setError(null) 一起清掉，ref 也要跟着复位，
@@ -564,15 +629,14 @@ export default function HuanvaeGuardPage() {
         if (running) { break; }
       }
       // 这里不再 setServiceRunning —— probeService 已经写过了，再写一次就是第二个写者（本次要修的 bug）
-      const nowInstalled = await refreshInstalled();
+      const installNow = await refreshInstalled();
       if (running) {
         addLog('服务已就绪');
         return;
       }
-      // 两种失败要给不同的下一步：装上了但没起来 → 看 daemon 日志；压根没装上 → 重试并授权
-      const hint = nowInstalled
-        ? '服务文件已安装，但守护进程未启动。请查看守护进程日志 /var/log/huanvaeguard/launchd-stderr.log'
-        : '服务安装未完成。请重试，并在系统弹出管理员授权时点击「允许」';
+      // 三种失败要给不同的下一步：装上了但没起来 → 看 daemon 日志；压根没装上 → 重试并授权；
+      // 连装没装都没查到 → 说清是"没查到"，不替它下"没装"的结论
+      const hint = repairPendingHint(osPlatform, installNow);
       // 记下原文：守护进程晚于退避预算起来时，常驻探活按这份原文把这条提示收掉
       repairHintRef.current = hint;
       setError(hint);
@@ -830,9 +894,8 @@ export default function HuanvaeGuardPage() {
 
   const isActive = tunnelStatus?.active ?? false;
   const isSupported = osPlatform === 'windows' || osPlatform === 'macos';
-  // macOS 三态：未安装 / 已安装未运行 / 运行中。Windows 的服务由 Tauri 进程生命周期
-  // 管理、没有"安装"这一步，仍沿用两态文案。
-  const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installed);
+  // 四态：服务运行中 / 已安装未运行 / 未安装 / 服务状态未知（macOS + Windows 同款，判据见 serviceStatusLabel）
+  const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installState);
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
   // 本机隧道在用的那台强制显示 online：服务端状态靠心跳，本机隧道在用就是确凿 online。
   // （localTunnelIp 已在上方 Hook 之前算好，与自愈 effect 共用同一份）
@@ -921,9 +984,14 @@ export default function HuanvaeGuardPage() {
           {/* 隧道开关的两半（连接 / 断开）同属一条状态机，必须待在同一处 —— 分散到两个区域
               会让人以为它们是两件不相干的事，且在别的 tab 上只剩一半可达。 */}
           <span className="hg-crown-actions">
-            {osPlatform === 'macos' && !serviceRunning && (
+            {/* 服务没起来时唯一能"动手"的入口。Windows 上此前**完全没有**这个按钮 ——
+                安装器把服务注册搞砸了，用户在界面上除了看见「服务未运行」之外无事可做。 */}
+            {isSupported && !serviceRunning && (
               <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
-                {installed ? '修复服务' : '安装服务'}
+                {/* 🔴 只有【确知没装】才说「安装服务」。'unknown' 走「修复服务」——
+                    修复本身是幂等重装（stop → delete → create），对两种可能都成立；
+                    而说「安装」是在断言一件我们并没查到的事，正是本次要治的病。 */}
+                {installState === 'not_installed' ? '安装服务' : '修复服务'}
               </AppButton>
             )}
             {isActive ? (

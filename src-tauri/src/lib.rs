@@ -689,8 +689,19 @@ fn hg_repair() -> Result<bool, String> {
     desktop::huanvaeguard_macos::repair().map(|()| true)
 }
 
-/// 非 macOS：占位返回 false。
-#[cfg(not(target_os = "macos"))]
+/// Windows：提权重装并启动 SCM 服务（stop → delete → create → sdset → start，**每步查返回码**）。
+///
+/// 与 macOS 那支同形，都是"修复 = 幂等重装"而不是"修复 = 只 start"：SCM 条目记的是绝对
+/// binPath，安装位置一变它就指向一个不存在的 exe，只有重建才能刷新（见 desktop/huanvaeguard.rs）。
+/// 失败一律 `Err(中文原因)`，前端原样进错误横幅 —— 本次要修的 bug 的根就是"失败也显示成功"。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn hg_repair() -> Result<bool, String> {
+    desktop::huanvaeguard::repair().map(|()| true)
+}
+
+/// 其余平台（Linux / 移动端）：无此安装路径，占位返回 false。
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[tauri::command]
 fn hg_repair() -> Result<bool, String> {
     Ok(false)
@@ -698,17 +709,36 @@ fn hg_repair() -> Result<bool, String> {
 
 /// macOS：查询 LaunchDaemon 是否已安装（二进制 + plist 均就位）。
 /// 前端据此区分「未安装 / 已安装未运行 / 运行中」三态并给对应操作按钮。
+///
+/// 判据是「两个文件在不在」，是个不会失败的本地 stat ⇒ 这一支永远 `Ok`；
+/// `Result` 是为了与 Windows 那支共用同一个前端契约（见下）。
 #[cfg(target_os = "macos")]
 #[tauri::command]
-fn hg_is_installed() -> bool {
-    desktop::huanvaeguard_macos::is_installed()
+fn hg_is_installed() -> Result<bool, String> {
+    Ok(desktop::huanvaeguard_macos::is_installed())
 }
 
-/// 非 macOS：无 LaunchDaemon 安装路径，恒为 false（前端仅 macOS 消费此命令）。
-#[cfg(not(target_os = "macos"))]
+/// Windows：查询服务是否已在 SCM 注册。
+///
+/// 前端据此把「未安装」与「已安装未运行」分开 —— 两句话指向的成因完全不同
+/// （安装器注册失败 vs 服务程序起不来），压成一句「服务未运行」就没法排查，
+/// 这正是本次 Windows VPN 故障最难定位的一环。只读、不需要管理员权限、不弹 UAC。
+///
+/// 🔴 返回 `Result` 而不是 `bool`：`sc query` 查**失败**（典型 5 = 拒绝访问）与
+/// 服务**确实不存在**（1060）是两件事，处置正好相反。旧实现把两者都读成 `false`
+/// ⇒ 界面说「未安装」⇒ 用户去装一个可能已经存在的服务。`Err` 让前端落到第三态
+/// 「服务状态未知」，详见 `desktop::huanvaeguard::is_registered`。
+#[cfg(target_os = "windows")]
 #[tauri::command]
-fn hg_is_installed() -> bool {
-    false
+fn hg_is_installed() -> Result<bool, String> {
+    desktop::huanvaeguard::is_registered()
+}
+
+/// 其余平台（Linux / 移动端）：无安装路径，恒为 `Ok(false)`（前端仅 macOS / Windows 消费此命令）。
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[tauri::command]
+fn hg_is_installed() -> Result<bool, String> {
+    Ok(false)
 }
 
 /// macOS：本机守护进程的本地控制端口（回环）。

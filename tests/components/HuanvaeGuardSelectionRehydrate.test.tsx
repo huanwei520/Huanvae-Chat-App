@@ -200,8 +200,11 @@ describe('HuanvaeGuardPage 选中态从守护进程回读（V3）', () => {
 
     render(<HuanvaeGuardPage />);
     await waitFor(() => expect(mockServerApi.getDevices).toHaveBeenCalled());
-    // 探活已落地（服务未运行的文案出来了）才断言，避免抢在状态到达之前
-    await waitFor(() => expect(screen.getByText('服务未运行')).toBeInTheDocument());
+    // 探活已落地（服务没跑的文案出来了）才断言，避免抢在状态到达之前。
+    // Windows 现在也分态：本文件的全局 invoke mock 对 hg_is_installed 返回 undefined
+    // （resolve 成功但不是 true ⇒ 明确的"没装"，与 reject 的「服务状态未知」是两回事）
+    // ⇒ 这一态的文案是「未安装」。
+    await waitFor(() => expect(screen.getByText('未安装')).toBeInTheDocument());
 
     expect(radioOf('我的电脑').checked).toBe(false);
     expect(radioOf('我的笔记本').checked).toBe(false);

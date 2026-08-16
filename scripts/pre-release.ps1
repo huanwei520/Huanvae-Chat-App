@@ -117,16 +117,39 @@ try {
     $TauriConfPath = "$ProjectRoot\src-tauri\tauri.conf.json"
     $TauriConf = Get-Content $TauriConfPath -Raw | ConvertFrom-Json
     
-    # 检查 Windows 更新器 installMode 必须未设置（使用默认完整安装界面让用户选择安装位置）
+    # 检查 Windows 更新器 installMode 必须【显式】配置为 "passive"
+    #
+    # 🔴 2026-08-16 极性订正（本条此前是反的）：旧版要求"installMode 必须移除"，理由写的是
+    #    "不设置 installMode 可让用户选择安装位置"。这个理由与上游实现直接矛盾 ——
+    #    tauri-plugin-updater 的 WindowsUpdateInstallMode 枚举把 Passive 标成 #[default]
+    #    （src/config.rs），所以【删掉这个键 = 仍然是 passive】，只是从写出来的值变成看不见的
+    #    默认值，用户一样选不了安装位置。旧守卫因此在做一件它以为在做、实际做不到的事，
+    #    并且与 scripts/test-all.{ps1,sh} 的"没有 passive 就告警"直接对撞。
+    #    统一口径改为：**必须显式写出且等于 passive**，三处守卫同向。
     $UpdaterWindows = $TauriConf.plugins.updater.windows
-    if ($UpdaterWindows -and $UpdaterWindows.installMode) {
-        Write-Fail "  ✗ Windows 更新器配置错误"
-        Write-Info "    plugins.updater.windows.installMode 必须移除"
-        Write-Info "    不设置 installMode 可让用户选择安装位置"
-        $results += @{ name = "配置检查"; passed = $false }
-    } else {
-        Write-Success "  ✓ Windows 更新器配置正确 (使用默认完整安装界面)"
+    if ($UpdaterWindows -and $UpdaterWindows.installMode -eq 'passive') {
+        Write-Success "  ✓ Windows 更新器配置正确 (installMode = passive)"
         $results += @{ name = "配置检查"; passed = $true }
+    } else {
+        Write-Fail "  ✗ Windows 更新器配置错误"
+        Write-Info "    plugins.updater.windows.installMode 必须显式为 'passive'"
+        Write-Info "    实际读到: '$($UpdaterWindows.installMode)'"
+        $results += @{ name = "配置检查"; passed = $false }
+    }
+
+    # 检查 NSIS 安装模式必须为 perMachine
+    # src-tauri/windows/hooks.nsi 的 sc.exe create/sdset 需要 SCM 写权限（仅 Administrators），
+    # 而安装器的提权级别完全由这个键决定：perMachine -> RequestExecutionLevel admin。
+    # 退回 currentUser 会让服务注册在每台机器上静默失败（v1.1.35 之前的原始故障形态）。
+    $NsisMode = $TauriConf.bundle.windows.nsis.installMode
+    if ($NsisMode -eq 'perMachine') {
+        Write-Success "  ✓ NSIS 安装模式正确 (installMode = perMachine，安装器提权)"
+        $results += @{ name = "NSIS 安装模式"; passed = $true }
+    } else {
+        Write-Fail "  ✗ NSIS 安装模式错误"
+        Write-Info "    bundle.windows.nsis.installMode 必须为 'perMachine'"
+        Write-Info "    实际读到: '$NsisMode'（非 perMachine 时安装器不提权，服务注册必然失败）"
+        $results += @{ name = "NSIS 安装模式"; passed = $false }
     }
 } catch {
     Write-Fail "  ✗ 配置检查出错: $_"

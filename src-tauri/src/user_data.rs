@@ -79,6 +79,15 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 // 目录路径管理
 // ============================================================================
 
+/// Windows 上「装进 Program Files 时」数据落点的目录名。
+///
+/// 必须与 `src-tauri/tauri.conf.json` 的 `productName` 逐字一致 —— 老的用户级安装
+/// （NSIS `currentUser` 模式）的 INSTDIR 就是 `%LOCALAPPDATA%\<productName>`，数据在它下面的
+/// `data\`。用同一个名字，存量用户升级到 perMachine 版之后能**原地**找到自己的旧数据，
+/// 不需要任何迁移代码。一致性由 tests/winService.nsisContract.test.ts 守着。
+#[cfg(target_os = "windows")]
+const WINDOWS_DATA_DIR_NAME: &str = "Huanvae-Chat-App";
+
 /// 获取应用数据根目录
 ///
 /// ## 平台差异
@@ -86,7 +95,8 @@ static CURRENT_USER: Lazy<RwLock<Option<UserContext>>> = Lazy::new(|| RwLock::ne
 /// - 桌面端开发模式：相对于 src-tauri 的 ../data（项目根目录）
 /// - 桌面端生产模式：
 ///   - Linux 系统安装: ~/huanvae-chat-app/data/（用户 home 目录，可见且可写）
-///   - Windows/macOS: 可执行文件旁边的 data 目录
+///   - Windows 装进 Program Files: %LOCALAPPDATA%\Huanvae-Chat-App\data（见下方那一段的理由）
+///   - Windows 装在别处 / macOS: 可执行文件旁边的 data 目录
 pub fn get_app_root() -> PathBuf {
     // Android: 使用预初始化的全局变量
     #[cfg(target_os = "android")]
@@ -147,7 +157,36 @@ pub fn get_app_root() -> PathBuf {
             }
         }
 
-        // Windows/macOS 生产模式：可执行文件旁边的 data 目录
+        // Windows 生产模式：装进 Program Files 时，exe 同级目录对**非管理员进程不可写**
+        //
+        // 🔴 这一段是 NSIS `installMode: perMachine` 的必要配套，缺了它 App 直接废掉：
+        // perMachine 把 INSTDIR 从 `%LOCALAPPDATA%\<productName>`（用户可写）挪到
+        // `C:\Program Files\...`（标准用户只有读+执行）。而本项目是 portable 布局、
+        // 数据就放 exe 同级的 `data\` —— 于是 SQLite 建库、accounts.json、文件缓存
+        // **全部写不进去**，且 Tauri 应用有 manifest、拿不到 UAC 文件虚拟化的兜底。
+        // 判据用「安装目录是否在 Program Files 下」而不是「试写一次」：与下方 Linux
+        // 那支 `/opt|/usr|/snap` 的既有做法同形，且 get_app_root() 是全仓高频调用、
+        // 不该每次去碰盘。代价是——用户在安装向导里把程序装到别处（如 D:\Apps）时仍走
+        // portable 布局，这是刻意保留的（那些位置本来就可写）。
+        #[cfg(target_os = "windows")]
+        {
+            let lower = exe_dir_str.to_lowercase();
+            // 取真实的环境变量而不是硬写 "program files"：本地化 Windows 的**显示名**是翻译过的，
+            // 真实路径虽仍是英文，但 64/32 位双份、以及非 C 盘系统都只有环境变量说得准。
+            let under_program_files = ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
+                .iter()
+                .filter_map(|k| std::env::var(k).ok())
+                .filter(|v| !v.is_empty())
+                .any(|v| lower.starts_with(&v.to_lowercase()));
+
+            if under_program_files {
+                if let Some(local_app_data) = dirs::data_local_dir() {
+                    return local_app_data.join(WINDOWS_DATA_DIR_NAME).join("data");
+                }
+            }
+        }
+
+        // Windows（装在可写位置）/ macOS 生产模式：可执行文件旁边的 data 目录
         exe_dir.join("data")
     }
 }

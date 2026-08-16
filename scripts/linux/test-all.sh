@@ -152,14 +152,38 @@ if grep -q '"nsis"' "$TAURI_CONF"; then
         ALL_PASSED=false
     fi
 else
-    echo -e "  ${YELLOW}⚠ WARN: 未检测到 NSIS 安装包配置${NC}"
+    # 🔴 WARN -> FAIL（2026-08-16）：只打黄字的守卫等于没有守卫 —— ⚠ WARN 既不 FAIL、
+    # 也不登记进跳过表，末尾汇总里完全看不见，与"根本没有这条检查"逐字同形。
+    # NSIS 是本仓 Windows 唯一发货形态，这里落空就是配置真的坏了，必须红。
+    echo -e "  ${RED}✗ FAIL: 未检测到 NSIS 安装包配置${NC}"
+    ALL_PASSED=false
 fi
 
-# 检查 updater installMode 配置
-if grep -q '"installMode".*"passive"' "$TAURI_CONF"; then
-    echo -e "  ${GREEN}✓ PASS: 更新器配置为静默安装模式${NC}"
+# 🔴 installMode 这个键名在 tauri.conf.json 里出现两次（bundle.windows.nsis 与
+# plugins.updater.windows），语义完全不同 —— 纯文本 grep 在这里是**假阳判据**
+# （会把另一处的命中算到自己头上）。凡是判 installMode 一律走结构化取键（node -p），
+# 别退回 grep。node 是本脚本的既有依赖（下面 package.json 验证那节也在用）。
+UPDATER_INSTALL_MODE=$(node -p "(JSON.parse(require('fs').readFileSync('$TAURI_CONF','utf8')).plugins?.updater?.windows?.installMode) ?? ''" 2>/dev/null || echo '')
+NSIS_INSTALL_MODE=$(node -p "(JSON.parse(require('fs').readFileSync('$TAURI_CONF','utf8')).bundle?.windows?.nsis?.installMode) ?? ''" 2>/dev/null || echo '')
+
+# 更新器 installMode：必须【显式】为 passive。
+# 上游 WindowsUpdateInstallMode 把 Passive 标成 #[default]，所以"没写这个键"= 仍是 passive、
+# 只是看不见 —— 本仓要求写出来并被钉住。极性与 scripts/pre-release.ps1 的配置检查一致。
+if [[ "$UPDATER_INSTALL_MODE" == "passive" ]]; then
+    echo -e "  ${GREEN}✓ PASS: 更新器配置为静默安装模式 (installMode = passive)${NC}"
 else
-    echo -e "  ${YELLOW}⚠ WARN: 更新器未配置 installMode: passive${NC}"
+    echo -e "  ${RED}✗ FAIL: plugins.updater.windows.installMode 必须显式为 'passive'（实际: '$UPDATER_INSTALL_MODE'）${NC}"
+    ALL_PASSED=false
+fi
+
+# NSIS 安装模式：必须 perMachine。hooks.nsi 的 sc.exe create/sdset 要 SCM 写权限，
+# 而安装器是否提权完全由这个键决定（perMachine -> RequestExecutionLevel admin）。
+# 退回 currentUser = 服务注册在每台机器上静默失败，正是 v1.1.35 之前的原始故障。
+if [[ "$NSIS_INSTALL_MODE" == "perMachine" ]]; then
+    echo -e "  ${GREEN}✓ PASS: NSIS 安装模式为 perMachine（安装器提权，服务注册才可能成功）${NC}"
+else
+    echo -e "  ${RED}✗ FAIL: bundle.windows.nsis.installMode 必须为 'perMachine'（实际: '$NSIS_INSTALL_MODE'）${NC}"
+    ALL_PASSED=false
 fi
 
 # ============================================

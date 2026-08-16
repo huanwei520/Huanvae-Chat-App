@@ -184,8 +184,14 @@ describe('HuanvaeGuardPage', () => {
     render(<HuanvaeGuardPage />);
     await waitFor(() => expect(mockServerApi.getDevices).toHaveBeenCalled());
 
-    // 常驻探活读到 getStatus 默认 {success:false} → serviceRunning=false → "服务未运行"
-    expect(screen.getByText('服务未运行')).toBeInTheDocument();
+    // 常驻探活读到 getStatus 默认 {success:false} → serviceRunning=false。
+    // Windows 与 macOS 一样走分态文案：本文件的全局 invoke mock 对 hg_is_installed 返回
+    // undefined（resolve 成功但不是 true ⇒ 明确的"没装"）⇒ 落到「未安装」这一态。
+    // 四态（未安装 / 已安装未运行 / 服务运行中 / 服务状态未知）各自的完整覆盖在
+    // HuanvaeGuardPage.windows.test.tsx（那份有按命令名分发的 invoke spy）。
+    expect(screen.getByText('未安装')).toBeInTheDocument();
+    // 旧的两态文案不该再出现（它把"未注册"和"注册了没起来"压成同一句）
+    expect(screen.queryByText('服务未运行')).not.toBeInTheDocument();
   });
 
   it('shows top "通过邀请加入群组" form independently of any selected group', async () => {
