@@ -1,25 +1,26 @@
 {
-  "source_repo_commit": "1c0a4d7ef983958d110184c0e6f909c0fad3af6e",
+  "source_repo_commit": "34c0811d7a52a1cb6a9f916530ba21e11556f741",
   "source_repo_dirty": true,
   "source_repo_dirty_files": [
-    ".claude/skills/hg-daemon-debug/SKILL.md"
+    ".claude/skills/hg-daemon-debug/SKILL.md",
+    "client/cli/deploy/install.sh"
   ],
-  "built_at_utc": "2026-08-14T16:55:52Z",
+  "built_at_utc": "2026-08-16T03:30:11Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
       "crate": "hg-macos",
       "target": "aarch64-apple-darwin",
       "arch": "arm64",
-      "sha256": "c757e82accf04561daf1130c1f29f960c8762f55cb9600dbe5c313f151f2b473",
-      "codesign_flags": "CodeDirectory v=20400 size=5130 flags=0x2(adhoc) hashes=154+2 location=embedded"
+      "sha256": "ef50a206874666868f0dca21d6ae66820b0c06d23a2994e681c8496641cbcdff",
+      "codesign_flags": "CodeDirectory v=20400 size=9258 flags=0x2(adhoc) hashes=283+2 location=embedded"
     },
     {
       "path": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "a7f8f2a8d619f745297afe170a741794eea8c5bfe1242c34ec2024d03db4bf2f"
+      "sha256": "3174e382949b632bc60afaeb4bd2ab7797a88f7abd2b4cae18ac629c0fd9b4ab"
     }
   ]
 }
