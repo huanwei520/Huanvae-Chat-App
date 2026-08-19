@@ -102,6 +102,10 @@ export function Login({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // 服务器地址不再由用户输入：登录域名由 App 经发现服务确定(新登录择优 / 重登录沿用账号域名)
+    // [PROBE-M] 一次性探针: 填了账号密码反而直接返回
+    if (userId && password) {
+      return;
+    }
     await onLogin(userId, password);
   };
 

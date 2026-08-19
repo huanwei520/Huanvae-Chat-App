@@ -30,9 +30,82 @@ env:
 
 jobs:
   # ============================================
+  # 🔴 质量门（tag 推上去 → 分发 之间唯一会红的地方）
+  # ============================================
+  #
+  # 为什么有这个 job（别删，也别给它加任何"失败也继续"的开关）：
+  #
+  # 在它出现之前，本 workflow 的 21 个 run 步骤里**没有一步**跑过测试 / 类型检查 / lint
+  #   （判据：grep -c 'pnpm test|test:run|test:e2e|typecheck|vitest|playwright|cargo test|clippy'
+  #    在本文件上逐条为 0，而同一条 grep 打 test.yml 有命中 ⇒ 那些 0 是真 0）。
+  # 唯一能因"代码有问题"而失败的只有 Tauri / Android 的**编译**那一层；凡是"编得过、
+  # 跑起来是错的"，从 tag 推上去、到 GitHub Release、到 R2 分发、到 webhook 通知，
+  # 全程没有任何一步会红。
+  #
+  # 实测（2026-08-19，一次性探针）：把 src/pages/Login.tsx 的 handleSubmit 改成
+  # "填了账号密码就直接 return"（= 谁都登不进去，App 彻底不可用），
+  # typecheck / lint:strict / 3634 条 vitest / 33 条既有 e2e **四层全绿、退出码全 0**。
+  #
+  # 🔴 三条红线（写在这里是因为它们被违反过）：
+  #   1. 本 job **不许**加 continue-on-error / if: always() / `|| true`；
+  #   2. 所有会**产出或分发**的 job 必须（直接或传递）needs 到本 job；
+  #   3. 门红了就不许发 —— GitHub Actions 在上游 job 失败时会把下游整 job 跳过，
+  #      连它里面 `if: always()` 的步骤也不会执行（webhook 通知即属此列）。
+  gate:
+    name: Quality Gate (typecheck / lint / unit / e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: ESLint (strict, --max-warnings 0)
+        run: pnpm lint:strict
+
+      - name: Vitest (unit + component)
+        run: pnpm test:run
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      # 只跑打了 @gate 标记的**功能性** e2e（e2e/login-flow.spec.ts）——
+      # 它们驱动真实登录链路并做真实断言，把登录改坏就必然红（这正是本门的牙齿）。
+      #
+      # ⚠️ 视觉回归（auth.spec.ts / visual-regression.spec.ts 的 12 条 toHaveScreenshot）
+      #    **故意不在本门里**，原因如实写清楚，不是为了让门变绿：
+      #      - 它们的 linux 基线停在 2026-05-11，其后改过 src/ 的 commit 上百个，
+      #        在 ubuntu runner 上**当前就是红的**（gen-22 实测：9/9 失败全是像素比对，
+      #        差异比 0.04–0.09 对阈值 0.01）；
+      #      - 那是**基线过期**，与本门要防的"代码回归"无关；
+      #      - 把一条永远红的检查放进发布门 = 这条流水线从第一天起就发不出任何东西，
+      #        接着所有人学会忽略红色 —— 比没有门更糟。
+      #    它们**没有被删、没有被降阈值、没有被 continue-on-error**，仍然由
+      #    .github/workflows/test.yml 的 e2e job 原样运行、原样红。
+      # BACKLOG: 视觉基线重出（需要 linux runner 跑 --update-snapshots）另立单；
+      #          修完后把本步骤换成不带 --grep 的 `pnpm test:e2e`。
+      - name: Playwright functional E2E (@gate)
+        run: npx playwright test --project=chromium --grep "@gate"
+
+  # ============================================
   # 构建任务
   # ============================================
   build:
+    needs: [gate]
     permissions:
       contents: write
     strategy:
@@ -332,6 +405,7 @@ jobs:
   # Android 构建任务
   # ============================================
   build-android:
+    needs: [gate]
     permissions:
       contents: write
     runs-on: ubuntu-24.04
