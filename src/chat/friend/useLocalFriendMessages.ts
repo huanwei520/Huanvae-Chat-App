@@ -99,7 +99,6 @@ function localMessageToMessage(local: LocalMessage, friendId: string): Message {
     file_uuid: local.file_uuid,
     file_url: local.file_url,
     file_size: local.file_size,
-    file_hash: local.file_hash,
     image_width: local.image_width,
     image_height: local.image_height,
     // reply_to 与相册三件套必须一路带到 UI：落库了但转换时丢掉，
@@ -345,17 +344,6 @@ export function useLocalFriendMessages(friendId: string | null) {
 
       conversationRef.current = await db.getConversation(conversationId);
 
-      const filesWithHash = localMessages.filter((m) => m.file_hash);
-      if (filesWithHash.length > 0) {
-        logFileLink('检测到带哈希的文件消息', {
-          count: filesWithHash.length,
-          files: filesWithHash.map((m) => ({
-            uuid: m.message_uuid,
-            hash: m.file_hash,
-            type: m.content_type,
-          })),
-        });
-      }
     } catch (err) {
       logError('加载本地消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -670,7 +658,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_uuid: null,
       file_url: null,
       file_size: null,
-      file_hash: null,
       reply_to: replyTo ?? null,
       send_time: tempSendTime,
       seq: 0,
@@ -721,7 +708,6 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_uuid: null,
         file_url: null,
         file_size: null,
-        file_hash: null,
         image_width: null,
         image_height: null,
         seq: response.seq,
@@ -787,7 +773,6 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_uuid: fileUuid ?? null,
       file_url: fileUrl ?? null,
       file_size: fileSize ?? null,
-      file_hash: fileHash ?? null,
       send_time: tempSendTime,
       seq: 0,
       is_recalled: false,
@@ -857,7 +842,6 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_uuid: fileUuid || null,
         file_url: fileUrl || null,
         file_size: fileSize || null,
-        file_hash: fileHash || null,
         image_width: null, // 图片尺寸在发送后由后端返回
         image_height: null,
         seq: response.seq,
@@ -1019,7 +1003,6 @@ export function useLocalFriendMessages(friendId: string | null) {
         file_uuid: wsMsg.file_uuid ?? null,
         file_url: wsMsg.file_url ?? null,
         file_size: wsMsg.file_size ?? null,
-        file_hash: wsMsg.file_hash ?? null,
         image_width: wsMsg.image_width ?? null,
         image_height: wsMsg.image_height ?? null,
         // 实时推送同样要带：不带的话对方回复/发相册时，我这边**当场**就渲染不出
@@ -1153,7 +1136,6 @@ export function useLocalFriendMessages(friendId: string | null) {
     // 塞进 file_url，那条字段的消费方会拿它去做远程解析。
     file_url: null,
     file_size: entry.preview.size,
-    file_hash: null,
     // 🔴 与上面 message_content 完全同一条理由：这里写死 null，在途气泡就没有引用块，
     // 而「确认落库」那一刻引用块会**突然冒出来** —— 同样是肉眼可见地闪一下。
     // 引用回复只在好友侧有值（群侧后端丢弃，门在 useComposerTrayOutbox.send）。

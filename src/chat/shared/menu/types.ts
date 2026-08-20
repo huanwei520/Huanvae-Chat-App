@@ -41,9 +41,9 @@ export type MenuView =
   | 'notices'
   | 'create-notice'
   | 'transfer-owner'
-  | 'confirm-disband'
-  | 'invite-codes'
-  | 'generate-code';
+  /** 入群与可见性设置（仅群主；PUT /api/groups/{id}/join-policy） */
+  | 'join-policy'
+  | 'confirm-disband';
 
 export interface MenuState {
   isOpen: boolean;
@@ -52,7 +52,6 @@ export interface MenuState {
   error: string | null;
   success: string | null;
   newGroupName: string;
-  inviteUserId: string;
   inviteMessage: string;
   members: GroupMember[];
   loadingMembers: boolean;
@@ -67,7 +66,6 @@ export interface MenuActions {
   setError: (error: string | null) => void;
   setSuccess: (success: string | null) => void;
   setNewGroupName: (name: string) => void;
-  setInviteUserId: (id: string) => void;
   setInviteMessage: (message: string) => void;
   setMembers: (members: GroupMember[]) => void;
   setLoadingMembers: (loading: boolean) => void;

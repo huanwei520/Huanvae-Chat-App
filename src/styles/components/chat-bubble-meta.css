@@ -442,17 +442,33 @@
    over pages/main.css no matter the import order.
 
    The black backing is the letterbox band for the ONE case where the box ratio
-   and the picture ratio differ on purpose: a ratio outside the 1:2.5 .. 2.5:1
-   window (huanwei 2026-08-14: "anything inside the ratio window must not be
-   padded out to one uniform size with black; only the wildly-off ratios may").
-   Inside the window calculateDisplaySize now hands back the picture's OWN
-   ratio, so contain paints no band at all and this rule is a no-op there.
-   Outside it the box is pinned to the nearest boundary ratio and the leftover
-   is black -- see the RATIO_WINDOW block in chat/shared/mediaDisplaySize.ts.
+   and the picture ratio differ on purpose: the picture is SO thin that at its
+   true ratio the box's short side would drop below a readable floor, and the
+   bubble would render as a hairline (100x5000 fits the height cap at a few
+   pixels wide). huanwei 2026-08-16: "everything else shows the whole picture at
+   its own ratio", "only the wildly-off ratios get black to help them show", and
+   720x2880 "is merely narrower" so it must NOT get a band.
+
+   The old rule here was a RATIO threshold (a 1:2.5 .. 2.5:1 window). It is gone:
+   its stated basis was "full-page screenshots run past 1:4, so they belong
+   outside the window", which is the exact opposite of the 720x2880 (= 1:4)
+   ruling above. The trigger is now MIN_READABLE_SIDE in
+   chat/shared/mediaDisplaySize.ts -- a floor on the box's short side, the same
+   shape every mature client uses (Telegram Desktop minPhotoSize 100px,
+   Telegram Android's dp(120) floor, Signal's min_width/min_height); none of them
+   has a ratio threshold at all. Whenever the short side clears that floor
+   calculateDisplaySize hands back the picture's OWN ratio, contain paints no
+   band, and this rule is a no-op -- which is now true for every ratio from 1:5
+   to 4.375:1 instead of 1:2.5 to 2.5:1.
    object-fit: contain already guarantees no crop -- see the comments on
    .image-message .message-image in pages/main.css.
    Black is literal, not a token: every neutral token here follows the theme and
    would be near-white in the light theme.
+
+   This rule paints the PURE-media bubble only in the sense that it is the layer
+   the letterbox shows through; the media+caption bubble keeps its own black band
+   (.media-bubble-media in media-bubble.css) and the album keeps its own
+   (.album-cell in album.css). Neither was touched.
 */
 .message-bubble .video-message {
   max-width: 100%;

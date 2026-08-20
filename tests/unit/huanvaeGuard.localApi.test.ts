@@ -139,6 +139,97 @@ describe('localApi.startTunnel', () => {
   });
 });
 
+/**
+ * `control`（控制面凭据）必须真的出现在启动请求里 —— 本仓最贵的一次静默失效
+ *
+ * 缺陷原文：桌面端发出的 start body **恰好 6 个键**（address / private_key / peers /
+ * obfuscation / dns / mtu），没有 `control`。守护进程侧拿不到凭据就走
+ * `CONTROL_PLANE_ABSENT`：只打一行 warn 然后 return —— 接口照样 200、界面照样显示
+ * 「已连接」，而这条隧道的 peer 集在启动那一刻**冻住**，后来加入的设备它永远不知道。
+ * 也就是说，"配置无感热更新"这个功能在桌面端**零覆盖**，且从任何一处读数都看不出来。
+ *
+ * 为什么必须**正反两条**：`startTunnel` 的 body 是 `JSON.stringify(params)` 整体透传，
+ * 只写正向断言的话，一个"把 control 硬编码进去"的实现同样能过（正向断言对它无判别力）。
+ * 反向那条（不传就整个键都不出现）才把"它确实来自调用方"钉死，
+ * 同时也锁住了「不该传的时候别传」这条与守护进程 `Option<ControlCredentials>` 对齐的语义。
+ */
+describe('localApi.startTunnel — 控制面凭据 control', () => {
+  /** 与 control 无关的必填项；每条用例只在它上面加/不加 control，做成单变量对照 */
+  const BASE = {
+    address: '10.66.0.2/32',
+    private_key: 'client-priv-key',
+    peers: [] as PeerConfig[],
+    obfuscation: {
+      h1: [1, 2], h2: [3, 4], h3: [5, 6], h4: [7, 8],
+      s1: 10, s2: 20, s3: 30, s4: 40, jc: 4, jmin: 8, jmax: 80,
+    } as ObfuscationParams,
+  };
+
+  /** 取本次 fetch 实际发出去的 body（解析后），即真正到达守护进程的那份 JSON */
+  function sentBody(): Record<string, unknown> {
+    const init = mockFetch.mock.calls[0][1] as { body: string };
+    return JSON.parse(init.body) as Record<string, unknown>;
+  }
+
+  it('传了 control：四个键逐字出现在发出去的 body 里', async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    await startTunnel({
+      ...BASE,
+      control: {
+        master_url: 'https://master.example.com:443',
+        device_id: 'dev-uuid-1',
+        access_token: 'ZZQ-FAKE-ACCESS',
+        refresh_token: 'ZZQ-FAKE-REFRESH',
+      },
+    });
+
+    const body = sentBody();
+    // 键名是与守护进程的 JSON 线格式契约（daemon.rs 的 ControlCredentials），
+    // 改一个字母就静默失效 —— 所以整体比对，不逐个 toContain
+    expect(body.control).toEqual({
+      master_url: 'https://master.example.com:443',
+      device_id: 'dev-uuid-1',
+      access_token: 'ZZQ-FAKE-ACCESS',
+      refresh_token: 'ZZQ-FAKE-REFRESH',
+    });
+  });
+
+  it('🔴 反向：不传 control 时，body 里根本没有 control 这个键', async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    await startTunnel(BASE);
+
+    const body = sentBody();
+    // 不是 `body.control === undefined`：那对"传了个 undefined 进去"也成立。
+    // 键必须整个不存在，才对得上守护进程侧的 #[serde(default)] Option<ControlCredentials>
+    expect(Object.keys(body)).not.toContain('control');
+    // 同类正对照：同一份 body 里确知存在的键必须数得到 —— 证明上面那个 not.toContain
+    // 不是因为 body 是空的 / 解析出了别的东西才"没找到"
+    expect(Object.keys(body)).toContain('private_key');
+  });
+
+  it('control 里缺 refresh_token 时，只有那一个键不出现（其余三个照常）', async () => {
+    // 守护进程侧 refresh_token 是 Option：缺它不拒绝启动，但控制链在第一次
+    // access_token 过期时就死了。这里锁的是"缺就整个键不出现"，
+    // 而不是把 undefined / 空串塞过去 —— 后者会被反序列化成一个存在但没用的凭据。
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    await startTunnel({
+      ...BASE,
+      control: {
+        master_url: 'https://master.example.com:443',
+        device_id: 'dev-uuid-1',
+        access_token: 'ZZQ-FAKE-ACCESS',
+        refresh_token: undefined,
+      },
+    });
+
+    const control = sentBody().control as Record<string, unknown>;
+    expect(Object.keys(control).sort()).toEqual(['access_token', 'device_id', 'master_url']);
+  });
+});
+
 describe('localApi.stopTunnel', () => {
   it('POSTs /api/tunnel/stop with only {method:"POST"} + signal init', async () => {
     mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));

@@ -95,7 +95,6 @@ const buildHit = (uuid: string, contentType: string, content: string): SearchMes
     file_uuid: 'f-1',
     file_url: null,
     file_size: null,
-    file_hash: null,
     image_width: null,
     image_height: null,
     seq: 1,

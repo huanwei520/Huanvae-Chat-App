@@ -94,7 +94,6 @@ function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     image_width: null,
     image_height: null,
     reply_to: null,
@@ -144,7 +143,6 @@ describe('GroupMessageBubble — 撤回状态优先于消息类型分支', () =>
       is_recalled: true,
       file_uuid: 'f-1',
       file_size: 1234,
-      file_hash: 'h-1',
     });
     render(<GroupMessageBubble message={msg} isOwn={false} />);
 

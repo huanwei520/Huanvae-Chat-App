@@ -1,0 +1,335 @@
+/**
+ * ShareTargetPicker 样式（A 版「快捷卡」）
+ *
+ * 🔴 动画单一所有权：`.share-picker-overlay` 的 opacity 与 `.share-picker-card` 的
+ * opacity/transform 由 framer-motion 逐帧写 inline style 接管，本文件对这两个选择器
+ * 一律不得给这两个属性声明过渡（通配的 all 同样禁止）。守门在 tests/animation-conflict.test.ts，
+ * 三条登记项都做过变异自证：故意加回过渡即精准翻红对应那一条。
+ * 其余选择器（行/chip/按钮）无 JS 动画，可自由过渡 background/border/color。
+ *
+ * 注意：本文件的注释里不要出现花括号 —— animation-conflict.test.ts 抠规则块是
+ * 「到第一个右花括号为止」，注释里的花括号会让登记项静默空转。
+ */
+
+.share-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.share-picker-card {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  height: 604px;
+  max-height: calc(100vh - 64px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- 头部 ---- */
+.share-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  flex: none;
+}
+
+.share-picker-head h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.share-picker-close {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s ease;
+}
+
+.share-picker-close:hover {
+  color: var(--text-primary);
+}
+
+/* ---- ① 内容预览 slot（由调用方填充） ---- */
+.share-picker-preview {
+  margin: 0 20px 14px;
+  flex: none;
+}
+
+/* ---- 搜索 ---- */
+.share-picker-search {
+  margin: 0 20px 10px;
+  padding: 9px 12px;
+  flex: none;
+  border: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.share-picker-search::placeholder {
+  color: var(--text-light);
+}
+
+.share-picker-search:focus {
+  border-color: var(--border-focus);
+}
+
+/* ---- ③ 已选 chip 行 ---- */
+.share-picker-chips {
+  margin: 0 20px 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: none;
+  max-height: 78px;
+  overflow-y: auto;
+}
+
+.share-picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  background: var(--primary-subtle);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--primary-text);
+  font-weight: 500;
+  max-width: 100%;
+}
+
+.share-picker-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.share-picker-chip-x {
+  background: none;
+  border: none;
+  color: var(--primary-text);
+  opacity: 0.55;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: opacity 0.15s ease;
+}
+
+.share-picker-chip-x:hover {
+  opacity: 1;
+}
+
+/* ---- ② 合并列表（最近聊天 / 好友 / 群组 三段，无 tab） ---- */
+.share-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 6px;
+}
+
+.share-picker-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-light);
+  padding: 8px 10px 5px;
+}
+
+.share-picker-empty {
+  padding: 28px 10px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+.share-picker-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.share-picker-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.share-picker-row.on {
+  background: var(--primary-subtle);
+}
+
+.share-picker-tick {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-on-color);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.share-picker-tick.on {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.share-picker-avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  overflow: hidden;
+  display: inline-block;
+}
+
+.share-picker-row-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.share-picker-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-picker-row-tag {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-left: 4px;
+}
+
+.share-picker-row-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-picker-row-time {
+  font-size: 12px;
+  color: var(--text-light);
+  flex: none;
+}
+
+.share-picker-error {
+  margin: 0 20px 8px;
+  flex: none;
+  font-size: 12px;
+  color: var(--status-error);
+}
+
+/* ---- 底部 ---- */
+.share-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  flex: none;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+}
+
+.share-picker-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.share-picker-count b {
+  color: var(--text-primary);
+}
+
+.share-picker-send {
+  padding: 9px 26px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--text-on-color);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.share-picker-send:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.share-picker-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- 移动端整屏化（不是把桌面小卡片硬塞进手机屏） ---- */
+@media (max-width: 640px) {
+  .share-picker-overlay {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .share-picker-card {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .share-picker-head {
+    padding: 14px 16px 10px;
+  }
+
+  .share-picker-preview,
+  .share-picker-search,
+  .share-picker-chips {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+
+  .share-picker-row {
+    padding: 10px;
+  }
+
+  .share-picker-foot {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}

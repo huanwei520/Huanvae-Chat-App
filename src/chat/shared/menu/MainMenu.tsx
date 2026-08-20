@@ -41,12 +41,12 @@ import {
   MegaphoneIcon,
   ArrowsRightLeftIcon,
   XCircleIcon,
-  QrCodeIcon,
   UserIcon,
   CloudDownloadIcon,
   StarIcon,
   BlockIcon,
   SearchIcon,
+  ShieldIcon,
 } from '../../../components/common/Icons';
 import { CircularProgress } from '../../../components/common/CircularProgress';
 import { GroupAvatar } from '../../../components/common/Avatar';
@@ -436,11 +436,14 @@ export function MainMenu({
               icon={<UserPlusIcon />}
               label="邀请成员"
             />
+            {/* 入群与可见性：契约写死 PUT /join-policy 仅群主（管理员也会被后端 403），
+                所以这里 gating 用 isOwner 而不是 isOwnerOrAdmin —— 给管理员看一个点了必 403
+                的入口，比不给更糟。 */}
             <AnimatedMenuItem
-              visible={isOwnerOrAdmin}
-              onClick={() => onSetView('invite-codes')}
-              icon={<QrCodeIcon />}
-              label="邀请码管理"
+              visible={isOwner}
+              onClick={() => onSetView('join-policy')}
+              icon={<ShieldIcon />}
+              label="入群与可见性"
             />
             {/* 转让群主：群主专属，在管理组内单独 gating */}
             <AnimatedMenuItem

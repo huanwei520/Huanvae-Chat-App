@@ -41,13 +41,13 @@
  * `#t=0.1` 由本组件内部追加。**别在调用方先追一次**：同一个 src 变量通常还会被递给全屏播放器，
  * 带上片段会让视频从 0.1 秒开始播（见 videoPosterSrc.ts「只能在元素层用」）。
  *
- * ## 封面本地持久化：传了 `fileHash` 就走本地图片，不再建 `<video>`
+ * ## 封面本地持久化：给得出封面键（`fileUuid` 或 `fileHash`）就走本地图片，不再建 `<video>`
  *
  * 上面那套「靠引擎 seek 出首帧」的机制有个结构性代价：**那一帧只活在这个 `<video>` 元素里**，
  * 元素一销毁就没了 —— 切回会话、进「查找记录 → 视频」、杀掉 App 重开，每次都要重拉元数据 +
  * seek + 解码，用户看到的就是「先黑再显示 / 每次都重新加载」。
  *
- * 传入 `fileHash` 后，本组件改由 `useVideoPoster` 驱动：
+ * 拿得到封面键后，本组件改由 `useVideoPoster` 驱动：
  * - 本地已存过封面 ⇒ 渲染 `<img>`（与图片消息**完全同一条**显示通路），`<video>` 连建都不建；
  * - 没存过 ⇒ 照旧渲染 `<video>`（用户立刻有画面），同时在离屏元素上截一帧落盘，
  *   落好后当场切成 `<img>`，此后永久走本地；
@@ -58,8 +58,8 @@
  * ## pending 期渲染同尺寸占位，而不是 `return null`
  *
  * 原实现在 pending 分支 `return null` —— 媒体元素**整个从 DOM 里消失**那几毫秒。
- * 最明显的一帧是**上传完成的切换**：在途气泡走的是不带 `fileHash` 的分支（同步 `capture`，
- * 画面一直在），换成完成态那一刻带上了 `fileHash` ⇒ 进 pending ⇒ 画面先没了再回来。
+ * 最明显的一帧是**上传完成的切换**：在途气泡走的是拿不到封面键的分支（同步 `capture`，
+ * 画面一直在），换成完成态那一刻有了键 ⇒ 进 pending ⇒ 画面先没了再回来。
  *
  * 占位的**尺寸必须与两个完成态同源**，否则「空一下」就换成了「跳一下」，等于没修：
  * 本组件三条分支（占位 / `<img>` / `<video>`）都只戴调用方给的同一个 `className`，
@@ -73,7 +73,7 @@
  * 要让画面也连续得让 pending 期就有媒体元素，而那正是本组件刻意消灭的成本。
  * 这一帧的视觉结论只能靠真机录屏（jsdom 无布局引擎，见 .claude/rules/frontend-test.md）。
  *
- * 不传 `fileHash` 的调用点行为与此前**逐字节相同**（恒走 `<video>` 分支）。
+ * 两个键都不传的调用点行为与此前**逐字节相同**（恒走 `<video>` 分支）。
  *
  * ⚠️ `onPlay` 只在 `<video>` 分支上有意义 —— 走本地封面时没有媒体元素，自然不会有播放事件。
  * 气泡那处靠它触发的后台缓存另有点击入口（`FileMessageContent` 的 `handleClick`），不受影响。
@@ -89,8 +89,18 @@ export interface VideoThumbnailProps {
    */
   src: string;
   /**
-   * 视频的稳定身份 —— 本地封面缓存的键（与图片本地缓存同一把键）。
-   * 不传 = 不启用封面持久化，行为与本功能落地前相同。
+   * 文件 UUID —— **消息面**的封面键（气泡 / 相册 / 查找命中传它）。
+   *
+   * 🔴 2026-08-16 两层键：后端接收面已不再下发 `file_hash`，而封面要在**下载之前**就出得来
+   * （内容哈希是下载完才自算的）。所以消息面改用下载前就有的 `file_uuid` 当键。
+   * 口径见 services/videoPoster.ts 模块头。
+   */
+  fileUuid?: string | null;
+  /**
+   * 已知的内容哈希 —— **个人文件面**的封面键（`GET /api/storage/files` 仍下发它）。
+   *
+   * 两者都不传 = 不启用封面持久化，行为与本功能落地前相同。
+   * 两者都有时以 `fileHash` 优先（与该来源既有的落盘封面继续命中，不必重截）。
    */
   fileHash?: string | null;
   /** 落到 `<video>` 上的类名（各调用点的尺寸 / 裁切样式仍归各自的 CSS） */
@@ -109,12 +119,14 @@ export interface VideoThumbnailProps {
 
 export function VideoThumbnail({
   src,
+  fileUuid,
   fileHash,
   className,
   onPlay,
   decorative,
 }: VideoThumbnailProps) {
-  const { status, posterSrc } = useVideoPoster(fileHash, src);
+  // 封面键：个人文件面有服务端下发的哈希就用它（老封面继续命中），消息面用 file_uuid
+  const { status, posterSrc } = useVideoPoster(fileHash || fileUuid, src);
 
   if (status === 'pending') {
     // 解析本地封面的那几毫秒：不建媒体元素，但把盒子占住 —— 尺寸与下面两条分支同源

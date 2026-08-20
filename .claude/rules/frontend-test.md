@@ -203,7 +203,7 @@ const cardVariants = {
 
 framer-motion 的 `motion.*` 通过 inline style 逐帧改 `transform` / `opacity`。如果同一元素的 CSS 也声明了 `transition: all` 或显式 `transition: transform/opacity`，浏览器会对每次 inline style 变化启动一次 CSS 过渡 → 进入/退出动画抖动、拖慢、行为不可预期。
 
-`MotionGlobalConfig.skipAnimations = true` 让 vitest 跳过帧更新 → 此类冲突在 vitest 中**永远测不出来**。e2e 真实浏览器才能复现，但项目内登录后页面（FilesModal/MobileFilesPage 等）受 `@tauri-apps/plugin-http` 通道限制 e2e 不可达。
+`MotionGlobalConfig.skipAnimations = true` 让 vitest 跳过帧更新 → 此类冲突在 vitest 中**永远测不出来**。e2e 真实浏览器才能复现，但项目内登录后页面（FilesModal/MobileFilesPage 等）受 `@tauri-apps/plugin-http` 通道限制 e2e 不可达。（🔴 **2026-08-19 订正：后半句已过期** —— 登录路径走 `invoke('secure_http')`，mock 补上该分支后 e2e 已能进主界面，见本文件「CI 门禁与 e2e 的真断言」。）
 
 **规则**：每新增一个由 `motion.* + variants` 控制 + 拥有自定义 className 的组件，必须：
 
@@ -873,3 +873,93 @@ const _fwmark = 'FWMARK_2026_08_13';   // 字面量：与被测同类；挂活�
 现查判据（改后）：`git ls-files | grep -cE 'e2e-real/test-results|playwright-report-real'` = **0**，
 **同类正对照** `git ls-files | grep -c '^e2e-real/'` = **8**（spec / helpers / README 仍然跟踪，
 证明 grep 有效、那个 0 是真 0；改前该正对照是 9，差的就是被移出的那一个）。
+
+## 🔴 CI 门禁与 e2e 的真断言（2026-08-19 起，`release.yml` 有一道会红的门）
+
+在此之前，`release.yml` 从 tag 推上去到 R2 分发**一步测试都没有**（21 个 `run:` 步骤里
+`pnpm test` / `test:run` / `test:e2e` / `typecheck` / `vitest` / `playwright` 计数**全 0**，
+同一条 grep 在 `test.yml` 上会响 ⇒ 那些 0 是真 0）。于是「登录彻底坏掉」这种事
+可以一路发到用户手上：实测把 `src/pages/Login.tsx` 的 `handleSubmit` 改成
+「填了账号密码反而直接 return」（点「登陆」零反应 = 谁都登不进去），
+`typecheck` / `lint:strict` / `test:run` / 当时的全量 e2e **四层退出码全 0**。
+
+### 门的形状（改 workflow 前先看清，别把它绕过）
+
+`release.yml` 的 `gate` job（`name: Quality Gate (typecheck / lint / unit / e2e)`）四步：
+`pnpm typecheck` → `pnpm lint:strict` → `pnpm test:run` →
+`npx playwright test --project=chromium --grep "@gate"`。
+
+`build` 与 `build-android` 各 `needs: [gate]`；`generate-manifest` `needs: [build, build-android]`
+⇒ **经传递依赖也在门后**。GitHub Actions 在上游 job 失败时把下游**整个 job 跳过**，
+连它里面 `if: always()` 的步骤都不执行 ⇒ **门红即零产物、零分发**
+（真跑实测：gate `failure` ⇒ build / build-android / generate-manifest **三个全部 skipped**，
+artifacts `total_count = 0`，无新 release；下游 `apt-repo.yml` 因
+`if: …workflow_run.conclusion == 'success'` 也 skipped）。
+
+三条不许破坏的性质（写在 `release.yml:48` 起的块注释里）：
+① `gate` job **不许**加 `continue-on-error` / `if: always()` / `|| true`；
+② 所有会**产出或分发**的 job 必须直接或传递 `needs` 到 `gate`；
+③ 新增会分发的 job 时**同批**把 `needs` 接上 —— 漏接不会有任何东西报错。
+
+### `@gate` 标记：新写的功能性 e2e 必须打，否则它不在门里
+
+门的选择器是 `--grep "@gate"`，匹配的是 **`test.describe(...)` 的标题**。
+现有三处：`e2e/login-flow.spec.ts` 两个 describe + `e2e/settings.spec.ts` 一个。
+
+- **新增功能性 e2e ⇒ 标题里加 `@gate`**，否则它跑得再好也挡不住任何发布。
+- **标记全丢不会静默放行**：实测 `--grep` 一个不存在的标签 ⇒ `Error: No tests found` / **rc=1**；
+  同刻正对照真 `@gate` ⇒ rc=0 / `Total: 5 tests in 2 files`。两侧形状不同 ⇒ 空集会响亮失败。
+
+### 🔴 e2e 必须至少有一条「读真实请求体」的断言
+
+**判决性实测**：e2e 的假后端对 `/api/auth/login` **无论请求体长什么样一律回 200 + token**。
+把 `src/api/auth.ts` 请求体里的 `user_id:` 改名成 `userid:`（一个真实的契约破坏）后：
+
+| 用例 | 结果 |
+|---|---|
+| 进主界面 | **照绿** |
+| 凭据错误停留在登录页 | **照绿** |
+| 登录后开设置面板 | **照绿** |
+| `expect(payload.user_id).toBe('e2euser')`（`e2e/login-flow.spec.ts:95`） | **红** |
+
+⇒ **断「mock 被调用过 / 界面到了下一屏」= 假测试；断「App 真发出去的字节」= 真测试。**
+一套 e2e 里必须至少留一条读真实 payload 的断言，并在注释里标明
+「本套唯一的凭据正确性哨兵，删它等于删掉这一类覆盖」。
+
+配套的第二类哨兵（同样实测有效）：把端点路径改掉（`/api/auth/login` → `/api/auth/signin`）
+会红 4 条 —— 那是钝变异，只当旁证；**精准度由 payload 那条承担。**
+
+另外**桩注入本身**要有一条断言守着：`addInitScript` 里一个语法错就会让整段静默不执行，
+所有 Tauri 调用变成 `Cannot read properties of undefined (reading 'invoke')`，
+而**纯截图用例照样能过**（登录页本身还渲染得出来）。`login-flow.spec.ts` 第一条就是干这个的。
+
+### 🔴 平台基线差异：本地绿 ≠ CI 绿（同一份代码、同一条命令）
+
+`.gitignore:64-65` 排除 `*-chromium-win32.png` 与 `*-chromium-darwin.png`
+⇒ **darwin 基线不入仓，本机首跑自动生成、其后恒绿**
+（实测：同码首跑 19 passed / 12 failed，12/12 报文全是 `A snapshot doesn't exist … writing actual`；
+第二跑 31 passed / 0 failed）。
+而 `git ls-files e2e/snapshots/` 只有 **12 个 `-chromium-linux.png`**，**入仓且已过期**
+⇒ **CI 的 ubuntu runner 上当前就是红的**（真跑：22 passed / 9 failed / 2 skipped，
+9/9 是 `toHaveScreenshot` 像素比对，差异比 0.04–0.09 对阈值 0.01）。
+
+⇒ **报 e2e 结果必须标平台**（"本地 darwin 全绿" / "CI ubuntu 9 条红"）；
+**拿本地绿推 CI 绿是错的**，反之亦然。要重出 linux 基线得有 linux runner 跑
+`--update-snapshots`，本机 darwin 且无容器运行时的话就是做不到 —— 如实写"做不到"，
+**不许删用例 / 降阈值 / 加 `continue-on-error` 让它变绿**。
+
+### 🔴 条件跳过会把真回归伪装成"跳过"
+
+`e2e/visual-regression.spec.ts:96` / `:114` 的
+`test.skip(true, 'register toggle button not found …')` 是活标本：
+**注册按钮真的消失（= 真回归）时，它 skip 而不是 fail。**
+「找不到元素就跳过」这类兜底**新写测试一律禁止** —— 找不到就应该红。
+（上述两处属视觉那一摊，已点名登记、未改。）
+
+### 顺带订正：「登录后页面 e2e 不可达」这句已过期
+
+本文件上文与 `.claude/rules/animation.md` 都写过「登录后页面受 `@tauri-apps/plugin-http`
+通道限制 e2e 不可达」。**现已不成立**：数据面早就改走 `invoke('secure_http')`，
+`e2e/helpers/tauri-mock.ts` 补上 `secure_http` 分支后，e2e 能真的登录进主界面并打开设置面板
+（`secure_http` 在该文件命中 10，同类正对照 `plugin:http` 命中 4 ⇒ grep 会响）。
+成因详见 `.claude/rules/common.md`「审计结论『e2e 撞 `plugin:http` 502』已过期」一节。

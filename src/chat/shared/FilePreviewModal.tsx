@@ -40,7 +40,11 @@ export interface FilePreviewModalProps {
   filename: string;
   /** 文件大小 */
   fileSize?: number;
-  /** 文件哈希（用于本地缓存查找与下载任务订阅） */
+  /**
+   * **已知**的内容哈希。只有个人文件面（`GET /api/storage/files`）有；
+   * 消息面（聊天文档气泡）**不传** —— 后端接收面已不再下发 `file_hash`，
+   * 缓存查找与下载任务改以 `fileUuid` 为键（两层键，见 services/fileCache.fileIdentityKey）。
+   */
   fileHash?: string | null;
   /** URL 类型（用于预签名端点选择） */
   urlType?: 'user' | 'friend' | 'group';
@@ -74,7 +78,8 @@ function DocumentPreview({
   urlType,
 }: {
   fileUuid: string;
-  fileHash: string | null | undefined;
+  /** 已知内容哈希：个人文件面有，消息面没有（见 FilePreviewModalProps.fileHash） */
+  fileHash?: string | null;
   filename: string;
   fileSize: number | undefined;
   urlType: 'user' | 'friend' | 'group';

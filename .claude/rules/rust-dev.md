@@ -654,12 +654,37 @@ macOS 侧当天那起「安装/修复恒失败」故障，除了本文件前面�
 **症状**：想在 macOS 上真机复现一个前端行为，图省事直接跑 `cargo build --release` 然后启动
 `target/release/<可执行文件>` —— **窗口起得来，但内容白屏**。
 
-**根因不是 App 缺陷**：裸二进制**没有 `Info.plist`、不是 bundle**。
-Tauri 的 webview 依赖 bundle 环境，裸可执行文件跑起来只有壳。
-⇒ 看到白屏**第一反应应当是"我的载体不对"**，而不是"这个版本坏了"——
-本仓 2026-08-13 实测就在这里绕了一次。
+> 🔴 **2026-08-16 根因订正（旧归因保留在下面，不抹掉 —— 留痕比干净重要）**
+>
+> **旧归因（❌ 错误，勿再据它推别的东西）**：
+> 「裸二进制**没有 `Info.plist`、不是 bundle**；Tauri 的 webview 依赖 bundle 环境，
+> 裸可执行文件跑起来只有壳。」
+>
+> **真因是 feature，不是 bundle**：`cargo build --release` **默认不带 `tauri/custom-protocol`**，
+> 而 Tauri v2 **用这个 feature 决定「读内嵌资源」还是「连 devUrl」** ——
+> 不带它，release 二进制会去连一个并不存在的 dev server ⇒ **白屏**。
+> `tauri build` 自动带上该 feature，**手工 `cargo build` 不带**，这就是两者行为不同的全部原因。
+>
+> ⇒ **手工组装 `.app` 时必须**：
+> ```
+> cargo build --release --features tauri/custom-protocol
+> ```
+> **只补 `Info.plist` / 只做成 bundle 是不够的** —— 旧归因会让人在 bundle 结构上反复折腾而白屏依旧。
+>
+> **来源**：`fw-code-1786856192` 在自组装 `.app` 时实撞并定位（gen-24，2026-08-16）；
+> 本仓此前把成因写成"没有 bundle"的是 leader，**记在 leader 账上**。
+> ⚠️ 该 worker **没有擅自改本文档**，只在交接里建议补 —— 这个边界感是对的。
+
+⇒ 看到白屏**第一反应应当是"我的载体不对 / 我的 feature 不全"**，而不是"这个版本坏了"——
+本仓 2026-08-13 实测就在这里绕了一次（当时错误地归因为缺 bundle）。
 （这条同时**回填**了 [common.md](common.md) Touch ID 一节里那句「`tauri dev` 裸二进制无 .app
-Info.plist 时行为待验」：**已验，白屏**。）
+Info.plist 时行为待验」：**已验，白屏** —— 但**白屏的成因是缺 feature，不是缺 Info.plist**。）
+
+**顺带一条同批实测（读 JS console 这条路目前走不通，别再试）**：
+`--features tauri/devtools` **能编、App 能起**，但**右键被 App 自己的上下文菜单接管**
+（回复 / 删除 / 多选），Inspector 进不去；**独立预览窗**那个 webview 右键**有** Inspect Element，
+但 **ad-hoc 签名下 Inspector 窗口起不来**。
+⇒ 要读前端错误，得另找路（临时把前端错误上报到 Rust，或走 dev server 模式）。
 
 ### 🔴 但 `tauri build --bundles app` 在**共享盘（virtiofs）**上会失败
 

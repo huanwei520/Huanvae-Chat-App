@@ -151,6 +151,7 @@ function seed(
 function renderSending(clientId: string, kind: 'image' | 'video'): HTMLElement {
   const { container } = render(
     <FileMessageContent
+      messageUuid="msg-uuid-1"
       messageType={kind}
       messageContent={kind === 'video' ? '[视频] a.mp4' : '[图片] a.png'}
       fileUuid={null}
@@ -165,10 +166,10 @@ function renderSending(clientId: string, kind: 'image' | 'video'): HTMLElement {
 function renderSettled(kind: 'image' | 'video', width: number | null, height: number | null): HTMLElement {
   const { container } = render(
     <FileMessageContent
+      messageUuid="msg-uuid-1"
       messageType={kind}
       messageContent={kind === 'video' ? '[视频] a.mp4' : '[图片] a.png'}
       fileUuid="file-uuid-1"
-      fileHash="hash-1"
       fileSize={2048}
       imageWidth={width}
       imageHeight={height}

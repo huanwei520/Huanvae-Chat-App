@@ -18,8 +18,8 @@ import { resolveGroupFileRelatedId } from '../services/groupFileScope';
 /** 媒体类型 */
 export type MediaType = 'image' | 'video';
 
-/** 媒体预览窗口数据（不含认证信息） */
-export interface MediaWindowData {
+/** 序列里的一项：预览窗按它取源 */
+export interface MediaSequenceEntry {
   /** 媒体类型 */
   type: MediaType;
   /** 文件 UUID */
@@ -28,18 +28,42 @@ export interface MediaWindowData {
   filename: string;
   /** 文件大小 */
   fileSize?: number;
-  /** 文件哈希 */
+  /**
+   * **已知**的内容哈希。只有个人文件面（「我的文件」）传；
+   * 消息面（气泡 / 查找命中）**不传** —— 后端接收面已不再下发 `file_hash`，
+   * 预览窗的缓存查找与下载任务以 `fileUuid` 为键（两层键，见 services/fileCache.fileIdentityKey）。
+   */
   fileHash?: string | null;
   /** URL 类型（用于构建下载 URL） */
   urlType: 'user' | 'friend' | 'group';
-  /** 本地文件路径（如果有） */
+  /**
+   * 本地文件路径（如果有）。
+   * **只有被点开的那一项**带它（主窗口那侧已经解析过）；序列里的邻居不带 —— 预览窗自己解析。
+   */
   localPath?: string | null;
-  /** 预获取的预签名 URL（可选，避免在媒体窗口中再次请求） */
+  /** 预获取的预签名 URL（同上，只有被点开的那一项有） */
   presignedUrl?: string | null;
 }
 
+/** 媒体预览窗口数据（不含认证信息） */
+export interface MediaWindowData extends MediaSequenceEntry {
+  /**
+   * 同会话媒体序列（**升序，旧 → 新**），用于窗口内左右切上一张 / 下一张。
+   *
+   * 不传 = 单张序列：「我的文件」/ 会话内查找命中项这类调用方本来就没有"上一张"的概念，
+   * 行为逐字不变（见下方 openMediaWindow 的归一化 —— 序列恒非空，窗口侧只有一条路径）。
+   */
+  sequence?: MediaSequenceEntry[];
+  /** 本条在 `sequence` 里的位次；不传 sequence 时忽略 */
+  sequenceIndex?: number;
+}
+
 /** 存储在 localStorage 中的完整数据（含认证信息） */
-interface MediaStorageData extends MediaWindowData {
+export interface MediaStorageData {
+  /** 媒体序列，**恒非空**（单张调用方也会被归一化成长度 1 的序列） */
+  sequence: MediaSequenceEntry[];
+  /** 打开时停在哪一项 */
+  index: number;
   /** 服务器地址 */
   serverUrl: string;
   /** 访问令牌 */
@@ -50,6 +74,8 @@ interface MediaStorageData extends MediaWindowData {
    * **不在 `MediaWindowData` 里**：调用方（气泡 / 查找命中项）不该也不必自己传，
    * 由 `openMediaWindow` 在主窗口侧统一解析 —— 预览窗是另一个 webview、chatStore 是空的，
    * 拿不到这个值就只能 400。解析口径见 services/groupFileScope.ts。
+   *
+   * 整条序列共用同一个值：序列本来就是**同一个会话**里的媒体。
    */
   groupId: string | null;
 }
@@ -118,9 +144,24 @@ export async function openMediaWindow(
   data: MediaWindowData,
   auth: MediaAuthInfo,
 ): Promise<void> {
+  const { sequence: givenSequence, sequenceIndex, ...entry } = data;
+
+  // 归一化成「恒非空的序列 + 位次」：没给序列的调用方（「我的文件」/ 查找命中项）
+  // 得到长度 1 的序列 —— 于是预览窗侧只有一条代码路径，不需要判"有没有序列"。
+  const hasSequence = !!givenSequence && givenSequence.length > 0;
+  const index = hasSequence
+    ? Math.min(Math.max(sequenceIndex ?? 0, 0), givenSequence.length - 1)
+    : 0;
+  // 被点开的那一项一律用 entry 整条覆盖：只有它带着主窗口已经解析好的
+  // localPath / presignedUrl（邻居项由预览窗自己解析），覆盖掉才不会两边打架。
+  const sequence: MediaSequenceEntry[] = hasSequence
+    ? givenSequence.map((it, i) => (i === index ? entry : it))
+    : [entry];
+
   // 保存数据到 localStorage（含认证信息 + 群文件预签名要用的 related_id）
   saveMediaDataInternal({
-    ...data,
+    sequence,
+    index,
     serverUrl: auth.serverUrl,
     accessToken: auth.accessToken,
     // 主窗口侧解析：预览窗自己读不到 chatStore（另一个 webview）

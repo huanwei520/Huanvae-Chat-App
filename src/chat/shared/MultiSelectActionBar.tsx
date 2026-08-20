@@ -6,17 +6,21 @@
  */
 
 import { motion } from 'framer-motion';
-import { TrashIcon, RecallIcon, CloseIcon, SelectAllIcon } from '../../components/common/Icons';
+import { TrashIcon, RecallIcon, CloseIcon, SelectAllIcon, ForwardIcon } from '../../components/common/Icons';
 
 interface MultiSelectActionBarProps {
   selectedCount: number;
   totalCount: number;
   /** 是否可以批量撤回（需要有权限且选中了可撤回的消息） */
   canBatchRecall: boolean;
+  /** 是否可以批量转发（选中项里至少有一条可转发；全不可转发时不给入口） */
+  canBatchForward?: boolean;
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onBatchDelete: () => void;
   onBatchRecall: () => void;
+  /** 批量转发：打开转发面板（不传则该按钮不出现） */
+  onBatchForward?: () => void;
   onCancel: () => void;
 }
 
@@ -24,10 +28,12 @@ export function MultiSelectActionBar({
   selectedCount,
   totalCount,
   canBatchRecall,
+  canBatchForward,
   onSelectAll,
   onDeselectAll,
   onBatchDelete,
   onBatchRecall,
+  onBatchForward,
   onCancel,
 }: MultiSelectActionBarProps) {
   const isAllSelected = selectedCount === totalCount && totalCount > 0;
@@ -80,6 +86,19 @@ export function MultiSelectActionBar({
       </div>
 
       <div className="action-bar-right">
+        {canBatchForward && onBatchForward && (
+          <motion.button
+            className="action-bar-btn forward"
+            onClick={onBatchForward}
+            disabled={selectedCount === 0}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <ForwardIcon />
+            <span>转发</span>
+          </motion.button>
+        )}
+
         {canBatchRecall && (
           <motion.button
             className="action-bar-btn recall"

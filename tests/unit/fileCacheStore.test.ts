@@ -18,7 +18,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('addDownloadTask', () => {
     it('应创建 pending 状态任务，downloaded=0', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,
@@ -39,7 +39,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('updateDownloadProgress', () => {
     it('应更新已存在任务的进度', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,
@@ -63,7 +63,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('completeDownload', () => {
     it('应将状态设为 completed，percent 为 100', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,
@@ -81,7 +81,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('failDownload', () => {
     it('应将状态设为 failed 并记录错误', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,
@@ -98,7 +98,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('removeDownloadTask', () => {
     it('应移除指定任务', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,
@@ -113,13 +113,13 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('clearCompletedTasks', () => {
     it('应仅移除已完成任务', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'a.jpg',
         fileType: 'image',
         total: 100,
       });
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash2',
+        cacheKey: 'hash2',
         fileName: 'b.jpg',
         fileType: 'image',
         total: 100,
@@ -224,7 +224,7 @@ describe('文件缓存状态管理 (fileCacheStore)', () => {
   describe('reset', () => {
     it('应清空所有状态', () => {
       useFileCacheStore.getState().addDownloadTask({
-        fileHash: 'hash1',
+        cacheKey: 'hash1',
         fileName: 'test.jpg',
         fileType: 'image',
         total: 1024,

@@ -26,19 +26,21 @@
  * @see src/services/fileCache.ts 文件缓存服务
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { secureHttp } from '../services/secureFetch';
 import { resolveForSecureHttp } from '../services/discovery';
 import { resolveDisplayUrl } from '../services/secureProxy';
-import { loadMediaData } from './api';
+import { loadMediaData, type MediaStorageData } from './api';
 import {
   getCachedFilePath,
   downloadAndSaveFile,
   triggerBackgroundDownload,
   startProgressListener,
   isFileNotFoundError,
+  fileIdentityKey,
+  resolveContentHash,
   type FileDownloadCompletedEvent,
 } from '../services/fileCache';
 import { useFileCacheStore, selectDownloadTask } from '../stores/fileCacheStore';
@@ -64,7 +66,11 @@ interface MediaState {
   filename: string;
   /** 文件大小 */
   fileSize?: number;
-  /** 文件哈希 */
+  /**
+   * **已知**的内容哈希。只有个人文件面（「我的文件」）的 handoff 带它；
+   * 消息面（气泡 / 查找命中）**不带** —— 后端接收面已不再下发 `file_hash`。
+   * 缓存查找与下载任务改以 `fileUuid` 为键（两层键，见 services/fileCache.fileIdentityKey）。
+   */
   fileHash?: string | null;
   /** URL 类型 */
   urlType: 'user' | 'friend' | 'group';
@@ -300,10 +306,11 @@ async function getFileSource(
     }
   }
 
-  // 2. 检查本地缓存（通过 fileHash）
-  if (state.fileHash) {
+  // 2. 检查本地缓存：先做 uuid -> hash 那一跳（两层键），再照旧按内容哈希查 file_mappings
+  const contentHash = await resolveContentHash(state.fileUuid, state.fileHash);
+  if (contentHash) {
     try {
-      const localPath = await getCachedFilePath(state.fileHash);
+      const localPath = await getCachedFilePath(contentHash);
       if (localPath) {
         const src = convertFileSrc(localPath);
         // eslint-disable-next-line no-console
@@ -324,7 +331,8 @@ async function getFileSource(
       src: resolveDisplayUrl(state.presignedUrl) ?? state.presignedUrl,
       isLocal: false,
       presignedUrl: state.presignedUrl,
-      shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
+      // 两层键下永远有键可用（消息面 = file_uuid），不再以"有没有哈希"为条件
+      shouldCache: true,
     };
   }
 
@@ -344,7 +352,8 @@ async function getFileSource(
     src: resolveDisplayUrl(url) ?? url,
     isLocal: false,
     presignedUrl: url,
-    shouldCache: !!state.fileHash, // 有 fileHash 才能缓存
+    // 同上：键恒存在
+    shouldCache: true,
   };
 }
 
@@ -352,7 +361,22 @@ async function getFileSource(
 // 图片预览组件
 // ============================================================================
 
-function ImageViewer({ state }: { state: MediaState }) {
+/** 触控板横向滑动累计到这个像素量就切一张（低于它当作误触，不切） */
+const WHEEL_SWITCH_THRESHOLD_PX = 80;
+
+function ImageViewer({
+  state,
+  canPrev,
+  canNext,
+  onStep,
+}: {
+  state: MediaState;
+  /** 序列里还有没有上一张（到边界时横向滑动不切图，也不循环） */
+  canPrev: boolean;
+  canNext: boolean;
+  /** 切上一张 (-1) / 下一张 (+1) */
+  onStep: (delta: number) => void;
+}) {
   const [src, setSrc] = useState<string | null>(null);
   const [isLocal, setIsLocal] = useState(false);
   const [localPathState, setLocalPathState] = useState<string | null>(null);
@@ -369,7 +393,9 @@ function ImageViewer({ state }: { state: MediaState }) {
   const downloadTriggeredRef = useRef(false);
 
   // 订阅下载任务状态（用于工具栏按钮三态切换）
-  const downloadTask = useFileCacheStore(selectDownloadTask(state.fileHash ?? ''));
+  // 文件身份键：个人文件面 handoff 带哈希就用它，消息面用 file_uuid（两层键）
+  const cacheKey = fileIdentityKey(state.fileUuid, state.fileHash);
+  const downloadTask = useFileCacheStore(selectDownloadTask(cacheKey));
 
   // 启动进度监听器（独立窗口需要自行启动一次）
   useEffect(() => {
@@ -434,15 +460,14 @@ function ImageViewer({ state }: { state: MediaState }) {
       fileSource &&
       !fileSource.isLocal &&
       fileSource.shouldCache &&
-      fileSource.presignedUrl &&
-      state.fileHash
+      fileSource.presignedUrl
     ) {
       downloadTriggeredRef.current = true;
       // eslint-disable-next-line no-console
       console.log('[MediaPreview] 图片加载完成，触发后台下载...');
       downloadAndSaveFile(
         fileSource.presignedUrl,
-        state.fileHash,
+        cacheKey,
         state.filename,
         'image',
         state.fileSize,
@@ -457,14 +482,40 @@ function ImageViewer({ state }: { state: MediaState }) {
         console.warn('[MediaPreview] 后台下载失败:', err);
       });
     }
-  }, [state.fileHash, state.filename, state.fileSize]);
+  }, [cacheKey, state.filename, state.fileSize]);
 
-  // 鼠标滚轮缩放
+  // 横向滑动的累计量（触控板两指横扫是一串小 deltaX，攒够一屏才切一张）
+  const wheelAccumRef = useRef(0);
+
+  /**
+   * 滚轮：纵向 = 缩放（原行为）；横向 = 「左右滑动」在桌面上的对应物。
+   *
+   * 🔴 与移动端同一条矩阵：**放大态（scale > 1）下横向滑动是平移图片，不切图**。
+   * 未放大时横扫才切上一张 / 下一张；到边界不切也不循环（累计量清零，等于回弹）。
+   */
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+
+    // 横向为主的滚动 = 触控板两指横扫
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      if (scale > 1) {
+        // 放大态：横向滑动归平移，切图层让位
+        setPosition((prev) => ({ x: prev.x - e.deltaX, y: prev.y }));
+        return;
+      }
+      wheelAccumRef.current += e.deltaX;
+      if (Math.abs(wheelAccumRef.current) < WHEEL_SWITCH_THRESHOLD_PX) { return; }
+      const direction = wheelAccumRef.current > 0 ? 1 : -1;
+      wheelAccumRef.current = 0;
+      if (direction === -1 && !canPrev) { return; }
+      if (direction === 1 && !canNext) { return; }
+      onStep(direction);
+      return;
+    }
+
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setScale((prev) => Math.max(0.1, Math.min(10, prev * delta)));
-  }, []);
+  }, [scale, canPrev, canNext, onStep]);
 
   // 拖拽开始
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -495,10 +546,6 @@ function ImageViewer({ state }: { state: MediaState }) {
 
   // 下载（走项目统一后台下载链路，避免 <a download> 在 Tauri webview 跨域 URL 上被当作导航）
   const handleDownload = useCallback(() => {
-    if (!state.fileHash) {
-      console.warn('[MediaPreview] 无 fileHash，无法触发下载');
-      return;
-    }
     // 下载必须用**原始** presigned URL（Rust directIpUrl 重写 host→IP）；
     // 不回退到 src —— src 现为反代 loopback URL，传给下载会被 directIpUrl 弄坏。
     const presignedUrl = fileSourceRef.current?.presignedUrl;
@@ -508,12 +555,12 @@ function ImageViewer({ state }: { state: MediaState }) {
     }
     triggerBackgroundDownload(
       presignedUrl,
-      state.fileHash,
+      cacheKey,
       state.filename,
       'image',
       state.fileSize,
     );
-  }, [state.fileHash, state.filename, state.fileSize]);
+  }, [cacheKey, state.filename, state.fileSize]);
 
   // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
   // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）
@@ -612,7 +659,9 @@ function VideoPlayer({ state }: { state: MediaState }) {
   const fileSourceRef = useRef<FileSource | null>(null);
 
   // 订阅下载任务状态（工具栏按钮三态切换）
-  const downloadTask = useFileCacheStore(selectDownloadTask(state.fileHash ?? ''));
+  // 文件身份键：个人文件面 handoff 带哈希就用它，消息面用 file_uuid（两层键）
+  const cacheKey = fileIdentityKey(state.fileUuid, state.fileHash);
+  const downloadTask = useFileCacheStore(selectDownloadTask(cacheKey));
 
   // 启动进度监听器（独立窗口需要自行启动一次）
   useEffect(() => {
@@ -677,15 +726,15 @@ function VideoPlayer({ state }: { state: MediaState }) {
 
   // 监听主窗口的下载完成事件（跨窗口通信）
   useEffect(() => {
-    if (!state.fileHash || isLocal) { return; }
+    if (isLocal) { return; }
 
     let unlisten: (() => void) | null = null;
 
     listen<FileDownloadCompletedEvent>('file-download-completed', (event) => {
-      const { fileHash, localPath } = event.payload;
+      const { cacheKey: completedKey, localPath } = event.payload;
 
-      // 检查是否是当前视频的下载完成
-      if (fileHash === state.fileHash) {
+      // 检查是否是当前视频的下载完成（比的是同一把文件身份键）
+      if (completedKey === cacheKey) {
         // eslint-disable-next-line no-console
         console.log('[MediaPreview] 收到下载完成事件，切换到本地文件:', localPath);
         setSrc(convertFileSrc(localPath));
@@ -699,14 +748,10 @@ function VideoPlayer({ state }: { state: MediaState }) {
     return () => {
       if (unlisten) { unlisten(); }
     };
-  }, [state.fileHash, isLocal]);
+  }, [cacheKey, isLocal]);
 
   // 下载按钮（走项目统一后台下载链路；<a download> 在 Tauri webview 跨域 URL 上会被当导航）
   const handleDownload = useCallback(() => {
-    if (!state.fileHash) {
-      console.warn('[MediaPreview] 无 fileHash，无法触发下载');
-      return;
-    }
     // 下载必须用**原始** presigned URL（Rust directIpUrl 重写）；不回退 src（现为反代 loopback）。
     const presignedUrl = fileSourceRef.current?.presignedUrl;
     if (!presignedUrl) {
@@ -715,12 +760,12 @@ function VideoPlayer({ state }: { state: MediaState }) {
     }
     triggerBackgroundDownload(
       presignedUrl,
-      state.fileHash,
+      cacheKey,
       state.filename,
       'video',
       state.fileSize,
     );
-  }, [state.fileHash, state.filename, state.fileSize]);
+  }, [cacheKey, state.filename, state.fileSize]);
 
   // 在文件夹中显示 —— 仅信任 localPathState（与 isLocal 同源），不 fallback 到
   // downloadTask?.localPath（store 内存遗迹，文件被外部删除后不刷新）
@@ -790,18 +835,58 @@ function VideoPlayer({ state }: { state: MediaState }) {
 // ============================================================================
 
 export default function MediaPreviewPage() {
-  const [mediaState, setMediaState] = useState<MediaState | null>(null);
+  const [handoff, setHandoff] = useState<MediaStorageData | null>(null);
+  const [index, setIndex] = useState(0);
 
   // 初始化：读取媒体数据
   // 数据缺失时停留在加载态（该窗口仅在主窗口写入数据后创建，此路径实际不可达；
   // 窗口关闭一律走原生标题栏，DOM 层的 close 调用在 Tauri webview 里关不掉 OS 窗口）
   useEffect(() => {
     const data = loadMediaData();
-    if (!data || !data.serverUrl || !data.accessToken) {
+    if (!data || !data.serverUrl || !data.accessToken || !data.sequence?.length) {
       return;
     }
-    setMediaState(data as MediaState);
+    setHandoff(data);
+    setIndex(Math.min(Math.max(data.index, 0), data.sequence.length - 1));
   }, []);
+
+  const total = handoff?.sequence.length ?? 0;
+  const canPrev = index > 0;
+  const canNext = index < total - 1;
+
+  // 边界：到头就是到头 —— 不循环、不跳转（与移动端 stepGalleryIndex 同口径）
+  const step = useCallback((delta: number) => {
+    setIndex((prev) => {
+      const next = prev + delta;
+      if (next < 0 || next >= total) { return prev; }
+      return next;
+    });
+  }, [total]);
+
+  // 键盘左右切图（独立预览窗没有别的键盘用途，直接挂 window）
+  useEffect(() => {
+    if (total <= 1) { return; }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { step(-1); }
+      if (e.key === 'ArrowRight') { step(1); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [step, total]);
+
+  // 当前这一项 —— 必须 memo：ImageViewer / VideoPlayer 的加载 effect 依赖 [state]，
+  // 每次 render 造新对象会让它们无限重新取源。
+  const mediaState = useMemo<MediaState | null>(() => {
+    if (!handoff) { return null; }
+    const entry = handoff.sequence[index];
+    if (!entry) { return null; }
+    return {
+      ...entry,
+      serverUrl: handoff.serverUrl,
+      accessToken: handoff.accessToken,
+      groupId: handoff.groupId,
+    };
+  }, [handoff, index]);
 
   if (!mediaState) {
     return (
@@ -822,13 +907,52 @@ export default function MediaPreviewPage() {
             <span className="media-filesize">{formatFileSize(mediaState.fileSize)}</span>
           )}
         </div>
+        {/* 序列位置「3 / 12」：单张序列不显示。它同时是验收判据 ——
+            光看画面换没换，分不清"切图生效"与"图片自己重载了" */}
+        {total > 1 && (
+          <span className="media-position">{index + 1} / {total}</span>
+        )}
       </header>
 
-      {/* 内容区域 */}
+      {/* 内容区域
+          🔴 key 用 fileUuid：换一项就重挂，缩放 / 平移 / src 一并归零。
+          这里可以放心重挂 —— 桌面预览窗没有 AnimatePresence，不会因此闪一次整块淡入。 */}
       <main className="media-content">
-        {mediaState.type === 'image' && <ImageViewer state={mediaState} />}
-        {mediaState.type === 'video' && <VideoPlayer state={mediaState} />}
+        {mediaState.type === 'image' && (
+          <ImageViewer
+            key={mediaState.fileUuid}
+            state={mediaState}
+            canPrev={canPrev}
+            canNext={canNext}
+            onStep={step}
+          />
+        )}
+        {mediaState.type === 'video' && <VideoPlayer key={mediaState.fileUuid} state={mediaState} />}
       </main>
+
+      {/* 左右切图按钮：桌面端的显式入口（键盘 ← → 与触控板横向滑动同效） */}
+      {total > 1 && (
+        <>
+          <button
+            className="media-nav media-nav-prev"
+            onClick={() => step(-1)}
+            disabled={!canPrev}
+            title="上一张（←）"
+            type="button"
+          >
+            ‹
+          </button>
+          <button
+            className="media-nav media-nav-next"
+            onClick={() => step(1)}
+            disabled={!canNext}
+            title="下一张（→）"
+            type="button"
+          >
+            ›
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -408,10 +408,11 @@ src/styles/mobile/
 
 | 类名 | 说明 |
 |------|------|
-| `.mobile-media-preview-overlay` | 全屏遮罩层 |
+| `.mobile-media-preview-overlay` | 全屏遮罩层；`touch-action: none` 关掉 WebView 页面级双指缩放（否则双指放大的是整个 App） |
 | `.mobile-media-preview-header` | 顶部栏（关闭按钮、文件名） |
-| `.mobile-media-preview-content` | 媒体内容区域 |
-| `.mobile-media-preview-image` | 图片（支持双指缩放） |
+| `.mobile-media-preview-content` | 媒体内容区域，同时是图片缩放手势的采集区 |
+| `.mobile-media-preview-image-stage` | 图片缩放/平移承载层，transform 由 `useImageZoom` 逐帧独占（禁写 transition） |
+| `.mobile-media-preview-image` | 图片本体（入场 scale 归 framer-motion） |
 | `.mobile-media-preview-video` | 视频播放器 |
 
 ### 移动端视频播放

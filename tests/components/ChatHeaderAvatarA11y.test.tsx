@@ -3,9 +3,14 @@
  *
  * 锁定契约：
  * - 桌面 ChatPanel `.chat-header-info` / 移动 MobileChatView `.mobile-chat-title`
- *   仅在「私聊」时挂 role=button / tabIndex=0 / aria-label=`查看${标题}资料` +
+ *   在「私聊」时挂 role=button / tabIndex=0 / aria-label=`查看${标题}资料` +
  *   onKeyDown(Enter/Space)=openProfile(friendId) + 键盘焦点环
- * - 群聊 / AI 聊天顶栏无任何 a11y 交互属性（反向断言）
+ * - **群聊**同样可交互，但打开的是**群详情面板** openGroupDetail(groupId)，**不是** openProfile
+ *   （2026-08-17 群名片单改：群详情面板此前只能从发现搜索点进去，而 search_scope 为
+ *   admins/owner_only 时普通成员连自己的群都搜不到 ⇒ 面板上的「分享该群」等入口无路可达。
+ *   本条**取代**了原先「群聊顶栏无任何 a11y 交互属性」那条断言 —— 那条锁的是一个限制，
+ *   不是一个不变量；「点群聊顶栏不会打开好友资料」这半条载荷仍由下面的反向断言守着）
+ * - AI 聊天顶栏无任何 a11y 交互属性（反向断言：不是谁都有详情可开）
  *
  * 两组件都是重组件（拉入消息列表 / 语音 / 菜单子树），统一把子树 mock 成 null，
  * 只保留顶栏结构；stores 用真实 store 并 spy profileViewStore.open。
@@ -36,6 +41,7 @@ vi.mock('../../src/chat/shared/ConversationShelf', () => ({ ConversationShelf: (
 import { ChatPanel } from '../../src/chat/shared/ChatPanel';
 import { MobileChatView } from '../../src/pages/mobile/MobileChatView';
 import { useProfileViewStore } from '../../src/stores/profileViewStore';
+import { useGroupDetailStore } from '../../src/stores/groupDetailStore';
 
 const session = {
   serverUrl: 'https://api.test', userId: 'me', accessToken: 't', refreshToken: 'r',
@@ -124,12 +130,15 @@ function baseMobileChatViewProps(chatTarget: ChatTarget): ComponentProps<typeof 
   };
 }
 
-describe('ChatPanel 顶栏 .chat-header-info a11y（仅私聊）', () => {
+describe('ChatPanel 顶栏 .chat-header-info a11y（私聊看资料 / 群聊看群详情）', () => {
   let openSpy: ReturnType<typeof vi.spyOn>;
+  let openGroupSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     cleanup();
     useProfileViewStore.setState({ userId: null });
+    useGroupDetailStore.setState({ groupId: null });
     openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
+    openGroupSpy = vi.spyOn(useGroupDetailStore.getState(), 'open');
   });
 
   function headerEl(container: HTMLElement): HTMLElement {
@@ -212,12 +221,33 @@ describe('ChatPanel 顶栏 .chat-header-info a11y（仅私聊）', () => {
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it('群聊顶栏无 role/tabIndex/aria-label（反向断言）', () => {
+  it('群聊顶栏具备 role=button / tabIndex=0 / aria-label（可交互，开的是群详情）', () => {
     const { container } = render(<ChatPanel {...baseChatPanelProps(groupTarget)} />);
     const header = headerEl(container);
-    expect(header).not.toHaveAttribute('role');
-    expect(header).not.toHaveAttribute('tabindex');
-    expect(header).not.toHaveAttribute('aria-label');
+    expect(header).toHaveAttribute('role', 'button');
+    expect(header).toHaveAttribute('tabindex', '0');
+    expect(header).toHaveAttribute('aria-label', '查看群一资料');
+  });
+
+  it('群聊顶栏单击 / Enter / Space → openGroupDetail(groupId)，且一次都不碰 openProfile', () => {
+    const { container } = render(<ChatPanel {...baseChatPanelProps(groupTarget)} />);
+    const header = headerEl(container);
+
+    fireEvent.click(header);
+    fireEvent.keyDown(header, { key: 'Enter' });
+    fireEvent.keyDown(header, { key: ' ' });
+
+    expect(openGroupSpy).toHaveBeenCalledTimes(3);
+    expect(openGroupSpy).toHaveBeenCalledWith('g1');
+    // 🔴 反向断言的载荷从「群聊顶栏不可点」平移到这里：可点了，但绝不能开成好友资料
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('AI 顶栏点击既不开好友资料也不开群详情（反向断言：不是谁点都开）', () => {
+    const { container } = render(<ChatPanel {...baseChatPanelProps(aiTarget)} />);
+    fireEvent.click(headerEl(container));
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(openGroupSpy).not.toHaveBeenCalled();
   });
 
   it('AI 聊天顶栏无 role/tabIndex/aria-label（反向断言）', () => {
@@ -241,12 +271,15 @@ describe('ChatPanel 顶栏 .chat-header-info a11y（仅私聊）', () => {
   });
 });
 
-describe('MobileChatView 顶栏 .mobile-chat-title a11y（仅私聊）', () => {
+describe('MobileChatView 顶栏 .mobile-chat-title a11y（私聊看资料 / 群聊看群详情）', () => {
   let openSpy: ReturnType<typeof vi.spyOn>;
+  let openGroupSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     cleanup();
     useProfileViewStore.setState({ userId: null });
+    useGroupDetailStore.setState({ groupId: null });
     openSpy = vi.spyOn(useProfileViewStore.getState(), 'open');
+    openGroupSpy = vi.spyOn(useGroupDetailStore.getState(), 'open');
   });
 
   function titleEl(container: HTMLElement): HTMLElement {
@@ -291,12 +324,32 @@ describe('MobileChatView 顶栏 .mobile-chat-title a11y（仅私聊）', () => {
     expect(openSpy).toHaveBeenCalledWith('them');
   });
 
-  it('群聊标题无 role/tabIndex/aria-label（反向断言）', () => {
+  it('群聊标题具备 role=button / tabIndex=0 / aria-label（可交互，开的是群详情）', () => {
     const { container } = render(<MobileChatView {...baseMobileChatViewProps(groupTarget)} />);
     const title = titleEl(container);
-    expect(title).not.toHaveAttribute('role');
-    expect(title).not.toHaveAttribute('tabindex');
-    expect(title).not.toHaveAttribute('aria-label');
+    expect(title).toHaveAttribute('role', 'button');
+    expect(title).toHaveAttribute('tabindex', '0');
+    expect(title).toHaveAttribute('aria-label', '查看群一资料');
+  });
+
+  it('群聊标题单击 / Enter / Space → openGroupDetail(groupId)，且一次都不碰 openProfile', () => {
+    const { container } = render(<MobileChatView {...baseMobileChatViewProps(groupTarget)} />);
+    const title = titleEl(container);
+
+    fireEvent.click(title);
+    fireEvent.keyDown(title, { key: 'Enter' });
+    fireEvent.keyDown(title, { key: ' ' });
+
+    expect(openGroupSpy).toHaveBeenCalledTimes(3);
+    expect(openGroupSpy).toHaveBeenCalledWith('g1');
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('AI 标题点击既不开好友资料也不开群详情（反向断言）', () => {
+    const { container } = render(<MobileChatView {...baseMobileChatViewProps(aiTarget)} />);
+    fireEvent.click(titleEl(container));
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(openGroupSpy).not.toHaveBeenCalled();
   });
 
   it('AI 标题无 role/tabIndex/aria-label（反向断言）', () => {

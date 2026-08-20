@@ -93,7 +93,8 @@ export interface GroupUnread {
  * 根据后端文档 (2025-12-23 更新):
  * - `content`: 消息完整内容
  * - `seq`: 会话内序列号（用于增量同步）
- * - `file_uuid`/`file_url`/`file_size`/`file_hash`: 文件类消息字段
+ * - `file_uuid`/`file_url`/`file_size`: 文件类消息字段
+ *   （`file_hash` 已于 2026-08-16 从后端接收面摘除，见 services/fileCache 两层键）
  */
 export interface WsNewMessage {
   type: 'new_message';
@@ -107,7 +108,7 @@ export interface WsNewMessage {
   content: string;
   /** 消息预览（兼容旧版本，可能为空） */
   preview?: string;
-  message_type: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
+  message_type: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card';
   /** 会话内序列号（用于增量同步） */
   seq: number;
   timestamp: string;
@@ -117,8 +118,6 @@ export interface WsNewMessage {
   file_url?: string;
   /** 文件大小（字节，仅文件类消息） */
   file_size?: number;
-  /** 文件哈希（用于本地文件链接，仅上传接口发送时提供） */
-  file_hash?: string;
   /** 图片宽度（像素），仅图片类型消息有值 */
   image_width?: number;
   /** 图片高度（像素），仅图片类型消息有值 */

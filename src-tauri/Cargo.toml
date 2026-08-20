@@ -94,6 +94,10 @@ local-ip-address = "0.6.9"
 crc32fast = "1.4"
 hex = "0.4.3"
 
+# 内容身份哈希（采样 SHA-256）：下载完成后由接收方自算，与上传侧 TS 算法同源。
+# 见 src/content_hash.rs 模块头。macOS 的凭据密钥派生也用它（原先只在 macOS 段声明）。
+sha2 = "0.10"
+
 # UUID 生成
 uuid = { version = "1.19.0", features = ["v4"] }
 
@@ -178,8 +182,8 @@ keyring = { version = "3.6.3", features = ["linux-native"] }
 # 改 App 私有 AES-256-GCM 加密文件存密码 + Touch ID(LocalAuthentication) 门禁。
 aes-gcm = "0.10"            # AES-256-GCM 认证加密
 getrandom = "0.2"          # 生成随机 nonce
-sha2 = "0.10"              # 由设备 host UUID 派生 256-bit 密钥
 libc = "0.2"               # gethostuuid 取设备 UUID
+# sha2（由设备 host UUID 派生 256-bit 密钥）已上提到通用 [dependencies]，此处不再重复声明
 # Touch ID：LocalAuthentication 的 LAContext（objc2 生态，与 tauri 已引入版本对齐）
 objc2 = "0.6"
 objc2-foundation = "0.3"

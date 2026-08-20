@@ -139,7 +139,8 @@ export async function persistUploadedMessage(options: UploadPersistOptions): Pro
     file_uuid: result.fileUuid,
     file_url: result.fileUrl || null,
     file_size: file.size,
-    file_hash: result.fileHash,
+    // 消息行不再存 file_hash（两层键）：内容哈希归 file_uuid_hash 那张表，
+    // 上面已由 saveFileUuidHash(result.fileUuid, result.fileHash) 写入。
     image_width: result.imageWidth ?? null,
     image_height: result.imageHeight ?? null,
     seq: 0,

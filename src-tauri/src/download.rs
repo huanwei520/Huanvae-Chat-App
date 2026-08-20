@@ -40,8 +40,9 @@ const DOWNLOAD_BUFFER_SIZE: usize = 8 * 1024 * 1024;
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
-    /// 文件哈希（用于标识下载任务）
-    pub file_hash: String,
+    /// 下载任务的键（**不是内容哈希**）：消息面 = `file_uuid`，个人文件面 = 服务端下发的 `file_hash`。
+    /// 见 `download_and_save_file` 的 `cache_key` 参数说明。
+    pub cache_key: String,
     /// 已下载字节数
     pub downloaded: u64,
     /// 总字节数
@@ -67,9 +68,22 @@ pub struct DownloadProgress {
 /// - 异步文件 IO 不阻塞 tokio 运行时
 /// - 8MB 缓冲写入减少磁盘 IO 次数
 ///
+/// # 两层键（2026-08-16 起）
+///
+/// 后端接收面已不再下发 `file_hash` ⇒ **开下载这一刻，内容哈希是未知的**。所以本命令
+/// 不再要求调用方给哈希，改为：
+///
+/// 1. 用调用方给的 `cache_key` 做**下载任务的键**（进度事件、去重判定都用它）；
+/// 2. 下载完成后由本机 `content_hash::sampled_sha256_of_file` **自算**内容哈希；
+/// 3. 用自算的哈希写 `file_mappings`（该表主键仍是内容哈希，**结构一个字没动**），
+///    并在 `cache_key` 不是哈希本身时补一行 `file_uuid_hash(cache_key -> hash)`，
+///    让下一次可以由 uuid 直接命中本地文件。
+///
 /// # 参数
 /// - `url`: 预签名下载 URL
-/// - `file_hash`: 文件哈希（用于映射和去重）
+/// - `cache_key`: **下载任务的键，不是内容哈希**。消息面 = `file_uuid`（后端不再下发哈希），
+///   个人文件面（`GET /api/storage/files`）= 服务端仍在下发的 `file_hash`。两者都在各自来源下
+///   稳定唯一，且键空间不相交（uuid 带连字符 / 哈希是 64 位十六进制）。
 /// - `file_name`: 原始文件名
 /// - `file_type`: 文件类型 ("image" | "video" | "document")
 /// - `file_size`: 文件大小（可选，用于进度计算）
@@ -84,14 +98,20 @@ pub async fn download_and_save_file(
     // presigned 按 host 签名(SigV4 SignedHeaders=host):url 已被 JS 改写成源站 IP,需带【改写前的
     // 原始 host】(=签名时的逻辑域名)当 Host 头,否则签名 host 不匹配 → MinIO 403。前端 downloadAndSaveFile 传入。
     host: Option<String>,
-    file_hash: String,
+    cache_key: String,
     file_name: String,
     file_type: String,
     file_size: Option<u64>,
     window: Window,
 ) -> Result<String, String> {
-    // 1. 检查是否已有本地缓存
-    if let Ok(Some(mapping)) = db::get_file_mapping(&file_hash) {
+    // 1. 检查是否已有本地缓存。
+    //    两跳：先把 cache_key 当 uuid 解析成内容哈希（消息面），解析不到就把它自己当哈希
+    //    （个人文件面，服务端下发的就是哈希）。两个键空间不相交，不会互相误命中。
+    let known_hash = db::get_file_hash_by_uuid(&cache_key)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| cache_key.clone());
+    if let Ok(Some(mapping)) = db::get_file_mapping(&known_hash) {
         // 验证文件是否存在
         if std::path::Path::new(&mapping.local_path).exists() {
             println!("[Download] 文件已缓存: {}", mapping.local_path);
@@ -118,19 +138,19 @@ pub async fn download_and_save_file(
     std::fs::create_dir_all(&save_dir)
         .map_err(|e| format!("创建下载目录失败: {}", e))?;
 
-    // 4. 生成本地文件名（hash_原始文件名）
+    // 4. 先落到临时文件：**最终文件名要用内容哈希前 8 位**，而哈希此刻还不知道
+    //    （两层键：哈希由本机在下载完成后自算）。临时名用 cache_key，不参与任何索引。
     let safe_filename = sanitize_filename(&file_name);
-    let local_filename = format!("{}_{}", &file_hash[..8], safe_filename);
-    let local_path = save_dir.join(&local_filename);
-    let local_path_str = local_path.to_string_lossy().to_string();
+    let temp_path = save_dir.join(format!("{}.hvpart", sanitize_filename(&cache_key)));
+    let temp_path_str = temp_path.to_string_lossy().to_string();
 
-    println!("[Download] 开始下载: {} -> {}", file_name, local_path_str);
+    println!("[Download] 开始下载: {} -> {}", file_name, temp_path_str);
 
     // 5. 发送开始事件
     let _ = window.emit(
         "download-progress",
         DownloadProgress {
-            file_hash: file_hash.clone(),
+            cache_key: cache_key.clone(),
             downloaded: 0,
             total: file_size.unwrap_or(0),
             percent: 0.0,
@@ -169,7 +189,7 @@ pub async fn download_and_save_file(
         .to_string();
 
     // 7. 异步流式写入文件（使用 8MB 缓冲区优化 IO 性能）
-    let file = tokio::fs::File::create(&local_path)
+    let file = tokio::fs::File::create(&temp_path)
         .await
         .map_err(|e| format!("创建文件失败: {}", e))?;
     let mut writer = tokio::io::BufWriter::with_capacity(DOWNLOAD_BUFFER_SIZE, file);
@@ -200,7 +220,7 @@ pub async fn download_and_save_file(
             let _ = window.emit(
                 "download-progress",
                 DownloadProgress {
-                    file_hash: file_hash.clone(),
+                    cache_key: cache_key.clone(),
                     downloaded,
                     total: total_size,
                     percent,
@@ -218,20 +238,54 @@ pub async fn download_and_save_file(
         .await
         .map_err(|e| format!("刷新缓冲区失败: {}", e))?;
 
-    // 8. 保存文件映射到数据库
-    let now = chrono::Utc::now().to_rfc3339();
-    db::save_file_mapping(db::LocalFileMapping {
-        file_hash: file_hash.clone(),
-        local_path: local_path_str.clone(),
-        original_path: None, // 下载的文件不需要原始路径
-        is_large_file: false, // 下载的文件都缓存到本地
-        file_size: downloaded as i64,
-        file_name: file_name.clone(),
-        content_type,
-        source: "downloaded".to_string(),
-        last_verified: now,
-        created_at: None,
-    })?;
+    // 8. 🔴 自算内容身份哈希（两层键的第二层）。
+    //    后端接收面已不下发哈希，这一步是**接收方唯一**能拿到内容身份的时机；
+    //    算法与上传侧 TS 同源（见 content_hash 模块头），所以"我上传的"与"我收到的"
+    //    同一份内容会落到同一把键上，去重才成立。
+    //    drop(writer) 先把文件句柄关掉再读，避免 Windows 上的独占占用。
+    drop(writer);
+    let content_hash = crate::content_hash::sampled_sha256_of_file(&temp_path)?;
+
+    // 8.1 内容去重：这份字节本机已经有了（可能来自另一个 uuid / 自己上传的原件）⇒
+    //     丢掉刚下的副本，直接复用既有路径。这正是"用内容哈希当身份"换来的东西。
+    let local_path_str = match db::get_file_mapping(&content_hash) {
+        Ok(Some(mapping)) if std::path::Path::new(&mapping.local_path).exists() => {
+            let _ = std::fs::remove_file(&temp_path);
+            println!("[Download] 内容已存在，复用本地文件: {}", mapping.local_path);
+            mapping.local_path
+        }
+        _ => {
+            // 8.2 用内容哈希前 8 位定名（与上传侧落盘命名规则一致），再把临时文件改名过去
+            let final_path = save_dir.join(format!("{}_{}", &content_hash[..8], safe_filename));
+            if final_path != temp_path {
+                std::fs::rename(&temp_path, &final_path)
+                    .map_err(|e| format!("重命名下载文件失败: {}", e))?;
+            }
+            let final_path_str = final_path.to_string_lossy().to_string();
+
+            // 8.3 保存文件映射到数据库（主键仍是内容哈希，表结构未变）
+            let now = chrono::Utc::now().to_rfc3339();
+            db::save_file_mapping(db::LocalFileMapping {
+                file_hash: content_hash.clone(),
+                local_path: final_path_str.clone(),
+                original_path: None,  // 下载的文件不需要原始路径
+                is_large_file: false, // 下载的文件都缓存到本地
+                file_size: downloaded as i64,
+                file_name: file_name.clone(),
+                content_type,
+                source: "downloaded".to_string(),
+                last_verified: now,
+                created_at: None,
+            })?;
+            final_path_str
+        }
+    };
+
+    // 8.4 补上 uuid -> hash 这一跳，下次由 file_uuid 就能直接命中本地文件。
+    //     cache_key 本身就是内容哈希时（个人文件面）不写：那会是一条 (hash, hash) 的废行。
+    if cache_key != content_hash {
+        db::save_file_uuid_hash(&cache_key, &content_hash)?;
+    }
 
     // 9. 发送完成事件（携带 local_path，让前端 listener 直接驱动 completeDownload，
     //    不再依赖 triggerBackgroundDownload 的 await 回调；解决 HMR / fire-and-forget /
@@ -239,7 +293,7 @@ pub async fn download_and_save_file(
     let _ = window.emit(
         "download-progress",
         DownloadProgress {
-            file_hash: file_hash.clone(),
+            cache_key: cache_key.clone(),
             downloaded,
             total: total_size,
             percent: 100.0,
@@ -250,8 +304,8 @@ pub async fn download_and_save_file(
     );
 
     println!(
-        "[Download] 下载完成: {} ({} bytes)",
-        local_path_str, downloaded
+        "[Download] 下载完成: {} ({} bytes, hash={})",
+        local_path_str, downloaded, content_hash
     );
 
     Ok(local_path_str)

@@ -62,7 +62,9 @@ const CASES: Case[] = [
   { file: 'src/pages/Register.tsx', placeholder: '请输入账号（user_id）', label: '注册 账号' },
   // req-23 新增：创建机器人用户名是大小写敏感标识符（存储/唯一性区分大小写），须防 WKWebView 首字母大写污染
   { file: 'src/components/bots/CreateBotDialog.tsx', placeholder: '3-32 位字母 / 数字 / 下划线，且以 bot 结尾', label: '创建机器人 用户名（大小写敏感）' },
-  { file: 'src/chat/shared/menu/InviteForm.tsx', placeholder: '输入用户 ID', label: '群邀请成员 用户ID' },
+  // 群邀请成员的「输入用户 ID」框已删除（改为复用 ShareTargetPicker 从好友列表选人，
+  // 人选由 store 里的 friend_id 给出、不再经用户键盘）⇒ 该文件已无大小写敏感手输框，无需守门。
+  // 现存那个「邀请消息（可选）」是自由文本附言，首字母大写无害，故不入本表。
   { file: 'src/meeting/components/MeetingEntryModal.tsx', placeholder: '输入房间号', label: '桌面加入会议 房间号' },
   { file: 'src/pages/mobile/MobileMeetingEntryPage.tsx', placeholder: '输入房间号', label: '移动加入会议 房间号' },
 ];

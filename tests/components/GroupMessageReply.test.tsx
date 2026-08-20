@@ -62,7 +62,6 @@ function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     image_width: null,
     image_height: null,
     reply_to: null,

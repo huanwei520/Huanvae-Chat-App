@@ -37,7 +37,8 @@ export interface GroupMember {
 export interface CreateGroupRequest {
   group_name: string;
   group_description?: string;
-  join_mode?: 'open' | 'approval_required' | 'invite_only' | 'admin_invite_only' | 'closed';
+  /** 是否需要入群审核；不传时服务端按 `true`（需审核）处理 */
+  join_approval_required?: boolean;
 }
 
 /** 创建群聊响应（client.ts 已解包 ApiResponse.data） */
@@ -96,7 +97,42 @@ export interface GroupInvitationsResponse {
   invitations: GroupInvitation[];
 }
 
-/** 群聊公开信息（GET /api/groups/{id}/public 与 /search 返回；未加入群的详情弹窗数据源） */
+/**
+ * 三档可见性范围 —— **只给** `card_share_scope` / `qr_show_scope` 两列。
+ *
+ * 动作方是**本群成员**（谁能把群拿出去），所以 `all_members` 在这里的字面意思成立：
+ * 「本群全体成员」。真值源：`backend-docs/groups/群聊管理.md` `GroupInfo` 字段表与
+ * `PUT /join-policy` 请求体。
+ *
+ * 🔴 **`search_scope` 不用这个类型**，见 [`SearchScope`] —— 那一列的最松档叫 `everyone`。
+ */
+export type GroupScope = 'all_members' | 'admins' | 'owner_only';
+
+/**
+ * `search_scope`（谁**搜得到**本群）专用的三档 —— 与 [`GroupScope`] **刻意不共用**。
+ *
+ * 动作方是**群外的人**，方向与上面两列相反：`owner_only` 在前两列是「只有群主能分享 / 出码」，
+ * 在这里是「只有群主搜得到本群 = **别人都搜不到**」。
+ *
+ * 🔴 **最松档叫 `everyone` 而不是 `all_members`，这是有意的**：那三列若共用 `all_members`
+ * 就是**同名反义** —— 前两列读作「本群全体成员」，这一列的真义却是「**任何登录用户**」
+ * （契约 `发现搜索.md`「群搜索可见性三档」原文：`all_members`（默认）= 任何登录用户）。
+ * 读到 `search_scope === 'all_members'` 的人会把「谁都能搜到」理解成「只有成员能搜到」，
+ * 语义正好反过来。`everyone` 沿用本仓 bots `message_policy`
+ * （`everyone` / `whitelist` / `owner_only`，见 [`../api/bots`]）的既有约定，不是新造词。
+ *
+ * ⚠️ **契约文档尚未同步这条改名**（`群聊管理.md` / `发现搜索.md` 现仍写 `all_members`），
+ * 后端整批也尚未上线 —— 两侧必须同批落地，否则 `PUT /join-policy` 会因取值不在白名单内返 400。
+ */
+export type SearchScope = 'everyone' | 'admins' | 'owner_only';
+
+/**
+ * 群聊信息（`GET /api/groups/{id}`、`GET /api/groups/{id}/public`、`GET /search`
+ * 三处同构，见 `backend-docs/groups/群聊管理.md` 的 `GroupInfo` 字段表）。
+ *
+ * 入群策略那五个字段一律 `?:` —— 后端源码里已有 `PUT /join-policy`，但**是否已上线到当前
+ * 生产环境未经验证**，读到 `undefined` 时由 [`JOIN_POLICY_DEFAULTS`] 提供显示回落。
+ */
 export interface GroupInfo {
   group_id: string;
   group_name: string;
@@ -105,11 +141,71 @@ export interface GroupInfo {
   group_description: string | null;
   creator_id: string;
   created_at: string;
-  /** open/approval_required/invite_only/admin_invite_only/closed */
-  join_mode: string;
+  /** 是否需要入群审核（设置面板开关一）；`POST /{id}/apply` 的唯一判据 */
+  join_approval_required?: boolean;
+  /** 是否允许管理员参与审核（开关二）；`false` ⇒ 只有群主能列 / 批 / 拒入群申请 */
+  admin_can_approve?: boolean;
+  /** 谁能分享群名片（服务端强制，不满足发 `group_card` 消息时 403） */
+  card_share_scope?: GroupScope;
+  /** 谁能展示群二维码（服务端强制，不满足 `GET /{id}/qr` 时 403） */
+  qr_show_scope?: GroupScope;
+  /** 谁搜得到这个群（服务端在 `GET /api/discovery/search` 过滤；⚠️ 语义方向见 [`SearchScope`]） */
+  search_scope?: SearchScope;
   status: string;
   member_count: number;
 }
+
+/**
+ * 入群策略的完整五值 —— `PUT /api/groups/{id}/join-policy` 的**响应**形态。
+ *
+ * 契约承诺 `data` 是更新**之后**的完整五个值（`backend-docs/groups/群聊管理.md`
+ * 「7.1 修改入群策略」响应字段说明），可直接整体回填设置面板，故此处五键**全必填**。
+ */
+export interface JoinPolicy {
+  join_approval_required: boolean;
+  admin_can_approve: boolean;
+  card_share_scope: GroupScope;
+  qr_show_scope: GroupScope;
+  search_scope: SearchScope;
+}
+
+/**
+ * 入群策略的**局部**更新 —— `PUT /join-policy` 的请求体形态，五键全可选。
+ *
+ * 契约：「只更新请求体里真正出现的那些，未出现的字段保持原值」⇒ 调用方只放要改的那几键，
+ * 由 [`updateJoinPolicy`] 保证 `undefined` 的键**不进** body（塞进去后端会当"要更新"处理）。
+ */
+export interface JoinPolicyPatch {
+  join_approval_required?: boolean;
+  admin_can_approve?: boolean;
+  card_share_scope?: GroupScope;
+  qr_show_scope?: GroupScope;
+  search_scope?: SearchScope;
+}
+
+/**
+ * 入群策略五值的**显示回落**（全仓唯一一处放这些字面量的地方）
+ *
+ * 值来自 `backend-docs/groups/群聊管理.md` 的 `PUT /join-policy` 节及其上游字段表：
+ * - `join_approval_required: true` —— 建群端点原文「可选，默认 true」
+ * - `card_share_scope` / `qr_show_scope` 均 `'all_members'` —— 字段表与 §八三档表都标为（默认）
+ * - `search_scope: 'everyone'` —— 契约把该列最松档的语义写作「**任何登录用户**」，
+ *   本仓据此把它单独命名为 `everyone`（见 [`SearchScope`] 的同名反义说明），语义与契约默认档一致
+ * - `admin_can_approve: true` —— 契约未写「默认」字样，取契约两处响应示例的值，
+ *   且与该字段上线前的历史行为（管理员一直能审）等价
+ *
+ * 用途**只有一个**：后端尚未返回这些字段时（字段全是 `?:`，见 [`GroupInfo`]）拿它显示。
+ *
+ * 🔴 不许在组件里散写 `?? 'all_members'` / `?? 'everyone'` 这类裸回落 —— 回落值只许有这一个
+ * 落点，否则默认值会在各处各写一份、契约一改就漏改。
+ */
+export const JOIN_POLICY_DEFAULTS: JoinPolicy = {
+  join_approval_required: true,
+  admin_can_approve: true,
+  card_share_scope: 'all_members',
+  qr_show_scope: 'all_members',
+  search_scope: 'everyone',
+};
 
 /** 我发出的加群申请项（GET /api/groups/requests/sent，恒 pending，无撤回接口） */
 export interface SentJoinRequestInfo {
@@ -141,11 +237,63 @@ export function getMyGroups(api: ApiClient): Promise<MyGroupsResponse> {
 }
 
 /**
+ * 获取群聊详情（**本群活跃成员**可查）。
+ *
+ * 与 [`getPublicGroupInfo`] 并存、**不是**它的替代：那条走 `/public`、无成员门控、
+ * 是扫码 / 群名片落地页的数据源；这条走 `/api/groups/{id}` 本体，返回同一个 `GroupInfo`，
+ * 但要求调用者是本群活跃成员 —— 群设置面板要读自己群的当前配置，用的是这条。
+ *
+ * 错误（契约「404 与 403 的分界」）：`403` 群存在但你不是本群活跃成员；`404` 群不存在。
+ */
+export function getGroupDetail(api: ApiClient, groupId: string): Promise<GroupInfo> {
+  return api.get<GroupInfo>(`/api/groups/${encodeURIComponent(groupId)}`);
+}
+
+/**
  * 获取未加入群聊的公开信息（群详情弹窗数据源）。无成员门控，任意登录用户可查。
  * 群不存在 / 已解散（status != active）→ 404（同形）。
  */
 export function getPublicGroupInfo(api: ApiClient, groupId: string): Promise<GroupInfo> {
   return api.get<GroupInfo>(`/api/groups/${encodeURIComponent(groupId)}/public`);
+}
+
+/**
+ * 修改入群策略（**仅群主**，管理员也会被后端 403）
+ *
+ * 🔴 **逐键构造 body，只放 `patch` 里真正出现的键**：契约是「只更新请求体里真正出现的那些」，
+ * 所以把一个 `undefined` 的键塞进 JSON 也算"出现"（会被后端当成要更新该字段）。
+ * `JSON.stringify` 确实会丢掉值为 `undefined` 的键，但那是序列化层的巧合、不是本函数的契约 ——
+ * 依赖它等于把「只发被改的键」这条约束交给一个随实现可变的行为去保证，故这里显式过滤。
+ *
+ * 错误（契约「错误响应」）：`400` 三档取值不在白名单内 · `403` 你不是群主 · `404` 群不存在。
+ *
+ * @returns 更新**之后**的完整五值，可直接整体回填面板
+ */
+export function updateJoinPolicy(
+  api: ApiClient,
+  groupId: string,
+  patch: JoinPolicyPatch,
+): Promise<JoinPolicy> {
+  const body: Record<string, unknown> = {};
+  if (patch.join_approval_required !== undefined) {
+    body.join_approval_required = patch.join_approval_required;
+  }
+  if (patch.admin_can_approve !== undefined) {
+    body.admin_can_approve = patch.admin_can_approve;
+  }
+  if (patch.card_share_scope !== undefined) {
+    body.card_share_scope = patch.card_share_scope;
+  }
+  if (patch.qr_show_scope !== undefined) {
+    body.qr_show_scope = patch.qr_show_scope;
+  }
+  if (patch.search_scope !== undefined) {
+    body.search_scope = patch.search_scope;
+  }
+  return api.put<JoinPolicy>(
+    `/api/groups/${encodeURIComponent(groupId)}/join-policy`,
+    body,
+  );
 }
 
 /**
@@ -250,15 +398,23 @@ export function declineGroupInvitation(
 }
 
 /**
- * 对可发现的群发起加入/加群申请（搜索方式）。按群 join_mode 分流：
- * open→直接入群；approval_required→创建待审核申请；closed/invite_only/admin_invite_only→400。
- * 已是成员 / 已有 pending 申请 → 400。返回 { message }。
+ * 对可发现的群发起加入/加群申请（搜索方式）。**只看审批开关一个判据，两态**：
+ * 免审核 → 直接入群，`status: 'joined'`；需审核 → 创建待审核申请，`status: 'pending'`。
+ * 已是成员 / 已有 pending 申请 → 400。
+ *
+ * 🔴 **判两态一律读 `status`，不要解析 `message` 文案**（契约
+ * `backend-docs/groups/群聊管理.md`「申请入群（搜索方式）」响应字段说明原文）。
+ * 该端点的 `data` 已从 `{success, message}` 换成 `{status, message}` —— `success` 已被移除。
+ *
+ * ⚠️ 后端整批尚未上线的窗口期里 `status` 实际会是 `undefined`（旧响应没有这个键），
+ * 所以调用方必须写 `=== 'joined'` 而不是 `!== 'pending'`：前者把未知落到"待审批"一侧
+ * （保守、可恢复），后者会把没入群的判成已入群。
  */
 export function applyToJoinGroup(
   api: ApiClient,
   groupId: string,
   message?: string,
-): Promise<{ message: string }> {
+): Promise<{ status: 'joined' | 'pending'; message: string }> {
   return api.post(`/api/groups/${encodeURIComponent(groupId)}/apply`, { message: message || '' });
 }
 
@@ -305,7 +461,7 @@ export interface GroupJoinRequestListResponse {
  * 非管理员调用返回 403）
  *
  * 这三个端点后端一直都在，但客户端此前**从未接过** —— 后果是
- * `join_mode = approval_required` 的群，用户申请后群主在 App 里**根本看不到**，
+ * **开了入群审核**的群，用户申请后群主在 App 里**根本看不到**，
  * 申请永久 pending。
  */
 export function getGroupJoinRequests(
@@ -670,70 +826,4 @@ export function deleteGroupNotice(
   noticeId: string,
 ): Promise<{ success: boolean }> {
   return api.delete(`/api/groups/${groupId}/notices/${noticeId}`);
-}
-
-// ============================================
-// 邀请码管理
-// ============================================
-
-/** 邀请码 */
-export interface InviteCode {
-  id: string;
-  code: string;
-  code_type: 'direct' | 'normal';
-  creator_id: string;
-  max_uses: number;
-  used_count: number;
-  expires_at: string;
-  created_at: string;
-}
-
-/** 邀请码列表响应（client.ts 已解包 ApiResponse.data） */
-export interface InviteCodesResponse {
-  codes: InviteCode[];
-}
-
-/** 生成邀请码响应（client.ts 已解包 ApiResponse.data） */
-export interface GenerateInviteCodeResponse {
-  id: string;
-  code: string;
-  code_type: 'direct' | 'normal';
-  expires_at: string;
-}
-
-/**
- * 生成邀请码
- * 权限：
- * - 群主/管理员：生成"直通"邀请码（direct），使用者可直接入群
- * - 普通成员：生成"普通"邀请码（normal），使用者需审核
- */
-export function generateInviteCode(
-  api: ApiClient,
-  groupId: string,
-  options?: { max_uses?: number; expires_in_hours?: number },
-): Promise<GenerateInviteCodeResponse> {
-  return api.post(`/api/groups/${groupId}/invite_codes`, options || {});
-}
-
-/**
- * 获取邀请码列表
- * 权限：群主或管理员
- */
-export function getInviteCodes(
-  api: ApiClient,
-  groupId: string,
-): Promise<InviteCodesResponse> {
-  return api.get(`/api/groups/${groupId}/invite_codes`);
-}
-
-/**
- * 撤销邀请码
- * 权限：邀请码创建者或群主/管理员
- */
-export function revokeInviteCode(
-  api: ApiClient,
-  groupId: string,
-  codeId: string,
-): Promise<{ success: boolean }> {
-  return api.delete(`/api/groups/${groupId}/invite_codes/${codeId}`);
 }

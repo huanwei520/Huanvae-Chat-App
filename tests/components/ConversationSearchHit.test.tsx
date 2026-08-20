@@ -66,7 +66,6 @@ const buildMessage = (overrides: Partial<LocalMessage> = {}): LocalMessage => ({
   file_uuid: 'file-uuid-1',
   file_url: 'https://backend.example/presigned/RAW-SHOULD-NEVER-BE-USED',
   file_size: 1024,
-  file_hash: 'hash-1',
   image_width: null,
   image_height: null,
   seq: 1,
@@ -154,7 +153,6 @@ describe('ConversationSearchHit', () => {
       expect(mockUseFileCache).toHaveBeenLastCalledWith(
         expect.objectContaining({
           fileUuid: 'file-uuid-1',
-          fileHash: 'hash-1',
           fileName: 'photo.png',
           fileType: 'image',
           urlType: 'friend',
@@ -167,6 +165,16 @@ describe('ConversationSearchHit', () => {
       expect(mockUseFileCache).toHaveBeenLastCalledWith(
         expect.objectContaining({ urlType: 'group', fileType: 'video', autoCache: false }),
       );
+    });
+
+    // 🔴 两层键负向断言：消息面不许再往取源里塞内容哈希（后端接收面已不再下发它）。
+    // 只断言 objectContaining 是不够的——它对"多出来的键"是宽容的，加回 fileHash 也照样过。
+    it('两层键：取源入参里【没有】fileHash 这个键（消息面只有 file_uuid）', () => {
+      renderHit(buildMessage());
+      const calls = mockUseFileCache.mock.calls;
+      const arg = calls[calls.length - 1][0] as Record<string, unknown>;
+      expect(Object.keys(arg)).toContain('fileUuid');
+      expect(Object.keys(arg)).not.toContain('fileHash');
     });
 
     it('src 未就绪 / 无 file_uuid：给同尺寸占位而不是空 src 破图，且不去取源', () => {

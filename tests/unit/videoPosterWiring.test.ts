@@ -115,7 +115,10 @@ const PLAYER_PAGES = [
 
 /** 把裸 src 递给全屏播放器的那几处 */
 const PLAYER_HOST_FILES = [
-  'src/chat/shared/FileMessageContent.tsx',
+  // 聊天气泡的全屏播放器 2026-08-16 起收归会话媒体序列的**单个**浮层
+  // （原先每条消息各挂一个 <MobileMediaPreview>，「切到上一张」在结构上不可达）。
+  // 宿主换了文件，不变量原样跟过来 —— 递给播放器的仍必须是**裸** src。
+  'src/chat/shared/MediaGalleryProvider.tsx',
   'src/components/search/ConversationSearchHit.tsx',
   'src/pages/mobile/MobileFilesPage.tsx',
 ] as const;
@@ -180,14 +183,22 @@ describe('B. 全屏播放拿到的是裸 src（#t=0.1 只给缩略图）', () =>
     }
   });
 
-  it('FileMessageContent：同一个 src 变量既喂缩略图又喂播放器，两者形态必须不同', () => {
-    // 这条是 B 的**要害**：缩略图与播放器共用一个 `src`，所以"在 resolver 里统一加"会连播放一起污染。
+  it('缩略图与播放器同源不同形：气泡递裸 src 给缩略图，浮层递裸 src 给播放器', () => {
+    // 这条是 B 的**要害**：缩略图与播放器的 src 同源，所以"在 resolver 里统一加片段"会连播放一起污染。
     // 收敛后缩略图那侧的分叉点搬进了 <VideoThumbnail>（它内部才追片段），
     // 故这里断言的是「递进组件的是裸 src」+「递给播放器的也是裸 src」，
     // 真正的分叉由 A 组「组件内部必经 videoPosterSrc」那条守着。
-    const code = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
-    expect(srcExpressionsAfter(code, '<VideoThumbnail')).toContain('src');
-    expect(srcExpressionsAfter(code, '<MobileMediaPreview')).toContain('src');
+    // 🔴 两者**已不在同一个文件**：2026-08-16 全屏播放器搬到 MediaGalleryProvider
+    //（会话共用一个浮层），缩略图仍在气泡里。两处各断言一次，覆盖面不减。
+    const bubble = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
+    expect(srcExpressionsAfter(bubble, '<VideoThumbnail')).toContain('src');
+    // 气泡里已经没有播放器了 —— 若哪天有人把它加回来，这条会翻红提醒"两个浮层"回归
+    expect(bubble).not.toContain('<MobileMediaPreview');
+
+    const host = stripComments(read('src/chat/shared/MediaGalleryProvider.tsx'));
+    const playerSrc = srcExpressionsAfter(host, '<MobileMediaPreview');
+    expect(playerSrc.length).toBe(1);
+    expect(playerSrc[0]).not.toContain('videoPosterSrc');
   });
 });
 

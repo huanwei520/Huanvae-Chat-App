@@ -68,7 +68,6 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     reply_to: null,
     send_time: '2026-01-01T00:00:00Z',
     is_recalled: false,

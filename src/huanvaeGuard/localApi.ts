@@ -23,7 +23,13 @@
 
 import { fetch } from '@tauri-apps/plugin-http';
 import { invoke } from '@tauri-apps/api/core';
-import type { ApiResponse, TunnelStatus, PeerConfig, ObfuscationParams } from './types';
+import type {
+  ApiResponse,
+  TunnelStatus,
+  PeerConfig,
+  ObfuscationParams,
+  ControlCredentials,
+} from './types';
 
 /**
  * 本地控制端口的默认值。
@@ -131,6 +137,18 @@ export function getStatus(): Promise<ApiResponse<TunnelStatus>> {
   return localFetch('/api/tunnel/status');
 }
 
+/**
+ * 建立隧道。
+ *
+ * 🔴 **body 是 `JSON.stringify(params)` 整体透传 ⇒ 这里的类型就是唯一的闸门。**
+ * 工作区 CLAUDE.md 记着一条镜像面的坑「改了类型 ≠ 传了字段」（逐键构造 body 时类型加了、
+ * 构造处没加就静默丢字段）；整体透传是它的反面：**类型漏了就静默丢字段**，
+ * 而 `/api/tunnel/start` 照样 200、界面照样显示「已连接」。`control` 正是这么丢了整整一个功能的
+ * —— 桌面端此前发出的 body 恰好 6 个键，没有 `control`，于是守护进程走
+ * `CONTROL_PLANE_ABSENT` 分支，这条隧道的 peer 集在启动那一刻就冻住了。
+ * 回归防线：`tests/unit/huanvaeGuard.localApi.test.ts` 正反两条（传了必须出现在 body 里 /
+ * 不传必须整个键都不出现）。
+ */
 export function startTunnel(params: {
   address: string;
   private_key: string;
@@ -138,6 +156,13 @@ export function startTunnel(params: {
   obfuscation: ObfuscationParams;
   dns?: string;
   mtu?: number;
+  /**
+   * 控制面凭据。缺它 = 这条隧道**不会**知道后来加入的设备（语义见 types.ts 的
+   * `ControlCredentials` 注释）。可选是为了对齐守护进程侧的 `#[serde(default)]`，
+   * **不是**给调用方留一条"figure it out later"的静默降级路 ——
+   * 调用方缺必需值时应当中止连接，而不是发一个没有 control 的 start。
+   */
+  control?: ControlCredentials;
 }): Promise<ApiResponse<void>> {
   return localFetch('/api/tunnel/start', {
     method: 'POST',

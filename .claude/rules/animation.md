@@ -206,7 +206,7 @@ React 中把 `gsap.matchMedia()` 放进 `useGSAP(() => { ... }, { scope })`，�
 
 1. **若该 GSAP 组件的 className 在 CSS 里仍有 `transition` 字段**（哪怕只过渡非动画化属性）：把该 selector 登记进 [tests/animation-conflict.test.ts](../../tests/animation-conflict.test.ts) 的 `MOTION_CONTROLLED_SELECTORS` 注册表（`selector` / `cssFile` / `controlledProps` / `motionLocation`），让静态门禁断言其 `transition` 不含 GSAP 接管的属性（规则一的机器复查）。该注册表对 framer-motion 与 GSAP 同等适用——任何"JS 逐帧接管 transform/opacity"的组件都登记。
 
-2. **运行时覆盖**：新 GSAP 动画若出现在 e2e 可达页面（登录前页 / 多视口 / 多主题），在 [e2e/animation-health.spec.ts](../../e2e/animation-health.spec.ts) 增加对应场景，确保静默期无残留动画（规则二/三 cleanup 失效会被它抓到）、同节点无并发动画（规则一/四抢帧会被它抓到）。登录后页面 e2e 受 `@tauri-apps/plugin-http` 通道限制不可达，改用 vitest 组件测试 + 本规范的代码审核把关。
+2. **运行时覆盖**：新 GSAP 动画若出现在 e2e 可达页面（登录前页 / 多视口 / 多主题），在 [e2e/animation-health.spec.ts](../../e2e/animation-health.spec.ts) 增加对应场景，确保静默期无残留动画（规则二/三 cleanup 失效会被它抓到）、同节点无并发动画（规则一/四抢帧会被它抓到）。登录后页面 e2e 受 `@tauri-apps/plugin-http` 通道限制不可达，改用 vitest 组件测试 + 本规范的代码审核把关。（🔴 **2026-08-19 订正：该限制已不成立** —— 登录路径走 `invoke('secure_http')`，`e2e/helpers/tauri-mock.ts` 补上该分支后 e2e 已能登录进主界面；见 [frontend-test.md「CI 门禁与 e2e 的真断言」](frontend-test.md)。）
 
 3. **判断口径**（任一命中即属"动画变更"，须走上面登记）：新增 `useGSAP` / `gsap.timeline` / `gsap.to/from` 组件；给已有 GSAP 组件加新动画属性；给已有 GSAP 组件的 CSS 加/改 `transition`；改已注册组件的 className。
 

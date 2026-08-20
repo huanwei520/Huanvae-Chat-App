@@ -59,7 +59,7 @@ describe('useDiscoverySearch', () => {
           group_name: 'G',
           avatar_url: 'gg.jpg',
           member_count: 5,
-          join_mode: 'open',
+          join_approval_required: false,
           is_member: true,
         },
       ],
@@ -82,8 +82,13 @@ describe('useDiscoverySearch', () => {
     expect(result.current.people).toEqual([
       { userId: 'u1', nickname: 'N', avatarUrl: 'proxied://a.jpg', isFriend: false },
     ]);
+    // `toEqual` 是**逐键全等**（不是包含）⇒ 视图模型多出任何一个键都会红，
+    // 已删除的那个入群模式派生键被加回来时同样红（变异 M7 实测：报的就是这一条）。
+    // 🔴 故意**不再**额外写一条点名该键的 `not.toHaveProperty` —— 那条断言的载荷已被本行覆盖，
+    // 而写出它会让"全仓不得再出现该 token"这条验收判据自己变红（同族坑见
+    // frontend-test.md「不变量口径写『禁裸写死』，不是『禁出现该数字』」）。
     expect(result.current.groups).toEqual([
-      { groupId: 'g1', groupName: 'G', avatarUrl: 'proxied://gg.jpg', memberCount: 5, joinMode: 'open', isMember: true },
+      { groupId: 'g1', groupName: 'G', avatarUrl: 'proxied://gg.jpg', memberCount: 5, isMember: true },
     ]);
     expect(result.current.bots).toEqual([
       { botUserId: 'bot_1', username: 'weatherbot', nickname: 'B', avatarUrl: null, isFriend: true },

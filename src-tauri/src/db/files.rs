@@ -17,6 +17,18 @@
 //! - `get_file_mapping`: 通过 hash 获取本地路径
 //! - `save_file_mapping`: 保存文件映射
 //! - `save_file_uuid_hash`: 保存 uuid->hash 映射
+//! - `get_file_hash_by_uuid`: **读** uuid->hash 映射（两层键的第一跳）
+//!
+//! ## 两层键（2026-08-16 起）
+//!
+//! 后端接收面（好友历史 / 群历史 / WS 帧 / 增量同步）已**不再下发 `file_hash`**，
+//! 消息对象上只剩 `file_uuid`。于是：
+//!
+//! - **快路径的键 = `file_uuid`**：先经 `file_uuid_hash` 解析出内容哈希，再照旧查
+//!   `file_mappings`。`file_mappings` 的表结构与主键**一个字都没动**。
+//! - **内容身份 = 哈希**：本机在**下载完成后自算**（`crate::content_hash`），
+//!   连同 `file_uuid -> file_hash` 一起落库 —— 这张表此前**只写不读、且只在上传路径写**，
+//!   接收方库里根本没有行；补上的正是「下载完也写」+「真的去读」这两件。
 
 use rusqlite::params;
 
@@ -91,6 +103,22 @@ pub fn delete_file_mapping(file_hash: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
         Ok(())
+    })
+}
+
+/// 读 file_uuid -> file_hash 映射（两层键的第一跳）
+///
+/// 没有该行返回 `Ok(None)` —— 这是**正常且高频**的情形：某个 uuid 在本机第一次被
+/// 下载完成之前，本表里就是没有它。调用方据此走远程取件，不要把 `None` 当异常。
+pub fn get_file_hash_by_uuid(file_uuid: &str) -> Result<Option<String>, String> {
+    with_db!(db, {
+        let mut stmt = db
+            .prepare("SELECT file_hash FROM file_uuid_hash WHERE file_uuid = ?")
+            .map_err(|e| e.to_string())?;
+        let result = stmt
+            .query_row([file_uuid], |row| row.get::<_, String>(0))
+            .ok();
+        Ok(result)
     })
 }
 

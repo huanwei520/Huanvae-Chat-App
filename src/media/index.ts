@@ -13,6 +13,8 @@ export {
   loadMediaData,
   clearMediaData,
   type MediaWindowData,
+  type MediaSequenceEntry,
+  type MediaStorageData,
   type MediaType,
   type MediaAuthInfo,
 } from './api';

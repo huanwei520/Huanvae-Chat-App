@@ -144,6 +144,12 @@
   z-index: 100000;
   display: flex;
   flex-direction: column;
+  /* 🔴 关掉 WebView 自带的页面级双指缩放 —— 修复「预览里双指放大的是整个 App」。
+     touch-action 的语义是「浏览器被允许对起始于本元素的触摸做哪些默认手势」，
+     none = 一个都不做，双指全部交给 useImageZoom 的 JS 手势层。
+     作用域仅本浮层：App 其它页面的手势行为逐字不变（index.html 的 viewport 一个字没动）。
+     浮层内没有任何可滚动区域，故 none 不会影响滚动。 */
+  touch-action: none;
 }
 
 .mobile-media-preview-header {
@@ -185,6 +191,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 0 12px;
+}
+
+/* 序列位置指示「3 / 12」：只有会话媒体序列驱动时才渲染（单张预览不显示） */
+.mobile-media-preview-position {
+  flex-shrink: 0;
+  margin-right: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* ⋮ 下拉菜单（Telegram 风格：右对齐，从 ⋮ 下方滑入） */
@@ -270,12 +285,44 @@
   padding-bottom: calc(16px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
 }
 
+/* 横向切图的轨道：跟手位移 / 回弹 / 切换滑入的 transform 由 MobileMediaPreview 的
+   framer-motion motion value 独占写入。
+   🔴 同样绝不能声明 transition / animation —— 见 .claude/rules/animation.md 规则一，
+   已登记进 tests/animation-conflict.test.ts。
+   它是 stage / video 的**外一层**：与缩放层的 transform 分属两个元素，各自单一所有权。 */
+.mobile-media-preview-track {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 缩放/平移的承载层：铺满媒体区，transform 由 useImageZoom 逐帧独占写入。
+   🔴 这里绝不能声明 transition / animation —— 会与逐帧写入抢帧
+   见 .claude/rules/animation.md 规则一，并已登记进 tests/animation-conflict.test.ts */
+.mobile-media-preview-image-stage {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  will-change: transform;
+}
+
 .mobile-media-preview-image {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
-  touch-action: pinch-zoom; /* 支持双指缩放 */
+  /* 原先这里写的是 touch-action: pinch-zoom（注释「支持双指缩放」）——
+     那个值的真实语义是「允许浏览器做页面级双指缩放」，放大的是整个 App 而不是这张图。
+     现在双指归 useImageZoom 的 JS 手势层，浏览器默认手势由浮层的 touch-action: none 关掉。 */
 }
 
 .mobile-media-preview-video {

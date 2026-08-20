@@ -43,12 +43,15 @@
  * 再标一遍自己的名字是纯噪音，参照图里的 telegram 也不标。
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
+import { ForwardMessageModal } from '../shared/ForwardMessageModal';
+import { canForwardMessage, toForwardSource, type ForwardSource } from '../shared/forwardMessage';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
+import { GroupCardMessage } from '../shared/GroupCardMessage';
 import { CardRenderer } from '../shared/CardRenderer';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
@@ -239,7 +242,7 @@ export function GroupMessageBubble({
   })();
   const { localPath } = useFileCache({
     fileUuid: message.file_uuid ?? '',
-    fileHash: message.file_hash,
+    // 不传 fileHash：消息面已无该字段（后端接收面不再下发），由 Hook 经 file_uuid 解析
     fileName: '',
     fileType: fileCacheType,
     urlType: 'group',
@@ -401,6 +404,33 @@ export function GroupMessageBubble({
   const shouldShowSenderName = showName && !isOwn && !isSenderHidden;
   // 配色索引只由 sender_id 决定（改名/改备注不变色），真色值在 CSS 按 data-sender-hue 选
   const senderNameHue = senderNameColorIndex(message.sender_id);
+
+  // 转发面板：按需挂载（面板内部会查一次本地会话表，常驻在每条气泡上不可接受）
+  const [forwardOpen, setForwardOpen] = useState(false);
+
+  /**
+   * 本条（或本相册）里**可转发**的源消息 —— 与私聊气泡同一套判定（forwardMessage.ts）。
+   * 群系统消息（`system`）与可交互卡片（`card`）由 canForwardMessage 挡在门外。
+   */
+  const forwardSources = useMemo((): ForwardSource[] => {
+    if (album) {
+      return album.items.map((item): ForwardSource => ({
+        message_uuid: item.message_uuid,
+        message_content: item.message_content,
+        message_type: item.message_type,
+        file_uuid: item.file_uuid,
+        // AlbumMediaItem 不带 file_url；后端优先认 file_uuid，缺 file_url 不影响转发
+        file_url: null,
+        file_size: item.file_size,
+        send_time: message.send_time,
+        senderName: senderDisplayName,
+        is_recalled: message.is_recalled,
+        sendStatus: item.clientId ? 'sending' : undefined,
+      })).filter(canForwardMessage);
+    }
+    const single = toForwardSource(message, senderDisplayName);
+    return canForwardMessage(single) ? [single] : [];
+  }, [album, message, senderDisplayName]);
 
   // 长按计时器（移动端用）
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -772,10 +802,14 @@ export function GroupMessageBubble({
                             sourceType="group"
                           />
                         )}
+                        {message.message_type === 'group_card' && (
+                          <GroupCardMessage messageContent={message.message_content} />
+                        )}
                         {message.message_type !== 'text'
                       && message.message_type !== 'system'
                       && message.message_type !== 'meeting_invite'
-                      && message.message_type !== 'card' && (
+                      && message.message_type !== 'card'
+                      && message.message_type !== 'group_card' && (
                         // 单图 / 单视频 + 配文 ⇒ 与相册同一个大气泡（Telegram 式 media + caption）。
                         // 这里只是**套样式**，绝不把单条塞进 media_group —— 折叠会抹掉 DOM 锚点。
                         // 文档类不进这层：它自带白底卡片，套进气泡是两层背景叠着。
@@ -790,11 +824,12 @@ export function GroupMessageBubble({
                             senderName={nameInsideMedia ? senderNameNode : undefined}
                           >
                             <FileMessageContent
+                              // 会话媒体序列里的身份：左右切图靠它定位当前是第几张
+                              messageUuid={message.message_uuid}
                               messageType={message.message_type as 'image' | 'video' | 'file'}
                               messageContent={message.message_content}
                               fileUuid={message.file_uuid}
                               fileSize={message.file_size}
-                              fileHash={message.file_hash}
                               urlType="group"
                               // 与私聊气泡同款：在途发送项的钥匙。真实历史消息没有 clientId
                               // ⇒ 这一路完全不生效，行为逐字节不变。
@@ -835,6 +870,8 @@ export function GroupMessageBubble({
         onSetRemark={() => setRemarkModalOpen(true)}
         canReply={canReply}
         onReply={handleReply}
+        canForward={forwardSources.length > 0}
+        onForward={() => setForwardOpen(true)}
         onRecall={handleRecall}
         onDelete={handleDelete}
         onMultiSelect={handleEnterMultiSelect}
@@ -844,6 +881,14 @@ export function GroupMessageBubble({
         onToggleSpecialCareSender={handleToggleSpecialCare}
         onClose={handleCloseMenu}
       />
+
+      {/* 转发面板（A 版快捷卡；按需挂载，关闭即卸载） */}
+      {forwardOpen && forwardSources.length > 0 && (
+        <ForwardMessageModal
+          messages={forwardSources}
+          onClose={() => setForwardOpen(false)}
+        />
+      )}
 
       {/* 移动端全屏消息预览（双击触发） */}
       {isMobile() && message.message_type === 'text' && (

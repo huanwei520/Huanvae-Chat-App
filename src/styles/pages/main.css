@@ -1607,149 +1607,19 @@
   font-weight: bold;
 }
 
-/* 邀请码管理样式 */
-.menu-invite-codes {
-  max-height: 350px;
-  overflow-y: auto;
-}
-
-.create-code-btn {
-  border-bottom: 1px solid rgba(147, 197, 253, 0.2);
-}
-
-.create-code-icon {
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: bold;
-  color: var(--primary);
-}
-
-.invite-code-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid rgba(147, 197, 253, 0.1);
-  transition: background 0.15s ease;
-}
-
-.invite-code-item:hover {
-  background: rgba(147, 197, 253, 0.08);
-}
-
-.invite-code-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.invite-code-value {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.code-text {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: 1px;
-}
-
-.code-type {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.code-type.direct {
-  background: linear-gradient(135deg, var(--status-success), var(--status-success));
-  color: white;
-}
-
-.code-type.normal {
-  background: rgba(147, 197, 253, 0.3);
-  color: var(--primary-hover);
-}
-
-.invite-code-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-light);
-}
-
-.invite-code-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.code-action-btn {
-  padding: 6px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  color: var(--text-muted);
-}
-
-.code-action-btn:hover {
-  background: rgba(147, 197, 253, 0.2);
-  color: var(--primary);
-}
-
-.code-action-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--status-error);
-}
-
-/* 生成邀请码表单样式 */
-.form-group {
-  margin-bottom: 16px;
-}
-
+/* .form-label：4 个 tsx 仍在用（OAuthClientsPanel / ExecuteDialog / Login / Register），
+   全本文件唯一一处定义，故本轮整套删除时保留 —— 它不专属于被删掉的那个表单。
+   同批已一并删掉的两族：① .option-buttons / .option-btn（唯一消费方就是那个已删表单）；
+   ② 原先紧跟本注释的 .form-group 那条 margin-bottom:16px —— 它与本文件后面
+   「.form-group label / .form-group .glass-input」那一组里的同名规则**逐字重复**，
+   删掉这一份不改变任何元素的计算值。
+   （本注释刻意不写花括号：animation-conflict.test.ts 抠规则块是「到第一个右花括号为止」，
+     注释里出现花括号会让紧随其后的注册项静默空转、恒 PASS。） */
 .form-label {
   display: block;
   font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 8px;
-  font-weight: 500;
-}
-
-.option-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.option-btn {
-  padding: 8px 14px;
-  border: 1px solid rgba(147, 197, 253, 0.3);
-  border-radius: 8px;
-  background: var(--white-alpha-50);
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.option-btn:hover {
-  background: rgba(147, 197, 253, 0.15);
-  border-color: rgba(147, 197, 253, 0.5);
-}
-
-.option-btn.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: var(--primary);
-  color: var(--primary-hover);
   font-weight: 500;
 }
 
@@ -2564,6 +2434,9 @@
   font-weight: 600;
 }
 
+/* transform 归 framer-motion（whileHover/whileTap scale），CSS 不得过渡它 ——
+   原本这里是 transition: all，与 motion 每帧写的 inline transform 抢帧。
+   登记在 tests/animation-conflict.test.ts 的 .action-bar-btn 一条。 */
 .action-bar-btn {
   display: flex;
   align-items: center;
@@ -2574,7 +2447,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
 }
 
 .action-bar-btn.cancel {
@@ -2605,6 +2478,20 @@
 }
 
 .action-bar-btn.delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-bar-btn.forward {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--primary);
+}
+
+.action-bar-btn.forward:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.action-bar-btn.forward:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

@@ -416,6 +416,11 @@ CSS 中 `position: absolute` 元素相对最近的 `position != static` 祖先�
 
 ## Tauri plugin-http 不能用 playwright page.route 拦截
 
+> 🔴 **2026-08-19 适用范围订正**：下面这一节的**机制**仍然成立，但它举的那个例子已经过期 ——
+> `src/api/auth.ts` **早就不再用** `@tauri-apps/plugin-http`，登录路径走 `invoke('secure_http')`。
+> 据此推出的「登录后页面 e2e 不可达」**已被证伪**，详见本文件
+> 「审计结论『e2e 撞 `plugin:http` 502』已过期」一节。
+
 ### 所有 `@tauri-apps/plugin-http` 的 fetch 请求都走 Tauri invoke 通道
 
 `@tauri-apps/plugin-http` 不调用浏览器原生 fetch，而是通过 `window.__TAURI_INTERNALS__.invoke('plugin:http|fetch', ...)` 走 Tauri Rust 层。这意味着：
@@ -1908,3 +1913,71 @@ GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote <公开仓 URL> 'refs/
 **空包 → rc=2**（专门堵「0 命中在空包上恒真」）。
 它的负样本是**构造出来的真实例**，不是「编造一个不存在的名字」，所以两侧形状天然不同 ——
 **能构造真实例时，就别用「编造一个不存在的 ID」这种弱形态。**
+
+## 🔴 审计结论「e2e 撞 `plugin:http` 502」已过期 —— 实测证伪，引用前先核
+
+**旧说法**（写在 `e2e/settings.spec.ts` 的头部注释里、又被审计原样照抄）：
+e2e 进不去登录态，是因为 `e2e/helpers/tauri-mock.ts` 把 `plugin:http` 硬编码成 502。
+**证伪。登录路径根本不经过 `plugin:http`。**
+
+| 事实 | 判据 |
+|---|---|
+| 数据面走 `invoke('secure_http')` | `src/services/secureFetch.ts:129` / `:140` |
+| 旧 mock 对 `secure_http` **零分支** | 改前 `grep -c secure_http e2e/helpers/tauri-mock.ts` = **0**；同文件 `plugin:http` = 1（同类正对照 ⇒ grep 会响） |
+| `plugin:http` 在 `src/` 只剩 3 处，登录一处都不经过 | `huanvaeGuard/localApi.ts:24`（回环）· `nfc/executor.ts:40`（NFC 任意外链）· `secureFetch.ts:5`（**只是一句注释**） |
+
+**真因链（运行时抓到，不是读码推的）**：`secure_http` 未列出 → mock 返回 `null` →
+`secureFetch` 读 `.status` 抛 `Cannot read properties of null (reading 'status')` →
+`discovery.configOrFallback` 在 DEV 构建 fail-loud ⇒ **数据面从发现面第一跳就断**。
+补上 `secure_http` 分支后 e2e 能真的登录进主界面。
+
+**三条可复用的教训**：
+
+1. **上游描述与实测冲突，以实测为准**（本文件已有同名纪律）—— 这次冲突的双方是
+   「审计结论」与「运行时报文」，而审计结论的来源是**一句写在测试文件头部的旧注释**。
+   ⇒ **注释不是证据**；引用任何「根因是 X」之前，先跑一次拿到真实报错原文。
+2. **一句错注释会长期挡住排查**：它让后续所有人都去看 `plugin:http`，
+   而真正断掉的那一跳无人过问。按 CLAUDE.md「零污染 / 无误导性残留」，
+   这类**结论已错的注释必须删**，不是留着"以防万一"。
+3. **mock 未建模的命令要返回显式错误，不要返回 `null`**：`null` 会在下游变成
+   `Cannot read properties of null` 这种**看不出是桩缺口**的报错。现行 `tauri-mock.ts`
+   对未建模端点返回**显式 404**、未列出的 invoke 返回 `null` + `console.debug`。
+
+## 穷举 workflow 不能只 `find .github` —— GitHub 有「仓内无文件」的动态 workflow
+
+`find .github -type f \( -name '*.yml' -o -name '*.yaml' \)` 在本仓得 **3** 个
+（`release.yml` / `test.yml` / `apt-repo.yml`），而 `GET /repos/<owner>/<repo>/actions/workflows`
+返回 **4** 条 —— 多出来的 `pages-build-deployment` 是 GitHub 内建的动态 workflow，
+它的 `path` 前缀是 `dynamic/`，**盘上和 `git ls-files` 里都没有对应文件**。
+
+⇒ **「本仓一共有几个 workflow」这类穷举必须跨判据**：文件系统（`find` + `git ls-files`，
+两者互证盘上/库里一致）**与** API 侧各查一次，数字不一致时逐条对出差在哪。
+只用其中一种 ⇒ 得到的"全部"是不完整的，而它**看起来跟真的全部一模一样**。
+
+同一次穷举里还要顺手查两件（它们同样不在 `find` 结果里、却能让流水线串起来）：
+`workflow_run`（本仓 1 处：`apt-repo.yml` 由 Release 完成触发）、
+`workflow_call`（本仓 0）、本地复合 action `uses: ./`（本仓 0，`.github/actions` 目录不存在）。
+
+⚠️ 配套：`workflow_run` 那条链是**软约束**——它靠
+`if: … workflow_run.conclusion == 'success'` 挡住，而**人手 `workflow_dispatch` 可以绕过**。
+穷举分发面时要把这个绕过口写出来，别只写"上游红了它就 skip"。
+
+## `--grep` / `--project` / 位置过滤器 也是一种**结构性跳过**
+
+本文件与 `frontend-test.md` 已经记过 `testIgnore` / `testMatch` / vitest `exclude`
+这类"不出现在 `grep skip` 里、却同样让测试不跑"的形态。**命令行过滤器是同一类**，
+而且更隐蔽 —— 它不在任何配置文件里，只在 CI 的一行 `run:` 里。
+
+**判据**：任何一条门禁命令，先问「它跑的是全集还是子集？」
+子集就必须能说出**收窄掉了什么**。自证方法是**同一条命令的两侧计数**：
+本仓 `--grep "@gate" --list` = `Total: 5 tests in 2 files`，
+不带 `--grep` 的同一 project = `20 tests in 4 files` ⇒ 两侧形状不同，收窄幅度是可量的。
+
+**用它时同处必须写清三件**（缺一条就退化成静默降门槛）：
+① **收窄了什么**（被排除的具体是哪些用例）；
+② **为什么**（必须是"这一类检查不管代码回归"这种结构性理由，
+不能是"它现在红"—— 那叫为了变绿而收窄）；
+③ **BACKLOG 在哪**（写在同一处注释里，含解除条件）。
+
+并且要主动检查**收窄到空集时会不会静默通过**：playwright 的 `--grep` 空集是
+`Error: No tests found` / rc=1（会响亮失败），但别的工具未必 —— **各自实测一次**。

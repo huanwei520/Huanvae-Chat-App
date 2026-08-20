@@ -23,7 +23,7 @@ export interface Friend {
 export type FriendsResponse = Friend[];
 
 /** 消息类型 */
-export type MessageType = 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
+export type MessageType = 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card';
 
 /** 消息发送状态 */
 export type MessageSendStatus = 'sending' | 'sent' | 'failed';
@@ -38,7 +38,6 @@ export interface Message {
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
-  file_hash: string | null;
   /** 媒体宽度（像素），图片/视频类型消息有值 */
   image_width?: number | null;
   /** 媒体高度（像素），图片/视频类型消息有值 */
@@ -122,7 +121,7 @@ export interface Group {
 }
 
 /** 群消息类型 */
-export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card';
+export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card' | 'group_card';
 
 /** 群消息 */
 export interface GroupMessage {
@@ -136,7 +135,6 @@ export interface GroupMessage {
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
-  file_hash: string | null;
   /** 媒体宽度（像素），图片/视频类型消息有值 */
   image_width?: number | null;
   /** 媒体高度（像素），图片/视频类型消息有值 */
@@ -188,6 +186,19 @@ export interface MeetingInvitePayload {
   room_name: string;
   creator_name: string;
   creator_avatar: string;
+}
+
+/**
+ * 群名片消息内容结构（JSON.parse message_content 后的类型）
+ *
+ * 🔴 **封闭 schema：有且仅有 group_id 一个键。** 多一个键（群名 / 头像 / 人数 …）后端一律 400
+ * （`Huanvae-Chat-Rust/src/friends_messages/services/card_schema.rs` `validate_group_card_content`），
+ * 理由是防伪造（消息体由发送方构造，服务端校验不了展示字段属实）与防过期（快照写死在历史消息里）。
+ * ⇒ 展示字段一律由接收端凭 group_id 现拉 `GET /api/groups/{id}/public`。
+ * 编解码只走 `src/chat/shared/groupCard.ts`，别在别处手搓 JSON。
+ */
+export interface GroupCardPayload {
+  group_id: string;
 }
 
 /** AI 会话信息 */

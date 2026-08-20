@@ -49,7 +49,6 @@ function albumItem(index: number): AlbumMediaItem {
     message_type: 'image',
     file_uuid: `f${index}`,
     file_size: 1024,
-    file_hash: `h${index}`,
     media_group_index: index,
   };
 }
@@ -137,6 +136,7 @@ describe('四种形态的 DOM 契约', () => {
     const { container } = render(
       <MediaBubbleFrame content="wow" media="single">
         <FileMessageContent
+          messageUuid="msg-uuid-1"
           messageType="image"
           messageContent="wow"
           fileUuid="f1"
@@ -171,6 +171,7 @@ describe('四种形态的 DOM 契约', () => {
     const { container } = render(
       <MediaBubbleFrame content="录了一段" media="single">
         <FileMessageContent
+          messageUuid="msg-uuid-1"
           messageType="video"
           messageContent="录了一段"
           fileUuid="f1"
@@ -191,6 +192,7 @@ describe('四种形态的 DOM 契约', () => {
     const { container } = render(
       <MediaBubbleFrame content="[图片] IMG_0042.jpg" media="single">
         <FileMessageContent
+          messageUuid="msg-uuid-1"
           messageType="image"
           messageContent="[图片] IMG_0042.jpg"
           fileUuid="f1"

@@ -23,7 +23,14 @@ export type DownloadStatus = 'pending' | 'downloading' | 'completed' | 'failed';
 
 /** 下载任务 */
 export interface DownloadTask {
-  fileHash: string;
+  /**
+   * 文件身份键 —— **不是内容哈希**（2026-08-16 两层键起）。
+   *
+   * 消息面 = `file_uuid`（后端接收面已不再下发 `file_hash`，下载前只有它）；
+   * 个人文件面（`GET /api/storage/files`）= 服务端下发的 `file_hash`。
+   * 两个键空间不相交，混在同一张表里不会互相误命中。口径见 `services/fileCache.fileIdentityKey`。
+   */
+  cacheKey: string;
   fileName: string;
   fileType: 'image' | 'video' | 'document';
   status: DownloadStatus;
@@ -44,7 +51,7 @@ export interface UrlCacheItem {
 
 /** Store 状态 */
 interface FileCacheState {
-  // 下载任务（按 fileHash 索引）
+  // 下载任务（按 cacheKey 索引）
   downloadTasks: Record<string, DownloadTask>;
 
   // 预签名 URL 缓存（按 fileUuid 索引）
@@ -55,10 +62,10 @@ interface FileCacheState {
 interface FileCacheActions {
   // 下载任务管理
   addDownloadTask: (task: Omit<DownloadTask, 'status' | 'downloaded' | 'percent' | 'startTime'>) => void;
-  updateDownloadProgress: (fileHash: string, downloaded: number, total: number, percent: number) => void;
-  completeDownload: (fileHash: string, localPath: string) => void;
-  failDownload: (fileHash: string, error: string) => void;
-  removeDownloadTask: (fileHash: string) => void;
+  updateDownloadProgress: (cacheKey: string, downloaded: number, total: number, percent: number) => void;
+  completeDownload: (cacheKey: string, localPath: string) => void;
+  failDownload: (cacheKey: string, error: string) => void;
+  removeDownloadTask: (cacheKey: string) => void;
   clearCompletedTasks: () => void;
 
   // URL 缓存管理
@@ -91,7 +98,7 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     set((state) => ({
       downloadTasks: {
         ...state.downloadTasks,
-        [task.fileHash]: {
+        [task.cacheKey]: {
           ...task,
           status: 'pending',
           downloaded: 0,
@@ -102,15 +109,15 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     }));
   },
 
-  updateDownloadProgress: (fileHash, downloaded, total, percent) => {
+  updateDownloadProgress: (cacheKey, downloaded, total, percent) => {
     set((state) => {
-      const task = state.downloadTasks[fileHash];
+      const task = state.downloadTasks[cacheKey];
       if (!task) { return state; }
 
       return {
         downloadTasks: {
           ...state.downloadTasks,
-          [fileHash]: {
+          [cacheKey]: {
             ...task,
             status: 'downloading',
             downloaded,
@@ -122,15 +129,15 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     });
   },
 
-  completeDownload: (fileHash, localPath) => {
+  completeDownload: (cacheKey, localPath) => {
     set((state) => {
-      const task = state.downloadTasks[fileHash];
+      const task = state.downloadTasks[cacheKey];
       if (!task) { return state; }
 
       return {
         downloadTasks: {
           ...state.downloadTasks,
-          [fileHash]: {
+          [cacheKey]: {
             ...task,
             status: 'completed',
             percent: 100,
@@ -141,15 +148,15 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     });
   },
 
-  failDownload: (fileHash, error) => {
+  failDownload: (cacheKey, error) => {
     set((state) => {
-      const task = state.downloadTasks[fileHash];
+      const task = state.downloadTasks[cacheKey];
       if (!task) { return state; }
 
       return {
         downloadTasks: {
           ...state.downloadTasks,
-          [fileHash]: {
+          [cacheKey]: {
             ...task,
             status: 'failed',
             error,
@@ -159,9 +166,9 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     });
   },
 
-  removeDownloadTask: (fileHash) => {
+  removeDownloadTask: (cacheKey) => {
     set((state) => {
-      const { [fileHash]: _, ...rest } = state.downloadTasks;
+      const { [cacheKey]: _, ...rest } = state.downloadTasks;
       return { downloadTasks: rest };
     });
   },
@@ -247,5 +254,5 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
 // ============================================
 
 /** 获取指定文件的下载任务 */
-export const selectDownloadTask = (fileHash: string) => (state: FileCacheState & FileCacheActions) =>
-  state.downloadTasks[fileHash];
+export const selectDownloadTask = (cacheKey: string) => (state: FileCacheState & FileCacheActions) =>
+  state.downloadTasks[cacheKey];

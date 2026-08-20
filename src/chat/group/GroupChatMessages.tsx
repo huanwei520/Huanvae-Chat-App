@@ -48,6 +48,8 @@ import {
 } from '../shared/replyPreview';
 import { groupConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
+import { buildMediaGallery } from '../shared/mediaGallery';
+import { MediaGalleryProvider } from '../shared/MediaGalleryProvider';
 import { isLocateScrollSettling } from '../shared/scrollMessageIntoView';
 import { useStickToBottom } from '../shared/useStickToBottom';
 import type { GroupMessage } from '../../api/groupMessages';
@@ -193,6 +195,14 @@ export function GroupChatMessages({
   // 相册折叠：同一 media_group_id 的 N 条消息折叠成一个渲染节点。
   // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
+  // 会话媒体序列（全屏预览左右切上一张 / 下一张的数据面）。
+  // 从 renderNodes 摊平：相册内部已按 media_group_index 升序，与网格里眼睛看到的一致；
+  // 范围 = **当前已加载的这批消息**，用户往上翻得越多能滑到的越多（见 mediaGallery.ts 文件头）。
+  const galleryItems = useMemo(
+    () => buildMediaGallery(renderNodes, { urlType: 'group' }),
+    [renderNodes],
+  );
 
   // 连发分组的输入：一份节点、两个锚点集合共用，保证两者的分界逐字一致。
   // 撤回态映射成 senderKey=null ⇒ 它自己既不挂头像也不显示昵称、且把上下断成两组
@@ -370,7 +380,9 @@ export function GroupChatMessages({
   const showPlaceholder = !loading && isEmpty;
 
   return (
-    <>
+    // 全屏预览的宿主也在 Provider 里：整条会话共用一个浮层，气泡只负责说"打开我这一张"。
+    // 它 createPortal 到 body，不参与本容器的 column-reverse 布局。
+    <MediaGalleryProvider items={galleryItems}>
       <motion.div
         ref={containerRef}
         className="chat-messages-container chat-messages-container--reverse"
@@ -492,6 +504,6 @@ export function GroupChatMessages({
         onJumpToLatest={onJumpToLatest}
         forceVisible={isWindowed}
       />
-    </>
+    </MediaGalleryProvider>
   );
 }

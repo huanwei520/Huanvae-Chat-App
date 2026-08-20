@@ -69,7 +69,6 @@ const buildMessage = (overrides: Partial<LocalMessage> = {}): LocalMessage => ({
   file_uuid: 'file-uuid-1',
   file_url: 'https://backend.example/presigned/RAW-SHOULD-NEVER-BE-USED',
   file_size: 1024,
-  file_hash: 'hash-1',
   image_width: null,
   image_height: null,
   seq: 1,

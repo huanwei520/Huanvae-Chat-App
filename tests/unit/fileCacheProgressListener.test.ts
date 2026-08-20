@@ -67,7 +67,7 @@ describe('progress listener 状态机', () => {
 
     // 未注册 hash → 事件静默忽略
     mockListen.fire({
-      fileHash: 'unknown-hash',
+      cacheKey: 'unknown-hash',
       downloaded: 50,
       total: 100,
       percent: 50,
@@ -77,13 +77,13 @@ describe('progress listener 状态机', () => {
 
     // 先添加任务，再发事件 → store 应更新 percent
     useFileCacheStore.getState().addDownloadTask({
-      fileHash: 'hash-A',
+      cacheKey: 'hash-A',
       fileName: 'a.mp4',
       fileType: 'video',
       total: 100,
     });
     mockListen.fire({
-      fileHash: 'hash-A',
+      cacheKey: 'hash-A',
       downloaded: 60,
       total: 100,
       percent: 60,
@@ -99,14 +99,14 @@ describe('progress listener 状态机', () => {
     await startProgressListener();
 
     useFileCacheStore.getState().addDownloadTask({
-      fileHash: 'hash-B',
+      cacheKey: 'hash-B',
       fileName: 'b.mp4',
       fileType: 'video',
       total: 200,
     });
 
     mockListen.fire({
-      fileHash: 'hash-B',
+      cacheKey: 'hash-B',
       downloaded: 200,
       total: 200,
       percent: 100,
@@ -124,14 +124,14 @@ describe('progress listener 状态机', () => {
     await startProgressListener();
 
     useFileCacheStore.getState().addDownloadTask({
-      fileHash: 'hash-C',
+      cacheKey: 'hash-C',
       fileName: 'c.mp4',
       fileType: 'video',
       total: 100,
     });
 
     mockListen.fire({
-      fileHash: 'hash-C',
+      cacheKey: 'hash-C',
       downloaded: 100,
       total: 100,
       percent: 100,
@@ -148,14 +148,14 @@ describe('progress listener 状态机', () => {
     await startProgressListener();
 
     useFileCacheStore.getState().addDownloadTask({
-      fileHash: 'hash-D',
+      cacheKey: 'hash-D',
       fileName: 'd.pdf',
       fileType: 'document',
       total: 50,
     });
 
     mockListen.fire({
-      fileHash: 'hash-D',
+      cacheKey: 'hash-D',
       downloaded: 0,
       total: 50,
       percent: 0,
@@ -172,14 +172,14 @@ describe('progress listener 状态机', () => {
     await startProgressListener();
 
     useFileCacheStore.getState().addDownloadTask({
-      fileHash: 'hash-E',
+      cacheKey: 'hash-E',
       fileName: 'e.png',
       fileType: 'image',
       total: 10,
     });
 
     mockListen.fire({
-      fileHash: 'hash-E',
+      cacheKey: 'hash-E',
       downloaded: 0,
       total: 10,
       percent: 0,
@@ -195,7 +195,7 @@ describe('progress listener 状态机', () => {
     await startProgressListener();
 
     mockListen.fire({
-      fileHash: 'never-registered',
+      cacheKey: 'never-registered',
       downloaded: 100,
       total: 100,
       percent: 100,
@@ -203,7 +203,7 @@ describe('progress listener 状态机', () => {
       localPath: '/somewhere',
     });
     mockListen.fire({
-      fileHash: 'never-registered-2',
+      cacheKey: 'never-registered-2',
       downloaded: 0,
       total: 0,
       percent: 0,

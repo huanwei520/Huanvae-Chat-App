@@ -7,7 +7,7 @@
  *
  * - 图片 / 视频 / 文件 三类用**白名单**（枚举已知 content_type）
  * - 文字类用**黑名单**（= 非文件类）——这样未来新增的未知类型（以及 `system` /
- *   `card` / `meeting_invite` 这些非文件的特殊类型）仍会落进「文字」，
+ *   `card` / `meeting_invite` / `group_card` 这些非文件的特殊类型）仍会落进「文字」，
  *   不会从四个分类里凭空消失。
  *
  * 该口径与全局搜索的既有拆分一致（GlobalMessageSearchResults 的 FILE_TYPES）。

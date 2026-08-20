@@ -51,7 +51,6 @@ export interface AlbumMediaItem {
   message_type: string;
   file_uuid: string | null;
   file_size: number | null;
-  file_hash?: string | null;
   media_group_index?: number | null;
   /**
    * 乐观消息的 clientId（真实历史消息为 undefined）。
@@ -219,11 +218,13 @@ export function AlbumMessage({ album, urlType = 'friend', friendId, meta, sender
             {item
               ? (
                 <FileMessageContent
+                  // 会话媒体序列里的身份：相册里每一格各是一条独立消息，
+                  // 左右切图靠它定位当前是第几张（组内位次与网格里眼睛看到的一致）
+                  messageUuid={item.message_uuid}
                   messageType={albumItemMediaType(item.message_type)}
                   messageContent={item.message_content}
                   fileUuid={item.file_uuid}
                   fileSize={item.file_size}
-                  fileHash={item.file_hash}
                   urlType={urlType}
                   friendId={friendId}
                   // 每格各自一把钥匙：这一格在途就只有这一格转圈 / 只重试这一格

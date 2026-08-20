@@ -26,10 +26,12 @@ import { ChatTargetAvatar, hasChatTargetAvatar } from '../../chat/shared/ChatTar
 import { ConversationShelf } from '../../chat/shared/ConversationShelf';
 import { BotBadge } from '../../components/common/BotBadge';
 import { MultiSelectActionBar } from '../../chat/shared/MultiSelectActionBar';
+import { ForwardMessageModal } from '../../chat/shared/ForwardMessageModal';
+import { useBatchForward } from '../../chat/shared/useBatchForward';
 import { ChatInputArea } from '../../chat/shared/ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
-import { useProfileViewStore } from '../../stores';
+import { useProfileViewStore, useGroupDetailStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
@@ -221,9 +223,17 @@ export function MobileChatView({
       ? chatTarget.data.friend_id
       : chatTarget.data.group_id;
 
-  // 私聊顶栏点开对方资料（群/AI 不适用；bot 同好友可看资料）
+  // 顶栏点开详情：私聊 → 对方资料；群聊 → 群详情面板（与桌面 ChatPanel 同一条规则，
+  // 理由见那边的注释：群详情面板此前只能从发现搜索点进去，「我已经在的群」几乎无路可达）
   const openProfile = useProfileViewStore((s) => s.open);
+  const openGroupDetail = useGroupDetailStore((s) => s.open);
   const friendIdForProfile = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
+  const groupIdForDetail = chatTarget.type === 'group' ? chatTarget.data.group_id : null;
+  const headerDetailAction = (() => {
+    if (friendIdForProfile) { return () => openProfile(friendIdForProfile); }
+    if (groupIdForDetail) { return () => openGroupDetail(groupIdForDetail); }
+    return null;
+  })();
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
   const titleKbd = useKbdFocusRing();
   const titleKbdHandlers = titleKbd.handlersFor('title');
@@ -236,6 +246,11 @@ export function MobileChatView({
 
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
+
+  // 多选批量转发（与桌面 ChatPanel 同一个 hook，两端行为不会漂移）
+  const { forwardSources, forwardOpen, openForward, closeForward } = useBatchForward({
+    session, chatTarget, friendMessages, groupMessages, selectedMessages,
+  });
 
   const handleAIHistorySelect = useCallback((convId: string) => {
     onAISwitchConversation?.(convId);
@@ -264,23 +279,23 @@ export function MobileChatView({
             </div>
           )}
           <div
-            className={`mobile-chat-title${friendIdForProfile && titleKbd.isKbdFocused('title') ? ' a11y-kbd-focus' : ''}`}
-            onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
-            onKeyDown={friendIdForProfile
+            className={`mobile-chat-title${headerDetailAction && titleKbd.isKbdFocused('title') ? ' a11y-kbd-focus' : ''}`}
+            onClick={headerDetailAction ?? undefined}
+            onKeyDown={headerDetailAction
               ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  openProfile(friendIdForProfile);
+                  headerDetailAction();
                 }
               }
               : undefined}
-            role={friendIdForProfile ? 'button' : undefined}
-            tabIndex={friendIdForProfile ? 0 : undefined}
-            aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
-            onPointerDown={friendIdForProfile ? titleKbdHandlers.onPointerDown : undefined}
-            onFocus={friendIdForProfile ? titleKbdHandlers.onFocus : undefined}
-            onBlur={friendIdForProfile ? titleKbdHandlers.onBlur : undefined}
-            style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
+            role={headerDetailAction ? 'button' : undefined}
+            tabIndex={headerDetailAction ? 0 : undefined}
+            aria-label={headerDetailAction ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+            onPointerDown={headerDetailAction ? titleKbdHandlers.onPointerDown : undefined}
+            onFocus={headerDetailAction ? titleKbdHandlers.onFocus : undefined}
+            onBlur={headerDetailAction ? titleKbdHandlers.onBlur : undefined}
+            style={headerDetailAction ? { cursor: 'pointer' } : undefined}
           >
             {/* ellipsis 下移到内层文字节点：外层已是 flex 行，对 flex 子项直接写
                 text-overflow 不生效（见 chat-bubble-meta.css 的 .mobile-chat-title-text） */}
@@ -444,10 +459,12 @@ export function MobileChatView({
             selectedCount={selectedMessages.size}
             totalCount={isFriendLikeTarget(chatTarget) ? friendMessages.length : groupMessages.length}
             canBatchRecall={canBatchRecall}
+            canBatchForward={forwardSources.length > 0}
             onSelectAll={onSelectAll}
             onDeselectAll={onDeselectAll}
             onBatchDelete={onBatchDelete}
             onBatchRecall={onBatchRecall}
+            onBatchForward={openForward}
             onCancel={onExitMultiSelect}
           />
         ) : (
@@ -458,6 +475,15 @@ export function MobileChatView({
           />
         )}
       </div>
+
+      {/* 批量转发面板：发完退出多选（选中态已消费完，留着只会误导） */}
+      {forwardOpen && forwardSources.length > 0 && (
+        <ForwardMessageModal
+          messages={forwardSources}
+          onClose={closeForward}
+          onSent={onExitMultiSelect}
+        />
+      )}
 
       {chatTarget.type === 'ai' && onVoiceProfileSelect && (
         <VoiceProfileManager

@@ -3,6 +3,7 @@
  *
  * 功能：
  * - 复制消息（文本消息）
+ * - 转发消息（可转发的消息；不可转发的类型不给入口，见 forwardMessage.ts）
  * - 选取文字（移动端专属，打开全屏预览页面以便选择复制）
  * - 撤回消息（自己发送的消息，2分钟内）
  * - 删除消息（本地删除）
@@ -56,6 +57,10 @@ interface MessageContextMenuProps {
   canReply?: boolean;
   /** 群聊回复：把本条设为回复目标 */
   onReply?: () => void;
+  /** 转发：是否显示「转发」项（由 canForwardMessage 判定，不可转发的类型不给入口） */
+  canForward?: boolean;
+  /** 转发：打开转发面板 */
+  onForward?: () => void;
   onRecall: () => void;
   onDelete: () => void;
   onMultiSelect: () => void;
@@ -88,6 +93,8 @@ export function MessageContextMenu({
   hasRemark,
   canReply,
   onReply,
+  canForward,
+  onForward,
   onRecall,
   onDelete,
   onMultiSelect,
@@ -194,6 +201,8 @@ export function MessageContextMenu({
   const canSaveToGallery = mobile && !!localPath && (fileType === 'image' || fileType === 'video');
   // 回复：需要调用方同时给出开关与回调（好友私聊两者都不传 → 该项不出现）
   const showReply = !!canReply && !!onReply;
+  // 转发：同样要求开关 + 回调都给（不可转发的消息由调用方置 canForward=false）
+  const showForward = !!canForward && !!onForward;
 
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
@@ -205,6 +214,7 @@ export function MessageContextMenu({
       let itemCount = 2; // 删除 + 多选
       if (showReply) { itemCount += 1; } // 回复
       if (hasMessageContent) { itemCount += 1; } // 复制
+      if (showForward) { itemCount += 1; } // 转发
       if (hasMessageContent && onSelectText) { itemCount += 1; } // 选取文字
       if (canRecall) { itemCount += 1; }
       if (canSaveToGallery) { itemCount += 1; } // 保存
@@ -250,6 +260,7 @@ export function MessageContextMenu({
     let menuHeight = 100;
     if (showReply) { menuHeight += 36; } // 回复
     if (hasMessageContent) { menuHeight += 36; } // 复制
+    if (showForward) { menuHeight += 36; } // 转发
     if (canRecall) { menuHeight += 36; }
     if (hasLocalPath) { menuHeight += 36; }
     // 群内个人视图操作（备注/特别关心/屏蔽）共用一条分隔线 + 每项各 36
@@ -322,6 +333,19 @@ export function MessageContextMenu({
             >
               <CopyIcon />
               <span>复制</span>
+            </button>
+          )}
+          {/* 转发（可转发的消息；card / system / 已撤回 / 在途 不给入口） */}
+          {showForward && (
+            <button
+              className="context-menu-item"
+              onClick={() => {
+                onForward?.();
+                onClose();
+              }}
+            >
+              <ForwardIcon />
+              <span>转发</span>
             </button>
           )}
           {/* 选取文字（移动端专属，打开全屏预览以便选择复制） */}
@@ -456,6 +480,13 @@ const CopyIcon = () => (
 const ReplyIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 016 6v3" />
+  </svg>
+);
+
+// 转发图标（右弯箭头，与 ReplyIcon 镜像）
+const ForwardIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" width={16} height={16}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 00-6 6v3" />
   </svg>
 );
 

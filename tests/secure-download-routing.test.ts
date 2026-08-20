@@ -26,6 +26,7 @@ function read(rel: string): string {
 const DOWNLOAD_SITES = [
   'src/chat/shared/DocumentDownloadAction.tsx',
   'src/chat/shared/FileMessageContent.tsx',
+  'src/chat/shared/MediaGalleryProvider.tsx',
   'src/components/files/FilesModal.tsx',
   'src/components/files/FileMenuController.tsx',
   'src/hooks/useFileCache.ts',
@@ -54,13 +55,25 @@ describe('各下载调用点采用原始 URL 收口写法（正向覆盖，删�
     expect(code).toMatch(/triggerBackgroundDownload\(presignedUrl \?\? src,/);
   });
 
-  it('FileMessageContent：图片/视频/文档 5 个下载点均用 presignedUrl ?? src', () => {
+  it('FileMessageContent：视频 + 文档 2 个下载点均用 presignedUrl ?? src', () => {
     const code = read('src/chat/shared/FileMessageContent.tsx');
-    // 单行 + 多行两种形态合计应 >= 5（image×1 + video×3 + document×1）
+    // 🔴 数量从 5 降到 2 是**代码搬家**，不是覆盖面缩水，逐条对账：
+    //   - image×1：原先挂在气泡自带的 <MobileMediaPreview> 菜单上，2026-08-16 随全屏预览
+    //     一起搬去 MediaGalleryProvider（见下一条），本文件已无图片下载点
+    //   - video×3 → ×1：移动端分支 / 桌面端分支两处逐字相同的触发已合并成一处；
+    //     第三处同样是那个菜单里的，随预览搬走
+    //   - document×1：原地不动
     const hits = code.match(/triggerBackgroundDownload\(\s*presignedUrl \?\? src,/g) ?? [];
-    expect(hits.length).toBeGreaterThanOrEqual(5);
+    expect(hits.length).toBe(2);
     // 文档分支的 useFileCache 必须解构出 presignedUrl
     expect(code).toMatch(/const \{[^}]*\bpresignedUrl\b[^}]*\} = useFileCache\(/);
+  });
+
+  it('MediaGalleryProvider：全屏预览的「下载」用 presignedUrl ?? src（原始优先）', () => {
+    const code = read('src/chat/shared/MediaGalleryProvider.tsx');
+    // 取源结果里原始 URL 优先；拿不到就不触发（不回退到反代 src 之外的任何东西）
+    expect(code).toMatch(/const url = source\?\.presignedUrl \?\? source\?\.src;/);
+    expect(code).toMatch(/triggerBackgroundDownload\(url,/);
   });
 
   it('FilesModal：文档卡片解构 presignedUrl + 传 presignedUrl ?? src', () => {

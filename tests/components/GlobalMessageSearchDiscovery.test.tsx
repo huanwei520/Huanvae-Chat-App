@@ -62,7 +62,6 @@ const FULL_RESULTS = {
       groupName: 'GroupOne',
       avatarUrl: null,
       memberCount: 3,
-      joinMode: 'open',
       isMember: false,
     },
   ],

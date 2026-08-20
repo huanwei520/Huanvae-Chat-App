@@ -66,7 +66,7 @@ describe('群聊 API 封装 (api/groups)', () => {
     const data = {
       group_name: '新群',
       group_description: '描述',
-      join_mode: 'approval_required' as const,
+      join_approval_required: true,
     };
     const out = await groups.createGroup(api, data);
     expect(api.post).toHaveBeenCalledWith('/api/groups', data);
@@ -232,7 +232,6 @@ describe('群聊 API 封装 (api/groups)', () => {
     ['unmuteMember', (a) => groups.unmuteMember(a, 'g1', 'u2'), '/api/groups/g1/mute/u2'],
     ['disbandGroup', (a) => groups.disbandGroup(a, 'g1'), '/api/groups/g1'],
     ['deleteGroupNotice', (a) => groups.deleteGroupNotice(a, 'g1', 'n1'), '/api/groups/g1/notices/n1'],
-    ['revokeInviteCode', (a) => groups.revokeInviteCode(a, 'g1', 'c1'), '/api/groups/g1/invite_codes/c1'],
   ];
 
   it.each(DELETE_CASES)('%s 正常：DELETE URL 精确匹配 + 返回透传', async (_name, invoke, expectedUrl) => {
@@ -258,32 +257,6 @@ describe('群聊 API 封装 (api/groups)', () => {
     const data = { title: '置顶公告', content: '内容', is_pinned: true };
     const out = await groups.createGroupNotice(api, 'g1', data);
     expect(api.post).toHaveBeenCalledWith('/api/groups/g1/notices', data);
-    expect(out).toEqual(resp);
-  });
-
-  // ---- 邀请码管理 ----
-  // ⚠️ 契约点：邀请码路由是下划线 invite_codes（非连字符 invite-codes），易回归，此处精确断言。
-
-  it('generateInviteCode 正常：POST invite_codes，options 原样透传，返回透传', async () => {
-    const resp = { id: 'c1', code: 'XYZ', code_type: 'direct', expires_at: '2026-07-18T00:00:00Z' };
-    api.post.mockResolvedValue(resp);
-    const options = { max_uses: 10, expires_in_hours: 24 };
-    const out = await groups.generateInviteCode(api, 'g1', options);
-    expect(api.post).toHaveBeenCalledWith('/api/groups/g1/invite_codes', options);
-    expect(out).toEqual(resp);
-  });
-
-  it('generateInviteCode 默认：省略 options 时 body 归一化为空对象', async () => {
-    api.post.mockResolvedValue({ id: 'c2', code: 'ABC', code_type: 'normal', expires_at: '' });
-    await groups.generateInviteCode(api, 'g1');
-    expect(api.post).toHaveBeenCalledWith('/api/groups/g1/invite_codes', {});
-  });
-
-  it('getInviteCodes 正常：GET invite_codes，返回透传', async () => {
-    const resp = { codes: [{ id: 'c1', code: 'XYZ' }] };
-    api.get.mockResolvedValue(resp);
-    const out = await groups.getInviteCodes(api, 'g1');
-    expect(api.get).toHaveBeenCalledWith('/api/groups/g1/invite_codes');
     expect(out).toEqual(resp);
   });
 
@@ -313,9 +286,6 @@ describe('群聊 API 封装 (api/groups)', () => {
     ['getGroupNotices', (a) => groups.getGroupNotices(a, 'g1')],
     ['createGroupNotice', (a) => groups.createGroupNotice(a, 'g1', { title: 't', content: 'c' })],
     ['deleteGroupNotice', (a) => groups.deleteGroupNotice(a, 'g1', 'n1')],
-    ['generateInviteCode', (a) => groups.generateInviteCode(a, 'g1')],
-    ['getInviteCodes', (a) => groups.getInviteCodes(a, 'g1')],
-    ['revokeInviteCode', (a) => groups.revokeInviteCode(a, 'g1', 'c1')],
   ];
 
   it.each(ERROR_CASES)('%s 异常：api 抛错时原样向上抛', async (_name, invoke) => {

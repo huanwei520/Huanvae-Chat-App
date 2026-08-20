@@ -81,6 +81,7 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
 
     const { container } = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}
@@ -112,6 +113,7 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
 
     const { container } = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="video"
         messageContent="[视频] a.mp4"
         fileUuid={null}
@@ -136,6 +138,7 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
 
     const { container } = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="file"
         messageContent="[文件] a.pdf"
         fileUuid={null}
@@ -155,6 +158,7 @@ describe('在途发送项：本地预览 + 单项覆盖层', () => {
 
     const { container } = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}
@@ -174,6 +178,7 @@ describe('不该走这一支的情况（真实消息的行为逐字节不变）'
   it('没有 clientId（真实历史消息）⇒ 走原路径，缺 fileUuid 仍是「文件不可用」', () => {
     render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}
@@ -187,6 +192,7 @@ describe('不该走这一支的情况（真实消息的行为逐字节不变）'
   it('有 clientId 但条目已被收掉（真实消息已到位）⇒ 同样走原路径', () => {
     render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}
@@ -207,6 +213,7 @@ describe('覆盖层上的两个动作真的落到 store 上', () => {
 
     render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}
@@ -232,6 +239,7 @@ describe('覆盖层上的两个动作真的落到 store 上', () => {
 
     render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image"
         messageContent="[图片] a.png"
         fileUuid={null}

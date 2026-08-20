@@ -19,6 +19,33 @@ interface TokenPayload {
   refresh_token?: string;
 }
 
+/**
+ * 带 HTTP 状态码的 API 错误
+ *
+ * 原先这里抛的是裸 `Error`，`message` 取自响应体 —— **状态码在抛出那一刻就丢了**，
+ * 于是调用方要区分「参数不合法(400) / 无权(403) / 不存在(404)」只能去猜错误文案，
+ * 而文案是服务端随时可改的自由文本。群名片分享的契约明确要求这三态给三种不同的处置
+ * （见 `src/chat/shared/groupCard.ts` `describeShareGroupCardError`），故把状态码原样带出来。
+ *
+ * 兼容性：`ApiError extends Error` ⇒ 既有的 `err instanceof Error` / `err.message`
+ * 判断逐字不变，只是多了一个 `status` 可读。
+ */
+export class ApiError extends Error {
+  /** 响应的 HTTP 状态码（401 已在客户端内部完成刷新重试，到这里的 401 表示刷新后仍失败） */
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** 从 catch 到的未知错误里取 HTTP 状态码；不是 ApiError（网络层失败等）返回 null */
+export function apiErrorStatus(err: unknown): number | null {
+  return err instanceof ApiError ? err.status : null;
+}
+
 export interface ApiClientConfig {
   /** 服务器 URL */
   baseUrl: string;
@@ -160,7 +187,8 @@ export function createApiClient(config: ApiClientConfig) {
     }
 
     if (!response.ok) {
-      throw new Error(
+      throw new ApiError(
+        response.status,
         (data.error as string) || (data.message as string) || `HTTP ${response.status}`,
       );
     }

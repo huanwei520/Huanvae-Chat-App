@@ -99,7 +99,6 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
     file_uuid: local.file_uuid,
     file_url: local.file_url,
     file_size: local.file_size,
-    file_hash: local.file_hash,
     image_width: local.image_width,
     image_height: local.image_height,
     reply_to: local.reply_to,
@@ -300,17 +299,6 @@ export function useLocalGroupMessages(groupId: string | null) {
 
       conversationRef.current = await db.getConversation(groupId);
 
-      const filesWithHash = localMessages.filter((m) => m.file_hash);
-      if (filesWithHash.length > 0) {
-        logFileLink('检测到带哈希的文件消息', {
-          count: filesWithHash.length,
-          files: filesWithHash.map((m) => ({
-            uuid: m.message_uuid,
-            hash: m.file_hash,
-            type: m.content_type,
-          })),
-        });
-      }
     } catch (err) {
       logError('加载本地消息失败', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -585,7 +573,6 @@ export function useLocalGroupMessages(groupId: string | null) {
       file_uuid: null,
       file_url: null,
       file_size: null,
-      file_hash: null,
       reply_to: replyTo ?? null,
       send_time: tempSendTime,
       is_recalled: false,
@@ -636,7 +623,6 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_uuid: null,
         file_url: null,
         file_size: null,
-        file_hash: null,
         image_width: null,
         image_height: null,
         seq: response.seq,
@@ -701,7 +687,6 @@ export function useLocalGroupMessages(groupId: string | null) {
       file_uuid: fileUuid ?? null,
       file_url: fileUrl ?? null,
       file_size: fileSize ?? null,
-      file_hash: fileHash ?? null,
       reply_to: null,
       send_time: tempSendTime,
       is_recalled: false,
@@ -771,7 +756,6 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_uuid: fileUuid || null,
         file_url: fileUrl || null,
         file_size: fileSize || null,
-        file_hash: fileHash || null,
         image_width: null, // 图片尺寸在发送后由后端返回
         image_height: null,
         seq: response.seq,
@@ -913,7 +897,6 @@ export function useLocalGroupMessages(groupId: string | null) {
         file_uuid: wsMsg.file_uuid ?? null,
         file_url: wsMsg.file_url ?? null,
         file_size: wsMsg.file_size ?? null,
-        file_hash: wsMsg.file_hash ?? null,
         image_width: wsMsg.image_width ?? null,
         image_height: wsMsg.image_height ?? null,
         // 原先写死 null ⇒ 别人在群里回复时，我这边**当场**就看不到引用块。
@@ -1078,7 +1061,6 @@ export function useLocalGroupMessages(groupId: string | null) {
     // 服务端 URL 此刻还不存在；本地预览走 useSendingMediaState(clientId).preview.previewUrl
     file_url: null,
     file_size: entry.preview.size,
-    file_hash: null,
     // 🔴 群侧刻意保持 null，**不是**漏了对齐好友侧那一行：
     // 后端 storage/handlers/upload.rs 的群分支硬编码 `reply_to: None` ⇒ 群里用媒体回复，
     // 服务端那条本来就没有引用关系。这里若跟着写 entry.replyTo，在途气泡会显示一个

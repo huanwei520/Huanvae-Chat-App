@@ -25,6 +25,7 @@ import {
   triggerBackgroundDownload,
   getFileTypeFromMime,
   startProgressListener,
+  fileIdentityKey,
   type FileSourceResult,
 } from '../services/fileCache';
 import { isMobile, isMacOS } from '../utils/platform';
@@ -48,9 +49,15 @@ function logCache(action: string, data?: unknown) {
 // ============================================
 
 export interface UseFileCacheOptions {
-  /** 文件 UUID */
+  /** 文件 UUID —— **快路径的键**（缓存查找 / 下载任务 / 封面都由它出发） */
   fileUuid: string;
-  /** 文件哈希（用于本地缓存） */
+  /**
+   * **已知**的内容哈希。**只有个人文件面有**（`GET /api/storage/files` 仍下发它）。
+   *
+   * 🔴 消息面（气泡 / 相册 / 查找命中）**不要传**：后端接收面（好友历史 / 群历史 /
+   * WS 帧 / 增量同步）已不再下发 `file_hash`，消息对象上根本没有这个字段。
+   * 不传时本 Hook 经 `file_uuid_hash` 解析（该行由**下载完成时**自算的哈希写入）。
+   */
   fileHash?: string | null;
   /** 文件名 */
   fileName: string;
@@ -102,9 +109,9 @@ export interface UseFileCacheResult {
  *
  * @example
  * ```tsx
+ * // 消息面：只给 file_uuid（后端接收面已不再下发 file_hash）
  * const { src, isLocal, loading } = useFileCache({
  *   fileUuid: message.file_uuid,
- *   fileHash: message.file_hash,
  *   fileName: message.message_content,
  *   urlType: 'friend',
  *   autoCache: true,
@@ -135,16 +142,19 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
   // 用于避免重复下载
   const downloadTriggeredRef = useRef(false);
 
-  // 保存最新的 result 和 fileHash，供回调使用
+  // 文件身份键：个人文件面用服务端下发的哈希，消息面用 file_uuid（见 fileIdentityKey）
+  const cacheKey = fileIdentityKey(fileUuid, fileHash);
+
+  // 保存最新的 result 和 cacheKey，供回调使用
   const resultRef = useRef<FileSourceResult | null>(null);
-  const fileHashRef = useRef<string | null | undefined>(fileHash);
+  const cacheKeyRef = useRef<string>(cacheKey);
 
   // 同步更新 ref
   resultRef.current = result;
-  fileHashRef.current = fileHash;
+  cacheKeyRef.current = cacheKey;
 
   // 监听下载任务状态
-  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+  const downloadTask = useFileCacheStore(selectDownloadTask(cacheKey));
 
   // 确定文件类型
   const fileType = explicitFileType ?? (contentType ? getFileTypeFromMime(contentType) : 'document');
@@ -179,7 +189,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       });
 
       // 如果是远程文件且需要自动缓存，标记需要下载
-      if (!source.isLocal && autoCache && fileHash && fileType === 'image') {
+      if (!source.isLocal && autoCache && fileType === 'image') {
         downloadTriggeredRef.current = false; // 重置，等待图片加载完成
       }
     } catch (err) {
@@ -222,26 +232,26 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
   // 手动触发缓存（使用 ref 获取最新值）
   const cacheFile = useCallback(async () => {
     const currentResult = resultRef.current;
-    const currentFileHash = fileHashRef.current;
+    const currentKey = cacheKeyRef.current;
 
-    if (!currentResult || currentResult.isLocal || !currentFileHash || downloadTriggeredRef.current) {
+    if (!currentResult || currentResult.isLocal || !currentKey || downloadTriggeredRef.current) {
       logCache('跳过缓存', {
         hasResult: !!currentResult,
         isLocal: currentResult?.isLocal,
-        hasFileHash: !!currentFileHash,
+        hasCacheKey: !!currentKey,
         alreadyTriggered: downloadTriggeredRef.current,
       });
       return;
     }
 
     downloadTriggeredRef.current = true;
-    logCache('触发后台下载', { fileHash: currentFileHash, fileName, fileType });
+    logCache('触发后台下载', { cacheKey: currentKey, fileName, fileType });
 
     // 用**原始** presigned URL 下载（Rust directIpUrl 重写 host→IP + pinned client）；
     // 不能用 currentResult.src（已是反代 loopback URL，会被 directIpUrl 弄坏）。
     await triggerBackgroundDownload(
       currentResult.presignedUrl ?? currentResult.src,
-      currentFileHash,
+      currentKey,
       fileName,
       fileType,
       fileSize,
@@ -284,17 +294,17 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       reload();
 
       // 清除下载任务状态，允许重新下载
-      const currentFileHash = fileHashRef.current;
-      if (currentFileHash) {
-        useFileCacheStore.getState().removeDownloadTask(currentFileHash);
+      const currentKey = cacheKeyRef.current;
+      if (currentKey) {
+        useFileCacheStore.getState().removeDownloadTask(currentKey);
       }
 
       // 触发重新下载（用原始 presignedUrl，不能用反代 src，会被 directIpUrl 弄坏 → 400）
       const currentResult = resultRef.current;
-      if (currentResult?.src && currentFileHash) {
+      if (currentResult?.src && currentKey) {
         await triggerBackgroundDownload(
           currentResult.presignedUrl ?? currentResult.src,
-          currentFileHash,
+          currentKey,
           fileName,
           fileType,
           fileSize,
@@ -329,20 +339,23 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
  *
  * @example
  * ```tsx
- * const { src, isLocal, onLoad } = useImageCache(fileUuid, fileHash, fileName);
+ * // 消息面只传 fileUuid；个人文件面才有 knownHash 可传
+ * const { src, isLocal, onLoad } = useImageCache(fileUuid, null, fileName);
  * return <img src={src} onLoad={onLoad} />;
  * ```
+ *
+ * @param knownHash 已知的内容哈希，**只有个人文件面有**；消息面传 `null`（见 `UseFileCacheOptions.fileHash`）
  */
 export function useImageCache(
   fileUuid: string,
-  fileHash: string | null | undefined,
+  knownHash: string | null | undefined,
   fileName: string,
   urlType: 'user' | 'friend' | 'group' = 'user',
   friendId?: string,
 ) {
   const result = useFileCache({
     fileUuid,
-    fileHash,
+    fileHash: knownHash,
     fileName,
     fileType: 'image',
     urlType,
@@ -353,21 +366,20 @@ export function useImageCache(
   // 保存最新的 cacheFile 和状态
   const cacheFileRef = useRef(result.cacheFile);
   const isLocalRef = useRef(result.isLocal);
-  const fileHashRef = useRef(fileHash);
 
   // 同步更新 ref
   cacheFileRef.current = result.cacheFile;
   isLocalRef.current = result.isLocal;
-  fileHashRef.current = fileHash;
 
   // 图片加载完成后触发缓存（使用 ref 避免依赖问题）
+  //
+  // 🔴 这里**不能**再拿"有没有哈希"当前置条件：消息面下载前根本没有哈希
+  // （两层键，哈希是下载完才自算的）—— 那样图片永远不会被缓存下来。
+  // 真正的去重/重入保护在 cacheFile() 内部（isLocal / downloadTriggeredRef / 任务表）。
   const onLoad = useCallback(() => {
-    logCache('图片 onLoad 触发', {
-      fileHash: fileHashRef.current,
-      isLocal: isLocalRef.current,
-    });
+    logCache('图片 onLoad 触发', { isLocal: isLocalRef.current });
 
-    if (!isLocalRef.current && fileHashRef.current) {
+    if (!isLocalRef.current) {
       cacheFileRef.current();
     }
   }, []);
@@ -385,13 +397,16 @@ export function useImageCache(
  *
  * @example
  * ```tsx
- * const { src, isLocal, onPlay } = useVideoCache(fileUuid, fileHash, fileName);
+ * // 消息面只传 fileUuid；个人文件面才有 knownHash 可传
+ * const { src, isLocal, onPlay } = useVideoCache(fileUuid, null, fileName);
  * return <video src={src} onPlay={onPlay} />;
  * ```
+ *
+ * @param knownHash 已知的内容哈希，**只有个人文件面有**；消息面传 `null`
  */
 export function useVideoCache(
   fileUuid: string,
-  fileHash: string | null | undefined,
+  knownHash: string | null | undefined,
   fileName: string,
   fileSize?: number,
   urlType: 'user' | 'friend' | 'group' = 'user',
@@ -399,7 +414,7 @@ export function useVideoCache(
 ) {
   const result = useFileCache({
     fileUuid,
-    fileHash,
+    fileHash: knownHash,
     fileName,
     fileType: 'video',
     fileSize,
@@ -411,21 +426,17 @@ export function useVideoCache(
   // 保存最新的 cacheFile 和状态
   const cacheFileRef = useRef(result.cacheFile);
   const isLocalRef = useRef(result.isLocal);
-  const fileHashRef = useRef(fileHash);
 
   // 同步更新 ref
   cacheFileRef.current = result.cacheFile;
   isLocalRef.current = result.isLocal;
-  fileHashRef.current = fileHash;
 
   // 播放时触发缓存（使用 ref 避免依赖问题）
+  // 同 useImageCache：不拿"有没有哈希"当前置条件，理由见那里的注释。
   const onPlay = useCallback(() => {
-    logCache('视频 onPlay 触发', {
-      fileHash: fileHashRef.current,
-      isLocal: isLocalRef.current,
-    });
+    logCache('视频 onPlay 触发', { isLocal: isLocalRef.current });
 
-    if (!isLocalRef.current && fileHashRef.current) {
+    if (!isLocalRef.current) {
       cacheFileRef.current();
     }
   }, []);

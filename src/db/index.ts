@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { noteMessageSeq, noteRead } from '../contexts/readPositions';
+import { conversationPreviewText } from '../chat/shared/messagePreviewText';
 
 // ============================================================================
 // 预览变更防抖通知（带写入屏障）
@@ -73,7 +74,6 @@ export interface LocalMessage {
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
-  file_hash: string | null;
   /** 图片宽度（像素），仅图片类型消息有值 */
   image_width: number | null;
   /** 图片高度（像素），仅图片类型消息有值 */
@@ -528,12 +528,10 @@ export async function refreshConversationPreview(
 ): Promise<{ lastMessage: string; lastMessageTime: string } | null> {
   const latestMsg = await getLatestMessage(conversationId);
   if (latestMsg) {
-    const contentTypeMap: Record<string, string> = {
-      text: latestMsg.content,
-      image: '[图片]',
-      video: '[视频]',
-    };
-    const preview = contentTypeMap[latestMsg.content_type] ?? '[文件]';
+    // 映射表与 syncService 的离线同步路径**同一份**（见 chat/shared/messagePreviewText.ts）。
+    // 原先这里是一张自己维护的四行表 + `?? '[文件]'` 兜底 ⇒ meeting_invite / card
+    // 撤回或删除后刷新预览会显示成「[文件]」，而两条路径各写一套表正是漂移的来源。
+    const preview = conversationPreviewText(latestMsg.content_type, latestMsg.content);
     await updateConversationLastMessage(conversationId, preview, latestMsg.send_time);
     return { lastMessage: preview, lastMessageTime: latestMsg.send_time };
   }
@@ -563,6 +561,22 @@ export async function saveFileMapping(
 /** 保存 file_uuid 到 file_hash 的映射 */
 export async function saveFileUuidHash(fileUuid: string, fileHash: string): Promise<void> {
   await invoke('db_save_file_uuid_hash', { fileUuid, fileHash });
+}
+
+/**
+ * 读 file_uuid -> file_hash 映射（两层键的第一跳）
+ *
+ * 后端接收面（好友历史 / 群历史 / WS 帧 / 增量同步）已不再下发 `file_hash`，
+ * 消息对象上只剩 `file_uuid`；本函数把它解析成内容哈希，再照旧查 `file_mappings`。
+ *
+ * 🔴 返回 `null` 是**正常且高频**的：某个 uuid 在本机第一次下载完成之前，本地就是没有这一行
+ * （该行由下载完成时的 Rust 侧自算哈希写入）。调用方据此走远程取件，不要当异常处理。
+ */
+// 本函数**不**声明 async：它自己一句 await 都没有（直接把 invoke 的 Promise 交出去），
+// 写成 async 只会白包一层 Promise，且触发 eslint 的 require-await。
+export function getFileHashByUuid(fileUuid: string): Promise<string | null> {
+  if (!fileUuid) { return Promise.resolve(null); }
+  return invoke<string | null>('db_get_file_hash_by_uuid', { fileUuid });
 }
 
 // ============================================================================

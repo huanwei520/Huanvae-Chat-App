@@ -29,14 +29,15 @@
  * 图片和视频使用独立窗口预览，与 WebRTC 会议使用相同的架构
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useImageCache, useVideoCache, useFileCache } from '../../hooks/useFileCache';
 import { triggerBackgroundDownload } from '../../services/fileCache';
 import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
 import { formatFileSize } from '../../utils/format';
 import { FilePreviewModal } from './FilePreviewModal';
-import { MobileMediaPreview } from './MobileMediaPreview';
 import { VideoThumbnail } from './VideoThumbnail';
+import { useMediaGallery } from './MediaGalleryProvider';
+import { locateInGallery, mediaFilenameFromContent, type MediaGalleryItem } from './mediaGallery';
 import { DocumentDownloadAction, LocalBadge } from './DocumentDownloadAction';
 import { SendingMediaOverlay, useSendingMediaState } from './SendingMediaOverlay';
 import { retrySendingItem, cancelSendingItem } from './sendingMediaActions';
@@ -54,6 +55,13 @@ import type { MessageType } from '../../types/chat';
 // ============================================
 
 export interface FileMessageContentProps {
+  /**
+   * 本条消息的 uuid —— **会话媒体序列里的身份**（左右切图靠它定位当前是第几张）。
+   *
+   * 不能用 file_uuid 代替：同一个文件可以在一个会话里被发两次，那样两项的 file_uuid
+   * 一模一样，定位会停在更早的那一次。
+   */
+  messageUuid: string;
   /** 消息类型 */
   messageType: MessageType;
   /** 消息内容（文件名） */
@@ -62,8 +70,6 @@ export interface FileMessageContentProps {
   fileUuid: string | null;
   /** 文件大小 */
   fileSize: number | null;
-  /** 文件哈希（用于本地识别） */
-  fileHash?: string | null;
   /** URL 类型（用于预签名 URL 请求） */
   urlType?: 'user' | 'friend' | 'group';
   /** 好友 ID（用于错误上报） */
@@ -123,9 +129,58 @@ const IMAGE_DEFAULT_HEIGHT = 150;
 /** 图片加载失败自动重试的最大次数 */
 const IMAGE_MAX_RETRIES = 2;
 
+/**
+ * 打开预览的收口：移动端交给会话媒体序列的全屏浮层，桌面端 handoff 给独立预览窗。
+ *
+ * 图片与视频**逐字走同一条路径** —— 序列本来就是图片 + 视频混排的（相册网格里就是混的），
+ * 两边各写一份会立刻长歪。
+ */
+function useOpenMediaPreview(item: MediaGalleryItem) {
+  const gallery = useMediaGallery();
+  const { session } = useSession();
+
+  return useCallback((handoff: { localPath?: string | null; presignedUrl?: string | null }) => {
+    // 移动端：没有多窗口，走全屏浮层（左右滑动切图就在那一层）
+    if (isMobile()) {
+      gallery.openAt(item);
+      return;
+    }
+
+    // 桌面端：独立预览窗。序列一并 handoff 过去，窗口内用 ← → / 两侧按钮 / 触控板横扫切图。
+    if (!session) { return; }
+    const { list, index } = locateInGallery(gallery.items, item);
+    openMediaWindow(
+      {
+        type: item.type,
+        fileUuid: item.fileUuid,
+        filename: item.filename,
+        fileSize: item.fileSize,
+        urlType: item.urlType,
+        localPath: handoff.localPath,
+        // 传递**原始** presigned URL（非反代 src）：预览窗自己经其反代显示；
+        // 传反代 URL 会把回环端口烘进跨窗字符串，且预览窗下载需原始 URL。
+        presignedUrl: handoff.presignedUrl,
+        // 邻居项只带取源所需的最小信息，localPath / presignedUrl 由预览窗自己解析
+        sequence: list.map((i: MediaGalleryItem) => ({
+          type: i.type,
+          fileUuid: i.fileUuid,
+          filename: i.filename,
+          fileSize: i.fileSize,
+          urlType: i.urlType,
+        })),
+        sequenceIndex: index,
+      },
+      {
+        serverUrl: session.serverUrl,
+        accessToken: session.accessToken,
+      },
+    );
+  }, [gallery, session, item]);
+}
+
 function ImageMessage({
+  messageUuid,
   fileUuid,
-  fileHash,
   filename,
   fileSize,
   urlType,
@@ -134,8 +189,8 @@ function ImageMessage({
   imageHeight,
   displayVariant,
 }: {
+  messageUuid: string;
   fileUuid: string;
-  fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
@@ -148,7 +203,6 @@ function ImageMessage({
   /** 显示形态：album 时铺满外层 grid 格子，不写内联宽高 */
   displayVariant?: 'bubble' | 'album';
 }) {
-  const { session } = useSession();
   const {
     src,
     isLocal,
@@ -158,16 +212,21 @@ function ImageMessage({
     localPath,
     presignedUrl,
     retryWithNewUrl,
-    openInFolder,
-  } = useImageCache(fileUuid, fileHash, filename, urlType, friendId);
-  // 订阅当前图片的下载任务状态，给 MobileMediaPreview 菜单决策用
-  const imageDownloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
-  const imageIsDownloading =
-    imageDownloadTask?.status === 'pending'
-    || imageDownloadTask?.status === 'downloading';
+    // 第二参 = 已知内容哈希；消息面没有（后端接收面已不再下发）⇒ 传 null，
+    // 由 Hook 经 file_uuid_hash 解析（两层键，见 services/fileCache.resolveContentHash）
+  } = useImageCache(fileUuid, null, filename, urlType, friendId);
 
-  // 移动端预览模态框状态
-  const [showMobilePreview, setShowMobilePreview] = useState(false);
+  // 本条在会话媒体序列里的身份（左右切图靠它定位）
+  const galleryItem = useMemo<MediaGalleryItem>(() => ({
+    messageUuid,
+    fileUuid,
+    filename,
+    fileSize: fileSize ?? undefined,
+    type: 'image',
+    urlType,
+    friendId,
+  }), [messageUuid, fileUuid, filename, fileSize, urlType, friendId]);
+  const openPreview = useOpenMediaPreview(galleryItem);
 
   // 图片浏览器级别加载失败的重试状态
   const [imgRetryCount, setImgRetryCount] = useState(0);
@@ -213,37 +272,11 @@ function ImageMessage({
     ? calculateDisplaySize(imageWidth, imageHeight, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT)
     : { width: IMAGE_DEFAULT_WIDTH, height: IMAGE_DEFAULT_HEIGHT };
 
-  // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
+  // 点击预览（移动端全屏浮层 / 桌面端独立窗口，收口在 useOpenMediaPreview）
   const handleClick = useCallback(() => {
     if (!src || imgLoadFailed) { return; }
-
-    // 移动端：使用全屏模态框预览
-    if (isMobile()) {
-      setShowMobilePreview(true);
-      return;
-    }
-
-    // 桌面端：打开独立预览窗口
-    if (!session) { return; }
-    openMediaWindow(
-      {
-        type: 'image',
-        fileUuid,
-        filename,
-        fileSize: fileSize ?? undefined,
-        fileHash,
-        urlType,
-        localPath,
-        // 传递**原始** presigned URL（非反代 src）：预览窗自己经其反代显示；
-        // 传反代 URL 会把回环端口烘进跨窗字符串，且预览窗下载需原始 URL。
-        presignedUrl: isLocal ? undefined : presignedUrl,
-      },
-      {
-        serverUrl: session.serverUrl,
-        accessToken: session.accessToken,
-      },
-    );
-  }, [session, fileUuid, filename, fileSize, fileHash, urlType, localPath, isLocal, src, presignedUrl, imgLoadFailed]);
+    openPreview({ localPath, presignedUrl: isLocal ? undefined : presignedUrl });
+  }, [openPreview, localPath, isLocal, presignedUrl, src, imgLoadFailed]);
 
   // 容器样式：气泡态固定尺寸（不会因图片加载而改变）；相册态铺满格子（尺寸归外层 grid）
   const containerStyle: React.CSSProperties = displayVariant === 'album'
@@ -289,26 +322,9 @@ function ImageMessage({
           </>
         )}
       </div>
-
-      {/* 移动端全屏预览 */}
-      {src && (
-        <MobileMediaPreview
-          isOpen={showMobilePreview}
-          type="image"
-          src={src}
-          filename={filename}
-          localPath={localPath}
-          downloadProgress={imageDownloadTask?.percent ?? 0}
-          isDownloading={imageIsDownloading}
-          onClose={() => setShowMobilePreview(false)}
-          onOpenWith={localPath ? () => openInFolder(localPath) : undefined}
-          onDownload={
-            !isLocal && fileHash && src
-              ? () => triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'image', undefined)
-              : undefined
-          }
-        />
-      )}
+      {/* 移动端全屏预览**不再挂在这里**：它已收归 MediaGalleryProvider 的单个浮层。
+          每条消息各挂一个的旧形态下，「切到上一张」在结构上不可达 ——
+          打开的那个浮层只认识自己那一张，邻居的 src 在别的组件实例的 hook 里。 */}
     </>
   );
 }
@@ -337,8 +353,8 @@ const VIDEO_DEFAULT_HEIGHT = 160;
  * - 独立窗口与主窗口使用同一预签名 URL
  */
 function VideoMessage({
+  messageUuid,
   fileUuid,
-  fileHash,
   filename,
   fileSize,
   urlType,
@@ -347,8 +363,8 @@ function VideoMessage({
   imageHeight,
   displayVariant,
 }: {
+  messageUuid: string;
   fileUuid: string;
-  fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
@@ -361,28 +377,37 @@ function VideoMessage({
   /** 显示形态：album 时铺满外层 grid 格子，不写内联宽高 */
   displayVariant?: 'bubble' | 'album';
 }) {
-  const { session } = useSession();
-  const { src, isLocal, loading, error, onPlay, localPath, presignedUrl, openInFolder } = useVideoCache(
+  const { src, isLocal, loading, error, onPlay, localPath, presignedUrl } = useVideoCache(
     fileUuid,
-    fileHash,
+    // 消息面没有内容哈希（后端接收面已不再下发）⇒ 传 null，由 Hook 经 file_uuid 解析
+    null,
     filename,
     fileSize ?? undefined,
     urlType,
     friendId,
   );
 
-  // 移动端预览模态框状态
-  const [showMobilePreview, setShowMobilePreview] = useState(false);
+  // 本条在会话媒体序列里的身份（左右切图靠它定位）
+  const galleryItem = useMemo<MediaGalleryItem>(() => ({
+    messageUuid,
+    fileUuid,
+    filename,
+    fileSize: fileSize ?? undefined,
+    type: 'video',
+    urlType,
+    friendId,
+  }), [messageUuid, fileUuid, filename, fileSize, urlType, friendId]);
+  const openPreview = useOpenMediaPreview(galleryItem);
 
-  // 监听下载任务状态（用于显示进度）
-  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+  // 监听下载任务状态（用于显示进度）；键 = file_uuid（两层键）
+  const downloadTask = useFileCacheStore(selectDownloadTask(fileUuid));
 
   // 调试：移动端视频源信息
   useEffect(() => {
     if (isMobile() && src) {
       const info = {
         filename,
-        fileHash: fileHash?.substring(0, 16),
+        fileUuid: fileUuid.substring(0, 16),
         src: src.substring(0, 80) + (src.length > 80 ? '...' : ''),
         isLocal,
         localPath: localPath?.substring(0, 50),
@@ -394,7 +419,7 @@ function VideoMessage({
       // eslint-disable-next-line no-console
       console.log('[VideoMessage] 视频源信息:', JSON.stringify(info, null, 0));
     }
-  }, [src, isLocal, localPath, loading, error, filename, fileHash]);
+  }, [src, isLocal, localPath, loading, error, filename, fileUuid]);
 
   // 是否有后端提供的尺寸信息
   const hasPresetDimensions = imageWidth && imageHeight && imageWidth > 0 && imageHeight > 0;
@@ -418,61 +443,27 @@ function VideoMessage({
   // loadSource 的 Rust 校验产生），无需再 fallback 到 downloadTask?.localPath。
   const actualLocalPath = localPath;
 
-  // 点击预览（移动端使用全屏模态框，桌面端使用独立窗口）
+  // 点击预览（移动端全屏浮层 / 桌面端独立窗口，收口在 useOpenMediaPreview）
   const handleClick = useCallback(() => {
     if (!src) { return; }
 
-    // 移动端：使用全屏模态框预览
-    if (isMobile()) {
-      // 打开预览的同时触发后台下载（与桌面端行为一致）
-      // 这样消息列表中可以显示下载进度
-      if (!isDownloaded && !isDownloading && fileHash && src) {
-        triggerBackgroundDownload(
-          presignedUrl ?? src,
-          fileHash,
-          filename,
-          'video',
-          fileSize ?? undefined,
-        );
-      }
-      setShowMobilePreview(true);
-      return;
-    }
-
-    // 桌面端：触发下载并打开独立窗口
-    if (!session) { return; }
-
-    // 如果文件未下载且有 fileHash 和 src，开始下载
-    if (!isDownloaded && !isDownloading && fileHash && src) {
+    // 无论哪一端，未下载就先起后台下载 —— 消息列表里那圈进度是它驱动的
+    if (!isDownloaded && !isDownloading) {
       triggerBackgroundDownload(
         presignedUrl ?? src,
-        fileHash,
+        fileUuid,
         filename,
         'video',
         fileSize ?? undefined,
       );
     }
 
-    // 打开独立窗口（传递预签名 URL 和本地路径）
-    openMediaWindow(
-      {
-        type: 'video',
-        fileUuid,
-        filename,
-        fileSize: fileSize ?? undefined,
-        fileHash,
-        urlType,
-        localPath: actualLocalPath,
-        // 传递**原始** presigned URL（非反代 src）：预览窗自己经其反代显示 + 下载需原始 URL。
-        presignedUrl: isLocal ? undefined : presignedUrl,
-      },
-      {
-        serverUrl: session.serverUrl,
-        accessToken: session.accessToken,
-      },
-    );
+    openPreview({
+      localPath: actualLocalPath,
+      presignedUrl: isLocal ? undefined : presignedUrl,
+    });
   }, [
-    session, fileUuid, filename, fileSize, fileHash, urlType,
+    openPreview, fileUuid, filename, fileSize,
     actualLocalPath, isLocal, src, presignedUrl, isDownloaded, isDownloading,
   ]);
 
@@ -501,13 +492,14 @@ function VideoMessage({
             {/* 视频缩略图：全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted /
                 playsInline 全在组件里），详见 chat/shared/VideoThumbnail.tsx。
                 这里递**裸** src —— 片段由组件内部追。
-                fileHash 是本地封面缓存的键（与图片本地缓存同一把键）：给了它，封面截一次就
-                落盘，之后本组件渲染 <img> 走本地、不再建 <video>，杀掉 App 重开也立刻有画面。
+                fileUuid 是本地封面缓存的键（两层键：后端接收面已不再下发 file_hash，
+                而封面要在下载**之前**就出得来）：给了它，封面截一次就落盘，之后本组件渲染
+                <img> 走本地、不再建 <video>，杀掉 App 重开也立刻有画面。
                 「查找记录 → 视频」那处（components/search/ConversationSearchHit.tsx）递的是
-                同一个 file_hash ⇒ 两处命中**同一个封面文件**，天然是同一帧。 */}
+                同一个 file_uuid ⇒ 两处命中**同一个封面文件**，天然是同一帧。 */}
             <VideoThumbnail
               src={src}
-              fileHash={fileHash}
+              fileUuid={fileUuid}
               className="message-video-thumbnail"
               onPlay={onPlay}
             />
@@ -529,26 +521,9 @@ function VideoMessage({
         )}
       </div>
 
-      {/* 移动端全屏预览 —— 这里喂**裸** src，不是 videoPosterSrc(src)：
-          #t=0.1 只给缩略图，加到播放器上会让视频从 0.1s 开始播。 */}
-      {src && (
-        <MobileMediaPreview
-          isOpen={showMobilePreview}
-          type="video"
-          src={src}
-          filename={filename}
-          localPath={actualLocalPath}
-          downloadProgress={downloadTask?.percent ?? 0}
-          isDownloading={isDownloading}
-          onClose={() => setShowMobilePreview(false)}
-          onOpenWith={actualLocalPath ? () => openInFolder(actualLocalPath) : undefined}
-          onDownload={
-            !isLocal && fileHash && src
-              ? () => triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'video', fileSize ?? undefined)
-              : undefined
-          }
-        />
-      )}
+      {/* 移动端全屏预览**不再挂在这里**（同 ImageMessage）：收归 MediaGalleryProvider
+          的单个浮层，那里喂的同样是**裸** src —— #t=0.1 只给缩略图，
+          加到播放器上会让视频从 0.1s 开始播。 */}
     </>
   );
 }
@@ -568,14 +543,12 @@ function VideoMessage({
  */
 function DocumentMessage({
   fileUuid,
-  fileHash,
   filename,
   fileSize,
   urlType,
   friendId,
 }: {
   fileUuid: string;
-  fileHash: string | null | undefined;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
@@ -585,7 +558,7 @@ function DocumentMessage({
   const [showPreview, setShowPreview] = useState(false);
   const { src, presignedUrl, isLocal, localPath, openInFolder } = useFileCache({
     fileUuid,
-    fileHash,
+    // 不传 fileHash：消息面没有（后端接收面已不再下发），由 Hook 经 file_uuid 解析
     fileName: filename,
     fileType: 'document',
     urlType,
@@ -593,8 +566,8 @@ function DocumentMessage({
     autoCache: false,
   });
 
-  // 监听下载任务状态（用于卡片层判断 isDownloaded / isDownloading 与本地路径展示）
-  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+  // 监听下载任务状态（用于卡片层判断 isDownloaded / isDownloading 与本地路径展示）；键 = file_uuid
+  const downloadTask = useFileCacheStore(selectDownloadTask(fileUuid));
 
   const isDownloading = !!downloadTask && (
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
@@ -611,16 +584,16 @@ function DocumentMessage({
       setShowPreview(true);
     } else if (isDownloaded && actualLocalPath) {
       openInFolder(actualLocalPath);
-    } else if (!isDownloading && src && fileHash) {
+    } else if (!isDownloading && src) {
       triggerBackgroundDownload(
         presignedUrl ?? src,
-        fileHash,
+        fileUuid,
         filename,
         'document',
         fileSize ?? undefined,
       );
     }
-  }, [isDownloaded, actualLocalPath, isDownloading, src, presignedUrl, fileHash, filename, fileSize, openInFolder]);
+  }, [isDownloaded, actualLocalPath, isDownloading, src, presignedUrl, fileUuid, filename, fileSize, openInFolder]);
 
   return (
     <>
@@ -647,7 +620,6 @@ function DocumentMessage({
           layout="inline"
           variant="chat-document"
           fileUuid={fileUuid}
-          fileHash={fileHash}
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
@@ -663,7 +635,6 @@ function DocumentMessage({
           fileUuid={fileUuid}
           filename={filename}
           fileSize={fileSize ?? undefined}
-          fileHash={fileHash}
           urlType={urlType}
         />
       )}
@@ -702,7 +673,7 @@ function DocumentMessage({
  * |---|---|---|
  * | 容器尺寸 | `calculateDisplaySize(image_width, image_height, MAX…)` | **同一个函数、同一组数字**（`preview.width/height` 由待发区提前探测，与上传链路共用 `readMediaDimensions`） |
  * | 类名 | `.image-message` / `.video-message` + `.message-image` / `.message-video-thumbnail` | 逐字相同 ⇒ 圆角、`object-fit: contain`、黑底全部同一条 CSS |
- * | 视频画面 | `<VideoThumbnail>`（`#t=0.1` 逼引擎 seek 首帧） | **同一个组件**（不传 `fileHash` ⇒ 恒走 `<video>` 分支，不读也不写封面库） |
+ * | 视频画面 | `<VideoThumbnail>`（`#t=0.1` 逼引擎 seek 首帧） | **同一个组件**（不传封面键 ⇒ 恒走 `<video>` 分支，不读也不写封面库） |
  *
  * | 播放角标 | `.video-play-overlay` | **同样画**（见下方注释：少画它就是第二处差别，违反验收口径） |
  *
@@ -781,8 +752,8 @@ function SendingMediaMessage({
         ? (
           // 完成态用的就是这个组件（`#t=0.1` 逼引擎 seek 出首帧）。把 blob 直接喂 <img>
           // 是画不出视频画面的 —— 那正是"上传中一个破图问号"的另一半成因。
-          // 🔴 不传 fileHash：此刻文件还没上传、根本没有 file_hash，而 video_posters
-          // 那张表的键就是它 ⇒ 不传即恒走 <video> 分支，不读也不写封面缓存。
+          // 🔴 不传封面键：此刻文件还没上传、连 file_uuid 都还没有（服务端还没分配），
+          // 而 video_posters 那张表的键就是它 ⇒ 不传即恒走 <video> 分支，不读也不写封面缓存。
           <VideoThumbnail src={previewUrl} className="message-video-thumbnail" decorative />
         )
         : (
@@ -813,11 +784,11 @@ function SendingMediaMessage({
 // ============================================
 
 export function FileMessageContent({
+  messageUuid,
   messageType,
   messageContent,
   fileUuid,
   fileSize,
-  fileHash,
   urlType = 'friend',
   friendId,
   clientId,
@@ -829,8 +800,8 @@ export function FileMessageContent({
   // Hook 必须在所有早返回之前无条件调用；clientId 为 undefined 时选择器直接给 undefined。
   const sendingEntry = useSendingMediaState(clientId);
 
-  // 从消息内容中提取文件名
-  const filename = messageContent.replace(/^\[(图片|视频|文件)\]\s*/, '');
+  // 从消息内容中提取文件名（与会话媒体序列共用同一条剥法，否则气泡与全屏预览的标题会不一致）
+  const filename = mediaFilenameFromContent(messageContent);
 
   if (sendingEntry) {
     return <SendingMediaMessage entry={sendingEntry} displayVariant={displayVariant} />;
@@ -850,8 +821,8 @@ export function FileMessageContent({
     case 'image':
       return (
         <ImageMessage
+          messageUuid={messageUuid}
           fileUuid={fileUuid}
-          fileHash={fileHash}
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
@@ -865,8 +836,8 @@ export function FileMessageContent({
     case 'video':
       return (
         <VideoMessage
+          messageUuid={messageUuid}
           fileUuid={fileUuid}
-          fileHash={fileHash}
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
@@ -881,7 +852,6 @@ export function FileMessageContent({
       return (
         <DocumentMessage
           fileUuid={fileUuid}
-          fileHash={fileHash}
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}

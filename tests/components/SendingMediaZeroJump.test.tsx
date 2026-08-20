@@ -124,6 +124,7 @@ function renderSending(
   useSendingMediaStore.getState().enqueue([seed('client_x', kind, width, height)]);
   const { container } = render(
     <FileMessageContent
+      messageUuid="msg-uuid-1"
       messageType={kind}
       messageContent={kind === 'video' ? '[视频] a.mp4' : '[图片] a.png'}
       fileUuid={null}
@@ -144,10 +145,10 @@ function renderSettled(
 ): HTMLElement {
   const { container } = render(
     <FileMessageContent
+      messageUuid="msg-uuid-1"
       messageType={kind}
       messageContent={kind === 'video' ? '[视频] a.mp4' : '[图片] a.png'}
       fileUuid="file-uuid-1"
-      fileHash="hash-1"
       fileSize={2048}
       imageWidth={width}
       imageHeight={height}
@@ -227,12 +228,14 @@ describe('🔴 两态落在同一个选择器上（圆角 / 裁切由同一条 C
     useSendingMediaStore.getState().enqueue([seed('client_i', 'image', 1179, 2556)]);
     const sending = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image" messageContent="[图片] a.png" fileUuid={null} fileSize={2048} clientId="client_i"
       />,
     ).container;
     const settled = render(
       <FileMessageContent
-        messageType="image" messageContent="[图片] a.png" fileUuid="u" fileHash="h" fileSize={2048}
+        messageUuid="msg-uuid-1"
+        messageType="image" messageContent="[图片] a.png" fileUuid="u" fileSize={2048}
         imageWidth={1179} imageHeight={2556}
       />,
     ).container;
@@ -245,19 +248,21 @@ describe('🔴 两态落在同一个选择器上（圆角 / 裁切由同一条 C
     useSendingMediaStore.getState().enqueue([seed('client_v', 'video', 1080, 1920)]);
     const sending = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="video" messageContent="[视频] a.mp4" fileUuid={null} fileSize={2048} clientId="client_v"
       />,
     ).container;
     const settled = render(
       <FileMessageContent
-        messageType="video" messageContent="[视频] a.mp4" fileUuid="u" fileHash="h" fileSize={2048}
+        messageUuid="msg-uuid-1"
+        messageType="video" messageContent="[视频] a.mp4" fileUuid="u" fileSize={2048}
         imageWidth={1080} imageHeight={1920}
       />,
     ).container;
 
     // 两态都走 <VideoThumbnail>。它在完成态那一路会先问一次「本地存过封面没有」
-    // （fileHash 是那张表的键），那几毫秒内什么都不渲染 —— 所以这里要 waitFor。
-    // 在途那一路不传 fileHash ⇒ 同步就是 <video>，不读也不写封面库（本单不碰 video_posters）。
+    // （fileUuid 是那张表的键），那几毫秒内什么都不渲染 —— 所以这里要 waitFor。
+    // 在途那一路不传封面键 ⇒ 同步就是 <video>，不读也不写封面库（本单不碰 video_posters）。
     expect(sending.querySelector('.video-message video.message-video-thumbnail')).not.toBeNull();
     await waitFor(() => {
       expect(settled.querySelector('.video-message .message-video-thumbnail')).not.toBeNull();
@@ -275,12 +280,14 @@ describe('🔴 两态落在同一个选择器上（圆角 / 裁切由同一条 C
     useSendingMediaStore.getState().enqueue([seed('client_pv', 'video', 1080, 1920)]);
     const vidSending = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="video" messageContent="[视频] a.mp4" fileUuid={null} fileSize={2048} clientId="client_pv"
       />,
     ).container;
     const vidSettled = render(
       <FileMessageContent
-        messageType="video" messageContent="[视频] a.mp4" fileUuid="u" fileHash="h" fileSize={2048}
+        messageUuid="msg-uuid-1"
+        messageType="video" messageContent="[视频] a.mp4" fileUuid="u" fileSize={2048}
         imageWidth={1080} imageHeight={1920}
       />,
     ).container;
@@ -294,12 +301,14 @@ describe('🔴 两态落在同一个选择器上（圆角 / 裁切由同一条 C
     useSendingMediaStore.getState().enqueue([seed('client_pi', 'image', 1179, 2556)]);
     const imgSending = render(
       <FileMessageContent
+        messageUuid="msg-uuid-1"
         messageType="image" messageContent="[图片] a.png" fileUuid={null} fileSize={2048} clientId="client_pi"
       />,
     ).container;
     const imgSettled = render(
       <FileMessageContent
-        messageType="image" messageContent="[图片] a.png" fileUuid="u" fileHash="h" fileSize={2048}
+        messageUuid="msg-uuid-1"
+        messageType="image" messageContent="[图片] a.png" fileUuid="u" fileSize={2048}
         imageWidth={1179} imageHeight={2556}
       />,
     ).container;

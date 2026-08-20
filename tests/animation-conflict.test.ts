@@ -171,6 +171,53 @@ const MOTION_CONTROLLED_SELECTORS: MotionControlledEntry[] = [
     controlledProps: ['transform', 'opacity'],
     motionLocation: 'src/chat/shared/MobileMediaPreview.tsx (Telegram 风格右对齐下拉菜单：opacity + y + scale variants)',
   },
+  // ===== 图片查看器的双指缩放（2026-08-16）=====
+  // stage 的 transform 由 useImageZoom **手写 inline style 逐帧**接管（不是 framer-motion，
+  // 但抢帧机理完全一样：CSS 一旦过渡 transform，每一帧写入都会各起一条过渡）。
+  // 图片本体的入场 scale 归 framer-motion —— 两个主人在不同元素上，各自单一所有权。
+  {
+    selector: '.mobile-media-preview-image-stage',
+    cssFile: 'src/styles/mobile/chat-view.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/useImageZoom.ts (applyTransform 逐帧写 translate3d + scale)',
+  },
+  {
+    selector: '.mobile-media-preview-image',
+    cssFile: 'src/styles/mobile/chat-view.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/MobileMediaPreview.tsx (motion.img initial/animate/exit scale 入场)',
+  },
+  // ===== 图片查看器的横向切图（2026-08-16）=====
+  // 轨道的 transform 由 MobileMediaPreview 的 framer-motion motion value 独占写入
+  // （跟手位移 / 回弹 spring / 切换后的滑入）。它包在 stage 外面 —— 缩放与切图两个
+  // transform 主人分属不同元素，各自单一所有权。
+  {
+    selector: '.mobile-media-preview-track',
+    cssFile: 'src/styles/mobile/chat-view.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/MobileMediaPreview.tsx (motion.div style={{ x: swipeX }} + animate(swipeX, 0))',
+  },
+  // ===== 分享/转发面板（A 版快捷卡，2026-08-17）=====
+  {
+    selector: '.share-picker-overlay',
+    cssFile: 'src/components/share/ShareTargetPicker.css',
+    controlledProps: ['opacity'],
+    motionLocation: 'src/components/share/ShareTargetPicker.tsx (遮罩层 motion.div initial/animate/exit opacity)',
+  },
+  {
+    selector: '.share-picker-card',
+    cssFile: 'src/components/share/ShareTargetPicker.css',
+    controlledProps: ['transform', 'opacity'],
+    motionLocation: 'src/components/share/ShareTargetPicker.tsx (卡片 motion.div opacity + scale + y 进出场)',
+  },
+  {
+    // 多选操作栏的按钮：whileHover/whileTap scale 归 framer-motion。
+    // 原 CSS 是 transition: all（含 transform）与之抢帧，已改成只列 background/color/opacity。
+    selector: '.action-bar-btn',
+    cssFile: 'src/styles/pages/main.css',
+    controlledProps: ['transform'],
+    motionLocation: 'src/chat/shared/MultiSelectActionBar.tsx (取消/全选/转发/撤回/删除 五个 motion.button whileHover+whileTap scale)',
+  },
   {
     selector: '.nfc-feedback-toast',
     cssFile: 'src/styles/mobile/nfc-page.css',

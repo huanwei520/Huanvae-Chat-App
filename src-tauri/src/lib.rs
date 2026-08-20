@@ -34,6 +34,9 @@
 // ============================================
 // 共享模块（所有平台）
 // ============================================
+/// 内容身份哈希（采样 SHA-256）：下载完成后由接收方自算，与上传侧 TS 算法同源。
+/// 两层键的第二层，见该模块头。
+mod content_hash;
 mod db;
 mod device_info;
 mod download;
@@ -572,6 +575,16 @@ fn db_save_file_uuid_hash(file_uuid: String, file_hash: String) -> Result<(), St
     db::save_file_uuid_hash(&file_uuid, &file_hash)
 }
 
+/// 读 file_uuid -> file_hash 映射（两层键的第一跳）
+///
+/// 消息面（好友历史 / 群历史 / WS 帧 / 增量同步）后端已不再下发 `file_hash`，
+/// 前端只有 `file_uuid`；本命令把它解析成内容哈希，再照旧查 `file_mappings`。
+/// **本机没下载过该 uuid 时返回 `null` 属正常**，调用方据此走远程取件。
+#[tauri::command(rename_all = "camelCase")]
+fn db_get_file_hash_by_uuid(file_uuid: String) -> Result<Option<String>, String> {
+    db::get_file_hash_by_uuid(&file_uuid)
+}
+
 // ============================================================================
 // 好友和群组操作 Commands
 // ============================================================================
@@ -1027,6 +1040,7 @@ pub fn run() {
             db_clear_messages,
             db_clear_all_data,
             db_save_file_uuid_hash,
+            db_get_file_hash_by_uuid,
             // 好友和群组
             db_get_friends,
             db_save_friends,

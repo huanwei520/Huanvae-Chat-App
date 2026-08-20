@@ -29,6 +29,7 @@ import { friendDisplayName } from '../utils/friendName';
 import { useChatStore } from '../stores/chatStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
 import { useShelfStore, isShelfItem } from '../stores/shelfStore';
+import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
 import {
   isReadPositionsLoaded,
   getReadPositionsSnapshot,
@@ -85,7 +86,7 @@ export interface MessageHandlerResult {
  * 生成消息预览文本
  */
 export function getMessagePreviewText(
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card',
   preview: string,
 ): string {
   switch (messageType) {
@@ -99,6 +100,9 @@ export function getMessagePreviewText(
       return '[会议邀请]';
     case 'card':
       return '[卡片]';
+    case 'group_card':
+      // 漏掉这条不会报错，只会把 {"group_id":"…"} 那串裸 JSON 写进会话卡片预览
+      return GROUP_CARD_PREVIEW_TEXT;
     default:
       return '[文件]';
   }
@@ -443,7 +447,6 @@ export async function saveMessageToLocal(msg: WsNewMessage, currentUserId: strin
       file_uuid: msg.file_uuid || null,
       file_url: msg.file_url || null,
       file_size: msg.file_size || null,
-      file_hash: msg.file_hash || null,
       image_width: msg.image_width ?? null,
       image_height: msg.image_height ?? null,
       // WS 推送的消息必然是已送达的（后端契约：已送达 seq>=1，拉黑静默丢弃只走 HTTP 响应

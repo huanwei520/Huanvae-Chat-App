@@ -10,7 +10,6 @@
  * - 视图切换
  * - 好友/群聊操作（删除、更新、邀请、踢出等）
  * - 群公告管理
- * - 邀请码管理
  * - 上传进度跟踪
  *
  * 权限判断直接订阅 Zustand store 中的角色状态
@@ -47,9 +46,6 @@ import {
   getGroupNotices,
   createGroupNotice,
   deleteGroupNotice,
-  generateInviteCode,
-  getInviteCodes,
-  revokeInviteCode,
   updateGroupNickname,
   addGroupMessageBlock,
   removeGroupMessageBlock,
@@ -59,7 +55,6 @@ import {
   removeGroupMemberRemark as apiRemoveGroupMemberRemark,
   type GroupMember,
   type GroupNotice,
-  type InviteCode,
   getGroupJoinRequests,
   approveGroupJoinRequest,
   rejectGroupJoinRequest,
@@ -95,9 +90,8 @@ export interface UseChatMenuReturn {
   newGroupName: string;
   setNewGroupName: (name: string) => void;
 
-  // 邀请成员
-  inviteUserId: string;
-  setInviteUserId: (id: string) => void;
+  // 邀请成员：只留附言。被邀请的人来自好友选择器（见 handleInviteMembers），
+  // 不再有「手输 user ID」这条路 —— 那要求用户先从别处抄到对方的 ID 才能邀请。
   inviteMessage: string;
   setInviteMessage: (msg: string) => void;
 
@@ -131,10 +125,6 @@ export interface UseChatMenuReturn {
   notices: GroupNotice[];
   loadingNotices: boolean;
 
-  // 邀请码
-  inviteCodes: InviteCode[];
-  loadingCodes: boolean;
-
   // 上传进度
   avatarUploadProgress: number;
   uploadingAvatar: boolean;
@@ -166,7 +156,15 @@ export interface UseChatMenuReturn {
   handleAvatarUpload: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   /** 头像裁剪弹窗（需在使用方渲染） */
   avatarCropModal: ReactNode;
-  handleInviteMember: () => Promise<void>;
+  /**
+   * 邀请一批人入群。
+   *
+   * 🔴 失败时**向上抛**而不是只 setError —— 调用方（InviteForm 里的 ShareTargetPicker）
+   * 是一个盖在面板之上的浮层，面板底部那条 error 条在它下面根本看不见；
+   * 抛出去才能让文案落在浮层里、浮层不关、已选不清空可直接重试
+   * （与 ShareGroupCardModal 的 onConfirm 同一约定）。
+   */
+  handleInviteMembers: (userIds: string[]) => Promise<void>;
   handleLoadMembers: () => Promise<void>;
   handleLeaveGroup: () => Promise<void>;
   handleKickMember: () => Promise<void>;
@@ -178,10 +176,6 @@ export interface UseChatMenuReturn {
   handleDeleteNotice: (noticeId: string) => Promise<void>;
   handleDisbandGroup: () => Promise<void>;
   handleTransferOwner: (newOwnerId: string) => Promise<void>;
-  handleLoadInviteCodes: () => Promise<void>;
-  handleGenerateCode: (maxUses: number, expiresInHours: number) => Promise<void>;
-  handleRevokeCode: (codeId: string) => Promise<void>;
-  handleCopyCode: (code: string) => Promise<void>;
   handleMemberClick: (member: GroupMember) => void;
   /** 看选中成员的公开资料（只读资料页）并关闭菜单 */
   handleViewMemberProfile: () => void;
@@ -227,7 +221,7 @@ export function useChatMenu({
   // 基础状态
   const [isOpen, setIsOpen] = useState(false);
   // 入群申请审批（群主/管理员）：后端三个端点一直都在，客户端此前从未接过 ——
-  // 后果是 join_mode=approval_required 的群，申请永久 pending、群主在 App 里根本看不到。
+  // 后果是**开了入群审核**的群，申请永久 pending、群主在 App 里根本看不到。
   const [joinRequests, setJoinRequests] = useState<GroupJoinRequestInfo[]>([]);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [view, setView] = useState<MenuView>('main');
@@ -238,8 +232,7 @@ export function useChatMenu({
   // 编辑群名称
   const [newGroupName, setNewGroupName] = useState('');
 
-  // 邀请成员
-  const [inviteUserId, setInviteUserId] = useState('');
+  // 邀请成员（只有附言；人选由好友选择器给出）
   const [inviteMessage, setInviteMessage] = useState('');
 
   // 成员列表
@@ -261,10 +254,6 @@ export function useChatMenu({
   // 群公告
   const [notices, setNotices] = useState<GroupNotice[]>([]);
   const [loadingNotices, setLoadingNotices] = useState(false);
-
-  // 邀请码
-  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
-  const [loadingCodes, setLoadingCodes] = useState(false);
 
   // 上传进度
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
@@ -454,22 +443,6 @@ export function useChatMenu({
     }
   }, [api, target]);
 
-  // 加载邀请码列表
-  const handleLoadInviteCodes = useCallback(async () => {
-    if (target.type !== 'group') { return; }
-
-    setLoadingCodes(true);
-    setView('invite-codes');
-    try {
-      const response = await getInviteCodes(api, target.data.group_id);
-      setInviteCodes(response.codes || []);
-    } catch {
-      setInviteCodes([]);
-    } finally {
-      setLoadingCodes(false);
-    }
-  }, [api, target]);
-
   // 设置视图（带逻辑处理）
   const handleSetView = useCallback((v: MenuView) => {
     if (v === 'edit-name' && target.type === 'group') {
@@ -487,15 +460,11 @@ export function useChatMenu({
       setView('transfer-owner');
       return;
     }
-    if (v === 'invite-codes') {
-      handleLoadInviteCodes();
-      return;
-    }
     if (v === 'members') {
       handleLoadMembers();
     }
     setView(v);
-  }, [target, handleLoadNotices, handleLoadMembers, handleLoadInviteCodes]);
+  }, [target, handleLoadNotices, handleLoadMembers]);
 
   // 删除好友（friend / bot 共用：bot 是真实好友行）
   const handleRemoveFriend = useCallback(async () => {
@@ -633,23 +602,24 @@ export function useChatMenu({
     }
   }, [api, target, onGroupUpdated, requestCrop]);
 
-  // 邀请成员
-  const handleInviteMember = useCallback(async () => {
-    if (target.type !== 'group' || !inviteUserId.trim()) { return; }
+  // 邀请成员（一次可邀多人 —— inviteToGroup 第三参本来就是数组）
+  //
+  // 与本 hook 里其它 handler 的两处刻意不同，都是因为调用方是浮在面板之上的选择器：
+  // ① 失败**向上抛**（不 setError）—— 见 UseChatMenuReturn 上该方法的注释；
+  // ② 成功后**不** setView('main') —— 选择器要自己播完「已邀请」再退场，
+  //    面板此刻切回主菜单会把它连带拆掉、用户看不到任何成功反馈。
+  const handleInviteMembers = useCallback(async (userIds: string[]) => {
+    if (target.type !== 'group' || userIds.length === 0) { return; }
 
     setLoading(true);
     try {
-      await inviteToGroup(api, target.data.group_id, [inviteUserId.trim()], inviteMessage.trim() || undefined);
+      await inviteToGroup(api, target.data.group_id, userIds, inviteMessage.trim() || undefined);
       setSuccess('邀请已发送');
-      setInviteUserId('');
       setInviteMessage('');
-      setView('main');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
     } finally {
       setLoading(false);
     }
-  }, [api, target, inviteUserId, inviteMessage]);
+  }, [api, target, inviteMessage]);
 
   // 退出群聊
   const handleLeaveGroup = useCallback(async () => {
@@ -815,51 +785,6 @@ export function useChatMenu({
       setLoading(false);
     }
   }, [api, target]);
-
-  // 生成邀请码
-  const handleGenerateCode = useCallback(async (maxUses: number, expiresInHours: number) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      const result = await generateInviteCode(api, target.data.group_id, {
-        max_uses: maxUses,
-        expires_in_hours: expiresInHours,
-      });
-      setSuccess(`邀请码已生成: ${result.code}`);
-      handleLoadInviteCodes();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '生成失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, target, handleLoadInviteCodes]);
-
-  // 撤销邀请码
-  const handleRevokeCode = useCallback(async (codeId: string) => {
-    if (target.type !== 'group') { return; }
-
-    setLoading(true);
-    try {
-      await revokeInviteCode(api, target.data.group_id, codeId);
-      setSuccess('邀请码已撤销');
-      setInviteCodes((prev) => prev.filter((c) => c.id !== codeId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '撤销失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, target]);
-
-  // 复制邀请码
-  const handleCopyCode = useCallback(async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setSuccess('已复制到剪贴板');
-    } catch {
-      setError('复制失败');
-    }
-  }, []);
 
   // 点击成员
   const handleMemberClick = useCallback((member: GroupMember) => {
@@ -1060,9 +985,7 @@ export function useChatMenu({
     newGroupName,
     setNewGroupName,
 
-    // 邀请成员
-    inviteUserId,
-    setInviteUserId,
+    // 邀请成员（只有附言）
     inviteMessage,
     setInviteMessage,
 
@@ -1095,10 +1018,6 @@ export function useChatMenu({
     notices,
     loadingNotices,
 
-    // 邀请码
-    inviteCodes,
-    loadingCodes,
-
     // 上传进度
     avatarUploadProgress,
     uploadingAvatar,
@@ -1129,7 +1048,7 @@ export function useChatMenu({
     handleUpdateGroupName,
     handleAvatarUpload,
     avatarCropModal: cropModal,
-    handleInviteMember,
+    handleInviteMembers,
     handleLoadMembers,
     handleLeaveGroup,
     handleKickMember,
@@ -1141,10 +1060,6 @@ export function useChatMenu({
     handleDeleteNotice,
     handleDisbandGroup,
     handleTransferOwner,
-    handleLoadInviteCodes,
-    handleGenerateCode,
-    handleRevokeCode,
-    handleCopyCode,
     handleMemberClick,
     handleViewMemberProfile,
     handleToggleMemberBlock,

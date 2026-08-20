@@ -52,8 +52,7 @@ import {
   NoticesList,
   CreateNoticeForm,
   TransferOwner,
-  InviteCodeList,
-  GenerateCodeForm,
+  JoinPolicyForm,
 } from './menu';
 
 export function ChatMenuButton({
@@ -215,12 +214,10 @@ export function ChatMenuButton({
       case 'invite':
         return (
           <InviteForm
-            userId={menu.inviteUserId}
             message={menu.inviteMessage}
             loading={menu.loading}
-            onUserIdChange={menu.setInviteUserId}
             onMessageChange={menu.setInviteMessage}
-            onSubmit={menu.handleInviteMember}
+            onInvite={menu.handleInviteMembers}
             onBack={() => menu.handleSetView('main')}
           />
         );
@@ -384,6 +381,16 @@ export function ChatMenuButton({
           />
         );
 
+      case 'join-policy':
+        // groupId 只在群会话下有值；主菜单那条入口也只对群主渲染，故此处不可能被非群走到。
+        // 与 'search' 同款保守写法：拿不到 id 就什么都不渲染，而不是渲染一个读不到群的空面板。
+        return groupId && (
+          <JoinPolicyForm
+            groupId={groupId}
+            onBack={() => menu.handleSetView('main')}
+          />
+        );
+
       case 'confirm-disband':
         return (
           <ConfirmDialog
@@ -401,27 +408,6 @@ export function ChatMenuButton({
             loading={menu.loading}
             onConfirm={menu.handleDisbandGroup}
             onCancel={() => menu.handleSetView('main')}
-          />
-        );
-
-      case 'invite-codes':
-        return (
-          <InviteCodeList
-            codes={menu.inviteCodes}
-            loading={menu.loadingCodes}
-            onBack={() => menu.handleSetView('main')}
-            onGenerate={() => menu.handleSetView('generate-code')}
-            onRevoke={menu.handleRevokeCode}
-            onCopy={menu.handleCopyCode}
-          />
-        );
-
-      case 'generate-code':
-        return (
-          <GenerateCodeForm
-            loading={menu.loading}
-            onBack={() => menu.handleSetView('invite-codes')}
-            onSubmit={menu.handleGenerateCode}
           />
         );
 

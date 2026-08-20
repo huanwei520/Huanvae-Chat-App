@@ -52,8 +52,7 @@ const friend: Friend = {
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
     message_uuid: 'uuid-1', sender_id: 'me', receiver_id: 'them', message_content: 'hello',
-    message_type: 'text', file_uuid: null, file_url: null, file_size: null, file_hash: null,
-    image_width: null, image_height: null, send_time: '2026-01-01T00:00:00Z', seq: 5,
+    message_type: 'text', file_uuid: null, file_url: null, file_size: null, image_width: null, image_height: null, send_time: '2026-01-01T00:00:00Z', seq: 5,
     is_recalled: false, ...overrides,
   };
 }

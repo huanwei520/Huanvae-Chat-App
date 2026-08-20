@@ -40,7 +40,6 @@ function item(index: number, uuid = `f${index}`): AlbumMediaItem {
     message_type: 'image',
     file_uuid: uuid,
     file_size: 1024,
-    file_hash: `h${index}`,
     media_group_index: index,
   };
 }

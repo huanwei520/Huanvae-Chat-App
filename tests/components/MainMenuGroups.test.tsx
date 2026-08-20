@@ -176,11 +176,12 @@ describe('MainMenu — 语义分组结构', () => {
       // 脱离无障碍树 → 按角色查不到
       expect(screen.queryByRole('button', { name: /修改群名称/ })).toBeNull();
       expect(screen.queryByRole('button', { name: /邀请成员/ })).toBeNull();
-      expect(screen.queryByRole('button', { name: /邀请码管理/ })).toBeNull();
 
       // 且真的被禁用（不进 Tab 序、Enter 也不会触发）
+      // 组内两项各断一次 —— 原先第二个见证人是已整套删除的「邀请码管理」，
+      // 换成同组仍在的「邀请成员」，见证人数量不减。
       expect(screen.getByText('修改群名称').closest('button')).toBeDisabled();
-      expect(screen.getByText('邀请码管理').closest('button')).toBeDisabled();
+      expect(screen.getByText('邀请成员').closest('button')).toBeDisabled();
     });
 
     it('管理员（非群主）：群管理可用，但「转让群主」禁用', () => {
@@ -232,6 +233,40 @@ describe('MainMenu — 语义分组结构', () => {
       expect(chatGroup).toContainElement(screen.getByRole('button', { name: /成员管理/ }));
       expect(screen.queryByRole('button', { name: /^查看成员$/ })).toBeNull();
       expect(chatGroup).toContainElement(screen.getByRole('button', { name: /修改群内昵称/ }));
+    });
+
+    /**
+     * 「入群与可见性」入口（`PUT /join-policy` 契约写死**仅群主**，管理员也会被后端 403）
+     *
+     * 防的写错法：gating 用 `isOwnerOrAdmin` ⇒ 管理员看得见一个点了必 403 的入口。
+     * 所以这里对"管理员"这一档单独立一条 —— 只测群主/普通成员两档的话，
+     * 把 `isOwner` 误写成 `isOwnerOrAdmin` **两条都还是绿的**。
+     */
+    it('「入群与可见性」：群主可用', () => {
+      const { props } = renderMenu({ targetType: 'group', isOwnerOrAdmin: true, isOwner: true });
+
+      const entry = screen.getByRole('button', { name: /入群与可见性/ });
+      expect(entry).toBeEnabled();
+
+      entry.click();
+      expect(props.onSetView).toHaveBeenCalledWith('join-policy');
+    });
+
+    it('「入群与可见性」：管理员（非群主）不可用 —— 契约仅群主，不能用 isOwnerOrAdmin gating', () => {
+      renderMenu({ targetType: 'group', isOwnerOrAdmin: true, isOwner: false });
+
+      // 群管理组本身是展开的（管理员可见），所以这一项是"在文档里但被禁用且脱离无障碍树"
+      expect(screen.queryByRole('button', { name: /入群与可见性/ })).toBeNull();
+      const entry = screen.getByText('入群与可见性').closest('button');
+      expect(entry).toBeDisabled();
+      expect(entry).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('「入群与可见性」：普通成员按角色查不到该入口', () => {
+      renderMenu({ targetType: 'group', isOwnerOrAdmin: false, isOwner: false });
+
+      expect(screen.queryByRole('button', { name: /入群与可见性/ })).toBeNull();
+      expect(screen.getByText('入群与可见性').closest('button')).toBeDisabled();
     });
 
     it('群头像上传区仅群主/管理员可见', () => {

@@ -47,6 +47,8 @@ import {
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
+import { buildMediaGallery } from '../shared/mediaGallery';
+import { MediaGalleryProvider } from '../shared/MediaGalleryProvider';
 import { runTightKeys, type SenderRunNode } from '../shared/senderRunGate';
 import { isLocateScrollSettling } from '../shared/scrollMessageIntoView';
 import { useStickToBottom } from '../shared/useStickToBottom';
@@ -196,6 +198,14 @@ export function ChatMessages({
   // 相册折叠：把同一 media_group_id 的 N 条消息折叠成一个渲染节点。
   // 放在排序之后 —— 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
+  // 会话媒体序列（全屏预览左右切上一张 / 下一张的数据面）。
+  // 从 renderNodes 摊平：相册内部已按 media_group_index 升序，与网格里眼睛看到的一致；
+  // 范围 = **当前已加载的这批消息**，用户往上翻得越多能滑到的越多（见 mediaGallery.ts 文件头）。
+  const galleryItems = useMemo(
+    () => buildMediaGallery(renderNodes, { urlType: 'friend', friendId: friend.friend_id }),
+    [renderNodes, friend.friend_id],
+  );
 
   // 捕获挂载入场基准：首帧非空时记下当前 key 快照（缓存未命中首帧为空，待 db 加载到的首批再捕获，
   // 它们都属"挂载时已有"→ 不演入场；此后真正新增的实时消息不在快照内 → 演滑入）。
@@ -358,7 +368,9 @@ export function ChatMessages({
   const showPlaceholder = !loading && isEmpty;
 
   return (
-    <>
+    // 全屏预览的宿主也在 Provider 里：整条会话共用一个浮层，气泡只负责说"打开我这一张"。
+    // 它 createPortal 到 body，不参与本容器的 column-reverse 布局。
+    <MediaGalleryProvider items={galleryItems}>
       <motion.div
         ref={containerRef}
         className="chat-messages-container chat-messages-container--reverse"
@@ -458,6 +470,6 @@ export function ChatMessages({
         onJumpToLatest={onJumpToLatest}
         forceVisible={isWindowed}
       />
-    </>
+    </MediaGalleryProvider>
   );
 }

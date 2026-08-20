@@ -34,6 +34,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isMobile } from '../utils/platform';
+import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
 
 // ============================================
 // Android 通知渠道
@@ -266,7 +267,7 @@ export async function notify(options: NotificationOptions): Promise<void> {
  * 根据消息类型生成预览文本
  */
 function getMessagePreview(
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card',
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card',
   content: string,
 ): string {
   switch (messageType) {
@@ -283,6 +284,9 @@ function getMessagePreview(
       return '[会议邀请]';
     case 'card':
       return '[卡片]';
+    case 'group_card':
+      // default 分支返回的是 content 原文 —— 漏掉这条，系统通知里会弹出裸 JSON
+      return GROUP_CARD_PREVIEW_TEXT;
     default:
       return content;
   }
@@ -302,7 +306,7 @@ export interface NewMessageNotificationParams {
   /** 群名称（仅群消息需要） */
   groupName?: string;
   /** 消息类型 */
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card';
+  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card';
   /** 消息内容 */
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */

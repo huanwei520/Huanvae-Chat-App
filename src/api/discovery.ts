@@ -23,8 +23,13 @@ export interface GroupCard {
   /** 群头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
   avatar_url: string | null;
   member_count: number;
-  /** open/approval_required/invite_only/admin_invite_only/closed */
-  join_mode: string;
+  /**
+   * 是否需要入群审核：搜索结果卡片据此直接显示「免审核 / 需审核」，不必先点进 `/public`。
+   *
+   * `?:` 而非必填：后端整批尚未上线的窗口期里读到的是 `undefined`，写成必填就是撒谎。
+   * ⚠️ 后端**故意不下发** `search_scope` 给搜索方（那是群主的设置项），别往这里加。
+   */
+  join_approval_required?: boolean;
   /** 当前 viewer 是否已在该群 */
   is_member: boolean;
 }

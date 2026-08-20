@@ -48,7 +48,10 @@ pub mod video_posters;
 pub use contacts::*;
 pub use conversations::*;
 pub use group_read_positions::*;
-pub use files::{delete_file_mapping, get_file_mapping, save_file_mapping, save_file_uuid_hash};
+pub use files::{
+    delete_file_mapping, get_file_hash_by_uuid, get_file_mapping, save_file_mapping,
+    save_file_uuid_hash,
+};
 pub use messages::*;
 pub use nfc::*;
 pub use types::*;
@@ -157,7 +160,6 @@ pub fn init_database() -> Result<(), String> {
             file_uuid TEXT,
             file_url TEXT,
             file_size INTEGER,
-            file_hash TEXT,
             image_width INTEGER,
             image_height INTEGER,
             seq INTEGER NOT NULL,
@@ -198,12 +200,6 @@ pub fn init_database() -> Result<(), String> {
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_time ON messages(conversation_id, send_time DESC)",
-        [],
-    )
-    .ok();
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_messages_file_hash ON messages(file_hash)",
         [],
     )
     .ok();
@@ -334,6 +330,14 @@ pub fn init_database() -> Result<(), String> {
     )
     .ok();
 
+    // 一次性迁移：把老库 messages.file_hash 里的（uuid -> hash）灌进 file_uuid_hash，然后删列。
+    //
+    // 🔴 顺序不能反。后端接收面 2026-08-16 起不再下发 file_hash，消息面改用两层键
+    // （file_uuid 快路径 -> file_uuid_hash -> file_mappings）。老用户库里那一列存着**真实**
+    // 的历史哈希 —— 不先灌过来就直接删，他们**已经下载好的文件会全部丢失命中、被重新下一遍**。
+    // 灌完这一列就再无读者，留着就是误导性残留（本仓禁止），故同一步删掉。
+    migrate_message_file_hash_into_uuid_map(&conn)?;
+
     // 创建视频封面索引表（file_hash -> 封面图本地路径，schema 定义在 video_posters 模块内，
     // 单测用同一个 create_table 建内存库，避免"测试里的表"与"生产里的表"漂移）
     video_posters::create_table(&conn)
@@ -416,6 +420,61 @@ pub fn init_database() -> Result<(), String> {
     println!("[DB] 数据库初始化完成");
 
     Ok(())
+}
+
+/// 一次性迁移（2026-08-16 两层键）：把老库 `messages.file_hash` 灌进 `file_uuid_hash`，然后删列。
+///
+/// ## 为什么必须先灌再删
+///
+/// 后端接收面已不再下发 `file_hash`，消息面改走两层键
+/// （`file_uuid` → `file_uuid_hash` → `file_mappings`）。而**老用户库里那一列存的是真实的
+/// 历史哈希**：不灌过来就直接删，他们**已经下载好的文件会全部丢失命中、被重新下一遍**。
+/// 灌过来之后这一列再无读者，留着就是误导性残留，所以同一步删掉。
+///
+/// ## 幂等
+///
+/// 判据是列在不在（`PRAGMA table_info`），不是"试着 ALTER 一下看报不报错"。
+/// 新库建表时就没有这一列 ⇒ 直接跳过；老库迁移一次后列没了 ⇒ 之后每次启动也跳过。
+///
+/// `INSERT OR IGNORE` 保证不覆盖 `file_uuid_hash` 里已有的行（上传路径写的那些更权威：
+/// 那是本机自己算的）。
+fn migrate_message_file_hash_into_uuid_map(conn: &Connection) -> Result<(), String> {
+    if !table_has_column(conn, "messages", "file_hash")? {
+        return Ok(());
+    }
+
+    let moved = conn
+        .execute(
+            "INSERT OR IGNORE INTO file_uuid_hash (file_uuid, file_hash)
+             SELECT file_uuid, file_hash FROM messages
+             WHERE file_uuid IS NOT NULL AND file_hash IS NOT NULL AND file_hash <> ''",
+            [],
+        )
+        .map_err(|e| format!("迁移 messages.file_hash 到 file_uuid_hash 失败: {}", e))?;
+
+    // 列上有索引时 SQLite 拒绝 DROP COLUMN，先把索引删掉
+    conn.execute("DROP INDEX IF EXISTS idx_messages_file_hash", [])
+        .map_err(|e| format!("删除 idx_messages_file_hash 失败: {}", e))?;
+    conn.execute("ALTER TABLE messages DROP COLUMN file_hash", [])
+        .map_err(|e| format!("删除 messages.file_hash 列失败: {}", e))?;
+
+    println!("[DB] 两层键迁移完成：{} 条 uuid->hash 已并入 file_uuid_hash，messages.file_hash 已删除", moved);
+    Ok(())
+}
+
+/// 表里有没有某个列（迁移判据）
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", table))
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let name: String = row.get(1).map_err(|e| e.to_string())?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // ============================================================================

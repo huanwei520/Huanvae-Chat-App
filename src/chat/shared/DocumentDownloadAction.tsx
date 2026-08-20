@@ -20,7 +20,7 @@
 import { useCallback } from 'react';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
-import { triggerBackgroundDownload } from '../../services/fileCache';
+import { triggerBackgroundDownload, fileIdentityKey } from '../../services/fileCache';
 import { CircularProgress } from '../../components/common/CircularProgress';
 
 // ============================================
@@ -87,8 +87,13 @@ export function LocalBadge() {
 // ============================================
 
 export interface DocumentDownloadActionProps {
+  /** 文件 UUID —— **下载任务的键**（消息面下载前唯一已知的身份，见 fileIdentityKey） */
   fileUuid: string;
-  fileHash: string | null | undefined;
+  /**
+   * **已知**的内容哈希。只有个人文件面（`GET /api/storage/files`）有；
+   * 消息面（聊天文档气泡 / 文档预览）**不传** —— 后端接收面已不再下发 `file_hash`。
+   */
+  fileHash?: string | null;
   filename: string;
   fileSize?: number | null;
   urlType?: 'user' | 'friend' | 'group';
@@ -122,7 +127,9 @@ export function DocumentDownloadAction({
     autoCache: false,
   });
 
-  const downloadTask = useFileCacheStore(selectDownloadTask(fileHash ?? ''));
+  // 下载任务的键：个人文件面用服务端下发的哈希，消息面用 file_uuid
+  const cacheKey = fileIdentityKey(fileUuid, fileHash);
+  const downloadTask = useFileCacheStore(selectDownloadTask(cacheKey));
 
   const isDownloading = !!downloadTask && (
     downloadTask.status === 'pending' || downloadTask.status === 'downloading'
@@ -134,10 +141,12 @@ export function DocumentDownloadAction({
 
   const handleDownload = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!src || !fileHash || isDownloaded || isDownloading) { return; }
+    // 🔴 这里**不能**再要求"有内容哈希"：消息面下载前根本没有哈希（两层键，哈希是下载完
+    // 才自算的）—— 那道旧前置会让聊天里的文档下载按钮**永远点不动**。键改成 cacheKey 即可。
+    if (!src || !cacheKey || isDownloaded || isDownloading) { return; }
     // 下载必须用原始 presignedUrl(Rust directIpUrl 改写 host→源站IP);src 是反代 loopback URL,被改写后变无效路径 → 400
-    triggerBackgroundDownload(presignedUrl ?? src, fileHash, filename, 'document', fileSize ?? undefined);
-  }, [src, presignedUrl, fileHash, filename, fileSize, isDownloaded, isDownloading]);
+    triggerBackgroundDownload(presignedUrl ?? src, cacheKey, filename, 'document', fileSize ?? undefined);
+  }, [src, presignedUrl, cacheKey, filename, fileSize, isDownloaded, isDownloading]);
 
   const handleOpen = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

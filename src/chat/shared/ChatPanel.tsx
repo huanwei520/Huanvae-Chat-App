@@ -30,10 +30,12 @@ import { ChatMenuButton } from './ChatMenu';
 import { ChatTargetAvatar, hasChatTargetAvatar } from './ChatTargetAvatar';
 import { ConversationShelf } from './ConversationShelf';
 import { MultiSelectActionBar } from './MultiSelectActionBar';
+import { ForwardMessageModal } from './ForwardMessageModal';
+import { useBatchForward } from './useBatchForward';
 import { ChatInputArea } from './ChatInputArea';
 import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
-import { useChatStore, useProfileViewStore } from '../../stores';
+import { useChatStore, useProfileViewStore, useGroupDetailStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
 import type { AIMessage, AIConversation } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../ai/useAIMessages';
@@ -234,9 +236,27 @@ export function ChatPanel({
   const [showAIHistory, setShowAIHistory] = useState(false);
   const [showVoiceProfiles, setShowVoiceProfiles] = useState(false);
 
-  // 私聊顶栏点开对方资料（群/AI 不适用；bot 同好友可看资料）
+  // 多选批量转发（A 版快捷卡；面板按需挂载）
+  const { forwardSources, forwardOpen, openForward, closeForward } = useBatchForward({
+    session, chatTarget, friendMessages, groupMessages, selectedMessages,
+  });
+
+  // 顶栏点开详情：私聊 → 对方资料；群聊 → 群详情面板（AI 无详情可开）。
+  //
+  // 群那一路是本次补的：群详情面板（GroupDetailPanel）此前**只能从发现搜索结果点进去**
+  // （唯二调用方是 Main.tsx / MobileChatList.tsx 的 onSelectDiscoveryGroup），
+  // 于是「我已经在的群」几乎无路可达 —— 而群主把 search_scope 设成 admins/owner_only 时
+  // 普通成员**连搜都搜不到自己的群**（见 backend-docs 群聊管理 §八 的三档说明），
+  // 那条路直接断掉。面板上的「分享该群」入口要能被用到，就必须有这条对称的到达路径。
   const openProfile = useProfileViewStore((s) => s.open);
+  const openGroupDetail = useGroupDetailStore((s) => s.open);
   const friendIdForProfile = isFriendLikeTarget(chatTarget) ? chatTarget.data.friend_id : null;
+  const groupIdForDetail = chatTarget.type === 'group' ? chatTarget.data.group_id : null;
+  const headerDetailAction = (() => {
+    if (friendIdForProfile) { return () => openProfile(friendIdForProfile); }
+    if (groupIdForDetail) { return () => openGroupDetail(groupIdForDetail); }
+    return null;
+  })();
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）
   const headerKbd = useKbdFocusRing();
   const headerKbdHandlers = headerKbd.handlersFor('header');
@@ -282,24 +302,24 @@ export function ChatPanel({
             </div>
           )}
           <div
-            className={`chat-header-info${friendIdForProfile && headerKbd.isKbdFocused('header') ? ' a11y-kbd-focus' : ''}`}
-            onClick={friendIdForProfile ? () => openProfile(friendIdForProfile) : undefined}
-            onKeyDown={friendIdForProfile
+            className={`chat-header-info${headerDetailAction && headerKbd.isKbdFocused('header') ? ' a11y-kbd-focus' : ''}`}
+            onClick={headerDetailAction ?? undefined}
+            onKeyDown={headerDetailAction
               ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  openProfile(friendIdForProfile);
+                  headerDetailAction();
                 }
               }
               : undefined}
-            role={friendIdForProfile ? 'button' : undefined}
-            tabIndex={friendIdForProfile ? 0 : undefined}
-            aria-label={friendIdForProfile ? `查看${getChatTitle(chatTarget)}资料` : undefined}
-            onPointerDown={friendIdForProfile ? headerKbdHandlers.onPointerDown : undefined}
-            onFocus={friendIdForProfile ? headerKbdHandlers.onFocus : undefined}
-            onBlur={friendIdForProfile ? headerKbdHandlers.onBlur : undefined}
-            style={friendIdForProfile ? { cursor: 'pointer' } : undefined}
-            title={friendIdForProfile ? '查看资料' : undefined}
+            role={headerDetailAction ? 'button' : undefined}
+            tabIndex={headerDetailAction ? 0 : undefined}
+            aria-label={headerDetailAction ? `查看${getChatTitle(chatTarget)}资料` : undefined}
+            onPointerDown={headerDetailAction ? headerKbdHandlers.onPointerDown : undefined}
+            onFocus={headerDetailAction ? headerKbdHandlers.onFocus : undefined}
+            onBlur={headerDetailAction ? headerKbdHandlers.onBlur : undefined}
+            style={headerDetailAction ? { cursor: 'pointer' } : undefined}
+            title={headerDetailAction ? '查看资料' : undefined}
           >
             <h2>{getChatTitle(chatTarget)}</h2>
             <span className="chat-subtitle">{subtitle}</span>
@@ -471,10 +491,12 @@ export function ChatPanel({
             selectedCount={selectedMessages.size}
             totalCount={totalMessageCount}
             canBatchRecall={canBatchRecall}
+            canBatchForward={forwardSources.length > 0}
             onSelectAll={onSelectAll}
             onDeselectAll={onDeselectAll}
             onBatchDelete={onBatchDelete}
             onBatchRecall={onBatchRecall}
+            onBatchForward={openForward}
             onCancel={onExitMultiSelect}
           />
         ) : (
@@ -486,6 +508,15 @@ export function ChatPanel({
           />
         )}
       </AnimatePresence>
+
+      {/* 批量转发面板：发完退出多选（选中态已消费完，留着只会误导） */}
+      {forwardOpen && forwardSources.length > 0 && (
+        <ForwardMessageModal
+          messages={forwardSources}
+          onClose={closeForward}
+          onSent={onExitMultiSelect}
+        />
+      )}
 
       {chatTarget.type === 'ai' && onVoiceProfileSelect && (
         <VoiceProfileManager

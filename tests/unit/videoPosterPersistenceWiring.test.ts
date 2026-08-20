@@ -4,15 +4,20 @@
  * 与同目录的 videoPosterWiring.test.ts 分工：那份守「全仓当缩略图用的 `<video>` 只有一处、
  * 且四个消费点只调共享组件」；本份守**封面持久化这条新链路**的三件事 ——
  *
- *  A. **气泡与「查找记录 → 视频」收敛到同一条封面路径**：两处都把**同一个 `file_hash`**
+ *  A. **气泡与「查找记录 → 视频」收敛到同一条封面路径**：两处都把**同一个 `file_uuid`**
  *     递给 `<VideoThumbnail>` 当键。这是验收「同一个视频在两处的封面是同一帧」的结构前提 ——
  *     键一样 ⇒ 命中同一个封面文件 ⇒ 必然同一帧。任一处漏传，那一处就退回「每次重新截」。
  *  B. **解析入口只有一个**：只有 `<VideoThumbnail>` 能碰 `useVideoPoster` / 封面服务。
  *     全仓出现第二处自己解析封面即违规（同 A2 那条收敛纪律：把"四处都记得写对"
  *     变成"结构上只有一处可写"）。
- *  C. **键是 `file_hash`，不是显示 URL**。远程 src 带每次重签都变的 SigV4 参数、
+ *  C. **键是稳定的文件身份键，不是显示 URL**。远程 src 带每次重签都变的 SigV4 参数、
  *     每会话可变的回环端口；本地 src 还会随平台在 asset 协议与本地媒体服务器间切换 ——
  *     拿它当键 = 每次都 miss = 正好复现要根治的 bug。这条负向断言把它钉死。
+ *
+ *     🔴 2026-08-16（两层键）：键从内容哈希改成**文件身份键** —— 消息面 `file_uuid`、
+ *     个人文件面服务端下发的 `file_hash`。原因是封面要在**下载之前**就出得来，
+ *     而后端接收面已不再下发哈希、本机哈希是下载完才自算的；继续用哈希 ⇒ 只滚过没播过的
+ *     视频永远存不下封面。跨语言的参数名统一为 `fileKey`。
  *
  * ## 为什么是静态扫描
  *
@@ -62,10 +67,16 @@ function videoThumbnailTagsOf(code: string): string[] {
   return [...code.matchAll(/<VideoThumbnail([^>]*)>/g)].map((m) => m[1]);
 }
 
-/** 每个 `<VideoThumbnail>` 递进去的 `fileHash={…}` 表达式原文；没递为 `<缺失>` */
-function fileHashPropsOf(code: string): string[] {
+/**
+ * 每个 `<VideoThumbnail>` 递进去的**封面键**表达式原文；没递为 `<缺失>`。
+ *
+ * 两层键下键有两种来源，任一个都算「递了键」：
+ * - `fileUuid={…}`：消息面（后端接收面已不再下发 file_hash，只有它在下载前就有）
+ * - `fileHash={…}`：个人文件面（`GET /api/storage/files` 仍下发哈希）
+ */
+function posterKeyPropsOf(code: string): string[] {
   return videoThumbnailTagsOf(code).map((attrs) => {
-    const hit = /fileHash=\{([^}]*)\}/.exec(attrs);
+    const hit = /\b(?:fileUuid|fileHash)=\{([^}]*)\}/.exec(attrs);
     return hit ? hit[1].trim() : '<缺失>';
   });
 }
@@ -77,12 +88,14 @@ const POSTER_SERVICE = 'src/services/videoPoster.ts';
 /**
  * 必须接上封面持久化的**全部**消费点，以及各自应当递的键表达式。
  *
- * 前两条是气泡与「查找记录 → 视频」；后两条是「我的文件」桌面 / 移动两处 ——
- * 它们此前不传 fileHash（行为退回「每次挂载重新 seek」），本轮补上。
- * 四处递的都是同一行数据的 `file_hash` ⇒ 同一个视频在四个入口命中**同一个封面文件**。
+ * 第一条是「查找记录 → 视频」；后两条是「我的文件」桌面 / 移动两处。
+ *
+ * 🔴 两个来源的键**不同名但同族**（都是该来源下稳定唯一的文件身份）：
+ * 消息面递 `fileUuid`（后端已不再下发哈希），个人文件面递 `file.file_hash`（该端点未改）。
+ * 同一来源内四个入口递的是同一行数据的同一个字段 ⇒ 命中**同一个封面文件**。
  */
 const WIRED_CONSUMERS: Array<[string, string]> = [
-  ['src/components/search/ConversationSearchHit.tsx', 'message.file_hash'],
+  ['src/components/search/ConversationSearchHit.tsx', 'fileUuid'],
   ['src/components/files/FilesModal.tsx', 'file.file_hash'],
   ['src/pages/mobile/MobileFilesPage.tsx', 'file.file_hash'],
 ];
@@ -90,7 +103,7 @@ const WIRED_CONSUMERS: Array<[string, string]> = [
 describe('A. 气泡与查找记录递同一把键 ⇒ 两处必然是同一帧', () => {
   it.each(WIRED_CONSUMERS)('%s 把 %s 递给 <VideoThumbnail> 当封面键', (rel, expected) => {
     const code = stripComments(read(rel));
-    const props = fileHashPropsOf(code);
+    const props = posterKeyPropsOf(code);
 
     // 先证明扫到了标签 —— 空集合会让下面的 toContain 假通过
     expect(props.length).toBeGreaterThan(0);
@@ -102,25 +115,25 @@ describe('A. 气泡与查找记录递同一把键 ⇒ 两处必然是同一帧',
   /**
    * 气泡这个文件里有**两个** `<VideoThumbnail>`，只有一个该递键 —— 逐个点名，不许有第三种形态。
    *
-   * - **完成态**（`VideoMessage`）：视频已经发出去了，有 `file_hash` ⇒ 必须递，
+   * - **完成态**（`VideoMessage`）：视频已经发出去了，服务端分配过 `file_uuid` ⇒ 必须递，
    *   漏了就退回「每次挂载重新 seek」，且与「查找记录 → 视频」那处不再是同一帧。
    * - **在途态**（`SendingMediaMessage`，2026-08-13 起）：文件**还没上传**，
-   *   `file_hash` 是上传时才算出来的、此刻在世界上不存在；而 `video_posters` 那张表的键就是它。
+   *   连 `file_uuid` 都还没有（服务端还没分配）；而 `video_posters` 那张表的键就是它。
    *   ⇒ 这里**不能**递，也没得递。不传 ⇒ useVideoPoster 同步落到 capture 分支 ⇒
    *   纯 `<video>` 显示首帧，**不读也不写封面库**（与待发区那格同一条口径）。
    *
    * 用「递了键的必带 onPlay / 没递键的必带 decorative + previewUrl」把两者分辨开，
    * 而不是靠出现顺序 —— 顺序会随任何一次代码搬动而变，那种断言迟早变成噪音。
    */
-  it('src/chat/shared/FileMessageContent.tsx：完成态递 fileHash，在途态没有键可递（逐个点名）', () => {
+  it('src/chat/shared/FileMessageContent.tsx：完成态递 fileUuid，在途态没有键可递（逐个点名）', () => {
     const code = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
     const tags = videoThumbnailTagsOf(code);
 
     // 恰两个。多出第三个 ⇒ 有人新增了消费点却没在这里表态，翻红逼他来定性
     expect(tags).toHaveLength(2);
 
-    const settled = tags.filter((a) => /fileHash=\{fileHash\}/.test(a));
-    const inflight = tags.filter((a) => !/fileHash=/.test(a));
+    const settled = tags.filter((a) => /fileUuid=\{fileUuid\}/.test(a));
+    const inflight = tags.filter((a) => !/\b(?:fileUuid|fileHash)=/.test(a));
     expect(settled).toHaveLength(1);
     expect(inflight).toHaveLength(1);
 
@@ -131,17 +144,20 @@ describe('A. 气泡与查找记录递同一把键 ⇒ 两处必然是同一帧',
     expect(inflight[0]).toMatch(/\bdecorative\b/);
   });
 
-  it('两处的键同源：都取自消息行的 file_hash（而不是各自另造一个标识）', () => {
+  it('两处的键同源：都取自消息行的 file_uuid（而不是各自另造一个标识）', () => {
     const bubble = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
     const search = stripComments(read('src/components/search/ConversationSearchHit.tsx'));
 
-    // 气泡侧：VideoMessage 的 fileHash prop 由消息行的 file_hash 传入（见 FileMessageContent
+    // 气泡侧：VideoMessage 的 fileUuid 由消息行的 file_uuid 传入（见 FileMessageContent
     // 的分发处），故这里断言该 prop 在组件签名里存在且被递了出去
-    expect(bubble).toMatch(/fileHash:\s*string \| null \| undefined/);
-    expect(fileHashPropsOf(bubble)).toContain('fileHash');
-    // 查找记录侧：同一行消息的 file_hash（与 useFileCache 取源用的是同一个字段）
-    expect(search).toMatch(/fileHash:\s*message\.file_hash/);
-    expect(fileHashPropsOf(search)).toContain('message.file_hash');
+    expect(bubble).toMatch(/fileUuid:\s*string;/);
+    expect(posterKeyPropsOf(bubble)).toContain('fileUuid');
+    // 查找记录侧：同一行消息的 file_uuid（与 useFileCache 取源用的是同一个字段）
+    expect(search).toMatch(/const fileUuid = message\.file_uuid \?\? '';/);
+    expect(posterKeyPropsOf(search)).toContain('fileUuid');
+    // 🔴 负向：两侧都不许再从消息行上读 file_hash（后端接收面已不再下发）
+    expect(bubble).not.toMatch(/message\.file_hash/);
+    expect(search).not.toMatch(/message\.file_hash/);
   });
 });
 
@@ -152,7 +168,7 @@ describe('B. 封面解析入口全仓只有 <VideoThumbnail> 一处', () => {
     expect(code).toMatch(/import \{[^}]*\buseVideoPoster\b[^}]*\} from '\.\/useVideoPoster'/);
     // 恰一处调用（多处 = 同一组件里两套状态机）
     expect(code.match(/useVideoPoster\(/g)).toHaveLength(1);
-    expect(code).toMatch(/useVideoPoster\(fileHash,\s*src\)/);
+    expect(code).toMatch(/useVideoPoster\(fileHash \|\| fileUuid,\s*src\)/);
     // 命中分支渲染的是 <img>，src 绑到解析出来的 posterSrc
     expect(code).toMatch(/<img[^>]*src=\{posterSrc\}/);
   });
@@ -179,25 +195,34 @@ describe('B. 封面解析入口全仓只有 <VideoThumbnail> 一处', () => {
   });
 });
 
-describe('C. 封面的键是 file_hash，不是显示 URL', () => {
+describe('C. 封面的键是稳定的文件身份键，不是显示 URL', () => {
   const service = stripComments(read(POSTER_SERVICE));
 
-  it('读侧：get_video_poster_path 的参数只有 fileHash', () => {
-    expect(service).toMatch(/'get_video_poster_path',\s*\{\s*fileHash\s*\}/);
+  it('读侧：get_video_poster_path 的参数只有 fileKey', () => {
+    expect(service).toMatch(/'get_video_poster_path',\s*\{\s*fileKey:\s*posterKey\s*\}/);
   });
 
-  it('写侧：save_video_poster 的参数块里有 fileHash，且不含 src / url（回归守卫）', () => {
+  it('写侧：save_video_poster 的参数块里有 fileKey，且不含 src / url（回归守卫）', () => {
     // `[^}]` 把匹配限制在那个参数对象字面量内部，不会吞到下游别的对象去
     const m = /'save_video_poster',\s*\{([^}]*)\}/.exec(service);
     expect(m).not.toBeNull();
     const args = m![1];
-    expect(args).toMatch(/\bfileHash\b/);
+    expect(args).toMatch(/\bfileKey\b/);
     expect(args).not.toMatch(/\bsrc\b/);
     expect(args).not.toMatch(/\burl\b/);
   });
 
-  it('Rust 侧同一把键：video_posters 表主键是 file_hash', () => {
+  it('Rust 侧同一把键：video_posters 表主键是 file_key（两层键改名后）', () => {
     const schema = read('src-tauri/src/db/video_posters.rs');
-    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS video_posters[\s\S]{0,120}file_hash TEXT PRIMARY KEY/);
+    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS video_posters[\s\S]{0,120}file_key TEXT PRIMARY KEY/);
+    // 负向：老列名不得再出现在建表语句里（迁移语句里出现是正当的，故只卡建表那一段）
+    const create = /CREATE TABLE IF NOT EXISTS video_posters \(([\s\S]*?)\)"/.exec(schema);
+    expect(create).not.toBeNull();
+    expect(create![1]).not.toMatch(/file_hash/);
+  });
+
+  it('Rust 侧迁移存在：老库的 file_hash 列会被改名成 file_key（老封面行不丢）', () => {
+    const schema = read('src-tauri/src/db/video_posters.rs');
+    expect(schema).toMatch(/ALTER TABLE video_posters RENAME COLUMN file_hash TO file_key/);
   });
 });

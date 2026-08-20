@@ -2,7 +2,7 @@
  * 入群申请审批（群主 / 管理员侧）API 契约测试
  *
  * 这三个端点后端一直都在（`Huanvae-Chat-Rust/src/groups/handlers/routes.rs:85-87`），
- * 但客户端**从未接过** —— 后果是 `join_mode = approval_required` 的群，
+ * 但客户端**从未接过** —— 后果是**开了入群审核**的群，
  * 用户申请后群主在 App 里根本看不到，申请永久 pending。本文件守住接线本身。
  *
  * 断言的是**会不会写错**的地方：

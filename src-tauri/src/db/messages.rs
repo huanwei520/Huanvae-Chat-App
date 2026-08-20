@@ -29,7 +29,7 @@ use super::{with_db, DB};
 /// 常量 + 单一映射函数让「加一列」只需改两个地方，且两处必然同步。
 const MSG_SELECT_COLUMNS: &str = "message_uuid, conversation_id, conversation_type, sender_id,
      sender_name, sender_avatar, content, content_type, file_uuid, file_url,
-     file_size, file_hash, image_width, image_height, seq, reply_to,
+     file_size, image_width, image_height, seq, reply_to,
      is_recalled, is_deleted, send_time, created_at,
      media_group_id, media_group_index, media_group_count";
 
@@ -47,18 +47,17 @@ fn map_message_row(row: &Row<'_>) -> rusqlite::Result<LocalMessage> {
         file_uuid: row.get(8)?,
         file_url: row.get(9)?,
         file_size: row.get(10)?,
-        file_hash: row.get(11)?,
-        image_width: row.get(12)?,
-        image_height: row.get(13)?,
-        seq: row.get(14)?,
-        reply_to: row.get(15)?,
-        is_recalled: row.get::<_, i64>(16)? != 0,
-        is_deleted: row.get::<_, i64>(17)? != 0,
-        send_time: row.get(18)?,
-        created_at: row.get(19)?,
-        media_group_id: row.get(20)?,
-        media_group_index: row.get(21)?,
-        media_group_count: row.get(22)?,
+        image_width: row.get(11)?,
+        image_height: row.get(12)?,
+        seq: row.get(13)?,
+        reply_to: row.get(14)?,
+        is_recalled: row.get::<_, i64>(15)? != 0,
+        is_deleted: row.get::<_, i64>(16)? != 0,
+        send_time: row.get(17)?,
+        created_at: row.get(18)?,
+        media_group_id: row.get(19)?,
+        media_group_index: row.get(20)?,
+        media_group_count: row.get(21)?,
     })
 }
 
@@ -282,10 +281,10 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to,
+              image_width, image_height, seq, reply_to,
               media_group_id, media_group_index, media_group_count,
               is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -298,7 +297,6 @@ pub fn save_message(msg: LocalMessage) -> Result<(), String> {
                 msg.file_uuid,
                 msg.file_url,
                 msg.file_size,
-                msg.file_hash,
                 msg.image_width,
                 msg.image_height,
                 msg.seq,
@@ -331,10 +329,10 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
             "INSERT OR REPLACE INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to,
+              image_width, image_height, seq, reply_to,
               media_group_id, media_group_index, media_group_count,
               is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 msg.message_uuid,
                 msg.conversation_id,
@@ -347,7 +345,6 @@ pub fn save_messages(messages: Vec<LocalMessage>) -> Result<(), String> {
                 msg.file_uuid,
                 msg.file_url,
                 msg.file_size,
-                msg.file_hash,
                 msg.image_width,
                 msg.image_height,
                 msg.seq,
@@ -416,10 +413,10 @@ fn save_messages_skip_existing_with_conn(
             "INSERT INTO messages
              (message_uuid, conversation_id, conversation_type, sender_id, sender_name,
               sender_avatar, content, content_type, file_uuid, file_url, file_size,
-              file_hash, image_width, image_height, seq, reply_to,
+              image_width, image_height, seq, reply_to,
               media_group_id, media_group_index, media_group_count,
               is_recalled, is_deleted, send_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(message_uuid) DO UPDATE SET
                reply_to = COALESCE(messages.reply_to, excluded.reply_to),
                media_group_id = COALESCE(messages.media_group_id, excluded.media_group_id),
@@ -437,7 +434,6 @@ fn save_messages_skip_existing_with_conn(
                 msg.file_uuid,
                 msg.file_url,
                 msg.file_size,
-                msg.file_hash,
                 msg.image_width,
                 msg.image_height,
                 msg.seq,
@@ -594,7 +590,7 @@ fn fts_search(
     let sql = format!(
         "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.file_url, m.file_size, m.image_width, m.image_height,
                 m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
                 m.media_group_id, m.media_group_index, m.media_group_count,
                 c.name, c.avatar_url
@@ -640,7 +636,7 @@ fn like_search(
     let sql = format!(
         "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.file_url, m.file_size, m.image_width, m.image_height,
                 m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
                 m.media_group_id, m.media_group_index, m.media_group_count,
                 c.name, c.avatar_url
@@ -677,18 +673,17 @@ fn row_to_local_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalMessag
         file_uuid: row.get(8)?,
         file_url: row.get(9)?,
         file_size: row.get(10)?,
-        file_hash: row.get(11)?,
-        image_width: row.get(12)?,
-        image_height: row.get(13)?,
-        seq: row.get(14)?,
-        reply_to: row.get(15)?,
-        is_recalled: row.get::<_, i64>(16)? != 0,
-        is_deleted: row.get::<_, i64>(17)? != 0,
-        send_time: row.get(18)?,
-        created_at: row.get(19)?,
-        media_group_id: row.get(20)?,
-        media_group_index: row.get(21)?,
-        media_group_count: row.get(22)?,
+        image_width: row.get(11)?,
+        image_height: row.get(12)?,
+        seq: row.get(13)?,
+        reply_to: row.get(14)?,
+        is_recalled: row.get::<_, i64>(15)? != 0,
+        is_deleted: row.get::<_, i64>(16)? != 0,
+        send_time: row.get(17)?,
+        created_at: row.get(18)?,
+        media_group_id: row.get(19)?,
+        media_group_index: row.get(20)?,
+        media_group_count: row.get(21)?,
     })
 }
 
@@ -701,8 +696,8 @@ fn collect_hits(
         .query_map(parameters, |row| {
             Ok((
                 row_to_local_message(row)?,
-                row.get::<_, Option<String>>(23)?.unwrap_or_default(),
-                row.get::<_, Option<String>>(24)?,
+                row.get::<_, Option<String>>(22)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(23)?,
             ))
         })
         .map_err(|e| e.to_string())?;
@@ -828,7 +823,7 @@ pub(crate) fn list_conversation_messages_with_conn(
     let sql = format!(
         "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
                 m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                m.file_url, m.file_size, m.file_hash, m.image_width, m.image_height,
+                m.file_url, m.file_size, m.image_width, m.image_height,
                 m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
                 m.media_group_id, m.media_group_index, m.media_group_count
          FROM messages m
@@ -914,7 +909,6 @@ mod tests {
                 file_uuid TEXT,
                 file_url TEXT,
                 file_size INTEGER,
-                file_hash TEXT,
                 image_width INTEGER,
                 image_height INTEGER,
                 seq INTEGER NOT NULL,
@@ -1057,7 +1051,6 @@ mod tests {
             file_uuid: None,
             file_url: None,
             file_size: None,
-            file_hash: None,
             image_width: None,
             image_height: None,
             seq: 1,
@@ -1205,7 +1198,7 @@ mod tests {
                 conversation_type TEXT NOT NULL, sender_id TEXT NOT NULL,
                 sender_name TEXT, sender_avatar TEXT,
                 content TEXT NOT NULL, content_type TEXT NOT NULL,
-                file_uuid TEXT, file_url TEXT, file_size INTEGER, file_hash TEXT,
+                file_uuid TEXT, file_url TEXT, file_size INTEGER,
                 image_width INTEGER, image_height INTEGER,
                 seq INTEGER NOT NULL, reply_to TEXT,
                 media_group_id TEXT, media_group_index INTEGER, media_group_count INTEGER,

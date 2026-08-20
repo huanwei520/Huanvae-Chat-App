@@ -486,6 +486,8 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 
 新增的构建步骤在**全量测试之前**：先把发货二进制换成刚构建、刚校验过的产物，门禁才是在真正要发出去的那份字节上跑的。它的动机是两起真实生产故障（发货的 VPN 二进制长期是「手工放进去、来源不明、无人验证」的仓内死文件：macOS 点「修复」恒失败、Windows 连 VPN 上下行包均为 0）——**构建失败绝不用仓里的旧二进制兜底继续发**，构建宿主地址一律经环境变量注入（公开仓内不写任何内网地址）。
 
+🔴 **tag 推上去之后还有一道会红的门（2026-08-19 起）**：`.github/workflows/release.yml` 新增了 `gate` job（`pnpm typecheck` → `pnpm lint:strict` → `pnpm test:run` → `npx playwright test --project=chromium --grep "@gate"`），`build` 与 `build-android` 各 `needs: [gate]`、`generate-manifest` 经它们传递依赖 ⇒ **门红即零产物、零分发**（真跑实测：gate `failure` ⇒ 三个产出/分发 job 全部 skipped、artifacts 数为 0、无新 release；下游 `apt-repo.yml` 也被 `if: …conclusion == 'success'` 挡住）。因此 `release.sh` 的本地全绿**不等于**这个 tag 一定发得出来 —— 推完 tag 必须去看那一次 run 的 gate 结论。门的形状、`@gate` 标记约定、以及「e2e 必须至少有一条读真实请求体的断言」见 [.claude/rules/frontend-test.md「CI 门禁与 e2e 的真断言」](.claude/rules/frontend-test.md)。新增任何会产出或分发的 job 时**同批把 `needs` 接到 `gate`** —— 漏接不会有任何东西报错。
+
 **完整步骤、行号对照、脱敏核命令、坑的成因见 [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md)。** 三条最要命的红线先记住：
 
 1. **一条龙不切开** — 不存在"只跑前半段、后面手动补"。步骤 2 已把三处版本号改脏工作树，中途中断会留下"版本已升、没测没提交"的脏树，下一次发布被 `git add -A` 裹走。

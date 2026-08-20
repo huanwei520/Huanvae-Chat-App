@@ -105,7 +105,6 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     image_width: null,
     image_height: null,
     send_time: '2026-01-01T00:00:00Z',
@@ -155,7 +154,6 @@ describe('MessageBubble (好友) — 撤回状态优先于消息类型分支', (
       is_recalled: true,
       file_uuid: 'f-1',
       file_size: 1234,
-      file_hash: 'h-1',
     });
     render(<MessageBubble message={msg} isOwn={false} session={session} friend={friend} />);
 

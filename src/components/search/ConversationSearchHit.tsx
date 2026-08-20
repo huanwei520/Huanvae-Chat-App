@@ -128,7 +128,7 @@ function MediaHit({
 
   const { src, isLocal, localPath, presignedUrl, openInFolder } = useFileCache({
     fileUuid,
-    fileHash: message.file_hash,
+    // 不传 fileHash：消息面已无该字段（后端接收面不再下发），由 Hook 经 file_uuid 解析
     fileName: message.content,
     fileType: isVideo ? 'video' : 'image',
     // 本地库里群消息的 conversation_type 是 'group'，其余（好友 / bot）走 friend 域
@@ -157,7 +157,6 @@ function MediaHit({
         fileUuid,
         filename: message.content,
         fileSize: message.file_size ?? undefined,
-        fileHash: message.file_hash,
         urlType,
         localPath,
         // 递原始 presigned URL（不是反代 src）：跨窗字符串不烘回环端口，预览窗下载也要它
@@ -166,7 +165,7 @@ function MediaHit({
       { serverUrl: session.serverUrl, accessToken: session.accessToken },
     );
   }, [
-    src, session, isVideo, fileUuid, message.content, message.file_size, message.file_hash,
+    src, session, isVideo, fileUuid, message.content, message.file_size,
     urlType, localPath, isLocal, presignedUrl,
   ]);
 
@@ -179,13 +178,14 @@ function MediaHit({
     // 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
     // 详见 chat/shared/VideoThumbnail.tsx。递**裸** src —— 片段由组件内部追。
     // decorative：格子自己已带 aria-label（「视频 {文件名}」），读屏不必再念一遍。
-    // fileHash 是本地封面缓存的键：递的是与聊天气泡（chat/shared/FileMessageContent.tsx）
-    // **同一个** message.file_hash ⇒ 两处命中同一个封面文件、就是同一帧；也正是靠它，
+    // fileUuid 是本地封面缓存的键（两层键：后端接收面已不再下发 file_hash，而封面要在
+    // 下载**之前**就出得来）：递的是与聊天气泡（chat/shared/FileMessageContent.tsx）
+    // **同一个** file_uuid ⇒ 两处命中同一个封面文件、就是同一帧；也正是靠它，
     // 这里从「先黑再显示」变成「重开就立刻有画面」。
     media = (
       <VideoThumbnail
         src={src}
-        fileHash={message.file_hash}
+        fileUuid={fileUuid}
         className={mediaClass}
         decorative
       />

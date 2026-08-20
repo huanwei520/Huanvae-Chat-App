@@ -16,12 +16,14 @@
 //! | 环节 | 图片（既有） | 封面（本模块） |
 //! |------|-------------|---------------|
 //! | 落盘根 | `data/{user}_{server}/file/pictures/` | `…/file/posters/`（同一个缓存根的平级目录） |
-//! | 索引 | `file_mappings` 表（`file_hash -> local_path`） | `video_posters` 表（`file_hash -> local_path`） |
+//! | 索引 | `file_mappings` 表（`file_hash -> local_path`，**未改**） | `video_posters` 表（`file_key -> local_path`） |
 //! | 读取 | `download::get_cached_file_path`：查库 → `stat` 实际文件 → 不在就删映射返 `None` | `get_video_poster_path`：同款三步 |
 //! | 显示 | `convertFileSrc(local_path)`（asset 协议） | 同一个 `localPathToDisplaySrc`（`src/services/assetUrl.ts`） |
 //! | 登出清理 | `clear_all_data` DELETE | 同批 DELETE |
 //!
-//! 键为什么是 `file_hash` 而不是显示 URL：见 `db::video_posters` 模块头。
+//! 键（`file_key`）是什么、2026-08-16 为什么从内容哈希改成「文件身份键」：
+//! 见 `db::video_posters` 模块头。一句话：封面要在**下载之前**就出得来，
+//! 而内容哈希只有下载完才算得出，所以消息面必须用 `file_uuid` 当键。
 
 use crate::db;
 use crate::user_data;
@@ -33,22 +35,23 @@ const POSTER_EXTENSION: &str = "jpg";
 /// 这个上限只用来挡住"显然不是缩略图"的输入，不是调优参数）。
 const MAX_POSTER_BYTES: usize = 4 * 1024 * 1024;
 
-/// 由 `file_hash` 推出封面文件名；`file_hash` 不是纯 `[0-9A-Za-z_-]` 时返回 `None`。
+/// 由 `file_key` 推出封面文件名；`file_key` 不是纯 `[0-9A-Za-z_-]` 时返回 `None`。
 ///
-/// 🔴 这个校验不是装饰：`file_hash` 来自本地消息行（其值最终源自服务端下发），
-/// 直接 `join` 进目录就是**路径穿越**（`../../…`）。哈希本来就只可能是这几类字符，
-/// 所以这里用**白名单拒绝**而不是替换 —— 替换会把两个不同的输入折叠成同一个文件名。
-pub fn poster_file_name(file_hash: &str) -> Option<String> {
-    if file_hash.is_empty() || file_hash.len() > 128 {
+/// 🔴 这个校验不是装饰：`file_key` 来自本地消息行（其值最终源自服务端下发），
+/// 直接 `join` 进目录就是**路径穿越**（`../../…`）。两种合法形态（64 位十六进制哈希、
+/// 带连字符的 `file_uuid`）本来就只可能是这几类字符，所以这里用**白名单拒绝**而不是替换
+/// —— 替换会把两个不同的输入折叠成同一个文件名。
+pub fn poster_file_name(file_key: &str) -> Option<String> {
+    if file_key.is_empty() || file_key.len() > 128 {
         return None;
     }
-    if !file_hash
+    if !file_key
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return None;
     }
-    Some(format!("{}.{}", file_hash, POSTER_EXTENSION))
+    Some(format!("{}.{}", file_key, POSTER_EXTENSION))
 }
 
 /// 获取视频封面的本地路径（本地优先加载的读侧）
@@ -58,13 +61,13 @@ pub fn poster_file_name(file_hash: &str) -> Option<String> {
 /// 2. `stat` 实际文件（用户手动清过缓存目录 / 换过机器时，库里那行是陈的）
 /// 3. 文件不在 → 删掉该行并返回 `None`，让前端重新截一次
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_video_poster_path(file_hash: String) -> Result<Option<String>, String> {
-    match db::get_video_poster(&file_hash) {
+pub fn get_video_poster_path(file_key: String) -> Result<Option<String>, String> {
+    match db::get_video_poster(&file_key) {
         Ok(Some(path)) => {
             if std::path::Path::new(&path).exists() {
                 return Ok(Some(path));
             }
-            let _ = db::delete_video_poster(&file_hash);
+            let _ = db::delete_video_poster(&file_key);
             Ok(None)
         }
         Ok(None) => Ok(None),
@@ -83,14 +86,14 @@ pub fn get_video_poster_path(file_hash: String) -> Result<Option<String>, String
 /// 文件删除失败**不当作错误**（可能已被用户手工清掉）；真正要保证的是**索引一定被删掉** ——
 /// 索引还在而文件没了，`get_video_poster_path` 那一步也会把它清掉，两条路径收敛到同一结果。
 #[tauri::command(rename_all = "camelCase")]
-pub fn invalidate_video_poster(file_hash: String) -> Result<(), String> {
-    if let Ok(Some(path)) = db::get_video_poster(&file_hash)
+pub fn invalidate_video_poster(file_key: String) -> Result<(), String> {
+    if let Ok(Some(path)) = db::get_video_poster(&file_key)
         && let Err(e) = std::fs::remove_file(&path)
     {
         println!("[VideoPoster] 删除黑帧封面文件失败（继续删索引）: {} ({})", path, e);
     }
-    db::delete_video_poster(&file_hash)?;
-    println!("[VideoPoster] 已作废封面（黑帧自愈）: {}", file_hash);
+    db::delete_video_poster(&file_key)?;
+    println!("[VideoPoster] 已作废封面（黑帧自愈）: {}", file_key);
     Ok(())
 }
 
@@ -99,9 +102,9 @@ pub fn invalidate_video_poster(file_hash: String) -> Result<(), String> {
 /// `bytes` 是前端 `canvas.toBlob('image/jpeg')` 的原始字节。走 `Vec<u8>` 而不是 base64
 /// data URL：少一次 33% 膨胀 + 少一层解码，也不必为此给移动端引入 base64 依赖。
 #[tauri::command(rename_all = "camelCase")]
-pub fn save_video_poster(file_hash: String, bytes: Vec<u8>) -> Result<String, String> {
-    let file_name = poster_file_name(&file_hash)
-        .ok_or_else(|| format!("非法的 file_hash，拒绝落盘: {}", file_hash))?;
+pub fn save_video_poster(file_key: String, bytes: Vec<u8>) -> Result<String, String> {
+    let file_name = poster_file_name(&file_key)
+        .ok_or_else(|| format!("非法的 file_key，拒绝落盘: {}", file_key))?;
 
     if bytes.is_empty() {
         return Err("封面数据为空".to_string());
@@ -119,7 +122,7 @@ pub fn save_video_poster(file_hash: String, bytes: Vec<u8>) -> Result<String, St
     std::fs::write(&path, &bytes).map_err(|e| format!("写入封面失败: {}", e))?;
 
     let path_str = path.to_string_lossy().to_string();
-    db::save_video_poster(&file_hash, &path_str)?;
+    db::save_video_poster(&file_key, &path_str)?;
 
     println!(
         "[VideoPoster] 已保存封面: {} ({} 字节)",
@@ -144,6 +147,9 @@ mod tests {
         assert_eq!(poster_file_name(&sha), Some(format!("{}.jpg", sha)));
         // 允许的另外两个字符
         assert_eq!(poster_file_name("A_b-9"), Some("A_b-9.jpg".to_string()));
+        // 另一种真实形态（2026-08-16 起消息面用的就是它）：带连字符的 file_uuid
+        let uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+        assert_eq!(poster_file_name(uuid), Some(format!("{}.jpg", uuid)));
     }
 
     #[test]

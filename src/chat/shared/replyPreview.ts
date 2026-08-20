@@ -17,6 +17,9 @@
  * 并按「结构最小形状」泛化：群消息与私聊消息都满足 ReplyableMessage 即可复用同一套逻辑。
  */
 
+// 同为纯模块（groupCard.ts 只 import 一个 type），不破坏本文件「零 React / 零 Tauri」的约束
+import { GROUP_CARD_PREVIEW_TEXT } from './groupCard';
+
 /** 引用摘要最大字符数（超出截断加省略号） */
 export const REPLY_PREVIEW_MAX_LEN = 60;
 
@@ -95,6 +98,9 @@ export function summarizeMessageForReply(message: ReplyableMessage): string {
       return '[会议邀请]';
     case 'card':
       return '[卡片]';
+    case 'group_card':
+      // default 分支会把 message_content 截断后原样显示 = 引用块里出现裸 JSON
+      return GROUP_CARD_PREVIEW_TEXT;
     default:
       return truncateReplyText(message.message_content) || REPLY_EMPTY_TEXT;
   }

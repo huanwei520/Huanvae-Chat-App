@@ -14,9 +14,10 @@
  * - `capture`：本地没有 ⇒ 照旧渲染 `<video>`（用户马上有画面），同时在**离屏**元素上截一帧
  *   落盘；落盘成功后本 Hook 自动切到 `poster`，下次挂载起就走本地。
  *
- * ## 没有 fileHash 时同步退化成 `capture`
+ * ## 没有 posterKey 时同步退化成 `capture`
  *
- * 封面的键是 `file_hash`（理由见 services/videoPoster.ts 模块头）。调用方拿不到它时
+ * 封面的键是**文件身份键**（消息面 = `file_uuid`，个人文件面 = 服务端下发的 `file_hash`；
+ * 2026-08-16 两层键起，理由见 services/videoPoster.ts 模块头）。调用方拿不到它时
  * （历史脏数据，或还没接线的消费点）本 Hook **同步**给出 `capture` —— 行为与本功能落地前
  * 逐字节相同，不会多一帧空白。
  */
@@ -32,35 +33,35 @@ export interface VideoPosterState {
   posterSrc: string | null;
 }
 
-/** 无 fileHash ⇒ 没有键可查，直接进 capture（= 落地前的行为） */
-function initialState(fileHash: string | null | undefined): VideoPosterState {
-  return fileHash
+/** 无 posterKey ⇒ 没有键可查，直接进 capture（= 落地前的行为） */
+function initialState(posterKey: string | null | undefined): VideoPosterState {
+  return posterKey
     ? { status: 'pending', posterSrc: null }
     : { status: 'capture', posterSrc: null };
 }
 
 /**
- * @param fileHash 视频的稳定身份（封面的键）；缺失时本 Hook 恒为 `capture`
+ * @param posterKey 视频的稳定身份（封面的键）；缺失时本 Hook 恒为 `capture`
  * @param src      已经过取源收口点解析的**裸**可显示视频 src（截帧用）
  */
 export function useVideoPoster(
-  fileHash: string | null | undefined,
+  posterKey: string | null | undefined,
   src: string,
 ): VideoPosterState {
-  const [state, setState] = useState<VideoPosterState>(() => initialState(fileHash));
+  const [state, setState] = useState<VideoPosterState>(() => initialState(posterKey));
 
-  // fileHash 变了（列表项复用同一个组件实例）要重新解析，否则会把上一条视频的封面留在屏上
+  // posterKey 变了（列表项复用同一个组件实例）要重新解析，否则会把上一条视频的封面留在屏上
   useEffect(() => {
-    setState(initialState(fileHash));
-  }, [fileHash]);
+    setState(initialState(posterKey));
+  }, [posterKey]);
 
   // 第一步：问本地有没有存过
   useEffect(() => {
-    if (!fileHash) {
+    if (!posterKey) {
       return undefined;
     }
     let cancelled = false;
-    loadVideoPosterSrc(fileHash).then((posterSrc) => {
+    loadVideoPosterSrc(posterKey).then((posterSrc) => {
       if (cancelled) {
         return;
       }
@@ -69,15 +70,15 @@ export function useVideoPoster(
     return () => {
       cancelled = true;
     };
-  }, [fileHash]);
+  }, [posterKey]);
 
   // 第二步：本地没有就截一帧存下来（截好后本组件立刻切到 <img>，无需等下次挂载）
   useEffect(() => {
-    if (state.status !== 'capture' || !fileHash || !src) {
+    if (state.status !== 'capture' || !posterKey || !src) {
       return undefined;
     }
     let cancelled = false;
-    captureAndSaveVideoPoster(fileHash, src).then((posterSrc) => {
+    captureAndSaveVideoPoster(posterKey, src).then((posterSrc) => {
       if (!cancelled && posterSrc) {
         setState({ status: 'poster', posterSrc });
       }
@@ -85,7 +86,7 @@ export function useVideoPoster(
     return () => {
       cancelled = true;
     };
-  }, [state.status, fileHash, src]);
+  }, [state.status, posterKey, src]);
 
   return state;
 }

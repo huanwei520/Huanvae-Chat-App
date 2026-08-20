@@ -1,0 +1,63 @@
+/**
+ * 转发内容预览条（A 版 ① 号批注）
+ *
+ * 只管预览条本身；卡片骨架 / 列表 / chip / 底部在 components/share/ShareTargetPicker.css。
+ * 本文件里的元素**没有** JS 逐帧动画，可自由声明 transition。
+ */
+
+.forward-preview {
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  background: var(--primary-subtle);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
+}
+
+.forward-preview-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  display: inline-block;
+}
+
+.forward-preview-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.forward-preview-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.forward-preview-meta b {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.forward-preview-count {
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.forward-preview-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}

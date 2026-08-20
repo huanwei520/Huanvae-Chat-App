@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { parseFriendIdFromConversationId } from '../utils/conversationId';
+import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
 import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
@@ -59,6 +60,8 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   video: '[视频]',
   file: '[文件]',
   meeting_invite: '[会议邀请]',
+  // 缺这条 ⇒ toPreviewText 回落到 content 原文 = 会话列表里显示裸 JSON
+  group_card: GROUP_CARD_PREVIEW_TEXT,
 };
 
 /** 将 content_type + content 转为用户可读的预览文本 */

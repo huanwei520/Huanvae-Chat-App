@@ -1,0 +1,106 @@
+/**
+ * 群名片消息卡片样式
+ *
+ * 与 MeetingInviteCard 同族：独立白底卡片、不是气泡（气泡区的时间戳因此留在卡片下方一行，
+ * 见 MessageBubble / GroupMessageBubble 的 metaBelowBubble）。
+ *
+ * 动画所有权：本卡片**不由 JS 逐帧接管任何属性**（无 motion / 无 GSAP），
+ * 所以这里的 transition 只是普通 CSS 悬停反馈，不构成 .claude/rules/animation.md 规则一的双主人。
+ * 若将来给它加了 motion 包裹，必须回来把 background 之外的属性从 transition 里摘掉，
+ * 并把选择器登记进 tests/animation-conflict.test.ts。
+ */
+
+.group-card {
+  display: block;
+  width: 260px;
+  padding: 0;
+  text-align: left;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: background 0.2s ease;
+}
+
+.group-card:hover {
+  background: var(--bg-tertiary);
+}
+
+/* 失效态：置灰、不可点（渲染成 div，本就没有 hover / 焦点） */
+.group-card--invalid {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.group-card-head {
+  padding: 10px 14px 0;
+}
+
+.group-card-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.group-card-face {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 12px;
+  min-width: 0;
+}
+
+.group-card-face--muted .group-card-name {
+  color: var(--text-muted);
+}
+
+.group-card-avatar {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.group-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.group-card-textcol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.group-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card-foot {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-default);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}

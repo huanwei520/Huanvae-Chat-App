@@ -40,6 +40,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
+import { getFileHashByUuid } from '../db';
 import { localPathToDisplaySrc } from './assetUrl';
 import { directIpUrl } from './discovery';
 import type { ApiClient } from '../api/client';
@@ -57,9 +58,9 @@ import { isMobile, isMacOS } from '../utils/platform';
 // 类型定义
 // ============================================
 
-/** 下载进度事件 */
+/** 下载进度事件（`cacheKey` 与 Rust `DownloadProgress.cache_key` 同一把键） */
 interface DownloadProgressEvent {
-  fileHash: string;
+  cacheKey: string;
   downloaded: number;
   total: number;
   percent: number;
@@ -72,7 +73,7 @@ interface DownloadProgressEvent {
 
 /** 下载完成事件（跨窗口通知） */
 export interface FileDownloadCompletedEvent {
-  fileHash: string;
+  cacheKey: string;
   localPath: string;
   fileName: string;
   fileType: 'image' | 'video' | 'document';
@@ -110,11 +111,49 @@ export interface FileSourceResult {
 // ============================================
 
 /**
- * 获取已缓存文件的本地路径
+ * 获取已缓存文件的本地路径（键是**内容哈希**，`file_mappings` 表未改）
  */
 export async function getCachedFilePath(fileHash: string): Promise<string | null> {
   try {
     return await invoke<string | null>('get_cached_file_path', { fileHash });
+  } catch {
+    return null;
+  }
+}
+
+// ============================================
+// 两层键（2026-08-16 起）
+// ============================================
+
+/**
+ * 文件身份键 —— **下载任务 / 进度事件 / 封面**的键，不是内容哈希。
+ *
+ * | 来源 | 键 | 为什么 |
+ * |------|----|--------|
+ * | 消息面（气泡 / 相册 / 查找命中 / 独立预览窗） | `file_uuid` | 后端接收面已**不再下发** `file_hash`，下载前只有它 |
+ * | 个人文件面（`GET /api/storage/files`） | 服务端下发的 `file_hash` | 该端点未改，哈希一直有 |
+ *
+ * 两个键空间不相交（uuid 带连字符 / 哈希是 64 位十六进制），同一张任务表里混用不会互相误命中。
+ */
+export function fileIdentityKey(fileUuid: string, knownHash?: string | null): string {
+  return knownHash || fileUuid;
+}
+
+/**
+ * 解析**内容哈希**（`file_mappings` / `get_local_video_url` 的键）。
+ *
+ * - 个人文件面：服务端已经给了，直接用；
+ * - 消息面：查本地 `file_uuid_hash`（该行由**下载完成时**的 Rust 侧自算哈希写入）。
+ *   本机没下载过 ⇒ 返回 `null` ⇒ 调用方走远程取件，这是正常路径。
+ */
+export async function resolveContentHash(
+  fileUuid: string,
+  knownHash?: string | null,
+): Promise<string | null> {
+  if (knownHash) { return knownHash; }
+  if (!fileUuid) { return null; }
+  try {
+    return await getFileHashByUuid(fileUuid);
   } catch {
     return null;
   }
@@ -138,7 +177,7 @@ export function isFileNotFoundError(err: unknown): boolean {
  */
 export function downloadAndSaveFile(
   url: string,
-  fileHash: string,
+  cacheKey: string,
   fileName: string,
   fileType: 'image' | 'video' | 'document',
   fileSize?: number,
@@ -152,7 +191,8 @@ export function downloadAndSaveFile(
     // 改写主机为源站 IP(IP 字面量=不发 SNI 绕 ICP);Rust 用 secure_net 钉 CA 客户端连、内置 CA 验
     url: directIpUrl(url),
     host,
-    fileHash,
+    // 下载任务的键（不是内容哈希）：内容哈希由 Rust 在下载完成后自算，见 fileIdentityKey
+    cacheKey,
     fileName,
     fileType,
     fileSize: fileSize ?? null,
@@ -275,15 +315,17 @@ export async function getPresignedUrl(
  * 3. 返回可用的 src
  *
  * @param api - API 客户端
- * @param fileUuid - 文件 UUID
- * @param fileHash - 文件哈希（用于本地缓存查找）
+ * @param fileUuid - 文件 UUID（**快路径的键**：消息面下载前唯一已知的身份）
+ * @param knownHash - **已知**的内容哈希：个人文件面（`GET /api/storage/files`）有；
+ *                    消息面没有（后端接收面已不再下发）⇒ 传 `null`，由本函数经
+ *                    `file_uuid_hash` 解析
  * @param urlType - URL 类型（用于选择正确的预签名端点）
  * @param options - 额外选项（用于错误上报）
  */
 export async function getFileSource(
   api: ApiClient,
   fileUuid: string,
-  fileHash: string | null | undefined,
+  knownHash: string | null | undefined,
   urlType: 'user' | 'friend' | 'group' = 'user',
   options?: {
     /** 好友 ID（用于错误上报） */
@@ -292,8 +334,9 @@ export async function getFileSource(
     fileType?: 'image' | 'video' | 'document';
   },
 ): Promise<FileSourceResult> {
-  // 1. 如果有 fileHash，检查数据库缓存
+  // 1. 解析内容哈希后检查数据库缓存（两层键的第一跳：uuid -> hash -> file_mappings）
   // 后端 get_cached_file_path 会验证文件存在性，无效则返回 null
+  const fileHash = await resolveContentHash(fileUuid, knownHash);
   if (fileHash) {
     const localPath = await getCachedFilePath(fileHash);
     if (localPath) {
@@ -348,21 +391,23 @@ async function getLocalVideoUrl(fileHash: string): Promise<string | null> {
  * 解决方案：使用 Rust 端本地 HTTP 服务器提供视频文件
  *
  * @param api - API 客户端
- * @param fileUuid - 文件 UUID
- * @param fileHash - 文件哈希（用于缓存查找）
+ * @param fileUuid - 文件 UUID（**快路径的键**）
+ * @param knownHash - **已知**的内容哈希：个人文件面有，消息面没有（传 `null` 由本函数解析）
  * @param urlType - URL 类型
  * @param options - 额外选项
  */
 export async function getVideoSource(
   api: ApiClient,
   fileUuid: string,
-  fileHash: string | null | undefined,
+  knownHash: string | null | undefined,
   urlType: 'user' | 'friend' | 'group' = 'user',
   options?: {
     friendId?: string;
     fileType?: 'image' | 'video' | 'document';
   },
 ): Promise<FileSourceResult> {
+  // 本地媒体服务器与 file_mappings 一样按内容哈希索引 ⇒ 先做 uuid -> hash 那一跳
+  const fileHash = await resolveContentHash(fileUuid, knownHash);
   // 1. 移动端 / macOS：优先尝试本地 HTTP 服务器（见 getLocalVideoUrl 注释）
   if ((isMobile() || isMacOS()) && fileHash) {
     const localVideoUrl = await getLocalVideoUrl(fileHash);
@@ -396,10 +441,13 @@ export async function getVideoSource(
  *
  * 将远程文件下载并保存到本地缓存目录：
  * data/{用户名}_{服务器}/file/{pictures|videos|documents}/
+ *
+ * `cacheKey` 是**文件身份键**（见 `fileIdentityKey`），不是内容哈希 —— 消息面开下载这一刻
+ * 内容哈希还不存在，它由 Rust 在下载完成后自算并落 `file_mappings` / `file_uuid_hash`。
  */
 export async function triggerBackgroundDownload(
   presignedUrl: string,
-  fileHash: string,
+  cacheKey: string,
   fileName: string,
   fileType: 'image' | 'video' | 'document',
   fileSize?: number,
@@ -408,29 +456,31 @@ export async function triggerBackgroundDownload(
 
   // eslint-disable-next-line no-console
   console.log('%c[FileCache] triggerBackgroundDownload 被调用', 'color: #9C27B0; font-weight: bold', {
-    fileHash,
+    cacheKey,
     fileName,
     fileType,
     fileSize,
   });
 
   // 检查是否已在下载
-  const existingTask = store.downloadTasks[fileHash];
+  const existingTask = store.downloadTasks[cacheKey];
   if (existingTask && existingTask.status !== 'failed') {
     // eslint-disable-next-line no-console
     console.log('[FileCache] 跳过：任务已存在', { status: existingTask.status });
     return; // 已在下载中或已完成
   }
 
-  // 检查本地是否已有缓存（避免 HMR 后重复触发）
+  // 检查本地是否已有缓存（避免 HMR 后重复触发）。
+  // 先做 uuid -> hash 那一跳；解析不到就没有本地缓存可查（本机从没下过这个 uuid）。
   try {
-    const cachedPath = await getCachedFilePath(fileHash);
+    const contentHash = await resolveContentHash(cacheKey, null);
+    const cachedPath = contentHash ? await getCachedFilePath(contentHash) : null;
     if (cachedPath) {
       // eslint-disable-next-line no-console
       console.log('[FileCache] 跳过：本地已有缓存', { cachedPath });
       // 直接标记为完成
-      store.addDownloadTask({ fileHash, fileName, fileType, total: fileSize ?? 0 });
-      store.completeDownload(fileHash, cachedPath);
+      store.addDownloadTask({ cacheKey, fileName, fileType, total: fileSize ?? 0 });
+      store.completeDownload(cacheKey, cachedPath);
       return;
     }
   } catch {
@@ -439,7 +489,7 @@ export async function triggerBackgroundDownload(
 
   // 添加下载任务
   store.addDownloadTask({
-    fileHash,
+    cacheKey,
     fileName,
     fileType,
     total: fileSize ?? 0,
@@ -451,12 +501,12 @@ export async function triggerBackgroundDownload(
 
     const localPath = await downloadAndSaveFile(
       presignedUrl,
-      fileHash,
+      cacheKey,
       fileName,
       fileType,
       fileSize,
     );
-    store.completeDownload(fileHash, localPath);
+    store.completeDownload(cacheKey, localPath);
 
     // eslint-disable-next-line no-console
     console.log('%c[FileCache] 后台下载完成', 'color: #4CAF50; font-weight: bold', {
@@ -466,13 +516,13 @@ export async function triggerBackgroundDownload(
 
     // 发送跨窗口事件，通知所有窗口（包括独立媒体窗口）
     emit('file-download-completed', {
-      fileHash,
+      cacheKey,
       localPath,
       fileName,
       fileType,
     } as FileDownloadCompletedEvent);
   } catch (error) {
-    store.failDownload(fileHash, String(error));
+    store.failDownload(cacheKey, String(error));
     console.error('[FileCache] 后台下载失败:', error);
   }
 }
@@ -490,24 +540,24 @@ export async function startProgressListener(): Promise<void> {
   if (unlistenProgress) { return; }
 
   unlistenProgress = await listen<DownloadProgressEvent>('download-progress', (event) => {
-    const { fileHash, downloaded, total, percent, status, localPath, error } = event.payload;
+    const { cacheKey, downloaded, total, percent, status, localPath, error } = event.payload;
     const store = useFileCacheStore.getState();
-    // 仅当 store 已注册过该 hash 的任务时才处理状态变更，避免误为不相关的 hash 创建空任务
-    const existingTask = store.downloadTasks[fileHash];
+    // 仅当 store 已注册过该键的任务时才处理状态变更，避免误为不相关的键创建空任务
+    const existingTask = store.downloadTasks[cacheKey];
 
     if (status === 'downloading') {
       if (existingTask) {
-        store.updateDownloadProgress(fileHash, downloaded, total, percent);
+        store.updateDownloadProgress(cacheKey, downloaded, total, percent);
       }
     } else if (status === 'completed') {
       // 由 Rust 事件直接驱动状态机，不再依赖 triggerBackgroundDownload 的 await 回调
       // —— 解决 HMR / fire-and-forget / 跨窗口下载导致进度环卡 100% 的问题
       if (existingTask && localPath) {
-        store.completeDownload(fileHash, localPath);
+        store.completeDownload(cacheKey, localPath);
       }
     } else if (status === 'failed') {
       if (existingTask) {
-        store.failDownload(fileHash, error ?? '下载失败');
+        store.failDownload(cacheKey, error ?? '下载失败');
       }
     }
   });

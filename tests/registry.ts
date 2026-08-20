@@ -212,6 +212,7 @@ export const MODAL_COMPONENTS: ComponentEntry[] = [
   { name: 'AddMenu', path: 'components/unified/AddMenu', category: 'components', description: '会话列表"+"轻量下拉（创建群/创建bot/待通过申请）' },
   { name: 'PendingRequestsPanel', path: 'components/unified/PendingRequestsPanel', category: 'components', description: '待通过申请面板（收到需处理 + 我发出的仅展示，无撤回）' },
   { name: 'CreateBotDialog', path: 'components/bots/CreateBotDialog', category: 'components', description: '创建机器人表单（共享；bot 后缀校验 + 推荐 chip）' },
+  { name: 'ShareTargetPicker', path: 'components/share/ShareTargetPicker', category: 'components', description: '分享目标选择器（A 版快捷卡：最近/好友/群组合并成一条列表 + 已选 chip；内容预览为 slot、发送由调用方注入，转发消息/会议邀请/群名片共用）' },
 ];
 
 // ============== 聊天组件 ==============
@@ -225,6 +226,12 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'FilePreviewModal', path: 'chat/shared/FilePreviewModal', category: 'chat', description: '文件预览模态框' },
   { name: 'DocumentDownloadAction', path: 'chat/shared/DocumentDownloadAction', category: 'chat', description: '文档下载/打开操作共享组件（聊天 + 我的文件复用）' },
   { name: 'MessageContextMenu', path: 'chat/shared/MessageContextMenu', category: 'chat', description: '消息右键菜单' },
+  { name: 'ForwardMessageModal', path: 'chat/shared/ForwardMessageModal', category: 'chat', description: '转发消息面板（A 版快捷卡：顶部转发内容预览 + 通用 ShareTargetPicker；不提供附言、不区分合并/逐条）' },
+  { name: 'forwardMessage', path: 'chat/shared/forwardMessage', category: 'chat', description: '转发语义边界纯函数（可转发判定 / 内容摘要 / 私聊与群请求体构造：复用 file_uuid、不带 reply_to、丢弃媒体组三件套）' },
+  { name: 'groupCard', path: 'chat/shared/groupCard', category: 'chat', description: '群名片（group_card）内容编解码纯函数（封闭 schema：只许 group_id 一个键；发送三态错误文案）' },
+  { name: 'messagePreviewText', path: 'chat/shared/messagePreviewText', category: 'chat', description: '会话预览文案映射纯函数（离线同步 + 撤回/删除后刷新共用一份表；未知类型绝不回落 content 原文，防 meeting_invite 的 password 印到会话列表上）' },
+  { name: 'GroupCardMessage', path: 'chat/shared/GroupCardMessage', category: 'chat', description: '群名片消息气泡（凭 group_id 现拉 /public 渲染群名/头像/人数；404 与解析失败走失效态；点击进群详情面板）' },
+  { name: 'ShareGroupCardModal', path: 'chat/shared/ShareGroupCardModal', category: 'chat', description: '分享群名片面板（复用 ShareTargetPicker 选人；好友走 sendMessage、群走 sendGroupMessage；400/403/404 三态文案）' },
   { name: 'ReadReceiptIcons', path: 'chat/shared/ReadReceiptIcons', category: 'chat', description: '已读回执 SVG 图标基元（时钟/双勾/失败）' },
   { name: 'PrivateReadReceipt', path: 'chat/shared/PrivateReadReceipt', category: 'chat', description: '私聊已读回执（仅自己消息：时钟/红叹号/绿双勾；未读不渲染）' },
   { name: 'readReceiptGate', path: 'chat/shared/readReceiptGate', category: 'chat', description: '已读标记门控纯函数（只挂我发出的最新一条，私聊+群聊共用锚点）' },
@@ -277,8 +284,8 @@ export const CHAT_COMPONENTS: ComponentEntry[] = [
   { name: 'EditNameForm', path: 'chat/shared/menu/EditNameForm', category: 'chat', description: '编辑名称表单' },
   { name: 'EditNicknameForm', path: 'chat/shared/menu/EditNicknameForm', category: 'chat', description: '编辑昵称表单' },
   { name: 'EditRemarkForm', path: 'chat/shared/menu/EditRemarkForm', category: 'chat', description: '设置好友备注表单（仅自己可见）' },
-  { name: 'InviteCodeManager', path: 'chat/shared/menu/InviteCodeManager', category: 'chat', description: '邀请码管理' },
-  { name: 'InviteForm', path: 'chat/shared/menu/InviteForm', category: 'chat', description: '邀请表单' },
+  { name: 'InviteForm', path: 'chat/shared/menu/InviteForm', category: 'chat', description: '邀请成员表单（附言 + 复用 ShareTargetPicker 只选好友）' },
+  { name: 'JoinPolicyForm', path: 'chat/shared/menu/JoinPolicyForm', category: 'chat', description: '入群与可见性设置（仅群主；两开关 + 三档 scope，只发被改的键、不做乐观更新）' },
   { name: 'MainMenu', path: 'chat/shared/menu/MainMenu', category: 'chat', description: '主菜单' },
   { name: 'MemberActions', path: 'chat/shared/menu/MemberActions', category: 'chat', description: '成员操作' },
   { name: 'MemberGrid', path: 'chat/shared/menu/MemberGrid', category: 'chat', description: '群成员头像网格（侧边面板第一组，微信式；折叠 10 个 + 查看更多）' },
@@ -337,6 +344,7 @@ export const HOOKS: ComponentEntry[] = [
   { name: 'useVideoPoster', path: 'chat/shared/useVideoPoster', category: 'hooks', description: '视频封面解析状态机（pending/poster/capture 三态；VideoThumbnail 的内部 Hook，本地已存封面就渲染 <img> 不建 <video>）' },
   { name: 'useComposerTrayOutbox', path: 'chat/shared/useComposerTrayOutbox', category: 'hooks', description: '待发区发送编排（四格矩阵定形 → 全量乐观插入 → 串行逐项上传 → 逐项落库；单项失败只重试那一项，形态发送前定死不再改）' },
   { name: 'useSendingOutboxMerge', path: 'chat/shared/useSendingOutboxMerge', category: 'hooks', description: '在途媒体并进消息列表（乐观条目排最前 + 真 uuid 到位后收口，同一 uuid 只渲染一条；私聊/群共用同一合并口径）' },
+  { name: 'useBatchForward', path: 'chat/shared/useBatchForward', category: 'hooks', description: '多选批量转发的状态与取数（桌面 ChatPanel 与移动 MobileChatView 共用：谁是发送者 / 哪些能转 / 按发送时间升序）' },
 ];
 
 // ============== 服务 ==============
@@ -363,8 +371,12 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'replyPreview', path: 'chat/shared/replyPreview', category: 'services', description: '消息回复引用纯逻辑（摘要压行 + uuid→预览索引 + reply_to 解析，含未加载占位；群聊+私聊共用）' },
   { name: 'AlbumMessage', path: 'chat/shared/AlbumMessage', category: 'chat', description: '相册（媒体组）气泡内容：Telegram 风格网格 + 整组配文在网格下方；格高按 aspect-ratio 预留、缺口按 expectedCount 占位（跨分页不重排）；每格复用 FileMessageContent 以免新增显示点' },
   { name: 'MediaBubbleFrame', path: 'chat/shared/MediaBubbleFrame', category: 'chat', description: '媒体 + 配文的同一个大气泡（Telegram 式 media + caption）：相册 / 单图 / 单视频共用一层渲染包裹，媒体贴气泡上沿、配文在下方有内边距；无配文时一个节点都不产生；配文判定单一收口 resolveMediaCaption（带「[图片] 文件名」前缀 = 无配文）；形态由 media 声明——single 多出一层 .media-bubble-media 媒体带（撑满气泡宽、图居中、余下补黑），album 原样放网格' },
+  { name: 'MediaGalleryProvider', path: 'chat/shared/MediaGalleryProvider', category: 'chat', description: '会话媒体序列上下文 + 全屏预览宿主：整条会话共用一个浮层（原先每条消息各挂一个，于是「切到上一张」在结构上不可达），序列在打开那一刻快照、不随新消息漂移' },
   { name: 'AlbumComposer', path: 'chat/shared/AlbumComposer', category: 'chat', description: '相册合成面板（Telegram 风格）：多选后缩略图横排 + 可逐张剔除 + 整组配文，确认后交给串行上传；超过上限显式提示不静默截断；桌面/移动共用同一组件' },
   { name: 'albumSend', path: 'chat/shared/albumSend', category: 'services', description: '相册发送编排纯逻辑（位次分配 + 配文只挂 index=0 + 串行上传 + 传一半失败即停并如实上报）' },
+  { name: 'mediaGallery', path: 'chat/shared/mediaGallery', category: 'services', description: '会话媒体序列纯逻辑（把渲染节点摊平成图片+视频的升序序列，相册内按 media_group_index；撤回/无 file_uuid/非媒体不入列；边界到头即 null，不循环）—— 全屏预览左右切上一张/下一张的数据面' },
+  { name: 'mediaSwipe', path: 'chat/shared/mediaSwipe', category: 'services', description: '横向切图手势判定纯逻辑（放大态与双指一律让给缩放层；方向/阈值/边界阻尼回弹）' },
+  { name: 'mediaZoomState', path: 'chat/shared/mediaZoomState', category: 'services', description: '全屏预览放大态的单一真值源：缩放层写（useImageZoom）、横向切图层读，两层手势的唯一交界' },
   { name: 'mediaGroup', path: 'chat/shared/mediaGroup', category: 'services', description: '媒体组（相册）聚合纯逻辑（N 条独立消息按 media_group_id 折叠成一个渲染节点，index 升序、保留 expectedCount 供跨分页占位、caption 只认 index=0；群聊+私聊共用）' },
   { name: 'conversationKey', path: 'chat/shared/conversationKey', category: 'services', description: '会话身份 key 纯逻辑（草稿与回复草稿的归属校验共用同一口径，key 格式单一真值源）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },

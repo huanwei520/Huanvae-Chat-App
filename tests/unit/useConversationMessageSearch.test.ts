@@ -42,7 +42,6 @@ const buildMessage = (uuid: string, contentType = 'text', content = '内容'): L
   file_uuid: null,
   file_url: null,
   file_size: null,
-  file_hash: null,
   image_width: null,
   image_height: null,
   seq: 1,

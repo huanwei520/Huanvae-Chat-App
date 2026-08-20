@@ -78,7 +78,6 @@ function albumItem(index: number): AlbumMediaItem {
     message_type: 'image',
     file_uuid: `f${index}`,
     file_size: 100,
-    file_hash: `h${index}`,
     media_group_index: index,
   };
 }
@@ -103,7 +102,6 @@ function privateMsg(overrides: Partial<Message> = {}): Message {
     file_uuid: 'f0',
     file_url: null,
     file_size: 100,
-    file_hash: 'h0',
     reply_to: null,
     send_time: '2026-01-01T00:00:00Z',
     is_recalled: false,
@@ -123,7 +121,6 @@ function groupMsg(overrides: Partial<GroupMessage> = {}): GroupMessage {
     file_uuid: 'f0',
     file_url: null,
     file_size: 100,
-    file_hash: 'h0',
     image_width: null,
     image_height: null,
     reply_to: null,

@@ -142,6 +142,7 @@ import * as GroupDetailView from '../../src/chat/shared/GroupDetailView';
 import * as AddMenu from '../../src/components/unified/AddMenu';
 import * as PendingRequestsPanel from '../../src/components/unified/PendingRequestsPanel';
 import * as CreateBotDialog from '../../src/components/bots/CreateBotDialog';
+import * as ShareTargetPicker from '../../src/components/share/ShareTargetPicker';
 
 // 聊天组件
 import * as ChatPanel from '../../src/chat/shared/ChatPanel';
@@ -152,6 +153,12 @@ import * as FileMessageContent from '../../src/chat/shared/FileMessageContent';
 import * as FilePreviewModal from '../../src/chat/shared/FilePreviewModal';
 import * as DocumentDownloadAction from '../../src/chat/shared/DocumentDownloadAction';
 import * as MessageContextMenu from '../../src/chat/shared/MessageContextMenu';
+import * as ForwardMessageModal from '../../src/chat/shared/ForwardMessageModal';
+import * as forwardMessage from '../../src/chat/shared/forwardMessage';
+import * as groupCard from '../../src/chat/shared/groupCard';
+import * as messagePreviewText from '../../src/chat/shared/messagePreviewText';
+import * as GroupCardMessage from '../../src/chat/shared/GroupCardMessage';
+import * as ShareGroupCardModal from '../../src/chat/shared/ShareGroupCardModal';
 import * as ReplyComposeBar from '../../src/chat/shared/ReplyComposeBar';
 import * as MultiSelectActionBar from '../../src/chat/shared/MultiSelectActionBar';
 import * as UploadProgress from '../../src/chat/shared/UploadProgress';
@@ -191,8 +198,8 @@ import * as ConfirmDialog from '../../src/chat/shared/menu/ConfirmDialog';
 import * as EditNameForm from '../../src/chat/shared/menu/EditNameForm';
 import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
 import * as EditRemarkForm from '../../src/chat/shared/menu/EditRemarkForm';
-import * as InviteCodeManager from '../../src/chat/shared/menu/InviteCodeManager';
 import * as InviteForm from '../../src/chat/shared/menu/InviteForm';
+import * as JoinPolicyForm from '../../src/chat/shared/menu/JoinPolicyForm';
 import * as MainMenu from '../../src/chat/shared/menu/MainMenu';
 import * as MemberActions from '../../src/chat/shared/menu/MemberActions';
 import * as MemberGrid from '../../src/chat/shared/menu/MemberGrid';
@@ -264,6 +271,10 @@ import * as MediaBubbleFrame from '../../src/chat/shared/MediaBubbleFrame';
 import * as AlbumComposer from '../../src/chat/shared/AlbumComposer';
 import * as albumSend from '../../src/chat/shared/albumSend';
 import * as mediaGroup from '../../src/chat/shared/mediaGroup';
+import * as mediaGallery from '../../src/chat/shared/mediaGallery';
+import * as mediaSwipe from '../../src/chat/shared/mediaSwipe';
+import * as mediaZoomState from '../../src/chat/shared/mediaZoomState';
+import * as MediaGalleryProvider from '../../src/chat/shared/MediaGalleryProvider';
 import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
 import * as JumpToLatestButton from '../../src/chat/shared/JumpToLatestButton';
@@ -320,6 +331,7 @@ import * as sendingMediaActions from '../../src/chat/shared/sendingMediaActions'
 import * as uploadAbortRegistry from '../../src/chat/shared/uploadAbortRegistry';
 import * as useComposerTrayOutbox from '../../src/chat/shared/useComposerTrayOutbox';
 import * as useSendingOutboxMerge from '../../src/chat/shared/useSendingOutboxMerge';
+import * as useBatchForward from '../../src/chat/shared/useBatchForward';
 
 // 主题系统
 import * as themeIndex from '../../src/theme/index';
@@ -481,6 +493,7 @@ const COMPONENT_MAP = {
   AddMenu,
   PendingRequestsPanel,
   CreateBotDialog,
+  ShareTargetPicker,
   // 聊天组件
   ChatPanel,
   ChatInputArea,
@@ -490,6 +503,12 @@ const COMPONENT_MAP = {
   FilePreviewModal,
   DocumentDownloadAction,
   MessageContextMenu,
+  ForwardMessageModal,
+  forwardMessage,
+  groupCard,
+  messagePreviewText,
+  GroupCardMessage,
+  ShareGroupCardModal,
   ReplyComposeBar,
   MultiSelectActionBar,
   UploadProgress,
@@ -527,8 +546,8 @@ const COMPONENT_MAP = {
   EditNameForm,
   EditNicknameForm,
   EditRemarkForm,
-  InviteCodeManager,
   InviteForm,
+  JoinPolicyForm,
   MainMenu,
   MemberActions,
   MemberGrid,
@@ -599,6 +618,10 @@ const COMPONENT_MAP = {
   AlbumComposer,
   albumSend,
   mediaGroup,
+  mediaGallery,
+  mediaSwipe,
+  mediaZoomState,
+  MediaGalleryProvider,
   conversationKey,
   scrollMessageIntoView,
   JumpToLatestButton,
@@ -621,6 +644,7 @@ const COMPONENT_MAP = {
   uploadAbortRegistry,
   useComposerTrayOutbox,
   useSendingOutboxMerge,
+  useBatchForward,
 };
 
 // ============== 页面组件测试 ==============

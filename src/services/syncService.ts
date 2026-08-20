@@ -7,6 +7,7 @@
 import type { ApiClient } from '../api/client';
 import * as db from '../db';
 import type { ConversationType, LocalConversation, LocalMessage } from '../db';
+import { conversationPreviewText } from '../chat/shared/messagePreviewText';
 
 // ============================================================================
 // 类型定义
@@ -56,7 +57,8 @@ interface ServerMessage {
   file_uuid?: string | null;
   file_url?: string | null;
   file_size?: number | null;
-  file_hash?: string | null;
+  // file_hash：2026-08-16 起后端接收面（含本 sync 端点）不再下发，本地改走两层键
+  // （file_uuid 快路径 → file_uuid_hash → file_mappings），故此处不再声明也不再接。
   /** 图片宽度（像素），仅图片类型消息有值 */
   image_width?: number | null;
   /** 图片高度（像素），仅图片类型消息有值 */
@@ -122,7 +124,6 @@ function toLocalMessage(
     file_uuid: msg.file_uuid || null,
     file_url: msg.file_url || null,
     file_size: msg.file_size || null,
-    file_hash: msg.file_hash || null,
     image_width: msg.image_width ?? null,
     image_height: msg.image_height ?? null,
     seq: msg.seq,
@@ -260,20 +261,16 @@ export class SyncService {
     this.notifyListeners();
   }
 
-  /** 生成消息预览文本 */
+  /**
+   * 生成消息预览文本。
+   *
+   * 🔴 整套映射（含「未知类型绝不回落 content 原文」这条不变量）在
+   * {@link conversationPreviewText} —— 与 db/index.ts 的「撤回/删除后刷新预览」**同一份表**。
+   * 这里原先是一份独立的 switch，`default: return content` 让离线同步回来的
+   * `meeting_invite` 把 content 里的 `password` 直接印在会话列表上。
+   */
   private getMessagePreviewText(messageType: string, content: string): string {
-    switch (messageType) {
-      case 'text':
-        return content;
-      case 'image':
-        return '[图片]';
-      case 'video':
-        return '[视频]';
-      case 'file':
-        return '[文件]';
-      default:
-        return content || '[消息]';
-    }
+    return conversationPreviewText(messageType, content);
   }
 
   /**

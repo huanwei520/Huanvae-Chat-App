@@ -23,7 +23,6 @@ function makeMessage(uuid: string): Message {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     send_time: '2026-05-13T00:00:00Z',
     is_recalled: false,
   };
@@ -41,7 +40,6 @@ function makeGroupMessage(uuid: string): GroupMessage {
     file_uuid: null,
     file_url: null,
     file_size: null,
-    file_hash: null,
     send_time: '2026-05-13T00:00:00Z',
     reply_to: null,
     is_recalled: false,

@@ -27,6 +27,9 @@
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
+  /* 左右切图按钮（.media-nav）是它的直接子元素、绝对定位到两侧，需要一个定位锚点。
+     .media-zoom-indicator 仍锚在更近的 .media-content 上，不受影响。 */
+  position: relative;
 }
 
 /* ============================================
@@ -194,6 +197,58 @@
   transition: transform 0.1s ease-out;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* ============================================
+   左右切图（序列位置 + 两侧按钮）
+   ============================================ */
+
+/* 序列位置「3 / 12」：单张序列时不渲染 */
+.media-position {
+  flex-shrink: 0;
+  margin-left: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.media-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1;
+  border: none;
+  border-radius: 50%;
+  background: var(--black-alpha-60);
+  color: var(--text-inverse);
+  cursor: pointer;
+  z-index: 5;
+  /* 只过渡 background / opacity —— transform 在这里是**静态**居中量，
+     没有任何 JS 逐帧写它，故不涉及 animation.md 规则一的单一所有权问题 */
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.media-nav:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.media-nav:not(:disabled):hover {
+  background: var(--black-alpha-80, rgba(0, 0, 0, 0.8));
+}
+
+.media-nav-prev {
+  left: 16px;
+}
+
+.media-nav-next {
+  right: 16px;
 }
 
 .media-zoom-indicator {

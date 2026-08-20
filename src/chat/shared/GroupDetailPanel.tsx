@@ -8,10 +8,18 @@
  * - 身份：群头像、群名、@群ID（可复制）、群简介
  * - 资料：成员数 / 创建时间 / 入群方式
  * - 关系：已加入(+角色) / 未加入
- * - 操作：多态主按钮（进入群聊 / 加入群聊 / 申请加群 / 待通过 / 不可加入）
+ * - 操作：多态主按钮（进入群聊 / 加入群聊 / 申请加群 / 待通过）
+ *         🔴 **不再有「不可加入」这一态** —— 它对应的是已被后端整套删除的旧五档入群模式里
+ *         那三个"谁也进不来"的档；现在入群只由审批开关两态决定，非成员**总能**发起申请。
+ *         + 「分享该群」（仅群成员可见 —— 分享群名片是「群内的人把群拿出去」的动作，
+ *           非成员发一定 403，给一个必然失败的按钮不如不给）
  *
  * 数据：进入时拉 GET /api/groups/{id}/public（未加入群的公开信息）。成员身份读 chatStore.groups；
  * 非成员时拉 GET /api/groups/requests/sent 判断是否已有 pending 申请（据此把按钮翻成"待通过"）。
+ *
+ * 🔴 「分享该群」**不按 card_share_scope 三档预判**（那是服务端强制的策略，客户端复刻一份
+ * 只会漂移；且 `/public` 的该字段本仓 GroupInfo 类型尚未镜像，见交付里的契约缺口记账）。
+ * 档位不够时由服务端返 403，文案在 ShareGroupCardModal 里说清是「你在该群的权限不够」。
  */
 
 import { useEffect, useState } from 'react';
@@ -28,6 +36,7 @@ import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { formatDate } from '../../utils/time';
 import type { Group } from '../../types/chat';
+import { ShareGroupCardModal } from './ShareGroupCardModal';
 import '../../styles/components/profile-sections.css';
 
 interface GroupDetailPanelProps {
@@ -41,22 +50,15 @@ interface GroupDetailPanelProps {
   onRefreshGroups?: () => void;
 }
 
-/** 入群方式文案 */
-function joinModeLabel(mode: string | undefined): string {
-  switch (mode) {
-    case 'open':
-      return '允许直接加入';
-    case 'approval_required':
-      return '需审批';
-    case 'invite_only':
-      return '仅邀请';
-    case 'admin_invite_only':
-      return '仅管理员邀请';
-    case 'closed':
-      return '不允许加入';
-    default:
-      return '';
-  }
+/**
+ * 入群方式文案（审批开关两态）
+ *
+ * `undefined` 返回空串 ⇒ [`InfoRow`] 整行不渲染。后端整批尚未上线的窗口期里这个字段读到的
+ * 就是 `undefined`，此时"不知道"比猜一个值更诚实。
+ */
+function joinPolicyLabel(needApproval: boolean | undefined): string {
+  if (needApproval === undefined) { return ''; }
+  return needApproval ? '需审批' : '允许直接加入';
 }
 
 /** 群内角色文案 */
@@ -89,6 +91,8 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
   const [applying, setApplying] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
+  // 分享群名片面板：按需挂载（ShareTargetPicker 内部会查一次本地会话表，不能常驻）
+  const [shareOpen, setShareOpen] = useState(false);
 
   // 拉群公开信息（切换群时重置各态，避免串台到新群）
   useEffect(() => {
@@ -112,7 +116,7 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
       .then((resp) => {
         if (!cancelled) { setPendingSent(resp.requests.some((r) => r.group_id === groupId)); }
       })
-      .catch(() => { /* 拉取失败：按钮回落到 join_mode 分支，用户仍可发起申请 */ });
+      .catch(() => { /* 拉取失败：按钮回落到审批开关分支，用户仍可发起申请 */ });
     return () => { cancelled = true; };
   }, [api, groupId, isMember]);
 
@@ -139,11 +143,15 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
     setActionNote(null);
     try {
       const res = await applyToJoinGroup(api, groupId);
-      if (info.join_mode === 'open') {
+      // 🔴 判据是**本次操作的真实结果**（响应 `status`），不是拿 info 里的开关预判 ——
+      // 群设置可能在两次请求之间被群主改掉，预判会跟真实结果打架。
+      // 必须写 `=== 'joined'`：后端未上线时 `status` 是 `undefined`，落 pending 分支
+      // （保守、可恢复）；写成 `!== 'pending'` 会把没入群的判成已入群。
+      if (res.status === 'joined') {
         // 直接入群成功：刷新群列表，按钮据 isMember 翻成「进入群聊」
         onRefreshGroups?.();
       } else {
-        // approval_required：进入待审核，按钮翻「待通过」
+        // 落了一条待审申请：按钮翻「待通过」
         setPendingSent(true);
       }
       setActionNote(res.message);
@@ -157,7 +165,11 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
   // 关系状态文案
   const relationText = isMember && memberGroup ? `已加入 · ${roleLabel(memberGroup.role)}` : '未加入';
 
-  // 多态主按钮：进入群聊 / 加入群聊 / 申请加群 / 待通过 / 不可加入 / 加载中
+  // 多态主按钮：进入群聊 / 加入群聊 / 申请加群 / 待通过 / 加载中
+  // 🔴 最后一支是**无条件 else**（不是"需审批"专属分支）：审批开关读到 `undefined`
+  // （后端未上线的窗口期）时落在这里，用户仍能点、仍能发起申请 —— 保守方向。
+  // 绝不能写成 `!info.join_approval_required`：`!undefined === true` 会把"我还不知道"
+  // 误判成"免审核"，那是激进方向。
   let actionLabel = '';
   let actionDisabled = false;
   let actionHandler: (() => void) | undefined;
@@ -173,18 +185,14 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
   } else if (pendingSent) {
     actionLabel = '待通过';
     actionDisabled = true;
-  } else if (info.join_mode === 'open') {
+  } else if (info.join_approval_required === false) {
     actionLabel = applying ? '加入中...' : '加入群聊';
     actionDisabled = applying;
     actionHandler = handleApply;
-  } else if (info.join_mode === 'approval_required') {
+  } else {
     actionLabel = applying ? '提交中...' : '申请加群';
     actionDisabled = applying;
     actionHandler = handleApply;
-  } else {
-    // closed / invite_only / admin_invite_only
-    actionLabel = '不可加入';
-    actionDisabled = true;
   }
 
   return (
@@ -239,7 +247,7 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
             <div className="profile-section-title">资料</div>
             <InfoRow label="成员数" value={info ? String(info.member_count) : ''} />
             <InfoRow label="创建于" value={formatDate(info?.created_at)} />
-            <InfoRow label="入群方式" value={joinModeLabel(info?.join_mode)} />
+            <InfoRow label="入群方式" value={joinPolicyLabel(info?.join_approval_required)} />
           </div>
 
           {/* 关系 */}
@@ -262,9 +270,24 @@ export function GroupDetailPanel({ groupId, onClose, onEnterGroup, onRefreshGrou
                 {actionLabel}
               </AppButton>
             )}
+            {/* 分享群名片：只给群成员（非成员发一定 403，见文件头）。
+                群资料还没拉回来时不给 —— 预览区要拿群名/头像/人数，没有 info 就没得预览。 */}
+            {isMember && info && (
+              <AppButton
+                variant="secondary"
+                block
+                onClick={() => setShareOpen(true)}
+              >
+                分享该群
+              </AppButton>
+            )}
           </div>
         </div>
       </div>
+
+      {shareOpen && info && (
+        <ShareGroupCardModal group={info} onClose={() => setShareOpen(false)} />
+      )}
     </div>
   );
 }

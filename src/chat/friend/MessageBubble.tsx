@@ -27,12 +27,14 @@
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
+import { ForwardMessageModal } from '../shared/ForwardMessageModal';
+import { canForwardMessage, toForwardSource, type ForwardSource } from '../shared/forwardMessage';
 import { ReplyQuote } from '../shared/ReplyQuote';
 import { AlbumMessage, type AlbumMediaItem } from '../shared/AlbumMessage';
 import { MediaBubbleFrame, isCaptionableMediaType } from '../shared/MediaBubbleFrame';
@@ -40,6 +42,7 @@ import type { AlbumNode } from '../shared/mediaGroup';
 import type { ResolvedReplyQuote } from '../shared/replyPreview';
 import { FileMessageContent } from '../shared/FileMessageContent';
 import { MeetingInviteCard } from '../shared/MeetingInviteCard';
+import { GroupCardMessage } from '../shared/GroupCardMessage';
 import { CardRenderer } from '../shared/CardRenderer';
 import { MarkdownRenderer } from '../../components/common/MarkdownRenderer';
 import { FailedIcon } from '../shared/ReadReceiptIcons';
@@ -156,6 +159,37 @@ export function MessageBubble({
   // 气泡元素 ref（用于移动端菜单定位）
   const bubbleRef = useRef<HTMLDivElement>(null);
 
+  // 转发面板：按需挂载（面板内部会查一次本地会话表，常驻在每条气泡上不可接受）
+  const [forwardOpen, setForwardOpen] = useState(false);
+
+  /**
+   * 本条（或本相册）里**可转发**的源消息。
+   *
+   * 相册气泡转发的是整组已加载项 —— 用户在网格上右键，语义上指的是这一组图，
+   * 只转代表消息会静默丢掉其余几张。乐观项（带 clientId）与无 file_uuid 的项
+   * 由 canForwardMessage 挡掉：文件还没落到服务端，转出去对方点开就是坏的。
+   */
+  const forwardSenderName = isOwn ? session.profile.user_nickname : friendDisplayName(friend);
+  const forwardSources = useMemo((): ForwardSource[] => {
+    if (album) {
+      return album.items.map((item): ForwardSource => ({
+        message_uuid: item.message_uuid,
+        message_content: item.message_content,
+        message_type: item.message_type,
+        file_uuid: item.file_uuid,
+        // AlbumMediaItem 不带 file_url；后端优先认 file_uuid，缺 file_url 不影响转发
+        file_url: null,
+        file_size: item.file_size,
+        send_time: message.send_time,
+        senderName: forwardSenderName,
+        is_recalled: message.is_recalled,
+        sendStatus: item.clientId ? 'sending' : undefined,
+      })).filter(canForwardMessage);
+    }
+    const single = toForwardSource(message, forwardSenderName);
+    return canForwardMessage(single) ? [single] : [];
+  }, [album, message, forwardSenderName]);
+
   // 本地文件路径（用于"在文件夹中显示"功能）
   //
   // 通过 useFileCache 拿 localPath（订阅 store）而非自己 useState + 一次性 useEffect，
@@ -175,7 +209,7 @@ export function MessageBubble({
   })();
   const { localPath } = useFileCache({
     fileUuid: message.file_uuid ?? '',
-    fileHash: message.file_hash,
+    // 不传 fileHash：消息面已无该字段（后端接收面不再下发），由 Hook 经 file_uuid 解析
     fileName: '',
     fileType: fileCacheType,
     urlType: 'friend',
@@ -472,7 +506,10 @@ export function MessageBubble({
                         sourceType="friend"
                       />
                     )}
-                    {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && message.message_type !== 'card' && (
+                    {message.message_type === 'group_card' && (
+                      <GroupCardMessage messageContent={message.message_content} />
+                    )}
+                    {message.message_type !== 'text' && message.message_type !== 'meeting_invite' && message.message_type !== 'card' && message.message_type !== 'group_card' && (
                       // 单图 / 单视频 + 配文 ⇒ 与相册同一个大气泡（Telegram 式 media + caption）。
                       // 这里只是**套样式**，绝不把单条塞进 media_group —— 折叠会抹掉 DOM 锚点。
                       // 文档类不进这层：它自带白底卡片，套进气泡是两层背景叠着。
@@ -484,11 +521,12 @@ export function MessageBubble({
                         meta={isCaptionableMediaType(message.message_type) ? metaNode : undefined}
                       >
                         <FileMessageContent
+                          // 会话媒体序列里的身份：左右切图靠它定位当前是第几张
+                          messageUuid={message.message_uuid}
                           messageType={message.message_type}
                           messageContent={message.message_content}
                           fileUuid={message.file_uuid}
                           fileSize={message.file_size}
-                          fileHash={message.file_hash}
                           urlType="friend"
                           // 在途发送项的钥匙：有它且条目还在 store 里，就渲染本地预览 +
                           // 单项进度覆盖层（类 Telegram「媒体自己在原地转圈」）。
@@ -527,6 +565,8 @@ export function MessageBubble({
         canRecall={canRecallMessage(message, isOwn)}
         canReply={canReply}
         onReply={handleReply}
+        canForward={forwardSources.length > 0}
+        onForward={() => setForwardOpen(true)}
         localPath={localPath}
         messageContent={message.message_type === 'text' ? message.message_content : null}
         fileType={getFileType()}
@@ -537,6 +577,14 @@ export function MessageBubble({
         onSaveToGallery={handleSaveToGallery}
         onClose={handleCloseMenu}
       />
+
+      {/* 转发面板（A 版快捷卡；按需挂载，关闭即卸载） */}
+      {forwardOpen && forwardSources.length > 0 && (
+        <ForwardMessageModal
+          messages={forwardSources}
+          onClose={() => setForwardOpen(false)}
+        />
+      )}
 
       {/* 移动端全屏消息预览（双击触发） */}
       {isMobile() && message.message_type === 'text' && (

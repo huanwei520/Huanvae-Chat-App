@@ -11,8 +11,11 @@ import type { MessageSendStatus } from '../types/chat';
 // 类型定义
 // ============================================
 
-/** 群消息类型 */
-export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card';
+/** 群消息类型
+ *
+ * ⚠️ 本文件**另有**一份 GroupMessage 定义与 `src/types/chat.ts` 并存（工作区 CLAUDE.md
+ * 契约链注意事项已记载这个坑）—— 群消息契约改动要**同时**改两处，只改一处会漏。 */
+export type GroupMessageType = 'text' | 'image' | 'video' | 'file' | 'system' | 'meeting_invite' | 'card' | 'group_card';
 
 /** 群消息 */
 export interface GroupMessage {
@@ -26,7 +29,6 @@ export interface GroupMessage {
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
-  file_hash: string | null;
   /** 图片宽度（像素），仅图片类型消息有值 */
   image_width?: number | null;
   /** 图片高度（像素），仅图片类型消息有值 */

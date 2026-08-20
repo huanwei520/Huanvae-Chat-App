@@ -278,6 +278,54 @@
 }
 
 /* ============================================
+   Control-plane warning strip
+   ---------------------------------------------
+   Shown while the tunnel is up but the link that keeps its peer set current is
+   not healthy. Amber rather than red on purpose: the tunnel itself is carrying
+   traffic, so this is not a fault -- it is a capability that is missing, and
+   the crown one line above is busy saying "connected".
+
+   It has to be loud all the same. The whole symptom of a dead control link is
+   that *nothing happens*: devices added later simply never appear, and every
+   other reading on the page keeps saying success. Left unsaid, the interface
+   reports a working feature that is not there.
+
+   No role="alert" (the page's single live region belongs to .hg-error) and no
+   dismiss button (a state display you can close is a state display you can put
+   back to "looks fine"). No transition/transform either -- nothing on this page
+   animates it, and declaring one here would be the first half of a CSS-vs-JS
+   frame fight the moment somebody does.
+   ============================================ */
+.hg-cp-warn {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+  color: var(--status-warning);
+  background: var(--status-warning-subtle);
+  border: 1px solid var(--status-warning);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+/* Names the subject, so the sentence beside it does not have to repeat it. */
+.hg-cp-warn-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  color: var(--status-warning);
+  border: 1px solid var(--status-warning);
+}
+
+.hg-cp-warn-msg {
+  flex: 1;
+  word-break: break-word;
+}
+
+/* ============================================
    Error banner (the page's only role="alert")
    ============================================ */
 .hg-error {

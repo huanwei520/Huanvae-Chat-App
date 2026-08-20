@@ -1,43 +1,44 @@
 /**
- * Settings page E2E tests + visual snapshots.
+ * 设置面板 E2E —— 登录后场景。
  *
- * 当前状态：保留 .skip。
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 🔴 2026-08-19 重写：原来这里是**两条从创建起就没跑过的 `test.skip` 截图**，
+ * 配一段解释"为什么进不了登录态"的长注释。那段注释的结论**是错的**：
  *
- * 设置面板需要登录态才能进入；登录态需要：
- *   1. plugin-http 的 login API 返回成功响应（当前 tauri-mock 返回 502）
- *   2. plugin-sql 初始化数据库 + 写入用户记录
- *   3. plugin-store 持久化 session（移动端路径）
+ *   原文：「登录态需要 plugin-http 的 login API 返回成功响应（当前 tauri-mock 返回 502）」
+ *   实测：登录路径**根本不经过** `plugin:http` —— 数据面早已走 `invoke('secure_http')`
+ *         （src/services/secureFetch.ts），而旧 mock 对 `secure_http` 没有任何分支、
+ *         落到"未列出的命令 → null" ⇒ 从**发现面第一跳**就断了，与 502 无关。
  *
- * tauri-mock.ts 已经为 plugin-store / plugin-sql / plugin-http 提供了基础 stub（返回空数据 / 502），
- * 但 login 流程会在 502 处早返回 + 显示错误提示，不会进入主页面。
+ * 那段错误注释不是无害的：它把"e2e 进不去登录态"的原因指错了方向，
+ * 后来的审计照抄了它，于是没有人去看真正断掉的那一跳。
+ * ⇒ 按 CLAUDE.md「零污染 / 无误导性残留」，错误注释 + 两条从未执行的占位一并删除，
+ *   换成**真的会跑、真的有断言**的一条。
  *
- * 要解锁这部分 E2E，需要进一步：
- *   - 实现 plugin-http login 的成功响应 mock（含 access_token / refresh_token / expires_at 字段格式）
- *   - 实现 plugin-sql initDatabase 的成功路径
- *   - 实现 getProfile 的成功响应 mock
- *
- * 这部分工作量大且依赖后端协议稳定。在这之前，设置面板的渲染契约由 vitest 组件测试覆盖：
- *   - tests/components/SettingsPanel.test.tsx
- *
- * @see e2e/helpers/tauri-mock.ts
+ * mock 侧现在提供了最小假后端（见 e2e/helpers/tauri-mock.ts），登录态可达。
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { test, expect } from './helpers/test-fixtures';
 
-test.describe('Settings Page', () => {
-  test.skip('settings panel renders correctly', async ({ page }) => {
+test.describe('设置面板（登录后） @gate', () => {
+  test('登录后能打开设置面板', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await expect(page).toHaveScreenshot('settings-panel.png', {
-      animations: 'disabled',
-    });
-  });
 
-  test.skip('theme toggle changes visual appearance', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await expect(page).toHaveScreenshot('settings-dark-theme.png', {
-      animations: 'disabled',
-    });
+    await page.locator('#user-id').fill('e2euser');
+    await page.locator('#password').fill('e2epass');
+    await page.getByRole('button', { name: '登陆' }).click();
+
+    // 先确认真的进了主界面（登录表单消失）
+    await expect(page.locator('#user-id')).toHaveCount(0, { timeout: 30_000 });
+
+    // 侧栏底部的设置按钮（Sidebar.tsx 的 title="设置"）
+    const settingsBtn = page.getByTitle('设置');
+    await expect(settingsBtn).toBeVisible({ timeout: 30_000 });
+    await settingsBtn.click();
+
+    // 断言面板真的渲染出来了（不是"点了但什么都没发生"）
+    await expect(page.getByRole('heading', { name: '设置' })).toBeVisible({ timeout: 15_000 });
   });
 });

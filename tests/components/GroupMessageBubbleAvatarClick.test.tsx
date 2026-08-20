@@ -56,8 +56,7 @@ function makeMessage(overrides: Partial<GroupMessage> = {}): GroupMessage {
   return {
     message_uuid: 'uuid-1', group_id: 'g-1', sender_id: 'user-2', sender_nickname: 'Alice',
     sender_avatar_url: '', message_content: 'hello', message_type: 'text',
-    file_uuid: null, file_url: null, file_size: null, file_hash: null,
-    image_width: null, image_height: null, reply_to: null,
+    file_uuid: null, file_url: null, file_size: null, image_width: null, image_height: null, reply_to: null,
     send_time: '2026-01-01T00:00:00Z', is_recalled: false, seq: 1, ...overrides,
   };
 }

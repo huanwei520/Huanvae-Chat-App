@@ -39,7 +39,6 @@ export interface DiscoveryGroup {
   /** 已经 resolveServerAvatarUrl 收口的可显示头像 URL；无头像为 null */
   avatarUrl: string | null;
   memberCount: number;
-  joinMode: string;
   isMember: boolean;
 }
 
@@ -105,7 +104,6 @@ export function useDiscoverySearch(query: string): UseDiscoverySearchReturn {
           groupName: card.group_name,
           avatarUrl: resolveServerAvatarUrl(card.avatar_url),
           memberCount: card.member_count,
-          joinMode: card.join_mode,
           isMember: card.is_member,
         })));
         setBots(results.bots.map((card) => ({

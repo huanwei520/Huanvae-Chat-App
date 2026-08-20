@@ -51,7 +51,7 @@ import { formatSize } from '../utils/format';
 import { formatHandshake, osLabel } from './format';
 import { isDeviceOccupiedElsewhere, reconcileSelfHeldIps, OCCUPIED_HINT } from './deviceState';
 import { decodeGroupInvite, encodeGroupInvite } from './inviteCode';
-import { freshestHandshakeAge } from './tunnelSummary';
+import { freshestHandshakeAge, controlPlaneWarning } from './tunnelSummary';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
 import { AppButton } from '../components/common/AppButton';
 import { useConfirmDialog, usePromptDialog } from '../lowcode/components/ConfirmDialog';
@@ -275,6 +275,8 @@ export default function HuanvaeGuardPage() {
   const probeInFlightRef = useRef<Promise<boolean> | null>(null);
   /** 上次已写进日志的服务状态；只在跃迁时记一行，避免每 3 秒刷屏 */
   const lastLoggedRunningRef = useRef<boolean | null>(null);
+  /** 上次已写进日志的控制面告警原文（null = 当时是健康的）；同样只在跃迁时记一行 */
+  const lastCpWarnRef = useRef<string | null>(null);
   /** handleRepair 退避耗尽时写下的提示原文；服务真起来后按原文比对精确收掉 */
   const repairHintRef = useRef<string | null>(null);
   // 复用主应用的对话框（替代浏览器原生 confirm()/prompt()）
@@ -324,6 +326,20 @@ export default function HuanvaeGuardPage() {
           addLog(`已检测到本地服务（localhost:${port}）`);
         } else {
           addLog('本地服务未运行');
+        }
+      }
+
+      // 控制面（配置热更新）健康度的**跃迁**记一行日志：3 秒一拍，不做跃迁判定就会把日志刷没用。
+      // 隧道没在跑时不谈这件事 —— 没有隧道就没有"这条隧道的热更新"，那时的读数是默认值，
+      // 拿它报警是纯噪音（而噪音会训练人忽略这条告警，正好废掉它存在的理由）。
+      const cpWarn = status?.active === true ? controlPlaneWarning(status.control_plane) : null;
+      if (lastCpWarnRef.current !== cpWarn) {
+        lastCpWarnRef.current = cpWarn;
+        if (cpWarn !== null) {
+          addLog(`配置热更新异常：${cpWarn}`);
+        } else if (status?.active === true) {
+          // 只有"从异常回到正常"才会走到这里（首帧就正常时 ref 与 cpWarn 同为 null，不记）
+          addLog('配置热更新链路已恢复正常');
         }
       }
 
@@ -562,6 +578,33 @@ export default function HuanvaeGuardPage() {
       }
       addLog(`配置已获取：${config.peers.length} 个对端，地址=${config.address}`);
 
+      // ── 控制面凭据（配置热更新的全部前提）────────────────────────────────────
+      // 不带它发 start，守护进程会走 `CONTROL_PLANE_ABSENT`：只打一行 warn 就 return，
+      // 接口照样 200、界面照样显示「已连接」，而这条隧道的 peer 集在此刻**冻住** ——
+      // 后来加入的设备它永远不知道。桌面端此前就是这样，一个功能缺席了整整若干版无人发现。
+      //
+      // 🔴 必需值缺失一律中止，**不许静默降级成"不传 control"** —— 那正好把这个 bug
+      // 原样复活，而且复活后同样看不出来（这是本次修复要根治的形态本身，不是防御性编程）。
+      // 这两个值真的会缺：`session:tokens-updated` 事件会把 accessToken / refreshToken
+      // 整个换掉（见上面的监听器），主窗口发来空值时它们就是空串。
+      // device_id 不在这里查 —— 函数开头的 `!selectedDeviceId` 守卫已经挡住，
+      // 且它是渲染期闭包捕获的值，中途不会变；再查一遍就是一条永远为假的死分支。
+      const missing = [
+        windowData.serverUrl ? null : 'master 地址',
+        windowData.accessToken ? null : '访问令牌',
+      ].filter((v): v is string => v !== null);
+      if (missing.length > 0) {
+        const why = missing.join('、');
+        setError(`无法建立隧道：缺少${why}，配置热更新将无法工作。请关掉本窗口，从主界面重新打开 VPN`);
+        addLog(`控制面凭据不完整（缺${why}）：已中止连接，不发送不带控制面凭据的启动请求`);
+        return;
+      }
+      // 缺刷新令牌不致命（守护进程侧是 Option），但控制链会在第一次访问令牌过期时死掉且回不来，
+      // 所以要说出来 —— "可缺"不等于"可以静默地缺"。
+      if (!windowData.refreshToken) {
+        addLog('缺少刷新令牌：配置热更新会在访问令牌过期后停止，届时需断开重连才能恢复');
+      }
+
       addLog('正在启动隧道...');
       const r = await localApi.startTunnel({
         address: config.address,
@@ -572,6 +615,14 @@ export default function HuanvaeGuardPage() {
         // Windows daemon 生效。如需 macOS VPN 内域名解析需另做 networksetup/scutil（暂未实现）。
         dns: config.dns ?? undefined,
         mtu: config.mtu,
+        control: {
+          master_url: windowData.serverUrl,
+          device_id: selectedDeviceId,
+          access_token: windowData.accessToken,
+          // 空串要变成"这个键不存在"，而不是把空串当令牌递过去：
+          // JSON.stringify 会丢掉值为 undefined 的键，正好对上守护进程侧的 `#[serde(default)]`
+          refresh_token: windowData.refreshToken || undefined,
+        },
       });
 
       if (r.success) { addLog('隧道已启动'); }
@@ -893,6 +944,11 @@ export default function HuanvaeGuardPage() {
   }
 
   const isActive = tunnelStatus?.active ?? false;
+  // 隧道在跑、而配置热更新这条链路不健康时要摆出来的那句话（健康 / 没隧道时为 null）。
+  // 🔴 只要它非 null，界面就**不许**只显示「已连接」了事 —— 那条链路坏掉的全部症状
+  // 就是"什么都没发生"（新增的设备永远不出现），用户没有任何理由怀疑界面。
+  // 五种读数各自的措辞与判据见 tunnelSummary.ts 的 controlPlaneWarning。
+  const controlPlaneAlert = isActive ? controlPlaneWarning(tunnelStatus?.control_plane) : null;
   const isSupported = osPlatform === 'windows' || osPlatform === 'macos';
   // 四态：服务运行中 / 已安装未运行 / 未安装 / 服务状态未知（macOS + Windows 同款，判据见 serviceStatusLabel）
   const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installState);
@@ -1011,6 +1067,22 @@ export default function HuanvaeGuardPage() {
           </span>
         </div>
       </header>
+
+      {/* 配置热更新链路的告警条 —— 隧道在跑、而这条链路不健康时常驻显示。
+          位置紧贴状态冠下方：冠上写着「已连接」，它必须在同一眼里被看见，
+          否则用户读到的仍然是"一切正常"。
+
+          刻意**不带** role="alert"：全页只允许一个 live region（那个名额归下面的 .hg-error，
+          见邀请码解析提示处的同款说明）。视觉上的响度由样式承担，不靠 ARIA 抢播报。
+
+          刻意**不做**关闭按钮：它不是"发生了一件事"，而是"此刻这条链路是坏的"——
+          一个能被关掉的状态显示，等于允许用户把界面调回"看起来正常"。 */}
+      {controlPlaneAlert !== null && (
+        <div className="hg-cp-warn">
+          <span className="hg-cp-warn-tag">配置热更新</span>
+          <span className="hg-cp-warn-msg">{controlPlaneAlert}</span>
+        </div>
+      )}
 
       {/* Error */}
       {error && (

@@ -32,7 +32,6 @@ const groupsApi = vi.hoisted(() => ({
   uploadGroupAvatar: vi.fn(), removeMember: vi.fn(), setAdmin: vi.fn(), removeAdmin: vi.fn(),
   muteMember: vi.fn(), unmuteMember: vi.fn(), disbandGroup: vi.fn(), transferOwner: vi.fn(),
   getGroupNotices: vi.fn(), createGroupNotice: vi.fn(), deleteGroupNotice: vi.fn(),
-  generateInviteCode: vi.fn(), getInviteCodes: vi.fn(), revokeInviteCode: vi.fn(),
   updateGroupNickname: vi.fn(), addGroupMessageBlock: vi.fn(), removeGroupMessageBlock: vi.fn(),
   addGroupSpecialCare: vi.fn(), removeGroupSpecialCare: vi.fn(),
   setGroupMemberRemark: vi.fn(), removeGroupMemberRemark: vi.fn(),

@@ -17,4 +17,4 @@ export { InviteForm } from './InviteForm';
 export { MainMenu } from './MainMenu';
 export { NoticesList, CreateNoticeForm } from './NoticesList';
 export { TransferOwner } from './TransferOwner';
-export { InviteCodeList, GenerateCodeForm } from './InviteCodeManager';
+export { JoinPolicyForm } from './JoinPolicyForm';

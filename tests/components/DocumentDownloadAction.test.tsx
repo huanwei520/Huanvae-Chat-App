@@ -32,6 +32,9 @@ vi.mock('../../src/stores/fileCacheStore', () => ({
 
 vi.mock('../../src/services/fileCache', () => ({
   triggerBackgroundDownload: mockHooks.triggerBackgroundDownload,
+  // 两层键：组件用它算文件身份键（个人文件面=哈希 / 消息面=file_uuid）。
+  // 工厂是整体替换，不列出来被测组件就拿不到这个导出。
+  fileIdentityKey: (fileUuid: string, knownHash?: string | null) => knownHash || fileUuid,
 }));
 
 // 必须在 mock 之后再 import

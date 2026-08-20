@@ -39,6 +39,8 @@ vi.mock('../../src/services/fileCache', () => ({
   triggerBackgroundDownload: mockHooks.triggerBackgroundDownload,
   getPresignedUrl: vi.fn(),
   getCachedFilePath: vi.fn(),
+  // 同上：DocumentDownloadAction 经 fileIdentityKey 取任务键
+  fileIdentityKey: (fileUuid: string, knownHash?: string | null) => knownHash || fileUuid,
 }));
 
 vi.mock('../../src/utils/platform', () => ({
