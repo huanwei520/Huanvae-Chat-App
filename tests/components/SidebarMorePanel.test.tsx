@@ -37,12 +37,11 @@ const LABELS: Record<SidebarItemKey, string> = {
   meeting: '视频会议',
   miniapps: '小程序',
   bots: '机器人',
-  lowcode: '低代码编辑器',
   guard: 'VPN 组网',
   stocks: '股票研究',
 };
 
-/** 构建 8 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
+/** 构建 7 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
 function buildItems() {
   const actions = {} as Record<SidebarItemKey, ReturnType<typeof vi.fn<() => void>>>;
   const items = {} as Record<SidebarItemKey, SidebarItemConfig>;
@@ -81,10 +80,10 @@ function itemLabels(): (string | null)[] {
 }
 
 describe('SidebarMorePanel', () => {
-  it('moreKeys 全 8 项按传入顺序渲染', () => {
+  it('moreKeys 全 7 项按传入顺序渲染', () => {
     renderPanel([...SIDEBAR_ITEM_KEYS]);
     expect(itemLabels()).toEqual([
-      '我的文件', '局域网互传', '视频会议', '小程序', '机器人', '低代码编辑器', 'VPN 组网', '股票研究',
+      '我的文件', '局域网互传', '视频会议', '小程序', '机器人', 'VPN 组网', '股票研究',
     ]);
   });
 

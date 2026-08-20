@@ -54,7 +54,7 @@ import { decodeGroupInvite, encodeGroupInvite } from './inviteCode';
 import { freshestHandshakeAge, controlPlaneWarning } from './tunnelSummary';
 import { ListEmpty, ListLoading } from '../components/common/ListStates';
 import { AppButton } from '../components/common/AppButton';
-import { useConfirmDialog, usePromptDialog } from '../lowcode/components/ConfirmDialog';
+import { useConfirmDialog, usePromptDialog } from '../components/common/ConfirmDialog';
 import { SecretDisplay } from '../components/common/SecretDisplay';
 import { getDeviceInfo } from '../services/deviceInfo';
 import * as localApi from './localApi';

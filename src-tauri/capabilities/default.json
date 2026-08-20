@@ -3,7 +3,7 @@
   "identifier": "desktop-default",
   "description": "桌面端权限配置 (Windows/macOS/Linux)",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "lowcode-editor", "editor", "huanvae-guard"],
+  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "editor", "huanvae-guard"],
   "permissions": [
     "core:default",
     "opener:default",

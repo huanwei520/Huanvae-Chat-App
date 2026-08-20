@@ -44,7 +44,6 @@
 | `src/services/syncService.ts` ⚠️ | merge(无前缀) |
 | `src/meeting/api.ts` ⚠️ | `/api/webrtc` ⚠️ |
 | `src/api/ai.ts` | `/api/ai` |
-| `src/lowcode/api.ts` ⚠️ | `/api/lowcode` |
 | `src/api/miniapps.ts` | `/api/miniapps` |
 | `src/api/oauth.ts` | `/api/oauth` |
 | `src/huanvaeGuard/` ⚠️(独立窗口) | `/api/hg` |

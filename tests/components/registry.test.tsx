@@ -286,29 +286,8 @@ import * as lanTransferIndex from '../../src/lanTransfer/index';
 import * as HuanvaeGuardPage from '../../src/huanvaeGuard/HuanvaeGuardPage';
 import * as huanvaeGuardServerApi from '../../src/huanvaeGuard/serverApi';
 import * as huanvaeGuardLocalApi from '../../src/huanvaeGuard/localApi';
-import * as ConfirmDialogModule from '../../src/lowcode/components/ConfirmDialog';
+import * as ConfirmDialogModule from '../../src/components/common/ConfirmDialog';
 
-// 低代码编辑器
-import * as LowcodePage from '../../src/lowcode/LowcodePage';
-import * as lowcodeApi from '../../src/lowcode/api';
-import * as FlowCanvas from '../../src/lowcode/components/FlowCanvas';
-import * as OperatorPanel from '../../src/lowcode/components/OperatorPanel';
-import * as PropertyPanel from '../../src/lowcode/components/PropertyPanel';
-import * as Toolbar from '../../src/lowcode/components/Toolbar';
-import * as ExecuteDialog from '../../src/lowcode/components/ExecuteDialog';
-import * as WorkflowListDialog from '../../src/lowcode/components/WorkflowListDialog';
-import * as CategoryConfigDialog from '../../src/lowcode/components/CategoryConfigDialog';
-import * as TemplateDialog from '../../src/lowcode/components/TemplateDialog';
-import * as VersionHistoryPanel from '../../src/lowcode/components/VersionHistoryPanel';
-import * as BatchExecuteDialog from '../../src/lowcode/components/BatchExecuteDialog';
-import * as flowStore from '../../src/lowcode/stores/flowStore';
-import * as operatorService from '../../src/lowcode/services/operatorService';
-import * as workflowService from '../../src/lowcode/services/workflowService';
-import * as apiClient from '../../src/lowcode/services/apiClient';
-import * as categoryService from '../../src/lowcode/services/categoryService';
-import * as templateService from '../../src/lowcode/services/templateService';
-import * as versionService from '../../src/lowcode/services/versionService';
-import * as workflowSerializer from '../../src/lowcode/utils/workflowSerializer';
 import * as useLanTransfer from '../../src/hooks/useLanTransfer';
 
 // 工具模块
@@ -455,27 +434,6 @@ const COMPONENT_MAP = {
   huanvaeGuardServerApi,
   huanvaeGuardLocalApi,
   PromptDialog: ConfirmDialogModule,
-  // 低代码编辑器
-  LowcodePage,
-  lowcodeApi,
-  FlowCanvas,
-  OperatorPanel,
-  PropertyPanel,
-  Toolbar,
-  ExecuteDialog,
-  WorkflowListDialog,
-  CategoryConfigDialog,
-  TemplateDialog,
-  VersionHistoryPanel,
-  BatchExecuteDialog,
-  flowStore,
-  operatorService,
-  workflowService,
-  apiClient,
-  categoryService,
-  templateService,
-  versionService,
-  workflowSerializer,
   // 主题系统
   themeIndex,
   themeStore,

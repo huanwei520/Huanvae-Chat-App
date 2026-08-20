@@ -3,7 +3,7 @@
  *
  * 覆盖:
  * - proxyResourceUrl: webview 原生加载(<img>/<video>)的资源 URL 改写(端口未就绪/就绪、完整URL/相对路径)
- * - proxyRequestUrl: XHR/fetch 请求 URL 改写(上传分片、头像上传、multipart、诊断上报、lowcode 算子)
+ * - proxyRequestUrl: XHR/fetch 请求 URL 改写(上传分片、头像上传、multipart、诊断上报)
  * - initSecureProxy / proxyPort / setProxyTarget: 端口获取 + 目标源站设置(invoke 契约)
  *
  * 注:proxyPortValue 是模块级状态,测试按"未就绪 → init 取端口 → 就绪后"顺序编排,不可乱序。

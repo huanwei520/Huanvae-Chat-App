@@ -49,7 +49,7 @@ import {
   triggerBackgroundDownload,
 } from '../../services/fileCache';
 import { saveFileUuidHash } from '../../db';
-import { useConfirmDialog } from '../../lowcode/components/ConfirmDialog';
+import { useConfirmDialog } from '../../components/common/ConfirmDialog';
 import { FileMenuController } from '../../components/files/FileMenuController';
 import type { FileItem } from '../../api/storage';
 

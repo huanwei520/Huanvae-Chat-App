@@ -45,7 +45,6 @@ function renderSidebar() {
       onMeetingClick={vi.fn()}
       onMiniAppsClick={vi.fn()}
       onBotsClick={vi.fn()}
-      onLowcodeClick={vi.fn()}
       onHuanvaeGuardClick={vi.fn()}
       onStocksClick={vi.fn()}
       onSettingsClick={vi.fn()}

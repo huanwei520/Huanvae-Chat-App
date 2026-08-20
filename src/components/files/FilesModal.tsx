@@ -46,7 +46,7 @@ import {
 } from '../../services/fileCache';
 import { invoke } from '@tauri-apps/api/core';
 import { saveFileUuidHash } from '../../db';
-import { useConfirmDialog } from '../../lowcode/components/ConfirmDialog';
+import { useConfirmDialog } from '../common/ConfirmDialog';
 import { FileMenuController } from './FileMenuController';
 import type { FileItem } from '../../api/storage';
 

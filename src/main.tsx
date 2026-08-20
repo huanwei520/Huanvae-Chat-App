@@ -6,7 +6,6 @@
  * - /media: 媒体预览页面（独立窗口，认证信息通过 localStorage 传递）
  * - /lan-transfer: 局域网传输页面（独立窗口，用户信息通过 localStorage 传递）
  * - /theme-editor: 主题编辑页面（独立窗口）
- * - /lowcode: 低代码编辑器页面（独立窗口，仅桌面端）
  * - 其他路径: 主应用
  *
  * 窗口大小策略：
@@ -23,7 +22,6 @@ import App from './App';
 import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
-import { LowcodePage } from './lowcode';
 import { HuanvaeGuardPage } from './huanvaeGuard';
 import { StockPage } from './stocks';
 import { discoverEndpoints } from './services/discovery';
@@ -53,11 +51,6 @@ function RootApp() {
   // 主题编辑页面（独立窗口）
   if (pathname === '/theme-editor') {
     return <ThemeEditorPage />;
-  }
-
-  // 低代码编辑器页面（独立窗口，仅桌面端）
-  if (pathname === '/lowcode') {
-    return <LowcodePage />;
   }
 
   // HuanvaeGuard VPN 页面（独立窗口，仅 Windows，包裹 ThemeProvider 以继承主题）
@@ -102,7 +95,7 @@ function renderApp() {
 // 做后端数据面调用的子窗口必须先从共享磁盘缓存(discovery.json,父窗口登录时已落盘)载入 active,
 // 否则 resolveForSecureHttp() 返回 null → URL 主机不被改写为 IP → 连逻辑域名(发 SNI)→ 被阿里云 ICP 拦。
 // 缓存新鲜时仅一次磁盘读(无网络),阻塞渲染极短;主窗口由 App.tsx 登录/恢复链路自行发现,不在此列。
-const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/lowcode', '/stocks']);
+const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/stocks']);
 
 async function bootstrap(): Promise<void> {
   // 安全区兜底:老旧移动端 WebView 的 env(safe-area-inset-*) 失效时(上下同时为 0)注入固定高度

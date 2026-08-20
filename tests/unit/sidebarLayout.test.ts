@@ -4,7 +4,7 @@
  * 覆盖：
  * 1. normalizeLayout：非法结构（null/字符串/数字/数组/pinned 非数组/more 非数组）
  *    → defaultLayout；非法 key 与非字符串元素过滤；跨区重复留 pinned；同区重复留首个；
- *    部分保存补缺到 more 末尾；合法完整双区往返不变；全 8 项 pinned 合法保持
+ *    部分保存补缺到 more 末尾；合法完整双区往返不变；全 7 项 pinned 合法保持
  * 2. loadLayout：无保存 / 损坏 JSON → defaultLayout；合法 JSON → normalizeLayout 清洗
  * 3. saveLayout：以 (LAYOUT_STORAGE_KEY, JSON 串) 精确写入 localStorage
  *
@@ -51,7 +51,7 @@ describe('normalizeLayout', () => {
       expect(result).toEqual(defaultLayout());
       expect(result).toEqual({
         pinned: [],
-        more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'guard', 'stocks'],
+        more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'guard', 'stocks'],
       });
       // more 是全新数组，不与常量 SIDEBAR_ITEM_KEYS 共享引用
       expect(result.more).not.toBe(SIDEBAR_ITEM_KEYS);
@@ -71,18 +71,18 @@ describe('normalizeLayout', () => {
     });
     expect(result).toEqual({
       pinned: ['files'],
-      more: ['stocks', 'guard', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode'],
+      more: ['stocks', 'guard', 'lan', 'meeting', 'miniapps', 'bots'],
     });
   });
 
   it('跨区重复（同 key 同时在 pinned 与 more）时留 pinned', () => {
     const result = normalizeLayout({
       pinned: ['guard'],
-      more: ['guard', 'files', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'stocks'],
+      more: ['guard', 'files', 'lan', 'meeting', 'miniapps', 'bots', 'stocks'],
     });
     expect(result).toEqual({
       pinned: ['guard'],
-      more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'stocks'],
+      more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'stocks'],
     });
   });
 
@@ -92,14 +92,14 @@ describe('normalizeLayout', () => {
       normalizeLayout({ pinned: ['guard', 'guard', 'files', 'guard'], more: [] }),
     ).toEqual({
       pinned: ['guard', 'files'],
-      more: ['lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'stocks'],
+      more: ['lan', 'meeting', 'miniapps', 'bots', 'stocks'],
     });
     // more 区内重复
     expect(
       normalizeLayout({ pinned: [], more: ['stocks', 'files', 'stocks', 'files'] }),
     ).toEqual({
       pinned: [],
-      more: ['stocks', 'files', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'guard'],
+      more: ['stocks', 'files', 'lan', 'meeting', 'miniapps', 'bots', 'guard'],
     });
   });
 
@@ -107,28 +107,28 @@ describe('normalizeLayout', () => {
     const result = normalizeLayout({ pinned: ['guard'], more: ['stocks'] });
     expect(result).toEqual({
       pinned: ['guard'],
-      more: ['stocks', 'files', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode'],
+      more: ['stocks', 'files', 'lan', 'meeting', 'miniapps', 'bots'],
     });
   });
 
   it('合法完整双区布局往返不变', () => {
     const input: SidebarLayout = {
       pinned: ['lan', 'files'],
-      more: ['stocks', 'guard', 'bots', 'lowcode', 'miniapps', 'meeting'],
+      more: ['stocks', 'guard', 'bots', 'miniapps', 'meeting'],
     };
     expect(normalizeLayout(input)).toEqual({
       pinned: ['lan', 'files'],
-      more: ['stocks', 'guard', 'bots', 'lowcode', 'miniapps', 'meeting'],
+      more: ['stocks', 'guard', 'bots', 'miniapps', 'meeting'],
     });
   });
 
-  it('全 8 项 pinned + 空 more 是合法布局，原样保持', () => {
+  it('全 7 项 pinned + 空 more 是合法布局，原样保持', () => {
     const allPinned: SidebarLayout = {
-      pinned: ['stocks', 'guard', 'lowcode', 'bots', 'miniapps', 'meeting', 'lan', 'files'],
+      pinned: ['stocks', 'guard', 'bots', 'miniapps', 'meeting', 'lan', 'files'],
       more: [],
     };
     expect(normalizeLayout(allPinned)).toEqual({
-      pinned: ['stocks', 'guard', 'lowcode', 'bots', 'miniapps', 'meeting', 'lan', 'files'],
+      pinned: ['stocks', 'guard', 'bots', 'miniapps', 'meeting', 'lan', 'files'],
       more: [],
     });
   });
@@ -152,7 +152,7 @@ describe('loadLayout', () => {
     );
     expect(loadLayout()).toEqual({
       pinned: ['files'],
-      more: ['stocks', 'lan', 'meeting', 'miniapps', 'bots', 'lowcode', 'guard'],
+      more: ['stocks', 'lan', 'meeting', 'miniapps', 'bots', 'guard'],
     });
   });
 });
@@ -161,13 +161,13 @@ describe('saveLayout', () => {
   it('以 (LAYOUT_STORAGE_KEY, JSON.stringify(布局)) 精确写入 localStorage', () => {
     const layout: SidebarLayout = {
       pinned: ['guard', 'files'],
-      more: ['lan', 'meeting', 'miniapps', 'lowcode', 'stocks'],
+      more: ['lan', 'meeting', 'miniapps', 'stocks'],
     };
     saveLayout(layout);
     expect(mockedSetItem).toHaveBeenCalledTimes(1);
     expect(mockedSetItem).toHaveBeenCalledWith(
       LAYOUT_STORAGE_KEY,
-      '{"pinned":["guard","files"],"more":["lan","meeting","miniapps","lowcode","stocks"]}',
+      '{"pinned":["guard","files"],"more":["lan","meeting","miniapps","stocks"]}',
     );
   });
 });

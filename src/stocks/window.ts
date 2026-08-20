@@ -1,7 +1,7 @@
 /**
  * 股票研究独立窗口 — 开窗器 + URL 编解码纯函数
  *
- * 复用 lowcode / HuanvaeGuard 独立窗口范式：
+ * 复用 HuanvaeGuard 独立窗口范式：
  *   - isMobile() 门控（仅桌面端）
  *   - getByLabel 聚焦已有窗口 → new WebviewWindow
  *   - 初始 token 经 URL query（base64）带入；子窗口页面自建 ApiClient

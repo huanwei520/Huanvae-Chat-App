@@ -12,7 +12,7 @@ import { useState } from 'react';
 import {
   PromptDialog,
   usePromptDialog,
-} from '../../src/lowcode/components/ConfirmDialog';
+} from '../../src/components/common/ConfirmDialog';
 
 describe('PromptDialog (component)', () => {
   beforeEach(() => cleanup());

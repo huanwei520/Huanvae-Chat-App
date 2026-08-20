@@ -8,13 +8,12 @@
  *
  * ## 设计来源
  * 视觉基线复用登录页 `.glass-button` 的玻璃 + 渐变 + 扫光 + 多层阴影体系，
- * 进一步抽象为可配置的多变体系统，覆盖原先 5 套互不相通的按钮 CSS：
+ * 进一步抽象为可配置的多变体系统，覆盖原先 4 套互不相通的按钮 CSS：
  *   - .glass-button (auth)        → variant=primary, size=lg, block
  *   - .hg-btn-primary             → variant=primary, size=md
  *   - .hg-btn-danger              → variant=danger,  size=md
  *   - .lan-btn-danger             → variant=danger,  size=sm
  *   - .lan-request-accept/reject  → variant=success/ghost
- *   - .btn-primary (lowcode)      → variant=primary, size=md
  *   - .update-toast-btn-*         → variant=primary/secondary, size=md
  *
  * ## 类名约定

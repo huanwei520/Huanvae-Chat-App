@@ -26,7 +26,6 @@ tests/
 │   ├── format.test.ts           # 格式化工具函数测试（12 个用例）
 │   ├── platform.test.ts         # 平台检测工具测试（28 个用例，UA 关键词判定、缓存机制、窗口宽度不影响判定）
 │   ├── conversationPreview.test.ts # 会话卡片最新消息预览刷新测试（11 个用例，删除/撤回后同步更新）
-│   ├── lowcode.test.ts          # 低代码编辑器测试（92 个用例，含类型定义、动态算子管理、Connector 耦合接口、Forrester 边界、upload_workflow、边交互测试、ConfirmDialog 类型测试、一键清理）
 │   └── jwt.test.ts              # JWT 工具函数测试（12 个用例，getTokenExpiresAt/getTokenRemainingMs）
 │   # 注：deviceInfo 服务测试需 Tauri 环境，在 registry.test.tsx 中验证导入
 └── components/                  # 组件测试
@@ -34,7 +33,6 @@ tests/
     ├── SettingsPanel.test.tsx   # 设置面板组件测试（20 个测试用例）
     ├── SyncStatusBanner.test.tsx # 消息同步状态横幅测试（6 个测试用例）
     ├── UpdateToast.test.tsx     # 更新提示弹窗测试
-    ├── LowcodePage.test.tsx     # 低代码编辑器页面测试（19 个测试用例，含动态算子对话框、工具栏组件、ConfirmDialog 组件、一键清理）
     ├── AIAvatar.test.tsx        # AI 头像组件测试（3 个测试用例）
     └── registry.test.tsx        # 组件注册表测试（154 个测试用例，含移动端组件和 AI 助手组件）
 ```

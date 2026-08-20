@@ -111,7 +111,7 @@ export function resolveDisplayUrl(input: string | null | undefined): string | nu
 
 /**
  * 把一个**完整**数据面请求 URL 改写成回环反代 URL,供 webview 原生 XHR/fetch(上传分片、头像上传、
- * multipart、诊断上报、lowcode 算子查询等)使用——这些请求经 http://127.0.0.1:<port> 由 Rust 反代
+ * multipart、诊断上报等)使用——这些请求经 http://127.0.0.1:<port> 由 Rust 反代
  * 转发到源站(钉 CA、连源站 IP、不发 SNI、Host=逻辑域名)。反代未就绪(端口 0,启动早期幂等取过)或
  * URL 非法时退化为原 URL(失败诚实暴露,不静默掩盖)。
  */

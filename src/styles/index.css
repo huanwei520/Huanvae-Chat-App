@@ -85,6 +85,9 @@
 /* 提示消息 - 错误/成功提示 */
 @import './components/toast.css';
 
+/* 通用确认/输入对话框 - src/components/common/ConfirmDialog.tsx（全窗口可用） */
+@import './components/confirm-dialog.css';
+
 @import './components/markdown.css';
 
 /* 消息回复引用 - 气泡内引用块 + 输入区「正在回复」条 + 定位失败提示 + 定位高亮脉冲（群聊 + 私聊共用） */

@@ -3,7 +3,7 @@
  *
  * 把 Rust 侧 secure_http 命令(reqwest + rustls 自管 TLS + 内置私有 CA 硬锚 + 可选
  * resolve 直连源站 IP)适配成 `@tauri-apps/plugin-http` fetch 的 Response-like 形态,
- * 供 client.ts / auth.ts / lowcode / huanvaeGuard 等现有封装迁移时复用(解包逻辑各自保留)。
+ * 供 client.ts / auth.ts / huanvaeGuard 等现有封装迁移时复用(解包逻辑各自保留)。
  *
  * 设计见工作区 DESIGN-app-discovery-selfsigned-tls.md。
  * @module services/secureFetch

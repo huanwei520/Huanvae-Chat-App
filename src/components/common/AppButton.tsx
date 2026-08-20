@@ -44,7 +44,7 @@
  *   - 浅色底扁平按钮（settings-row / reset-confirm / lan-btn 系列） → .subtle-btn
  *     （src/styles/components/subtle-button.css）
  *   - hg-btn 系列已由 HuanvaeGuard 模块自管，不收口到 AppButton
- *   - update-toast-btn / lowcode .btn-* 因视觉独立，保留各自原 CSS
+ *   - update-toast-btn 因视觉独立，保留原 CSS
  *
  * **当前 AppButton 实际承载：**
  *   .glass-button                  → <AppButton variant="primary" size="lg" block>      [12×, 已迁移]
@@ -54,7 +54,6 @@
  *   .lan-btn / .lan-btn-small      → 改归 .subtle-btn--xs --neutral
  *   .lan-btn-danger                → 改归 .subtle-btn--xs --danger
  *   .lan-request-accept/reject     → 死代码，已删除
- *   .btn-primary (lowcode)         → 保留独立 lowcode 工业风
  *   .update-toast-btn-*            → 保留独立 toast 胶囊风
  *   .settings-row-btn / -danger    → 改归 .subtle-btn--sm --primary/--danger
  *   .reset-confirm-btn-*           → 改归 .subtle-btn--sm --danger/--neutral

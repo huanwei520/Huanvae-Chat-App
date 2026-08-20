@@ -48,7 +48,6 @@ import { MiniAppsModal } from '../components/miniapps/MiniAppsModal';
 import { BotsModal } from '../components/bots/BotsModal';
 import { SettingsPanel } from '../components/settings';
 import { openLanTransferWindow } from '../lanTransfer';
-import { openLowcodeWindow } from '../lowcode';
 import { openHuanvaeGuardWindow } from '../huanvaeGuard';
 import { openStocksWindow } from '../stocks';
 import { VoiceCallFloating } from '../chat/ai/voice/VoiceCallFloating';
@@ -91,18 +90,6 @@ export function Main() {
       openLanTransferWindow(
         page.session.userId,
         page.session.profile?.user_nickname || page.session.userId,
-      );
-    }
-  };
-
-  // 打开低代码编辑器独立窗口
-  const handleLowcodeClick = () => {
-    if (page.session) {
-      openLowcodeWindow(
-        page.session.userId,
-        page.session.serverUrl,
-        page.session.accessToken,
-        page.session.refreshToken,
       );
     }
   };
@@ -167,7 +154,6 @@ export function Main() {
         onMeetingClick={() => setShowMeetingModal(true)}
         onMiniAppsClick={() => setShowMiniAppsModal(true)}
         onBotsClick={() => setShowBotsModal(true)}
-        onLowcodeClick={handleLowcodeClick}
         onHuanvaeGuardClick={handleHuanvaeGuardClick}
         onStocksClick={handleStocksClick}
         onSettingsClick={() => setShowSettingsPanel(true)}

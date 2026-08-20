@@ -3,7 +3,7 @@
   "identifier": "dev-remote-localhost",
   "description": "仅 macOS 调试用：允许从 http://localhost (Vite dev server) 载入的页面调用 Tauri IPC。生产构建加载 tauri:// 本地资源，remote.urls 不会匹配，因此此 capability 在正式版中处于惰性、无效果。",
   "platforms": ["macOS"],
-  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "lowcode-editor", "editor", "huanvae-guard"],
+  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "editor", "huanvae-guard"],
   "remote": {
     "urls": ["http://localhost:*", "http://127.0.0.1:*"]
   },

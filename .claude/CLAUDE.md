@@ -13,7 +13,7 @@ Huanvae Chat App 是基于 Tauri 2 + React 的跨平台即时通讯客户端，�
 
 ### 前端模块
 
-api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer, lowcode, media, meeting, nfc, pages, services, stores, styles, theme, types, update, utils
+api, chat, components, constants, contexts, db, hooks, huanvaeGuard, lanTransfer, media, meeting, nfc, pages, services, stores, styles, theme, types, update, utils
 
 ## 项目阶段：个人开发验证期（核心约束）
 
@@ -275,7 +275,6 @@ src/
 ├── hooks/          # 自定义 React Hooks
 ├── huanvaeGuard/   # VPN 客户端模块
 ├── lanTransfer/    # 局域网文件传输
-├── lowcode/        # 低代码平台
 ├── media/          # 音视频通话
 ├── meeting/        # 会议功能
 ├── nfc/            # NFC 扫卡指令执行（解析 huanvae:// 指令 + 信任确认）
