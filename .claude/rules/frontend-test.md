@@ -1104,3 +1104,219 @@ src/main.tsx:26  import { LowcodePage } from './lowcode';     ← 静态，非 l
 证不了「新文件在承担」（经 `@import` 引入的文件在 dev 下被内联、探针看不见它，属错类判据）。
 **`dist/` 数选择器是唯一直接的正面证据** ⇒ 把它固化进这类任务的验收口径：
 新选择器命中数 == 新文件里的规则条数（逐条对上），旧模块的私有类在 CSS+JS 产物里**全 0**。
+
+## 🔴 视觉回归门禁：2026-08-21 基线重置 + 权威平台判定（本节更新上文「平台基线差异」一节的处方）
+
+> **本节是 EOF 追加**，不改上文任何一行 —— 上文「🔴 平台基线差异：本地绿 ≠ CI 绿」那节记录的**现象**仍然成立，
+> 但它给的处方（"本机 darwin 且无容器运行时就是做不到 —— 如实写做不到"）**已被本次实测推翻**：
+> 远程 linux 宿主这条路是通的，见下面「三态可达性」。
+
+### 一、写死的空白区间声明（这句不能省）
+
+> **视觉基线于 2026-08-21 重置。此前自 2026-05-11（`7fcf340`）起、约 164 个 `src/` commit 期间的视觉回归，
+> 本门禁【未覆盖且不可追溯】。**
+
+**空白区间两向都不可推**：既不能推「那段没有回归」，也不能推「那段有回归」。
+不把它写下来，空白会被默认读成「没问题」—— 而 2026-05-11 → 2026-08-21 这三个月里，
+CI 那一侧的 e2e 每一次都是红的、没有人拿它当过判据。
+
+### 二、门禁的新形状：权威平台 = linux，其余平台**显式跳过**
+
+真值源 [e2e/helpers/visual-authority.ts](../../e2e/helpers/visual-authority.ts)：
+
+- 判据是 **`process.platform === 'linux'`**，理由是**入仓基线只有 linux 一套**
+  （`git ls-files e2e/snapshots` 列出的全是 `-chromium-linux.png`，张数不写死、由守卫现算；`.gitignore` 排除 darwin/win32）。
+  用「有没有入仓基线」当判据，而不是 `process.env.CI` —— 后者与「基线到底存不存在」脱钩，换个 runner OS 就静默失真。
+- 非 linux 平台上，截图断言**一律 skipped 并打印一行原因**，**不再产出绿色 pass 数字**（2026-08-21 现为 8 条；数字会随断言增删变化，以 `git grep -o toHaveScreenshot -- 'e2e/*.ts' | wc -l` 现查为准）。
+  改前那个「绿」是空绿：本机首跑写一张 `-chromium-darwin.png`（该条 failed），第二跑起比对的是
+  **这台机器自己刚写的那张** ⇒ 结构上不可能失败。
+- 逃生阀 `E2E_VISUAL_FORCE=1` **只把结论推向「跑」，永远推不向「跳过」**（linux 分支先返回，且分支内无 `run:false` 出口）。
+  它比的是本机自产基线，**结果不具权威性**，只供本地看 diff 用。
+- [e2e/visual-authority.spec.ts](../../e2e/visual-authority.spec.ts) 用真值表把上一条钉死，
+  另加两条覆盖面守卫：**每条 `toHaveScreenshot` 必须有对应的 linux 基线**（缺一张 ⇒ CI 那条从此恒红）、
+  **不许有孤儿基线**。两条都做过变异自证（加一条无基线的断言 / 造一张孤儿 png，各自精准只红对应那一条）。
+
+**验收形状（darwin 本机实测，`npx playwright test --project=chromium`）**：`8 skipped` + `13 passed`（2026-08-21 现跑），
+两侧形状不同 ⇒ 不是整套被跳过。**报 e2e 结果必须标平台**这条纪律照旧。
+
+### 三、三态可达性：本机 ✗ / 远程 linux 宿主 ✓ / CI ✗（push 受限）
+
+| 态 | 结论 | 判据 |
+|---|---|---|
+| 本机 | **做不到** | darwin arm64；`command -v docker colima podman lima nerdctl vagrant qemu-system-x86_64 multipass utm` **8/8 无输出 rc=1** |
+| 远程 linux 宿主 | **做得到（本次即由它产出）** | Ubuntu 24.04 x86_64（与 `runs-on: ubuntu-latest` 同发行版同架构）；node 22 tarball + `pnpm install` + `playwright install chromium` + `install-deps chromium`（新增 79 个 apt 包）全部 rc=0 |
+| CI | 能跑但**本轮不可用** | 触发它需要 push，而子仓 push 是 huanwei 本人的红线 |
+
+🔴 **「本机没有 X 所以做不到」下结论前必须先问远程宿主** —— 这条工作区通则在本单又验证一次：
+上文那句「本机 darwin 且无容器运行时的话就是做不到」是**只问了本机**得出的。
+
+### 四、远程 linux 宿主 ≈ GitHub runner 的**证据强度**（别写成「已证明等价」）
+
+🔴 **2026-08-21 复核订正：原来写的「三条实测」经独立复算后剩下 1 条强的、1 条要改写、1 条作废。**
+下面是订正后的版本（原三条的措辞已就地改掉，别再引用旧措辞）：
+
+1. ✅ **【强证据·唯一一条】失败条数与差异比逐条重合**：本次在远程 linux 上拿**旧基线**跑，
+   得 **9 failed / 5 passed / 0 skipped**，9 条差异比落在 **0.04 / 0.09** ——
+   与上文记录的 CI 真跑（9 条红、比值 0.04–0.09）**同形**。
+2. ❌ **【作废】**原第 2 条写「3 张 2026-05 由 GitHub runner 产出的基线在远程 linux 上今天仍在阈值内通过」，
+   并把它当等价性证据。**复核实测那 3 张的真实差异是 1.66% / 3.80% / 10.91%**（阈值分别 0.02 / 0.15 / 0.15），
+   其中 3.80% **与被判红的那 6 条同量级** ⇒ 它们"通过"是**阈值瞎**，不是渲染一致
+   ⇒ **判别力 ≈ 0**，且与本文件第五节「阈值大到看不见一整个字段消失」自相矛盾。**该条不再作为支持证据。**
+3. ⚠️ **【改写】重渲染：字节级【不可】复现，但在判定口径下完全一致。**
+   原文写「连续两次 `--update-snapshots=all`，12 张里 11 张 md5 完全相同，仅 `auth-dark-theme` 一张不同
+   （背景渐变 orb 的定格位置不同）」——**两处都不准**：
+   ① 留档的两个 tarball 实际差 **4 张**，因为前者跑的是 **changed 模式**而不是 all 模式
+   ⇒ 「连续两次 all」这个说法**从留存证据里复算不出来**；
+   ② 那张的两次渲染差 **99.18% 的像素、最大单通道偏差 49** ——**不是"定格位置不同"，是整幅背景渐变整体偏移**。
+   ⇒ 正确措辞是：**字节级不可复现，但在 Playwright 的判定口径下差异 = `0.000000`**。
+
+⚠️ **剩下的这 1 条也只是「同形」，不是「同一台机器」** —— **最终确认仍需一次 CI 真跑**。
+在那次 CI 结果出来之前，任何人不得声称「视觉门禁已经绿了」。
+
+### 五、🔴 顺手挖出的两个**假覆盖**（本次未改，另立单）
+
+1. **12 条断言只对应 6 张不同的【内容】**：`emulateMedia({colorScheme})` 对本 App **零效果**。
+   🔴 **2026-08-21 订正：原文把「视觉相同」写成了「md5 相同」，这两件事必须分开写** ——
+   - **字节层（md5）**：12 张按 md5 是 **7 组**，不是 6 组。原文说"五张 md5 完全相同"的那五张里，
+     真正 md5 相同的只有 **4 张**（`auth-initial` / `visual-login-default` / `visual-login-light` /
+     `visual-login-dark`）；`auth-dark-theme` **自成一组**（md5 与它们都不同）。
+   - **判定层（Playwright 自己的比较器：pixelmatch, threshold 0.2）**：那 **5 张两两差异 = 0 个像素**，
+     `auth-mobile` / `visual-login-mobile` / `visual-login-mobile-dark` **3 张也是 0 个像素**
+     ⇒ **「6 张不同的内容」这个结论是对的**，错的只是把它说成 md5 分组。
+   - ⇒ **`auth-dark-theme` 是「字节不同 ≠ 视觉不同」的现成反例**：它与 `auth-initial` 有真实的
+     逐像素差异（背景渐变整体偏移），但每一个差异像素的 YIQ 加权差都在 `threshold 0.2` 之下 ⇒ 一个都不计数。
+   ⇒ 「light/dark 主题视觉回归」这层覆盖**从来不存在**，它只是把同一张图存了几份。
+   **处置见本文件后面「2026-08-21 续单」一节：那 4 条已删，并加了机器守卫防复发。**
+2. **`visual-login-wide` 的阈值大到看不见一整个表单字段消失**：1920×1080 = 2,073,600 px，
+   `maxDiffPixelRatio: 0.02` ⇒ 允许 41,472 px 不同。实测：登录页去掉「服务器地址」整行
+   （`6a61f58` 的真实改动，卡片矮约 98px 并重新居中）**照样通过**。
+   `visual-register-*` 用 **0.15** 更松。⇒ 这 3 条在旧基线上「通过」，**不是因为 UI 没变，是因为它看不见**。
+   本次已把这 3 张一并重置（否则会把「因为瞎所以绿」当成绿收下）。
+   **阈值该不该收紧另立单。** 🔴 **2026-08-21 订正**：原文写「收得太紧会被上面第三条那张 orb 抖动
+   打成 flaky，**需要先量噪声**」——**噪声已经被量了**：同机重渲染在 Playwright 判定口径下 = **`0.000000`**
+   （连那张字节不同的 `auth-dark-theme` 也是 0）⇒ **当前底噪为零**，"怕 flaky"的顾虑
+   **至少在那台远程 linux 上不成立**。这条同时是阈值另立单的现成输入。
+
+### 六、动手前必看的两条形态坑
+
+- **`e2e/` 既不被 `pnpm typecheck` 也不被 `pnpm lint:strict` 覆盖**
+  （`tsconfig.json` 的 `include` 只有 `["src", "tests"]`；lint 脚本是 `eslint src`）
+  ⇒ e2e 侧的类型/语法错**只有真跑 playwright 才会暴露**。
+- **`package.json` 是 `"type": "module"`** ⇒ e2e spec 里**没有 `__dirname`**。
+  要拿路径用 `test.info().file` / `test.info().project.snapshotDir`，
+  别照抄本文件上文那条给 **vitest** 的「用 `__dirname`」——两套 runner 的模块形态不同。
+- **macOS 打包/拷贝会产出 AppleDouble `._xxx.png` 影子文件**，它同样以 `-chromium-linux.png` 结尾
+  ⇒ 扫基线目录的守卫必须先跳过点开头的文件（实测在 linux 侧误报 9 个「孤儿基线」）。
+
+## 🔴 视觉门禁续单（2026-08-21，R16b）：判别力声明 · 假覆盖处置 · e2e 纳入 typecheck/lint
+
+> **本节同样是 EOF 追加**，不改上一节以外的任何一行。上一节（「2026-08-21 基线重置 + 权威平台判定」）
+> 里被本轮复核推翻的 4 处读数**已就地订正**（各处带「2026-08-21 订正」字样），本节不重复它们。
+>
+> 🔴 **一句话终态：基线已在权威 linux 侧重置；CI 真跑未做，门禁状态未确认。**
+> 全文不写「已修复 / 已绿 / 视觉这块齐了」——**修好基线 ≠ 这个门禁有判别力了，两层要分别验。**
+
+### 一、🔴 判别力声明：每条截图断言「目前能看见多大的变化」
+
+第一层失明是**面积**。Playwright 的 pass 条件是 `count <= expected.width * expected.height * maxDiffPixelRatio`
+（真值源：`playwright-core@1.60.0/lib/coreBundle.js` 的 `compareImages`）。
+下表的 `w×h` 取的是**基线 PNG 的 IHDR 实测值**，不是 spec 里写的视口 —— `fullPage: true` 时两者可能不同。
+
+| spec | 截图 | 基线 w×h | 整幅像素 | 生效 ratio | **可容忍像素数** | ≈ 同面积正方形边长 | ratio 来源 |
+|---|---|---|---|---|---|---|---|
+| auth.spec.ts | `auth-initial.png` | 1280×720 | 921,600 | 0.01 | **9,216** | 96 px | per-call |
+| auth.spec.ts | `auth-mobile.png` | 375×812 | 304,500 | 0.01 | **3,045** | 55 px | per-call |
+| visual-regression.spec.ts | `visual-login-default.png` | 1280×720 | 921,600 | 0.02 | **18,432** | 136 px | `SCREENSHOT_OPTS` |
+| visual-regression.spec.ts | `visual-login-mobile.png` | 375×812 | 304,500 | 0.02 | **6,090** | 78 px | `SCREENSHOT_OPTS` |
+| visual-regression.spec.ts | `visual-login-tablet.png` | 768×1024 | 786,432 | 0.02 | **15,728** | 125 px | `SCREENSHOT_OPTS` |
+| visual-regression.spec.ts | `visual-login-wide.png` | 1920×1080 | 2,073,600 | 0.02 | **41,472** | 204 px | `SCREENSHOT_OPTS` |
+| visual-regression.spec.ts | `visual-register-default.png` | 1280×720 | 921,600 | 0.15 | **138,240** | 372 px | `REGISTER_SCREENSHOT_OPTS` |
+| visual-regression.spec.ts | `visual-register-mobile.png` | 375×812 | 304,500 | 0.15 | **45,675** | 214 px | `REGISTER_SCREENSHOT_OPTS` |
+
+**写死的一句（R20 点名要求）**：
+> `visual-login-wide`：1920×1080，`maxDiffPixelRatio 0.02` ⇒ **小于约 41,472 px 的改动一律判过。
+> 该断言【不构成】"UI 未变"的证据。**
+
+**第二层失明是【逐像素容差】，与面积那层正交**：pixelmatch 的 `threshold` 默认 **0.2**
+（同一份 `coreBundle.js`：`pixelmatch(..., { threshold: options2.threshold ?? 0.2 })`），
+逐像素 YIQ 加权差 **≤ 35215 × 0.2² = 1408.6** 的像素**根本不进计数**——**多少个都不进**。
+本仓有现成的判决性实例：`auth-dark-theme` 与 `auth-initial` **md5 不同**（背景渐变整幅偏移，肉眼可辨），
+而 Playwright 口径下的差异 = **0 个像素**。⇒ **整幅低对比变化可以完全不被这套门禁看见，与面积阈值无关。**
+
+### 二、🔴 禁令（本节的载荷，别只读上面的表）
+
+> **在阈值重设之前，任何人不得引用这几条截图断言的「通过」来支持「UI 没变 / 视觉无回归」。**
+
+适用范围是**上表全部 8 条**，不只是 wide 那条 —— 第二层失明对每一条都成立。
+可以引用的只有反向结论：**某条断言红了 ⇒ 那里确实变了**（阈值宽只会漏报，不会误报）。
+🔴 **阈值该设成多少是另一单**（总管已记着）。本节只负责把"它现在有多瞎"写成可复算的数字。
+
+### 三、Finding 1 处置：`emulateMedia({colorScheme})` 的 4 条假覆盖已**删除**
+
+**根因（现查真值源，不是推的）**：主题模式来自 `src/theme/store.ts` 的 `DEFAULT_CONFIG.mode`，
+其值**写死为 `'light'`**；只有当它是 `'system'` 时，`getEffectiveMode()`（`src/theme/generator.ts`）
+才会去查 `matchMedia('(prefers-color-scheme: dark)')`。默认既然是 `'light'`，**媒体特性根本不被查询**
+⇒ `page.emulateMedia({ colorScheme })` 对本 App 零效果。
+
+**处置 = 删，不是登记。** 已删除的 4 条断言与其 4 张基线：
+`auth-dark-theme` · `visual-login-light` · `visual-login-dark` · `visual-login-mobile-dark`。
+判据是**名字有没有承诺一个它并不变化的维度**：这 4 条名字里写着 light/dark，渲染出来却是同一张 light 图
+⇒ 读测试清单的人以为暗色有覆盖，而它一次都没被测过 ⇒ **删掉比留着更有价值**（留着，下一个人以为有；删掉，下一个人知道没有）。
+
+🔴 **写死：暗色 / 浅色主题的视觉回归【未覆盖】。**
+要真正覆盖，得先把 App 的主题模式喂进去 —— 种 localStorage 键 `huanvae-theme` 的
+`state.config.mode = 'dark'`（`src/theme/store.ts` 的 zustand persist 配置），**再到权威 linux 侧重出基线**。
+本轮没做，理由是如实的：重出基线要再上一趟远程 linux 宿主（node22 tarball + `pnpm install` +
+`playwright install chromium` + `install-deps`，前一单跑完已 `rm -rf` 掉工作目录），
+而新增的暗色基线**没有任何先验可对照**，加进一个"CI 真跑未做、状态未确认"的门里只增暴露面、不增确定性。
+
+⚠️ **同根因的另一处，本轮【只登记未改】**：`e2e/animation-health.spec.ts` 的
+`Animation Health — Dark Theme` 两条同样用 `emulateMedia({ colorScheme: 'dark' })`
+⇒ 它们实际跑的也是浅色。它们不产出基线（不是假基线，是**名字比覆盖面大**），
+且属 `animation-health` 独立 project、不在 CI 门里 ⇒ 本轮只在源码处加注说明，处置另立单。
+
+### 四、🔴 防复发：重复基线登记表守卫（`e2e/visual-authority.spec.ts` 第三组）
+
+上面那 4 条假覆盖能活三个月，唯一原因是**没有任何东西在查「两条断言是不是渲染出同一张图」**。
+新增守卫：任何两张权威基线**字节相同**时，必须出现在 `KNOWN_DUPLICATE_BASELINES` 里并写明理由；
+未登记 ⇒ FAIL；登记了但已经不重复 ⇒ 也 FAIL（登记表过期）。有它，那 4 条在加进来的当天就会红。
+
+当前登记在册的 2 组（都**没有说谎**，只是重复，故登记而非删除）：
+`auth-initial` ≡ `visual-login-default`、`auth-mobile` ≡ `visual-login-mobile` ——
+两侧断言强度不同（0.01 vs 0.02、后者还带 `fullPage`），且 `auth.spec.ts` 需要保留至少一条截图断言
+与同文件的非截图断言混编，作「不是整套被跳过」的正对照。**BACKLOG：阈值另立单收敛后二选一。**
+
+🔴 **已知边界，别当它全覆盖**：md5 是**字节**判据，抓不到「字节不同但在 Playwright 口径下差异为 0」那一档
+（`auth-dark-theme` 正是这种）。要抓那一档得起 Playwright 的比较器，而它的入口 `toMatchSnapshot`
+在 `--update-snapshots` 下会**改写基线**，不能进常驻守卫 —— 所以这条边界是**结构性**的，不是没想到。
+
+### 五、`e2e/` 已纳入 `pnpm typecheck` 与 `pnpm lint:strict`
+
+上一节第六点记的形态坑（`tsconfig.json` 的 `include` 只有 `["src","tests"]`、lint 脚本是 `eslint src`）
+**已修**：`include` 改为 `["src", "tests", "e2e"]`；三条 lint 脚本改为 `eslint src e2e --ext .ts,.tsx`。
+
+- **变异自证（四态 + 负对照，两侧输出形状不同）**：在 `e2e/helpers/visual-authority.ts` 注入一个类型错
+  ⇒ `pnpm typecheck` **rc=2** 并逐行报 `error TS2322`；注入一个 `quotes`/`semi` 违规
+  ⇒ `pnpm lint:strict` **rc=1** 并逐行报位置；原样撤回 ⇒ 两条**都 rc=0** 且 `cmp` 逐字节相等；
+  一次无害改动（只加注释）⇒ 两条仍 rc=0。
+  **负对照（这条才证明"是纳入让它可见"）**：把同一个类型错留在原地、只把 `include` 退回 `["src","tests"]`
+  ⇒ `pnpm typecheck` **rc=0**；把同一个 lint 错留在原地、只用改前口径 `eslint src`
+  ⇒ **rc=0**。⇒ 改前那两个错**结构上看不见**。
+- **纳入不等于放宽**：`eslint.config.js` 为 `e2e/**/*.ts` 单列了一块，里面**只做两件事** ——
+  ① 补 `globals.node`（e2e 跑在 Node 里，`process`/`Buffer` 不是浏览器全局；不补会被判 `no-undef`，
+  那是环境声明缺失，不是代码错）；② 关掉 `react-hooks/rules-of-hooks`（e2e 一行 React 都没有，
+  而 Playwright fixture 的形参固定叫 `use`，被误报成 React 的 `use()` Hook，形参名由 API 定死改不了）。
+  🔴 **真正在查代码质量的规则一条都没放宽**（`no-explicit-any` / `curly` / `no-console` /
+  `quotes` / `no-unused-vars` … 全部照旧生效），既有的 24 个 error + 5 个 warning 是**逐条改代码**修掉的：
+  CDP 负载的 6 处 `any` 换成本文件真正读到的字段的最小接口、`curly` 补花括号、
+  删掉未使用的 `test` 具名导入、`console.log` 改 `console.warn`、`httpLog` 去掉多余的 `async`、
+  轮询循环用**单行** `eslint-disable-next-line no-await-in-loop`（不是整文件关规则）。
+- ⚠️ **`e2e-real/` 仍未纳入**（现查：`npx eslint e2e-real --ext .ts` = **31 problems / 8 errors**，
+  含多处 live-cluster 诊断用的 `console.log`）。本轮不动它，**BACKLOG**：与 real-e2e 那条线一起收。
+- ⚠️ 顺带：`pnpm build` 是 `tsc && vite build`，`include` 变大后**构建也会连 e2e 一起类型检查** —— 这是有意的。
+
+### 六、跑门禁时的两个数字（darwin 本机实测，报结果必须标平台）
+
+`npx playwright test --project=chromium` ⇒ **8 skipped + 13 passed**
+（改前是 12 skipped + 12 passed：删了 4 条截图断言、加了 1 条守卫）。
+两侧形状不同 ⇒ 不是整套被跳过。**CI(ubuntu) 那一侧本轮没跑，状态未确认。**

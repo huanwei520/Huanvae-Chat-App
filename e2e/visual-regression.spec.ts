@@ -5,9 +5,22 @@
  * 基线截图存在 e2e/snapshots/ 并随代码 commit。
  *
  * 覆盖矩阵：
- * - 页面：login（默认） / register / account-selector
- * - 主题：default / light / dark
+ * - 页面：login（默认） / register
  * - 视口：default / mobile (375x812) / tablet (768x1024) / wide (1920x1080)
+ * - 主题：**未覆盖**（只有 default 一种）
+ *
+ * 🔴 为什么没有主题维度（2026-08-21 删掉了原来那三条）：
+ *   原先有 `light theme` / `dark theme` / `mobile dark theme combo` 三条，做法是
+ *   `page.emulateMedia({ colorScheme })`。**它对本 App 零效果** —— 主题模式的真值源是
+ *   `src/theme/store.ts` 的 `DEFAULT_CONFIG.mode`，其值写死为 `'light'`；
+ *   只有当它是 `'system'` 时 `getEffectiveMode()`（src/theme/generator.ts）才会去读
+ *   `matchMedia('(prefers-color-scheme: dark)')`。默认既然是 `'light'`，媒体特性根本不被查询。
+ *   实测后果：那三张基线与 `visual-login-default` / `visual-login-mobile` 在 Playwright 自己的
+ *   比较器下差异 = **0 个像素**（见 .claude/rules/frontend-test.md 的重复度实测表）——
+ *   名字写着 dark、内容却是 light，读测试清单的人会以为暗色有覆盖，而它一次都没被测过。
+ *   ⇒ 按「删掉一个假覆盖比留着它更有价值」处理：删断言、删基线，并在此写明**暗色视觉回归未覆盖**。
+ *   要真正覆盖暗色，得先把 App 的主题模式喂进去（种 localStorage 键 `huanvae-theme`
+ *   的 `state.config.mode='dark'`，见 src/theme/store.ts 的 persist 配置），再在权威 linux 侧重出基线。
  *
  * 注意：
  *   - 触发 register/account-selector 需要先在 login 页交互；用 networkidle + 等待目标元素可见
@@ -20,6 +33,14 @@
 
 import { test, expect } from './helpers/test-fixtures';
 import { waitForVisualSettle } from './helpers/visual-settle';
+import { currentVisualGate, printVisualGateNotice } from './helpers/visual-authority';
+
+// 🔴 本文件整份是截图断言。非权威平台（仓内无该平台入仓基线）上一律**显式跳过**，
+// 不再产出一个「跟本机自产基线比出来的」绿数字。判据与理由见 helpers/visual-authority.ts。
+// CI(ubuntu-latest) ⇒ process.platform === 'linux' ⇒ 落在权威分支，结构上跳不掉。
+const visualGate = currentVisualGate();
+printVisualGateNotice(visualGate);
+test.skip(() => !visualGate.run, visualGate.reason ?? '');
 
 const SCREENSHOT_OPTS = {
   maxDiffPixelRatio: 0.02,
@@ -41,20 +62,6 @@ test.describe('Visual Regression — Login Page', () => {
     });
   });
 
-  test('light theme', async ({ page }) => {
-    await page.emulateMedia({ colorScheme: 'light' });
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await expect(page).toHaveScreenshot('visual-login-light.png', SCREENSHOT_OPTS);
-  });
-
-  test('dark theme', async ({ page }) => {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await expect(page).toHaveScreenshot('visual-login-dark.png', SCREENSHOT_OPTS);
-  });
-
   test('mobile viewport (375x812)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/');
@@ -74,14 +81,6 @@ test.describe('Visual Regression — Login Page', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await expect(page).toHaveScreenshot('visual-login-wide.png', SCREENSHOT_OPTS);
-  });
-
-  test('mobile dark theme combo', async ({ page }) => {
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await expect(page).toHaveScreenshot('visual-login-mobile-dark.png', SCREENSHOT_OPTS);
   });
 });
 

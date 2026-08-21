@@ -152,6 +152,9 @@ export async function waitForVisualSettle(
         let stable = 0;
 
         while (performance.now() - start < budgetMs) {
+          // 这是「逐帧轮询到形态稳定」的采样循环：每一轮必须等上一帧真的过去才能取下一次快照，
+          // 并发化会破坏它要测的东西本身。故此处单行豁免 no-await-in-loop（不是整文件关规则）。
+          // eslint-disable-next-line no-await-in-loop
           await nextTick();
           const current = snapshot();
           if (current !== null && current === previous) {

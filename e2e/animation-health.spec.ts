@@ -33,11 +33,47 @@
  * Chromium-only：CDP 仅支持 Chromium。运行：`pnpm test:animation`
  */
 
-import { test, expect, type Page, type CDPSession } from '@playwright/test';
+import { expect, type Page, type CDPSession } from '@playwright/test';
 import { test as fixtureTest } from './helpers/test-fixtures';
 
 // 用 fixtureTest（带 Tauri mock）的 page，但保留 base test 的 expect
 const animTest = fixtureTest;
+
+// ============================================
+// CDP 负载的最小类型
+// ============================================
+// `CDPSession.send/on` 的负载在 Playwright 里是弱类型的，本文件原先一律写 `any`。
+// 这里只声明**本文件真正读到的字段**（全部 optional，因为 CDP 不保证给全）：
+// 比 `any` 强的地方是——字段名写错会被 tsc 抓到，而 `any` 下写错只会在运行时静默拿到 undefined。
+// 🔴 它不是 CDP 协议的完整定义，别拿它当协议文档；要加字段就照着 CDP 的 Animation/DOM/Performance domain 加。
+
+interface CdpAnimationSource {
+  duration?: number;
+  delay?: number;
+  backendNodeId?: number;
+}
+
+interface CdpAnimation {
+  id?: string | number;
+  type?: string;
+  /** CSSTransition 时 CDP 把过渡属性名放这里 */
+  name?: string;
+  startTime?: number;
+  source?: CdpAnimationSource;
+}
+
+interface CdpAnimationStartedEvent {
+  animation: CdpAnimation;
+}
+
+interface CdpDescribeNodeResult {
+  node?: { nodeName?: string; attributes?: string[] };
+}
+
+interface CdpPerformanceMetric {
+  name?: string;
+  value?: number;
+}
 
 // ============================================
 // 共享检测工具
@@ -59,15 +95,28 @@ async function expectNoExcessiveAnimations(
   const { settleMs = 3000, quietMs = 2000, threshold = 3, label } = options;
   await page.waitForTimeout(settleMs);
 
-  const quietPeriodAnimations: any[] = [];
-  const handler = (event: any) => quietPeriodAnimations.push(event.animation);
+  const quietPeriodAnimations: CdpAnimation[] = [];
+  const handler = (event: CdpAnimationStartedEvent) => quietPeriodAnimations.push(event.animation);
   client.on('Animation.animationStarted', handler);
 
   await page.waitForTimeout(quietMs);
 
   const unexpected = quietPeriodAnimations.filter((a) => {
-    if (a.type === 'CSSAnimation') return false;
-    if (a.source?.duration && a.source.duration < 100) return false;
+    if (a.type === 'CSSAnimation') {
+      return false;
+    }
+    // 🔴 这里必须是 truthy 判定（`&&`），**不是** `!== undefined` —— 两者对 duration === 0 的结论相反：
+    //   truthy 版：0 是 falsy ⇒ 条件不成立 ⇒ 该条**计入** unexpected（门更严，且这是 HEAD 一直以来的语义）；
+    //   `!== undefined` 版：0 !== undefined 为真且 0 < 100 为真 ⇒ 被过滤掉 ⇒ unexpected.length 只会变小
+    //   ⇒ 下面那条 toBeLessThanOrEqual(threshold) 被悄悄放宽。
+    // 2026-08-21 gen-31 的一轮「为过 lint 而改代码」曾把它改成 `!== undefined`，
+    // 而 `curly` 规则只要求**补花括号**、从未要求改这个条件 ⇒ 那是一次夹带的放松，已回退。
+    // 要改这条的语义请单独立单并给出理由，不要在 lint 修复里顺手改。
+    // BACKLOG: 同文件 `recordAnimations` 用的是 `source.duration > 0`（把 0 当「不是真动画」直接丢掉），
+    //   与这里对 0 的处置方向相反。两处要不要统一是一个独立决策，尚未定，故此处保持 HEAD 语义不动。
+    if (a.source?.duration && a.source.duration < 100) {
+      return false;
+    }
     return true;
   });
 
@@ -120,11 +169,16 @@ interface AnimationRecord {
  */
 function recordAnimations(client: CDPSession): AnimationRecord[] {
   const records: AnimationRecord[] = [];
-  client.on('Animation.animationStarted', (event: any) => {
+  client.on('Animation.animationStarted', (event: CdpAnimationStartedEvent) => {
     const animation = event.animation;
     const source = animation?.source;
-    if (!source || !(source.duration > 0)) return;
-    const activeFrom = animation.startTime + (source.delay ?? 0);
+    if (!source || !(source.duration !== undefined && source.duration > 0)) {
+      return;
+    }
+    // `?? 0` 不是纯风格：HEAD 版 `animation.startTime + …` 在 startTime 缺失时得 NaN，
+    // 而 NaN 会顺着 `Math.max(maxEnd, activeTo)` 把**整组**的 maxEnd 污染成 NaN ⇒
+    // 该组后续所有 `activeFrom < maxEnd` 恒 false ⇒ 冲突检测被静默关掉。方向是**收紧**，别改回去。
+    const activeFrom = (animation.startTime ?? 0) + (source.delay ?? 0);
     records.push({
       id: String(animation.id),
       type: String(animation.type),
@@ -140,12 +194,17 @@ function recordAnimations(client: CDPSession): AnimationRecord[] {
 /** 失败时把 backendNodeId 解成可读的元素描述；解不出就退回裸 id（绝不让它影响判定） */
 async function describeNode(client: CDPSession, backendNodeId: number): Promise<string> {
   try {
-    const { node } = (await client.send('DOM.describeNode', { backendNodeId })) as any;
+    const described: CdpDescribeNodeResult = await client.send('DOM.describeNode', { backendNodeId });
+    const node = described.node;
     const attrs: string[] = node?.attributes ?? [];
     let selector = String(node?.nodeName ?? '?').toLowerCase();
     for (let i = 0; i < attrs.length; i += 2) {
-      if (attrs[i] === 'id') selector += `#${attrs[i + 1]}`;
-      if (attrs[i] === 'class') selector += `.${String(attrs[i + 1]).trim().split(/\s+/).join('.')}`;
+      if (attrs[i] === 'id') {
+        selector += `#${attrs[i + 1]}`;
+      }
+      if (attrs[i] === 'class') {
+        selector += `.${String(attrs[i + 1]).trim().split(/\s+/).join('.')}`;
+      }
     }
     return `${selector} (node ${backendNodeId})`;
   } catch {
@@ -191,13 +250,16 @@ async function expectNoConcurrentConflicts(
   for (const record of records) {
     // 属性未知的类型按自身身份分桶，不与任何人比较（见上方"已知边界"）
     const owner = `${record.backendNodeId}|${record.property || `${record.type}:${record.id}`}`;
-    if (!byOwner.has(owner)) byOwner.set(owner, []);
-    byOwner.get(owner)!.push(record);
+    const bucket = byOwner.get(owner) ?? [];
+    bucket.push(record);
+    byOwner.set(owner, bucket);
   }
 
   const conflicts: { nodeId: number; property: string; from: number; to: number; count: number }[] = [];
   for (const group of byOwner.values()) {
-    if (group.length < 2) continue;
+    if (group.length < 2) {
+      continue;
+    }
     const sorted = [...group].sort((a, b) => a.activeFrom - b.activeFrom);
     let maxEnd = -Infinity;
     for (const record of sorted) {
@@ -239,7 +301,7 @@ async function expectReasonableLayouts(
 ) {
   const { threshold = 500, label } = options;
   const { metrics } = await client.send('Performance.getMetrics');
-  const layoutCount = metrics.find((m: any) => m.name === 'LayoutCount');
+  const layoutCount = metrics.find((m: CdpPerformanceMetric) => m.name === 'LayoutCount');
 
   expect(
     layoutCount?.value ?? 0,
@@ -253,7 +315,7 @@ async function expectReasonableHeap(
 ) {
   const { thresholdMB = 100, label } = options;
   const { metrics } = await client.send('Performance.getMetrics');
-  const jsHeap = metrics.find((m: any) => m.name === 'JSHeapUsedSize');
+  const jsHeap = metrics.find((m: CdpPerformanceMetric) => m.name === 'JSHeapUsedSize');
   const heapMB = (jsHeap?.value ?? 0) / (1024 * 1024);
 
   expect(
@@ -373,6 +435,17 @@ for (const vp of VIEWPORTS) {
 // ============================================
 // 场景 4：暗色主题适配
 // ============================================
+//
+// 🔴 名字比覆盖面大（2026-08-21 现查登记，本轮只加注不改行为）：
+//   下面两条用 `page.emulateMedia({ colorScheme: 'dark' })` 切暗色，而**它对本 App 零效果** ——
+//   主题模式的真值源是 `src/theme/store.ts` 的 `DEFAULT_CONFIG.mode`，写死为 `'light'`；
+//   只有它等于 `'system'` 时 `getEffectiveMode()`（src/theme/generator.ts）才会去查
+//   `matchMedia('(prefers-color-scheme: dark)')`。⇒ 这两条实际跑的是**浅色**，
+//   与本文件其余浅色场景重复；「暗色主题下的动画健康」这层覆盖**目前不存在**。
+//   同根因的 4 条截图断言已在同一天删除（见 .claude/rules/frontend-test.md 的「视觉门禁续单」一节）。
+//   这里不删，因为它们不产出基线、且属独立 project 不在 CI 门里。
+//   BACKLOG: 要么按 store 的 persist 键 `huanvae-theme` 种 `state.config.mode='dark'` 让它真的变暗色，
+//   要么删掉这两条并如实写明未覆盖 —— 另立单决定。
 
 animTest.describe('Animation Health — Dark Theme', () => {
   animTest('dark theme: no animation conflicts', async ({ page }) => {

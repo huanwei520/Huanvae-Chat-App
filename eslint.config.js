@@ -131,5 +131,29 @@ export default [
       'space-infix-ops': 'error',
     },
   },
+
+  // ==========================================
+  // E2E（Playwright）目录：环境声明 + 物理上不适用的 React 规则
+  // ==========================================
+  // 为什么必须单列一块：
+  //   1. e2e 跑在 **Node** 里（process / Buffer / node:fs），上面那块只给了浏览器 globals
+  //      ⇒ 不补 node globals，`process` 会被判成 `no-undef`（那是环境声明缺失，不是代码错）；
+  //   2. e2e 里一行 React 都没有。Playwright 的 fixture 形参固定叫 `use`，
+  //      被 react-hooks 当成 React 的 `use()` Hook 误报（helpers/test-fixtures.ts 的 `page` fixture）。
+  //      形参名由 Playwright 的 API 定死，改不了 ⇒ 只能在这一目录关掉这一条 React 规则。
+  // 🔴 这里只做「环境声明 + 关掉物理上不适用的那一条」。真正在查代码质量的规则
+  //    （no-explicit-any / curly / no-console / quotes / no-unused-vars / …）**一条都没放宽** ——
+  //    e2e 目录纳入 lint 的意义就在这里，用整目录 eslint-disable 变绿等于没纳入。
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+    },
+  },
 ];
 

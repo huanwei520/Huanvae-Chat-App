@@ -25,7 +25,7 @@ import { test, expect } from './helpers/test-fixtures';
 import { MOCK_BACKEND_IP } from './helpers/tauri-mock';
 
 /** 从页面取假后端记录到的 secure_http 请求流水 */
-async function httpLog(page: import('@playwright/test').Page) {
+function httpLog(page: import('@playwright/test').Page) {
   return page.evaluate(
     () =>
       (window as unknown as {

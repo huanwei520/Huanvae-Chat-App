@@ -7,9 +7,17 @@
  */
 
 import { test, expect } from './helpers/test-fixtures';
+import { currentVisualGate, printVisualGateNotice } from './helpers/visual-authority';
+
+// 本文件是「截图断言」与「非截图断言」混编：只有前者随权威平台跳过，后者照跑。
+// 这个混编是有意的 —— 同一次跑里，skipped 的截图条与 passed 的非截图条并存，
+// 才能证明「不是整套被跳过」（正对照）。判据见 helpers/visual-authority.ts。
+const visualGate = currentVisualGate();
+printVisualGateNotice(visualGate);
 
 test.describe('Authentication Pages', () => {
   test('login page renders correctly', async ({ page }) => {
+    test.skip(!visualGate.run, visualGate.reason ?? '');
     await page.goto('/');
 
     // Wait for the app to finish loading and show auth form
@@ -50,19 +58,8 @@ test.describe('Authentication Pages', () => {
     await expect(firstInput).toHaveValue('test-input');
   });
 
-  test('auth page visual - dark theme', async ({ page }) => {
-    // Emulate dark color scheme
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    await expect(page).toHaveScreenshot('auth-dark-theme.png', {
-      maxDiffPixelRatio: 0.01,
-      animations: 'disabled',
-    });
-  });
-
   test('auth page visual - mobile viewport', async ({ page }) => {
+    test.skip(!visualGate.run, visualGate.reason ?? '');
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/');
     await page.waitForLoadState('networkidle');
