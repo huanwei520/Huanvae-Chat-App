@@ -6,9 +6,14 @@
  *
  * ## 关键约束
  * 保存历史消息必须使用 `db.saveMessagesSkipExisting`，不可用 saveMessages。
- * 理由：好友消息接口 GET `/api/messages` 响应不包含 is_recalled 字段
- * （见 backend-docs/messages/好友消息.md 字段说明），若用 INSERT OR REPLACE 覆盖，
- * 会把本地已撤回消息（is_recalled=1）误覆盖回 0，UI 退化为"普通对方消息形态"。
+ * 理由：历史接口回的是**服务端视角的整行**，而本地那一行带着服务端不下发、本文件也
+ * 构造不出来的状态 —— 最直接的是 `is_deleted`（"仅本机删除"，服务端根本没有这个概念，
+ * 本文件对每一行都只会填 false）。若用 INSERT OR REPLACE 整行覆盖，用户在本机删掉的
+ * 消息会被历史加载**原样复活**。历史加载要的是「补缺 + 回填」，不是「以服务端为准重写」。
+ *
+ * ⚠️ 这里曾写「GET `/api/messages` 响应不包含 is_recalled 字段」—— **那句是错的**：
+ * 契约 backend-docs/messages/好友消息.md 明写该字段**恒返回**。据此写死 `is_recalled: false`
+ * 的那处代码已在 2026-08-21 改回原样落库（见下方 loadAllHistoryMessages 里的注释）。
  *
  * 历史加载的语义是"补本地缺失的消息 + 回填从未写过的引用/相册四列"：
  * 已存在的行只被 `COALESCE` 补 reply_to / media_group_id / media_group_index /
@@ -21,6 +26,8 @@
  * - 2026-08-12: Rust 侧由 INSERT OR IGNORE 改为 ON CONFLICT DO UPDATE（只补空的四列）——
  *   本文件因此不再是"已存在行原样跳过"，历史加载同时承担存量脏行的引用/相册列回填
  *   （成因见 src-tauri/src/db/messages.rs save_messages_skip_existing 的文档注释）
+ * - 2026-08-21: 好友分支的 is_recalled 由写死 false 改为原样落库；同批订正本文件头部
+ *   那句「响应不包含 is_recalled」的错误陈述（它正是当初写死 false 的依据）
  */
 
 import type { ApiClient } from '../api/client';

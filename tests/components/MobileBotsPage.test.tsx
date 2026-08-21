@@ -53,6 +53,9 @@ vi.mock('../../src/hooks/useBots', () => ({
 
 import { MobileBotsPage } from '../../src/pages/mobile/MobileBotsPage';
 
+/** 创建表单用户名输入框的 placeholder（必须把 bot 后缀这条硬规则说出来，否则提示本身就是错的） */
+const USERNAME_PLACEHOLDER = '3-32 位字母 / 数字 / 下划线，且以 bot 结尾';
+
 describe('MobileBotsPage', () => {
   beforeEach(() => {
     cleanup();
@@ -79,14 +82,54 @@ describe('MobileBotsPage', () => {
     render(<MobileBotsPage onClose={vi.fn()} />);
 
     // 打开前表单字段不存在
-    expect(screen.queryByPlaceholderText('3-32 位字母 / 数字 / 下划线')).toBeNull();
+    expect(screen.queryByPlaceholderText(USERNAME_PLACEHOLDER)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '+ 创建机器人' }));
 
     expect(screen.getByText('创建机器人')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('3-32 位字母 / 数字 / 下划线')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(USERNAME_PLACEHOLDER)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('机器人显示昵称')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('可选，简要描述机器人用途')).toBeInTheDocument();
+  });
+
+  // 🔴 回归（外部审计 idx=97）：本页原先自带一份 `/^[A-Za-z0-9_]{3,32}$/`，
+  // 漏掉了 api/bots.isValidBotUsername 里「必须以 bot 结尾」那一半 ⇒ 输 'weather'
+  // 创建按钮照样高亮可点，点下去后端 400。这两条把「按钮亮不亮」钉在真规则上。
+  it('用户名缺 bot 后缀时创建按钮保持禁用（合规字符集也不放行）', () => {
+    render(<MobileBotsPage onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '+ 创建机器人' }));
+
+    fireEvent.change(screen.getByPlaceholderText(USERNAME_PLACEHOLDER), {
+      target: { value: 'weather' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {
+      target: { value: '天气' },
+    });
+
+    expect(screen.getByRole('button', { name: '创建' })).toBeDisabled();
+  });
+
+  it('用户名以 bot 结尾且昵称非空时创建按钮可点，create 入参为去空白后的用户名', async () => {
+    mockUseBotsReturn.create.mockResolvedValue({ token: 't' });
+    render(<MobileBotsPage onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '+ 创建机器人' }));
+
+    fireEvent.change(screen.getByPlaceholderText(USERNAME_PLACEHOLDER), {
+      target: { value: '  weatherbot  ' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('机器人显示昵称'), {
+      target: { value: '天气' },
+    });
+
+    const createBtn = screen.getByRole('button', { name: '创建' });
+    expect(createBtn).not.toBeDisabled();
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      expect(mockUseBotsReturn.create).toHaveBeenCalledWith(
+        expect.objectContaining({ username: 'weatherbot' }),
+      );
+    });
   });
 
   it('顶栏返回按钮调用 onClose', () => {

@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { useSession } from '../../contexts/SessionContext';
 import { selectFilesForTransfer, cleanupTempFiles, type FilePreparationStatus } from '../../utils/androidFileHandler';
+import { createTempCleanupTracker } from '../../lanTransfer/tempCleanupTracker';
 import {
   useLanTransfer,
   type DiscoveredDevice,
@@ -225,6 +226,8 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const serviceStartedRef = useRef(false);
+  // 待清理的 Android 临时文件（按 sessionId 登记，传完才删）
+  const tempCleanupRef = useRef(createTempCleanupTracker());
 
   // 文件准备状态（Android 专用）
   const [filePreparation, setFilePreparation] = useState<FilePreparationStatus | null>(null);
@@ -345,6 +348,23 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
       });
     }
   }, [transfer.batchProgressMap, addDebugLog]);
+
+  // 传完即删：会话在进度表里出现过又消失 = 这一批落幕
+  useEffect(() => {
+    const activeIds = new Set(transfer.batchProgressMap.keys());
+    for (const paths of tempCleanupRef.current.settle(activeIds)) {
+      cleanupTempFiles(paths).catch((e) => {
+        console.warn('[LanTransfer] 清理临时文件失败:', e);
+      });
+    }
+  }, [transfer.batchProgressMap]);
+
+  // 页面卸载：放弃待清理项而不是清理它们 —— 传输由 Rust 侧承载，页面关了还在跑，
+  // 这时删源文件会把它砍断。宁可漏删一次临时文件，也不能中断用户的传输。
+  useEffect(() => {
+    const tracker = tempCleanupRef.current;
+    return () => tracker.abandon();
+  }, []);
 
   // 刷新设备列表
   const handleRefresh = useCallback(() => {
@@ -518,15 +538,13 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
 
       if (filePaths.length > 0) {
         addDebugLog(`发送 ${filePaths.length} 个文件: ${filePaths.map((p) => p.split('/').pop()).join(', ')}`);
-        await transfer.sendFilesToPeer(connection.connectionId, filePaths);
+        const sessionId = await transfer.sendFilesToPeer(connection.connectionId, filePaths);
         addDebugLog('✓ 文件发送已开始');
 
-        // 传输完成后清理临时文件（延迟执行，等待传输开始）
-        setTimeout(() => {
-          cleanupTempFiles(filePaths).catch((e) => {
-            console.warn('[LanTransfer] 清理临时文件失败:', e);
-          });
-        }, 60000); // 1分钟后清理
+        // 临时文件（Android 把 content:// 复制出来的那份）等**这一批真的传完**再删。
+        // 判定与结算见 lanTransfer/tempCleanupTracker —— 不能按固定时长猜，
+        // 传一个大文件远不止那点时间，到点删掉的正是传输正在读的源文件。
+        tempCleanupRef.current.register(sessionId, filePaths);
       } else {
         addDebugLog('⚠ 未选择任何文件');
         setFilePreparation(null); // 清除状态

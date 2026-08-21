@@ -111,11 +111,23 @@ export const useThemeStore = create<ThemeState>()(
       },
 
       setPreset: (preset: ThemePreset) => {
-        const newConfig = { ...get().config, preset };
+        const config = get().config;
+        const newConfig = { ...config, preset };
         // 如果切换到非自定义预设，同步更新自定义颜色（便于之后切换回自定义时使用）
         if (preset !== 'custom') {
           const presetColors = getPresetConfig(preset).colors;
-          newConfig.customColors = { ...presetColors };
+          // 🔴 opacityLevels 必须跨预设保留：预设表里的 glass 配置**没有这个字段**
+          //（presets.ts 的 DEFAULT_GLASS），整体替换 customColors 会把用户在
+          //「高级透明度设置」里逐条拖出来的 17 个层级值直接抹掉 —— 而 store 是 persist 的，
+          // 落盘即永久丢失，既没有确认也没有 undo。预设卡片是**配色**选择器，
+          // 不是「恢复出厂」；真要清零有独立的 reset()。
+          const keptLevels = config.customColors.glass?.opacityLevels;
+          newConfig.customColors = keptLevels
+            ? {
+              ...presetColors,
+              glass: { ...(presetColors.glass ?? DEFAULT_GLASS_CONFIG), opacityLevels: keptLevels },
+            }
+            : { ...presetColors };
         }
         set({
           config: newConfig,

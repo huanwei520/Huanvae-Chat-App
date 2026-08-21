@@ -13,16 +13,19 @@
  * 写法与 UnifiedList.scrollKeyIntoView / StockSearchBox.scrollOptionIntoView 一致，
  * 规范见 .claude/rules/common.md「element.scrollIntoView() 会沿祖先链冒泡」。
  *
- * **为什么是瞬时滚，不做平滑过渡**：本函数只有一个调用点（useMainPage 的定位 effect），
- * 而那条通路**必然**先走 locate*Message —— 它对消息列表做的是**整段替换**
- *（`setMessages(窗口)`，见 useLocalFriendMessages / useLocalGroupMessages）。
- * 整段换掉之后：
- *   1. 旧内容已经不在了，没有什么可供「平滑滚过」，动画只是空转；
- *   2. `behavior:'smooth'` 的动画会被紧随其后的任何 scrollTop 写入**打断**，停在半路
- *      —— JumpToLatestButton 真机实测过同一种失败（数据已是最新，画面停在中途）。
- * 所以这里与 JumpToLatestButton 的「有重载」分支同款：**双 rAF 等提交+绘制，然后瞬时到位**
- *（双 rAF 在调用方 useMainPage 里）。也因为一律瞬时，不再需要 prefers-reduced-motion 分支
- * —— 瞬时本来就是减弱动效想要的形态。
+ * **为什么是瞬时滚，不做平滑过渡**：本函数只有一个调用方（useMainPage 的定位 effect），
+ * 但那条通路上它被调**两次**，两次都要瞬时：
+ *   1. **先探一次**（不经 locate*Message）——「目标已经渲染在屏幕上」时直接滚过去就是答案，
+ *      连 DB 都不用查（seq=0 的在途消息本来就进不了 seq 窗口，见 useMainPage 那段注释）；
+ *   2. 探不到才走 locate*Message，它对消息列表做的是**整段替换**
+ *      （`setMessages(窗口)`，见 useLocalFriendMessages / useLocalGroupMessages），
+ *      提交+绘制之后（调用方的双 rAF）再滚第二次。
+ * 两次都不做平滑，理由各自成立：
+ *   · 第 2 次：旧内容已经整段换掉，没有什么可供「平滑滚过」，动画只是空转；
+ *   · 两次都适用：`behavior:'smooth'` 的动画会被紧随其后的任何 scrollTop 写入**打断**，
+ *     停在半路 —— JumpToLatestButton 真机实测过同一种失败（数据已是最新，画面停在中途），
+ *     而本模块自己的 startRealign 在落定窗口内**就是**会反复写 scrollTop。
+ * 也因为一律瞬时，不再需要 prefers-reduced-motion 分支 —— 瞬时本来就是减弱动效想要的形态。
  * 配套：CSS 不得在该容器上声明 `scroll-behavior`（否则这里直接写 scrollTop 会被 CSS 变成
  * 平滑动画，重新引入上面第 2 种失败），该约束由 tests/unit/scrollMessageIntoView.test.ts 静态守卫。
  */
@@ -164,7 +167,12 @@ function startRealign(messageUuid: string, container: HTMLElement): void {
     stopped = true;
     cancelAnimationFrame(rafId);
     for (const type of USER_TAKEOVER_EVENTS) {
-      container.removeEventListener(type, stop);
+      // 🔴 capture 必须与 addEventListener 那侧逐字对上：DOM 规范下
+      // (type, callback, capture) 三元组才是监听器的身份，少写第三参 = capture:false =
+      // **另一个**监听器条目，摘不掉。摘不掉的后果不是「多注册一次」而是每调用一次本函数
+      // （点一次引用块 / 跳一次搜索结果）就在滚动容器上永久多挂 4 个监听，
+      // 每个闭包还持着 container / messageUuid / rafId。
+      container.removeEventListener(type, stop, { capture: true });
     }
     if (cancelRealign === stop) {
       cancelRealign = null;

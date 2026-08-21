@@ -65,6 +65,13 @@ export const MEDIA_GROUP_MAX = 10;
  *
  * 三件套必须**同时**有效才算成组：只有 id 没有 index/count 的消息按普通单条处理，
  * 而不是折叠成一个残缺相册 —— 宁可退化成「N 张独立图」也不要渲染出错位的格子。
+ *
+ * 🔴 **上界 {@link MEDIA_GROUP_MAX} 是硬闸，不是提示**：`media_group_count` 是**对端可控的
+ * 外部输入**，而 `expectedCount` 直接喂给 `Array.from({ length: expectedCount })`
+ * （AlbumMessage 的格位数组）。没有上界时一条 `media_group_count = 1e8` 的消息就能让
+ * 渲染线程当场分配一亿个元素 —— webview 冻死，且它只是「一条别人发来的消息」而已。
+ * 超界按上面同一条原则处理：**不成组**，退化成 N 张独立消息（数据仍在，只是不折叠），
+ * 而不是夹到 10 后画出一组与真实张数对不上的格子。
  */
 export function isAlbumItem(message: AlbumableMessage): boolean {
   return (
@@ -73,6 +80,7 @@ export function isAlbumItem(message: AlbumableMessage): boolean {
     && typeof message.media_group_index === 'number'
     && typeof message.media_group_count === 'number'
     && message.media_group_count >= 2
+    && message.media_group_count <= MEDIA_GROUP_MAX
   );
 }
 
@@ -119,7 +127,9 @@ export function groupMessagesIntoAlbums<T extends AlbumableMessage>(
       (a, b) => (a.media_group_index ?? 0) - (b.media_group_index ?? 0),
     );
     // expectedCount 取组内出现过的最大 count（各项都冗余带同一个值；取 max 是为了
-    // 容忍个别项字段缺失时不至于把整组的期望总数算小、少预留占位）
+    // 容忍个别项字段缺失时不至于把整组的期望总数算小、少预留占位）。
+    // 每个 member 都过了 isAlbumItem ⇒ 各自的 count 都 <= MEDIA_GROUP_MAX ⇒
+    // 这里的 max 也 <= MEDIA_GROUP_MAX，渲染层的格位数组不可能被外部输入撑爆。
     const expectedCount = members.reduce(
       (max, m) => Math.max(max, m.media_group_count ?? 0),
       0,

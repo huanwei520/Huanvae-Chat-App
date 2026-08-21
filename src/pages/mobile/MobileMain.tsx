@@ -196,7 +196,7 @@ export function MobileMain() {
         ? data.iceServers
         : [
           { urls: ['stun:stun.l.google.com:19302'] },
-          { urls: ['stun1.l.google.com:19302'] },
+          { urls: ['stun:stun1.l.google.com:19302'] },
         ];
 
       // 连接信令服务器

@@ -21,6 +21,7 @@ import { motion } from 'framer-motion';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { SecretDisplay, type SecretField } from '../../components/common/SecretDisplay';
 import { useBots } from '../../hooks/useBots';
+import { isValidBotUsername } from '../../api/bots';
 import type { BotInfo, CreateBotRequest, UpdateBotRequest } from '../../api/bots';
 // 共享隐私类（bots-radio-group / bots-privacy-status 等）
 import '../../styles/bots.css';
@@ -55,9 +56,6 @@ const cardVariants = {
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, scale: 0.9 },
 };
-
-/** username 规则：3-32 位字母 / 数字 / 下划线（与后端一致） */
-const USERNAME_RE = /^[A-Za-z0-9_]{3,32}$/;
 
 const TOKEN_WARNING = 'Token 仅此一次明文展示，请立即妥善保存；关闭后无法再次查看，只能重置。';
 
@@ -243,7 +241,10 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
   const [whitelistText, setWhitelistText] = useState('');
   const [discoverable, setDiscoverable] = useState(true);
 
-  const usernameValid = USERNAME_RE.test(username.trim());
+  // 🔴 校验必须走 api/bots 导出的那一份：规则是「3-32 位 [A-Za-z0-9_] **且以 bot 结尾**」，
+  // 本页原先自己抄了半条正则（漏掉 bot 后缀）⇒ 输 'weather' 也让创建按钮亮着，
+  // 点下去必被后端 400。桌面 CreateBotDialog 用的就是这个函数，两端只能有一份真值源。
+  const usernameValid = isValidBotUsername(username);
   const canCreate = usernameValid && nickname.trim() !== '' && operatingId !== '__creating__';
   const canAdd = addUsername.trim() !== '' && operatingId !== '__adding__';
   const confirmLabel = confirm?.kind === 'reset' ? '确认重置' : '确认删除';
@@ -425,7 +426,7 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
             <span>用户名 *</span>
             <input
               type="text"
-              placeholder="3-32 位字母 / 数字 / 下划线"
+              placeholder="3-32 位字母 / 数字 / 下划线，且以 bot 结尾"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               maxLength={32}
@@ -451,6 +452,7 @@ export function MobileBotsPage({ onClose, onBotAdded }: MobileBotsPageProps) {
             />
           </label>
           <p className="mobile-bots-hint">
+            用户名需以 <code>bot</code> 结尾（如 <code>weatherbot</code>）。
             创建成功后 Token 仅明文展示一次；每人最多创建 10 个机器人。
           </p>
           {error && <p className="mobile-bots-dialog-error">{error}</p>}

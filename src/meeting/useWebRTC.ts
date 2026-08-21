@@ -292,6 +292,15 @@ export function useWebRTC(): UseWebRTCReturn {
   // 媒体类型映射（接收端用于区分摄像头/屏幕共享）Map<peerId, Map<mid, MediaKind>>
   const mediaTypeMapsRef = useRef<Map<string, Map<string, MediaKind>>>(new Map());
 
+  // 远端流的真值源 Map<peerId, MediaStream>。
+  // 🔴 不能只往 participants 里写：`ontrack` 触发时 participants 里未必已经有这个 peer
+  // （offer 先于 peer_joined 到达时，handleOffer 会先把 pc 建出来），而 ontrack 对同一条
+  // track **只触发一次** —— 当场丢掉就永远回不来了（peer_joined 分支只往列表里塞一条空壳，
+  // 不重扫 pc.getReceivers()；reclassifyStreams 也只管 camera/screen，救不回 p.stream，
+  // 而音频恰恰只从 p.stream 播）。所以 track 一律先落这里，participants 里有就同步过去、
+  // 没有就等 peer_joined 来认领。
+  const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
+
   // ===== Perfect Negotiation 每对 peer 状态 =====
   const politeRef = useRef<Map<string, boolean>>(new Map());
   const makingOfferRef = useRef<Map<string, boolean>>(new Map());
@@ -785,43 +794,48 @@ export function useWebRTC(): UseWebRTCReturn {
     // 接收远程轨道：加轨到 stream，然后按 mid 重分类
     pc.ontrack = (event) => {
       const track = event.track;
-      setParticipants((prev) => {
-        const existing = prev.find((p) => p.id === peerId);
-        if (!existing) {
-          return prev;
+
+      // 先落 ref（participants 里有没有这个 peer 都要收下），再同步到列表。
+      // 每次都新建 MediaStream 实例：引用变了 React 才会重渲染。
+      const previous = remoteStreamsRef.current.get(peerId);
+      const remoteStream = previous
+        ? new MediaStream(previous.getTracks())
+        : new MediaStream();
+      if (!remoteStream.getTracks().find((t) => t.id === track.id)) {
+        remoteStream.addTrack(track);
+      }
+      remoteStreamsRef.current.set(peerId, remoteStream);
+
+      track.onended = () => {
+        const current = remoteStreamsRef.current.get(peerId);
+        if (current) {
+          const left = new MediaStream(current.getTracks().filter((t) => t.id !== track.id));
+          if (left.getTracks().length > 0) {
+            remoteStreamsRef.current.set(peerId, left);
+          } else {
+            remoteStreamsRef.current.delete(peerId);
+          }
         }
+        setParticipants((p) =>
+          p.map((participant) => {
+            if (participant.id === peerId && participant.stream) {
+              const newStream = new MediaStream(
+                participant.stream.getTracks().filter((t) => t.id !== track.id),
+              );
+              return {
+                ...participant,
+                stream: newStream.getTracks().length > 0 ? newStream : undefined,
+              };
+            }
+            return participant;
+          }),
+        );
+      };
 
-        let remoteStream = existing.stream;
-        if (!remoteStream) {
-          remoteStream = new MediaStream();
-        } else {
-          // 创建新的 MediaStream 以触发 React 重新渲染
-          remoteStream = new MediaStream(remoteStream.getTracks());
-        }
-
-        if (!remoteStream.getTracks().find((t) => t.id === track.id)) {
-          remoteStream.addTrack(track);
-        }
-
-        track.onended = () => {
-          setParticipants((p) =>
-            p.map((participant) => {
-              if (participant.id === peerId && participant.stream) {
-                const newStream = new MediaStream(
-                  participant.stream.getTracks().filter((t) => t.id !== track.id),
-                );
-                return {
-                  ...participant,
-                  stream: newStream.getTracks().length > 0 ? newStream : undefined,
-                };
-              }
-              return participant;
-            }),
-          );
-        };
-
-        return prev.map((p) => (p.id === peerId ? { ...p, stream: remoteStream } : p));
-      });
+      // 列表里还没有这个 peer 时这一步是 no-op —— 流已经在 ref 里，等 peer_joined 认领。
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === peerId ? { ...p, stream: remoteStream } : p)),
+      );
       reclassifyStreams(peerId);
     };
 
@@ -902,6 +916,7 @@ export function useWebRTC(): UseWebRTCReturn {
     transceiverMapRef.current.delete(peerId);
     dataChannelsRef.current.delete(peerId);
     mediaTypeMapsRef.current.delete(peerId);
+    remoteStreamsRef.current.delete(peerId);
     politeRef.current.delete(peerId);
     makingOfferRef.current.delete(peerId);
     ignoreOfferRef.current.delete(peerId);
@@ -990,7 +1005,11 @@ export function useWebRTC(): UseWebRTCReturn {
       case 'joined': {
         myIdRef.current = msg.participant_id;
         setMyParticipantId(msg.participant_id);
-        setParticipants(msg.participants.map((p) => ({ ...p, connectionState: 'new' as ConnectionState })));
+        setParticipants(msg.participants.map((p) => ({
+          ...p,
+          connectionState: 'new' as ConnectionState,
+          stream: remoteStreamsRef.current.get(p.id),
+        })));
         setMeetingState('connected');
         reconnectAttemptsRef.current = 0;
         // 双向为每个现有参与者建 pc（impolite 侧经 onnegotiationneeded 发起）
@@ -1004,11 +1023,21 @@ export function useWebRTC(): UseWebRTCReturn {
       }
 
       case 'peer_joined': {
-        setParticipants((prev) => [...prev, { ...msg.participant, connectionState: 'new' as ConnectionState }]);
+        // 认领 ontrack 先收下的远端流：offer 先于本消息到达时，那条流已经躺在 ref 里，
+        // 这里不接就永远接不上了（ontrack 对同一条 track 只触发一次）。
+        const buffered = remoteStreamsRef.current.get(msg.participant.id);
+        setParticipants((prev) => [
+          ...prev,
+          { ...msg.participant, connectionState: 'new' as ConnectionState, stream: buffered },
+        ]);
         const myId = myIdRef.current;
         if (myId) {
           const { polite } = computePolarity(myId, msg.participant.id);
           createPeerConnection(msg.participant.id, polite);
+        }
+        if (buffered) {
+          // 摄像头/屏幕的分流也要一起补（reclassifyStreams 从 pc.getTransceivers() 现读）
+          reclassifyStreams(msg.participant.id);
         }
         break;
       }
@@ -1331,6 +1360,7 @@ export function useWebRTC(): UseWebRTCReturn {
 
     transceiverMapRef.current.clear();
     mediaTypeMapsRef.current.clear();
+    remoteStreamsRef.current.clear();
     politeRef.current.clear();
     makingOfferRef.current.clear();
     ignoreOfferRef.current.clear();

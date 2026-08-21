@@ -44,7 +44,7 @@
  * - 2026-01-25: 支持多个并行传输会话（batchProgressMap）
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
@@ -316,6 +316,11 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [batchProgressMap, setBatchProgressMap] = useState<Map<string, BatchTransferProgress>>(new Map());
   const [hashingProgress, setHashingProgress] = useState<HashingProgress | null>(null);
   const [activeSessions, setActiveSessions] = useState<TransferSession[]>([]);
+  // 已经为其补拉过会话表的 sessionId。会话表是「进度 → 设备」归属的唯一桥
+  // （BatchTransferProgress 本身不带 connectionId/deviceId），而它原先只在服务启停
+  // 和「整批传完」两个时刻拉取 —— 传输**进行中**新建的会话因此永远不在表里，
+  // UI 拿不到归属就只能不显示进度。故首次见到某个 sessionId 的进度就补拉一次。
+  const sessionsFetchedForRef = useRef<Set<string>>(new Set());
   const [saveDirectory, setSaveDirectoryState] = useState<string>('');
   const [config, setConfig] = useState<LanTransferConfig | null>(null);
 
@@ -571,15 +576,28 @@ export function useLanTransfer(): UseLanTransferReturn {
             });
             break;
 
-          case 'batch_progress':
+          case 'batch_progress': {
+            const { sessionId } = payload.progress;
             setBatchProgressMap((prev) => {
               const newMap = new Map(prev);
-              newMap.set(payload.progress.sessionId, payload.progress);
+              newMap.set(sessionId, payload.progress);
               return newMap;
             });
+            // 新会话首次上报进度 → 补拉会话表，让 UI 能把进度归属到具体设备
+            if (!sessionsFetchedForRef.current.has(sessionId)) {
+              sessionsFetchedForRef.current.add(sessionId);
+              invoke<TransferSession[]>('get_all_transfer_sessions')
+                .then(setActiveSessions)
+                .catch((error) => {
+                  // 拉不到就让下一条进度事件再试（这次的 sessionId 从已拉集合里退出来）
+                  sessionsFetchedForRef.current.delete(sessionId);
+                  console.error('[LanTransfer] 获取会话列表失败:', error);
+                });
+            }
             // 传输开始后清除哈希进度
             setHashingProgress(null);
             break;
+          }
 
           case 'hashing_progress':
             // 大文件哈希计算进度
@@ -604,6 +622,7 @@ export function useLanTransfer(): UseLanTransferReturn {
               newMap.delete(payload.session_id);
               return newMap;
             });
+            sessionsFetchedForRef.current.delete(payload.session_id);
             // 刷新会话列表
             invoke<TransferSession[]>('get_all_transfer_sessions').then(setActiveSessions);
             break;

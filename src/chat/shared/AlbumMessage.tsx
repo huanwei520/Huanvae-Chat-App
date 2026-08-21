@@ -96,9 +96,11 @@ const ALBUM_MAX_ROW_LENGTH = 4;
  * - 其余 → 行数取 `ceil(count / 4)`，均分，余数补给**靠后**的行
  *   （5→[2,3] · 6→[3,3] · 7→[3,4] · 8→[4,4] · 9→[3,3,3] · 10→[3,3,4]）
  *
- * 公式而非查表，是因为 expectedCount 来自后端下发的 media_group_count（外部输入），
- * 发送端上限 ALBUM_MAX_ITEMS=10 拦不住一条脏数据 —— 查表在 11 张时就没有条目了，
- * 公式对任意张数都成立。
+ * 公式而非查表，是因为 expectedCount 来自后端下发的 media_group_count（外部输入）：
+ * 发送端上限 ALBUM_MAX_ITEMS=10 只管本机发出的那一份，管不住别人发来的一条脏数据。
+ * 组大小的硬闸在 `mediaGroup.isAlbumItem`（`count <= MEDIA_GROUP_MAX`，超界不成组，
+ * 退化成 N 条独立消息）—— 那才是防住 `Array.from({ length: 1e8 })` 的那道门；
+ * 本函数的「对任意张数都成立」只保证闸门口径将来放宽时排版不至于当场没有条目。
  *
  * 为什么不用 Telegram 那种「左一大 + 右两小」的马赛克：那需要每张图的真实宽高比，
  * 而 AlbumMediaItem 根本不带 width/height、刚发出的消息 image_width 是 null

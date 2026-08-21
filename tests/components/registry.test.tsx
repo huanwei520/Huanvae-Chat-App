@@ -276,6 +276,11 @@ import * as mediaZoomState from '../../src/chat/shared/mediaZoomState';
 import * as MediaGalleryProvider from '../../src/chat/shared/MediaGalleryProvider';
 import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
+import * as mergeMessageList from '../../src/chat/shared/mergeMessageList';
+import * as wsEchoClaim from '../../src/chat/shared/wsEchoClaim';
+import * as creatorIce from '../../src/meeting/creatorIce';
+import * as batchProgressAttribution from '../../src/lanTransfer/batchProgressAttribution';
+import * as tempCleanupTracker from '../../src/lanTransfer/tempCleanupTracker';
 import * as JumpToLatestButton from '../../src/chat/shared/JumpToLatestButton';
 import * as LanTransferPage from '../../src/lanTransfer/LanTransferPage';
 import * as lanTransferApi from '../../src/lanTransfer/api';
@@ -580,6 +585,11 @@ const COMPONENT_MAP = {
   MediaGalleryProvider,
   conversationKey,
   scrollMessageIntoView,
+  mergeMessageList,
+  wsEchoClaim,
+  creatorIce,
+  batchProgressAttribution,
+  tempCleanupTracker,
   JumpToLatestButton,
   // 工具模块
   formatUtils,

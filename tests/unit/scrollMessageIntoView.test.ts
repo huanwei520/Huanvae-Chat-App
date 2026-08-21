@@ -503,6 +503,53 @@ describe('scrollMessageIntoView — 列表在落定窗口内再变时必须重�
     expect(writes.length).toBe(afterFirst);
   });
 
+  // 🔴 回归（外部审计 idx=95）：监听器的身份是 (type, callback, **capture**) 三元组。
+  // 改前 addEventListener 传 `{ capture: true }` 而 removeEventListener 不传第三参
+  //（= capture:false）⇒ 摘的是**另一个**条目，一个都摘不掉。后果不是「多注册一次」：
+  // 每调用一次本函数（点一次引用块 / 跳一次搜索结果）就在滚动容器上永久多挂 4 个
+  // wheel/touchstart/pointerdown/keydown 监听，每个闭包还持着 container / messageUuid / rafId。
+  it('收手后 4 个用户接管监听器必须全部摘掉（capture 三元组要对上）', () => {
+    const model: Model = { contentHeight: MERGED_H, belowPx: BELOW_MERGED };
+    const { container } = mountModel(model);
+
+    // 按 DOM 的真实身份口径（type + listener + capture）记账：三者全等才是同一个条目
+    const live = new Set<string>();
+    const ids = new Map<unknown, number>();
+    const idOf = (fn: unknown): number => {
+      const known = ids.get(fn);
+      if (known !== undefined) { return known; }
+      const assigned = ids.size + 1;
+      ids.set(fn, assigned);
+      return assigned;
+    };
+    const key = (
+      type: string,
+      fn: EventListenerOrEventListenerObject,
+      opts?: boolean | AddEventListenerOptions | EventListenerOptions,
+    ) => {
+      const capture = typeof opts === 'boolean' ? opts : (opts?.capture ?? false);
+      return `${type}|capture=${capture}|fn#${idOf(fn)}`;
+    };
+    const realAdd = container.addEventListener.bind(container);
+    const realRemove = container.removeEventListener.bind(container);
+    container.addEventListener = ((type: string, fn: EventListenerOrEventListenerObject, opts?: boolean | AddEventListenerOptions) => {
+      live.add(key(type, fn, opts));
+      realAdd(type, fn, opts);
+    }) as typeof container.addEventListener;
+    container.removeEventListener = ((type: string, fn: EventListenerOrEventListenerObject, opts?: boolean | EventListenerOptions) => {
+      live.delete(key(type, fn, opts));
+      realRemove(type, fn, opts);
+    }) as typeof container.removeEventListener;
+
+    expect(scrollMessageIntoView('msg-target')).toBe(true);
+    expect(live.size).toBe(4);   // wheel / touchstart / pointerdown / keydown
+
+    // 用户接管 ⇒ stop() ⇒ 必须把这 4 个摘干净
+    container.dispatchEvent(new Event('wheel', { bubbles: true }));
+
+    expect([...live]).toEqual([]);
+  });
+
   it('对准过程中这条消息从 DOM 消失（切走会话）：安静收手，不报错、不乱滚别人', () => {
     const model: Model = { contentHeight: MERGED_H, belowPx: BELOW_MERGED };
     const { container } = mountModel(model);

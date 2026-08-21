@@ -21,6 +21,7 @@ import {
   saveMeetingData,
   type CreateRoomResponse,
 } from '../api';
+import { fetchCreatorIceServers } from '../creatorIce';
 import { CopyIcon, VideoMeetingIcon } from '../../components/common/Icons';
 
 /**
@@ -177,6 +178,13 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     setError(null);
 
     try {
+      // 🔴 创建者必须自己去取 ICE 配置：POST /api/webrtc/rooms 的响应里**没有** ice_servers
+      // （只有参与者走的 joinRoom 才带），而 MeetingPage 拿不到 iceServers 时会退到
+      // 公共 STUN —— 既用不上自家 TURN 中继（对称 NAT / 双 NAT 下直接建不了连），
+      // 又把每次开会的 ICE 探测流量送给第三方。这一步就是那个「创建者需要单独获取」
+      // （见 MeetingWindowData.iceServers 的字段注释）。
+      const iceServers = await fetchCreatorIceServers(api);
+
       // 保存会议数据到 localStorage（使用创建房间返回的 ws_token）
       saveMeetingData({
         role: 'creator',
@@ -185,6 +193,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         roomName: createdRoom.name,
         displayName: session?.profile.user_nickname || '会议主持人',
         token: createdRoom.ws_token,
+        iceServers,
         userInfo: createdRoom.user_info, // 保存创建者用户信息
         serverUrl: session?.serverUrl || '', // 当前登录的服务器地址
       });
@@ -200,7 +209,7 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     } finally {
       setIsJoining(false);
     }
-  }, [createdRoom, session, resetState, onClose]);
+  }, [api, createdRoom, session, resetState, onClose]);
 
   // 加入会议房间（作为参与者）
   const handleJoin = useCallback(async () => {

@@ -20,6 +20,7 @@ import {
   saveMeetingData,
   type CreateRoomResponse,
 } from '../../meeting/api';
+import { fetchCreatorIceServers } from '../../meeting/creatorIce';
 import {
   VideoMeetingIcon,
   CopyIcon,
@@ -135,7 +136,7 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
   }, [api, roomName, roomPassword, maxParticipants, session]);
 
   // 加入已创建的房间（作为创建者）
-  const handleJoinCreatedRoom = useCallback(() => {
+  const handleJoinCreatedRoom = useCallback(async () => {
     if (!createdRoom) {
       return;
     }
@@ -144,6 +145,10 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
     setError(null);
 
     try {
+      // 与桌面端同一件事：createRoom 的响应不带 ice_servers，创建者必须自己取一次，
+      // 否则会议页只能退到公共 STUN（见 meeting/creatorIce 的模块注释）。
+      const iceServers = await fetchCreatorIceServers(api);
+
       saveMeetingData({
         role: 'creator',
         roomId: createdRoom.room_id,
@@ -151,6 +156,7 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
         roomName: createdRoom.name,
         displayName: session?.profile.user_nickname || '会议主持人',
         token: createdRoom.ws_token,
+        iceServers,
         userInfo: createdRoom.user_info,
         serverUrl: session?.serverUrl || '',
       });
@@ -162,7 +168,7 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
     } finally {
       setIsJoining(false);
     }
-  }, [createdRoom, session, onEnterMeeting]);
+  }, [api, createdRoom, session, onEnterMeeting]);
 
   // 加入会议房间（作为参与者）
   const handleJoin = useCallback(async () => {

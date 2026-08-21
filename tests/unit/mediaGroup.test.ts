@@ -181,4 +181,39 @@ describe('MEDIA_GROUP_MAX', () => {
   it('与后端约定的组大小上限一致（2..10）', () => {
     expect(MEDIA_GROUP_MAX).toBe(10);
   });
+
+  // 🔴 回归（外部审计 idx=94）：media_group_count 是**对端可控的外部输入**，
+  // 而 expectedCount 直接喂给 AlbumMessage 的 `Array.from({ length: expectedCount })`。
+  // 改前 isAlbumItem 只判 `>= 2`，一条 media_group_count = 1e8 的消息就能让渲染线程
+  // 当场分配一亿个元素 —— webview 冻死，而它只是「别人发来的一条消息」。
+  // 超界按本文件既定原则处理：不成组，退化成 N 条独立消息（数据仍在，只是不折叠）。
+  it('count 超过上限 ⇒ 不成组（isAlbumItem 为假）', () => {
+    expect(isAlbumItem(item('g1', 0, MEDIA_GROUP_MAX))).toBe(true);
+    expect(isAlbumItem(item('g1', 0, MEDIA_GROUP_MAX + 1))).toBe(false);
+    expect(isAlbumItem(item('g1', 0, 100_000_000))).toBe(false);
+  });
+
+  it('脏 count 的消息退化成独立单条，expectedCount 不可能超过上限', () => {
+    const nodes = groupMessagesIntoAlbums([
+      item('poison', 0, 100_000_000),
+      item('poison', 1, 100_000_000),
+    ]);
+
+    expect(albums(nodes)).toHaveLength(0);
+    expect(nodes).toHaveLength(2);
+    expect(nodes.every((n) => n.kind === 'single')).toBe(true);
+  });
+
+  it('同组里混进一条脏 count 时，其余项仍按各自合法的 count 成组', () => {
+    const nodes = groupMessagesIntoAlbums([
+      item('g1', 0, 3),
+      item('g1', 1, 3),
+      item('g1', 2, 100_000_000),
+    ]);
+
+    const [album] = albums(nodes);
+    expect(album.expectedCount).toBe(3);
+    expect(album.expectedCount).toBeLessThanOrEqual(MEDIA_GROUP_MAX);
+    expect(album.items).toHaveLength(2);
+  });
 });

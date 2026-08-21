@@ -357,6 +357,8 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'mediaGroup', path: 'chat/shared/mediaGroup', category: 'services', description: '媒体组（相册）聚合纯逻辑（N 条独立消息按 media_group_id 折叠成一个渲染节点，index 升序、保留 expectedCount 供跨分页占位、caption 只认 index=0；群聊+私聊共用）' },
   { name: 'conversationKey', path: 'chat/shared/conversationKey', category: 'services', description: '会话身份 key 纯逻辑（草稿与回复草稿的归属校验共用同一口径，key 格式单一真值源）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },
+  { name: 'mergeMessageList', path: 'chat/shared/mergeMessageList', category: 'services', description: '消息列表增量合并（私聊/群聊 × loadMessages/后台同步 四个调用点共用一份：db 窗口只更新与追加，绝不把翻出来的历史砍回最近 50 条）' },
+  { name: 'wsEchoClaim', path: 'chat/shared/wsEchoClaim', category: 'services', description: 'WS 回显认领（按正文+类型在在途消息里配对，取代"第一个 sending"——后者在列表 [新→旧] 下取到的恒是最新那条，会把 uuid 写到另一条上并让它被去重滤掉）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },
@@ -365,6 +367,9 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'aiApi', path: 'api/ai', category: 'services', description: 'AI 助手 API 封装' },
   // 会议 WebRTC 纯函数核心
   { name: 'webrtcCore', path: 'meeting/webrtcCore', category: 'services', description: 'WebRTC perfect-negotiation 纯函数（极性/忽略判定/媒体分类/退避/候选缓冲）' },
+  { name: 'creatorIce', path: 'meeting/creatorIce', category: 'services', description: '会议创建者的 ICE 配置获取（createRoom 响应不带 ice_servers，创建者必须自己取一次，否则会议窗口只能退到公共 STUN、用不上自家 TURN；取不到只降级不阻断）' },
+  { name: 'batchProgressAttribution', path: 'lanTransfer/batchProgressAttribution', category: 'services', description: '局域网批量传输进度→设备归属纯逻辑（按 sessionId 经会话表找对端设备；原实现的 for 循环体判的是循环外常量，≥2 台设备时所有卡片同时丢进度）' },
+  { name: 'tempCleanupTracker', path: 'lanTransfer/tempCleanupTracker', category: 'services', description: 'Android 临时文件清理时机（会话在进度表里出现过又消失才删；原实现无条件 60 秒后删，大文件传一半被删掉源文件）' },
   // 预发送待发区（M-5）数据面
   { name: 'composerTrayPlan', path: 'chat/shared/composerTrayPlan', category: 'services', description: '待发区→发送计划纯逻辑（四格矩阵；单条绝不带 media_group 三件套；按后端类型分族切形态；caption 只挂整批第一项）' },
   { name: 'composerTrayStore', path: 'stores/composerTrayStore', category: 'services', description: '待发区状态（按会话分桶，逐个删除/继续追加，超体积与超数量当场挡下并回报文件名）' },

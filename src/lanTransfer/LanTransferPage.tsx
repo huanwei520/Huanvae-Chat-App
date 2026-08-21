@@ -41,6 +41,7 @@ import {
   PeerConnectionRequest,
 } from '../hooks/useLanTransfer';
 import { loadLanTransferData, clearLanTransferData } from './api';
+import { pickBatchProgressForDevice } from './batchProgressAttribution';
 import './styles.css';
 
 // ============================================================================
@@ -696,6 +697,7 @@ export default function LanTransferPage() {
     pendingRequests,
     activeTransfers,
     batchProgressMap,
+    activeSessions,
     hashingProgress,
     saveDirectory,
     config,
@@ -852,24 +854,14 @@ export default function LanTransferPage() {
   };
 
   // 获取设备连接对应的批量传输进度
-  // batchProgressMap 的 key 是 sessionId，需要遍历查找
+  // batchProgressMap 的 key 是 sessionId，activeSessions 提供 sessionId → 对端设备的桥。
+  // 归属判定见 lanTransfer/batchProgressAttribution（纯函数，单测钉住）。
   const getBatchProgressForDevice = (deviceId: string): BatchTransferProgress | null => {
-    // 由于 batchProgressMap 的 key 是 sessionId 而非 connectionId，
-    // 我们需要根据当前连接状态来判断哪个进度属于该设备
-    // 暂时返回 Map 中的第一个匹配的进度（假设一个连接对应一个会话）
     const connection = getConnectionForDevice(deviceId);
     if (!connection) {
       return null;
     }
-
-    // 遍历所有进度，查找可能属于该连接的进度
-    for (const [_sessionId, progress] of batchProgressMap.entries()) {
-      // 如果只有一个设备连接，直接返回
-      if (activeConnections.length === 1) {
-        return progress;
-      }
-    }
-    return null;
+    return pickBatchProgressForDevice(batchProgressMap, activeSessions, deviceId);
   };
 
   // 从设备卡片发送文件路径（拖放）
