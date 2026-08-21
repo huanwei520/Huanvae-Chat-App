@@ -359,10 +359,17 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         await ensureInstallPermission();
         console.warn('[UpdateStore] ✓ 安装权限已就绪');
 
+        // 🔴 摘要缺失就地失败，连下载都不开：清单没给 sha256 时继续下载 = fail-open，
+        //    等于把「有没有校验」交给攻击者决定（抹掉字段即可绕过）。
+        //    这一步放在 startDownload() **之前**，免得 UI 先亮起进度条再被打断。
+        if (!info.apkSha256) {
+          throw new Error('更新清单未提供 APK 校验摘要，出于安全已中止本次更新');
+        }
+
         // 2. 权限通过后开始下载
         store.startDownload();
         console.warn('[UpdateStore] 开始下载 APK:', info.apkUrl);
-        const localPath = await downloadApk(info.apkUrl, info.version ?? '', (progress) => {
+        const localPath = await downloadApk(info.apkUrl, info.version ?? '', info.apkSha256, (progress) => {
           // Android 侧总长来自 Content-Length；拿不到时是 0 ⇒ 由 updateProgress 推断成不定态
           store.updateProgress({
             percent: progress.percent,

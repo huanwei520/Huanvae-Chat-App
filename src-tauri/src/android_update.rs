@@ -247,8 +247,112 @@ pub async fn fetch_update_json(url: String, timeout_secs: u64) -> Result<String,
         })?;
 
     println!("[Android Update] 响应长度: {} 字节", text.len());
-    println!("[Android Update] 响应内容: {}", &text[..text.len().min(200)]);
+    println!(
+        "[Android Update] 响应内容: {}",
+        truncate_on_char_boundary(&text, LOG_PREVIEW_BYTES)
+    );
     Ok(text)
+}
+
+/// 日志预览的字节上限（只用于 println!，与业务无关）。
+const LOG_PREVIEW_BYTES: usize = 200;
+
+// ============================================
+// APK 完整性校验（sha256）
+// ============================================
+
+// 🔴 下面这四件用 `cfg(any(target_os = "android", test))`，两个条件都不能少：
+//   - `android`：真正的消费方是 Android 侧的 `download_apk`（本模块 `mod` 声明没有 cfg，
+//     所以桌面端也在编译它，那里它们确实无人调用 → 不加条件会 `dead_code`，
+//     而门禁跑的是 `clippy --all-targets -- -D warnings`，warning 即 FAIL）；
+//   - `test`：**唯一**能在开发机（macOS/Linux）上验证这套校验的就是它们的单测。
+//     若只写 `cfg(android)`，桌面上连测试都编不到 → 这条安全校验在本机永远零覆盖。
+
+/// 校验用摘要的字符数：sha256 的十六进制表示恒为 64 个字符。
+#[cfg(any(target_os = "android", test))]
+const SHA256_HEX_LEN: usize = 64;
+
+/// 校验文件时的读盘缓冲（1 MiB）——只影响 IO 次数，不影响结果。
+#[cfg(any(target_os = "android", test))]
+const SHA256_READ_CHUNK: usize = 1024 * 1024;
+
+/// 把清单里的 sha256 归一成小写十六进制；形状不对返回 `None`。
+///
+/// 只接受**恰好 64 个十六进制字符**（允许两端空白、大小写混写）。
+/// 🔴 空串 / `null` / 占位符一律判不合法而**不是**"没给就跳过校验" ——
+/// 后者是典型的 fail-open：清单被污染时只要把该字段抹掉就能绕过整道校验。
+#[cfg(any(target_os = "android", test))]
+fn normalize_expected_sha256(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.len() != SHA256_HEX_LEN || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(trimmed.to_ascii_lowercase())
+}
+
+/// 计算文件的 sha256（**整文件**，与发布流水线里的 `sha256sum` 同口径）。
+///
+/// ⚠️ 不要改用 `crate::content_hash` —— 那是**采样**哈希（大文件只喂头/中/尾各 10 MiB），
+/// 与 `sha256sum` 的结果不同，用它对账会永远不相等。
+#[cfg(any(target_os = "android", test))]
+fn file_sha256_hex(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).map_err(|e| format!("打开 APK 失败: {}", e))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; SHA256_READ_CHUNK];
+    loop {
+        let got = file
+            .read(&mut buf)
+            .map_err(|e| format!("读取 APK 失败: {}", e))?;
+        if got == 0 {
+            break;
+        }
+        hasher.update(&buf[..got]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect())
+}
+
+/// 校验 APK 与清单里的摘要逐字节一致。
+///
+/// 失败信息里**不带**实际摘要之外的任何环境信息（本仓是 PUBLIC 仓）。
+#[cfg(any(target_os = "android", test))]
+fn verify_apk_sha256(path: &std::path::Path, expected_hex: &str) -> Result<(), String> {
+    let actual = file_sha256_hex(path)?;
+    if actual == expected_hex {
+        Ok(())
+    } else {
+        Err(format!(
+            "APK 完整性校验失败：清单 sha256={}，实际={}",
+            expected_hex, actual
+        ))
+    }
+}
+
+/// 按**字符边界**截断，最多保留 `max_bytes` 个字节。
+///
+/// 🔴 为什么不能写 `&text[..text.len().min(200)]`：`str` 的 `Index<Range<usize>>` 用的是
+/// **字节**下标，而下标落在某个多字节 UTF-8 序列中间时它直接
+/// `panic!("byte index N is not a char boundary")`。本函数的输入是更新清单全文，
+/// `notes` 字段是中文更新说明 —— 只要清单里 ASCII 前缀的长度变一变（版本号多一位、
+/// 换个仓名），第 200 字节就可能正好落进一个 3 字节汉字里，
+/// 于是这条 `#[tauri::command]` 直接炸掉，用户看到的是「检查更新永远失败」。
+/// 一句日志没有任何理由能让整条更新链路挂掉。
+fn truncate_on_char_boundary(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    // 从 max_bytes 往回退到最近的字符边界（最多退 3 字节，UTF-8 序列最长 4 字节）。
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 #[cfg(target_os = "android")]
@@ -651,10 +755,22 @@ async fn download_apk_sharded(
 /// `version` 只用于写进标记文件与通知文案，不参与下载本身。
 #[cfg(target_os = "android")]
 #[tauri::command]
-pub async fn download_apk(url: String, version: String, app: AppHandle) -> Result<String, String> {
+pub async fn download_apk(
+    url: String,
+    version: String,
+    sha256: String,
+    app: AppHandle,
+) -> Result<String, String> {
     println!("[Android Update] ========== download_apk 开始 ==========");
     println!("[Android Update] 下载 URL: {}", url);
     println!("[Android Update] 目标版本: {}", version);
+
+    // 🔴 摘要先验形状再下载：清单没给 / 给了个畸形值时**当场失败**，绝不"先下下来再说"。
+    // 这条链的终点是 `install(apkPath)` 拉起系统安装器 —— 一旦那一步开始，
+    // 用户看到的就是一个正常的安装确认框，任何"其实没校验过"的补救都晚了。
+    let expected_sha256 = normalize_expected_sha256(&sha256).ok_or_else(|| {
+        "更新清单未提供合法的 sha256（应为 64 位十六进制），出于安全拒绝下载".to_string()
+    })?;
 
     ensure_ui_visibility_listener(&app);
 
@@ -771,6 +887,18 @@ pub async fn download_apk(url: String, version: String, app: AppHandle) -> Resul
     })?;
     println!("[Android Update] ✓ 分片下载完成: {} bytes", done);
 
+    // 🔴 完整性校验必须在「写完成品标记」**之前**：标记一写上，
+    // `pending_apk_install` 就会把这个包报成可安装，前端一句 `install(path)` 就拉起系统安装器。
+    // 校验不过 ⇒ 删包 + 删断点清单 + 报错，绝不留一个"能装"的坏包在盘上。
+    if let Err(e) = verify_apk_sha256(&file_path, &expected_sha256) {
+        eprintln!("[Android Update] ✗ APK 完整性校验失败，已删除下载文件: {}", e);
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_file(&meta_path);
+        let _ = std::fs::remove_file(&marker_path);
+        return Err(e);
+    }
+    println!("[Android Update] ✓ APK sha256 与更新清单一致");
+
     // 下完了 ⇒ 断点清单作废，必须删掉：留着它下一轮会被当成"这文件是半截的"。
     // 与下面 finish 里写的完成品标记正好交接（清单在=半截 / 标记在=完整）。
     let _ = std::fs::remove_file(&meta_path);
@@ -806,6 +934,7 @@ fn notify_download_complete(app: &AppHandle, version: &str) {
 pub async fn download_apk(
     _url: String,
     _version: String,
+    _sha256: String,
     _app: AppHandle,
 ) -> Result<String, String> {
     Err("APK 下载仅支持 Android 平台".to_string())
@@ -1077,5 +1206,95 @@ mod tests {
             APK_PART_META_FILE_NAME, APK_MARKER_FILE_NAME,
             "断点清单（半截）与完成品标记（完整）语义相反，不能是同一个文件"
         );
+    }
+
+    // ---------- 日志切片：UTF-8 字符边界 ----------
+
+    /// 真实清单形状（中文 notes）下，按字节切在汉字中间必 panic；
+    /// 本函数必须退回到边界、且**永不 panic**。
+    ///
+    /// 判据是二值的：对**每一个**可能的上限逐个跑一遍，
+    /// 任何一个 panic 都会让整条测试红（`&text[..n]` 在同样位置会炸）。
+    #[test]
+    fn truncate_never_splits_a_multibyte_char() {
+        let text = "{\"notes\":\"Huanvae Chat v1.1.36 Android 更新\\n\\n查看完整更新日志: x\"}";
+        for limit in 0..=text.len() + 5 {
+            let got = truncate_on_char_boundary(text, limit);
+            assert!(got.len() <= limit, "limit={limit} 越界: {got:?}");
+            assert!(
+                text.starts_with(got),
+                "limit={limit} 截出来的不是前缀: {got:?}"
+            );
+        }
+    }
+
+    /// 负对照：同样的输入，**旧写法**（按字节直接切）确实会 panic ——
+    /// 证明上面那条测试守的是一个真存在的失效，不是空转。
+    #[test]
+    fn byte_slicing_the_same_text_would_panic() {
+        let text = "更新说明";
+        assert!(!text.is_char_boundary(1), "样本必须真的有多字节字符");
+        let caught = std::panic::catch_unwind(|| {
+            let _ = &text[..1];
+        });
+        assert!(caught.is_err(), "旧写法本应 panic，样本选得不对");
+        // 新写法在同一位置安然退回边界。
+        assert_eq!(truncate_on_char_boundary(text, 1), "");
+    }
+
+    #[test]
+    fn truncate_keeps_short_text_intact() {
+        assert_eq!(truncate_on_char_boundary("abc", 200), "abc");
+    }
+
+    // ---------- APK 完整性校验 ----------
+
+    #[test]
+    fn expected_sha256_accepts_only_64_hex_chars() {
+        let good = "2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e26376";
+        assert_eq!(normalize_expected_sha256(good), Some(good.to_string()));
+        // 大小写混写 + 两端空白：归一后仍应接受。
+        assert_eq!(
+            normalize_expected_sha256(&format!("  {}  ", good.to_ascii_uppercase())),
+            Some(good.to_string())
+        );
+    }
+
+    /// 🔴 fail-closed：清单没给 / 给了个畸形值，一律判不合法。
+    /// 缺了这条，"把 sha256 字段抹掉"就能绕过整道校验。
+    #[test]
+    fn expected_sha256_rejects_missing_or_malformed() {
+        for bad in [
+            "",
+            "   ",
+            "null",
+            "2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e2637",  // 63 位
+            "2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e263766", // 65 位
+            "2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e2637z", // 非 hex
+            "${APK_SHA256}",
+        ] {
+            assert_eq!(normalize_expected_sha256(bad), None, "应拒绝: {bad:?}");
+        }
+    }
+
+    /// 整文件 sha256 必须与 `sha256sum` 同口径。
+    /// 用已知答案钉死：sha256("abc") 是公开的标准测试向量。
+    #[test]
+    fn file_sha256_matches_known_vector_and_rejects_tampering() {
+        let dir = std::env::temp_dir().join("huanvae-apk-sha-test");
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join("sample.bin");
+        std::fs::write(&path, b"abc").expect("写样本");
+
+        const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(file_sha256_hex(&path).expect("应能算出"), ABC);
+        assert!(verify_apk_sha256(&path, ABC).is_ok());
+
+        // 改一个字节 ⇒ 必须红（证明它真的在读文件内容，不是恒等于期望值）。
+        std::fs::write(&path, b"abd").expect("改样本");
+        let err = verify_apk_sha256(&path, ABC).expect_err("被篡改的文件必须校验失败");
+        assert!(err.contains("完整性校验失败"), "实际: {err}");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -844,12 +844,14 @@ jobs:
           # 这也是把 "Download release assets…" 提到本步之前的第二个原因：本步执行时
           # APK 必须已经在盘上，否则只能写一个占位值，那就又造出一个死字段。
           #
-          # BACKLOG: 客户端目前**不**校验 sha256 —— src/update/service.android.ts 只读
-          #   version / notes / url（+ 曾经的 size）；src-tauri/src/android_update.rs 下载完
-          #   只比对字节数（PendingApkInstall.size），不算摘要。所以此刻这个字段的
-          #   **唯一消费方是本 workflow 自己**（下面这两条「清单 vs 产物」断言）。
-          #   等客户端落盘校验接上之后，它才成为端到端的完整性校验。
-          #   在那之前不许把它描述成「已实现完整性校验」。
+          # 客户端侧已于 2026-08-21 接上（原 BACKLOG 关闭）：
+          #   src/update/service.android.ts 读清单的 sha256 → store.ts 缺就直接中止本次更新
+          #   （fail-closed，不是"没给就跳过"）→ src-tauri/src/android_update.rs
+          #   `download_apk(url, version, sha256, ..)` 下完后整文件 sha256 逐字节比对，
+          #   不一致就删包 + 删标记 + 报错，绝不写「完成品标记」。
+          #   ⇒ 这个字段现在是**端到端**完整性校验的一环，不再只被本 workflow 自己消费。
+          #   下面那两条「清单 vs 产物」断言仍然保留：它们拦的是模板/变量未展开这类写坏，
+          #   与客户端校验各挡一段（清单写错 vs 分发途中被换）。
           APK_PATH="r2-upload/${APK_NAME}"
           if [ ! -s "$APK_PATH" ]; then
             echo "❌ 找不到 APK 产物: ${APK_PATH}"

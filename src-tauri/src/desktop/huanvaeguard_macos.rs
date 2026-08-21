@@ -3,7 +3,7 @@
 //! macOS 数据面是 `hg-macos` 守护进程（必须 root —— 创建 utun），由 launchd
 //! 常驻托管（plist 含 RunAtLoad + KeepAlive）。与 Windows 用 `sc.exe` 管 Service
 //! 不同，macOS 这边职责更轻：
-//!   - **安装一次**：拷二进制到 /usr/local/bin、plist 到 /Library/LaunchDaemons、
+//!   - **安装一次**：拷二进制到 /Library/PrivilegedHelperTools、plist 到 /Library/LaunchDaemons、
 //!     `launchctl bootstrap`；之后开机自起、崩溃自拉，App 不负责启停。
 //!   - **App 仅"首次确保已安装"**：前端打开 HG 窗口时 invoke `hg_ensure_installed`，
 //!     已装则瞬时返回；未装则用 `osascript ... with administrator privileges`
@@ -20,8 +20,25 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// 安装后的守护进程二进制**目录**。
+///
+/// 🔴 **绝不能是 `/usr/local/bin`**（本仓 v1.1.36 及以前就装在那儿）：
+/// 这个守护进程由 launchd 以 **root** 常驻拉起（plist 里 `UserName=root` +
+/// `RunAtLoad` + `KeepAlive`），所以「谁能改写这个文件」就等于「谁能拿到 root」。
+/// 而**任何装过 Homebrew 的 Mac 上 `/usr/local/bin` 是 `drwxrwxr-x root:admin`** ——
+/// admin 组的普通进程不需要密码、不需要提权就能替换掉里面的二进制，
+/// 下次开机 launchd 就以 root 执行攻击者的程序。
+/// `chmod 755` 管的是**文件**位，管不了**目录**位：目录可写就能 unlink + 重建。
+///
+/// `/Library/PrivilegedHelperTools` 是 Apple 给特权 helper 的约定位置，
+/// 系统上默认是 `root:wheel`，且不在任何包管理器的接管范围内。
+/// 安装链仍然显式 `chown root:wheel` + `chmod 755` 这个目录，
+/// 这样即使它此前被别人以宽松权限建出来，也会被纠正回来。
+const DAEMON_BIN_DIR: &str = "/Library/PrivilegedHelperTools";
 /// 安装后的守护进程二进制路径
-const DAEMON_BIN_DST: &str = "/usr/local/bin/hg-macos";
+const DAEMON_BIN_DST: &str = "/Library/PrivilegedHelperTools/hg-macos";
+/// v1.1.36 及以前的安装位置 —— 安装时顺手删掉，不留一个"以 root 跑过"的陈旧副本。
+const LEGACY_DAEMON_BIN_DST: &str = "/usr/local/bin/hg-macos";
 /// 安装后的 LaunchDaemon plist 路径
 const PLIST_DST: &str = "/Library/LaunchDaemons/com.huanvaeguard.daemon.plist";
 /// LaunchDaemon 的服务标签 —— `launchctl` 的 **service target** 用它寻址（`system/<label>`）。
@@ -344,10 +361,14 @@ fn path_is_shell_safe(p: &str) -> bool {
 /// bootout → enable → bootstrap 的顺序理由见 `run_install_with_admin` 的文档注释。
 fn install_shell(src_bin: &str, src_plist: &str) -> String {
     format!(
-        "echo HGSTEP=mkdir >&2; mkdir -p /usr/local/bin /var/log/huanvaeguard || exit 11; \
+        "echo HGSTEP=mkdir >&2; mkdir -p '{DAEMON_BIN_DIR}' /var/log/huanvaeguard || exit 11; \
+         chown root:wheel '{DAEMON_BIN_DIR}' || exit 11; \
+         chmod 755 '{DAEMON_BIN_DIR}' || exit 11; \
          echo HGSTEP=copybin >&2; cp '{src_bin}' '{DAEMON_BIN_DST}' || exit 12; \
+         chown root:wheel '{DAEMON_BIN_DST}' || exit 12; \
          chmod 755 '{DAEMON_BIN_DST}' || exit 12; \
          xattr -dr com.apple.quarantine '{DAEMON_BIN_DST}' 2>/dev/null; \
+         rm -f '{LEGACY_DAEMON_BIN_DST}' 2>/dev/null; \
          echo HGSTEP=copyplist >&2; cp '{src_plist}' '{PLIST_DST}' || exit 13; \
          chown root:wheel '{PLIST_DST}' || exit 13; chmod 644 '{PLIST_DST}' || exit 13; \
          echo HGSTEP=bootstrap >&2; launchctl bootout system '{PLIST_DST}' 2>/dev/null; \
@@ -461,11 +482,11 @@ fn classify_install_failure(stderr: &str) -> String {
              请确认该目录可写、未被安全软件或系统策略拦截。原始输出：{raw}"
         ),
         Some("copybin") => format!(
-            "复制守护进程二进制到 /usr/local/bin 失败：\
+            "复制守护进程二进制到 {DAEMON_BIN_DIR} 失败：\
              请确认该目录可写、未被安全软件拦截。原始输出：{raw}"
         ),
         Some("mkdir") => format!(
-            "创建安装目录（/usr/local/bin、/var/log/huanvaeguard）失败：\
+            "创建安装目录（{DAEMON_BIN_DIR}、/var/log/huanvaeguard）失败：\
              请确认磁盘可写。原始输出：{raw}"
         ),
         _ => format!("提权安装失败。原始输出：{raw}"),
@@ -607,7 +628,7 @@ mod tests {
 
     #[test]
     fn parse_api_listen_port_reads_value_after_the_flag() {
-        let xml = "<array><string>/usr/local/bin/hg-macos</string>\
+        let xml = "<array><string>/Library/PrivilegedHelperTools/hg-macos</string>\
                    <string>--api-listen</string><string>127.0.0.1:19203</string></array>";
         assert_eq!(parse_api_listen_port(xml), Some(19203));
     }
@@ -621,7 +642,7 @@ mod tests {
     #[test]
     fn parse_api_listen_port_none_without_the_flag() {
         // 有 host:port 形状的字符串，但没有 --api-listen 参数：不能瞎认。
-        let xml = "<array><string>/usr/local/bin/hg-macos</string>\
+        let xml = "<array><string>/Library/PrivilegedHelperTools/hg-macos</string>\
                    <string>127.0.0.1:19198</string></array>";
         assert_eq!(parse_api_listen_port(xml), None);
     }
@@ -663,7 +684,7 @@ mod tests {
         // 老版本 App 装的 plist：ProgramArguments 只有二进制路径，
         // 它启动的守护进程绑的是编译内置默认端口。
         let legacy = "<key>ProgramArguments</key>\
-                      <array><string>/usr/local/bin/hg-macos</string></array>";
+                      <array><string>/Library/PrivilegedHelperTools/hg-macos</string></array>";
         // 传进来的候选之所以是 19199，正是因为默认端口被那个老守护进程占着；
         // 若采信候选就会把活着的自家守护进程判成"未运行"。
         assert_eq!(control_port_from_plist(Some(legacy), Some(19199)), 19198);
@@ -723,17 +744,23 @@ mod tests {
         );
         assert!(msg.contains("系统拒绝加载后台服务"), "实际: {msg}");
         assert!(msg.contains("Bootstrap failed: 5"), "实际: {msg}");
-        assert!(!msg.contains("/usr/local/bin 失败"), "实际: {msg}");
+        assert!(
+            !msg.contains(&format!("{DAEMON_BIN_DIR} 失败")),
+            "实际: {msg}"
+        );
     }
 
     #[test]
     fn classify_copybin_embeds_raw_output() {
-        let msg = classify_install_failure(
-            "HGSTEP=mkdir\nHGSTEP=copybin\ncp: /usr/local/bin/hg-macos: Permission denied\n",
+        let raw = format!(
+            "HGSTEP=mkdir\nHGSTEP=copybin\ncp: {DAEMON_BIN_DST}: Permission denied\n"
         );
-        assert!(msg.contains("/usr/local/bin 失败"), "实际: {msg}");
+        let msg = classify_install_failure(&raw);
+        // 文案里的目录名必须跟着 DAEMON_BIN_DIR 走，不是写死的字面量
+        //（写死过一次：落点改了、文案还在说旧目录，用户按它去查会查错地方）。
+        assert!(msg.contains(&format!("{DAEMON_BIN_DIR} 失败")), "实际: {msg}");
         assert!(
-            msg.contains("cp: /usr/local/bin/hg-macos: Permission denied"),
+            msg.contains(&format!("cp: {DAEMON_BIN_DST}: Permission denied")),
             "实际: {msg}"
         );
         assert!(!msg.contains("系统拒绝加载后台服务"), "实际: {msg}");
@@ -777,6 +804,41 @@ mod tests {
             rest = &after_open[close_at + CLOSE.len()..];
         }
         flags
+    }
+
+    /// 抠出 `ProgramArguments` 那个 `<array>` 里的全部 `<string>` 值（保序）。
+    ///
+    /// 只扫这一段、不扫全文：plist 里别处（StandardOutPath 等）也有 `<string>`，
+    /// 全文扫会把它们混进来，`args[0]` 就不再是"可执行文件路径"了。
+    fn plist_program_arguments(xml: &str) -> Vec<&str> {
+        const KEY: &str = "<key>ProgramArguments</key>";
+        const OPEN: &str = "<string>";
+        const CLOSE: &str = "</string>";
+
+        let Some(key_at) = xml.find(KEY) else {
+            return Vec::new();
+        };
+        let after_key = &xml[key_at + KEY.len()..];
+        let Some(arr_open) = after_key.find("<array>") else {
+            return Vec::new();
+        };
+        let after_arr = &after_key[arr_open..];
+        let Some(arr_close) = after_arr.find("</array>") else {
+            return Vec::new();
+        };
+        let block = &after_arr[..arr_close];
+
+        let mut args = Vec::new();
+        let mut rest: &str = block;
+        while let Some(open_at) = rest.find(OPEN) {
+            let after_open = &rest[open_at + OPEN.len()..];
+            let Some(close_at) = after_open.find(CLOSE) else {
+                break;
+            };
+            args.push(after_open[..close_at].trim());
+            rest = &after_open[close_at + CLOSE.len()..];
+        }
+        args
     }
 
     /// 打包进 .app 的守护进程二进制本体（发货件），按字节读。
@@ -876,6 +938,75 @@ mod tests {
                 String::from_utf8_lossy(leak)
             );
         }
+    }
+
+    /// 🔴 plist 里 `ProgramArguments[0]` 必须与 `DAEMON_BIN_DST` **逐字相同**。
+    ///
+    /// 两者一旦漂开：安装链把二进制拷到 A，launchd 去 B 拉 —— 服务起不来，
+    /// 而 `launchctl bootstrap` 对「Program 指向的二进制不存在」是**返回 0** 的
+    ///（本模块注释里已实测记过），于是安装看起来一路成功、VPN 却永远连不上。
+    #[test]
+    fn bundled_plist_program_path_matches_daemon_bin_dst() {
+        let args = plist_program_arguments(BUNDLED_PLIST_TEMPLATE);
+        assert!(!args.is_empty(), "没从打包 plist 扫出 ProgramArguments，扫描逻辑坏了");
+        assert_eq!(
+            args[0], DAEMON_BIN_DST,
+            "plist 的可执行路径与安装落点不一致：装到 {DAEMON_BIN_DST}，plist 却指向 {}",
+            args[0]
+        );
+    }
+
+    /// 🔴 root LaunchDaemon 的二进制**不许**再落在 `/usr/local/bin`。
+    ///
+    /// Homebrew 机上那是 `drwxrwxr-x root:admin` —— admin 组的普通进程不用密码
+    /// 就能替换掉它，下次开机 launchd 以 root 执行攻击者的二进制（本地提权到 root）。
+    /// 这条守卫盯着它别回来：回退是**静默**的（功能照常，安全面塌掉）。
+    #[test]
+    fn daemon_never_installs_into_a_group_writable_prefix() {
+        assert!(
+            DAEMON_BIN_DST.starts_with("/Library/PrivilegedHelperTools/"),
+            "root daemon 只能装在特权 helper 目录，实际: {DAEMON_BIN_DST}"
+        );
+        assert!(
+            !DAEMON_BIN_DST.starts_with("/usr/local/"),
+            "/usr/local 在装过 Homebrew 的机器上是 admin 组可写，实际: {DAEMON_BIN_DST}"
+        );
+        // plist 那一侧同样不许出现旧前缀（模板与常量各写各的，必须两边都钉）。
+        assert!(
+            !BUNDLED_PLIST_TEMPLATE.contains("/usr/local/bin/hg-macos"),
+            "打包 plist 仍指向旧的 /usr/local/bin 落点"
+        );
+    }
+
+    /// 安装链必须把新目录与二进制的属主/权限显式纠正回 root:wheel + 755，
+    /// 并顺手清掉旧落点 —— 留一个"曾以 root 跑过"的陈旧副本本身就是误导性残留。
+    #[test]
+    fn install_shell_hardens_destination_and_removes_legacy_copy() {
+        let shell = install_shell(
+            "/tmp/src/hg-macos",
+            "/tmp/staged/com.huanvaeguard.daemon.plist",
+        );
+        assert!(
+            shell.contains(&format!("chown root:wheel '{DAEMON_BIN_DIR}'")),
+            "缺目录 chown：目录若被别人以宽松权限建出来，chmod 文件位救不了：\n{shell}"
+        );
+        assert!(
+            shell.contains(&format!("chmod 755 '{DAEMON_BIN_DIR}'")),
+            "缺目录 chmod：\n{shell}"
+        );
+        assert!(
+            shell.contains(&format!("chown root:wheel '{DAEMON_BIN_DST}'")),
+            "缺二进制 chown：\n{shell}"
+        );
+        assert!(
+            shell.contains(&format!("rm -f '{LEGACY_DAEMON_BIN_DST}'")),
+            "未清理旧落点 {LEGACY_DAEMON_BIN_DST}：\n{shell}"
+        );
+        // 清旧落点不许参与中止链：它在全新安装的机器上本来就不存在。
+        assert!(
+            !shell.contains(&format!("rm -f '{LEGACY_DAEMON_BIN_DST}' || exit")),
+            "清理旧落点不该 || exit（新机器上本就没有这个文件）：\n{shell}"
+        );
     }
 
     #[test]

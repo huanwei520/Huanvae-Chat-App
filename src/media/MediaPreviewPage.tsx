@@ -32,7 +32,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { secureHttp } from '../services/secureFetch';
 import { resolveForSecureHttp } from '../services/discovery';
 import { resolveDisplayUrl } from '../services/secureProxy';
-import { loadMediaData, type MediaStorageData } from './api';
+import { takeMediaData, type MediaStorageData } from './api';
 import {
   getCachedFilePath,
   downloadAndSaveFile,
@@ -838,11 +838,17 @@ export default function MediaPreviewPage() {
   const [handoff, setHandoff] = useState<MediaStorageData | null>(null);
   const [index, setIndex] = useState(0);
 
-  // 初始化：读取媒体数据
+  // 初始化：**取走**媒体数据（takeMediaData 读完即从 localStorage 删除）
+  //
+  // 🔴 handoff 里带着完整的 accessToken，而 localStorage 按 origin 共享且落盘 ——
+  // 取走之后它只活在本窗口的内存里。为什么删了也不影响功能：数据已经进了 React state，
+  // 而这个窗口每次都是主窗口「先写数据、关掉旧窗、再新建」出来的
+  //（见 media/api.ts 的 openMediaWindow），不存在"重新读一次"的路径。
+  //
   // 数据缺失时停留在加载态（该窗口仅在主窗口写入数据后创建，此路径实际不可达；
   // 窗口关闭一律走原生标题栏，DOM 层的 close 调用在 Tauri webview 里关不掉 OS 窗口）
   useEffect(() => {
-    const data = loadMediaData();
+    const data = takeMediaData();
     if (!data || !data.serverUrl || !data.accessToken || !data.sequence?.length) {
       return;
     }

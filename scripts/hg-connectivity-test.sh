@@ -68,7 +68,15 @@ NC='\033[0m'
 # ============================================
 DAEMON_LABEL="com.huanvaeguard.daemon"
 PLIST_PATH="/Library/LaunchDaemons/${DAEMON_LABEL}.plist"
-DAEMON_BIN="/usr/local/bin/hg-macos"
+# 🔴 落点真值源 = huanvaeguard_macos.rs 的 DAEMON_BIN_DST，改那边必须同步改这里。
+# v1.1.36 及以前的旧落点见同文件的 LEGACY_DAEMON_BIN_DST（本注释故意不复写那个字面量，
+# 免得「全仓还有几处写死旧落点」这条穷举判据被自己的注释灌水）：那个目录在装过
+# Homebrew 的机器上是 drwxrwxr-x root:admin，普通 admin 进程免密就能替换掉一个由
+# launchd 以 root 拉起的二进制，所以已迁到 /Library/PrivilegedHelperTools
+#（默认 root:wheel，不在任何包管理器的接管范围内）。
+# 本脚本自称与那个文件对齐：这一行漏改会让「发货件同一性」子项直接 fail_item 1
+#（设了 HG_EXPECT_DAEMON_SHA 时找不到文件），即门禁「VPN 连通性」第 1 项 FAIL。
+DAEMON_BIN="/Library/PrivilegedHelperTools/hg-macos"
 DEFAULT_CONTROL_PORT=19198
 
 # ============================================

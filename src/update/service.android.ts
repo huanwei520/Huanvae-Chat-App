@@ -51,8 +51,15 @@ export interface AndroidUpdateInfo {
   notes?: string;
   /** APK 下载地址 */
   apkUrl?: string;
-  /** APK 文件大小（字节） */
-  apkSize?: number;
+  /**
+   * APK 的 sha256（小写十六进制，64 位）—— 由发布流水线对**即将分发的那份字节**算出
+   * 并写进清单（`.github/workflows/release.yml` 的 `APK_SHA256`）。
+   *
+   * 🔴 下载完成后**必须**在 Rust 侧逐字节校验（`download_apk` 的 `sha256` 参数）：
+   * 这条链的终点是把 APK 交给系统安装器，任何能污染对象存储或劫持 GitHub 回退源的路径，
+   * 没有它就等于「静默下载并拉起任意 APK 的安装」。
+   */
+  apkSha256?: string;
 }
 
 /** android-latest.json 文件格式 */
@@ -60,7 +67,8 @@ interface AndroidLatestJson {
   version: string;
   notes?: string;
   url: string;
-  size?: number;
+  /** APK 的 sha256（小写十六进制 64 位），由发布流水线写入 */
+  sha256?: string;
 }
 
 /** 下载进度回调参数 */
@@ -195,7 +203,7 @@ async function fetchAndroidLatest(
       version: data.version,
       notes: data.notes,
       apkUrl: data.url,
-      apkSize: data.size,
+      apkSha256: data.sha256,
     };
   }
   console.warn(`[Android Update] ✓ 已是最新版本 (${sourceLabel})`);
@@ -248,12 +256,15 @@ export async function checkForUpdates(): Promise<AndroidUpdateInfo> {
  *
  * @param url - APK 下载地址
  * @param version - 目标版本号（写进待安装标记与通知文案）
+ * @param sha256 - 清单给出的 APK sha256（小写十六进制 64 位）；
+ *                 Rust 侧下完后逐字节校验，**不合法或对不上一律失败**，绝不放行安装
  * @param onProgress - 进度回调
  * @returns 本地文件路径
  */
 export async function downloadApk(
   url: string,
   version: string,
+  sha256: string,
   onProgress?: AndroidProgressCallback,
 ): Promise<string> {
   console.warn('[Android Update] ========== downloadApk 开始 ==========');
@@ -277,7 +288,7 @@ export async function downloadApk(
   try {
     console.warn('[Android Update] 调用 Rust download_apk...');
     // 调用 Rust 后端下载
-    const localPath = await invoke<string>('download_apk', { url, version });
+    const localPath = await invoke<string>('download_apk', { url, version, sha256 });
     console.warn('[Android Update] ✓ Rust 返回本地路径:', localPath);
     return localPath;
   } catch (err) {

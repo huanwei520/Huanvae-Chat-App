@@ -53,6 +53,11 @@ src-tauri/gen/android/app/src/main/assets/Notification-Sounds/
 e2e/test-results/
 playwright-report/
 blob-report/
+# 仓根的 test-results/ —— playwright 未显式配 outputDir 时的默认落点（本仓两份 config 都显式配了 outputDir，
+# 所以这条防的是**任何不经这两份 config 的 playwright 调用**，而不是某个具体命令行）。
+# 前导斜杠把它**锚在仓根**：上面那条 e2e/test-results/ 与下面 e2e-real/test-results/ 各管各的，
+# 三条互不覆盖（不写斜杠会变成"任意深度的同名目录"，把那两条吞掉）。
+/test-results/
 
 # 真后端 e2e（playwright.real-e2e.config.ts）的运行产物 —— 与上面两条同性质，
 # 只是路径不同，此前漏配，且已有两个文件被 track（本次一并 git rm --cached 停止跟踪）

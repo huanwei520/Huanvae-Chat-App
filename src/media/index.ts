@@ -10,7 +10,7 @@ export { default as MediaPreviewPage } from './MediaPreviewPage';
 // API 和工具函数
 export {
   openMediaWindow,
-  loadMediaData,
+  takeMediaData,
   clearMediaData,
   type MediaWindowData,
   type MediaSequenceEntry,

@@ -99,12 +99,25 @@ function saveMediaDataInternal(data: MediaStorageData): void {
 }
 
 /**
- * 从 localStorage 加载媒体数据
- * 在媒体窗口初始化时调用
- * 返回包含认证信息的完整数据
+ * 取走 localStorage 里的媒体数据（**读完即删**，一次性）
+ *
+ * 在媒体窗口初始化时调用，返回包含认证信息的完整数据。
+ *
+ * 🔴 为什么是「取走」而不是「读取」：这份 handoff 里带着完整的 accessToken，
+ * 而 localStorage 是**按 origin 共享**且**落盘**的 —— 只读不删的话，令牌会一直躺在
+ * 磁盘上直到下次被覆盖或用户卸载，同 origin 的任何其它 webview（主窗、主题编辑器、
+ * 股票窗…）一句 `getItem` 就能读走。
+ *
+ * 做成「读+删」一个动作，是为了让「忘记清理」在结构上不可能发生 ——
+ * 上一版把清理留给调用方（`clearMediaData` 写了、导出了、注释了「窗口关闭时调用」），
+ * 结果全仓没有一个业务调用点，令牌就这么一直留在盘上。
+ *
+ * 解析失败时同样会删掉：坏掉的那份一样可能带着令牌。
  */
-export function loadMediaData(): MediaStorageData | null {
+export function takeMediaData(): MediaStorageData | null {
   const raw = localStorage.getItem(STORAGE_KEY);
+  // 无论后面解析成不成功，先把盘上那份清掉。
+  localStorage.removeItem(STORAGE_KEY);
   if (!raw) {
     return null;
   }
@@ -118,7 +131,10 @@ export function loadMediaData(): MediaStorageData | null {
 
 /**
  * 清除媒体数据
- * 在媒体窗口关闭时调用
+ *
+ * 正常路径由 [`takeMediaData`] 自己清（读+删同一个动作）；这里只剩一个调用点：
+ * 窗口创建失败（`tauri://error`）时的兜底 —— 那种情况没有任何人会去读它，
+ * 不清就等于把带令牌的 handoff 永久留在盘上。
  */
 export function clearMediaData(): void {
   localStorage.removeItem(STORAGE_KEY);

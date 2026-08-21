@@ -33,6 +33,7 @@ import {
   getPendingApkInstall,
   downloadApk,
   installApk,
+  checkForUpdates,
 } from '../../src/update/service.android';
 
 const mockInvoke = vi.mocked(invoke);
@@ -82,19 +83,83 @@ describe('getPendingApkInstall：查磁盘上的待安装包', () => {
   });
 });
 
-describe('downloadApk：版本号必须一起传给 Rust', () => {
+describe('downloadApk：版本号与 sha256 必须一起传给 Rust', () => {
+  const SHA = '2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e26376';
+
   beforeEach(() => {
     mockInvoke.mockReset().mockResolvedValue('/cache/huanvae-chat-update.apk');
   });
 
-  it('invoke 载荷同时带 url 和 version（Rust 用它写标记 + 通知文案）', async () => {
-    const path = await downloadApk('https://example.invalid/a.apk', '1.2.3');
+  /**
+   * 🔴 钉的是**请求体字面量**，不是 TS 类型 —— 本仓踩过「改了类型 ≠ 传了字段」：
+   * 参数加进签名但没写进 invoke 载荷时，TS 一个字都不报，
+   * Rust 侧却收不到 sha256 ⇒ 整道完整性校验静默失效。
+   */
+  it('invoke 载荷同时带 url / version / sha256', async () => {
+    const path = await downloadApk('https://example.invalid/a.apk', '1.2.3', SHA);
 
     expect(mockInvoke).toHaveBeenCalledWith('download_apk', {
       url: 'https://example.invalid/a.apk',
       version: '1.2.3',
+      sha256: SHA,
     });
     expect(path).toBe('/cache/huanvae-chat-update.apk');
+  });
+
+  it('sha256 原样透传，不在 TS 侧做任何"修正"（真值校验只在 Rust 那一处）', async () => {
+    await downloadApk('https://example.invalid/a.apk', '1.2.3', '  NOT-A-HASH  ');
+    const payload = mockInvoke.mock.calls[0][1] as { sha256: string };
+    expect(payload.sha256).toBe('  NOT-A-HASH  ');
+  });
+});
+
+describe('checkForUpdates：清单里的 sha256 必须一路带到 UpdateInfo', () => {
+  const SHA = '2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e26376';
+
+  /** 复刻发布流水线真实写出的 android-latest.json 形状（字段名逐字一致） */
+  function manifest(extra: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      version: '9.9.9',
+      notes: 'Huanvae Chat v9.9.9 Android 更新',
+      url: 'https://example.invalid/app.apk',
+      directUrl: 'https://example.invalid/gh/app.apk',
+      sha256: SHA,
+      pub_date: '2026-08-21T00:00:00Z',
+      ...extra,
+    });
+  }
+
+  beforeEach(() => {
+    mockInvoke.mockReset();
+  });
+
+  it('有新版本时 apkSha256 = 清单的 sha256（少了它 Rust 侧无从校验）', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_app_version') { return '1.0.0'; }
+      if (cmd === 'fetch_update_json') { return manifest(); }
+      throw new Error(`未预期的命令: ${cmd}`);
+    });
+
+    const info = await checkForUpdates();
+    expect(info.available).toBe(true);
+    expect(info.apkUrl).toBe('https://example.invalid/app.apk');
+    expect(info.apkSha256).toBe(SHA);
+  });
+
+  it('清单里没有 sha256 时 apkSha256 为 undefined（由调用方 fail-closed，不在这里编一个）', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_app_version') { return '1.0.0'; }
+      if (cmd === 'fetch_update_json') {
+        const parsed = JSON.parse(manifest()) as Record<string, unknown>;
+        delete parsed.sha256;
+        return JSON.stringify(parsed);
+      }
+      throw new Error(`未预期的命令: ${cmd}`);
+    });
+
+    const info = await checkForUpdates();
+    expect(info.available).toBe(true);
+    expect(info.apkSha256).toBeUndefined();
   });
 });
 

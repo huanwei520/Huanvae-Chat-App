@@ -97,6 +97,53 @@ fn get_upload_sessions() -> Arc<Mutex<HashMap<String, UploadSession>>> {
         .clone()
 }
 
+/// 单个 HTTP 请求体允许的最大字节数。
+///
+/// 必须**大于** [`CHUNK_SIZE`]（1 MiB）—— `/api/upload` 的请求体就是一个文件块，
+/// 卡得比它小会把正常传输拦死。这里取 8 MiB，给块大小留 8 倍余量，
+/// 同时把「对端自报一个天文数字」挡在分配之前（见 `handle_connection`）。
+const MAX_REQUEST_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+/// 编译期不变量：请求体上限必须大于单个文件块。
+///
+/// 写成 `const _: () = assert!(..)` 而不是一条单测 —— 违反时**编译不过**，
+/// 比"跑测试才发现"早一步，而且不可能被 `--skip-*` 之类的开关绕过去。
+const _: () = assert!(
+    MAX_REQUEST_BODY_BYTES > CHUNK_SIZE,
+    "MAX_REQUEST_BODY_BYTES 必须大于 CHUNK_SIZE，否则正常的分块上传会被自己拦死"
+);
+
+/// 该路径是否属于「文件传输」端点（必须先有点对点连接）。
+///
+/// 连接类端点（peer-connection-request / -response / disconnect / 旧版 connect）
+/// **不在此列** —— 它们正是用来建立连接的，挡了就永远连不上。
+/// `GET /api/info` 是 mDNS 发现后的设备探活，也不在此列。
+fn is_transfer_endpoint(path: &str) -> bool {
+    path == "/api/batch-prepare"
+        || path == "/api/prepare-upload"
+        || path == "/api/cancel"
+        || path.starts_with("/api/upload")
+        || path.starts_with("/api/finish")
+}
+
+/// 该 TCP 源地址上是否存在一条状态为 Connected 的点对点连接。
+fn is_peer_connected(peer_addr: SocketAddr) -> bool {
+    let connections = get_active_peer_connections_map();
+    let connections = connections.lock();
+    peer_ip_is_connected(&connections, &peer_addr.ip().to_string())
+}
+
+/// [`is_peer_connected`] 的纯函数内核（把全局表拆出去，好单测）。
+///
+/// 比的是 `peer_device.ip_address`，而接收侧登记连接时已经把它换成了**实际 TCP 源地址**
+///（见 `handle_peer_connection_request`：`ip_address: peer_addr.ip().to_string()`），
+/// 所以这不是在信对端自报的字段。
+fn peer_ip_is_connected(connections: &HashMap<String, PeerConnection>, ip: &str) -> bool {
+    connections.values().any(|conn| {
+        conn.status == PeerConnectionStatus::Connected && conn.peer_device.ip_address == ip
+    })
+}
+
 /// 获取活跃的点对点连接
 pub fn get_active_peer_connections_map() -> Arc<Mutex<HashMap<String, PeerConnection>>> {
     ACTIVE_PEER_CONNECTIONS
@@ -318,12 +365,44 @@ async fn handle_connection(
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
+    // 🔴 先卡上界，再分配。
+    // `content_length` 是**未认证**的局域网对端在头里自报的数字，`vec![0u8; n]` 走
+    // `alloc_zeroed`：n 巨大时分配失败触发 `handle_alloc_error` → **abort 整个进程**
+    //（Rust 的 OOM 不可捕获，不是返回 Err）；即使分配成功（比如 8 GB）也会先零填充再等
+    // `read_exact`，同样把内存打满。一条
+    // `POST /api/cancel` + `Content-Length: 99999999999999` 就能让局域网内任何人随时
+    // 杀掉用户的聊天客户端 —— 而这发生在路由匹配**之前**，所以任何端点都能触发。
+    if content_length > MAX_REQUEST_BODY_BYTES {
+        println!(
+            "[LanTransfer] ⛔ 拒绝超大请求体: {} 字节 (上限 {})，来自 {}",
+            content_length, MAX_REQUEST_BODY_BYTES, peer_addr
+        );
+        return send_error_response(&mut writer, 413, "Payload Too Large").await;
+    }
+
     let mut body = vec![0u8; content_length];
     if content_length > 0 {
         buf_reader
             .read_exact(&mut body)
             .await
             .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
+    }
+
+    // 🔴 文件传输端点必须来自一条**已建立**的点对点连接。
+    // 模块头声称「需先建立连接后才能传输文件」，但 `handle_prepare_upload` /
+    // `handle_batch_prepare` 的签名里根本没有 `peer_addr`，函数体也从不查
+    // `ACTIVE_PEER_CONNECTIONS` —— 于是任何能连到本机 53317 的主机都可以跳过握手，
+    // 直接 batch-prepare + prepare-upload + upload + finish 把文件写进接收目录，
+    // 用户端不弹任何确认框。这道闸把「双向确认」从注释变成代码。
+    //
+    // 判据是**实际 TCP 源 IP**（不是对端自报的 ip_address 字段），
+    // 对应地，接收侧登记连接时也改成登记实际源 IP（见 handle_peer_connection_request）。
+    if method == "POST" && is_transfer_endpoint(path) && !is_peer_connected(peer_addr) {
+        println!(
+            "[LanTransfer] ⛔ 拒绝未建立连接的传输请求: {} {} 来自 {}",
+            method, path, peer_addr
+        );
+        return send_error_response(&mut writer, 403, "No active peer connection").await;
     }
 
     // 路由请求
@@ -942,6 +1021,49 @@ async fn handle_batch_prepare(
         super::transfer::format_bytes(request.total_size)
     );
 
+    // 🔴 文件名来自对端、全程零校验会变成任意路径写（详见
+    // config::sanitize_incoming_file_name）。在**建会话之前**整批拒掉：
+    // 拒一整批而不是挑掉坏的那个 —— 一次传输里混进穿越名字，正常语义下不存在，
+    // 只可能是攻击或对端有 bug，此时继续接收剩下的文件没有意义。
+    if let Some(bad) = request
+        .files
+        .iter()
+        .find(|f| config::sanitize_incoming_file_name(&f.file_name).is_none())
+    {
+        println!(
+            "[LanTransfer] ⛔ 拒绝批量传输: 文件名不合法 {:?} (session={})",
+            bad.file_name, request.session_id
+        );
+        let response = BatchPrepareResponse {
+            session_id: request.session_id,
+            accepted: false,
+            file_count: 0,
+            reject_reason: Some("文件名不合法（含路径分隔符或保留名），已拒绝接收".to_string()),
+        };
+        return send_json_response(writer, &response).await;
+    }
+
+    // 🔴 同族第二个入口：`file_id` 也对端可控，且它拼出来的临时/续传路径
+    // 既被写、也被 `fs::remove_file` 删（resume::clear_resume_info）。
+    // 与文件名同一口径：**整批拒**，判据见 config::sanitize_incoming_file_id。
+    if let Some(bad) = request
+        .files
+        .iter()
+        .find(|f| config::sanitize_incoming_file_id(&f.file_id).is_none())
+    {
+        println!(
+            "[LanTransfer] ⛔ 拒绝批量传输: file_id 不合法 {:?} (session={})",
+            bad.file_id, request.session_id
+        );
+        let response = BatchPrepareResponse {
+            session_id: request.session_id,
+            accepted: false,
+            file_count: 0,
+            reject_reason: Some("file_id 不合法（含路径分隔符或非法字符），已拒绝接收".to_string()),
+        };
+        return send_json_response(writer, &response).await;
+    }
+
     // 确保配置目录存在
     config::ensure_directories()
         .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
@@ -1021,6 +1143,42 @@ async fn handle_prepare_upload(
     let request: PrepareUploadRequest = serde_json::from_slice(body)
         .map_err(|e| ServerError::RequestFailed(e.to_string()))?;
 
+    // 🔴 与 batch-prepare 同一道闸：文件名过不了校验就不建会话、不开文件写入器。
+    // 这里拒是为了让发送端拿到 `accepted:false` + 原因，
+    // config::get_save_path 那一层的拒绝是纵深防御的兜底。
+    if config::sanitize_incoming_file_name(&request.file.file_name).is_none() {
+        println!(
+            "[LanTransfer] ⛔ 拒绝上传准备: 文件名不合法 {:?} (session={})",
+            request.file.file_name, request.session_id
+        );
+        let response = PrepareUploadResponse {
+            session_id: request.session_id,
+            accepted: false,
+            resume_offset: 0,
+            reject_reason: Some("文件名不合法（含路径分隔符或保留名），已拒绝接收".to_string()),
+            save_directory: None,
+        };
+        return send_json_response(writer, &response).await;
+    }
+
+    // 🔴 `file_id` 同为对端可控且直接参与拼临时/续传路径，同一道闸在这里也要有：
+    // config 层那道（get_temp_file_path / get_resume_info_path 返回 Option）是纵深防御兜底，
+    // 这里拒是为了让发送端拿到 accepted:false + 原因，而不是一路走到 IO 层才失败。
+    if config::sanitize_incoming_file_id(&request.file.file_id).is_none() {
+        println!(
+            "[LanTransfer] ⛔ 拒绝上传准备: file_id 不合法 {:?} (session={})",
+            request.file.file_id, request.session_id
+        );
+        let response = PrepareUploadResponse {
+            session_id: request.session_id,
+            accepted: false,
+            resume_offset: 0,
+            reject_reason: Some("file_id 不合法（含路径分隔符或非法字符），已拒绝接收".to_string()),
+            save_directory: None,
+        };
+        return send_json_response(writer, &response).await;
+    }
+
     // 确保配置目录存在
     config::ensure_directories()
         .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
@@ -1059,7 +1217,9 @@ async fn handle_prepare_upload(
             .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
 
         // 需要重新计算哈希（从头读取）
-        let temp_path = resume_manager.get_temp_file_path(file_id);
+        let temp_path = resume_manager
+            .get_temp_file_path(file_id)
+            .map_err(|e| ServerError::FileWriteFailed(e.to_string()))?;
         let mut hasher = Crc32Hasher::new();
 
         // 读取已有内容计算哈希
@@ -1097,7 +1257,9 @@ async fn handle_prepare_upload(
         #[cfg(target_os = "android")]
         {
             // 获取最终保存路径
-            let final_path = config::get_file_save_path(&file.file_name);
+            let final_path = config::get_file_save_path(&file.file_name).ok_or_else(|| {
+                ServerError::FileWriteFailed("对端文件名不合法，拒绝落盘".to_string())
+            })?;
 
             // 确保目标目录存在
             if let Some(parent) = final_path.parent() {
@@ -1893,4 +2055,90 @@ async fn handle_cancel(
     }
 
     send_json_response(writer, &CancelResponse { success: true }).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(ip: &str) -> DiscoveredDevice {
+        DiscoveredDevice {
+            device_id: format!("dev-{ip}"),
+            device_name: "peer".to_string(),
+            user_id: "u".to_string(),
+            user_nickname: "n".to_string(),
+            ip_address: ip.to_string(),
+            port: SERVICE_PORT,
+            discovered_at: "2026-08-21T00:00:00Z".to_string(),
+            last_seen: "2026-08-21T00:00:00Z".to_string(),
+        }
+    }
+
+    fn conn(ip: &str, status: PeerConnectionStatus) -> PeerConnection {
+        PeerConnection {
+            connection_id: format!("c-{ip}"),
+            peer_device: device(ip),
+            established_at: "2026-08-21T00:00:00Z".to_string(),
+            status,
+            is_initiator: false,
+        }
+    }
+
+    /// 传输端点必须被认成传输端点；**连接类端点绝不能**被认成传输端点
+    /// —— 认错了就永远建不上连接（这道闸会把握手本身挡死）。
+    #[test]
+    fn transfer_endpoints_are_exactly_the_file_write_paths() {
+        for gated in [
+            "/api/batch-prepare",
+            "/api/prepare-upload",
+            "/api/cancel",
+            "/api/upload",
+            "/api/upload/abc123",
+            "/api/finish",
+            "/api/finish/abc123",
+        ] {
+            assert!(is_transfer_endpoint(gated), "应受闸: {gated}");
+        }
+        for open_path in [
+            "/api/info",
+            "/api/peer-connection-request",
+            "/api/peer-connection-response",
+            "/api/peer-disconnect",
+            "/api/connect",
+        ] {
+            assert!(!is_transfer_endpoint(open_path), "不应受闸: {open_path}");
+        }
+    }
+
+    /// 没有任何连接 ⇒ 拒；有一条来自该 IP 的 Connected ⇒ 放行。
+    /// 两侧结果不同，才证明这条判据有判别力（不是恒真也不是恒假）。
+    #[test]
+    fn peer_gate_rejects_unknown_ip_and_accepts_connected_ip() {
+        let mut connections: HashMap<String, PeerConnection> = HashMap::new();
+        assert!(
+            !peer_ip_is_connected(&connections, "192.168.1.50"),
+            "空表时任何 IP 都不该放行"
+        );
+
+        connections.insert(
+            "c1".to_string(),
+            conn("192.168.1.50", PeerConnectionStatus::Connected),
+        );
+        assert!(peer_ip_is_connected(&connections, "192.168.1.50"));
+        assert!(
+            !peer_ip_is_connected(&connections, "192.168.1.51"),
+            "别的 IP 不能蹭同一条连接"
+        );
+    }
+
+    /// 只有 Connected 算数：已断开（Disconnected）的连接不能放行传输。
+    #[test]
+    fn peer_gate_ignores_non_connected_states() {
+        let mut connections: HashMap<String, PeerConnection> = HashMap::new();
+        connections.insert(
+            "c1".to_string(),
+            conn("10.0.0.7", PeerConnectionStatus::Disconnected),
+        );
+        assert!(!peer_ip_is_connected(&connections, "10.0.0.7"));
+    }
 }

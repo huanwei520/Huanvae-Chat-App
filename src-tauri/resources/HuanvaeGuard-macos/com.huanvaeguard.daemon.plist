@@ -22,7 +22,7 @@
          daemon with a literal placeholder argument. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/hg-macos</string>
+        <string>/Library/PrivilegedHelperTools/hg-macos</string>
         <string>--instance</string>
         <string>__HG_INSTANCE__</string>
         <string>--api-listen</string>

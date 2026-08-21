@@ -35,6 +35,17 @@ pub enum ResumeError {
     ResumeInfoNotFound,
     #[error("临时文件不存在")]
     TempFileNotFound,
+    /// 对端给的文件名过不了 `config::sanitize_incoming_file_name`
+    ///（绝对路径 / `..` / 分隔符 / 控制字符 / Windows 保留设备名 …）。
+    #[error("对端文件名不合法，拒绝落盘")]
+    UnsafeFileName,
+    /// 对端给的 `file_id` 过不了 `config::sanitize_incoming_file_id`
+    ///（非白名单字符 / `..` / 前导点 / 超长）。
+    ///
+    /// 🔴 它比 `UnsafeFileName` 更重：临时文件路径既被写、也被 `fs::remove_file` 删，
+    /// 放行一个能逃逸出临时目录的 id 等于把「任意路径删除」交给未认证对端。
+    #[error("对端 file_id 不合法，拒绝落盘")]
+    UnsafeFileId,
 }
 
 // ============================================================================
@@ -52,7 +63,7 @@ impl ResumeManager {
 
     /// 保存续传信息
     pub fn save_resume_info(&self, info: &ResumeInfo) -> Result<(), ResumeError> {
-        let path = config::get_resume_info_path(&info.file_id);
+        let path = config::get_resume_info_path(&info.file_id).ok_or(ResumeError::UnsafeFileId)?;
 
         // 确保父目录存在
         if let Some(parent) = path.parent() {
@@ -73,7 +84,7 @@ impl ResumeManager {
 
     /// 加载续传信息
     pub fn load_resume_info(&self, file_id: &str) -> Result<ResumeInfo, ResumeError> {
-        let path = config::get_resume_info_path(file_id);
+        let path = config::get_resume_info_path(file_id).ok_or(ResumeError::UnsafeFileId)?;
 
         if !path.exists() {
             return Err(ResumeError::ResumeInfoNotFound);
@@ -93,8 +104,8 @@ impl ResumeManager {
 
     /// 删除续传信息
     pub fn clear_resume_info(&self, file_id: &str) -> Result<(), ResumeError> {
-        let resume_path = config::get_resume_info_path(file_id);
-        let temp_path = config::get_temp_file_path(file_id);
+        let resume_path = config::get_resume_info_path(file_id).ok_or(ResumeError::UnsafeFileId)?;
+        let temp_path = config::get_temp_file_path(file_id).ok_or(ResumeError::UnsafeFileId)?;
 
         // 删除续传信息文件
         if resume_path.exists() {
@@ -112,8 +123,12 @@ impl ResumeManager {
     }
 
     /// 获取临时文件路径
-    pub fn get_temp_file_path(&self, file_id: &str) -> PathBuf {
-        config::get_temp_file_path(file_id)
+    ///
+    /// 🔴 返回 `Result` 而不是 `PathBuf`：`file_id` 来自未认证的局域网对端，
+    /// 过不了 `config::sanitize_incoming_file_id` 时**必须硬停**，
+    /// 不允许静默回退到某个"安全"路径（那会把两个不同的 id 折叠到同一个临时文件）。
+    pub fn get_temp_file_path(&self, file_id: &str) -> Result<PathBuf, ResumeError> {
+        config::get_temp_file_path(file_id).ok_or(ResumeError::UnsafeFileId)
     }
 
     /// 检查是否可以续传（验证文件完整性）
@@ -140,7 +155,7 @@ impl ResumeManager {
         }
 
         // 检查临时文件是否存在
-        let temp_path = self.get_temp_file_path(file_id);
+        let temp_path = self.get_temp_file_path(file_id)?;
         if !temp_path.exists() {
             println!("[ResumeManager] 临时文件不存在，需要重新传输: {}", file_id);
             self.clear_resume_info(file_id)?;
@@ -181,7 +196,7 @@ impl ResumeManager {
     /// 注：Android 新传输直接写入公共目录，此方法仅用于非 Android 平台和断点续传
     #[allow(dead_code)]
     pub fn create_temp_file(&self, file_id: &str) -> Result<File, ResumeError> {
-        let path = self.get_temp_file_path(file_id);
+        let path = self.get_temp_file_path(file_id)?;
 
         // 确保父目录存在
         if let Some(parent) = path.parent() {
@@ -196,7 +211,7 @@ impl ResumeManager {
 
     /// 打开临时文件（用于续传）
     pub fn open_temp_file(&self, file_id: &str, offset: u64) -> Result<File, ResumeError> {
-        let path = self.get_temp_file_path(file_id);
+        let path = self.get_temp_file_path(file_id)?;
 
         if !path.exists() {
             return Err(ResumeError::TempFileNotFound);
@@ -220,8 +235,11 @@ impl ResumeManager {
         file_id: &str,
         file_name: &str,
     ) -> Result<PathBuf, ResumeError> {
-        let temp_path = self.get_temp_file_path(file_id);
-        let final_path = config::get_file_save_path(file_name);
+        let temp_path = self.get_temp_file_path(file_id)?;
+        // 🔴 `file_name` 全程来自未认证的局域网对端；非法名在这里硬停，
+        // 绝不允许 rename 到接收目录之外（详见 config::sanitize_incoming_file_name）。
+        let final_path =
+            config::get_file_save_path(file_name).ok_or(ResumeError::UnsafeFileName)?;
 
         // 确保目标目录存在
         if let Some(parent) = final_path.parent() {
@@ -314,10 +332,13 @@ impl ResumeManager {
         transferred_bytes: u64,
         chunk_hash: Option<String>,
     ) -> Result<(), ResumeError> {
+        // 🔴 先过闸再谈别的：非法 id 在这里就返回 Err，
+        // 不能靠 `unwrap_or_else` 那条回退分支把它悄悄补成一条新的续传记录。
+        let temp_file_path = self.get_temp_file_path(file_id)?.to_string_lossy().to_string();
         let mut info = self.load_resume_info(file_id).unwrap_or_else(|_| ResumeInfo {
             file_id: file_id.to_string(),
             file_sha256: file_sha256.to_string(),
-            temp_file_path: self.get_temp_file_path(file_id).to_string_lossy().to_string(),
+            temp_file_path,
             transferred_bytes: 0,
             chunk_hashes: vec![],
             last_updated: Utc::now().to_rfc3339(),

@@ -82,10 +82,20 @@ function setVisibility(state: 'visible' | 'hidden') {
   });
 }
 
+/**
+ * 一个形状合法的 APK 摘要（64 位十六进制）。
+ *
+ * 🔴 自 2026-08-21 起 `handleUpdate` 对缺 `apkSha256` 的更新信息是 **fail-closed** 的
+ *（清单没给摘要就中止本次更新，见 store.ts）。所以这里必须给一个 ——
+ * 不给的话下面每一条用例都会在下载之前就被拦掉，测的就不再是它们各自想测的东西了。
+ * 「缺摘要要中止」本身另有专门用例覆盖（见文件末尾）。
+ */
+const VALID_APK_SHA256 = '2ab91325fd1d93eebf78d7edb43c2387e81116c17397ff217028b14255e26376';
+
 /** 摆好「有可用更新」的前置状态并跑一次 handleUpdate */
 async function runMobileUpdate(apkUrl = 'https://example.invalid/app.apk', version = '9.9.9') {
   useUpdateStore.setState({
-    androidUpdateInfo: { available: true, version, apkUrl },
+    androidUpdateInfo: { available: true, version, apkUrl, apkSha256: VALID_APK_SHA256 },
   });
   await act(async () => {
     await useUpdateStore.getState().handleUpdate();
@@ -174,12 +184,13 @@ describe('Android 后台下完：不拉安装器，但必须留下可交互的�
     expect(s.errorMessage).toBe('network down');
   });
 
-  it('版本号必须传给 Rust（它要写进待安装标记与通知文案）', async () => {
+  it('版本号与 sha256 必须传给 Rust（前者写标记与通知文案，后者做完整性校验）', async () => {
     await runMobileUpdate('https://example.invalid/app.apk', '1.2.3');
 
     expect(serviceMock.downloadApk).toHaveBeenCalledWith(
       'https://example.invalid/app.apk',
       '1.2.3',
+      VALID_APK_SHA256,
       expect.any(Function),
     );
   });
@@ -426,5 +437,51 @@ describe('UpdateToast：ready 状态的两端语义不同', () => {
     expect(onRestart).toHaveBeenCalledTimes(1);
     expect(onInstall).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: '立即安装' })).toBeNull();
+  });
+});
+
+// ============================================
+// APK 完整性校验：摘要缺失必须 fail-closed
+// ============================================
+
+describe('缺少 apkSha256 时必须中止本次更新（fail-closed）', () => {
+  beforeEach(() => {
+    platformMock.mobile = true;
+    resetStore();
+    serviceMock.downloadApk.mockReset().mockResolvedValue('/cache/huanvae-chat-update.apk');
+    serviceMock.installApk.mockReset().mockReturnValue(undefined);
+    serviceMock.ensureInstallPermission.mockReset().mockResolvedValue(true);
+    serviceMock.getPendingApkInstall.mockReset().mockResolvedValue(null);
+  });
+
+  it('清单没给摘要 ⇒ 一个字节都不下载，状态落到 error', async () => {
+    useUpdateStore.setState({
+      androidUpdateInfo: {
+        available: true,
+        version: '9.9.9',
+        apkUrl: 'https://example.invalid/app.apk',
+        // 故意不给 apkSha256
+      },
+    });
+
+    await act(async () => {
+      await useUpdateStore.getState().handleUpdate();
+    });
+
+    // 🔴 核心断言：**没有**进下载。
+    // 「下完再校验」不等价 —— 那样磁盘上会先落一个来源不明的 APK。
+    expect(serviceMock.downloadApk).not.toHaveBeenCalled();
+    expect(serviceMock.installApk).not.toHaveBeenCalled();
+    expect(useUpdateStore.getState().status).toBe('error');
+  });
+
+  it('正对照：给了摘要就正常下载，并把它原样交给 downloadApk', async () => {
+    await runMobileUpdate();
+
+    expect(serviceMock.downloadApk).toHaveBeenCalledTimes(1);
+    const args = serviceMock.downloadApk.mock.calls[0];
+    expect(args[0]).toBe('https://example.invalid/app.apk');
+    expect(args[1]).toBe('9.9.9');
+    expect(args[2]).toBe(VALID_APK_SHA256);
   });
 });
