@@ -69,8 +69,6 @@ export interface UseFileCacheOptions {
   fileSize?: number;
   /** URL 类型 */
   urlType?: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报） */
-  friendId?: string;
   /** 是否自动缓存图片 */
   autoCache?: boolean;
   /** 是否启用（用于条件加载） */
@@ -129,7 +127,6 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     contentType,
     fileSize,
     urlType = 'user',
-    friendId,
     autoCache = true,
     enabled = true,
   } = options;
@@ -177,8 +174,8 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
       // - macOS 的 WKWebView 不把 Range 头交给自定义协议处理器（WebKit Bug 203302）
       //   ⇒ <video> 拿不到分段，只显示灰块、没有封面（huanwei 实测「仅 macOS 无视频封面」）
       const source = (fileType === 'video' && (isMobile() || isMacOS()))
-        ? await getVideoSource(api, fileUuid, fileHash, urlType, { friendId, fileType })
-        : await getFileSource(api, fileUuid, fileHash, urlType, { friendId, fileType });
+        ? await getVideoSource(api, fileUuid, fileHash, urlType)
+        : await getFileSource(api, fileUuid, fileHash, urlType);
 
       setResult(source);
 
@@ -198,7 +195,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     } finally {
       setLoading(false);
     }
-  }, [api, fileUuid, fileHash, urlType, friendId, enabled, autoCache, fileType]);
+  }, [api, fileUuid, fileHash, urlType, enabled, autoCache, fileType]);
 
   // 初始加载：mount 时（或 loadSource 依赖变化时）发起一次文件位置请求
   // —— Rust get_cached_file_path 会 stat 实际文件，不存在则清理 file_mappings 映射并返回 None
@@ -351,7 +348,6 @@ export function useImageCache(
   knownHash: string | null | undefined,
   fileName: string,
   urlType: 'user' | 'friend' | 'group' = 'user',
-  friendId?: string,
 ) {
   const result = useFileCache({
     fileUuid,
@@ -359,7 +355,6 @@ export function useImageCache(
     fileName,
     fileType: 'image',
     urlType,
-    friendId,
     autoCache: true,
   });
 
@@ -410,7 +405,6 @@ export function useVideoCache(
   fileName: string,
   fileSize?: number,
   urlType: 'user' | 'friend' | 'group' = 'user',
-  friendId?: string,
 ) {
   const result = useFileCache({
     fileUuid,
@@ -419,7 +413,6 @@ export function useVideoCache(
     fileType: 'video',
     fileSize,
     urlType,
-    friendId,
     autoCache: false, // 视频不自动缓存，等待播放
   });
 

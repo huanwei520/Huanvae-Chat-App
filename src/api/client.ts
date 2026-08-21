@@ -49,10 +49,29 @@ export function apiErrorStatus(err: unknown): number | null {
 export interface ApiClientConfig {
   /** 服务器 URL */
   baseUrl: string;
-  /** 访问令牌 */
-  accessToken: string;
-  /** 刷新令牌 */
-  refreshToken: string;
+  /**
+   * 取当前访问令牌。
+   *
+   * 🔴 **是 getter 不是值**（2026-08-21，外部审计 idx=53）。
+   *
+   * 原先这两个字段是**快照值**，于是「换了 token 就必须换一个 api 客户端」——
+   * `SessionContext` 的 `useMemo` 只好依赖整个 `session` 对象。而 `session` 每次
+   * token 主动刷新（JWT 15 分钟、提前 5 分钟刷 ⇒ 约每 10 分钟一次）和每次改昵称/头像
+   * 都会换新引用 ⇒ `api` 换新引用 ⇒ 全仓 101 个把 `api` 写进依赖数组的 effect/callback
+   * 全部重跑、重新发请求（useDevices / useGroups / useMiniApps / useBots / useOAuthClients
+   * / usePendingRequests / useFiles / useBlacklist …），列表还会闪一次 loading。
+   *
+   * 改成 getter 后，令牌变化不再需要新的客户端实例 ⇒ `api` 只随 `baseUrl` 变
+   * ⇒ 那 101 个 effect 只在真正换服务器/登出时才重跑。
+   *
+   * ⚠️ 顺带修掉一个隐藏缺陷：旧实现里 `refreshToken` 是 `const` 快照，
+   * **客户端自己永远拿不到轮换后的新 refresh_token**；能正常工作只是因为
+   * 「每次刷新都会重建一个新客户端」这件事恰好把它带上了 —— 也就是说
+   * 那条被审计判为缺陷的重建，同时是另一条缺陷的遮羞布。getter 让两件事一起消失。
+   */
+  getAccessToken: () => string;
+  /** 取当前刷新令牌（同上，必须是 getter：轮换型 refresh_token 换了要能读到新的） */
+  getRefreshToken: () => string;
   /** Token 刷新回调 */
   onTokenRefresh?: (newAccessToken: string, newRefreshToken: string) => void;
   /** 会话过期回调 */
@@ -74,8 +93,25 @@ export interface ApiRequestOptions {
  * 创建 API 客户端
  */
 export function createApiClient(config: ApiClientConfig) {
-  let { accessToken } = config;
-  const { baseUrl, refreshToken, onTokenRefresh, onSessionExpired } = config;
+  const { baseUrl, getAccessToken, getRefreshToken, onTokenRefresh, onSessionExpired } = config;
+
+  /**
+   * 刚刷出来但持有方还没写回的 access token。
+   *
+   * `onTokenRefresh` 通常经 React `setState` 落地，**不保证同步可见**；而 401 重试就在
+   * 下一行。所以刷新成功后先把新值记在这里，`currentAccessToken()` 优先读它，
+   * 等持有方的 getter 追上（返回同一个值或更新的值）再自然让位。
+   */
+  let justRefreshedAccessToken: string | null = null;
+
+  function currentAccessToken(): string {
+    const fromHolder = getAccessToken();
+    if (justRefreshedAccessToken && fromHolder !== justRefreshedAccessToken) {
+      return justRefreshedAccessToken;
+    }
+    justRefreshedAccessToken = null;
+    return fromHolder;
+  }
 
   /**
    * 单飞：主动刷新（SessionContext 过期前 5 分钟定时器）与 401 被动刷新可能并发触发
@@ -92,7 +128,7 @@ export function createApiClient(config: ApiClientConfig) {
         method: 'POST',
         url: `${baseUrl}/api/auth/refresh`,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        body: JSON.stringify({ refresh_token: getRefreshToken() }),
         ...(resolveForSecureHttp() ?? { pin_ca: true }),
       });
 
@@ -102,10 +138,10 @@ export function createApiClient(config: ApiClientConfig) {
 
       const raw = response.json<{ data?: TokenPayload } & Partial<TokenPayload>>();
       const data: TokenPayload = (raw.data ?? raw) as TokenPayload;
-      accessToken = data.access_token;
+      justRefreshedAccessToken = data.access_token;
 
       if (onTokenRefresh) {
-        onTokenRefresh(data.access_token, data.refresh_token || refreshToken);
+        onTokenRefresh(data.access_token, data.refresh_token || getRefreshToken());
       }
 
       return true;
@@ -143,8 +179,9 @@ export function createApiClient(config: ApiClientConfig) {
       headers['Content-Type'] = 'application/json';
     }
 
-    if (!skipAuth && accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
+    const token = currentAccessToken();
+    if (!skipAuth && token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     // 对于非 GET 请求，如果没有 body 则发送空对象（后端要求）
@@ -165,7 +202,7 @@ export function createApiClient(config: ApiClientConfig) {
 
       if (refreshed) {
         // 使用新 Token 重试请求
-        headers['Authorization'] = `Bearer ${accessToken}`;
+        headers['Authorization'] = `Bearer ${currentAccessToken()}`;
         response = await secureHttp({ method, url, headers, body: requestBody ?? null, ...resolve });
       } else {
         // 刷新失败，触发会话过期回调
@@ -244,7 +281,7 @@ export function createApiClient(config: ApiClientConfig) {
      * 获取当前 accessToken
      */
     getAccessToken(): string {
-      return accessToken;
+      return currentAccessToken();
     },
 
     /**

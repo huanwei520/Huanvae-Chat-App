@@ -45,10 +45,6 @@ import { localPathToDisplaySrc } from './assetUrl';
 import { directIpUrl } from './discovery';
 import type { ApiClient } from '../api/client';
 import { useFileCacheStore } from '../stores/fileCacheStore';
-import {
-  reportFriendPermissionError,
-  createPresignedUrlErrorContext,
-} from './diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
 import { resolveDisplayUrl } from './secureProxy';
 import { resolveGroupFileRelatedId } from './groupFileScope';
@@ -206,16 +202,18 @@ export function downloadAndSaveFile(
 /**
  * 获取预签名 URL（带缓存）
  *
- * 当好友文件访问返回403时，自动上报诊断日志到后端
+ * 🔴 2026-08-21：删掉了原先的第 4 个参数 `options?: { friendId, fileType }`。
+ * 它**唯一**的用途是给「好友文件 403 上报」拼诊断上下文，而那条上报打的
+ * `/api/diagnostic/report/friend-permission` 在后端路由表里根本不存在（只有
+ * `/api/admin/diagnostic/*` 的几个 GET/PUT），恒 404 且被 console.warn 静默吞掉。
+ * 上报整块删除后这两个字段就是死参数 —— 按 .claude/CLAUDE.md「不留 `_xxx` 占位、
+ * 能在当前 PR 内删干净就删干净」，连同上游 `getFileSource` / `getVideoSource` /
+ * `useFileCache` 的 `friendId` 一路删到调用方。
  */
 export async function getPresignedUrl(
   api: ApiClient,
   fileUuid: string,
   urlType: 'user' | 'friend' | 'group' = 'user',
-  options?: {
-    friendId?: string;
-    fileType?: 'image' | 'video' | 'document';
-  },
 ): Promise<{ url: string; expiresAt: string }> {
   const store = useFileCacheStore.getState();
 
@@ -256,50 +254,24 @@ export async function getPresignedUrl(
     }
   }
 
-  try {
-    // 🔴 逐键显式构造：字段不写进这个字面量就是静默丢掉（有类型也不报错）。
-    // friend / user 两条路径的请求体必须逐字节保持 `{ operation: 'preview' }`。
-    const response = await api.post<PresignedUrlResponse>(
-      endpoint,
-      groupRelatedId
-        ? { operation: 'preview', related_id: groupRelatedId }
-        : { operation: 'preview' },
-    );
+  // 🔴 逐键显式构造：字段不写进这个字面量就是静默丢掉（有类型也不报错）。
+  // friend / user 两条路径的请求体必须逐字节保持 `{ operation: 'preview' }`。
+  const response = await api.post<PresignedUrlResponse>(
+    endpoint,
+    groupRelatedId
+      ? { operation: 'preview', related_id: groupRelatedId }
+      : { operation: 'preview' },
+  );
 
-    // 3. 优化 URL（用当前服务器地址替换公网域名）
-    const optimizedUrl = optimizePresignedUrl(response.presigned_url, api.getBaseUrl());
+  // 3. 优化 URL（用当前服务器地址替换公网域名）
+  const optimizedUrl = optimizePresignedUrl(response.presigned_url, api.getBaseUrl());
 
-    // 4. 缓存优化后的 URL
-    store.setUrlCache(fileUuid, optimizedUrl, response.expires_at);
+  // 4. 缓存优化后的 URL
+  store.setUrlCache(fileUuid, optimizedUrl, response.expires_at);
 
-    // eslint-disable-next-line no-console
-    console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
-    return { url: optimizedUrl, expiresAt: response.expires_at };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    // 好友文件403错误：上报诊断日志（图片/视频/文件都上报）
-    if (urlType === 'friend' && errorMessage.includes('403')) {
-      // 异步上报，不阻塞主流程
-      reportFriendPermissionError(
-        api.getBaseUrl(),
-        api.getAccessToken(),
-        createPresignedUrlErrorContext(fileUuid, errorMessage, {
-          operation: 'preview',
-          urlType,
-          friendId: options?.friendId,
-          fileType: options?.fileType,
-          screen: 'chat_detail',
-          action: 'get_presigned_url',
-        }),
-      ).catch(() => {
-        // 上报失败静默处理
-      });
-    }
-
-    // 重新抛出错误
-    throw error;
-  }
+  // eslint-disable-next-line no-console
+  console.log('[FileCache] 获取新的预签名 URL:', fileUuid);
+  return { url: optimizedUrl, expiresAt: response.expires_at };
 }
 
 // ============================================
@@ -320,19 +292,12 @@ export async function getPresignedUrl(
  *                    消息面没有（后端接收面已不再下发）⇒ 传 `null`，由本函数经
  *                    `file_uuid_hash` 解析
  * @param urlType - URL 类型（用于选择正确的预签名端点）
- * @param options - 额外选项（用于错误上报）
  */
 export async function getFileSource(
   api: ApiClient,
   fileUuid: string,
   knownHash: string | null | undefined,
   urlType: 'user' | 'friend' | 'group' = 'user',
-  options?: {
-    /** 好友 ID（用于错误上报） */
-    friendId?: string;
-    /** 文件类型（用于错误上报） */
-    fileType?: 'image' | 'video' | 'document';
-  },
 ): Promise<FileSourceResult> {
   // 1. 解析内容哈希后检查数据库缓存（两层键的第一跳：uuid -> hash -> file_mappings）
   // 后端 get_cached_file_path 会验证文件存在性，无效则返回 null
@@ -352,10 +317,10 @@ export async function getFileSource(
     }
   }
 
-  // 2. 无本地缓存，获取预签名 URL（传递选项用于错误上报）
+  // 2. 无本地缓存，获取预签名 URL
   //    显示 src 经 resolveDisplayUrl 收口反代（私有 CA，webview 直连验不过）；
   //    原始 url 留作 presignedUrl，供 Rust 下载(directIpUrl)与跨窗 handoff。
-  const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
+  const { url } = await getPresignedUrl(api, fileUuid, urlType);
   return {
     src: resolveDisplayUrl(url) ?? url,
     isLocal: false,
@@ -394,17 +359,12 @@ async function getLocalVideoUrl(fileHash: string): Promise<string | null> {
  * @param fileUuid - 文件 UUID（**快路径的键**）
  * @param knownHash - **已知**的内容哈希：个人文件面有，消息面没有（传 `null` 由本函数解析）
  * @param urlType - URL 类型
- * @param options - 额外选项
  */
 export async function getVideoSource(
   api: ApiClient,
   fileUuid: string,
   knownHash: string | null | undefined,
   urlType: 'user' | 'friend' | 'group' = 'user',
-  options?: {
-    friendId?: string;
-    fileType?: 'image' | 'video' | 'document';
-  },
 ): Promise<FileSourceResult> {
   // 本地媒体服务器与 file_mappings 一样按内容哈希索引 ⇒ 先做 uuid -> hash 那一跳
   const fileHash = await resolveContentHash(fileUuid, knownHash);
@@ -427,7 +387,7 @@ export async function getVideoSource(
   }
 
   // 2. 无本地缓存或桌面端，获取预签名 URL（桌面端 <video> 同样经反代显示）
-  const { url } = await getPresignedUrl(api, fileUuid, urlType, options);
+  const { url } = await getPresignedUrl(api, fileUuid, urlType);
   return {
     src: resolveDisplayUrl(url) ?? url,
     isLocal: false,

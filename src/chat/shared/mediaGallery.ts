@@ -49,8 +49,6 @@ export interface MediaGalleryItem {
   type: 'image' | 'video';
   /** 预签名 URL 的归属类型，与气泡侧同口径 */
   urlType: 'user' | 'friend' | 'group';
-  /** 好友 ID（仅用于错误上报，与气泡侧同口径） */
-  friendId?: string;
 }
 
 /** 建序列所需的最小消息形状（私聊 Message / 群聊 GroupMessage 都满足） */
@@ -77,7 +75,6 @@ export function mediaFilenameFromContent(messageContent: string): string {
 /** 序列归属信息：一个会话内对所有项都相同，故由列表层一次性注入 */
 export interface MediaGalleryScope {
   urlType: 'user' | 'friend' | 'group';
-  friendId?: string;
 }
 
 /**
@@ -125,7 +122,6 @@ function toGalleryItem(
     fileSize: message.file_size ?? undefined,
     type: message.message_type,
     urlType: scope.urlType,
-    friendId: scope.friendId,
   };
 }
 

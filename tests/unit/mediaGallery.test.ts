@@ -39,7 +39,7 @@ function nodesOf(messagesNewestFirst: Msg[]) {
   return groupMessagesIntoAlbums(messagesNewestFirst);
 }
 
-const SCOPE = { urlType: 'friend' as const, friendId: 'friend-1' };
+const SCOPE = { urlType: 'friend' as const };
 
 describe('mediaFilenameFromContent', () => {
   it('剥掉后端派生正文的「[图片] / [视频] / [文件] 」前缀', () => {
@@ -120,7 +120,11 @@ describe('buildMediaGallery：过滤', () => {
     expect(items.map((i) => i.messageUuid)).toEqual(['ok']);
   });
 
-  it('归属信息（urlType / friendId）逐项注入，文件名已剥前缀', () => {
+  // 2026-08-21：`friendId` 已从 MediaGalleryScope / MediaGalleryItem 整条删除 ——
+  // 它唯一的用途是给「好友文件 403 上报」拼诊断上下文，而那条上报打的
+  // /api/diagnostic/report/friend-permission 在后端路由表里不存在（恒 404 且被静默吞掉）。
+  // 断言改成 toEqual 的**全等**形态，正是为了让「有人把它悄悄加回来」也会红。
+  it('归属信息（urlType）逐项注入，文件名已剥前缀，且不再夹带 friendId', () => {
     const [item] = buildMediaGallery(nodesOf([msg({ message_uuid: 'a' })]), SCOPE);
     expect(item).toEqual({
       messageUuid: 'a',
@@ -129,7 +133,6 @@ describe('buildMediaGallery：过滤', () => {
       fileSize: 1024,
       type: 'image',
       urlType: 'friend',
-      friendId: 'friend-1',
     });
   });
 });

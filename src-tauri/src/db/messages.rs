@@ -154,6 +154,8 @@ pub fn get_messages_with_conn(
 ///   由调用方决定降级（不吞成空数组 —— 空数组会被误读成「这段真的没有消息」）。
 ///   **「找不到」与「查询出错」是两条出口**：前者 `Ok(None)`，后者 `Err`。
 ///   压成同一个出口会让真实 DB 故障对上层完全不可见（UI 一律只报「找不到这条消息」）。
+/// - **锚点 `seq <= 0` 同样走 `Ok(None)`**（本地未同步的新消息不参与 seq 窗口，
+///   成因与后果见函数体内那段注释）。
 /// - 窗口**只按 seq 取，且排除 `seq = 0`**：`seq = 0` 是本地未同步的新消息，
 ///   概念上恒属"最新那一端"，把它混进一段历史窗口会让顺序错乱。
 /// - 返回顺序与 [`get_messages`] 一致：**[新→旧]**（`seq DESC`），
@@ -182,6 +184,26 @@ pub fn get_messages_around_with_conn(
         // 其余一律往上抛，与本函数其它查询的 `.map_err(|e| e.to_string())` 口径一致。
         Err(e) => return Err(e.to_string()),
     };
+
+    // 🔴 `seq <= 0` 的锚点不参与 seq 窗口（2026-08-21，外部审计 idx=90/91）
+    //
+    // 上面这条锚点查询**不带** `seq > 0`，而下面两条窗口查询都带。于是 `seq = 0`
+    // （本地未同步的新消息：待发区上传落库的媒体、乐观发送中的消息）会走出一条
+    // 谁都没想到的路：
+    //   - 较新那段 `seq >= 0 AND seq > 0` 被后半句吞掉 ⇒ 退化成「**全会话最旧的 after+1 条**」
+    //   - 较旧那段 `seq < 0 AND seq > 0` 恒空
+    // 结果既不是 `None` 也不是「锚点前后那一段」：前端 `locateMessage` 拿到一段
+    // 与锚点毫无关系的最旧消息、`setMessages` 整段替换、还 `return true` 说定位成功
+    // ⇒ 用户点一下引用块，聊天记录直接跳到会话最开头；若该会话一条 `seq > 0` 的消息
+    // 都没有，那段就是空数组 ⇒ 列表被清空成「暂无消息」。
+    //
+    // 本函数的语义是「围绕锚点的一段 seq 窗口」，而 `seq = 0` 的消息**概念上恒属最新那一端**、
+    // 不在任何历史窗口里 —— 所以正确出口是既有的那条「找不到」出口 `Ok(None)`，
+    // 由调用方降级（同「锚点不在本地库」）。**不要**在这里返回空数组：
+    // 空数组会被上层读成「这段真的没有消息」，正是本函数「语义」段一开始就禁止的那件事。
+    if anchor_seq <= 0 {
+        return Ok(None);
+    }
 
     // 较新的一段 + 锚点自身：seq >= anchor，升序取 after+1 条，再翻成 [新→旧]
     let newer_sql = format!(
@@ -1875,5 +1897,65 @@ mod tests {
             .unwrap()
             .expect("窗口查询与目标多早无关，必须命中");
         assert!(window.iter().any(|m| m.message_uuid == anchor));
+    }
+
+    // ========================================================================
+    // 锚点 seq <= 0（本地未同步的新消息）—— 外部审计 idx=90 / idx=91
+    // ========================================================================
+
+    /// 🔴 `seq = 0` 的锚点必须走「找不到」这条出口，**不能**返回一段与它无关的消息。
+    ///
+    /// 修复前的真实行为（不是推的，是这两条 SQL 直接推出来的）：
+    ///
+    /// - 较新段 `seq >= 0 AND seq > 0` 被后半句吞掉 ⇒ 退化成「全会话最旧的 after+1 条」
+    /// - 较旧段 `seq < 0 AND seq > 0` 恒空
+    ///
+    /// 于是前端整段替换成一段最旧消息、并 `return true` 报告定位成功
+    /// ⇒ 用户点一下引用块，聊天记录跳到会话最开头。
+    #[test]
+    fn around_seq_zero_anchor_is_not_found_not_a_bogus_window() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 100);
+        // 待发区上传落库的媒体消息：seq 恒 0（src/chat/shared/uploadPersist.ts）
+        insert_msg(&conn, "local0", "c1", "[图片] a.png", "image", 0, "2026-05-11T00:01:00Z");
+
+        let got = get_messages_around_with_conn(&conn, "c1", "local0", 30, 30).unwrap();
+
+        assert!(
+            got.is_none(),
+            "seq=0 的锚点必须返回 None；修复前它返回的是 Some(会话最旧的 31 条)，实测拿到 {:?}",
+            got.map(|rows| uuids(&rows).len()),
+        );
+    }
+
+    /// 同一条判据的**空会话变体**：会话里一条 `seq > 0` 的消息都没有时，
+    /// 修复前返回的是 `Some(vec![])` ⇒ 前端 `setMessages([])` 把整条会话清屏成「暂无消息」。
+    #[test]
+    fn around_seq_zero_anchor_in_all_local_conversation_is_not_empty_success() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "local0", "c2", "[图片] a.png", "image", 0, "2026-05-11T00:01:00Z");
+        insert_msg(&conn, "local1", "c2", "[图片] b.png", "image", 0, "2026-05-11T00:02:00Z");
+
+        let got = get_messages_around_with_conn(&conn, "c2", "local0", 30, 30).unwrap();
+
+        assert!(
+            got.is_none(),
+            "必须是 None（找不到），不能是 Some(空数组)——后者会被上层读成「这段真的没有消息」",
+        );
+    }
+
+    /// 正对照：**同一条查询**对正常锚点仍然给出正确窗口（证明上面那两个 None 不是恒 None）
+    #[test]
+    fn around_normal_anchor_still_returns_window_after_seq_zero_guard() {
+        let conn = setup_test_db();
+        seed_conversation(&conn, "c1", 100);
+        insert_msg(&conn, "local0", "c1", "[图片] a.png", "image", 0, "2026-05-11T00:01:00Z");
+
+        let win = get_messages_around_with_conn(&conn, "c1", "m50", 3, 2)
+            .unwrap()
+            .expect("正常锚点必须命中");
+        assert_eq!(uuids(&win), vec!["m52", "m51", "m50", "m49", "m48", "m47"]);
+        // 顺带钉住：窗口里绝不会混进 seq=0 的本地消息
+        assert!(!win.iter().any(|m| m.seq == 0));
     }
 }

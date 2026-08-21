@@ -328,7 +328,6 @@ export const HOOKS: ComponentEntry[] = [
 // ============== 服务 ==============
 export const SERVICES: ComponentEntry[] = [
   { name: 'deviceInfo', path: 'services/deviceInfo', category: 'services', description: '设备信息服务' },
-  { name: 'diagnosticService', path: 'services/diagnosticService', category: 'services', description: '诊断上报服务' },
   { name: 'fileCache', path: 'services/fileCache', category: 'services', description: '文件缓存服务' },
   { name: 'assetUrl', path: 'services/assetUrl', category: 'services', description: '本地文件路径 → webview 显示 src 的唯一转换点（convertFileSrc + Android 百分号编码修复；图片缓存与视频封面共用）' },
   { name: 'videoPoster', path: 'services/videoPoster', category: 'services', description: '视频封面本地持久化编排（读 video_posters 索引 / 未命中截一次落盘 / 同 hash 去重 + 并发上限 2 / 失败本会话不重试）' },

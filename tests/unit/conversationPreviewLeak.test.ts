@@ -14,11 +14,15 @@
  * 正向断言只能证明「当前这一版文案对了」，一旦有人改回回落 content 原文、或换成
  * 「[会议邀请] xxx」这种带原文尾巴的写法，正向断言会红得莫名、反向断言直指要害。
  *
- * 三段各自打的是不同的东西，缺一不可：
+ * 四段各自打的是不同的东西，缺一不可：
  *  ① 纯函数层：映射表 + 「未知类型绝不回落 content」这条不变量本身
  *  ② syncService 真路径：`syncMessages` → `db.updateConversationLastMessage(预览)`
  *  ③ db 真路径：`refreshConversationPreview` → `invoke('db_update_conversation_last_message')`
- * ②③ 都是**走真函数**拿到真实传参，不是静态扫描源码。
+ *  ④ **系统通知真路径**：`notifyNewMessage` → `sendNotification({ body })`（2026-08-21 新增，
+ *    外部审计 idx=55）。第 ④ 段是三条预览里**唯一会把正文推到锁屏**的那一条，
+ *    而它此前有自己的一份 switch、末尾 `default: return content` ——
+ *    与本文件 ① 段锁的那条不变量正相反。
+ * ②③④ 都是**走真函数**拿到真实传参，不是静态扫描源码。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -40,6 +44,8 @@ import {
   UNKNOWN_MESSAGE_PREVIEW_TEXT,
 } from '../../src/chat/shared/messagePreviewText';
 import { SyncService } from '../../src/services/syncService';
+import { getMessagePreview, notifyNewMessage } from '../../src/services/notificationService';
+import { sendNotification } from '@tauri-apps/plugin-notification';
 import type { LocalConversation } from '../../src/db';
 
 /** 一个一眼认得出的密码值 —— 它出现在任何预览里都是泄露 */
@@ -222,5 +228,70 @@ describe('db.refreshConversationPreview：撤回/删除后刷新的那一行与�
     const payload = updateCall?.[1] as { lastMessage: string };
     expect(payload.lastMessage).not.toContain(PASSWORD);
     expect(payload.lastMessage).toBe('[会议邀请]');
+  });
+});
+
+// ============================================================
+// ④ 系统通知真路径（idx=55）
+// ============================================================
+
+describe('notifyNewMessage：推到锁屏的那一行同样不回落 content 原文', () => {
+  beforeEach(() => {
+    vi.mocked(sendNotification).mockClear();
+  });
+
+  it('getMessagePreview 对未登记类型不回落原文（即使正文是带 password 的 JSON）', () => {
+    // 这里故意用一个「服务端将来新增、本端还没登记」的类型 —— 正是 default 分支的唯一入口
+    const preview = getMessagePreview('brand_new_payload_type', MEETING_CONTENT);
+    expect(preview).not.toContain(PASSWORD);
+    expect(preview).toBe(UNKNOWN_MESSAGE_PREVIEW_TEXT);
+  });
+
+  it('getMessagePreview 对 meeting_invite 给固定文案', () => {
+    const preview = getMessagePreview('meeting_invite', MEETING_CONTENT);
+    expect(preview).not.toContain(PASSWORD);
+    expect(preview).toBe(MESSAGE_PREVIEW_TEXT.meeting_invite);
+  });
+
+  it('getMessagePreview 仍然截断超长文本（这是本文件独有的职责，别在重构里丢掉）', () => {
+    const long = 'a'.repeat(120);
+    const preview = getMessagePreview('text', long);
+    expect(preview).toBe(`${'a'.repeat(50)}...`);
+  });
+
+  it('getMessagePreview 对群 system 消息仍然原样透传（白名单，不许误伤）', () => {
+    expect(getMessagePreview('system', '张三 加入了群聊')).toBe('张三 加入了群聊');
+  });
+
+  it('真路径：未登记类型的新消息 → sendNotification 的 body 不含 password', async () => {
+    await notifyNewMessage({
+      sourceType: 'friend',
+      sourceId: 'friend-1',
+      senderName: '张三',
+      messageType: 'brand_new_payload_type',
+      content: MEETING_CONTENT,
+      activeChat: null,
+    });
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(sendNotification).mock.calls[0][0] as { title: string; body: string };
+    expect(arg.body).not.toContain(PASSWORD);
+    expect(arg.body).toBe(UNKNOWN_MESSAGE_PREVIEW_TEXT);
+  });
+
+  it('真路径：群消息的 body 是「发送者: 预览」，预览段同样不含 password', async () => {
+    await notifyNewMessage({
+      sourceType: 'group',
+      sourceId: 'group-1',
+      senderName: '李四',
+      groupName: '周会群',
+      messageType: 'meeting_invite',
+      content: MEETING_CONTENT,
+      activeChat: null,
+    });
+
+    const arg = vi.mocked(sendNotification).mock.calls[0][0] as { title: string; body: string };
+    expect(arg.body).not.toContain(PASSWORD);
+    expect(arg.body).toBe(`李四: ${MESSAGE_PREVIEW_TEXT.meeting_invite}`);
   });
 });

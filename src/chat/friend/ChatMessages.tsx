@@ -203,8 +203,8 @@ export function ChatMessages({
   // 从 renderNodes 摊平：相册内部已按 media_group_index 升序，与网格里眼睛看到的一致；
   // 范围 = **当前已加载的这批消息**，用户往上翻得越多能滑到的越多（见 mediaGallery.ts 文件头）。
   const galleryItems = useMemo(
-    () => buildMediaGallery(renderNodes, { urlType: 'friend', friendId: friend.friend_id }),
-    [renderNodes, friend.friend_id],
+    () => buildMediaGallery(renderNodes, { urlType: 'friend' }),
+    [renderNodes],
   );
 
   // 捕获挂载入场基准：首帧非空时记下当前 key 快照（缓存未命中首帧为空，待 db 加载到的首批再捕获，

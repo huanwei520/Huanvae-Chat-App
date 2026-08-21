@@ -101,6 +101,14 @@ interface SyncResponse {
 const BACKFILL_WINDOW = 100;
 
 /**
+ * 单个会话分页同步的**轮数硬上限**（死循环安全阀②，见 `syncConversationFully` 头注释）
+ *
+ * 服务端一批 100 条 ⇒ 500 轮 ≈ 5 万条，远超任何一次真实增量同步的量级；
+ * 撞到它只可能是服务端在病态推进。撞上不丢数据：每轮都已落库 + 更新 last_seq。
+ */
+const SYNC_MAX_PAGE_ITERATIONS = 500;
+
+/**
  * 把服务端同步消息映射成本地行
  *
  * **本仓踩过的坑就在这个函数存在的理由里**：同一份映射原先在增量同步、分页续拉两处各抄一遍，
@@ -505,6 +513,25 @@ export class SyncService {
   /**
    * 完整同步单个会话（处理 has_more 分页）
    * @returns 同步结束后该会话的最新 seq
+   *
+   * ## 🔴 两道安全阀：终止条件不能 100% 外包给服务端
+   *
+   * 本循环唯一的推进量是 `currentSeq = convResult.latest_seq`，唯一的续跑信号是服务端给的
+   * `has_more`。只要服务端返回「`has_more:true` + `latest_seq` 不推进 + 这一页还有消息」
+   * （seq 空洞 / 软删整批 / 分片实例读到不同副本 / 后端一个 off-by-one 都会产生这个形状），
+   * 下一轮的请求参数与上一轮**逐字相同** ⇒ 同一个响应 ⇒ 无限重发 `POST /api/messages/sync`。
+   * 而本函数在 `useInitialSync` 的登录首屏路径上被 await ⇒ 卡住即**初始同步永不返回**、
+   * SyncStatusBanner 永远转圈。
+   *
+   * ⚠️ 这里有一条容易被漏掉的既有出口：`convResult.messages.length === 0` 会 break。
+   * 所以死循环并不像「只要 has_more 恒真就挂」那么宽 —— 它要求服务端**每轮都回非空 messages**。
+   * 但那正是「服务端有 bug 时」最常见的形状（把同一批消息一直回给你），所以阀门必须有。
+   *
+   * ① **不推进即停**：`has_more` 为真却拿不到比上一轮更大的 `latest_seq` ⇒ 再转一轮
+   *    也只会拿到同一个响应，立刻 break 并告警。这一条精准打死上面那个形状。
+   * ② **轮数上限**：兜住「每轮都推进一点点但推进不完」的病态形状（如服务端每轮只 +1）。
+   *    break 不丢数据 —— 每轮都已 `saveMessages` + `updateConversationLastSeq` 落库，
+   *    剩下的会在下一次同步（进会话 / WS 重连）接着拉。
    */
   private async syncConversationFully(
     conversationId: string,
@@ -513,8 +540,17 @@ export class SyncService {
   ): Promise<number> {
     let currentSeq = lastSeq;
     let hasMore = true;
+    let iterations = 0;
 
     while (hasMore) {
+      iterations += 1;
+      if (iterations > SYNC_MAX_PAGE_ITERATIONS) {
+        console.warn(
+          '[Sync] 单会话分页达到轮数上限，本轮提前结束（剩余消息将在下次同步继续拉）',
+          { conversationId, iterations, currentSeq },
+        );
+        break;
+      }
       // eslint-disable-next-line no-await-in-loop
       const response = await this.api.post<SyncResponse>('/api/messages/sync', {
         conversations: [
@@ -534,8 +570,15 @@ export class SyncService {
       const newMessages = convResult.messages.filter(m => m.seq > currentSeq);
       if (newMessages.length === 0) {
         // 服务端返回了不超过 currentSeq 的消息，无需写入；推进 has_more / currentSeq
-        currentSeq = convResult.latest_seq;
-        hasMore = convResult.has_more;
+        const advanced = convResult.latest_seq > currentSeq;
+        currentSeq = Math.max(currentSeq, convResult.latest_seq);
+        hasMore = convResult.has_more && advanced;
+        if (convResult.has_more && !advanced) {
+          console.warn(
+            '[Sync] 服务端 has_more=true 但 latest_seq 未推进，停止分页（安全阀①）',
+            { conversationId, currentSeq, latestSeq: convResult.latest_seq },
+          );
+        }
         continue;
       }
 
@@ -545,8 +588,16 @@ export class SyncService {
 
       // eslint-disable-next-line no-await-in-loop
       await db.saveMessages(localMessages);
-      currentSeq = convResult.latest_seq;
-      hasMore = convResult.has_more;
+      const advanced = convResult.latest_seq > currentSeq;
+      // 🔴 只增不减：服务端回退 latest_seq 会让下一轮把已同步过的段再拉一遍（同样是死循环形状）
+      currentSeq = Math.max(currentSeq, convResult.latest_seq);
+      hasMore = convResult.has_more && advanced;
+      if (convResult.has_more && !advanced) {
+        console.warn(
+          '[Sync] 服务端 has_more=true 但 latest_seq 未推进，停止分页（安全阀①）',
+          { conversationId, currentSeq, latestSeq: convResult.latest_seq },
+        );
+      }
 
       // 更新 last_seq
       // eslint-disable-next-line no-await-in-loop

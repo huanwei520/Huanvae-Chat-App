@@ -90,8 +90,10 @@ describe('① 两条消息列表都接了会话媒体序列', () => {
     expect(code).toContain('</MediaGalleryProvider>');
   });
 
-  it('私聊序列带 friendId、群聊序列声明 group —— 预签名端点靠它选', () => {
-    expect(stripComments(read(LISTS[0]))).toMatch(/\{ urlType: 'friend', friendId: friend\.friend_id \}/);
+  // 2026-08-21：私聊那边原本还带 `friendId: friend.friend_id`，随「好友文件 403 上报」
+  // 整条删除（后端没有 /api/diagnostic 路由，上报恒 404）。urlType 才是选预签名端点的那一位。
+  it('私聊序列声明 friend、群聊序列声明 group —— 预签名端点靠它选', () => {
+    expect(stripComments(read(LISTS[0]))).toMatch(/\{ urlType: 'friend' \}/);
     expect(stripComments(read(LISTS[1]))).toMatch(/\{ urlType: 'group' \}/);
   });
 });

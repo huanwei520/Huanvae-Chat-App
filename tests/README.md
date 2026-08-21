@@ -19,7 +19,6 @@ tests/
 │   ├── notification.test.ts     # 通知服务测试
 │   ├── notificationSounds.test.ts # 提示音管理 Hook 测试
 │   ├── settings.test.ts         # 设置状态管理测试（含大文件阈值）
-│   ├── diagnosticService.test.ts # 诊断上报服务测试
 │   ├── sessionLock.test.ts      # 会话锁服务测试（同账户单开，8 个用例）
 │   ├── lanTransfer.test.ts      # 局域网传输测试（62 个用例，含多文件批量传输）
 │   ├── devices.test.ts          # 设备管理 API 测试（8 个用例，含批量删除）

@@ -458,3 +458,49 @@ export function mergeSendingIntoMessages<M extends { message_uuid: string; clien
   const optimistic = pending.map(toMessage).reverse();
   return [...optimistic, ...messages];
 }
+
+/**
+ * 全局挑出「下一个该传的」在途条目（**跨会话**，按入队顺序）。
+ *
+ * 🔴 为什么必须跨会话（2026-08-21，外部审计 idx=92）
+ *
+ * 上传泵（{@link import('../chat/shared/useComposerTrayOutbox').useComposerTrayOutbox}）
+ * 原先只捞**当前会话**的 pending，而串行闸 `pumpingRef` 是**单个 hook 实例**的。
+ * 桌面端 `ChatPanel` 带 `key={chatKey}` 会整棵重挂、ref 归零，掩盖了这个洞；
+ * 移动端 `MobileChatView` 用的是常量 `key="chat-view"`、`ChatInputArea` 也没有 key
+ * ⇒ 切会话时同一个 hook 实例存活、`pumpingRef` 保持 true：
+ *   会话 A 排队上传（泵在跑）→ 切到 B → 在 B 排队 → pendingCount 由 0 变 N 触发 effect
+ *   → `pump()` 撞上 `pumpingRef=true` 直接 return → A 的循环跑完把 ref 置回 false，
+ *   但 B 的 pendingCount 不会再变化、`pump` 引用也没变 ⇒ effect 不再重跑
+ *   ⇒ **B 的媒体永远停在 pending，气泡上的转圈既不完成也不失败**。
+ *
+ * 把「捞哪一项」从「当前会话」改成「全局」之后，A 的循环跑完前就会顺手把 B 的也传掉，
+ * 死锁的前提（泵只认自己那个会话）不复存在；顺带修掉另一半——
+ * 切走会话后原会话剩下的 pending 不再被丢下不管。
+ *
+ * 顺序：按 `orderByConversation` 的会话插入序 + 会话内入队序，确定性可测。
+ */
+export function pickNextPendingUpload(
+  state: Pick<SendingMediaStore, 'entries' | 'orderByConversation'>,
+): SendingMediaEntry | null {
+  for (const ids of Object.values(state.orderByConversation)) {
+    for (const id of ids) {
+      const entry = state.entries[id];
+      if (entry && entry.status === 'pending') {
+        return entry;
+      }
+    }
+  }
+  return null;
+}
+
+/** 全局还剩几项 pending（上传泵的唤醒信号；跨会话，理由同 {@link pickNextPendingUpload}） */
+export function countPendingUploads(
+  state: Pick<SendingMediaStore, 'entries'>,
+): number {
+  let n = 0;
+  for (const entry of Object.values(state.entries)) {
+    if (entry.status === 'pending') { n += 1; }
+  }
+  return n;
+}

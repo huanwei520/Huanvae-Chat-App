@@ -38,6 +38,8 @@ import { getSyncService } from '../../services/syncService';
 import { useSession, useApi } from '../../contexts/SessionContext';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
+import { mergeMessageList } from '../shared/mergeMessageList';
+import { pickSendingEchoIndex } from '../shared/wsEchoClaim';
 import { sendMessage, recallMessage } from '../../api/messages';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
@@ -301,45 +303,11 @@ export function useLocalFriendMessages(friendId: string | null) {
       const uiMessages = localMessages.map((m) => localMessageToMessage(m, friendId));
       // 增量合并：保留已缓存的较老消息（loadMore 加载的历史）+ 用 db 版本更新最新 50
       // 条窗口内的消息（同步撤回/删除等离线期间发生的状态变化）+ 追加 db 中新增的消息。
-      //
-      // 历史原因：原实现 `setMessages(uiMessages)` 直接覆盖。当用户在 A 中翻历史触发
-      // loadMore（messages 含 200+ 条）→ 切到 B → 切回 A，cachedFriendMessages 写入
-      // 全量 200+ 条作为 useState 初值；但 useMainPage 的 useEffect 立刻调 loadMessages
-      // → db.getMessages(50) 只返回最新 50 条 → setMessages 覆盖为 50 条 → 用户向上翻
-      // 的 200+ 条全部丢失（向上翻历史时缓存的较老消息凭空消失）。
-      //
-      // 增量合并策略：
-      //   - 无缓存（prev=[]）→ 直接用 db 结果（首次进入会话）
-      //   - 有缓存：用 db 版本替换 prev 中相同 uuid 的消息（捕获离线期间撤回/删除等
-      //     状态更新；db 是 SSOT），不在 db 窗口的较老消息保持 prev 版本（缓存权威）
-      //   - db 有新消息（用户隐藏期间收到的）→ 追加到 prev 末尾按 send_time 排序
+      // 三分支规则与「为什么必须是同一份实现」见 chat/shared/mergeMessageList.ts。
       //
       // 在线撤回事件仍由 WebSocket onMessageRecalled 独立 handler 即时处理；本逻辑
       // 仅兜底"用户切走期间发生的撤回/删除"场景（WS 事件已错过但 db 已同步）。
-      setMessages((prev) => {
-        if (prev.length === 0) {
-          return uiMessages;
-        }
-        const dbByUuid = new Map(uiMessages.map((m) => [m.message_uuid, m]));
-        // 用 db 版本替换 prev 中存在的（同步状态字段，如 is_recalled / message_content），
-        // 但保留 prev 的 clientId / sendStatus —— db 版（localMessageToMessage）不带这两字段，
-        // 若丢失会让自己发的消息 React key 从 client_xxx 突变成真 uuid → 打开会话时 AnimatePresence
-        // 卸载重挂 → 退/入场动画 churn + 布局位移（bug② 双跳）。与 syncMessagesInBackground 保持一致。
-        const updated = prev.map((m) => {
-          const dbVer = dbByUuid.get(m.message_uuid);
-          return dbVer ? { ...dbVer, clientId: m.clientId, sendStatus: m.sendStatus } : m;
-        });
-        const existingUuids = new Set(prev.map((m) => m.message_uuid));
-        const newOnes = uiMessages.filter((m) => !existingUuids.has(m.message_uuid));
-        if (newOnes.length === 0) {
-          return updated;
-        }
-        // 降序 [新→旧]，与 db.getMessages / getLatestMessage[0] / loadMore（messages[length-1]=最旧）
-        // 的数组约定一致；显示层 sortedMessages 再各自升序排版，不受此影响。
-        return [...updated, ...newOnes].sort(
-          (a, b) => new Date(b.send_time).getTime() - new Date(a.send_time).getTime(),
-        );
-      });
+      setMessages((prev) => mergeMessageList(prev, uiMessages));
       setHasMore(localMessages.length >= limit);
 
       conversationRef.current = await db.getConversation(conversationId);
@@ -419,6 +387,15 @@ export function useLocalFriendMessages(friendId: string | null) {
           newCount: result.newMessagesCount,
         });
 
+        // 🔴 护栏三：**窗口态不并最新 50 条**（与 loadMessages 的护栏二同因）。
+        // 消息本身已由 syncService 落库，这里只是不动内存列表；用户要回到最新走 jumpToLatest。
+        // 缺了它，窗口态下一次后台同步就会把「围绕某条历史消息的一段」换成最新 50 条，
+        // 而 windowAnchorUuid 还挂着 ⇒ 列表内容与窗口态标志自相矛盾。
+        if (windowAnchorRef.current) {
+          logSync('窗口态：跳过同步后的列表刷新');
+          return;
+        }
+
         const updatedMessages = await db.getMessages(conversationId, 50);
 
         // 二次过期校验
@@ -429,32 +406,12 @@ export function useLocalFriendMessages(friendId: string | null) {
 
         const uiMessages = updatedMessages.map((m) => localMessageToMessage(m, friendId));
 
-        setMessages((prev) => {
-          const existingMap = new Map(prev.map((m) => [m.message_uuid, m]));
-          const sendingMessages = prev.filter((m) => m.sendStatus === 'sending');
-
-          const mergedMessages = uiMessages.map((newMsg) => {
-            const existing = existingMap.get(newMsg.message_uuid);
-            if (existing) {
-              return { ...newMsg, clientId: existing.clientId, sendStatus: existing.sendStatus };
-            }
-            return newMsg;
-          });
-
-          if (sendingMessages.length > 0) {
-            const mergedUuids = new Set(mergedMessages.map((m) => m.message_uuid));
-            const mergedClientIds = new Set(mergedMessages.map((m) => m.clientId).filter(Boolean));
-            const missingMessages = sendingMessages.filter(
-              (m) => !mergedUuids.has(m.message_uuid) && !mergedClientIds.has(m.clientId),
-            );
-            if (missingMessages.length > 0) {
-              logSync('保留发送中的消息', { count: missingMessages.length });
-              return [...missingMessages, ...mergedMessages];
-            }
-          }
-
-          return mergedMessages;
-        });
+        // 🔴 与 loadMessages 共用同一份增量合并（chat/shared/mergeMessageList.ts）。
+        // 这里原本是 `mergedMessages = uiMessages.map(...)` 的**整段覆盖**：
+        // 用户向上翻了 300 条历史、WS 抖一下重连触发同步 ⇒ 列表瞬间塌回 50 条、
+        // 滚动位置一起丢（外部审计 idx=88）。loadMessages 在 2026-05-13 修过同一个洞，
+        // 这一处被漏下了 —— 现在两处指向同一个函数，结构上不可能再只修一半。
+        setMessages((prev) => mergeMessageList(prev, uiMessages));
         setHasMore(updatedMessages.length >= 50);
 
         logLocal('同步后重新加载消息', { count: uiMessages.length });
@@ -974,7 +931,14 @@ export function useLocalFriendMessages(friendId: string | null) {
       // 情况 2：WebSocket 比 API 响应快（自己发送的消息）
       // 查找是否有正在发送中的消息（sender_id 是自己）
       if (wsMsg.sender_id === session.userId) {
-        const sendingIndex = prev.findIndex((m) => m.sendStatus === 'sending');
+        // 认领规则见 chat/shared/wsEchoClaim.ts：先按「正文 + 类型」精确配对，
+        // 对不上才退回「最早的在途项」。原来是 findIndex(sendStatus==='sending')，
+        // 取的是数组头部 = **最新插入**的那条 ⇒ 连发两条时张冠李戴，
+        // 两条消息拿到同一个 message_uuid，被列表去重吞掉一条（外部审计 idx=89）。
+        const sendingIndex = pickSendingEchoIndex(prev, {
+          content: wsMsg.content || wsMsg.preview || '',
+          message_type: wsMsg.message_type,
+        });
         if (sendingIndex >= 0) {
           // 替换发送中的消息（更新 uuid、seq、sendStatus）
           const updated = [...prev];

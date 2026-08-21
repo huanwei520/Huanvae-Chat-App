@@ -143,6 +143,28 @@ export async function persistUploadedMessage(options: UploadPersistOptions): Pro
     // 上面已由 saveFileUuidHash(result.fileUuid, result.fileHash) 写入。
     image_width: result.imageWidth ?? null,
     image_height: result.imageHeight ?? null,
+    // 🔴 seq 只能是 0 —— **本机此刻拿不到真实 seq**（2026-08-21 核实，外部审计 idx=91）
+    //
+    // 服务端在 `upload/request`（秒传分支）与 `upload/confirm` 时确实已经建好了消息、
+    // 有真实 seq，但**这两个响应都不下发它**：契约 backend-docs/storage/文件存储管理.md
+    // 只列了 `message_uuid` / `message_send_time`，本仓 `hooks/useFileUpload.ts` 的
+    // `UploadRequestResponse` / `ConfirmUploadResponse` 两个接口也只有这两个字段。
+    // 所以这里不是「手边有真值却填了 0」，是**取不到**。
+    //
+    // 代价（三条，都可观测，别当它无害）：
+    //  ① `isReadBySeq(0, _)` / `readersAtSeq(…, 0, …)` 硬性把 seq<=0 判为未读
+    //     ⇒ 自己发的图片/视频/文件在自愈之前**不显示「已读」**；
+    //  ② `get_messages_around` / `get_messages_after` 都带 `AND seq > 0`
+    //     ⇒ 这些消息不参与定位窗口与向新方向分页（DB 层已加 seq<=0 锚点护栏，
+    //        见 src-tauri/src/db/messages.rs，否则会把整条会话定位到最旧那一段）；
+    //  ③ 与 `sendTextMessage` / `sendMediaMessage` 那两条老路径（写 `response.seq`）口径不一致
+    //     —— 那两条走 `POST /api/messages`，响应里**有** seq，这里没有。
+    //
+    // 自愈：下一次进会话 / WS 重连触发增量同步时，`db.saveMessages`（INSERT OR REPLACE）
+    // 会用服务端那份把整行覆盖回来，seq 随之补上。
+    //
+    // 真正的修法在后端：让 upload/request（秒传）与 upload/confirm 一并返回 `seq`。
+    // 那是跨仓改动，不在本仓上界内。
     seq: 0,
     reply_to: replyTo ?? null,
     media_group_id: mediaGroup?.id ?? null,

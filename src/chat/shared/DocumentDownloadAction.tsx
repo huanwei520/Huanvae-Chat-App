@@ -97,7 +97,6 @@ export interface DocumentDownloadActionProps {
   filename: string;
   fileSize?: number | null;
   urlType?: 'user' | 'friend' | 'group';
-  friendId?: string;
   /** inline: 紧凑（28px 圆环 + 32px 按钮）；centered: 居中大按钮 */
   layout?: 'inline' | 'centered';
   /** 视觉主题。
@@ -113,7 +112,6 @@ export function DocumentDownloadAction({
   filename,
   fileSize,
   urlType = 'user',
-  friendId,
   layout = 'inline',
   variant = 'default',
 }: DocumentDownloadActionProps) {
@@ -123,7 +121,6 @@ export function DocumentDownloadAction({
     fileName: filename,
     fileType: 'document',
     urlType,
-    friendId,
     autoCache: false,
   });
 

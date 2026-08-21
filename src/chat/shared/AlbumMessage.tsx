@@ -66,8 +66,6 @@ interface AlbumMessageProps {
   album: AlbumNode<AlbumMediaItem>;
   /** 预签名 URL 的归属类型，与单条媒体消息同口径 */
   urlType?: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报，与单条媒体消息同口径） */
-  friendId?: string;
   /**
    * 时间戳 + 已读状态槽（`.bubble-meta`）。原样透传给 MediaBubbleFrame，由它决定落点：
    * 有配文落配文条内、无配文落网格右下角药丸浮层。本组件不摆它。
@@ -168,7 +166,7 @@ function albumItemMediaType(rawType: string): MessageType {
   return rawType === 'video' ? 'video' : 'image';
 }
 
-export function AlbumMessage({ album, urlType = 'friend', friendId, meta, senderName }: AlbumMessageProps) {
+export function AlbumMessage({ album, urlType = 'friend', meta, senderName }: AlbumMessageProps) {
   const { columnBase, spans } = useMemo(
     () => albumGridPlan(album.expectedCount),
     [album.expectedCount],
@@ -226,7 +224,6 @@ export function AlbumMessage({ album, urlType = 'friend', friendId, meta, sender
                   fileUuid={item.file_uuid}
                   fileSize={item.file_size}
                   urlType={urlType}
-                  friendId={friendId}
                   // 每格各自一把钥匙：这一格在途就只有这一格转圈 / 只重试这一格
                   clientId={item.clientId}
                   displayVariant="album"

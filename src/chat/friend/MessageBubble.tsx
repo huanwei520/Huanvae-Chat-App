@@ -213,7 +213,6 @@ export function MessageBubble({
     fileName: '',
     fileType: fileCacheType,
     urlType: 'friend',
-    friendId: friend.friend_id,
     autoCache: false,
     enabled: isFileMessage,
   });
@@ -484,7 +483,7 @@ export function MessageBubble({
                 )}
                 {album ? (
                   // 相册：整组渲染成一个网格，本条自己的媒体不再单独出现
-                  <AlbumMessage album={album} urlType="friend" friendId={friend.friend_id} meta={metaNode} />
+                  <AlbumMessage album={album} urlType="friend" meta={metaNode} />
                 ) : (
                   <>
                     {message.message_type === 'text' && (

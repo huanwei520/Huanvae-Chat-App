@@ -248,7 +248,6 @@ import * as useVideoPoster from '../../src/chat/shared/useVideoPoster';
 
 // 服务
 import * as deviceInfo from '../../src/services/deviceInfo';
-import * as diagnosticService from '../../src/services/diagnosticService';
 import * as fileCache from '../../src/services/fileCache';
 import * as assetUrl from '../../src/services/assetUrl';
 import * as videoPoster from '../../src/services/videoPoster';
@@ -553,7 +552,6 @@ const COMPONENT_MAP = {
   useVideoPoster,
   // 服务
   deviceInfo,
-  diagnosticService,
   fileCache,
   assetUrl,
   videoPoster,

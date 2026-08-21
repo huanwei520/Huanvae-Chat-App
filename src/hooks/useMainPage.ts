@@ -868,6 +868,21 @@ export function useMainPage() {
     const targetId = pendingScrollToMessageId;
 
     const run = async () => {
+      // 🔴 先看它是不是**已经渲染在屏幕上**（2026-08-21，外部审计 idx=90/91 的配套）
+      //
+      // 定位窗口是「按 seq 取锚点前后各 30 条」，而 `seq = 0` 的消息（待发区上传落库的
+      // 媒体、乐观发送中的消息）**不参与 seq 窗口** —— DB 层现在对这种锚点返回
+      // 「找不到」（src-tauri/src/db/messages.rs 的 seq<=0 护栏）。可它们恰恰是
+      // 「刚发出、就在眼前」的那一批：不先试直接滚，用户点自己刚发那张图的引用块
+      // 只会得到一句「找不到这条消息」。
+      //
+      // 已经在 DOM 里 ⇒ 直接滚过去就是正确答案，连 DB 都不用查（也顺带省掉一次整段替换）。
+      if (scrollMessageIntoView(targetId)) {
+        setHighlightedMessageId(targetId);
+        setPendingScrollToMessageId(null);
+        return;
+      }
+
       const ok =
         isFriendLikeTarget(chatTarget)
           ? await locateFriendMessage(targetId)

@@ -13,7 +13,7 @@
  * ThemeProvider 注入。纯 JSON 展示，无远程资源（不触反代收口点）。
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { createApiClient } from '../api/client';
 import { ListLoading } from '../components/common/ListStates';
@@ -25,12 +25,17 @@ import { EtfDetailView } from './views/EtfDetailView';
 
 export default function StockPage() {
   const [windowData, setWindowData] = useState<StockWindowData | null>(null);
+  // token 的**同步**真值源：ApiClient 经 getter 现取（见 api/client.ts 的 getAccessToken 注释）。
+  // 用 state 直接喂客户端会让「换 token 就换客户端实例」，下游 effect 跟着白跑一轮。
+  const windowDataRef = useRef<StockWindowData | null>(null);
   const view = useStockNav((s) => s.view);
   const selection = useStockNav((s) => s.selection);
 
   // 初始化：解析 URL query
   useEffect(() => {
-    setWindowData(parseStockWindowData(window.location.search));
+    const parsed = parseStockWindowData(window.location.search);
+    windowDataRef.current = parsed;
+    setWindowData(parsed);
   }, []);
 
   // 跨窗口 token 同步（同 HuanvaeGuard 模式）
@@ -38,29 +43,38 @@ export default function StockPage() {
     const unlistenPromise = listen<{ accessToken: string; refreshToken: string }>(
       'session:tokens-updated',
       (event) => {
-        setWindowData((prev) => (prev ? {
+        const prev = windowDataRef.current;
+        if (!prev) { return; }
+        const next = {
           ...prev,
           accessToken: event.payload.accessToken,
           refreshToken: event.payload.refreshToken,
-        } : prev));
+        };
+        windowDataRef.current = next;
+        setWindowData(next);
       },
     );
     void emit('session:request-tokens');
     return () => { void unlistenPromise.then((fn) => fn()); };
   }, []);
 
-  // 构建 ApiClient（token 变化时重建）
+  // 构建 ApiClient：只随 serverUrl 变，token 经 getter 从 ref 现取（同主窗口口径）
+  const serverUrl = windowData?.serverUrl ?? null;
   const api = useMemo(() => {
-    if (!windowData) { return null; }
+    if (!serverUrl) { return null; }
     return createApiClient({
-      baseUrl: windowData.serverUrl,
-      accessToken: windowData.accessToken,
-      refreshToken: windowData.refreshToken,
+      baseUrl: serverUrl,
+      getAccessToken: () => windowDataRef.current?.accessToken ?? '',
+      getRefreshToken: () => windowDataRef.current?.refreshToken ?? '',
       onTokenRefresh: (accessToken, refreshToken) => {
-        setWindowData((prev) => (prev ? { ...prev, accessToken, refreshToken } : prev));
+        const prev = windowDataRef.current;
+        if (!prev) { return; }
+        const next = { ...prev, accessToken, refreshToken };
+        windowDataRef.current = next;
+        setWindowData(next);
       },
     });
-  }, [windowData]);
+  }, [serverUrl]);
 
   if (!windowData || !api) {
     return (

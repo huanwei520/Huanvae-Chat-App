@@ -34,7 +34,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isMobile } from '../utils/platform';
-import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
+import { conversationPreviewText } from '../chat/shared/messagePreviewText';
 
 // ============================================
 // Android 通知渠道
@@ -263,33 +263,32 @@ export async function notify(options: NotificationOptions): Promise<void> {
 // 消息类型转换
 // ============================================
 
+/** 系统通知正文的截断长度（只有白名单类型的原文才可能超长） */
+const NOTIFICATION_PREVIEW_MAX = 50;
+
 /**
- * 根据消息类型生成预览文本
+ * 根据消息类型生成系统通知的预览文本。
+ *
+ * 🔴 **映射表不在这里，在 {@link conversationPreviewText}** —— 全仓唯一一份。
+ *
+ * 原先这里是一份独立的 switch，末尾是 `default: return content`。那条 default 违反了
+ * messagePreviewText.ts 文件头写死的核心不变量「未知类型绝不回落 content 原文」，
+ * 而本文件恰恰是三处预览里**唯一会把正文推到锁屏通知**的那一处：
+ * `message_type` 的联合类型只是编译期声明，运行时的值来自
+ * `JSON.parse(data) as WsServerMessage`（wsHandlers.ts）——服务端加任何新的
+ * JSON 载荷型 message_type，这里就把原文原样推上锁屏。
+ * （群消息真实存在的 `'system'` 就已经不在那个联合里。）
+ *
+ * ⚠️ 参数类型故意是 `string` 而不是那个联合：**联合类型挡不住运行时的值**，
+ * 写成联合只会让读代码的人以为 default 分支到不了。
+ *
+ * 截断是本函数**独有**的职责（会话列表那一行不截断），故留在这里。
  */
-function getMessagePreview(
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card',
-  content: string,
-): string {
-  switch (messageType) {
-    case 'text':
-      // 截断过长的文本
-      return content.length > 50 ? `${content.slice(0, 50)}...` : content;
-    case 'image':
-      return '[图片]';
-    case 'video':
-      return '[视频]';
-    case 'file':
-      return '[文件]';
-    case 'meeting_invite':
-      return '[会议邀请]';
-    case 'card':
-      return '[卡片]';
-    case 'group_card':
-      // default 分支返回的是 content 原文 —— 漏掉这条，系统通知里会弹出裸 JSON
-      return GROUP_CARD_PREVIEW_TEXT;
-    default:
-      return content;
-  }
+export function getMessagePreview(messageType: string, content: string): string {
+  const text = conversationPreviewText(messageType, content);
+  return text.length > NOTIFICATION_PREVIEW_MAX
+    ? `${text.slice(0, NOTIFICATION_PREVIEW_MAX)}...`
+    : text;
 }
 
 // ============================================
@@ -305,8 +304,15 @@ export interface NewMessageNotificationParams {
   senderName: string;
   /** 群名称（仅群消息需要） */
   groupName?: string;
-  /** 消息类型 */
-  messageType: 'text' | 'image' | 'video' | 'file' | 'meeting_invite' | 'card' | 'group_card';
+  /**
+   * 消息类型（后端 `message_type` 原样透传）。
+   *
+   * 🔴 故意是 `string` 而不是联合类型：它的值来自 `JSON.parse(...) as WsServerMessage`，
+   * 联合只是编译期声明，运行时服务端给什么就是什么（群消息的 `'system'` 已经不在那个联合里）。
+   * 写成联合会让读者以为「不可能出现别的值」，从而放心地在下游写 `default: return content`
+   * —— 那正是本文件修掉的那条泄露。
+   */
+  messageType: string;
   /** 消息内容 */
   content: string;
   /** 当前活跃的聊天（用于判断是否跳过通知） */

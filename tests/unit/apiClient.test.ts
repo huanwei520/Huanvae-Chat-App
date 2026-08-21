@@ -35,14 +35,18 @@ function reqOf(callIndex: number): Record<string, unknown> {
 }
 
 describe('API 客户端 (api/client)', () => {
+  // token 经 getter 现取（2026-08-21 起，见 api/client.ts 的 getAccessToken 注释）。
+  // 这里用一个可变的 holder 模拟「持有方（SessionContext 的 sessionRef）」。
+  let holder = { accessToken: 'token-123', refreshToken: 'refresh-456' };
   const baseConfig = {
     baseUrl: 'https://api.example.com',
-    accessToken: 'token-123',
-    refreshToken: 'refresh-456',
+    getAccessToken: () => holder.accessToken,
+    getRefreshToken: () => holder.refreshToken,
   };
 
   beforeEach(() => {
     mocks.invoke.mockReset();
+    holder = { accessToken: 'token-123', refreshToken: 'refresh-456' };
   });
 
   describe('GET 请求', () => {
@@ -249,6 +253,73 @@ describe('API 客户端 (api/client)', () => {
       const second = await client.refreshAccessToken(); // 句柄已在 finally 清空 → 新请求
       expect(second).toBe(true);
       expect(mocks.invoke).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ==========================================================================
+  // token 经 getter 现取（外部审计 idx=53）
+  // ==========================================================================
+  //
+  // 这一组锁的是「**同一个客户端实例**能跟上 token 变化」——它是
+  // 「api 不必随 token 重建」这件事成立的前提。修前 token 是构造时的快照值，
+  // 换 token 只能换实例，于是 SessionContext 的 useMemo 只好依赖整个 session，
+  // 每 ~10 分钟一次的主动刷新 + 每次改昵称都把全仓 101 个依赖 api 的 effect 炸一遍。
+  describe('token 现取（同一实例跟得上 token 变化）', () => {
+    it('持有方换了 access token ⇒ 同一个客户端下一次请求就带新的', async () => {
+      mocks.invoke.mockResolvedValue(mockResp({ data: { data: {} } }));
+      const client = createApiClient(baseConfig);
+
+      await client.get('/api/a');
+      expect((reqOf(0).headers as Record<string, string>).Authorization).toBe('Bearer token-123');
+
+      holder = { accessToken: 'token-999', refreshToken: 'refresh-456' };
+      await client.get('/api/b');
+      expect((reqOf(1).headers as Record<string, string>).Authorization).toBe('Bearer token-999');
+    });
+
+    it('🔴 持有方换了 refresh token ⇒ 刷新请求体带新的（修前是构造时的 const 快照，永远发旧的）', async () => {
+      mocks.invoke.mockResolvedValue(
+        mockResp({ data: { access_token: 'n', refresh_token: 'r' } }),
+      );
+      const client = createApiClient(baseConfig);
+
+      holder = { accessToken: 'token-123', refreshToken: 'rotated-refresh' };
+      await client.refreshAccessToken();
+
+      const body = reqOf(0).body as string;
+      expect(JSON.parse(body)).toEqual({ refresh_token: 'rotated-refresh' });
+    });
+
+    it('刷新后持有方还没写回时，401 重试仍用刚刷出来的新 token（不等 setState）', async () => {
+      // 持有方（onTokenRefresh）故意什么都不做，模拟 React setState 尚未提交
+      mocks.invoke
+        .mockResolvedValueOnce(mockResp({ status: 401 }))
+        .mockResolvedValueOnce(mockResp({ data: { access_token: 'fresh-token', refresh_token: 'r2' } }))
+        .mockResolvedValueOnce(mockResp({ data: { data: { ok: 1 } } }));
+
+      const client = createApiClient({ ...baseConfig, onTokenRefresh: () => { /* 尚未落地 */ } });
+      await client.get('/api/x');
+
+      expect((reqOf(2).headers as Record<string, string>).Authorization).toBe('Bearer fresh-token');
+    });
+
+    it('持有方追上之后，以持有方为准（不永久停在刷出来的那一份）', async () => {
+      mocks.invoke
+        .mockResolvedValueOnce(mockResp({ status: 401 }))
+        .mockResolvedValueOnce(mockResp({ data: { access_token: 'fresh-token', refresh_token: 'r2' } }))
+        .mockResolvedValueOnce(mockResp({ data: { data: {} } }))
+        .mockResolvedValueOnce(mockResp({ data: { data: {} } }));
+
+      const client = createApiClient({
+        ...baseConfig,
+        onTokenRefresh: (a, r) => { holder = { accessToken: a, refreshToken: r }; },
+      });
+      await client.get('/api/x');
+
+      // 持有方之后又换了一次（例如另一个窗口广播过来的更新）
+      holder = { accessToken: 'even-newer', refreshToken: 'r3' };
+      await client.get('/api/y');
+      expect((reqOf(3).headers as Record<string, string>).Authorization).toBe('Bearer even-newer');
     });
   });
 });

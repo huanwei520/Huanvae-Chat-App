@@ -113,7 +113,12 @@ export async function loadAllHistoryMessages(
         // 转换并保存到本地数据库（使用正确的 conversation_id）
         // 走 saveMessagesSkipExisting：本地缺失的整行插入；本地已有的行只被 COALESCE 补
         // 引用/相册四列，is_recalled=1 等本地状态列不会被覆盖。
-        // GET /api/messages 不返回 is_recalled，这里的 false 仅作新插入行的初始值占位
+        // 🔴 is_recalled 必须从服务端原样落库：契约 backend-docs/messages/好友消息.md
+        // 「is_recalled | bool | 是否已撤回，**恒返回**」，且 true 时 message_content 已被
+        // 服务端替换成字面量「[消息已撤回]」。本地写死 false 的后果不是少个标记，而是
+        // 本地库里没有的那些历史消息（换设备/清库后全量拉历史）被插成未撤回 ⇒
+        // MessageBubble 不走撤回占位分支，把「[消息已撤回]」当普通文本气泡渲染出来。
+        // 群分支（下方）一直是对的，两个分支曾经不一致。
         const localMessages = messages.map((msg: Message) => ({
           message_uuid: msg.message_uuid,
           conversation_id: conversationId,
@@ -136,7 +141,7 @@ export async function loadAllHistoryMessages(
           media_group_id: msg.media_group_id ?? null,
           media_group_index: msg.media_group_index ?? null,
           media_group_count: msg.media_group_count ?? null,
-          is_recalled: false,
+          is_recalled: msg.is_recalled ?? false,
           is_deleted: false,
           send_time: msg.send_time,
         }));

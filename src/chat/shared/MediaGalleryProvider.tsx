@@ -160,8 +160,8 @@ function useGalleryItemSource(item: MediaGalleryItem): FileSourceResult | null {
     // 视频在移动端 / macOS 走本地 HTTP 服务器（asset:// 播不了 / WKWebView 不转发 Range），
     // 与气泡侧 useVideoCache 是同一条判据 —— 这里只是换了个调用点，没有第二套规则。
     const load = item.type === 'video'
-      ? getVideoSource(api, item.fileUuid, null, item.urlType, { friendId: item.friendId, fileType: 'video' })
-      : getFileSource(api, item.fileUuid, null, item.urlType, { friendId: item.friendId, fileType: 'image' });
+      ? getVideoSource(api, item.fileUuid, null, item.urlType)
+      : getFileSource(api, item.fileUuid, null, item.urlType);
 
     load
       .then((result) => { if (!cancelled) { setSource(result); } })
@@ -172,7 +172,7 @@ function useGalleryItemSource(item: MediaGalleryItem): FileSourceResult | null {
       });
 
     return () => { cancelled = true; };
-  }, [api, item.fileUuid, item.type, item.urlType, item.friendId, completedAt]);
+  }, [api, item.fileUuid, item.type, item.urlType, completedAt]);
 
   return source;
 }

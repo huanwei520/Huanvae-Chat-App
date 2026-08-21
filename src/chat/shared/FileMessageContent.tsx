@@ -72,8 +72,6 @@ export interface FileMessageContentProps {
   fileSize: number | null;
   /** URL 类型（用于预签名 URL 请求） */
   urlType?: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报） */
-  friendId?: string;
   /**
    * 乐观消息的 clientId（真实历史消息为 undefined）。
    *
@@ -184,7 +182,6 @@ function ImageMessage({
   filename,
   fileSize,
   urlType,
-  friendId,
   imageWidth,
   imageHeight,
   displayVariant,
@@ -194,8 +191,6 @@ function ImageMessage({
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报） */
-  friendId?: string;
   /** 消息中携带的图片宽度（后端返回） */
   imageWidth?: number | null;
   /** 消息中携带的图片高度（后端返回） */
@@ -214,7 +209,7 @@ function ImageMessage({
     retryWithNewUrl,
     // 第二参 = 已知内容哈希；消息面没有（后端接收面已不再下发）⇒ 传 null，
     // 由 Hook 经 file_uuid_hash 解析（两层键，见 services/fileCache.resolveContentHash）
-  } = useImageCache(fileUuid, null, filename, urlType, friendId);
+  } = useImageCache(fileUuid, null, filename, urlType);
 
   // 本条在会话媒体序列里的身份（左右切图靠它定位）
   const galleryItem = useMemo<MediaGalleryItem>(() => ({
@@ -224,8 +219,7 @@ function ImageMessage({
     fileSize: fileSize ?? undefined,
     type: 'image',
     urlType,
-    friendId,
-  }), [messageUuid, fileUuid, filename, fileSize, urlType, friendId]);
+  }), [messageUuid, fileUuid, filename, fileSize, urlType]);
   const openPreview = useOpenMediaPreview(galleryItem);
 
   // 图片浏览器级别加载失败的重试状态
@@ -358,7 +352,6 @@ function VideoMessage({
   filename,
   fileSize,
   urlType,
-  friendId,
   imageWidth,
   imageHeight,
   displayVariant,
@@ -368,8 +361,6 @@ function VideoMessage({
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报） */
-  friendId?: string;
   /** 消息中携带的视频宽度（后端返回） */
   imageWidth?: number | null;
   /** 消息中携带的视频高度（后端返回） */
@@ -384,7 +375,6 @@ function VideoMessage({
     filename,
     fileSize ?? undefined,
     urlType,
-    friendId,
   );
 
   // 本条在会话媒体序列里的身份（左右切图靠它定位）
@@ -395,8 +385,7 @@ function VideoMessage({
     fileSize: fileSize ?? undefined,
     type: 'video',
     urlType,
-    friendId,
-  }), [messageUuid, fileUuid, filename, fileSize, urlType, friendId]);
+  }), [messageUuid, fileUuid, filename, fileSize, urlType]);
   const openPreview = useOpenMediaPreview(galleryItem);
 
   // 监听下载任务状态（用于显示进度）；键 = file_uuid（两层键）
@@ -546,14 +535,11 @@ function DocumentMessage({
   filename,
   fileSize,
   urlType,
-  friendId,
 }: {
   fileUuid: string;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
-  /** 好友 ID（用于错误上报） */
-  friendId?: string;
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const { src, presignedUrl, isLocal, localPath, openInFolder } = useFileCache({
@@ -562,7 +548,6 @@ function DocumentMessage({
     fileName: filename,
     fileType: 'document',
     urlType,
-    friendId,
     autoCache: false,
   });
 
@@ -623,7 +608,6 @@ function DocumentMessage({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
-          friendId={friendId}
         />
       </div>
 
@@ -790,7 +774,6 @@ export function FileMessageContent({
   fileUuid,
   fileSize,
   urlType = 'friend',
-  friendId,
   clientId,
   imageWidth,
   imageHeight,
@@ -826,7 +809,6 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
-          friendId={friendId}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
           displayVariant={displayVariant}
@@ -841,7 +823,6 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
-          friendId={friendId}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
           displayVariant={displayVariant}
@@ -855,7 +836,6 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
-          friendId={friendId}
         />
       );
   }

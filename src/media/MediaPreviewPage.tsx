@@ -45,10 +45,6 @@ import {
 } from '../services/fileCache';
 import { useFileCacheStore, selectDownloadTask } from '../stores/fileCacheStore';
 import { formatFileSize } from '../utils/format';
-import {
-  reportFriendPermissionError,
-  createPresignedUrlErrorContext,
-} from '../services/diagnosticService';
 import { optimizePresignedUrl } from '../utils/network';
 import { CircularProgress } from '../components/common/CircularProgress';
 import './styles.css';
@@ -146,7 +142,6 @@ async function getPresignedUrl(
   urlType: 'user' | 'friend' | 'group',
   /** 群文件必填的 related_id（发起本次访问的群 ID）；非群路径传 null */
   groupId: string | null | undefined,
-  fileType?: 'image' | 'video' | 'document',
 ): Promise<string> {
   // 验证必要参数
   if (!serverUrl) {
@@ -214,22 +209,9 @@ async function getPresignedUrl(
       if (response.status === 401) {
         throw new Error('登录已过期，请关闭窗口后重新登录');
       } else if (response.status === 403) {
-        // 好友文件403错误：异步上报诊断日志（图片/视频都上报）
-        if (urlType === 'friend') {
-          reportFriendPermissionError(
-            serverUrl,
-            accessToken,
-            createPresignedUrlErrorContext(fileUuid, errorMessage, {
-              operation: 'preview',
-              urlType,
-              fileType,
-              screen: 'media_preview',
-              action: 'get_presigned_url',
-            }),
-          ).catch(() => {
-            // 上报失败静默处理
-          });
-        }
+        // 这里曾经把好友文件 403 上报给 /api/diagnostic/report/friend-permission，
+        // 2026-08-21 随 diagnosticService 整块删除：后端没有这个路由，该 POST 恒 404
+        // 并被静默吞掉（成因与恢复条件见 services/fileCache.ts 同批注释）。
         throw new Error('无权访问此文件');
       } else if (response.status === 404) {
         throw new Error('文件不存在');
@@ -345,7 +327,6 @@ async function getFileSource(
     state.fileUuid,
     state.urlType,
     state.groupId,
-    state.type, // image 或 video
   );
 
   return {

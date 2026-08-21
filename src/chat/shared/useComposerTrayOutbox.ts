@@ -31,6 +31,8 @@ import { useChatStore } from '../../stores/chatStore';
 import { useFileUpload, UPLOAD_CANCELLED, type MediaGroupMeta } from '../../hooks/useFileUpload';
 import {
   useSendingMediaStore,
+  pickNextPendingUpload,
+  countPendingUploads,
   type SendingMediaEntry,
   type SendingMediaSeed,
 } from '../../stores/sendingMediaStore';
@@ -70,6 +72,15 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
 
   /** 串行闸：同一时刻只有一项在传 */
   const pumpingRef = useRef(false);
+  /**
+   * 泵在跑的时候又被唤醒了 ⇒ 记一笔，当前这轮扫完再扫一遍。
+   *
+   * 没有它就有一个必然会撞上的竞态：`for(;;)` 最后一次 `find` 返回 undefined 之后、
+   * `finally` 把 `pumpingRef` 置回 false 之前，若正好有新项入队，effect 会在
+   * `pumpingRef` 还是 true 的那一刻触发 ⇒ 直接 return ⇒ 之后 pendingCount 不再变化
+   * ⇒ 再也没人唤醒它。这正是 idx=92 那条死锁的一般形态（那条的诱因是切会话）。
+   */
+  const rerunRef = useRef(false);
   // 取消用的 AbortController 表**不在这里** —— 它是模块级的 uploadAbortRegistry。
   // 放实例内的后果见那个模块的文件头：气泡侧的取消入口够不着 ref，abort 恒为 no-op。
 
@@ -156,32 +167,37 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
     }
   }, []);
 
-  /** 串行泵：一直捞本会话最早的一个 pending 项来传，直到没有为止 */
+  /**
+   * 串行泵：一直捞**全局**最早的一个 pending 项来传，直到没有为止。
+   *
+   * 🔴 「全局」与 `rerunRef` 是同一条缺陷的两半，缺一条死锁就还在：
+   * 详见 stores/sendingMediaStore.ts 的 {@link pickNextPendingUpload} 头注释（外部审计 idx=92）。
+   * 另外注意 pump **不依赖 conversationKey** —— 它必须是稳定引用，否则切会话时
+   * effect 会因为 `pump` 变了而重跑，那既掩盖问题也带来别的时序。
+   */
   const pump = useCallback(async () => {
-    if (pumpingRef.current || !conversationKey) { return; }
+    if (pumpingRef.current) {
+      rerunRef.current = true;
+      return;
+    }
     pumpingRef.current = true;
     try {
-      for (;;) {
-        const state = useSendingMediaStore.getState();
-        const ids = state.orderByConversation[conversationKey] ?? [];
-        const next = ids
-          .map((id) => state.entries[id])
-          .find((e): e is SendingMediaEntry => !!e && e.status === 'pending');
-        if (!next) { break; }
-        // eslint-disable-next-line no-await-in-loop -- 串行是刻意的：保证组内 seq 单调（见文件头）
-        await uploadOne(next);
-      }
+      do {
+        rerunRef.current = false;
+        for (;;) {
+          const next = pickNextPendingUpload(useSendingMediaStore.getState());
+          if (!next) { break; }
+          // eslint-disable-next-line no-await-in-loop -- 串行是刻意的：保证组内 seq 单调（见文件头）
+          await uploadOne(next);
+        }
+      } while (rerunRef.current);
     } finally {
       pumpingRef.current = false;
     }
-  }, [conversationKey, uploadOne]);
+  }, [uploadOne]);
 
-  // 有 pending 就开泵。用 selector 只订阅"还有几个 pending"，避免每次百分比变化都重跑。
-  const pendingCount = useSendingMediaStore((s) => {
-    if (!conversationKey) { return 0; }
-    const ids = s.orderByConversation[conversationKey] ?? [];
-    return ids.reduce((n, id) => (s.entries[id]?.status === 'pending' ? n + 1 : n), 0);
-  });
+  // 有 pending 就开泵。只订阅"还有几个 pending"（**全局**），避免每次百分比变化都重跑。
+  const pendingCount = useSendingMediaStore(countPendingUploads);
   useEffect(() => {
     if (pendingCount > 0) { void pump(); }
   }, [pendingCount, pump]);

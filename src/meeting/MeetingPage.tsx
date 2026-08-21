@@ -402,8 +402,9 @@ export default function MeetingPage() {
         try {
           const api = createApiClient({
             baseUrl: meetingData.serverUrl,
-            accessToken: '',
-            refreshToken: '',
+            // join 是公开端点，本客户端不带鉴权（会议窗口没有会话上下文）
+            getAccessToken: () => '',
+            getRefreshToken: () => '',
           });
           const resp = await joinRoom(
             api,

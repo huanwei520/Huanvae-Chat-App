@@ -99,27 +99,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 更新 tokens（同时更新持久化数据 + 广播到其他 Tauri 窗口）
+  //
+  // 🔴 ref 必须**同步**更新，且不能放在 setState 的 updater 里（2026-08-21）：
+  //   ① `sessionRef.current` 现在是 api 客户端读 token 的**真值源**（见下方 useMemo），
+  //      而 setState 的 updater 何时执行由 React 决定 —— 放在里面等于「刷完之后
+  //      到 React 提交之前的那一段时间里，api 仍在用旧 token」，401 重试正好落在这一段。
+  //   ② updater 必须是纯函数：StrictMode 会双调它，副作用（写 ref、写持久化）会被跑两次。
   const updateTokens = useCallback((accessToken: string, refreshToken: string) => {
-    setSessionState((prev) => {
-      if (!prev) {
-        return null;
-      }
-      const updated = {
-        ...prev,
-        accessToken,
-        refreshToken,
-      };
-
-      // 异步更新持久化数据（不阻塞 UI）
+    const prev = sessionRef.current;
+    if (prev) {
+      const updated = { ...prev, accessToken, refreshToken };
+      sessionRef.current = updated;
+      setSessionState(updated);
       persistSession(updated).catch((error) => {
         console.warn('[Session] 更新持久化失败:', error);
       });
-
-      // 更新 ref
-      sessionRef.current = updated;
-
-      return updated;
-    });
+    }
 
     // 广播给其他 Tauri 窗口（HuanvaeGuard 等），保证它们的 token 不过期
     // 失败只打日志，不影响主窗口会话状态
@@ -129,15 +124,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 创建 API 客户端（仅在有会话时）
+  //
+  // 🔴 依赖**只有 serverUrl**，不是整个 session（2026-08-21，外部审计 idx=53）。
+  //
+  // 原先是 `[session, updateTokens, clearSession]`。`updateTokens` 与 `clearSession`
+  // 都是 `useCallback([], …)`、引用稳定，真正在动的是 `session`：
+  // token 主动刷新（JWT 15 分钟、提前 5 分钟刷 ⇒ 约每 10 分钟一次）与每次改昵称/头像
+  // 都会 `setSessionState` 出一个新对象 ⇒ `api` 换新引用 ⇒ 全仓 101 个把 `api` 写进
+  // 依赖数组的 effect/callback 全部重跑、重新发一轮请求（列表还闪一次 loading）。
+  //
+  // token 现在经 getter 从 `sessionRef` 现取（见 api/client.ts 的 `getAccessToken` 注释），
+  // 客户端实例与 token 解耦 ⇒ 只有真正换服务器 / 登出登入才需要新客户端。
+  const serverUrl = session?.serverUrl ?? null;
   const api = useMemo(() => {
-    if (!session) {
+    if (!serverUrl) {
       return null;
     }
 
     return createApiClient({
-      baseUrl: session.serverUrl,
-      accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
+      baseUrl: serverUrl,
+      // 从 ref 现取：ref 在 setSession / restoreSession / updateTokens 三处都是**同步**写的
+      getAccessToken: () => sessionRef.current?.accessToken ?? '',
+      getRefreshToken: () => sessionRef.current?.refreshToken ?? '',
       onTokenRefresh: (newAccessToken, newRefreshToken) => {
         updateTokens(newAccessToken, newRefreshToken);
       },
@@ -145,7 +153,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         clearSession();
       },
     });
-  }, [session, updateTokens, clearSession]);
+  }, [serverUrl, updateTokens, clearSession]);
 
   // 响应其他 Tauri 窗口（HuanvaeGuard 等）对当前 token 的请求
   // 场景：HG 窗口刚打开时 URL 里的 token 可能已过期（例如笔记本睡眠后），
