@@ -57,13 +57,24 @@ function groupDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const ALL_FIVE_KEYS = [
+const ALL_POLICY_KEYS = [
   'join_approval_required',
   'admin_can_approve',
   'card_share_scope',
   'qr_show_scope',
   'search_scope',
+  // 加群三开关（migration 045）—— 加进枚举源，否则"其余键都不出现"那条反向断言测不到它们
+  'allow_join_via_qr',
+  'allow_join_via_search',
+  'allow_join_via_referral',
 ] as const;
+
+/** 三个加群开关的 label ↔ 请求键（label 与 `JOIN_SOURCE_LABELS` 同源，改文案两边一起红） */
+const JOIN_SWITCH_CASES: ReadonlyArray<[string, string]> = [
+  ['允许扫码加群', 'allow_join_via_qr'],
+  ['允许搜索群 ID 加群', 'allow_join_via_search'],
+  ['允许好友推荐加群', 'allow_join_via_referral'],
+];
 
 function renderForm(onBack = vi.fn()) {
   render(<JoinPolicyForm groupId="g1" onBack={onBack} />);
@@ -200,9 +211,9 @@ describe('JoinPolicyForm', () => {
       const [url, body] = mockApi.put.mock.calls[0] as [string, Record<string, unknown>];
       expect(url).toBe('/api/groups/g1/join-policy');
       expect(body).toEqual({ card_share_scope: 'admins' });
-      // 反向断言：其余四键一个都不许出现（只断言"含目标键"挡不住整体 PUT）
+      // 反向断言：其余七键一个都不许出现（只断言"含目标键"挡不住整体 PUT）
       expect(Object.keys(body)).toEqual(['card_share_scope']);
-      for (const key of ALL_FIVE_KEYS) {
+      for (const key of ALL_POLICY_KEYS) {
         if (key !== 'card_share_scope') {
           expect(body).not.toHaveProperty(key);
         }
@@ -250,6 +261,9 @@ describe('JoinPolicyForm', () => {
         card_share_scope: 'owner_only',
         qr_show_scope: 'admins',
         search_scope: 'admins',
+        allow_join_via_qr: true,
+        allow_join_via_search: true,
+        allow_join_via_referral: true,
       } satisfies JoinPolicy);
       renderForm();
       await waitLoaded();
@@ -444,5 +458,98 @@ describe('JoinPolicyForm', () => {
       // 反向：这一列绝不许发出另一套命名的取值
       expect(body[key]).not.toBe(forbidden);
     }
+  });
+
+  // ---------------- 加群三开关（migration 045） ----------------
+
+  describe('加群三开关：渲染 + 只发被点的那一个键', () => {
+    it('三个开关都渲染出来，且默认回落全是"开"（后端未下发这三个字段时）', async () => {
+      mockApi.get.mockResolvedValue(groupDetail());
+      renderForm();
+      await waitLoaded();
+
+      for (const [label] of JOIN_SWITCH_CASES) {
+        const box = screen.getByLabelText(label) as HTMLInputElement;
+        expect(box).toBeInTheDocument();
+        expect(box.checked).toBe(true);
+      }
+    });
+
+    it('后端下发 false ⇒ 对应开关显示为关（三个各读各的字段，没串）', async () => {
+      mockApi.get.mockResolvedValue(
+        groupDetail({
+          allow_join_via_qr: false,
+          allow_join_via_search: true,
+          allow_join_via_referral: false,
+        }),
+      );
+      renderForm();
+      await waitLoaded();
+
+      expect((screen.getByLabelText('允许扫码加群') as HTMLInputElement).checked).toBe(false);
+      expect((screen.getByLabelText('允许搜索群 ID 加群') as HTMLInputElement).checked).toBe(true);
+      expect((screen.getByLabelText('允许好友推荐加群') as HTMLInputElement).checked).toBe(false);
+    });
+
+    /**
+     * 🔴 这条是本单最容易漏的那个坑的机器复查：**类型里加了字段 ≠ 请求体里传了字段**。
+     * `updateJoinPolicy` 的 body 是逐键构造的，漏掉那三个 `if` 会让开关"看着能点、点了不生效"，
+     * 而 TS 一声不吭、界面也照常翻转（本地 state 会被响应回填盖回去，肉眼极难发现）。
+     * 关掉方向（`false`）单独测：`if (patch.x)` 式过滤只在这一半现形。
+     */
+    it.each(JOIN_SWITCH_CASES)(
+      '关掉「%s」⇒ body 恰好是 {%s:false}，其余七键都不出现',
+      async (label, key) => {
+        mockApi.get.mockResolvedValue(groupDetail({ [key]: true }));
+        mockApi.put.mockResolvedValue({ ...JOIN_POLICY_DEFAULTS, [key]: false } satisfies JoinPolicy);
+        renderForm();
+        await waitLoaded();
+
+        fireEvent.click(screen.getByLabelText(label));
+
+        await waitFor(() => expect(mockApi.put).toHaveBeenCalledTimes(1));
+        const [url, body] = mockApi.put.mock.calls[0] as [string, Record<string, unknown>];
+        expect(url).toBe('/api/groups/g1/join-policy');
+        expect(body).toEqual({ [key]: false });
+        for (const other of ALL_POLICY_KEYS) {
+          if (other !== key) {
+            expect(body).not.toHaveProperty(other);
+          }
+        }
+      },
+    );
+
+    it.each(JOIN_SWITCH_CASES)('打开「%s」⇒ body 是 {%s:true}（对照：不是恒发 false）', async (label, key) => {
+      mockApi.get.mockResolvedValue(groupDetail({ [key]: false }));
+      mockApi.put.mockResolvedValue({ ...JOIN_POLICY_DEFAULTS, [key]: true } satisfies JoinPolicy);
+      renderForm();
+      await waitLoaded();
+
+      fireEvent.click(screen.getByLabelText(label));
+
+      await waitFor(() => expect(mockApi.put).toHaveBeenCalledTimes(1));
+      expect(mockApi.put.mock.calls[0][1]).toEqual({ [key]: true });
+    });
+
+    it('响应整体回填时三开关也跟着走（服务端说什么就是什么）', async () => {
+      mockApi.get.mockResolvedValue(groupDetail());
+      mockApi.put.mockResolvedValue({
+        ...JOIN_POLICY_DEFAULTS,
+        allow_join_via_qr: false,
+        allow_join_via_search: false,
+        allow_join_via_referral: false,
+      } satisfies JoinPolicy);
+      renderForm();
+      await waitLoaded();
+
+      fireEvent.click(screen.getByLabelText('允许扫码加群'));
+
+      await waitFor(() =>
+        expect((screen.getByLabelText('允许扫码加群') as HTMLInputElement).checked).toBe(false),
+      );
+      // 只点了一个，另两个也被响应回填成关 —— 证明回填是整体的、不是本地翻转
+      expect((screen.getByLabelText('允许搜索群 ID 加群') as HTMLInputElement).checked).toBe(false);
+      expect((screen.getByLabelText('允许好友推荐加群') as HTMLInputElement).checked).toBe(false);
+    });
   });
 });

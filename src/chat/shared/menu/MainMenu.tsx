@@ -436,6 +436,17 @@ export function MainMenu({
               icon={<UserPlusIcon />}
               label="邀请成员"
             />
+            {/* 群二维码：与上面那条 gating 口径**故意不同** —— `GET /{id}/qr` 的权限是
+                「本群活跃成员 + 角色满足该群 qr_show_scope」，而 qr_show_scope 是**群主可调的**
+                （all_members / admins / owner_only）。客户端按当前档位预判 = 复刻一份服务端策略、
+                必然漂移（同一条口径见 GroupDetailPanel 对「分享该群」的处置）。
+                ⇒ 入口对所有群成员渲染，档位不够时由服务端 403，GroupQrView 翻成一句可行动的话。 */}
+            <AnimatedMenuItem
+              visible
+              onClick={() => onSetView('group-qr')}
+              icon={<ShieldIcon />}
+              label="群二维码"
+            />
             {/* 入群与可见性：契约写死 PUT /join-policy 仅群主（管理员也会被后端 403），
                 所以这里 gating 用 isOwner 而不是 isOwnerOrAdmin —— 给管理员看一个点了必 403
                 的入口，比不给更糟。 */}

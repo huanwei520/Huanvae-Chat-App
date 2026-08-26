@@ -5,7 +5,8 @@
  * - 桌面 ChatPanel `.chat-header-info` / 移动 MobileChatView `.mobile-chat-title`
  *   在「私聊」时挂 role=button / tabIndex=0 / aria-label=`查看${标题}资料` +
  *   onKeyDown(Enter/Space)=openProfile(friendId) + 键盘焦点环
- * - **群聊**同样可交互，但打开的是**群详情面板** openGroupDetail(groupId)，**不是** openProfile
+ * - **群聊**同样可交互，但打开的是**群详情面板** openGroupDetail(groupId, null)，**不是** openProfile
+ *   （第二个实参 null = 成员入口，不是从任何一条加群路径来的；见 groupDetailStore）
  *   （2026-08-17 群名片单改：群详情面板此前只能从发现搜索点进去，而 search_scope 为
  *   admins/owner_only 时普通成员连自己的群都搜不到 ⇒ 面板上的「分享该群」等入口无路可达。
  *   本条**取代**了原先「群聊顶栏无任何 a11y 交互属性」那条断言 —— 那条锁的是一个限制，
@@ -238,7 +239,9 @@ describe('ChatPanel 顶栏 .chat-header-info a11y（私聊看资料 / 群聊看�
     fireEvent.keyDown(header, { key: ' ' });
 
     expect(openGroupSpy).toHaveBeenCalledTimes(3);
-    expect(openGroupSpy).toHaveBeenCalledWith('g1');
+    // 第二个实参是**成员入口的显式 null**（不是"没传"）：顶栏点进来的人必然是本群成员，
+    // 这次打开不属于任何一条加群路径，服务端要的 source 在这里不存在。
+    expect(openGroupSpy).toHaveBeenCalledWith('g1', null);
     // 🔴 反向断言的载荷从「群聊顶栏不可点」平移到这里：可点了，但绝不能开成好友资料
     expect(openSpy).not.toHaveBeenCalled();
   });
@@ -341,7 +344,9 @@ describe('MobileChatView 顶栏 .mobile-chat-title a11y（私聊看资料 / 群�
     fireEvent.keyDown(title, { key: ' ' });
 
     expect(openGroupSpy).toHaveBeenCalledTimes(3);
-    expect(openGroupSpy).toHaveBeenCalledWith('g1');
+    // 第二个实参是**成员入口的显式 null**（不是"没传"）：顶栏点进来的人必然是本群成员，
+    // 这次打开不属于任何一条加群路径，服务端要的 source 在这里不存在。
+    expect(openGroupSpy).toHaveBeenCalledWith('g1', null);
     expect(openSpy).not.toHaveBeenCalled();
   });
 

@@ -200,6 +200,7 @@ import * as EditNicknameForm from '../../src/chat/shared/menu/EditNicknameForm';
 import * as EditRemarkForm from '../../src/chat/shared/menu/EditRemarkForm';
 import * as InviteForm from '../../src/chat/shared/menu/InviteForm';
 import * as JoinPolicyForm from '../../src/chat/shared/menu/JoinPolicyForm';
+import * as GroupQrView from '../../src/chat/shared/menu/GroupQrView';
 import * as MainMenu from '../../src/chat/shared/menu/MainMenu';
 import * as MemberActions from '../../src/chat/shared/menu/MemberActions';
 import * as MemberGrid from '../../src/chat/shared/menu/MemberGrid';
@@ -510,6 +511,7 @@ const COMPONENT_MAP = {
   EditRemarkForm,
   InviteForm,
   JoinPolicyForm,
+  GroupQrView,
   MainMenu,
   MemberActions,
   MemberGrid,

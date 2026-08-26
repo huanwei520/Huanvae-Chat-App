@@ -47,13 +47,16 @@ function makeApi() {
 
 type Api = ReturnType<typeof makeApi>;
 
-/** `PUT /join-policy` 的完整响应（契约承诺回吐更新之后的五值） */
+/** `PUT /join-policy` 的完整响应（契约承诺回吐更新之后的**八**值，migration 045 起） */
 const FULL_POLICY: JoinPolicy = {
   join_approval_required: false,
   admin_can_approve: false,
   card_share_scope: 'admins',
   qr_show_scope: 'owner_only',
   search_scope: 'admins',
+  allow_join_via_qr: false,
+  allow_join_via_search: true,
+  allow_join_via_referral: false,
 };
 
 /** 取 api.put 实际收到的 body（第二个参数） */
@@ -63,12 +66,21 @@ function putBody(api: Api): Record<string, unknown> {
   return call[1] as Record<string, unknown>;
 }
 
-const ALL_FIVE_KEYS = [
+/**
+ * `JoinPolicy` / `JoinPolicyPatch` / `JOIN_POLICY_DEFAULTS` 三者共有的**全部**键。
+ *
+ * 🔴 migration 045 把它从五个变成八个。这个常量是"其余键都不出现"那条反向断言的枚举源 ——
+ * 加了字段却不加进这里，反向断言就**测不到新键被多发**，而"没测到"与"没多发"同形。
+ */
+const ALL_POLICY_KEYS = [
   'join_approval_required',
   'admin_can_approve',
   'card_share_scope',
   'qr_show_scope',
   'search_scope',
+  'allow_join_via_qr',
+  'allow_join_via_search',
+  'allow_join_via_referral',
 ] as const;
 
 // ---------------- 三列取值集合的静态读取（防"全局替换" ----------------
@@ -193,10 +205,19 @@ describe('入群策略 API (api/groups join-policy)', () => {
       ['card_share_scope=admins', { card_share_scope: 'admins' }, 'admins'],
       ['qr_show_scope=owner_only', { qr_show_scope: 'owner_only' }, 'owner_only'],
       ['search_scope=everyone', { search_scope: 'everyone' }, 'everyone'],
+      // 🔴 加群三开关（migration 045）：每条都要有 **false** 那一半 ——
+      // 「类型里加了字段但 body 没加」以及「用 `if (x)` 而不是 `if (x !== undefined)` 过滤」
+      // 这两种漏法，都只在传 false 时才现形，只测 true 会双双漏过。
+      ['allow_join_via_qr=true', { allow_join_via_qr: true }, true],
+      ['allow_join_via_qr=false', { allow_join_via_qr: false }, false],
+      ['allow_join_via_search=true', { allow_join_via_search: true }, true],
+      ['allow_join_via_search=false', { allow_join_via_search: false }, false],
+      ['allow_join_via_referral=true', { allow_join_via_referral: true }, true],
+      ['allow_join_via_referral=false', { allow_join_via_referral: false }, false],
     ];
 
     it.each(SINGLE_KEY_CASES)(
-      '只传 %s ⇒ body 恰好只有那一个键，其余四键均不出现',
+      '只传 %s ⇒ body 恰好只有那一个键，其余七键均不出现',
       async (_name, patch, expectedValue) => {
         api.put.mockResolvedValue(FULL_POLICY);
         await updateJoinPolicy(api, 'g1', patch);
@@ -208,8 +229,8 @@ describe('入群策略 API (api/groups join-policy)', () => {
         expect(body[targetKey]).toBe(expectedValue);
         // 反向 ①：键集合恰好只有一个（多发任何一个键都会红）
         expect(Object.keys(body)).toEqual([targetKey]);
-        // 反向 ②：逐个点名其余四键不存在（不是只断言"含目标键"）
-        for (const key of ALL_FIVE_KEYS) {
+        // 反向 ②：逐个点名其余七键不存在（不是只断言"含目标键"）
+        for (const key of ALL_POLICY_KEYS) {
           if (key !== targetKey) {
             expect(body).not.toHaveProperty(key);
           }
@@ -264,18 +285,22 @@ describe('入群策略 API (api/groups join-policy)', () => {
   // ---------------- JOIN_POLICY_DEFAULTS ----------------
 
   describe('JOIN_POLICY_DEFAULTS', () => {
-    it('五值逐字等于契约默认值', () => {
+    it('八值逐字等于契约默认值', () => {
       expect(JOIN_POLICY_DEFAULTS).toEqual({
         join_approval_required: true,
         admin_can_approve: true,
         card_share_scope: 'all_members',
         qr_show_scope: 'all_members',
         search_scope: 'everyone',
+        // 三开关默认全开（migration 045 的 DEFAULT true；也是"不知道就别把用户挡在门外"的方向）
+        allow_join_via_qr: true,
+        allow_join_via_search: true,
+        allow_join_via_referral: true,
       });
     });
 
-    it('键集合恰好是契约那五个（多一个/少一个都红）', () => {
-      expect(Object.keys(JOIN_POLICY_DEFAULTS).sort()).toEqual([...ALL_FIVE_KEYS].sort());
+    it('键集合恰好是契约那八个（多一个/少一个都红）', () => {
+      expect(Object.keys(JOIN_POLICY_DEFAULTS).sort()).toEqual([...ALL_POLICY_KEYS].sort());
     });
 
     it('三档取值落在各自的白名单内（两个白名单不是同一个）', () => {

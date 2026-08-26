@@ -34,6 +34,19 @@
  * - 图片 / 视频页签复用会话内查找那套九宫格命中项 ConversationSearchHit（layout="cover"），
  *   媒体 src 因此天然经 useFileCache → 反代收口点，不会裸喂后端地址
  * - 发现头像已在 useDiscoverySearch 数据边界经 resolveServerAvatarUrl 解析，显示点直接 <img src>
+ * ## 扫码加群落地（`huanvae://group/join?id=…`）
+ *
+ * 群二维码里编码的就是这串（后端 `GET /{id}/qr` 的 `payload`）。用任何扫码器扫出来之后，
+ * 把它粘进搜索框 ⇒ 「群聊」页签顶部出现一条**扫码加群**结果，点进去落到群详情、
+ * `source='qr'`，服务端据此查 `allow_join_via_qr`。
+ *
+ * 🔴 **不把它当普通关键词发给 `/api/discovery/search`**：那个端点是「完全匹配群名 / 群 ID」，
+ * 拿一整串 URI 去搜必然零命中 ⇒ 用户看到的是「没搜到」，而**这恰好和"这个群不存在"同形**。
+ * 所以识别出它是 join payload 时**短路**，不走发现搜索。
+ *
+ * ⚠️ 解析复用 [`../../nfc/parser`] 的 `parseAction` —— 与贴 NFC 卡**同一条**解析，
+ * 不另写一份正则（两份必漂，而漂了之后一边能进一边不能进，没有任何地方会报错）。
+ *
  * - 本链路**没有翻页**（`db_search_messages` 无 offset，发现接口无 offset）：命中触顶时
  *   显式提示"只显示前 N 条"，不假装后面没有了
  */
@@ -41,6 +54,7 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
+import { useGroupDetailStore } from '../../stores';
 import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
 import { BotBadge } from '../common/BotBadge';
 import { LoadingSpinner } from '../common/LoadingSpinner';
@@ -65,6 +79,7 @@ import {
   isMessageTab,
   tabToSearchFilter,
   tabEmptyText,
+  parseGroupJoinQuery,
   type GlobalSearchTab,
 } from './globalSearchTabs';
 
@@ -158,6 +173,15 @@ export function GlobalMessageSearchResults({
   const variants = layout === 'mobile' ? mobileVariants : desktopVariants;
   const [tab, setTab] = useState<GlobalSearchTab>(DEFAULT_GLOBAL_SEARCH_TAB);
 
+  /**
+   * 这条 query 本身就是一张群二维码的内容吗？
+   *
+   * 解析复用 NFC 那条 `parseAction`（同一份白名单、同一份 UUID 校验），
+   * 命中 ⇒ 短路整条搜索：不发发现请求、不查本地消息表。
+   */
+  const joinPayload = useMemo(() => parseGroupJoinQuery(query), [query]);
+  const openGroupDetail = useGroupDetailStore((s) => s.open);
+
   const onMessageTab = isMessageTab(tab);
   const messageFilter = useMemo(() => tabToSearchFilter(tab) ?? undefined, [tab]);
   // 实体页签不查消息表：query 传空串即整条链路短路（hook 内不发 DB 调用）
@@ -165,7 +189,7 @@ export function GlobalMessageSearchResults({
     groups: searchGroups,
     loading: localLoading,
     error: localError,
-  } = useGlobalMessageSearch(onMessageTab ? query : '', messageFilter);
+  } = useGlobalMessageSearch(onMessageTab && !joinPayload ? query : '', messageFilter);
   // 服务端发现搜索：与本地搜索独立降级（把 groups 重命名为 discGroups，避开 groups 这个 prop）
   const {
     people,
@@ -173,7 +197,7 @@ export function GlobalMessageSearchResults({
     bots,
     loading: discoveryLoading,
     error: discoveryError,
-  } = useDiscoverySearch(query);
+  } = useDiscoverySearch(joinPayload ? '' : query);
 
   // 由会话 id 反查 Friend / Group 对象（仅用于消息/媒体命中的头像）
   const friendMap = useMemo(() => {
@@ -239,10 +263,44 @@ export function GlobalMessageSearchResults({
       </div>
 
       <div className="global-msg-search-body">
-        {onMessageTab ? renderMessageTab() : renderEntityTab()}
+        {renderBody()}
       </div>
     </motion.div>
   );
+
+  /** 三选一：扫码加群落地 / 消息类页签 / 实体类页签 */
+  function renderBody() {
+    if (joinPayload) { return renderJoinPayload(joinPayload); }
+    return onMessageTab ? renderMessageTab() : renderEntityTab();
+  }
+
+  /**
+   * 粘进来的是一张群二维码的内容 ⇒ 只给这一条结果，其余分类全部不渲染。
+   *
+   * 🔴 点它**只打开群详情，不加任何群** —— 加不加由用户在面板上再点一次
+   * （与 NFC 贴卡那条派发同一口径：扫一下不等于同意入群）。
+   * `source='qr'` 在这里写死：走到这条分支就说明载体是群二维码的 payload，
+   * 服务端要据此查 `allow_join_via_qr` 而不是另外两个开关。
+   */
+  function renderJoinPayload(groupId: string) {
+    return (
+      <section className="global-msg-search-section">
+        <div className="global-msg-search-section-header">扫码加群</div>
+        <ul className="global-msg-search-conv-list">
+          <li
+            className="global-msg-search-conv-item"
+            onClick={() => openGroupDetail(groupId, 'qr')}
+          >
+            <div className="global-msg-search-conv-avatar">
+              <AvatarPlaceholder name="群" fontSize={11} />
+            </div>
+            <span className="global-msg-search-conv-name">打开群聊详情</span>
+            <span className="global-msg-search-disc-meta">{groupId}</span>
+          </li>
+        </ul>
+      </section>
+    );
+  }
 
   /** 消息 / 视频 / 图片：本地 SQLite 命中，按会话分组 */
   function renderMessageTab() {

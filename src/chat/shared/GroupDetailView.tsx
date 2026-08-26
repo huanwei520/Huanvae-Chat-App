@@ -39,6 +39,8 @@ const panelVariants = {
 
 export function GroupDetailView({ onOpenChat, onRefreshGroups }: GroupDetailViewProps = {}) {
   const groupId = useGroupDetailStore((s) => s.groupId);
+  // 本次是从哪条加群路径打开的（扫码/搜索/好友推荐）—— 面板发起 apply 时要原样带给服务端
+  const source = useGroupDetailStore((s) => s.source);
   const close = useGroupDetailStore((s) => s.close);
   const mobile = isMobile();
 
@@ -87,6 +89,7 @@ export function GroupDetailView({ onOpenChat, onRefreshGroups }: GroupDetailView
           >
             <GroupDetailPanel
               groupId={groupId}
+              source={source}
               onClose={close}
               onEnterGroup={handleEnter}
               onRefreshGroups={onRefreshGroups}

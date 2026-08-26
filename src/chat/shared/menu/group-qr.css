@@ -1,0 +1,17 @@
+/* 群二维码视图布局（GroupQrView.tsx）
+   只有布局，无 transform / opacity / transition —— 不参与动画门禁注册表。 */
+.group-qr-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.group-qr-canvas {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: #fff;
+}

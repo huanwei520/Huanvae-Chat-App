@@ -1,23 +1,31 @@
 {
-  "source_repo_commit": "88b1b8ac40af63319df9ad7078251cef027639c7",
-  "source_repo_dirty": false,
-  "source_repo_dirty_files": [],
-  "built_at_utc": "2026-08-21T12:07:51Z",
+  "source_repo_commit": "fad2a7a3f7202b4229ccf054cb0174477c933c6c",
+  "source_repo_dirty": true,
+  "source_repo_dirty_files": [
+    ".claude/CLAUDE.md",
+    ".claude/skills/hg-daemon-debug/SKILL.md",
+    "client/cli/src/pull/tunnel.rs",
+    "client/macos/src/tunnel.rs",
+    "client/windows/src/tunnel.rs",
+    "core/src/uapi_helpers.rs",
+    "docs/CONTROL-PLANE-V1-V2-SPEC.md"
+  ],
+  "built_at_utc": "2026-08-26T08:57:03Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
       "crate": "hg-macos",
       "target": "aarch64-apple-darwin",
       "arch": "arm64",
-      "sha256": "135e7b937cce5d5034a7ac3cad365290a6a7a50ccf3527ac967202704439250d",
-      "codesign_flags": "CodeDirectory v=20400 size=9258 flags=0x2(adhoc) hashes=283+2 location=embedded"
+      "sha256": "d890173cf754820c49bd611d131ec7e47c169740754c28ef62981ce89932dda8",
+      "codesign_flags": "CodeDirectory v=20400 size=9290 flags=0x2(adhoc) hashes=284+2 location=embedded"
     },
     {
       "path": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "3c0ade6dadef13073165dc6b6479079922e92136dc34d4dd7be4455421ffd941"
+      "sha256": "6d690d27c41333d93d3d33b3b85f85a73a46e8d2f9a22a3ac3d72a90b8a42c6e"
     }
   ]
 }

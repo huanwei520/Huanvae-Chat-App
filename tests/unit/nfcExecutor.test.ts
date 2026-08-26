@@ -8,7 +8,7 @@
  * - getMiniAppById 返 null → 抛错
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { dispatch } from '../../src/nfc/executor';
 import type { MiniApp } from '../../src/api/miniapps';
 
@@ -29,6 +29,40 @@ function makeMiniApp(id: string): MiniApp {
   };
 }
 
+/**
+ * 加群三开关落地那条派发臂的桩。
+ * 每条用例都会顺带断言它**没有**被调用（防"派发臂串台"：小程序/http 走到群那条去）。
+ */
+const openGroupDetail = vi.fn();
+
+beforeEach(() => {
+  openGroupDetail.mockReset();
+});
+
+describe('dispatch — group/join（扫码加群落地）', () => {
+  const GID = '11111111-2222-3333-4444-555555555555';
+
+  it('派发到 openGroupDetail，且 source 固定为 qr（不是 search / referral）', async () => {
+    await dispatch(
+      { kind: 'group/join', groupId: GID },
+      { setMiniAppLaunching: vi.fn(), getMiniAppById: vi.fn(), openGroupDetail },
+    );
+    expect(openGroupDetail).toHaveBeenCalledTimes(1);
+    expect(openGroupDetail).toHaveBeenCalledWith(GID, 'qr');
+  });
+
+  it('🔴 只打开详情，不发任何加群请求（贴一下卡/扫一下码不等于同意入群）', async () => {
+    const httpFetch = vi.fn();
+    const setMiniAppLaunching = vi.fn();
+    await dispatch(
+      { kind: 'group/join', groupId: GID },
+      { setMiniAppLaunching, getMiniAppById: vi.fn(), openGroupDetail, httpFetch },
+    );
+    expect(httpFetch).not.toHaveBeenCalled();
+    expect(setMiniAppLaunching).not.toHaveBeenCalled();
+  });
+});
+
 describe('dispatch — miniapp/open', () => {
   it('找到 app → 调 setMiniAppLaunching 含正确 app', async () => {
     const app = makeMiniApp('app-1');
@@ -37,7 +71,7 @@ describe('dispatch — miniapp/open', () => {
 
     await dispatch(
       { kind: 'miniapp/open', miniappId: 'app-1' },
-      { setMiniAppLaunching, getMiniAppById },
+      { setMiniAppLaunching, getMiniAppById, openGroupDetail },
     );
 
     expect(getMiniAppById).toHaveBeenCalledWith('app-1');
@@ -51,7 +85,7 @@ describe('dispatch — miniapp/open', () => {
     await expect(
       dispatch(
         { kind: 'miniapp/open', miniappId: 'missing-app' },
-        { setMiniAppLaunching, getMiniAppById },
+        { setMiniAppLaunching, getMiniAppById, openGroupDetail },
       ),
     ).rejects.toThrow(/missing-app/);
     expect(setMiniAppLaunching).not.toHaveBeenCalled();
@@ -67,6 +101,7 @@ describe('dispatch — http/request', () => {
       {
         setMiniAppLaunching: vi.fn(),
         getMiniAppById: vi.fn(),
+        openGroupDetail,
         httpFetch,
       },
     );
@@ -87,6 +122,7 @@ describe('dispatch — http/request', () => {
       {
         setMiniAppLaunching: vi.fn(),
         getMiniAppById: vi.fn(),
+        openGroupDetail,
         httpFetch,
       },
     );
@@ -109,6 +145,7 @@ describe('dispatch — http/request', () => {
         {
           setMiniAppLaunching: vi.fn(),
           getMiniAppById: vi.fn(),
+          openGroupDetail,
           httpFetch,
         },
       ),

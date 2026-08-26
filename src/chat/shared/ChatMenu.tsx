@@ -53,6 +53,7 @@ import {
   CreateNoticeForm,
   TransferOwner,
   JoinPolicyForm,
+  GroupQrView,
 } from './menu';
 
 export function ChatMenuButton({
@@ -386,6 +387,15 @@ export function ChatMenuButton({
         // 与 'search' 同款保守写法：拿不到 id 就什么都不渲染，而不是渲染一个读不到群的空面板。
         return groupId && (
           <JoinPolicyForm
+            groupId={groupId}
+            onBack={() => menu.handleSetView('main')}
+          />
+        );
+
+      case 'group-qr':
+        // 与 'join-policy' 同款保守写法：拿不到群 id 就什么都不渲染。
+        return groupId && (
+          <GroupQrView
             groupId={groupId}
             onBack={() => menu.handleSetView('main')}
           />

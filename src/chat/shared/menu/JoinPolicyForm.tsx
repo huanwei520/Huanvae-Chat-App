@@ -7,18 +7,33 @@
  * （`PUT /api/groups/{group_id}/join-policy`，权限**仅群主** —— 管理员也会被后端 403）
  * 与 `GroupInfo` 字段表（`GET /api/groups/{group_id}`，权限=本群活跃成员）。
  *
- * ## 五个字段，两种语义方向
+ * ## 八个字段，三组语义
  *
  * | 字段 | 管什么 | 动作方 |
  * |------|--------|--------|
- * | `join_approval_required` | 要不要审核（apply 链**与 invite 链**） | 想进群的人 |
+ * | `join_approval_required` | 要不要审核（apply 链**与 invite 链**，三条来源**统一**这一个开关） | 想进群的人 |
  * | `admin_can_approve` | 谁能按同意 | 群主 / 管理员 |
  * | `card_share_scope` | 谁能把群作为名片分享出去 | **本群成员** |
  * | `qr_show_scope` | 谁能展示群二维码 | **本群成员** |
  * | `search_scope` | 谁**搜得到**本群 | **群外的人** ⚠️ |
+ * | `allow_join_via_qr` | **拿到码的人能不能进** | 想进群的人 |
+ * | `allow_join_via_search` | **搜到了能不能进** | 想进群的人 |
+ * | `allow_join_via_referral` | **收到群名片 / 被成员拉的人能不能进** | 想进群的人 |
  *
- * ⚠️ 最后一行方向相反：`owner_only` 在前两个 scope 是「只有群主能分享 / 出码」，
+ * ⚠️ `search_scope` 那行方向相反：`owner_only` 在前两个 scope 是「只有群主能分享 / 出码」，
  * 在 `search_scope` 是「只有群主搜得到本群」= **别人搜不到**。文案按这个方向写，别写反。
+ *
+ * 🔴 **后三行与三档 scope 正交、别当同一件事**（后端 migration 045 的原话）：
+ *
+ * | 管「看得到 / 拿得到」 | 管「能不能进」 |
+ * |---|---|
+ * | `qr_show_scope`（谁能把码拿出去） | `allow_join_via_qr`（拿到码的人能不能进） |
+ * | `search_scope`（谁搜得到这个群） | `allow_join_via_search`（搜到了能不能进） |
+ * | `card_share_scope`（谁能把群卡片发出去） | `allow_join_via_referral`（收到卡片的人能不能进） |
+ *
+ * ⇒ 关掉 `allow_join_via_search` **不会**让群从搜索结果里消失，反之亦然。两组各管一段，
+ * 界面上因此**分成两块**呈现（「谁能把群发出去 / 谁搜得到」 vs 「哪些方式能进来」），
+ * 挤在一起会让群主以为收紧了其中一个就够了。
  *
  * ## 三条设计约束
  *
@@ -42,6 +57,8 @@ import {
   getGroupDetail,
   updateJoinPolicy,
   JOIN_POLICY_DEFAULTS,
+  JOIN_SOURCE_LABELS,
+  type GroupJoinSource,
   type GroupScope,
   type SearchScope,
   type JoinPolicy,
@@ -76,6 +93,35 @@ const SEARCH_SCOPE_LABELS: Readonly<Record<SearchScope, string>> = {
 };
 
 /**
+ * 加群三开关的呈现顺序与每条的一句话说明。
+ *
+ * 🔴 `key` 用 `keyof JoinPolicy` 而不是裸字符串：漏改一处 / 拼错键名会**编译期**红，
+ * 而不是"开关看着能点、点了不生效"（那种失效与"生效了"完全同形）。
+ * `source` 用 [`GroupJoinSource`] 复用文案落点 [`JOIN_SOURCE_LABELS`]，避免两处各写一份中文。
+ */
+const JOIN_SWITCHES: ReadonlyArray<{
+  key: 'allow_join_via_qr' | 'allow_join_via_search' | 'allow_join_via_referral';
+  source: GroupJoinSource;
+  hint: string;
+}> = [
+  {
+    key: 'allow_join_via_qr',
+    source: 'qr',
+    hint: '关闭后，扫到本群二维码的人无法加入（与上面「谁能展示群二维码」是两件事：那一项管谁能把码拿出去）。',
+  },
+  {
+    key: 'allow_join_via_search',
+    source: 'search',
+    hint: '关闭后，在「发现搜索」里搜到本群的人无法加入（与上面「谁搜得到这个群」是两件事：关掉本项不会让群从搜索结果里消失）。',
+  },
+  {
+    key: 'allow_join_via_referral',
+    source: 'referral',
+    hint: '关闭后，收到群名片的人无法加入，普通成员也不能再直接把好友拉进群；群主和管理员发起的邀请不受影响。',
+  },
+];
+
+/**
  * 把 `GroupInfo` 里可能缺的五个字段补成完整五值 —— **本视图唯一一处应用回落的地方**。
  *
  * 值一律取自 [`JOIN_POLICY_DEFAULTS`]，这里不写任何字面量默认值（回落值只许有一个落点）。
@@ -90,6 +136,11 @@ export function applyJoinPolicyDefaults(source: JoinPolicyPatch): JoinPolicy {
     card_share_scope: source.card_share_scope ?? JOIN_POLICY_DEFAULTS.card_share_scope,
     qr_show_scope: source.qr_show_scope ?? JOIN_POLICY_DEFAULTS.qr_show_scope,
     search_scope: source.search_scope ?? JOIN_POLICY_DEFAULTS.search_scope,
+    allow_join_via_qr: source.allow_join_via_qr ?? JOIN_POLICY_DEFAULTS.allow_join_via_qr,
+    allow_join_via_search:
+      source.allow_join_via_search ?? JOIN_POLICY_DEFAULTS.allow_join_via_search,
+    allow_join_via_referral:
+      source.allow_join_via_referral ?? JOIN_POLICY_DEFAULTS.allow_join_via_referral,
   };
 }
 
@@ -259,8 +310,27 @@ export function JoinPolicyForm({ groupId, onBack }: JoinPolicyFormProps) {
               <span>需要入群审核</span>
             </label>
             <p className="menu-hint">
-              开启后，无论是搜索申请还是被人邀请，都要等审批同意才能进群；关闭则直接进群。
+              {'开启后，扫码、搜索群 ID、好友推荐这三种方式进来的人都要等审批同意才能进群，'}
+              {'被人邀请同样要审；关闭则直接进群。这一项统一管下面三种加入方式。'}
             </p>
+
+            <p className="menu-hint">哪些方式能进来</p>
+            {/* 加群三开关：三条来源各自独立开关；上面那个「需要入群审核」是**统一**管这三条的。
+                与下面三档 scope 正交，故单独成块（理由见文件头那张对照表）。 */}
+            {JOIN_SWITCHES.map(({ key, source, hint }) => (
+              <div key={key}>
+                <label className="menu-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={policy[key]}
+                    disabled={saving}
+                    onChange={(e) => save({ [key]: e.target.checked })}
+                  />
+                  <span>{`允许${JOIN_SOURCE_LABELS[source]}`}</span>
+                </label>
+                <p className="menu-hint">{hint}</p>
+              </div>
+            ))}
 
             <label className="menu-checkbox">
               <input

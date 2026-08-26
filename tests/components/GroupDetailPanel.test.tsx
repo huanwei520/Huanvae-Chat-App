@@ -32,6 +32,14 @@ const groupsApiMock = vi.hoisted(() => ({
   getPublicGroupInfo: vi.fn(),
   applyToJoinGroup: vi.fn(),
   getSentJoinRequests: vi.fn(),
+  // 🔴 `vi.mock` 的工厂是**整体替换**：工厂里没列的导出在被测代码里就不存在。
+  // 这一项是被测组件真的会读的常量（不是 vi.fn），所以给**真值**而不是桩 ——
+  // 给桩的话下面那些断言中文文案的用例就变成在测桩自己。
+  JOIN_SOURCE_LABELS: {
+    qr: '扫码加群',
+    search: '搜索群 ID 加群',
+    referral: '好友推荐加群',
+  },
 }));
 vi.mock('../../src/api/groups', () => groupsApiMock);
 
@@ -40,6 +48,9 @@ vi.mock('../../src/utils/avatar', () => ({
 }));
 
 import { GroupDetailPanel } from '../../src/chat/shared/GroupDetailPanel';
+// ApiError 走**真实实现**（不 mock api/client）：403 归因那条断言的是组件对真实
+// `apiErrorStatus` 的读数，桩一个假 error 会把被测的那一段一起桩掉。
+import { ApiError } from '../../src/api/client';
 import { useChatStore } from '../../src/stores';
 
 function groupInfo(overrides: Record<string, unknown> = {}) {
@@ -76,7 +87,10 @@ async function mainButton(name: string) {
 describe('GroupDetailPanel', () => {
   beforeEach(() => {
     cleanup();
-    Object.values(groupsApiMock).forEach((m) => m.mockReset());
+    // 工厂里现在既有 vi.fn 也有常量（JOIN_SOURCE_LABELS）⇒ 只 reset 前者
+    Object.values(groupsApiMock).forEach((m) => {
+      if (typeof m === 'function' && 'mockReset' in m) { m.mockReset(); }
+    });
     groupsApiMock.getSentJoinRequests.mockResolvedValue({ requests: [] });
     // 中性默认：落待审申请。需要"直接入群"的用例各自覆写成 status:'joined'
     groupsApiMock.applyToJoinGroup.mockResolvedValue({ status: 'pending', message: 'ok' });
@@ -90,7 +104,7 @@ describe('GroupDetailPanel', () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(
         groupInfo({ group_id: 'grp1', join_approval_required: false }),
       );
-      render(<GroupDetailPanel groupId="grp1" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grp1" source="search" onClose={vi.fn()} />);
 
       expect(await mainButton('加入群聊')).toBeEnabled();
       expect(screen.queryByRole('button', { name: '申请加群' })).toBeNull();
@@ -100,7 +114,7 @@ describe('GroupDetailPanel', () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(
         groupInfo({ group_id: 'grp2', join_approval_required: true }),
       );
-      render(<GroupDetailPanel groupId="grp2" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grp2" source="search" onClose={vi.fn()} />);
 
       expect(await mainButton('申请加群')).toBeEnabled();
       expect(screen.queryByRole('button', { name: '加入群聊' })).toBeNull();
@@ -108,7 +122,7 @@ describe('GroupDetailPanel', () => {
 
     it('🔴 非成员 + 字段缺失（undefined）→「申请加群」，且面板里【任何地方】都不出现「不可加入」', async () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(groupInfoWithoutPolicy({ group_id: 'grp3' }));
-      render(<GroupDetailPanel groupId="grp3" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grp3" source="search" onClose={vi.fn()} />);
 
       // 保守方向：不知道要不要审核时仍然让用户能点（写成 `!info.x` 会误判成免审核 ⇒「加入群聊」）
       const btn = await mainButton('申请加群');
@@ -139,7 +153,7 @@ describe('GroupDetailPanel', () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(groupInfo({ group_id: 'grp4' }));
       const onEnterGroup = vi.fn();
       const onClose = vi.fn();
-      render(<GroupDetailPanel groupId="grp4" onClose={onClose} onEnterGroup={onEnterGroup} />);
+      render(<GroupDetailPanel groupId="grp4" source="search" onClose={onClose} onEnterGroup={onEnterGroup} />);
 
       fireEvent.click(await mainButton('进入群聊'));
 
@@ -168,7 +182,7 @@ describe('GroupDetailPanel', () => {
           },
         ],
       });
-      render(<GroupDetailPanel groupId="grp5" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grp5" source="search" onClose={vi.fn()} />);
 
       const pendingBtn = await mainButton('待通过');
       expect(pendingBtn).toBeDisabled();
@@ -186,12 +200,12 @@ describe('GroupDetailPanel', () => {
       );
       groupsApiMock.applyToJoinGroup.mockResolvedValue({ status: 'joined', message: '已成功加入群聊' });
       const onRefreshGroups = vi.fn();
-      render(<GroupDetailPanel groupId="grp6" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
+      render(<GroupDetailPanel groupId="grp6" source="search" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
 
       fireEvent.click(await mainButton('加入群聊'));
 
       await waitFor(() =>
-        expect(groupsApiMock.applyToJoinGroup).toHaveBeenCalledWith(mockApi, 'grp6'),
+        expect(groupsApiMock.applyToJoinGroup).toHaveBeenCalledWith(mockApi, 'grp6', 'search'),
       );
       await waitFor(() => expect(onRefreshGroups).toHaveBeenCalledTimes(1));
       expect(screen.queryByRole('button', { name: '待通过' })).toBeNull();
@@ -206,7 +220,7 @@ describe('GroupDetailPanel', () => {
         message: '申请已提交，等待管理员审核',
       });
       const onRefreshGroups = vi.fn();
-      render(<GroupDetailPanel groupId="grp7" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
+      render(<GroupDetailPanel groupId="grp7" source="search" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
 
       fireEvent.click(await mainButton('申请加群'));
 
@@ -222,7 +236,7 @@ describe('GroupDetailPanel', () => {
       // 旧响应形态：只有 message，没有 status
       groupsApiMock.applyToJoinGroup.mockResolvedValue({ message: 'ok' });
       const onRefreshGroups = vi.fn();
-      render(<GroupDetailPanel groupId="grp8" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
+      render(<GroupDetailPanel groupId="grp8" source="search" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
 
       fireEvent.click(await mainButton('加入群聊'));
 
@@ -239,7 +253,7 @@ describe('GroupDetailPanel', () => {
       );
       groupsApiMock.applyToJoinGroup.mockRejectedValue(new Error('已是该群成员'));
       const onRefreshGroups = vi.fn();
-      render(<GroupDetailPanel groupId="grp9" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
+      render(<GroupDetailPanel groupId="grp9" source="search" onClose={vi.fn()} onRefreshGroups={onRefreshGroups} />);
 
       fireEvent.click(await mainButton('申请加群'));
 
@@ -256,7 +270,7 @@ describe('GroupDetailPanel', () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(
         groupInfo({ group_id: 'grpA', join_approval_required: false }),
       );
-      render(<GroupDetailPanel groupId="grpA" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grpA" source="search" onClose={vi.fn()} />);
 
       expect(await screen.findByText('允许直接加入')).toBeInTheDocument();
       expect(screen.queryByText('需审批')).toBeNull();
@@ -266,7 +280,7 @@ describe('GroupDetailPanel', () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(
         groupInfo({ group_id: 'grpB', join_approval_required: true }),
       );
-      render(<GroupDetailPanel groupId="grpB" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grpB" source="search" onClose={vi.fn()} />);
 
       expect(await screen.findByText('需审批')).toBeInTheDocument();
       expect(screen.queryByText('允许直接加入')).toBeNull();
@@ -274,13 +288,199 @@ describe('GroupDetailPanel', () => {
 
     it('字段缺失 → 整行不渲染（不猜一个值显示给用户）', async () => {
       groupsApiMock.getPublicGroupInfo.mockResolvedValue(groupInfoWithoutPolicy({ group_id: 'grpC' }));
-      render(<GroupDetailPanel groupId="grpC" onClose={vi.fn()} />);
+      render(<GroupDetailPanel groupId="grpC" source="search" onClose={vi.fn()} />);
 
       // 等资料区渲染出来（成员数那行一定在），再断言"入群方式"整行不存在
       expect(await screen.findByText('成员数')).toBeInTheDocument();
       expect(screen.queryByText('入群方式')).toBeNull();
       expect(screen.queryByText('需审批')).toBeNull();
       expect(screen.queryByText('允许直接加入')).toBeNull();
+    });
+  });
+
+  // ---------------- 加群三开关（migration 045） ----------------
+
+  /**
+   * 🔴 这一组每条都要**两侧都断**：只断「关着 ⇒ 不能点」是不够的 ——
+   * 「开关根本没接上、一律放行」与「开着 ⇒ 能点」输出完全同形。所以每条来源
+   * 都配一条 `true` 的对照，两侧形状不同才说明这个开关真的在被读。
+   */
+  describe('加群三开关：source 对应的那一个开关决定按钮态', () => {
+    const CASES: ReadonlyArray<[string, 'qr' | 'search' | 'referral', string, string]> = [
+      ['qr', 'qr', 'allow_join_via_qr', '扫码加群'],
+      ['search', 'search', 'allow_join_via_search', '搜索群 ID 加群'],
+      ['referral', 'referral', 'allow_join_via_referral', '好友推荐加群'],
+    ];
+
+    it.each(CASES)(
+      'source=%s + %s=false ⇒ 主按钮禁用、文案点名是哪条路关了、且不发 apply 请求',
+      async (_n, source, field, label) => {
+        groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+          groupInfo({ group_id: 'grpS', join_approval_required: false, [field]: false }),
+        );
+        render(<GroupDetailPanel groupId="grpS" source={source} onClose={vi.fn()} />);
+
+        const btn = await mainButton(`已关闭${label}`);
+        expect(btn).toBeDisabled();
+        // 反向：放行态的两个文案都不该出现（否则等于开关没接上）
+        expect(screen.queryByRole('button', { name: '加入群聊' })).toBeNull();
+        expect(screen.queryByRole('button', { name: '申请加群' })).toBeNull();
+        // 禁用按钮本身不解释原因，另有一行提示说清换一条路
+        expect(
+          screen.getByText(`群主已关闭「${label}」，请换一种方式加入`),
+        ).toBeInTheDocument();
+
+        fireEvent.click(btn);
+        expect(groupsApiMock.applyToJoinGroup).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(CASES)(
+      '对照：source=%s + %s=true ⇒ 按钮照常可点（证明上一条的红不是恒红）',
+      async (_n, source, field) => {
+        groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+          groupInfo({ group_id: 'grpT', join_approval_required: false, [field]: true }),
+        );
+        render(<GroupDetailPanel groupId="grpT" source={source} onClose={vi.fn()} />);
+        expect(await mainButton('加入群聊')).toBeEnabled();
+      },
+    );
+
+    it('🔴 只关【别的】来源不影响本次这条（三个开关相互独立，不是一个开关三个名字）', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({
+          group_id: 'grpU',
+          join_approval_required: false,
+          allow_join_via_qr: false,
+          allow_join_via_referral: false,
+          allow_join_via_search: true,
+        }),
+      );
+      render(<GroupDetailPanel groupId="grpU" source="search" onClose={vi.fn()} />);
+      expect(await mainButton('加入群聊')).toBeEnabled();
+    });
+
+    it('🔴 三个字段全缺失（后端未上线）⇒ 仍可发起申请 —— 不知道时不许把用户挡在门外', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({ group_id: 'grpV', join_approval_required: true }),
+      );
+      render(<GroupDetailPanel groupId="grpV" source="qr" onClose={vi.fn()} />);
+      // 写成 `!info.allow_join_via_qr` 的话 `!undefined === true` ⇒ 这里会变成「已关闭扫码加群」
+      expect(await mainButton('申请加群')).toBeEnabled();
+      expect(screen.queryByText(/已关闭/)).toBeNull();
+    });
+
+    it('apply 时把本次 source 原样带给服务端（群名片入口不能被当成搜索）', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({ group_id: 'grpW', join_approval_required: false }),
+      );
+      groupsApiMock.applyToJoinGroup.mockResolvedValue({ status: 'joined', message: 'ok' });
+      render(<GroupDetailPanel groupId="grpW" source="referral" onClose={vi.fn()} />);
+
+      fireEvent.click(await mainButton('加入群聊'));
+      await waitFor(() =>
+        expect(groupsApiMock.applyToJoinGroup).toHaveBeenCalledWith(mockApi, 'grpW', 'referral'),
+      );
+    });
+
+    it('🔴 403 兜真值：开关在两次请求之间被关掉 ⇒ 错误区给的是"哪条路关了"，不是原始异常文案', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        // 预渲染那层看到的是「开着」—— 正是这一层拦不住的情形
+        groupInfo({ group_id: 'grpX', join_approval_required: false, allow_join_via_qr: true }),
+      );
+      groupsApiMock.applyToJoinGroup.mockRejectedValue(new ApiError(403, '该群未开放这种加群方式'));
+      render(<GroupDetailPanel groupId="grpX" source="qr" onClose={vi.fn()} />);
+
+      fireEvent.click(await mainButton('加入群聊'));
+      expect(
+        await screen.findByText('群主已关闭「扫码加群」，请换一种方式加入'),
+      ).toBeInTheDocument();
+    });
+
+    it('非 403 的错误仍原样显示（403 那条映射不许把别的错误也吃掉）', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({ group_id: 'grpY', join_approval_required: false }),
+      );
+      groupsApiMock.applyToJoinGroup.mockRejectedValue(new ApiError(400, '您已是该群成员'));
+      render(<GroupDetailPanel groupId="grpY" source="qr" onClose={vi.fn()} />);
+
+      fireEvent.click(await mainButton('加入群聊'));
+      expect(await screen.findByText('您已是该群成员')).toBeInTheDocument();
+      expect(screen.queryByText(/群主已关闭/)).toBeNull();
+    });
+  });
+
+  // ---------------- 资料区「开放的加群方式」 ----------------
+
+  describe('资料行「开放的加群方式」', () => {
+    it('部分开放 ⇒ 只列开着的那些', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({
+          group_id: 'grpZ',
+          allow_join_via_qr: true,
+          allow_join_via_search: false,
+          allow_join_via_referral: true,
+        }),
+      );
+      render(<GroupDetailPanel groupId="grpZ" source="qr" onClose={vi.fn()} />);
+      expect(await screen.findByText('扫码加群 · 好友推荐加群')).toBeInTheDocument();
+    });
+
+    it('三条全关 ⇒ 明说「均已关闭」（不能显示成空行，那与"不知道"同形）', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({
+          group_id: 'grpZ2',
+          allow_join_via_qr: false,
+          allow_join_via_search: false,
+          allow_join_via_referral: false,
+        }),
+      );
+      render(<GroupDetailPanel groupId="grpZ2" source="qr" onClose={vi.fn()} />);
+      expect(await screen.findByText('均已关闭')).toBeInTheDocument();
+    });
+
+    it('三条全缺失（后端未上线）⇒ 整行不渲染', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(groupInfo({ group_id: 'grpZ3' }));
+      render(<GroupDetailPanel groupId="grpZ3" source="qr" onClose={vi.fn()} />);
+      expect(await screen.findByText('成员数')).toBeInTheDocument();
+      expect(screen.queryByText('开放的加群方式')).toBeNull();
+    });
+  });
+
+  // ---------------- source = null（成员入口：不是从任何一条加群路径来的） ----------------
+
+  describe('source=null', () => {
+    it('成员：照常「进入群聊」（成员入口的正常形态）', async () => {
+      useChatStore.setState({
+        groups: [{ group_id: 'grpN', group_name: 'G', group_avatar_url: '', role: 'member', unread_count: 0, last_message_content: null, last_message_time: null }],
+      });
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(groupInfo({ group_id: 'grpN' }));
+      render(<GroupDetailPanel groupId="grpN" source={null} onClose={vi.fn()} />);
+      expect(await mainButton('进入群聊')).toBeEnabled();
+    });
+
+    it('🔴 非成员 + source=null ⇒ 不给加群按钮，改给一句"从哪进来"的说明', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({ group_id: 'grpN2', join_approval_required: false }),
+      );
+      render(<GroupDetailPanel groupId="grpN2" source={null} onClose={vi.fn()} />);
+
+      expect(
+        await screen.findByText('这里看不到加入入口，请从群搜索结果、好友分享的群名片或群二维码进入'),
+      ).toBeInTheDocument();
+      // 三个加群态的按钮一个都不许出现（编一档 source 传上去 = 让服务端查一扇没走过的门）
+      for (const label of ['加入群聊', '申请加群', '已关闭扫码加群', '已关闭搜索群 ID 加群', '已关闭好友推荐加群']) {
+        expect(screen.queryByRole('button', { name: label })).toBeNull();
+      }
+      expect(groupsApiMock.applyToJoinGroup).not.toHaveBeenCalled();
+    });
+
+    it('对照：同样是非成员，给了 source 就有按钮（证明上一条的"没有"不是恒没有）', async () => {
+      groupsApiMock.getPublicGroupInfo.mockResolvedValue(
+        groupInfo({ group_id: 'grpN3', join_approval_required: false }),
+      );
+      render(<GroupDetailPanel groupId="grpN3" source="qr" onClose={vi.fn()} />);
+      expect(await mainButton('加入群聊')).toBeEnabled();
     });
   });
 });

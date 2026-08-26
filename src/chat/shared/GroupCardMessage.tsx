@@ -115,11 +115,14 @@ export function GroupCardMessage({ messageContent }: GroupCardMessageProps) {
     return '加载中...';
   })();
 
+  // 加群来源 = 'referral'：群名片就是「好友把群推荐给我」那条链，服务端据此查
+  // allow_join_via_referral（migration 045）。**必须显式传**——群详情面板自己分不出
+  // 是从搜索结果还是从群名片点进来的，而这两者查的是不同的开关。
   return (
     <button
       type="button"
       className="group-card"
-      onClick={() => openGroupDetail(groupId)}
+      onClick={() => openGroupDetail(groupId, 'referral')}
       aria-label={info ? `查看群聊 ${name}` : '查看群聊'}
     >
       <div className="group-card-head">

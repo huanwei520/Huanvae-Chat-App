@@ -383,7 +383,8 @@ export function MobileChatList({
             layout="mobile"
             onSelectDiscoveryPerson={(userId) => openProfile(userId)}
             onSelectDiscoveryBot={(botUserId, username) => openProfile(botUserId, { botUsername: username })}
-            onSelectDiscoveryGroup={(groupId) => openGroupDetail(groupId)}
+            /* 加群来源 = search：这是「发现搜索」结果，服务端据此查 allow_join_via_search */
+            onSelectDiscoveryGroup={(groupId) => openGroupDetail(groupId, 'search')}
             onSelectConversation={(type, data) => {
               if (type === 'friend') {
                 onSelectTarget(friendChatTarget(data as Friend));

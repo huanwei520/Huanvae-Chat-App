@@ -43,6 +43,8 @@ export type MenuView =
   | 'transfer-owner'
   /** 入群与可见性设置（仅群主；PUT /api/groups/{id}/join-policy） */
   | 'join-policy'
+  /** 群二维码（本群活跃成员；GET /api/groups/{id}/qr，服务端按 qr_show_scope 强制） */
+  | 'group-qr'
   | 'confirm-disband';
 
 export interface MenuState {

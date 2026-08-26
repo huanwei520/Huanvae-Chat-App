@@ -127,6 +127,36 @@ export type GroupScope = 'all_members' | 'admins' | 'owner_only';
 export type SearchScope = 'everyone' | 'admins' | 'owner_only';
 
 /**
+ * 加群**来源** —— `POST /api/groups/{id}/apply` 的**必填** `source`（后端 migration 045）。
+ *
+ * 三档与三个 `allow_join_via_*` 开关一一对应（契约 `backend-docs/groups/群聊管理.md`
+ * 「申请入群」节的来源表）：
+ *
+ * | `source` | 对应场景 | 由哪个开关门控 |
+ * |---|---|---|
+ * | `qr` | 扫群二维码落地页 | `allow_join_via_qr` |
+ * | `search` | `GET /api/discovery/search` 搜到群之后 | `allow_join_via_search` |
+ * | `referral` | 好友分享的群卡片 / 群链接落地 | `allow_join_via_referral` |
+ *
+ * 🔴 **服务端有意不给默认值**：三个开关的全部意义就是按来源分流，给任何默认值等于给了一条
+ * 绕过开关的路。缺失或非法**一律 400**（缺失那半边由服务端兜，不是 axum 的 422）。
+ * ⇒ 本仓的 [`applyToJoinGroup`] 因此把 `source` 收成**必填位置参数**，不给可选、不给默认。
+ */
+export type GroupJoinSource = 'qr' | 'search' | 'referral';
+
+/**
+ * 加群三开关 → 用户能看懂的那条路叫什么（唯一落点，别在组件里散写）。
+ *
+ * 用途：这条路被群主关掉时，按钮/提示要说清**关的是哪一条** ——
+ * 「该群未开放加入」三条路说的是同一句话，用户无从判断换个入口能不能进。
+ */
+export const JOIN_SOURCE_LABELS: Readonly<Record<GroupJoinSource, string>> = {
+  qr: '扫码加群',
+  search: '搜索群 ID 加群',
+  referral: '好友推荐加群',
+};
+
+/**
  * 群聊信息（`GET /api/groups/{id}`、`GET /api/groups/{id}/public`、`GET /search`
  * 三处同构，见 `backend-docs/groups/群聊管理.md` 的 `GroupInfo` 字段表）。
  *
@@ -151,6 +181,27 @@ export interface GroupInfo {
   qr_show_scope?: GroupScope;
   /** 谁搜得到这个群（服务端在 `GET /api/discovery/search` 过滤；⚠️ 语义方向见 [`SearchScope`]） */
   search_scope?: SearchScope;
+  /**
+   * 是否允许**扫码**加群（加群三开关之一，migration 045）。
+   *
+   * 🔴 与 [`qr_show_scope`](#) **正交、不是同一件事**：那一档管「谁能把码拿出去」（出码面），
+   * 本开关管「拿到码的人能不能进」。服务端在 `POST /{id}/apply`（`source='qr'`）判定，关 ⇒ 403。
+   */
+  allow_join_via_qr?: boolean;
+  /**
+   * 是否允许**搜索群 ID** 加群（migration 045）。
+   *
+   * 🔴 与 `search_scope` **正交**：那一档管「搜不搜得到」，本开关管「搜到了能不能进」——
+   * 关掉本开关**不会**让群从搜索结果里消失，反之亦然。
+   */
+  allow_join_via_search?: boolean;
+  /**
+   * 是否允许**好友推荐**加群（migration 045）。覆盖**两条链**：
+   * ① `source='referral'` 的 apply（群卡片/链接落地）⇒ 关 ⇒ 403；
+   * ② `POST /{id}/invite` 里**普通成员发起**的邀请（`member_invite`）⇒ 关 ⇒ 该 user `success=false`。
+   * 群主 / 管理员发起的邀请**不受它约束**。
+   */
+  allow_join_via_referral?: boolean;
   status: string;
   member_count: number;
 }
@@ -167,6 +218,12 @@ export interface JoinPolicy {
   card_share_scope: GroupScope;
   qr_show_scope: GroupScope;
   search_scope: SearchScope;
+  /** 扫码这条路开不开（migration 045；与 `qr_show_scope` 正交） */
+  allow_join_via_qr: boolean;
+  /** 搜索群 ID 这条路开不开（migration 045；与 `search_scope` 正交） */
+  allow_join_via_search: boolean;
+  /** 好友推荐这条路开不开（migration 045；覆盖 apply(referral) 与普通成员邀请两条链） */
+  allow_join_via_referral: boolean;
 }
 
 /**
@@ -181,6 +238,9 @@ export interface JoinPolicyPatch {
   card_share_scope?: GroupScope;
   qr_show_scope?: GroupScope;
   search_scope?: SearchScope;
+  allow_join_via_qr?: boolean;
+  allow_join_via_search?: boolean;
+  allow_join_via_referral?: boolean;
 }
 
 /**
@@ -205,7 +265,35 @@ export const JOIN_POLICY_DEFAULTS: JoinPolicy = {
   card_share_scope: 'all_members',
   qr_show_scope: 'all_members',
   search_scope: 'everyone',
+  allow_join_via_qr: true,
+  allow_join_via_search: true,
+  allow_join_via_referral: true,
 };
+
+/**
+ * 群二维码载荷（`GET /api/groups/{id}/qr`；client.ts 已解包 ApiResponse.data）
+ *
+ * 🔴 **服务端不返回图片**，只给要被编码的那串字符 —— 位图比字符串大得多，且尺寸 / 纠错级别 /
+ * 深浅主题全是渲染侧的事（契约原话）。客户端拿 `payload` 本地绘制。
+ *
+ * 🔴 **为什么这条端点必须存在**（别"优化"成本地拼串）：二维码内容本质就是 group_id，
+ * 客户端完全能本地生成一张 ⇒「谁能展示群二维码」那个开关**只有做成服务端端点才拦得住**。
+ * 本地拼串 = 把 `qr_show_scope` 这道门整个绕过去。
+ */
+export interface GroupQrResponse {
+  group_id: string;
+  /**
+   * 待编码进二维码的那串字符，形如 `huanvae://group/join?id=<uuid>`。
+   *
+   * 与 App 既有自定义 scheme 同族，落地解析在 [`../nfc/parser`] 的 `group/join` 臂 ——
+   * 贴 NFC 卡与扫二维码走的是**同一条**解析 + 派发，不是两套。
+   */
+  payload: string;
+  group_name: string;
+  /** 群头像相对路径（需经 resolveServerAvatarUrl 收口；未设为 null） */
+  group_avatar_url: string | null;
+  member_count: number;
+}
 
 /** 我发出的加群申请项（GET /api/groups/requests/sent，恒 pending，无撤回接口） */
 export interface SentJoinRequestInfo {
@@ -289,6 +377,17 @@ export function updateJoinPolicy(
   }
   if (patch.search_scope !== undefined) {
     body.search_scope = patch.search_scope;
+  }
+  // 🔴 加群三开关（migration 045）：类型里加了字段 **不等于** 请求体里传了字段 ——
+  // 这个 body 是逐键构造的，漏掉这三个 if 会让开关"看着能点、点了不生效"，而 TS 不报错。
+  if (patch.allow_join_via_qr !== undefined) {
+    body.allow_join_via_qr = patch.allow_join_via_qr;
+  }
+  if (patch.allow_join_via_search !== undefined) {
+    body.allow_join_via_search = patch.allow_join_via_search;
+  }
+  if (patch.allow_join_via_referral !== undefined) {
+    body.allow_join_via_referral = patch.allow_join_via_referral;
   }
   return api.put<JoinPolicy>(
     `/api/groups/${encodeURIComponent(groupId)}/join-policy`,
@@ -398,24 +497,52 @@ export function declineGroupInvitation(
 }
 
 /**
- * 对可发现的群发起加入/加群申请（搜索方式）。**只看审批开关一个判据，两态**：
- * 免审核 → 直接入群，`status: 'joined'`；需审核 → 创建待审核申请，`status: 'pending'`。
+ * 发起加群申请。**三种加入方式（扫码 / 搜索群 ID / 好友推荐）共用这一条端点，靠 `source` 区分。**
+ *
+ * 两层门控（契约 `backend-docs/groups/群聊管理.md`「申请入群」节）：
+ * 1. **这条路开不开** —— 按 `source` 取对应的 `allow_join_via_*`，关 ⇒ **403**；
+ * 2. **进去要不要审核** —— 放行之后由 `join_approval_required` 决定两态：
+ *    免审核 → 直接入群，`status: 'joined'`；需审核 → 落待审申请，`status: 'pending'`。
+ *
  * 已是成员 / 已有 pending 申请 → 400。
  *
+ * 🔴 **`source` 是必填的、且服务端有意不给默认值** —— 三个开关的全部意义就是按来源分流，
+ * 给任何默认值等于给了一条绕过开关的路。所以这里把它收成**第三个位置参数（必填）**，
+ * 而不是塞进 `message` 后面的可选参数：漏传时要**编译期**就红，不能留到运行期吃 400。
+ * 缺失 / 非三档之一 ⇒ **400**（两者形状统一，见契约「错误响应」）。
+ *
  * 🔴 **判两态一律读 `status`，不要解析 `message` 文案**（契约
- * `backend-docs/groups/群聊管理.md`「申请入群（搜索方式）」响应字段说明原文）。
+ * `backend-docs/groups/群聊管理.md`「申请入群」响应字段说明原文）。
  * 该端点的 `data` 已从 `{success, message}` 换成 `{status, message}` —— `success` 已被移除。
  *
  * ⚠️ 后端整批尚未上线的窗口期里 `status` 实际会是 `undefined`（旧响应没有这个键），
  * 所以调用方必须写 `=== 'joined'` 而不是 `!== 'pending'`：前者把未知落到"待审批"一侧
  * （保守、可恢复），后者会把没入群的判成已入群。
+ *
+ * ⚠️ **这条路被群主关了**只能靠「`403` + 本次传的 `source`」判断 —— 契约明写该端点的 `403`
+ * 只有这一个成因（群不存在是 404、已是成员是 400），所以 403 可以直接映射成
+ * 「群主关了 [`JOIN_SOURCE_LABELS`]`[source]` 这条路」。
  */
 export function applyToJoinGroup(
   api: ApiClient,
   groupId: string,
+  source: GroupJoinSource,
   message?: string,
 ): Promise<{ status: 'joined' | 'pending'; message: string }> {
-  return api.post(`/api/groups/${encodeURIComponent(groupId)}/apply`, { message: message || '' });
+  return api.post(`/api/groups/${encodeURIComponent(groupId)}/apply`, {
+    message: message || '',
+    source,
+  });
+}
+
+/**
+ * 获取群二维码载荷（**本群活跃成员**，且角色要满足该群 `qr_show_scope`）
+ *
+ * 错误（契约「错误响应」）：`403` 不是活跃成员 / 角色档位不够 · `404` 群不存在或已解散。
+ * 两者要分档给文案 —— 「你没这个权限」和「群没了」用户能做的事完全不同。
+ */
+export function getGroupQr(api: ApiClient, groupId: string): Promise<GroupQrResponse> {
+  return api.get<GroupQrResponse>(`/api/groups/${encodeURIComponent(groupId)}/qr`);
 }
 
 /**

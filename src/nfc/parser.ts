@@ -80,6 +80,13 @@ function decodeBase64Json(b64: string): unknown {
  * URI → 白名单 NfcAction
  * 不在白名单 / 参数缺失 / URL 不合法 / body 解码失败 → 返 null
  */
+/**
+ * 群 ID 形态（后端 `Uuid`，`GET /{group_id}/qr` 的 payload 里那一段）。
+ *
+ * 大小写都收：`Uuid::to_string()` 出的是小写，但二维码经第三方扫码器转手时被大写化过的样本存在。
+ */
+const GROUP_ID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export function parseAction(uri: string): NfcAction | null {
   if (!uri.startsWith('huanvae://')) { return null; }
 
@@ -99,6 +106,16 @@ export function parseAction(uri: string): NfcAction | null {
     const id = query.get('id');
     if (!id) { return null; }
     return { kind: 'miniapp/open', miniappId: id };
+  }
+
+  if (path === 'group/join') {
+    const id = query.get('id');
+    if (!id) { return null; }
+    // 🔴 必须校验 UUID 形态：这个值会被直接拼进 `GET /api/groups/{id}/public` 的路径。
+    // 不校验的话，任意串都会被当群 ID 发出去 —— 而"群不存在"的 404 与"我给了个垃圾串"
+    // 在界面上完全同形，用户只会看到一句无法解释的失败。
+    if (!GROUP_ID_RE.test(id)) { return null; }
+    return { kind: 'group/join', groupId: id };
   }
 
   if (path === 'http/request') {
@@ -138,6 +155,10 @@ export function parseAction(uri: string): NfcAction | null {
 export function summarizeAction(action: NfcAction): string {
   if (action.kind === 'miniapp/open') {
     return `打开小程序: ${action.miniappId}`;
+  }
+  if (action.kind === 'group/join') {
+    // 只说"打开群详情"，不说"加入群聊" —— 这一步不加任何群，加不加由用户在详情面板上再点一次。
+    return `打开群聊: ${action.groupId}`;
   }
   // http/request — 显示 host + 截断 path
   let display = action.url;

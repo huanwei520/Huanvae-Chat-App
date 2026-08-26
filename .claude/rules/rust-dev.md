@@ -753,3 +753,49 @@ B 组  #[serde(rename_all_fields = "camelCase", tag = "event", content = "data")
 第二条是**注释表格行**（文件里那张解释两个属性区别的表）。
 锚定属性行才是 1：`grep -cE '^#\[serde\(rename_all_fields = "camelCase"'` = **1**。
 （同族：[common.md](common.md)「『命中了』不等于命中的是那一类行」。）
+
+## 🔴 gen-33 追加（2026-08-21）：HG 真机验收载体的两条坑（控制口端口 · Windows 侧缺 `wintun.dll`）
+
+> **本节是 EOF 追加，不改上文任何一行。** 它是上文「发货给 Windows Service 跑的二进制，必须验
+> 「SCM 能拉起」」与「无状态守护进程重启后…单向不通 ≠ 二进制坏」两节的**新实例 + 新判据陷阱**。
+> 一手来源：gen-33 在本机 macOS 与一台**远程 Windows 对端**之间手工建真隧道跑门禁第 13 项。
+
+### 一、🔴 HG 控制口端口**两端不同**：macOS `19199` / Windows `19198`
+
+- macOS 侧由 LaunchDaemon 的 `arguments` 给出（`--api-listen 127.0.0.1:19199`）；
+  Windows 侧服务用的是 **19198**。两个值仓内都能查到（`src-tauri/src/desktop/huanvaeguard_macos.rs`
+  两个都有、`scripts/hg-connectivity-test.ps1` 用 19198）。
+- 🔴 **用错端口拿到的 `Unable to connect`，与「服务真的死了」完全同形。**
+  gen-33 实撞：拿 macOS 的 19199 去探 Windows 控制口，得到 `Unable to connect`，
+  **差一点写成「Windows 侧控制口已经不应答了」**；换 19198 后正常返回
+  `{"success":true,"data":{"active":false,"peers":[]}}`。
+  同刻负对照（19199 与一个当场现编的端口）**两个都报同一句错**
+  ⇒ **「连不上」这个输出对「端口错」与「服务死」零判别力**，不能据它下任何结论。
+- ⇒ **可执行动作**：探任何一端的 HG 控制口之前，**先从那一端自己的服务定义里取端口**
+  （macOS `launchctl print system/<label>` 的 `arguments`；Windows 看服务命令行 / 该侧脚本），
+  **不许把另一端的端口拿来复用**。派单时凡要求「现查某个控制口」，
+  **把端口和它属于哪台机器一并写进卡**，写不出就明写「自己去取，别猜」。
+
+### 二、🔴 服务 `RUNNING` + 控制口应答，仍然可能**结构上建不了隧道** —— Windows 侧缺 `wintun.dll`
+
+这是上文「服务状态看着正常 ≠ 数据面能用」那条的**又一个实例**，但失效点更靠前：
+**不是发货二进制坏了，是安装件不完整。**
+
+- gen-33 那台远程 Windows 对端开工现查：服务目录里**只有** `huanvaeguard-svc.exe` 与一个 `.bak`，
+  **没有 `wintun.dll`**；`C:\Windows\System32` 里也没有；机器 PATH 里没有任何含 wintun 的目录。
+- **单变量 A/B（同一份 JSON、同一个服务，只改这一个文件）**：
+  目录里**有** `wintun.dll` ⇒ `POST /api/tunnel/start` 成功、隧道网卡起来；
+  **删掉** ⇒ `{"success":false,"error":"failed to create device: LoadLibraryExW failed"}`，网卡不出现。
+- ⇒ **在 gen-33 之前，那台机器 `sc.exe query` 报 `STATE : 4 RUNNING`、控制口也正常应答，
+  但任何一次连接尝试都必然失败** —— 而这三样读数**全都是绿的**。
+- 🔴 **gen-33 按还原纪律把 `wintun.dll` 删回去了 ⇒ 它现在仍是这个状态。**
+  下一个拿它当真机验收载体的人，**第一件事是确认 `wintun.dll` 在服务目录里**。
+- 🔴 **补齐方式必须是「用 App 安装包装一遍」，不是手工拷一个 dll 过去** ——
+  手工拷会**绕过「安装件是否完整」这条本该被验的东西**，把一个安装缺陷洗成"环境已就绪"。
+  App 的 Windows 资源里本来就带 `wintun.dll`（见上文「Tauri 2 平台限定资源」一节的 `tauri.windows.conf.json`）。
+
+⇒ **判 HG 数据面可用性的最小三件套**（缺一件就会得到一个绿色的假结论）：
+① 服务被系统真拉起（`sc query` / `launchctl print`）；
+② 控制口应答（**用那一端自己的端口**）；
+③ **`POST /api/tunnel/start` 真的返回 `success:true` 且隧道网卡真的出现**。
+①② 全绿而 ③ 失败，正是本节这两条坑的形状。

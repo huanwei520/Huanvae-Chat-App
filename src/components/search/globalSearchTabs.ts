@@ -22,6 +22,7 @@
  */
 
 import type { MessageSearchFilter } from '../../db';
+import { parseAction } from '../../nfc/parser';
 
 /** 全局搜索的分类页签 key */
 export type GlobalSearchTab = 'message' | 'video' | 'image' | 'user' | 'group' | 'bot';
@@ -92,4 +93,21 @@ export function tabToSearchFilter(tab: GlobalSearchTab): MessageSearchFilter | n
 /** 该页签搜不到东西时的提示文案（每个页签都要有空态，不能留一片空白） */
 export function tabEmptyText(tab: GlobalSearchTab, query: string): string {
   return `未找到包含「${query}」的${GLOBAL_SEARCH_TAB_LABEL[tab]}`;
+}
+
+/**
+ * 这条搜索输入本身是不是一张**群二维码的内容**？是就返回群 ID，否则 null。
+ *
+ * 群二维码里编码的就是后端 `GET /api/groups/{id}/qr` 的 `payload`
+ * （`huanvae://group/join?id=<uuid>`）。用任何扫码器扫出来之后粘进搜索框，走的就是这一条。
+ *
+ * 🔴 **解析复用 [`parseAction`]（NFC 那条白名单），不另写一份正则** ——
+ * 两份必漂，而漂了之后"贴卡能进、粘贴不能进"（或反过来）没有任何地方会报错。
+ *
+ * 🔴 **命中时调用方必须短路整条搜索**：`/api/discovery/search` 是「完全匹配群名 / 群 ID」，
+ * 拿一整串 URI 去搜必然零命中 ⇒ 用户看到「没搜到」，而**这与"这个群不存在"完全同形**。
+ */
+export function parseGroupJoinQuery(query: string): string | null {
+  const action = parseAction(query.trim());
+  return action && action.kind === 'group/join' ? action.groupId : null;
 }

@@ -18,3 +18,4 @@ export { MainMenu } from './MainMenu';
 export { NoticesList, CreateNoticeForm } from './NoticesList';
 export { TransferOwner } from './TransferOwner';
 export { JoinPolicyForm } from './JoinPolicyForm';
+export { GroupQrView } from './GroupQrView';

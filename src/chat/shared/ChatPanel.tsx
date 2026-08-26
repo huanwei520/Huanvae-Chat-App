@@ -254,7 +254,9 @@ export function ChatPanel({
   const groupIdForDetail = chatTarget.type === 'group' ? chatTarget.data.group_id : null;
   const headerDetailAction = (() => {
     if (friendIdForProfile) { return () => openProfile(friendIdForProfile); }
-    if (groupIdForDetail) { return () => openGroupDetail(groupIdForDetail); }
+    // 成员入口：不是从任何一条加群路径来的 ⇒ source 显式传 null（不是省略参数）。
+    // 这里的 chatTarget 来自本人的会话列表，打开者必然是本群成员，面板走「进入群聊」那一支。
+    if (groupIdForDetail) { return () => openGroupDetail(groupIdForDetail, null); }
     return null;
   })();
   // 顶栏点开对方资料的键盘焦点环（单实例，常量 key；handlers 每 render 取一次）

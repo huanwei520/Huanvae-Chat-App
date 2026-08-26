@@ -26,6 +26,8 @@ import { trustStore } from '../nfc/trustStore';
 import { dispatch } from '../nfc/executor';
 import type { NfcScanResult } from '../nfc/types';
 import type { MiniApp } from '../api/miniapps';
+import { useGroupDetailStore } from '../stores';
+import type { GroupJoinSource } from '../api/groups';
 
 export interface NfcFeedback {
   variant: 'success' | 'error';
@@ -62,6 +64,19 @@ export function useNfcGlobalScan(opts: UseNfcGlobalScanOptions): UseNfcGlobalSca
   const getMiniAppByIdRef = useRef(opts.getMiniAppById);
   setMiniAppLaunchingRef.current = opts.setMiniAppLaunching;
   getMiniAppByIdRef.current = opts.getMiniAppById;
+
+  /**
+   * 扫码加群落地：直接读全局 store，**不经 props 往上要**。
+   *
+   * 群详情面板本来就是顶层挂载 + store 驱动的（`GroupDetailView` 订阅 `groupDetailStore`），
+   * 让它经 `UseNfcGlobalScanOptions` 一层层传下来只会多两个必须同步维护的接线点，
+   * 而这个 hook 的调用方（MobileMain）对"贴卡落到哪个群"这件事没有任何决定权。
+   * 用 `getState()` 而不是 `useGroupDetailStore(s => s.open)`：本函数在 scan loop 的
+   * 闭包里被调用，订阅式读会把它绑到某一次 render 的快照上。
+   */
+  const openGroupDetail = (groupId: string, source: GroupJoinSource) => {
+    useGroupDetailStore.getState().open(groupId, source);
+  };
 
   // modal 单深度同步：loop 在 modal 显示时 await，等用户操作后续 loop
   const modalResolverRef = useRef<(() => void) | null>(null);
@@ -103,6 +118,7 @@ export function useNfcGlobalScan(opts: UseNfcGlobalScanOptions): UseNfcGlobalSca
         await dispatch(result.action, {
           setMiniAppLaunching: setMiniAppLaunchingRef.current,
           getMiniAppById: getMiniAppByIdRef.current,
+          openGroupDetail: openGroupDetail,
         });
         showFeedback('success', `已执行: ${summary}`);
       } catch (e) {
@@ -169,6 +185,7 @@ export function useNfcGlobalScan(opts: UseNfcGlobalScanOptions): UseNfcGlobalSca
               await dispatch(result.action, {
                 setMiniAppLaunching: setMiniAppLaunchingRef.current,
                 getMiniAppById: getMiniAppByIdRef.current,
+                openGroupDetail: openGroupDetail,
               });
               showFeedback('success', `已执行: ${summary}`);
             } catch (e) {
