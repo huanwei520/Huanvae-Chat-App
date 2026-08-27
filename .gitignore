@@ -90,3 +90,10 @@ scripts/bench/results/
 
 # 覆盖率报告（pnpm test:coverage 在仓根生成）——每次跑都可重生成，不入公开仓
 coverage/
+
+# 一次性生产取证 harness 不入 PUBLIC 仓（gen-44 加）
+# 本仓是公开仓，而发布脚本 scripts/linux/release.sh:348 与 scripts/release.ps1:329 的全量暂存
+# 步骤会把工作树里任何未跟踪文件裹进发布 commit。该文件是 gen-43 为 GB 级真对象中断/续传
+# 实测临时写的一次性取证工具，只在本机复用、不随版本发出去；文件本身保留在工作树上不删，
+# 仍是 cargo example target、仍在 clippy --all-targets 扫描面内。
+/src-tauri/examples/gb_resume_harness.rs
