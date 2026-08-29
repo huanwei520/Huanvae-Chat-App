@@ -1,31 +1,30 @@
 {
-  "source_repo_commit": "fad2a7a3f7202b4229ccf054cb0174477c933c6c",
+  "source_repo_commit": "b5e6d46724ddce269e8cfc947e939546eafcc6c9",
   "source_repo_dirty": true,
   "source_repo_dirty_files": [
     ".claude/CLAUDE.md",
-    ".claude/skills/hg-daemon-debug/SKILL.md",
-    "client/cli/src/pull/tunnel.rs",
-    "client/macos/src/tunnel.rs",
-    "client/windows/src/tunnel.rs",
-    "core/src/uapi_helpers.rs",
-    "docs/CONTROL-PLANE-V1-V2-SPEC.md"
+    "Cargo.toml",
+    "core/src/device/mod.rs",
+    "core/src/device/tun_offload.rs",
+    "core/src/noise/session.rs",
+    "docs/RELEASING.md"
   ],
-  "built_at_utc": "2026-08-26T08:57:03Z",
+  "built_at_utc": "2026-08-28T13:30:29Z",
   "artifacts": [
     {
       "path": "src-tauri/resources/HuanvaeGuard-macos/hg-macos",
       "crate": "hg-macos",
       "target": "aarch64-apple-darwin",
       "arch": "arm64",
-      "sha256": "d890173cf754820c49bd611d131ec7e47c169740754c28ef62981ce89932dda8",
+      "sha256": "b578ef815a691735f28bb5ff20074c3a52bab5377d068a6cdba9c74d2d5e5140",
       "codesign_flags": "CodeDirectory v=20400 size=9290 flags=0x2(adhoc) hashes=284+2 location=embedded"
     },
     {
-      "path": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
-      "crate": "hg-windows",
-      "target": "x86_64-pc-windows-gnu",
-      "pe_machine": "x86-64",
-      "sha256": "6d690d27c41333d93d3d33b3b85f85a73a46e8d2f9a22a3ac3d72a90b8a42c6e"
+      "path": "src-tauri/resources/HuanvaeGuard-android/libhg_android.so",
+      "crate": "hg-android",
+      "target": "aarch64-linux-android",
+      "arch": "aarch64",
+      "sha256": "3211023669c99c5792fc4584cf4e7aba0aaf02a609c08ac0c9f5ec66556c27fa"
     }
   ]
 }

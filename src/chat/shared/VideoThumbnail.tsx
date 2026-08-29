@@ -35,11 +35,13 @@
  * 既不减少分支也不减少漏写风险。本组件只收敛**真正会漏、且漏了只有真机看得见**的那部分：
  * `<video>` 元素本身的取源与播放行为契约。
  *
- * ## 🔴 src 必须是**裸**的可显示 src
+ * ## 🔴 src 必须是**裸**的可显示 src，而且**允许还没解析出来**
  *
  * 调用方传进来的 `src` 要是取源收口点解析出来的裸地址（本地媒体服务器 URL 或回环反代 URL），
  * `#t=0.1` 由本组件内部追加。**别在调用方先追一次**：同一个 src 变量通常还会被递给全屏播放器，
  * 带上片段会让视频从 0.1 秒开始播（见 videoPosterSrc.ts「只能在元素层用」）。
+ *
+ * 🔴 **取源还没完成时把 `null` 递进来，不要等** —— 见下一节。
  *
  * ## 封面本地持久化：给得出封面键（`fileUuid` 或 `fileHash`）就走本地图片，不再建 `<video>`
  *
@@ -54,6 +56,23 @@
  * - 正在问「有没有存过」的那几毫秒 ⇒ 渲染一个**同尺寸的空占位**（见下一节）。
  *   这几毫秒里**不能**先渲染 `<video>`：一屏几十个格子会各开一次元数据拉取，
  *   恰是本功能要消灭的成本，理由见 useVideoPoster.ts。
+ *
+ * ## 🔴 封面**不等取源** —— `src` 为空时本组件照样出封面
+ *
+ * 「首帧本地存下来、之后不再从云端取」这条要求，只有本组件先出得来封面才算数。
+ * 而 `src` 是**取源**的产物：视频没下载到本地时，取源要先解一次 `file_uuid → 内容哈希`、
+ * 再向服务端要一把预签名 URL —— 那是一次**云端往返**。
+ * 若调用方按老写法「等 `src` 出来了才挂载本组件」，本地那张封面就被压在这次往返**之后**，
+ * 用户看到的仍旧是「先黑（等取源）→ 再显示」，与没做这个功能几乎无差别。
+ *
+ * 所以本组件的 `src` 声明成可空，三条分支按**能不能出画面**排序，而不是按取源进度排序：
+ * 1. 本地有封面 ⇒ 立刻 `<img>`（**与 `src` 无关**，取源还在飞也照出）；
+ * 2. 还在问本地 / 或取源还没给出 `src` ⇒ 同尺寸占位（可由 {@link VideoThumbnailProps.placeholder}
+ *    换成调用方自己的「加载中 / 加载失败」）；
+ * 3. 本地没有且 `src` 已就绪 ⇒ `<video>` 现 seek 首帧，并在后台截一帧落盘。
+ *
+ * ⚠️ 调用方因此**必须无条件挂载本组件**，不要再写 `{src && <VideoThumbnail …/>}` ——
+ * 那一行就是把封面重新压回云端往返之后。
  *
  * ## pending 期渲染同尺寸占位，而不是 `return null`
  *
@@ -84,10 +103,12 @@ import { useVideoPoster } from './useVideoPoster';
 
 export interface VideoThumbnailProps {
   /**
-   * 已经过取源收口点解析的**裸**可显示 src。
+   * 已经过取源收口点解析的**裸**可显示 src；取源还没完成时递 `null`。
    * 本组件内部追 `#t=0.1`，调用方不要自己追（理由见文件头）。
+   *
+   * 🔴 **不要等它非空再挂载本组件** —— 本地封面不依赖它（文件头「封面不等取源」）。
    */
-  src: string;
+  src: string | null;
   /**
    * 文件 UUID —— **消息面**的封面键（气泡 / 相册 / 查找命中传它）。
    *
@@ -115,6 +136,17 @@ export interface VideoThumbnailProps {
    * 再让读屏念一遍这个 `<video>` 只是噪音。
    */
   decorative?: boolean;
+  /**
+   * 「还没有画面可显示」那一段要放的东西（调用方自己的「加载中 / 加载失败」占位）。
+   *
+   * 它**只在没有本地封面时**出现 —— 所以有封面时它永远盖不住封面，这正是把调用方原先
+   * 那套 loading / error 分支搬进来的理由：留在调用方就必须写成 `{loading ? …: src && …}`，
+   * 而那种写法会把封面一起挡在取源之后。
+   *
+   * 🔴 传进来的节点必须**自己撑满父容器**（`width/height: 100%` 或等价的 CSS）：
+   * 三条分支的盒子同形是「不闪不跳」的前提。不传则用本组件的同尺寸空占位。
+   */
+  placeholder?: React.ReactNode;
 }
 
 export function VideoThumbnail({
@@ -124,31 +156,39 @@ export function VideoThumbnail({
   className,
   onPlay,
   decorative,
+  placeholder,
 }: VideoThumbnailProps) {
   // 封面键：个人文件面有服务端下发的哈希就用它（老封面继续命中），消息面用 file_uuid
   const { status, posterSrc } = useVideoPoster(fileHash || fileUuid, src);
 
-  if (status === 'pending') {
-    // 解析本地封面的那几毫秒：不建媒体元素，但把盒子占住 —— 尺寸与下面两条分支同源
-    // （同一个 className + 同样填满父容器），理由见文件头「pending 期渲染同尺寸占位」。
-    return (
-      <div
-        className={className}
-        style={{ width: '100%', height: '100%' }}
-        aria-hidden
-        data-video-poster-pending=""
-      />
-    );
-  }
-
+  // 🔴 命中分支排在最前，而且**不看 src**：这一条就是「本地存过就别再等云端」。
+  // 本地已有封面 ⇒ 与图片消息同一条显示通路（asset 协议），零解码、零网络。
   if (status === 'poster' && posterSrc) {
-    // 本地已有封面：与图片消息同一条显示通路（asset 协议），零解码、零网络
     return (
       <img
         className={className}
         src={posterSrc}
         alt=""
         aria-hidden={decorative ? true : undefined}
+      />
+    );
+  }
+
+  // 还没有画面可显示，两种原因合流到同一条分支（对用户是同一件事：这一格暂时是空的）：
+  //   pending —— 正在问 Rust「本地有没有存过」（本地 IPC，毫秒级）
+  //   nosrc   —— 取源还没给出 src；没有 src 就建不了 <video>，只能等
+  // 不建媒体元素但把盒子占住 —— 尺寸与上下两条分支同源（同一个 className + 填满父容器），
+  // 理由见文件头「pending 期渲染同尺寸占位」。
+  if (status === 'pending' || !src) {
+    if (placeholder !== null && placeholder !== undefined) {
+      return <>{placeholder}</>;
+    }
+    return (
+      <div
+        className={className}
+        style={{ width: '100%', height: '100%' }}
+        aria-hidden
+        data-video-poster-placeholder={status === 'pending' ? 'pending' : 'nosrc'}
       />
     );
   }

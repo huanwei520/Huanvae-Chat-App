@@ -202,12 +202,27 @@ describe('MobileMediaPreview 横向滑动切图', () => {
     expect(container.ownerDocument.querySelector('.mobile-media-preview-position')).toBeNull();
   });
 
-  it('src 为空串（新一项还没取到源）→ 不渲染媒体元素，停在「加载中」', () => {
+  it('src 为空串（新一项还没取到源）→ 不渲染媒体元素，也不再出「加载中」文字覆盖层', () => {
     const { container } = render(
       <MobileMediaPreview {...baseProps()} src="" onSwipeNext={vi.fn()} hasNext />,
     );
     const doc = container.ownerDocument;
     expect(doc.querySelector('.mobile-media-preview-image')).toBeNull();
-    expect(doc.querySelector('.mobile-media-preview-loading')).not.toBeNull();
+    // 2026-08-26 需求：加载态的用户可见文字/覆盖层整体移除（.mobile-media-preview-loading 不再存在），
+    // loadState 状态机本身保留 —— 它仍门控错误态与媒体元素的 display 切换。
+    expect(doc.querySelector('.mobile-media-preview-loading')).toBeNull();
+    expect(doc.body.textContent ?? '').not.toContain('加载中');
+  });
+
+  it('loadState 状态机保留：图片加载失败仍出「加载失败」错误态（只删了加载中文字）', () => {
+    const { container } = render(<MobileMediaPreview {...baseProps()} />);
+    const img = container.ownerDocument.querySelector('.mobile-media-preview-image');
+    if (!img) { throw new Error('找不到 .mobile-media-preview-image'); }
+    act(() => {
+      img.dispatchEvent(new Event('error', { bubbles: true }));
+    });
+    const doc = container.ownerDocument;
+    expect(doc.querySelector('.mobile-media-preview-error')?.textContent).toContain('加载失败');
+    expect(doc.querySelector('.mobile-media-preview-loading')).toBeNull();
   });
 });

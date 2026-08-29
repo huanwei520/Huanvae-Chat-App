@@ -27,8 +27,8 @@
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
-  /* 左右切图按钮（.media-nav）是它的直接子元素、绝对定位到两侧，需要一个定位锚点。
-     .media-zoom-indicator 仍锚在更近的 .media-content 上，不受影响。 */
+  /* 左右切图热区（.media-nav）挂在图片/视频容器内、绝对定位锚到 .media-content
+     （容器自身无 position，向上找到它）；.media-zoom-indicator 同锚 .media-content。 */
   position: relative;
 }
 
@@ -212,43 +212,63 @@
   color: var(--text-secondary);
 }
 
+/*
+ * 边缘翻白热区（桌面端 hover 显隐翻页）：
+ * - 72px 宽、上下撑满（top: 0 / bottom: 0）的满高竖带常驻 DOM，默认 opacity: 0（透明、不可见）；
+ * - 指针进入边缘（:hover）或键盘聚焦（:focus-visible）时显出「边缘翻白」带 + 箭头；
+ * - 显隐只过渡 opacity 一个属性，transform/位置全程静止，无 JS 逐帧写样式（animation.md 规则一：单一所有权）。
+ * 权衡：opacity: 0 常驻 DOM 是显隐触发机制本身（opacity 0 仍可命中，指针入缘即 hover 显出），
+ * 必然副作用是「显出前不可见但可点」；未选 visibility 过渡是因显隐延迟不对称。
+ */
 .media-nav {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
+  top: 0;
+  bottom: 0;
+  width: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 32px;
   line-height: 1;
   border: none;
-  border-radius: 50%;
-  background: var(--black-alpha-60);
-  color: var(--text-inverse);
+  padding: 0;
+  color: rgba(0, 0, 0, 0.45);
   cursor: pointer;
   z-index: 5;
-  /* 只过渡 background / opacity —— transform 在这里是**静态**居中量，
-     没有任何 JS 逐帧写它，故不涉及 animation.md 规则一的单一所有权问题 */
-  transition: background 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
-.media-nav:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-
-.media-nav:not(:disabled):hover {
-  background: var(--black-alpha-80, rgba(0, 0, 0, 0.8));
-}
-
+/* 翻白带：从屏幕边缘向内渐隐的半透明白带，箭头压在其上 */
 .media-nav-prev {
-  left: 16px;
+  left: 0;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.45) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
 }
 
 .media-nav-next {
-  right: 16px;
+  right: 0;
+  background: linear-gradient(
+    to left,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.45) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.media-nav:hover,
+.media-nav:focus-visible {
+  opacity: 1;
+}
+
+/* 放大态：热区整层让位给拖拽平移（pointer-events 关掉后 :hover 不再命中，
+   opacity 自然停在 0，事件直落图片容器） */
+.media-nav--zoomed {
+  pointer-events: none;
 }
 
 .media-zoom-indicator {

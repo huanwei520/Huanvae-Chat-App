@@ -1359,3 +1359,114 @@ gen-33 那次 13/13（退出码 0、**项级零跳过**）里，第 7 项（Play
    本机 darwin 且无容器运行时时如实写「做不到」，
    **不许**删用例 / 降阈值 / 加 `continue-on-error` 让它变绿（与上面两节同一条红线）。
    远程 linux 宿主这条路是通的 —— 见上一节「三态可达性」。
+
+## 🔴 gen-47 追加（2026-08-29 · run-1787970946）：三条 —— **本节只追加在 EOF，不改上文任何一行**
+
+> 来源：gen-47 单1（code，交付 `fw-code-1787971463-0cb18b20.md`）§1/§4/§8 与
+> 单2（review，交付 `fw-review-1787977119-15a6f59c.md`）§2-①/§2-②。
+> 追加在文件末尾是为了**不位移任何既有行号**（本文件被多份归档交付按 `file:line` 钉着）。
+
+### 一、🔴 节点会被卸载重挂时，挂监听的 effect 依赖里必须含**节点本身**（真机实证的产品级缺陷）
+
+**症状形状**：手势 / 事件监听**一开始好用，做过某个操作之后永久失效**，且**零报错、零告警**。
+用户侧看到的只是「双指什么都不做」，很容易被转述成别的现象 ——
+本 run 的报障原话是「放大的是整个 App」，而实测**图片和 App 都没动**。
+
+**机制**：`useRef` 给的 `RefObject`，其 `.current` 变化 **不触发 re-render、也不触发 effect**。
+于是 `useEffect(() => { const el = xxxRef.current; el.addEventListener(...) }, [deps])` 里若 `deps` **不含节点**，
+节点一旦被换掉，**监听就永远留在那个已被摘掉的旧节点上**，新节点一个监听都没有 —— React 不会为此说一个字。
+
+**判据（机械可执行，两步）**：① 找出所有「在 effect 里对 `xxxRef.current` 挂监听」的位置；
+② 打开那个 effect 的**依赖数组**，只问一句：**节点本身在不在里面？**
+
+```
+git grep -nE '^[[:space:]]*\}, \[.*stageNode' -- src/chat/shared/useImageZoom.ts
+```
+
+🔴 **别写 `\s`**：`git grep -E` 是 POSIX ERE，不认 `\s` —— 本条实撞过：
+`grep -cE '^\s*\}, \[.*stageNode'` **rc=1 零命中**（与「真的没有」完全同形），
+改 `[[:space:]]` 后命中 `src/chat/shared/useImageZoom.ts:498`；
+负对照（当场现编 `stageNodeZq47u`）rc=1 ⇒ 会响也会静。
+
+**高危触发器要点名**：本仓这次的触发器是**条件渲染** ——
+`src/chat/shared/MediaGalleryProvider.tsx:225` 在切图时先把 `src` 置成空串，
+而 `src/chat/shared/MobileMediaPreview.tsx:723` 是 `{src && (type === 'image' ? (`
+⇒ 空串那一帧把承载层 `div` **整个卸载**，新源到了再**重挂一个新节点**。
+⇒ **凡是被 `{cond && ...}` 包着、或挂着会变的 `key` 的节点，都属这一类高危。**
+
+**修法**：`RefObject` 改 **callback ref**，节点**同时**写进两处 ——
+`src/chat/shared/useImageZoom.ts:218` 的内部 ref（给逐帧写 transform 用，读它零重渲染）
+与 `:219` 的 state（给挂监听的 effect 当依赖）。
+**代价**：承载层挂 / 卸各多一次 render（切图时多 2 次）。这是**换取「监听跟着节点走」的必要代价**，
+注释里必须写下成因，否则下一个人会把那个"多余的" state 顺手删掉。
+
+**测法（这一类单测写得出来，别放弃）**：`tests/unit/imageZoomGestureWiring.test.tsx:194` 起两条 ——
+① 重挂出来的**新节点仍响应**；② **被摘掉的旧节点不再响应**（＝「监听是**搬家**不是**复制**」）。
+两条都做过**变异自证**：把修复退回旧行为 ⇒ **精准只红这两条，其余 10 条不动**。
+
+🔴 **必须记住的一句**：这类缺陷 **vitest 在修复前测不出来** —— 该 hook 此前**已有单测且 12/12 全绿**，
+因为旧测试从不制造「节点被卸载重挂」这个前提。
+**「有单测且全绿」不构成「这条路径被覆盖」**，只构成「已被写下来的那些前提被覆盖」。
+
+### 二、Android 上做到 **pinch 级**真运行时验收的完整路径（本仓第一次）
+
+1. **载体**：本机（macOS / arm64）跑不了 Android 模拟器、也没有 `adb`；走 **mesh 内的 x86_64 构建宿主**
+   （带 `/dev/kvm`），在它上面 headless 起 AVD、装 Tauri APK、用 `adb` 驱动。
+   🔴 **真实主机名 / 地址不写进本仓（PUBLIC 公开仓）** —— 去查工作区内部记录。
+   🔴 **纪律：那台宿主上常年有别的线的 emulator 在跑**（本 run 与另一条线的实例并存）⇒
+   **所有 `adb` 命令一律 `-s <serial>` 指名**，不 kill、不装卸别人的包；收工只回收自己起的那一台。
+
+2. 🔴 **`adb shell input` 全是单点，没有 pinch**：子命令只有
+   `text / keyevent / tap / swipe / draganddrop / press / roll / motionevent / keycombination`
+   —— **一个多指入口都没有**。双指必须走 `/dev/input/eventX` 的 **MT protocol B**（`sendevent`），
+   两个 slot 各自推进 `ABS_MT_TRACKING_ID` / `ABS_MT_POSITION_X|Y`。两个坑（都实撞过）：
+   · **slot 里残留的 `ABS_MT_TRACKING_ID` 会把下一次按下静默吞掉** ⇒ 读到 `pointerCount=0`，
+     **与「App 不响应」完全同形** ⇒ 所有手势脚本一律以「先释放两个 slot」开头；
+   · `sendevent` 一次一个进程，**双击中间不能加 `sleep`**，否则被拉过 300ms 双击窗口。
+   🔴 **注入到底有没有到达系统，用 `dumpsys input` 读 `Last Raw Touch` 的 `pointerCount`** ——
+   它能把「App 没响应」和「手势根本没进去」分开，而这两者**在屏幕上完全同形**。
+
+3. 🔴 **Android WebView 的页面级捏合缩放默认是【关】的** ⇒
+   **「整个 App 被双指放大」在 Android 上结构上不会发生** —— 这条能一次砍掉一整类误报方向。两条独立判据：
+   ① wry 生成的 `RustWebView` 只设了 6 条 `WebSettings`，`setSupportZoom` / `setBuiltInZoomControls` /
+      `setDisplayZoomControls` **一条都没设**，而 `setBuiltInZoomControls`（捏合缩放页面的真开关）**默认 false**；
+      本 App `gen/android` 的 Kotlin 里 zoom 零命中（**正对照** `RustWebView` 命中 6 个文件 ⇒ 查法会响）。
+   ② 更硬的实测：在 JS 缩放层**已失效**的那一次，真的两个触点进来了（`pointerCount=2`），
+      而图片区与顶栏 `diff_px` **都是 0** ⇒ JS 不接管时**浏览器也没有把页面放大**。
+
+4. **判据形态：分区域逐像素比对 + 双侧标定**。截图按**固定元素盒**（标题 / 关闭键 / 三点 / 位次）
+   与**被测区**（图片文字带）分别量 `diff_px` 与 `max_channel_delta`，
+   并**把状态栏时钟排除出所有比对区域**（本 run 一律从 `y=150` 起）。
+   **双侧标定缺一不可**：静止两帧必须报 `0/0`（证明工具不带噪）· 已知不同的两帧必须报大值
+   （本 run：查看器开 vs 关的同一个标题盒 `diff_px=25200/25200`、`maxΔ=242`）。
+   底下还要再垫一层：主屏连拍两张 `diff_px=0`、注入一次上滑后 `2574890`
+   ⇒ **注入与截图这条链本身会响也会静**，否则上面所有读数都悬空。
+
+### 三、🔴 vitest 在 VirtioFS 上 worker 起不来：`rc=1` 但**零测试失败**；以及**账要怎么算**
+
+1. **现象**：本机（VirtioFS 共享盘）跑 `pnpm test:run` **恒 `rc=1`**，错误全是
+   `Failed to start threads worker`，而 `×` 标记的**失败测试数 = 0**。
+   🔴 **改代码之前的基线也是 `rc=1`** ⇒ **`rc=1` 本身不构成回归证据**，要看的是 `×` 的条数。
+   判据自证：基线那次 `×` = **1**（一条 12.2s 超时用例），修复后那次 `×` = **0**，现编串 = 0
+   ⇒ 这条 grep 会响也会静。
+
+2. 🔴 **全量测试文件总数 = 360**（`vitest.config.ts:24` 起两条 include glob 的 find 口径；
+   现跑复算 `find tests src -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | wc -l` = **360**，
+   负对照现编后缀 = 0）。三次跑各自闭合验算 `346+14 / 292+68 / 318+42` **全部 = 360**。
+   ⇒ 🔴 **「这一次跑成了几个」不是「总数」**。本 run 单1 正是把某一次的 `346` 当成了总数，
+   于是「318 主跑 + 39 补跑」看着像覆盖全了，**实际 357 ≠ 360，差 3 个文件**。
+   🔴 **这个账错判官查不出来**（它只核 `verify:` 能不能复算）—— 是复核环用**算术**查出来的。
+
+3. 🔴 **抠「未起来的文件名」时别用会吃中缀的取名模式**：`HuanvaeGuardPage.macos` /
+   `HuanvaeGuardPage.probeRace` / `HuanvaeGuardPage.windows` 三个正是这么漏掉的
+   （42 个 distinct 只抠出 39）。
+
+4. **正确做法：跨多次跑取并集**，并验两条 ——
+   `(A 次未起来 ∩ B 次未起来) − 补跑名单 == 0`（没有哪个文件三次都没跑到）
+   且 `名单 − 全集 == 0`（名单里没有幽灵文件）。
+
+5. 🔴 **写「零测试失败」之前先答一句**：我核到的是**自己输出文件的自洽**，还是**独立复跑**？
+   本 run 复核环**一次也没能在自己窗口里把 vitest 跑起来**（5 文件批 / forks 池串行 / tar 预热后重试 /
+   单文件，四级降级全挂，而同刻内存 free 66% ⇒ 不是内存），所以它核到的是
+   「单1 输出文件自洽 + 三次并集算术」，**没有独立复跑**。
+   **这两者价值不同，必须在交付里分开写** —— 合着写等于把「我复算了他的账」冒充成「我自己也跑通了」。

@@ -13,6 +13,10 @@
  *  C. **键是稳定的文件身份键，不是显示 URL**。远程 src 带每次重签都变的 SigV4 参数、
  *     每会话可变的回环端口；本地 src 还会随平台在 asset 协议与本地媒体服务器间切换 ——
  *     拿它当键 = 每次都 miss = 正好复现要根治的 bug。这条负向断言把它钉死。
+ *  D. **封面不被压在取源之后**（2026-08-29 补）：消息面两个消费点不许再把
+ *     `<VideoThumbnail>` 关在 `src && …` 这类取源门后面。存了封面却还要等一次云端往返
+ *     才画得出来，等于这个功能白做 —— 而它是**看不出来的**：门禁全绿、封面也确实存着，
+ *     只有真机上「切回会话先黑一下」才暴露。故用静态断言把那道门钉死不许回来。
  *
  *     🔴 2026-08-16（两层键）：键从内容哈希改成**文件身份键** —— 消息面 `file_uuid`、
  *     个人文件面服务端下发的 `file_hash`。原因是封面要在**下载之前**就出得来，
@@ -224,5 +228,58 @@ describe('C. 封面的键是稳定的文件身份键，不是显示 URL', () => 
   it('Rust 侧迁移存在：老库的 file_hash 列会被改名成 file_key（老封面行不丢）', () => {
     const schema = read('src-tauri/src/db/video_posters.rs');
     expect(schema).toMatch(/ALTER TABLE video_posters RENAME COLUMN file_hash TO file_key/);
+  });
+});
+
+/**
+ * D. 封面不被压在取源之后（本次修的缺陷的回归守卫）
+ *
+ * 缺陷形态：调用方写 `{!loading && !error && src && <VideoThumbnail …/>}`。
+ * `src` 是**取源**的产物 —— 视频没下载到本地时，取源要先解 `file_uuid → 内容哈希`，
+ * 再向服务端要一把预签名 URL，那是一次**云端往返**。于是本地那张封面被排在往返之后，
+ * 用户看到的仍是「先黑再显示」，与没做封面持久化几乎无差别。
+ *
+ * 修法：`<VideoThumbnail>` 的 `src` 可空、无条件挂载；调用方原先那套 loading / error
+ * 分支搬进组件的 `placeholder` 槽 —— 它只在**没有本地封面**时才渲染，所以盖不住封面。
+ *
+ * 🔴 覆盖面：只卡**消息面**两个消费点（气泡 / 相册、查找记录 → 视频、全局搜索视频页签）。
+ * 「我的文件」桌面与移动两处**同样有这道门**，本次未改（它们要连带改 loading / error 与
+ * ▶ 角标的显隐口径，属另一条 UX 口径）——
+ * BACKLOG: 我的文件两处的取源门待另立单一并摘掉，摘完把它们加进 GATED_CONSUMERS。
+ */
+describe('D. 封面不被压在取源之后（消息面两处）', () => {
+  const GATED_CONSUMERS = [
+    'src/chat/shared/FileMessageContent.tsx',
+    'src/components/search/ConversationSearchHit.tsx',
+  ] as const;
+
+  it.each(GATED_CONSUMERS)('%s：递了封面键的 <VideoThumbnail> 必须带 placeholder 槽', (rel) => {
+    const code = stripComments(read(rel));
+    const keyed = videoThumbnailTagsOf(code).filter((a) => /\b(?:fileUuid|fileHash)=/.test(a));
+    // 扫到东西的正对照：空集合会让下面的 every 假通过
+    expect(keyed.length).toBeGreaterThan(0);
+    for (const attrs of keyed) {
+      expect(attrs).toMatch(/\bplaceholder=\{/);
+    }
+  });
+
+  it('气泡：那道 `!loading && !error && src &&` 的门不许回来', () => {
+    const code = stripComments(read('src/chat/shared/FileMessageContent.tsx'));
+    // 正对照：这个文件里确实有 loading / error 两个状态（否则下面的负向断言恒过）
+    expect(code).toMatch(/\bloading\b/);
+    expect(code).toMatch(/\berror\b/);
+    // 负向：媒体区不许再被取源门整个关起来
+    expect(code).not.toMatch(/!loading\s*&&\s*!error\s*&&\s*src\s*&&/);
+    expect(code).not.toMatch(/\{\s*src\s*&&\s*<VideoThumbnail/);
+  });
+
+  it('查找记录：视频分支排在「没有 src」分支之前（先判是不是视频，再判取源好没好）', () => {
+    const code = stripComments(read('src/components/search/ConversationSearchHit.tsx'));
+    const videoAt = code.indexOf('if (isVideo) {');
+    const noSrcAt = code.indexOf('} else if (!src) {');
+    // 两个锚点都必须存在 —— 任一个是 -1 就说明结构被改过，这条断言失去意义
+    expect(videoAt).toBeGreaterThan(-1);
+    expect(noSrcAt).toBeGreaterThan(-1);
+    expect(videoAt).toBeLessThan(noSrcAt);
   });
 });

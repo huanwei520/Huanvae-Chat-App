@@ -190,3 +190,54 @@ describe('双击放大 / 复位', () => {
     expect(readScale(stage)).toBe(1);
   });
 });
+
+describe('换图把承载层卸载重挂之后（gen-47 真机缺陷的回归测试）', () => {
+  /**
+   * 与 MobileMediaPreview 同形：上层切上一张 / 下一张时会先把 src 置成空串
+   * （MediaGalleryProvider 的 `src={source?.src ?? ''}`），
+   * 于是 `{src && ...}` 把承载层整个卸载再重挂 —— 节点换了一个。
+   */
+  function SwitchHarness({ src }: { src: string }) {
+    const { stageRef, mediaRef } = useImageZoom(true);
+    // 逐字照搬 MobileMediaPreview 的形状：`{src && ...}` 而不是三元 —— 三元的两个分支
+    // 都是 <div> 时 React 会复用同一个 DOM 节点，那就复现不出「节点被换掉」这件事
+    return (
+      <div>
+        {src && (
+          <div data-testid="stage" ref={stageRef}>
+            <img data-testid="img" ref={mediaRef} alt="" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  it('重挂出来的新节点仍然响应捏合', () => {
+    const utils = render(<SwitchHarness src="a" />);
+    const first = utils.getByTestId('stage');
+
+    utils.rerender(<SwitchHarness src="" />);
+    utils.rerender(<SwitchHarness src="b" />);
+    const second = utils.getByTestId('stage');
+    // 这一条不成立的话，下面两条断言测的是同一个节点，等于什么都没测
+    expect(second).not.toBe(first);
+
+    const start = touchEvent('touchstart', [{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    second.dispatchEvent(start);
+    expect(start.defaultPrevented).toBe(true);
+
+    second.dispatchEvent(touchEvent('touchmove', [{ x: 0, y: 0 }, { x: 250, y: 0 }]));
+    expect(readScale(second)).toBeCloseTo(2.5, 5);
+  });
+
+  it('监听是搬家不是复制 —— 被摘掉的旧节点不再响应', () => {
+    const utils = render(<SwitchHarness src="a" />);
+    const first = utils.getByTestId('stage');
+    utils.rerender(<SwitchHarness src="" />);
+    utils.rerender(<SwitchHarness src="b" />);
+
+    const start = touchEvent('touchstart', [{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    first.dispatchEvent(start);
+    expect(start.defaultPrevented).toBe(false);
+  });
+});

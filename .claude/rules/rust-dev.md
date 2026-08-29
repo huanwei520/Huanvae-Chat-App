@@ -799,3 +799,116 @@ B 组  #[serde(rename_all_fields = "camelCase", tag = "event", content = "data")
 ② 控制口应答（**用那一端自己的端口**）；
 ③ **`POST /api/tunnel/start` 真的返回 `success:true` 且隧道网卡真的出现**。
 ①② 全绿而 ③ 失败，正是本节这两条坑的形状。
+
+## 🔴 reqwest 默认 builder 的系统代理检测：「测试二进制 + VirtioFS 大目录」下分钟级卡顿（2026-08-27 采栈实证）
+
+> 来源：run-1787814943 单A 交付（de701c1e）证据 02 采栈 + reviewA（11580a72）独立复核成立。本节为 EOF 追加，不改上文任何一行。
+
+### 症状与根因链
+
+`cargo test` 中凡走**默认 `reqwest::Client::builder()`** 的用例，首调 client 构造卡 1~5 分钟（本机实测 270s 一次、106s 两次，时长随目录大小/网络波动不恒定）。对挂起中的测试二进制 `sample` 采栈，链自顶向下：
+
+`ClientBuilder::build` → `reqwest::proxy::Matcher::system` → hyper-util `with_system` → `SCDynamicStoreCreateWithOptions` → `_SC_getApplicationBundleID`（**dispatch_once**，故并发首调的多个测试全排在同一个 once 之后一起卡）→ `CFBundleGetMainBundle` → 测试二进制不在 .app bundle 里，CFBundle **退化为 readdir 可执行文件所在目录** → `target/debug/deps` 数万条目、且整棵在 VirtioFS 网络盘上 ⇒ 分钟级卡顿（栈底 `readdir`/`__getdirentries64` 占 251/252 样本）。
+
+要点：瓶颈**不在代理配置内容**（`scutil --proxy` 显示本机未启用任何代理也照样慢），在 bundle 探测触发的目录遍历。
+
+### feature 层面：`default-features = false` 挡不住
+
+`macos-system-configuration` 是 tauri-plugin-http 的 default feature（**feature 名，不是 crate 名**——当 crate 名查会报 package 不存在、rc=101），它再打开 reqwest 同名 feature → `system-proxy`，经 plugin 统一带回；本仓 `src-tauri/Cargo.toml` 里 reqwest 的 `default-features = false` 拦不住这条绕回的路。证 feature 归因的复核命令是：
+
+```bash
+cargo tree -e features -i <pkg>@<ver>    # 逆向 feature 树
+```
+
+裸 `cargo tree -p <pkg>` 只列 crate 依赖树，证不了 feature 归因。
+
+### 规则
+
+1. **直连源站语义的 client 构造必须显式 `.no_proxy()`**（生产代码与测试同一个构造器）。已落地例子：`secure_proxy.rs` 的 `build_proxy_client`（回环反代）、`unified_download.rs` 的 `build_download_client`（统一下载引擎）。`.no_proxy()` 顺带跳过 `Matcher::system` 路径，从根上避开上述 readdir 风暴。
+2. **确需保留系统代理检测的，必须在注释写明理由**。现存例子：`updater_download.rs` 的 `default_shaping_keeps_system_proxy_detection` 测试——它刻意钉住「保持系统代理检测」语义，全量测试里这一组承担分钟级等待（2026-08-27 全量 201 个用例里 4 个 updater_download 用例各报 over 60s，同机制），属存量、待后续单评估是否在测试面豁免。
+
+## 🔴 gen-43 追加（2026-08-27 · run-1787861591）：往 `src-tauri/examples/` 放调试/取证 harness 的三个后果 —— **本节只追加在 EOF，不改上文任何一行**
+
+> 来源：单1 code `ce67b197` §8 与单2 review `89be8adc` §1-8 / §2-3。
+> 本 run 为跑 GB 级真对象中断/续传实测，新增了一个 **未跟踪** 的 example：
+> `src-tauri/examples/gb_resume_harness.rs`（1015 行 / 40211 字节）。
+> 「它不参与 `cargo build` / `tauri build`」这句**是对的**（examples 只在 `--example` / `--examples` 时才编），
+> **但由它推出的「零影响」把范围划小了。** 下面三条是现查出来的结构性事实。
+
+### 一、它在门禁 clippy 的扫描面内（**未验证它会不会真红**，只写结构事实）
+
+- `cargo metadata` 实测：该文件是本 package 的一个 **`kind=example` 的 target**。
+- 门禁 clippy 那一项跑的是 **`cargo clippy --all-targets --all-features -- -D warnings`**
+  （`scripts/linux/test-all.sh:461` 与 `scripts/test-all.ps1:354` 各一处；🔴 **行号会漂，引用前自己现查**：
+  `git grep -n -F 'all-targets' -- scripts/linux/test-all.sh scripts/test-all.ps1`）。
+  cargo 对 `--all-targets` 的说明是 **Build all targets**、且另有独立的 `--examples` 开关
+  ⇒ **example 在这一项的扫描面内**，其中任何一条 clippy warning 都会让该项 FAIL。
+- 🔴 **本 run 没有实跑 clippy 验证它会不会真红**（共享盘上是分钟到几十分钟量级，超出成本上界）
+  ⇒ **这条标注「未验证」**，只主张「它在扫描面内」这个结构性事实，不主张「它会让门禁红」。
+
+### 二、`cargo test --lib` 与 `cargo check` **不含** examples ⇒ 那两项不受影响
+
+门禁的 cargo test 那一项是 `cargo test --lib`（`scripts/linux/test-all.sh:721` / `scripts/test-all.ps1:616`，同样自己现查）
+⇒ 不含 examples；`cargo check` 默认也不含。**别把「clippy 受影响」外推成「所有 Rust 项都受影响」。**
+
+### 三、🔴🔴 未跟踪的 harness 会被**下一次发布**收进 PUBLIC 仓的发布 commit
+
+`scripts/linux/release.sh:348` 与 `scripts/release.ps1:329` 各有一行 **`git add -A`**
+（现查：`git grep -n -F 'git add -A' -- scripts/linux/release.sh scripts/release.ps1`）
+⇒ 发布流程会把**工作树里所有未跟踪文件**一起裹进发布 commit。
+
+本 run 现查：该 harness **未被任何 `.gitignore` 规则覆盖** ——
+`git check-ignore -v src-tauri/examples/gb_resume_harness.rs` ⇒ **rc=1、零输出**；
+**正对照** `git check-ignore -v src-tauri/target/x` ⇒ **rc=0** 并打印 `src-tauri/.gitignore:3:/target/` ⇒ **判据会响，那个 rc=1 是真的没被忽略**。
+
+⇒ 🔴 **BACKLOG（待总管裁定，三选一，本单不自行处置）**：
+`src-tauri/examples/gb_resume_harness.rs` ——
+① 加进 `.gitignore`；② 有意提交（则须先过 clippy 与 PUBLIC 仓脱敏核）；③ 删除。
+
+顺带两条与它有关、下一棒该知道的：
+- 该 harness 里**硬编码的源站 IP 在仓内已跟踪文件里本来就有**（discovery 与多个测试文件里都在）⇒ **不构成新增暴露**；
+  但注意单1 那条「硬编码口令/密钥 = 0 行」的 grep **口径只覆盖 password/secret/TOKEN，不覆盖地址类** ——
+  脱敏自查的口径别只按关键词列表写，要按**类别**写。
+- 它编译产物在 `src-tauri/target/release/examples/gb_resume_harness`，带 locate / sweep / dump / maxscan /
+  presign / probe / fullverify / verifyranges 八个只读子命令，账号经 `HV_USER` 切换 ——
+  下次要做生产只读取证可直接复用。⚠️ **但 `dump` 会把真实聊天正文打到 stdout**，落盘前必须脱敏
+  （见 [common.md](common.md) 同批追加的「dump 类取证落盘前必须把消息正文脱敏」一节）。
+
+### 四、一个可复用的判定形状：「不参与构建 ⇒ 零影响」是**两跳**，第二跳几乎总是漏
+
+「A 不参与 X」是**一个**事实；「所以 A 零影响」需要**穷举所有会吃到 A 的通道**。
+本例里被漏掉的两条通道是 **`--all-targets` 的 clippy** 与 **`git add -A` 的发布**，
+它们都不叫「构建」，因此在「不参与构建」这个框里**结构上看不见**。
+⇒ **动作**：给任何新增件下「零影响」结论前，把仓内会遍历文件/target 的入口列一遍 ——
+至少含：门禁脚本各项的实际命令、`release.sh` / `release.ps1` 的暂存命令、CI workflow 的 `paths` 与打包步骤。
+
+#### run-1787871601（gen-44）就地更新上一节的两处 —— BACKLOG ① 已执行；以及「不入仓」**不等于**「不出本机」
+
+> **本节只追加、不改上一节任何一行**（上一节属另一条线尚未提交的在飞文字）。上一节的读数是 2026-08-27 早些时候的时点值，下面是同日 23:33Z 的现查值。
+
+**一、上一节末尾那条 BACKLOG 的三选一，已按①执行 ⇒ 上一节「未被任何 `.gitignore` 规则覆盖 / rc=1」那句**现已不成立**。**
+
+现查（2026-08-27T23:33Z）：`.gitignore:99` 新增一行 `/src-tauri/examples/gb_resume_harness.rs`（配 5 行注释，commit `173b51f`，未 push）；
+`git check-ignore -v src-tauri/examples/gb_resume_harness.rs` ⇒ **rc=0** 并打印 `.gitignore:99:…`；
+同刻正对照 `git check-ignore -v src-tauri/target/x` ⇒ rc=0（`src-tauri/.gitignore:3:/target/`）、
+负对照一个当场现编的仓内路径 ⇒ **rc=1** ⇒ 判据会响也会静。
+挡住的入口是 `scripts/linux/release.sh` 与 `scripts/release.ps1` 里的 `git add -A`（行号自己现查：`git grep -n -F 'git add -A' -- scripts/linux/release.sh scripts/release.ps1`）。
+
+**为什么写精确单文件路径而不是 `src-tauri/examples/` 目录通配** —— **失效方向不对称**：
+通配写宽了 ⇒ 将来正常的 example 被静默忽略、**没有任何东西会报错**；
+精确路径写窄了 ⇒ 下一个 harness 没被挡住，而那是**发布前查得出来**的。代价（每来一个 harness 要手动加一行）已明写在 `.gitignore` 注释里。
+
+**二、🔴 「不入 PUBLIC 仓 / 不随版本发出去」为真，但【不许外推成「它不出本机」】。**
+
+远程 Android clippy 那条通路（`scripts/linux/test-all.sh` 与 `scripts/test-all.ps1`）是用
+`tar -czf … --exclude 'src-tauri/target' --exclude 'src-tauri/gen' -C <root> src-tauri Notification-Sounds`
+同步源码到远程构建宿主的 —— **`tar` 不读 `.gitignore`**，且 exclude 清单里**没有** `src-tauri/examples`。
+
+**实证（不是读 exclude 清单推的）**：按同一条 exclude 集在本仓真打一个包，
+载荷里 `examples/gb_resume_harness.rs` 命中 **1**；同类正对照 `src-tauri/Cargo.toml` 命中 **1**（判据会响）；
+负对照被排除的 `src-tauri/target/` 命中 **0**（判据会静）。
+⇒ **该 harness 仍会被 scp 到远程构建宿主。**
+
+风险量级（**只登记，不要求处置**）：该文件无口令/密钥，其中硬编码的源站 IP 在本仓**已跟踪文件**里本来就有 ⇒ **不构成新增暴露**。
+可复用的形状：**「加进 `.gitignore` 了」只回答了 git 那一条出口**；凡问「它会不会出本机」，必须把**所有会遍历文件的出站动作**各查一遍
+（发布 `git add -A` / 远程同步 `tar`+`scp` / CI 打包 / 归档），而 `tar` 这一条**结构上看不见 `.gitignore`**。

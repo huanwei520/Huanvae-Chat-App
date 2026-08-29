@@ -17,24 +17,16 @@
 //!
 //! ## 性能优化
 //!
-//! 下载采用以下优化策略提升大文件下载速度：
-//! - **钉 CA HTTP Client**: 复用 secure_net 的钉私有 CA 客户端(连源站 IP / 无 SNI / 内置 CA),自带连接池
-//! - **异步文件 IO**: 使用 `tokio::fs` 避免阻塞 async 运行时
-//! - **缓冲写入**: 8MB 缓冲区减少磁盘 IO 次数（约 128 倍）
+//! 下载已接入统一下载引擎（`unified_download`）：
+//! - **钉 CA + mTLS + HTTP/1.1 Client**: 与 secure_net 同套信任(连源站 IP / 无 SNI / 内置 CA)
+//! - **Range 分片并发**: ≥4MB 走 8 片并发，支持断点续传（sidecar 清单）与每片重试
+//! - **超时拆分**: connect 15s + 读 idle 60s，不设含 body 读完的总时长
+//! - **完整性校验**: 下载完成后自算采样 SHA-256（`content_hash` 算法），有期望值时对账
 
-use futures_util::StreamExt;
 use tauri::{Emitter, Window};
-use tokio::io::AsyncWriteExt;
 
 use crate::db;
 use crate::user_data;
-
-/// 下载缓冲区大小 (8MB)
-///
-/// 使用较大的缓冲区可显著减少磁盘 IO 次数：
-/// - 211MB 文件：从约 3300 次 IO 减少到约 26 次
-/// - 提升下载速度 10-100 倍（取决于磁盘性能）
-const DOWNLOAD_BUFFER_SIZE: usize = 8 * 1024 * 1024;
 
 /// 下载进度事件
 #[derive(Clone, serde::Serialize)]
@@ -61,12 +53,8 @@ pub struct DownloadProgress {
 
 /// 下载文件并保存到本地
 ///
-/// 使用异步 IO 和 8MB 缓冲区优化下载性能，适合局域网大文件传输。
-///
-/// ## 性能优化
-/// - 全局 HTTP Client 复用连接池
-/// - 异步文件 IO 不阻塞 tokio 运行时
-/// - 8MB 缓冲写入减少磁盘 IO 次数
+/// 底层走统一下载引擎（`unified_download`）：Range 分片并发、断点续传、每片重试、
+/// 采样哈希校验，适合局域网大文件传输。
 ///
 /// # 两层键（2026-08-16 起）
 ///
@@ -160,91 +148,64 @@ pub async fn download_and_save_file(
         },
     );
 
-    // 6. 钉 CA 客户端连源站 IP(无 SNI / 内置 CA / mTLS,与 secure_http 同套信任;JS 已把 url 主机改写成 IP)。
-    //    必须显式带 Host=原始逻辑域名 + 强制 HTTP/1.1(用 pinned_http1_client,对齐 secure_proxy 反代):
-    //    presigned 按 host 签名(SignedHeaders=host),Host 不匹配 → 403;HTTP/2 下显式 Host 与
-    //    :authority(=URL 的 IP)冲突会被判 malformed 返 400,故必须 HTTP/1.1。
-    let client = crate::secure_net::pinned_http1_client(300)
-        .map_err(|e| format!("构建下载 client 失败: {e}"))?;
-    let mut req = client.get(&url);
-    if let Some(h) = host.as_deref() {
-        req = req.header(reqwest::header::HOST, h);
+    // 6. 统一下载引擎（unified_download）：Range 分片 + 断点续传（sidecar）+ 重试 +
+    //    采样哈希校验 + 降级单流。信任栈与旧单流相同（内置 CA + mTLS + 显式 Host +
+    //    强制 HTTP/1.1，理由见引擎模块头），超时改为 connect 15s + 读 idle 60s，
+    //    不再设含 body 读完的总时长（GB 级文件任何总时长门都会误杀）。
+    //    续传身份键 = cache_key（消息面 file_uuid / 个人文件面 file_hash，均稳定唯一，
+    //    不随预签名 URL 3h 轮换而变）。进度事件语义不变：仍按 1% 节流发 "download-progress"。
+    let total_hint = file_size.unwrap_or(0);
+    let last_emit_percent = std::sync::Arc::new(std::sync::Mutex::new(0.0f64));
+    let progress_window = window.clone();
+    let progress_key = cache_key.clone();
+    let on_progress: crate::unified_download::ProgressSink =
+        std::sync::Arc::new(move |done: u64, total: u64| {
+            let total = if total > 0 { total } else { total_hint };
+            let percent = if total > 0 {
+                (done as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+            let mut last = last_emit_percent.lock().unwrap();
+            if percent - *last >= 1.0 || done == total {
+                *last = percent;
+                let _ = progress_window.emit(
+                    "download-progress",
+                    DownloadProgress {
+                        cache_key: progress_key.clone(),
+                        downloaded: done,
+                        total,
+                        percent,
+                        status: "downloading".to_string(),
+                        local_path: None,
+                        error: None,
+                    },
+                );
+            }
+        });
+    let mut dl_req =
+        crate::unified_download::DownloadRequest::new(url, cache_key.clone(), temp_path.clone());
+    dl_req.host = host;
+    dl_req.expected_size = file_size;
+    // 个人文件面的 cache_key 本身就是服务端下发的采样哈希（64 位小写十六进制）⇒ 交给引擎对账；
+    // 消息面的 uuid（带连字符、36 字符）不是哈希 ⇒ 不对账，自算结果仅作身份/去重。
+    if cache_key.len() == 64 && cache_key.chars().all(|c| c.is_ascii_hexdigit()) {
+        dl_req.expected_sampled_hash = Some(cache_key.clone());
     }
-    let response = req
-        .send()
+    dl_req.on_progress = Some(on_progress);
+    let outcome = crate::unified_download::download(dl_req)
         .await
-        .map_err(|e| format!("请求失败: {}", e))?;
+        .map_err(|e| e.to_string())?;
 
-    if !response.status().is_success() {
-        return Err(format!("下载失败: HTTP {}", response.status()));
-    }
+    let downloaded = outcome.bytes;
+    let total_size = if outcome.bytes > 0 { outcome.bytes } else { total_hint };
+    let content_type = outcome
+        .content_type
+        .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // 获取文件大小
-    let total_size = response.content_length().or(file_size).unwrap_or(0);
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_string();
-
-    // 7. 异步流式写入文件（使用 8MB 缓冲区优化 IO 性能）
-    let file = tokio::fs::File::create(&temp_path)
-        .await
-        .map_err(|e| format!("创建文件失败: {}", e))?;
-    let mut writer = tokio::io::BufWriter::with_capacity(DOWNLOAD_BUFFER_SIZE, file);
-
-    let mut downloaded: u64 = 0;
-    let mut stream = response.bytes_stream();
-    let mut last_emit_percent: f64 = 0.0;
-
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| format!("下载数据失败: {}", e))?;
-
-        writer
-            .write_all(&chunk)
-            .await
-            .map_err(|e| format!("写入文件失败: {}", e))?;
-
-        downloaded += chunk.len() as u64;
-
-        // 每 1% 发送一次进度事件（避免过于频繁）
-        let percent = if total_size > 0 {
-            (downloaded as f64 / total_size as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        if percent - last_emit_percent >= 1.0 || downloaded == total_size {
-            last_emit_percent = percent;
-            let _ = window.emit(
-                "download-progress",
-                DownloadProgress {
-                    cache_key: cache_key.clone(),
-                    downloaded,
-                    total: total_size,
-                    percent,
-                    status: "downloading".to_string(),
-                    local_path: None,
-                    error: None,
-                },
-            );
-        }
-    }
-
-    // 确保缓冲区数据全部写入磁盘
-    writer
-        .flush()
-        .await
-        .map_err(|e| format!("刷新缓冲区失败: {}", e))?;
-
-    // 8. 🔴 自算内容身份哈希（两层键的第二层）。
-    //    后端接收面已不下发哈希，这一步是**接收方唯一**能拿到内容身份的时机；
-    //    算法与上传侧 TS 同源（见 content_hash 模块头），所以"我上传的"与"我收到的"
-    //    同一份内容会落到同一把键上，去重才成立。
-    //    drop(writer) 先把文件句柄关掉再读，避免 Windows 上的独占占用。
-    drop(writer);
-    let content_hash = crate::content_hash::sampled_sha256_of_file(&temp_path)?;
+    // 7. 内容身份哈希已由引擎在收口时自算（有 expected 时已对账一致）——
+    //    算法与上传侧 TS 同源（见 content_hash / unified_download 模块头）。
+    let content_hash = outcome.sampled_hash;
 
     // 8.1 内容去重：这份字节本机已经有了（可能来自另一个 uuid / 自己上传的原件）⇒
     //     丢掉刚下的副本，直接复用既有路径。这正是"用内容哈希当身份"换来的东西。

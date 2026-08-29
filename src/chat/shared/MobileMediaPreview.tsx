@@ -701,12 +701,9 @@ export function MobileMediaPreview({
 
           {/* 媒体内容 —— 整块也是「左右滑动切图」的手势采集区（手指落在图片周围留白里也算） */}
           <div className="mobile-media-preview-content" ref={swipeAreaRef}>
-            {/* 加载状态指示 */}
-            {loadState === 'loading' && (
-              <div className="mobile-media-preview-loading">
-                <span>加载中...</span>
-              </div>
-            )}
+            {/* 加载态不再出「加载中...」文字覆盖层（huanvae 2026-08-26 要求去掉）。
+                loadState 状态机本身保留：'loading' 仍由加载 effect 置位/复位，
+                只是不再门控任何可见渲染；错误态分支照旧。 */}
 
             {/* 错误状态显示 */}
             {loadState === 'error' && (

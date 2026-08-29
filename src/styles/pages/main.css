@@ -5280,7 +5280,12 @@
   background: var(--bg-inverse);
 }
 
-.thumbnail-video video {
+/* 视频格子里的显示元素有**两种**：没存过封面时是 <video>（现 seek 首帧），
+   存过之后 <VideoThumbnail> 渲染的是 <img>（读本地封面）。这里的选择器原先只列了
+   video —— 于是走本地封面那条分支的 <img> 一条尺寸规则都吃不到，按自身像素铺开、
+   被 .thumbnail-video 的 overflow:hidden 裁成左上角一块。两个元素必须同一套盒子。 */
+.thumbnail-video video,
+.thumbnail-video img {
   width: 100%;
   height: 100%;
   object-fit: cover;

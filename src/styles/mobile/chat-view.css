@@ -332,18 +332,6 @@
   background: #000;
 }
 
-/* 加载状态 */
-.mobile-media-preview-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  position: absolute;
-  inset: 0;
-}
-
 /* 错误状态 */
 .mobile-media-preview-error {
   display: flex;

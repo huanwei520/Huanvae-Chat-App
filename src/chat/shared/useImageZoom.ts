@@ -43,7 +43,7 @@
  * 「滚动 / 布局相关行为：vitest 结构性测不出」），**只能真机复核**。
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { setMediaZoomed } from './mediaZoomState';
 
@@ -152,8 +152,17 @@ export interface ImageZoomController {
    * 这一层同时是**手势采集区**和**被变换的那一层** —— 两件事共用一个元素是有意的：
    * 它铺满整个媒体区（CSS flex:1 + align-self:stretch），所以双指落在图片周围的留白里也算；
    * 而独占一个元素意味着切图层不必和它抢同一个 ref。
+   *
+   * 🔴 这里是 **callback ref 而不是 RefObject**，成因是真机实测出来的缺陷（gen-47，
+   * Android 模拟器 L3 实测）：横滑切上一张 / 下一张时上层会把 `src` 先置成空串，
+   * MobileMediaPreview 的 `{src && ...}` 于是把承载层**整个卸载再重挂**，
+   * 而挂监听的 effect 依赖里只有 `enabled` —— 它不会因为换了个 DOM 节点而重跑，
+   * 监听就永远留在了那个已被摘掉的旧节点上 ⇒ 切过一次图之后，
+   * 捏合 / 平移 / 双击**整层失效**（真机复现：切图前捏合图片区变化 37.5%，
+   * 切一次图后同一个手势变化 0%，而 pointerCount 实测仍是 2）。
+   * callback ref 让「节点换了」这件事本身成为 effect 的依赖，监听跟着节点走。
    */
-  stageRef: RefObject<HTMLDivElement | null>;
+  stageRef: (node: HTMLDivElement | null) => void;
   /** 挂在图片本身上 —— 用它的实际显示尺寸算平移边界 */
   mediaRef: RefObject<HTMLImageElement | null>;
   /** 复位到 1x 并居中（换图 / 重新打开时调用） */
@@ -203,7 +212,15 @@ function pointDistance(a: Point, b: Point): number {
  * @param enabled 仅在「预览已打开 且 是图片」时为 true；视频路径完全不挂监听
  */
 export function useImageZoom(enabled: boolean): ImageZoomController {
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  // 承载层节点存两份：
+  // - stageElRef：给逐帧写 transform 用（读它零重渲染）
+  // - stageNode ：给挂监听的 effect 当依赖用（节点被换掉时必须重挂，见 ImageZoomController.stageRef 注释）
+  const stageElRef = useRef<HTMLDivElement | null>(null);
+  const [stageNode, setStageNode] = useState<HTMLDivElement | null>(null);
+  const stageRef = useCallback((node: HTMLDivElement | null) => {
+    stageElRef.current = node;
+    setStageNode(node);
+  }, []);
   const mediaRef = useRef<HTMLImageElement | null>(null);
 
   // 缩放/平移全程只走 ref + 直接写 DOM：手势期间**零 React 重渲染**
@@ -217,7 +234,7 @@ export function useImageZoom(enabled: boolean): ImageZoomController {
   const enabledRef = useRef(false);
 
   const applyTransform = useCallback(() => {
-    const stage = stageRef.current;
+    const stage = stageElRef.current;
     if (stage) {
       const { x, y } = translateRef.current;
       stage.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scaleRef.current})`;
@@ -251,7 +268,7 @@ export function useImageZoom(enabled: boolean): ImageZoomController {
   }, [enabled, resetZoom]);
 
   useEffect(() => {
-    const stage = stageRef.current;
+    const stage = stageNode;
     if (!enabled || !stage) {
       return;
     }
@@ -477,7 +494,8 @@ export function useImageZoom(enabled: boolean): ImageZoomController {
       stage.removeEventListener('touchend', handleTouchEnd, options);
       stage.removeEventListener('touchcancel', handleTouchCancel, options);
     };
-  }, [enabled, applyTransform, resetZoom]);
+    // 🔴 stageNode 必须在依赖里：换图会把承载层卸载重挂，节点一换就得重挂监听
+  }, [enabled, stageNode, applyTransform, resetZoom]);
 
   return { stageRef, mediaRef, resetZoom };
 }

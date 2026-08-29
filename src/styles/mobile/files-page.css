@@ -255,8 +255,12 @@
   position: relative;
 }
 
+/* 视频格子里的显示元素有**两种**：没存过封面时是 <video>，存过之后是读本地封面的 <img>
+   （见 chat/shared/VideoThumbnail.tsx）。原先只列了 video ⇒ 走本地封面那条分支的 <img>
+   吃不到任何尺寸规则。两个元素必须同一套盒子。 */
 .mobile-file-thumbnail-image img,
-.mobile-file-thumbnail-video video {
+.mobile-file-thumbnail-video video,
+.mobile-file-thumbnail-video img {
   width: 100%;
   height: 100%;
   object-fit: cover;

@@ -461,52 +461,55 @@ function VideoMessage({
     ? { width: '100%', height: '100%' }
     : mediaContainerStyle(displaySize);
 
+  // 取源还没给出 src（或失败）时，媒体区放什么 —— 递给 <VideoThumbnail> 当占位。
+  // 🔴 它只在**没有本地封面**时才会被渲染：本地存过封面的视频不必等这次取源，
+  // 组件会先把封面画出来。这正是「显示后的第一帧本地存、之后不再从云端取」那条要求
+  // 落到用户眼睛里的地方 —— 详见 chat/shared/VideoThumbnail.tsx「封面不等取源」。
+  // 两个占位都是 width/height: 100%（见 styles/pages/main.css），盒子与封面同形。
+  let mediaPlaceholder: React.ReactNode = null;
+  if (error) {
+    mediaPlaceholder = <div className="file-message-error">加载失败</div>;
+  } else if (loading) {
+    mediaPlaceholder = <div className="file-message-loading"><span>加载中...</span></div>;
+  }
+
   return (
     <>
       <div className="file-message video-message" style={containerStyle} onClick={handleClick}>
-        {/* 加载中显示占位符 */}
-        {loading && (
-          <div className="file-message-loading">
-            <span>加载中...</span>
+        {/* 本地文件标识 */}
+        {isDownloaded && <LocalBadge />}
+
+        {/* 视频缩略图：全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted /
+            playsInline 全在组件里），详见 chat/shared/VideoThumbnail.tsx。
+            这里递**裸** src —— 片段由组件内部追；src 还没解析出来时递的是 null，
+            **不再包一层 `src && …` 的门**：那道门会把本地封面一起挡在取源（未下载的视频
+            = 一次云端往返）之后，用户看到的仍是「先黑再显示」。
+            fileUuid 是本地封面缓存的键（两层键：后端接收面已不再下发 file_hash，
+            而封面要在下载**之前**就出得来）：给了它，封面截一次就落盘，之后本组件渲染
+            <img> 走本地、不再建 <video>，杀掉 App 重开也立刻有画面。
+            「查找记录 → 视频」那处（components/search/ConversationSearchHit.tsx）递的是
+            同一个 file_uuid ⇒ 两处命中**同一个封面文件**，天然是同一帧。 */}
+        <VideoThumbnail
+          src={src}
+          fileUuid={fileUuid}
+          className="message-video-thumbnail"
+          onPlay={onPlay}
+          placeholder={mediaPlaceholder}
+        />
+
+        {/* 下载进度覆盖层 */}
+        {isDownloading && downloadTask && (
+          <div className="video-download-overlay">
+            <CircularProgress progress={downloadTask.percent} />
           </div>
         )}
-        {/* 加载错误 */}
-        {error && <div className="file-message-error">加载失败</div>}
-        {/* 视频加载完成后显示 */}
-        {!loading && !error && src && (
-          <>
-            {/* 本地文件标识 */}
-            {isDownloaded && <LocalBadge />}
 
-            {/* 视频缩略图：全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted /
-                playsInline 全在组件里），详见 chat/shared/VideoThumbnail.tsx。
-                这里递**裸** src —— 片段由组件内部追。
-                fileUuid 是本地封面缓存的键（两层键：后端接收面已不再下发 file_hash，
-                而封面要在下载**之前**就出得来）：给了它，封面截一次就落盘，之后本组件渲染
-                <img> 走本地、不再建 <video>，杀掉 App 重开也立刻有画面。
-                「查找记录 → 视频」那处（components/search/ConversationSearchHit.tsx）递的是
-                同一个 file_uuid ⇒ 两处命中**同一个封面文件**，天然是同一帧。 */}
-            <VideoThumbnail
-              src={src}
-              fileUuid={fileUuid}
-              className="message-video-thumbnail"
-              onPlay={onPlay}
-            />
-
-            {/* 下载进度覆盖层 */}
-            {isDownloading && downloadTask && (
-              <div className="video-download-overlay">
-                <CircularProgress progress={downloadTask.percent} />
-              </div>
-            )}
-
-            {/* 播放按钮覆盖层 */}
-            {!isDownloading && (
-              <div className="video-play-overlay">
-                <PlayIcon />
-              </div>
-            )}
-          </>
+        {/* 播放按钮覆盖层：取源失败时不画（点了也打不开），其余情形一律画 ——
+            有本地封面时封面先于 src 出现，角标跟着一起出，不会「先有画面后冒出角标」。 */}
+        {!isDownloading && !error && (
+          <div className="video-play-overlay">
+            <PlayIcon />
+          </div>
         )}
       </div>
 

@@ -170,11 +170,10 @@ function MediaHit({
   ]);
 
   const mediaClass = layout === 'cover' ? 'conv-msg-search-cover' : 'conv-msg-search-thumb';
+  // 取源未完成 / 该消息没有 file_uuid（历史脏数据）：同尺寸占位，避免列表逐条抖动
+  const emptyCell = <div className={`${mediaClass} ${mediaClass}--empty`} aria-hidden="true" />;
   let media: React.ReactNode;
-  if (!src) {
-    // 取源未完成 / 该消息没有 file_uuid（历史脏数据）：同尺寸占位，避免列表逐条抖动
-    media = <div className={`${mediaClass} ${mediaClass}--empty`} aria-hidden="true" />;
-  } else if (isVideo) {
+  if (isVideo) {
     // 全仓唯一那处 <video> 封面（取源 / #t=0.1 / preload / muted / playsInline 全在组件里），
     // 详见 chat/shared/VideoThumbnail.tsx。递**裸** src —— 片段由组件内部追。
     // decorative：格子自己已带 aria-label（「视频 {文件名}」），读屏不必再念一遍。
@@ -182,14 +181,20 @@ function MediaHit({
     // 下载**之前**就出得来）：递的是与聊天气泡（chat/shared/FileMessageContent.tsx）
     // **同一个** file_uuid ⇒ 两处命中同一个封面文件、就是同一帧；也正是靠它，
     // 这里从「先黑再显示」变成「重开就立刻有画面」。
+    // 🔴 **不判 src 就挂**：九宫格一屏几十格，每格取源都要先解一次哈希、未下载的还要
+    // 向服务端要一把预签名 URL（一次云端往返）。把组件压在 src 之后 = 本地那张封面
+    // 也跟着等这次往返，「先黑再显示」原样复发。空 src 时组件自己渲染下面这个空格子。
     media = (
       <VideoThumbnail
         src={src}
         fileUuid={fileUuid}
         className={mediaClass}
         decorative
+        placeholder={emptyCell}
       />
     );
+  } else if (!src) {
+    media = emptyCell;
   } else {
     media = <img className={mediaClass} src={src} alt="" loading="lazy" />;
   }

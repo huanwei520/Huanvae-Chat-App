@@ -345,6 +345,56 @@ async function getFileSource(
 /** 触控板横向滑动累计到这个像素量就切一张（低于它当作误触，不切） */
 const WHEEL_SWITCH_THRESHOLD_PX = 80;
 
+/**
+ * 左右边缘翻页热区（「边缘翻白」）：常驻 DOM 但默认整条透明，
+ * 指针进入左/右边缘（:hover）才显出该侧的半透明白带 + 箭头，点击 = 切一张。
+ * 显隐只由 CSS opacity 过渡负责，无任何 JS 逐帧写样式（animation.md 规则一）。
+ *
+ * 边界（首/末张）选择【不渲染】而非禁用态：禁用按钮仍占着边缘拦截指针事件，
+ * 不渲染则边缘完全交还给图片交互；「到没到头」由顶部「3 / 12」位置指示承担。
+ *
+ * 🔴 放大态（yieldToPan）下热区 pointer-events: none 整层让位给拖拽平移 ——
+ * 与移动端同一条矩阵（放大态横向手势是平移不是切图）；键盘 ← → 仍可用。
+ */
+function EdgeNavZones({
+  canPrev,
+  canNext,
+  onStep,
+  yieldToPan = false,
+}: {
+  canPrev: boolean;
+  canNext: boolean;
+  onStep: (delta: number) => void;
+  /** 放大态让位给拖拽平移：热区不收任何指针事件 */
+  yieldToPan?: boolean;
+}) {
+  const zoomedClass = yieldToPan ? ' media-nav--zoomed' : '';
+  return (
+    <>
+      {canPrev && (
+        <button
+          className={`media-nav media-nav-prev${zoomedClass}`}
+          onClick={() => onStep(-1)}
+          title="上一张（←）"
+          type="button"
+        >
+          ‹
+        </button>
+      )}
+      {canNext && (
+        <button
+          className={`media-nav media-nav-next${zoomedClass}`}
+          onClick={() => onStep(1)}
+          title="下一张（→）"
+          type="button"
+        >
+          ›
+        </button>
+      )}
+    </>
+  );
+}
+
 function ImageViewer({
   state,
   canPrev,
@@ -613,6 +663,8 @@ function ImageViewer({
           draggable={false}
           onLoad={handleImageLoad}
         />
+        {/* 热区挂在容器内：滚轮/双指手势经冒泡仍落容器处理器，不被热区吞掉 */}
+        <EdgeNavZones canPrev={canPrev} canNext={canNext} onStep={onStep} yieldToPan={scale > 1} />
       </div>
 
       {/* 缩放提示 */}
@@ -629,7 +681,17 @@ function ImageViewer({
 // 视频预览组件
 // ============================================================================
 
-function VideoPlayer({ state }: { state: MediaState }) {
+function VideoPlayer({
+  state,
+  canPrev,
+  canNext,
+  onStep,
+}: {
+  state: MediaState;
+  canPrev: boolean;
+  canNext: boolean;
+  onStep: (delta: number) => void;
+}) {
   const [src, setSrc] = useState<string | null>(null);
   const [isLocal, setIsLocal] = useState(false);
   const [localPathState, setLocalPathState] = useState<string | null>(null);
@@ -806,6 +868,7 @@ function VideoPlayer({ state }: { state: MediaState }) {
           className="media-video"
           onPlay={handleVideoPlay}
         />
+        <EdgeNavZones canPrev={canPrev} canNext={canNext} onStep={onStep} />
       </div>
     </>
   );
@@ -914,32 +977,19 @@ export default function MediaPreviewPage() {
             onStep={step}
           />
         )}
-        {mediaState.type === 'video' && <VideoPlayer key={mediaState.fileUuid} state={mediaState} />}
+        {mediaState.type === 'video' && (
+          <VideoPlayer
+            key={mediaState.fileUuid}
+            state={mediaState}
+            canPrev={canPrev}
+            canNext={canNext}
+            onStep={step}
+          />
+        )}
       </main>
 
-      {/* 左右切图按钮：桌面端的显式入口（键盘 ← → 与触控板横向滑动同效） */}
-      {total > 1 && (
-        <>
-          <button
-            className="media-nav media-nav-prev"
-            onClick={() => step(-1)}
-            disabled={!canPrev}
-            title="上一张（←）"
-            type="button"
-          >
-            ‹
-          </button>
-          <button
-            className="media-nav media-nav-next"
-            onClick={() => step(1)}
-            disabled={!canNext}
-            title="下一张（→）"
-            type="button"
-          >
-            ›
-          </button>
-        </>
-      )}
+      {/* 左右切图由 EdgeNavZones 提供（挂在图片/视频容器内的 hover 显隐边缘热区）；
+          键盘 ← → 与触控板横向滑动是同效入口（见 step / handleWheel） */}
     </div>
   );
 }

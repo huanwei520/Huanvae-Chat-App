@@ -430,25 +430,31 @@ pub async fn download_avatar(
     user_id: &str,
     avatar_url: &str,
 ) -> Result<String, StorageError> {
-    // 钉 CA 客户端(连源站 IP / 无 SNI / 内置 CA,与 secure_http 同套;JS 已把 avatar_url 主机改写成 IP)
-    let client = crate::secure_net::pinned_client(60).map_err(StorageError::Request)?;
-    let response = client.get(avatar_url).send().await?;
-    
-    if !response.status().is_success() {
-        return Err(StorageError::Request(format!(
-            "Failed to download avatar: {}",
-            response.status()
-        )));
-    }
-    
-    let bytes = response.bytes().await?;
-    
     let avatars_dir = get_avatars_dir()?;
     let filename = make_avatar_filename(server_url, user_id);
     let file_path = avatars_dir.join(&filename);
-    
-    fs::write(&file_path, &bytes)?;
-    
+    let part_path = avatars_dir.join(format!("{filename}.hvpart"));
+
+    // 统一下载引擎（unified_download）：断点续传（sidecar）+ 每片重试 + 采样哈希自算 +
+    // 不支持 Range 时降级单流。信任栈与旧实现相同（内置 CA + mTLS + HTTP/1.1，
+    // JS 已把 avatar_url 主机改写成源站 IP）。续传身份键 = 头像文件名（同一账号的
+    // 头像对象稳定，不随预签名 URL 轮换而变）。头像不参与内容去重，outcome 的
+    // bytes/hash 这里不消费。
+    let req = crate::unified_download::DownloadRequest::new(
+        avatar_url.to_string(),
+        format!("avatar:{filename}"),
+        part_path.clone(),
+    );
+    crate::unified_download::download(req)
+        .await
+        .map_err(|e| StorageError::Request(e.to_string()))?;
+
+    // 改名到最终路径（Windows 上 rename 不能覆盖既有文件，先删再改）
+    if file_path.exists() {
+        let _ = fs::remove_file(&file_path);
+    }
+    fs::rename(&part_path, &file_path)?;
+
     Ok(file_path.to_string_lossy().to_string())
 }
 

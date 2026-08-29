@@ -1,11 +1,15 @@
 /**
  * `<VideoThumbnail>` 的封面本地持久化行为
  *
- * 三条验收口径全在这里：
+ * 四条验收口径全在这里：
  *  1. **缓存命中 ⇒ 不发起截帧**，且**根本不建 `<video>`**（这才是「杀掉 App 重开立刻有画面」）
  *  2. **未命中 ⇒ 截一次**（恰 1 次，参数是 fileHash + 裸 src），截好当场切成 `<img>`
  *  3. **不传 fileHash 的调用点行为不变**（`<video>` 分支，且一次 IPC 都不发）——
  *     第 3 条守的是「我的文件」那两个还没接线的消费点不被牵连。
+ *  4. **封面不等取源**：`src` 还是 `null` 的时候，本地封面照样第一时间画出来；
+ *     没有本地封面时才落到占位（可由调用方的 placeholder 顶替），且此时**不发起截帧**
+ *     （没有 src 就没得截）。第 4 条守的是这次修的那个缺陷本身 ——
+ *     取源在未下载的视频上是一次云端往返，把封面排在它后面 = 「先黑再显示」原样复发。
  *
  * 编排层（services/videoPoster）在此被 mock：本文件只验组件把它接对了没有，
  * 编排本身的去重 / 并发 / 失败不重试在 tests/unit/videoPosterService.test.ts。
@@ -82,7 +86,7 @@ describe('pending（正在问本地有没有存过）：占住盒子，但不建
       <VideoThumbnail src={SRC} fileHash="pend1" className="message-video-thumbnail" />,
     );
 
-    const placeholder = container.querySelector('[data-video-poster-pending]');
+    const placeholder = container.querySelector('[data-video-poster-placeholder]');
     expect(placeholder).not.toBeNull();
     // 尺寸同源的机器口径：占位戴的是**同一个** className（完成态两条分支也戴它）
     expect(placeholder).toHaveClass('message-video-thumbnail');
@@ -104,7 +108,7 @@ describe('pending（正在问本地有没有存过）：占住盒子，但不建
 
     await waitFor(() => {
       expect(container.querySelector('img')).toHaveAttribute('src', POSTER);
-      expect(container.querySelector('[data-video-poster-pending]')).toBeNull();
+      expect(container.querySelector('[data-video-poster-placeholder]')).toBeNull();
     });
   });
 });
@@ -201,5 +205,91 @@ describe('不传 fileHash：与本功能落地前逐字节相同', () => {
     video?.dispatchEvent(new Event('play', { bubbles: true }));
     await waitFor(() => expect(onPlay).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+describe('封面不等取源：src 还没解析出来时的三条行为', () => {
+  it('本地有封面 ⇒ src=null 也立刻渲染 <img>（这条就是本次修的缺陷）', async () => {
+    posterService.loadVideoPosterSrc.mockResolvedValue(POSTER);
+
+    const { container } = render(
+      <VideoThumbnail src={null} fileUuid="u1" className="message-video-thumbnail" />,
+    );
+
+    await waitFor(() => {
+      const img = container.querySelector('img');
+      expect(img).not.toBeNull();
+      expect(img).toHaveAttribute('src', POSTER);
+    });
+    // 没有 src 就建不了媒体元素，也不该去截帧
+    expect(container.querySelector('video')).toBeNull();
+    expect(posterService.captureAndSaveVideoPoster).not.toHaveBeenCalled();
+  });
+
+  it('本地没有封面 + src=null ⇒ 占位（标 nosrc），不建 <video>、不截帧', async () => {
+    posterService.loadVideoPosterSrc.mockResolvedValue(null);
+
+    const { container } = render(
+      <VideoThumbnail src={null} fileUuid="u2" className="message-video-thumbnail" />,
+    );
+
+    await waitFor(() => {
+      const box = container.querySelector('[data-video-poster-placeholder]');
+      expect(box).not.toBeNull();
+      // 两种「没画面」的原因分得开：pending = 还在问本地；nosrc = 取源还没给出 src
+      expect(box).toHaveAttribute('data-video-poster-placeholder', 'nosrc');
+      expect(box).toHaveClass('message-video-thumbnail');
+      expect(box).toHaveStyle({ width: '100%', height: '100%' });
+    });
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+    expect(posterService.captureAndSaveVideoPoster).not.toHaveBeenCalled();
+  });
+
+  it('src 随后到位 ⇒ 补上 <video> 并补截一次（封面缺失的视频不会因此永远截不到）', async () => {
+    posterService.loadVideoPosterSrc.mockResolvedValue(null);
+
+    const { container, rerender } = render(
+      <VideoThumbnail src={null} fileUuid="u3" className="message-video-thumbnail" />,
+    );
+    await waitFor(() => {
+      expect(container.querySelector('[data-video-poster-placeholder]')).not.toBeNull();
+    });
+
+    rerender(<VideoThumbnail src={SRC} fileUuid="u3" className="message-video-thumbnail" />);
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).toHaveAttribute('src', `${SRC}#t=0.1`);
+    });
+    await waitFor(() => {
+      expect(posterService.captureAndSaveVideoPoster).toHaveBeenCalledTimes(1);
+    });
+    expect(posterService.captureAndSaveVideoPoster).toHaveBeenCalledWith('u3', SRC);
+  });
+
+  it('placeholder 只在没有本地封面时出现 —— 有封面时它盖不住封面', async () => {
+    const marker = <div data-testid="caller-placeholder" style={{ width: '100%', height: '100%' }} />;
+
+    // (a) 有封面：placeholder 不该出现
+    posterService.loadVideoPosterSrc.mockResolvedValue(POSTER);
+    const withPoster = render(
+      <VideoThumbnail src={null} fileUuid="p1" placeholder={marker} />,
+    );
+    await waitFor(() => {
+      expect(withPoster.container.querySelector('img')).toHaveAttribute('src', POSTER);
+    });
+    expect(withPoster.queryByTestId('caller-placeholder')).toBeNull();
+    withPoster.unmount();
+
+    // (b) 没封面且没 src：placeholder 顶替组件自带的空占位
+    posterService.loadVideoPosterSrc.mockResolvedValue(null);
+    const noPoster = render(
+      <VideoThumbnail src={null} fileUuid="p2" placeholder={marker} />,
+    );
+    await waitFor(() => {
+      expect(noPoster.queryByTestId('caller-placeholder')).not.toBeNull();
+    });
+    // 顶替 = 组件自带的那个空盒子不再出现（两个盒子同时在会多一层）
+    expect(noPoster.container.querySelector('[data-video-poster-placeholder]')).toBeNull();
   });
 });

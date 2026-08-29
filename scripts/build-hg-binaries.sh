@@ -18,6 +18,12 @@
 #                       —— 本仓是 PUBLIC 公开仓，不写任何内网地址 / 主机名 / 账号
 #   HG_WIN_BUILD_DIR    该宿主上的构建树路径            默认 /var/lib/build/HuanvaeGuard
 #   HG_SKIP_WINDOWS     置 1 时只构建 macOS 侧（临时排障用，默认不跳）
+#   HG_ANDROID_BUILD_HOST 构建 Android 产物的 ssh 目标（形如 user@host）。**无默认值**
+#                       —— 同 HG_WIN_BUILD_HOST：PUBLIC 仓不写任何内网地址 / 主机名 / 账号。
+#                          未设时本次发布不含安卓产物、流程照常继续（骨架期软门，见 3b 段注释）
+#   HG_ANDROID_BUILD_DIR 该宿主上的构建树路径        默认 /var/lib/build/HuanvaeGuard-android
+#                        （与 win 腿构建树分目录，避免两腿互踩）
+#   HG_SKIP_ANDROID      置 1 时跳过安卓产物构建（临时排障用，默认不跳）
 #
 # ## 用法
 #   ./scripts/build-hg-binaries.sh
@@ -61,6 +67,9 @@ cd "$PROJECT_ROOT"
 
 HG_REPO="${HG_REPO:-$PROJECT_ROOT/../HuanvaeGuard}"
 HG_WIN_BUILD_DIR="${HG_WIN_BUILD_DIR:-/var/lib/build/HuanvaeGuard}"
+# HG_ANDROID_BUILD_HOST 故意无默认值（同 HG_WIN_BUILD_HOST，PUBLIC 仓纪律）；
+# 只给目录默认值，且与 win 腿目录分离。
+HG_ANDROID_BUILD_DIR="${HG_ANDROID_BUILD_DIR:-/var/lib/build/HuanvaeGuard-android}"
 
 MAC_DEST_REL="src-tauri/resources/HuanvaeGuard-macos/hg-macos"
 WIN_DEST_REL="src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe"
@@ -217,6 +226,30 @@ assert_win_pe() {
     fi
 
     print_ok "$(printf 'PE 断言通过: PE32+ x86-64 (machine=0x%04x, magic=0x%03x)' "$machine" "$magic")"
+    return 0
+}
+
+# 断言 Android 产物是 aarch64 ELF。
+# e_machine 在 ELF 头偏移 18，双字节小端（EM_AARCH64 = 0xB7 = 183）。
+# 读法复用 pe_byte_at（od 读单字节，本函数只关心字节不关心 PE 语义），
+# 显式按小端拼字节，不依赖宿主字节序。
+assert_android_elf() {
+    local f="$1" magic mach
+
+    magic="$(od -An -c -j 0 -N 4 "$f" | tr -d '[:space:]')"
+    if [[ "$magic" != "177ELF" ]]; then
+        print_error "Android 产物不是 ELF 文件（魔数 \\177ELF 不符）: $f"
+        return 1
+    fi
+
+    mach=$(( $(pe_byte_at "$f" 18) | $(pe_byte_at "$f" 19) << 8 ))
+    if [[ $mach -ne $((0xB7)) ]]; then
+        print_error "Android 产物不是 aarch64（EM_AARCH64）—— 装到目标机上起不来，发布中止。"
+        print_error "$(printf 'e_machine=0x%04x（期望 0xB7）' "$mach")"
+        return 1
+    fi
+
+    print_ok "$(printf 'ELF 断言通过: aarch64 (e_machine=0x%04x)' "$mach")"
     return 0
 }
 
@@ -460,6 +493,128 @@ else
     ART_ARCH+=("")
     ART_PE+=("x86-64")
     WIN_BUILT=true
+fi
+
+# ============================================
+# 步骤 3b: 构建 Android 产物（hg-android，fwrun-007 B3 骨架腿）
+# ============================================
+# 行为不变门（骨架期硬约束）：
+#   - 未设 HG_ANDROID_BUILD_HOST ⇒ 只打一行提示后继续，不产生任何产物，
+#     存量 mac/win 发布流程用法完全不变（这是与 win 腿「未设即中止」的**有意**
+#     差异：存量流程不得因新增第三腿被迫改用法；是否升级为硬门由总管裁定）。
+#   - 设了 HOST 却连不上 / 同步失败 / 构建失败 ⇒ 一律 FAIL，绝不静默跳过。
+#   - 产物落点与 ELF 断言按 crate-type 裁决定稿（fwrun-008 总管卡）：cdylib + rlib，
+#     取回/落点为 libhg_android.so（Kotlin 桥 System.loadLibrary 装载），rlib 不取回。
+
+print_step "3b/7" "构建 Android 产物 (hg-android, 骨架腿)..."
+
+if [[ "$HG_SKIP_ANDROID" == "1" ]]; then
+    print_warn "HG_SKIP_ANDROID=1：跳过 Android 产物构建"
+    print_warn "跳过 ≠ 通过：本次不产出安卓产物，manifest 也不含它，禁止据此发布"
+elif [[ -z "$HG_ANDROID_BUILD_HOST" ]]; then
+    print_info "未设 HG_ANDROID_BUILD_HOST：本次发布不含安卓产物（继续 mac/win 流程）"
+else
+    if ! path_is_shell_safe "$HG_ANDROID_BUILD_DIR"; then
+        print_error "HG_ANDROID_BUILD_DIR 含会破坏远程命令引号的字符，拒绝执行: $HG_ANDROID_BUILD_DIR"
+        exit 1
+    fi
+
+    print_info "构建宿主: <HG_ANDROID_BUILD_HOST>（不落盘、不入日志）"
+    print_info "构建树:   $HG_ANDROID_BUILD_DIR"
+
+    # 3b.1 同步源码：确保远程构建源就是本仓当前代码（含未提交改动）
+    # 🔴 Guard 仓根含 keys/ 金库，必须白名单（fwrun-008 修 1）——全仓 rsync 会把金库
+    #    整体推上远程构建宿主；白名单只带构建真正需要的 8 项（Cargo.toml / Cargo.lock /
+    #    .cargo / core / push-common / agent / client / test），其余一律不带。
+    print_info "同步源码到构建宿主..."
+    rsync -az --delete --exclude 'target/' \
+        -e "ssh -o BatchMode=yes" \
+        --include '/Cargo.toml' --include '/Cargo.lock' --include '/.cargo/' --include '/.cargo/**' \
+        --include '/core/' --include '/core/**' --include '/push-common/' --include '/push-common/**' \
+        --include '/agent/' --include '/agent/**' --include '/client/' --include '/client/**' \
+        --include '/test/' --include '/test/**' \
+        --exclude '*' \
+        "$HG_REPO/" "$HG_ANDROID_BUILD_HOST:$HG_ANDROID_BUILD_DIR/"
+    print_ok "源码同步完成"
+
+    # 3b.2 远程构建（fwrun-008 修 2）：探针实测远程 ~/.cargo/config.toml 无
+    #      aarch64-linux-android linker 配置，cdylib 链接必需 CC/AR/target linker
+    #      ⇒ env 前置，形态镜像 test-all.sh 远程 runner（NDK 自动探测 + 值经 printf %q
+    #      转义 + 结束哨兵）。HG_ANDROID_REMOTE_NDK_HOME 无默认值不落盘；远程探测
+    #      不到 NDK ⇒ 显式 FAIL（rc=20），不静默。
+    print_info "远程 cargo build --release -p hg-android --target aarch64-linux-android ..."
+    ANDROID_RUNNER="$TMP_DIR/hg-android-remote-runner.sh"
+    {
+        printf 'NDK_OVERRIDE=%s\n' "$(printf '%q' "$HG_ANDROID_REMOTE_NDK_HOME")"
+        printf 'BUILD_DIR=%s\n' "$(printf '%q' "$HG_ANDROID_BUILD_DIR")"
+        cat <<'RUNNER_EOF'
+# 非交互 shell 不读 ~/.cargo/env ⇒ rustup 装的 cargo 不在 PATH（同 test-all.sh runner）。
+if ! command -v cargo >/dev/null 2>&1 && [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "远程宿主 PATH 里找不到 cargo（PATH=$PATH）"
+    exit 20
+fi
+NDK="$NDK_OVERRIDE"
+if [ -z "$NDK" ]; then
+    for c in "$NDK_HOME" "$ANDROID_NDK_HOME" "$ANDROID_HOME"/ndk/*/ "$ANDROID_SDK_ROOT"/ndk/*/ \
+             "$HOME"/Android/Sdk/ndk/*/ "$HOME"/*/android-sdk/ndk/*/ /opt/android-ndk; do
+        [ -n "$c" ] || continue
+        c="${c%/}"
+        [ -d "$c" ] && NDK="$c"
+    done
+fi
+if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
+    echo "远程宿主未找到 Android NDK（可用 HG_ANDROID_REMOTE_NDK_HOME 显式指定）"
+    exit 20
+fi
+CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+if [ ! -x "$CLANG" ] || [ ! -x "$AR" ]; then
+    echo "远程 NDK 工具链不完整（缺 $CLANG 或 $AR）"
+    exit 20
+fi
+export CC_aarch64_linux_android="$CLANG"
+export AR_aarch64_linux_android="$AR"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CLANG"   # cdylib 链接必需（rlib 期无需）
+echo "远程 NDK: $NDK"
+cd "$BUILD_DIR" || exit 21
+BUILD_RC=0
+cargo build --release -p hg-android --target aarch64-linux-android </dev/null 2>&1 || BUILD_RC=$?
+echo "__HV_ANDROID_BUILD_DONE__ rc=$BUILD_RC"
+[ "$BUILD_RC" -eq 0 ] || exit 22
+exit 0
+RUNNER_EOF
+    } > "$ANDROID_RUNNER"
+    ssh -o BatchMode=yes "$HG_ANDROID_BUILD_HOST" 'bash -s' < "$ANDROID_RUNNER"
+    print_ok "远程构建完成"
+
+    # 3b.3 取回产物（crate-type 裁决定稿：cdylib ⇒ libhg_android.so，fwrun-008 修 4）
+    ANDROID_ART="$TMP_DIR/libhg_android.so"
+    scp -o BatchMode=yes \
+        "$HG_ANDROID_BUILD_HOST:$HG_ANDROID_BUILD_DIR/target/aarch64-linux-android/release/libhg_android.so" \
+        "$ANDROID_ART"
+
+    if [[ ! -f "$ANDROID_ART" ]]; then
+        print_error "scp 声称成功但本地产物不存在: $ANDROID_ART"
+        exit 1
+    fi
+    print_ok "产物已取回: $(size_of "$ANDROID_ART") bytes"
+
+    # --- ELF 断言（替换进落点之前）---
+    if ! assert_android_elf "$ANDROID_ART"; then
+        exit 1
+    fi
+
+    ANDROID_DEST_REL="src-tauri/resources/HuanvaeGuard-android/libhg_android.so"
+    ART_SRC+=("$ANDROID_ART")
+    ART_DEST_REL+=("$ANDROID_DEST_REL")
+    ART_CRATE+=("hg-android")
+    ART_TARGET+=("aarch64-linux-android")
+    ART_CSFLAGS+=("")
+    ART_ARCH+=("aarch64")
+    ART_PE+=("")
 fi
 
 # ============================================

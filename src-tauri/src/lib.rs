@@ -1154,3 +1154,6 @@ pub fn run() {
             }
         });
 }
+
+// 统一下载引擎（Range 分片/断点续传/重试/采样哈希校验）——模块声明固定于文件末尾
+mod unified_download;
