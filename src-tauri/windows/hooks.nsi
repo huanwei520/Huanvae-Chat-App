@@ -79,10 +79,49 @@
     ; ② 取旧安装目录。必须在剥引号之后 —— ${GetParent} 只按反斜杠切串，不处理引号。
     ${GetParent} $0 $1
 
-    ; ③ /S = 静默；_?= 既指定卸载目录，也是让 ExecWait 真能等到卸载结束的唯一办法
+    ; ③ 组命令行。/S = 静默；_?= 既指定卸载目录，也是让 ExecWait 真能等到卸载结束的唯一办法
     ;    （没有它，卸载器会把自己拷到临时目录再跑，父进程立刻拿到 rc）。
+    ;
+    ; 🔴 $UpdateMode = 1 时必须把 /UPDATE 一并传给旧卸载器，否则升级一次图标全没了 ──────
+    ; 模板 installer.nsi 的 Section Uninstall 里有三处 `${If} $UpdateMode <> 1` 把
+    ; 「删桌面/开始菜单 lnk + Unpin 任务栏 + 删 HKCU Run 自启项」整块围起来。旧卸载器是被
+    ; **我们这条命令行**拉起的独立进程，它自己 un.onInit 里 `${GetOptions} $CMDLINE "/UPDATE"`
+    ; 只认命令行 —— 我们不传，它的 $UpdateMode 就是 0 ⇒ 按"用户在主动卸载"把那三样全删掉。
+    ; 而新安装器此时 $UpdateMode = 1，模板里建快捷方式的两处会直接 Return 不重建
+    ; ⇒ 「删了不建」，桌面/开始菜单/任务栏/自启项一次升级全部消失，且安装日志里一个字都不会说。
+    ; 真机单变量复现见 gen-49 单3（同一份 v1.1.37 字节，只差这一个 token）。
+    ;
+    ; 🔴 顺序不可换：/UPDATE 必须排在 _?= 之【前】。NSIS 官方手册 3.2.2 原文：
+    ;    "_?= sets $INSTDIR ... It must be the last parameter used in the command line"
+    ;    —— `_?=` 后面的一切都会被当成目录路径的一部分。写成 `_?=$1 /UPDATE` 时旧卸载器拿到的
+    ;    $INSTDIR 变成 "<目录> /UPDATE"、而 $UpdateMode 仍是 0，两个后果一起发生且都不报错。
+    ;    上游模板同序（installer.nsi:351 先 /UPDATE、:353 才 _?=），是一手参照。
+    ;
+    ; $UpdateMode 由模板声明（installer.nsi 的 `Var UpdateMode`）并在 .onInit 里从命令行解析。
+    ; 本文件是被 `!include` 进模板的，宏体真正展开的位置在 Section Install 内，远在那条 Var 之后
+    ; ⇒ 引用得到。这一点由 makensis 真编译担保，不靠读码推断（见 tests/ 同名守卫的说明）。
+    ;
+    ; BACKLOG: 本修法只让【今后】的升级不再丢快捷方式，救不了已经中招的存量用户 ——
+    ; 他们的 lnk 已被删，而模板卸载段里 `Delete "$INSTDIR\${MAINBINARYNAME}.exe"` 是无条件的、
+    ; 不受 $UpdateMode 影响，所以就算现在补建 lnk 也只会得到一个"点了没反应"的图标。
+    ; 「要不要为存量用户单独做一次快捷方式迁移/重建」是产品决策，已上报，**本文件不做**。
+    ;
+    ; BACKLOG（同一决策的另一面，gen-49 单4 新发现，同样不在本次动手范围内）：
+    ; 上面这条 /UPDATE 只在**同范围**升级（perMachine → perMachine，v1.1.36 起都是）下是纯收益 ——
+    ; 那时旧 lnk 指向的目标路径与新 exe 路径相同，保住它就等于保住了一个能用的图标。
+    ; 而**跨范围**升级（≤v1.1.35 的 currentUser 安装 → 现在的 perMachine）下，旧 lnk 指向的是
+    ; %LOCALAPPDATA% 那份、而它的 exe 被上面这次卸载无条件删掉了 ⇒ 结果从「没有图标」变成
+    ; 「图标还在但点了没反应」，HKCU Run 自启项同理会留下一条指向已删 exe 的死项。
+    ; 若要连这一格也管住，最小改法是把条件收成 `${If} $UpdateMode = 1 ${AndIf} $1 == $INSTDIR`
+    ; （只在旧安装目录 == 新安装目录时才传 /UPDATE）—— 但那属于上面那条产品决策的同一件事，
+    ; 且本仓当前没有能造出跨范围现场的验证载体（gen-49 单3 实测两版同为 perMachine，观测不到）。
+    StrCpy $5 '"$0" /S'
+    ${If} $UpdateMode = 1
+      StrCpy $5 "$5 /UPDATE"
+    ${EndIf}
+    StrCpy $5 "$5 _?=$1"
     ClearErrors
-    ExecWait '"$0" /S _?=$1' $2
+    ExecWait '$5' $2
     ; 等卸载器释放文件句柄
     Sleep 2000
 

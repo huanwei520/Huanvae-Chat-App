@@ -37,6 +37,8 @@
  *   - 它是**形状 + 次序**断言，不是可达性证明。PREINSTALL 那段的可达性由
  *     `makensis -PPO` 展开出的真实跳转标签承担（见本单交付里的 nsis-preprocessed.nsi），
  *     而 makensis 不在 `pnpm test:run` 门禁里 —— 这一块是本文件覆盖不到的，别当它覆盖了。
+ *     （2026-08-29 订正：本机【有】makensis v3.12，gen-49 单4 用它对 hooks.nsi 做过真编译 +
+ *     变异自证；但它仍不在 `pnpm test:run` 门禁里，所以"本文件覆盖不到"这句仍然成立。）
  */
 
 import { describe, it, expect } from 'vitest';
@@ -236,8 +238,12 @@ describe('hooks.nsi PREINSTALL — 跑旧卸载器同样必须取退出码（与
     const iParent = lineIndexOf(UNINSTALL_PREV, /^\s*\$\{GetParent\}/);
     expect(iStrip, '找不到剥引号的 StrCpy（`StrCpy $x $x -1 1`）').toBeGreaterThanOrEqual(0);
     expect(iParent, '找不到 ${GetParent}').toBeGreaterThan(iStrip);
-    // ExecWait 组命令行时必须自己补回一对引号（$0 此时已不带引号）
-    expect(UNINSTALL_PREV).toMatch(/ExecWait\s+'"\$\d"\s/);
+    // 组命令行时必须自己补回一对引号（$0 此时已不带引号）。
+    // 🔴 这里**故意**同时接受两种形状：直接写在 ExecWait 上，或写在按 $UpdateMode 组装命令行的
+    // 种子 StrCpy 上。理由是"引号"与"/UPDATE"是两条互相独立的不变量 —— 把它们绑在同一条断言里，
+    // 动其中一条就会让另一条跟着红，变异自证就再也说不清是哪一条在守门。
+    // /UPDATE 那条不变量由本文件末尾那个 describe 单独守。
+    expect(UNINSTALL_PREV).toMatch(/(ExecWait\s+|StrCpy\s+\$\d\s+)'"\$0"\s+\/S/);
   });
 
   it('两个调用点（HKCU / HKLM）走的是同一段正文，没有各写一遍', () => {
@@ -250,12 +256,185 @@ describe('hooks.nsi PREINSTALL — 跑旧卸载器同样必须取退出码（与
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// 跑旧卸载器的命令行：update 模式下必须带 /UPDATE，且 /UPDATE 必须排在 _?= 之前
+// ────────────────────────────────────────────────────────────────────────────
+//
+// ## 它守的是什么（v1.1.36 / 37 / 38 连着三版真机可复现的缺陷）
+//
+// Tauri NSIS 模板的 `Section Uninstall` 里有三处 `${If} $UpdateMode <> 1`，把
+// 「删桌面/开始菜单 lnk + Unpin 任务栏 + 删 HKCU Run 自启项」整块围起来。旧卸载器是被
+// hooks.nsi 这条 ExecWait 拉起的**独立进程**，它自己的 un.onInit 只从**命令行**解析
+// `/UPDATE` —— 我们不传，它的 $UpdateMode 就是 0 ⇒ 按"用户在主动卸载"把那三样全删掉；
+// 而新安装器此时 $UpdateMode = 1，模板里建快捷方式的两处直接 Return 不重建
+// ⇒ 「删了不建」，一次升级图标全没，且安装日志里一个字都不会说。
+// gen-49 单3 在真 Windows 上做过单变量复现（同一份 v1.1.37 字节，只差这一个 token）。
+//
+// ## 为什么必须是静态守卫（三条通道都拦不住它）
+//
+//   · `makensis` 拦不住 —— 实测把命令行退回修复前，`makensis -WX` 仍然 **rc=0**、零告警。
+//     编译器对"命令行里少一个参数"零判别力。
+//   · vitest 常规用例拦不住 —— jsdom 不跑 NSIS，macOS 不跑 Windows 安装器。
+//   · 安装日志拦不住 —— 删与不删在 DetailPrint 上逐字同形（这正是它能安静发三版的原因）。
+//
+// ## 口径：判的是「**这条命令行在 update 分支上带不带 /UPDATE**」
+//
+// 🔴 **不是**「文件里出现过 `/UPDATE` 这个串」—— 后者会被本文件头那段讲历史的注释满足
+// （本仓 frontend-test.md 已把这一类记成坏口径，同文件「HuanvaeGuard 服务已安装」那条
+// 就是同族前科）。所以：① 一律判在**剥掉注释**的 `UNINSTALL_PREV` 上；② 不做纯文本 grep，
+// 而是**把命令行组装那一小段真的跑一遍**，分别注入 $UpdateMode = 1 / 0，比较两次的产物。
+//
+// ## 本守卫抓不到什么
+//
+//   · 它证明不了旧卸载器**真的收到**了 /UPDATE（那是运行时，只有真机能证；
+//     gen-49 单4 §2 用现成发货字节做了单变量 A/B）。它只证明**我们组出来的那条命令行**
+//     长什么样 —— 别把这两件事合并成一句"修复已验证"。
+//   · 解释器只认下面列出的几条指令，遇到不认识的行**直接抛错**；否则脚本一改形状，
+//     它会静默跳过看不懂的行，守卫就退化成恒绿的假证明。
+
+/** 模拟值：这两个register 在运行时分别是「剥了引号的 UninstallString」与「它的父目录」。 */
+const SIM_UNINST = 'C:\\Program Files\\Huanvae-Chat-App\\uninstall.exe';
+const SIM_DIR = 'C:\\Program Files\\Huanvae-Chat-App';
+
+/**
+ * 把 `HUANVAE_UNINSTALL_PREVIOUS` 里「组装并执行旧卸载器命令行」那一小段真的跑一遍，
+ * 返回 ExecWait 最终拿到的那条命令行字符串。
+ *
+ * 支持两种形状，正是修复前后各一种：
+ *   · `ExecWait '<字面量>' $rc`      —— 修复前：命令行写死，无分支
+ *   · `ExecWait '$N' $rc` + 前面若干 StrCpy $N —— 修复后：按 $UpdateMode 组装
+ */
+function renderUninstallerCommandLine(body: string, updateMode: 0 | 1): string {
+  const lines = body.split(/\r?\n/);
+  const iExec = lines.findIndex((l) => /^\s*ExecWait\b/.test(l));
+  if (iExec < 0) { throw new Error('HUANVAE_UNINSTALL_PREVIOUS 里找不到 ExecWait'); }
+
+  const mExec = /^\s*ExecWait\s+'(.*)'\s+\$\d\s*$/.exec(lines[iExec]);
+  if (mExec === null) { throw new Error(`ExecWait 形状不认识：${lines[iExec].trim()}`); }
+  const arg = mExec[1];
+
+  const subst = (raw: string, self: string, selfReg: string): string =>
+    raw
+      .split(selfReg).join(self)
+      .split('$0').join(SIM_UNINST)
+      .split('$1').join(SIM_DIR);
+
+  // 形状 A：命令行是写死的字面量（修复前就是这样），没有任何 $UpdateMode 分支
+  const mReg = /^\$(\d)$/.exec(arg);
+  if (mReg === null) { return subst(arg, '', '\u0000never'); }
+
+  // 形状 B：ExecWait 跑的是一个 register，往前找组装它的那几行
+  const reg = `$${mReg[1]}`;
+  const assignRe = new RegExp(`^\\s*StrCpy\\s+\\${reg}\\s+(['"])(.*)\\1\\s*$`);
+  let iStart = -1;
+  for (let i = iExec - 1; i >= 0; i -= 1) {
+    const m = assignRe.exec(lines[i]);
+    // 种子行 = 赋给 reg 且右值**不引用** reg 自己
+    if (m !== null && !m[2].includes(reg)) { iStart = i; break; }
+  }
+  if (iStart < 0) { throw new Error(`找不到组装 ${reg} 的种子行（ExecWait 跑的是一个没人赋值的变量）`); }
+
+  let value = '';
+  let active = true;
+  let depth = 0;
+  for (let i = iStart; i < iExec; i += 1) {
+    const line = lines[i].trim();
+    if (line === '') { continue; }
+    if (line === 'ClearErrors') { continue; }
+
+    const mIf = /^\$\{If\}\s+\$UpdateMode\s+=\s+1$/.exec(line);
+    if (mIf !== null) { depth += 1; active = updateMode === 1; continue; }
+    if (line === '${EndIf}') {
+      if (depth === 0) { throw new Error('${EndIf} 没有配对的 ${If}'); }
+      depth -= 1; active = true; continue;
+    }
+    const mSet = assignRe.exec(line);
+    if (mSet !== null) {
+      if (active) { value = subst(mSet[2], value, reg); }
+      continue;
+    }
+    throw new Error(`命令行组装段里有不认识的指令（形状变了，请同步扩展解释器）：${line}`);
+  }
+  if (depth !== 0) { throw new Error('${If} 没有配对的 ${EndIf}'); }
+  return value;
+}
+
+describe('hooks.nsi PREINSTALL — 跑旧卸载器的命令行必须按 $UpdateMode 带上 /UPDATE', () => {
+  const CMD_UPDATE = renderUninstallerCommandLine(UNINSTALL_PREV, 1);
+  const CMD_MANUAL = renderUninstallerCommandLine(UNINSTALL_PREV, 0);
+
+  it('🔴 $UpdateMode = 1 时命令行必须含 /UPDATE —— 不含 = 升级一次快捷方式全没', () => {
+    expect(CMD_UPDATE, `update 分支组出来的命令行：${CMD_UPDATE}`).toMatch(/(^|\s)\/UPDATE(\s|$)/);
+  });
+
+  it('$UpdateMode = 0（用户手动装）时不许带 /UPDATE —— 那会让旧卸载器保留本该清掉的东西', () => {
+    expect(CMD_MANUAL, `非 update 分支组出来的命令行：${CMD_MANUAL}`).not.toMatch(/\/UPDATE/);
+  });
+
+  it('两个分支必须产出【不同】的命令行（相同 = 那个 ${If} 是摆设，守卫也就没有判别力）', () => {
+    expect(CMD_UPDATE).not.toBe(CMD_MANUAL);
+  });
+
+  it('🔴 /UPDATE 必须排在 _?= 之【前】—— NSIS 手册 3.2.2：_?= 必须是命令行最后一个参数', () => {
+    // 官方原文："_?= sets $INSTDIR ... It must be the last parameter used in the command line"
+    // 写成 `_?=$1 /UPDATE` 时，旧卸载器拿到的 $INSTDIR 会变成 "<目录> /UPDATE"、
+    // 而 $UpdateMode 仍然是 0 —— 两个后果一起发生，且没有任何一处会报错。
+    const iUpd = CMD_UPDATE.indexOf('/UPDATE');
+    const iQ = CMD_UPDATE.indexOf('_?=');
+    expect(iUpd, '命令行里找不到 /UPDATE').toBeGreaterThanOrEqual(0);
+    expect(iQ, '命令行里找不到 _?=').toBeGreaterThanOrEqual(0);
+    expect(iUpd, `/UPDATE 排到了 _?= 后面，会被吞进目录路径：${CMD_UPDATE}`).toBeLessThan(iQ);
+  });
+
+  it('两个分支的命令行都必须以 `_?=<旧安装目录>` 结尾（后面不许再挂任何参数）', () => {
+    for (const [label, cmd] of [['update', CMD_UPDATE], ['manual', CMD_MANUAL]] as const) {
+      expect(cmd, `${label} 分支：_?= 后面还有别的东西 -> ${cmd}`).toBe(
+        `${cmd.slice(0, cmd.indexOf('_?='))}_?=${SIM_DIR}`,
+      );
+    }
+  });
+
+  it('两个分支都必须以带引号的卸载器路径 + /S 开头（路径含空格，丢引号就跑不起来）', () => {
+    for (const [label, cmd] of [['update', CMD_UPDATE], ['manual', CMD_MANUAL]] as const) {
+      expect(cmd, `${label} 分支开头不对：${cmd}`).toMatch(
+        new RegExp(`^"${SIM_UNINST.replace(/[\\]/g, '\\\\')}" /S(\\s|$)`),
+      );
+    }
+  });
+
+  it('分支判的必须是 $UpdateMode 本身（模板声明的那个变量），且写在剥掉注释的代码里', () => {
+    // 判在 UNINSTALL_PREV（已剥整行注释）上 ⇒ 注释里怎么写都满足不了它。
+    expect(UNINSTALL_PREV).toMatch(/^\s*\$\{If\}\s+\$UpdateMode\s+=\s+1\s*$/m);
+    // 正对照：同一个串在**含注释**的原文里也在（证明这条查法在这份文件上会响，
+    // 而不是"这份文件里根本没有 UpdateMode 这个词"）
+    expect(NSI_RAW).toContain('$UpdateMode');
+  });
+
+  it('解释器本身有判别力：喂一条退回修复前形状的正文，上面那条 /UPDATE 断言必须落空', () => {
+    // 这是守卫的**自证**：把 ExecWait 换回写死的旧命令行，renderUninstallerCommandLine
+    // 应当两个分支都产出同一条不含 /UPDATE 的命令行。若它此时仍"通过"，说明守卫是假的。
+    // 🔴 用函数式 replace，不用字符串式 —— 字符串替换里的 `$1` 会被 JS 当成捕获组引用，
+    // 悄悄把 `_?=$1`（NSIS 的 register）换成别的东西，构造出来的样本就不是"修复前那份"了。
+    const REVERTED = UNINSTALL_PREV.replace(
+      /^\s*StrCpy \$\d '"\$0" \/S'[\s\S]*?^\s*ExecWait\s+'\$\d'\s+\$\d\s*$/m,
+      () => "    ClearErrors\n    ExecWait '\"$0\" /S _?=$1' $2",
+    );
+    expect(REVERTED, '构造退回样本失败（正文形状变了）').not.toBe(UNINSTALL_PREV);
+    const a = renderUninstallerCommandLine(REVERTED, 1);
+    const b = renderUninstallerCommandLine(REVERTED, 0);
+    expect(a).not.toMatch(/\/UPDATE/);
+    expect(a).toBe(b);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // POSTINSTALL 失败路径可达性：对**真实脚本文本**跑一个最小 NSIS 子集解释器
 // ────────────────────────────────────────────────────────────────────────────
 //
 // 「每条 sc.exe 后面有 Pop」和「失败分支里有 MessageBox」都只是**形状**断言 —— 它们证明不了
 // rc≠0 的时候控制流真的会落进那个分支（少一个 ${Else}、把 ${If} 写反，形状断言照样全绿）。
-// 本机没有 makensis、更没有 Windows，真跑一遍安装器做不到；能做到的最强替代是：
+// 真跑一遍安装器做不到（那要 Windows 真机）；而 makensis 只做编译，它对"控制流落到哪一支"
+// 同样零判别力（gen-49 实测：把命令行退回缺陷形态，`makensis -WX` 仍然 rc=0、零告警）。
+// 能在 vitest 里做到的最强替代是：
 // **把真实的 POSTINSTALL 文本喂给一个解释器，注入 rc，看它落到哪一支。**
 //
 // 🔴 它证明什么、不证明什么，必须分清：
