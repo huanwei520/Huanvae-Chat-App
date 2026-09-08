@@ -1086,3 +1086,64 @@
   color: var(--text-muted);
   flex-shrink: 0;
 }
+
+/* ============================================
+   会议音频设备选择（仅桌面端渲染，MeetingAudioSettings）
+   ============================================ */
+
+.settings-audio-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+  width: 100%;
+}
+
+.settings-audio-device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-audio-device-label {
+  font-size: 14px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  width: 56px;
+}
+
+.settings-audio-device-select {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--white-alpha-95);
+  font-size: 13px;
+  color: var(--text-primary);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.settings-audio-device-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.settings-audio-device-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-audio-device-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

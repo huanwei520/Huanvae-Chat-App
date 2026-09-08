@@ -53,6 +53,12 @@ import {
 } from './webrtcCore';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp } from '../services/discovery';
+import { isMobile } from '../utils/platform';
+import {
+  buildAudioConstraints,
+  getSelectedAudioInputId,
+  setSelectedAudioInputId,
+} from './audioDevices';
 
 // ============================================
 // 类型定义
@@ -179,6 +185,13 @@ export interface UseWebRTCReturn {
   stopLocalStream: () => void;
   /** 清除媒体错误 */
   clearMediaError: () => void;
+  /**
+   * 会议中热切换麦克风设备（桌面端专用；移动端无设置入口不可达）。
+   * 麦克风未开时仅持久化偏好；开着时停旧轨→按新 deviceId 取流→
+   * 全部 pc 的 audio RTPSender replaceTrack→更新本地流引用，失败回滚并如实报错。
+   * @returns 是否切换成功
+   */
+  switchAudioInputDevice: (deviceId: string | null) => Promise<boolean>;
 }
 
 // ============================================
@@ -1168,7 +1181,11 @@ export function useWebRTC(): UseWebRTCReturn {
       sendMediaState(next);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 音频设备选择（桌面端设置页持久化）：有选择注入 deviceId:{exact}，无选择 = { audio: true }
+        //（移动端恒走 { audio: true }，与既有行为一致，见 buildAudioConstraints 兜底）
+        const stream = await navigator.mediaDevices.getUserMedia(
+          buildAudioConstraints(getSelectedAudioInputId()),
+        );
         micStreamRef.current = stream;
         const track = stream.getAudioTracks()[0];
 
@@ -1197,6 +1214,90 @@ export function useWebRTC(): UseWebRTCReturn {
       }
     }
   }, [mediaState.micEnabled, addMicTransceiver, stopMicTransceiver, startVolumeDetection, stopVolumeDetection, sendMediaState]);
+
+  /**
+   * 会议中热切换麦克风设备（桌面端设置页经 storage 事件触发，或会议窗内直接调用）
+   * 流程：按新 deviceId 取流 → 对全部 RTCPeerConnection 的 audio RTPSender replaceTrack →
+   * 停旧轨 → 更新本地流引用/音量检测 → 持久化选择。
+   * 失败回滚：已 replace 的 sender 换回旧轨、旧流保持活跃、持久化维持旧值、mediaError 如实报错。
+   */
+  const switchAudioInputDevice = useCallback(async (deviceId: string | null): Promise<boolean> => {
+    // 移动端红线：无设置入口，热切换不可达（双保险，调用层本就不该触发）
+    if (isMobile()) {
+      return false;
+    }
+
+    const oldStream = micStreamRef.current;
+    const oldSelected = getSelectedAudioInputId();
+
+    // 麦克风未开：无活轨可热换，仅持久化偏好（下次 toggleMic 按新设备取流）
+    if (!mediaStateRef.current.micEnabled || !oldStream) {
+      setSelectedAudioInputId(deviceId);
+      return true;
+    }
+
+    try {
+      // 1) 先按新设备取流：此步失败即整单失败，旧流不受影响
+      const newStream = await navigator.mediaDevices.getUserMedia(buildAudioConstraints(deviceId));
+      const newTrack = newStream.getAudioTracks()[0];
+      if (!newTrack) {
+        newStream.getTracks().forEach((t) => t.stop());
+        setMediaError({ type: 'mic', reason: 'unknown', message: '切换麦克风设备失败: 新设备未返回音频轨道' });
+        return false;
+      }
+
+      // 2) 对全部 pc 的 audio RTPSender replaceTrack（记录已切 sender 用于回滚）
+      const replaced: RTCRtpSender[] = [];
+      try {
+        await Promise.all(
+          Array.from(peerConnectionsRef.current.keys()).map(async (peerId) => {
+            const refs = transceiverMapRef.current.get(peerId);
+            if (refs?.mic && refs.mic.direction !== 'inactive') {
+              await refs.mic.sender.replaceTrack(newTrack);
+              replaced.push(refs.mic.sender);
+            }
+          }),
+        );
+      } catch (swapErr) {
+        // 回滚：已切的 sender 换回旧轨
+        const oldTrack = oldStream.getAudioTracks()[0];
+        if (oldTrack) {
+          await Promise.all(
+            replaced.map((sender) => sender.replaceTrack(oldTrack).catch(() => undefined)),
+          );
+        }
+        newStream.getTracks().forEach((t) => t.stop());
+        setMediaError({
+          type: 'mic',
+          reason: 'unknown',
+          message: `切换麦克风设备失败: ${swapErr instanceof Error ? swapErr.message : String(swapErr)}`,
+        });
+        return false;
+      }
+
+      // 3) 成功：停旧轨 → 更新流引用 → 音量检测重启 → 持久化
+      oldStream.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = newStream;
+      startVolumeDetection(newStream);
+      setLocalStream((prev) => {
+        const kept = prev ? prev.getTracks().filter((t) => t.kind !== 'audio') : [];
+        const merged = new MediaStream([...kept, newTrack]);
+        return merged.getTracks().length > 0 ? merged : null;
+      });
+      setMediaError(null);
+      setSelectedAudioInputId(deviceId);
+      return true;
+    } catch (err) {
+      // getUserMedia 失败：旧流未动，持久化维持旧值，如实报错
+      setSelectedAudioInputId(oldSelected);
+      setMediaError({
+        type: 'mic',
+        reason: 'unknown',
+        message: `切换麦克风设备失败: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return false;
+    }
+  }, [startVolumeDetection]);
 
   /**
    * 切换摄像头
@@ -1553,5 +1654,6 @@ export function useWebRTC(): UseWebRTCReturn {
     initLocalStream,
     stopLocalStream,
     clearMediaError,
+    switchAudioInputDevice,
   };
 }

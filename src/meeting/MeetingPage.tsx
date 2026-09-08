@@ -29,6 +29,11 @@ import {
   RESOLUTION_MAP,
 } from './useWebRTC';
 import { loadMeetingData, clearMeetingData, joinRoom, type MeetingWindowData, type IceServer } from './api';
+import {
+  applyAudioOutputSink,
+  getSelectedAudioInputId,
+  subscribeMeetingAudioDevices,
+} from './audioDevices';
 import { createApiClient } from '../api/client';
 import {
   MicOnIcon,
@@ -156,6 +161,9 @@ function ParticipantVideo({
       const audioTracks = audioStream.getAudioTracks();
       if (audioTracks.length > 0) {
         audioElement.srcObject = audioStream;
+        // 桌面端输出设备选择：应用用户选中的扬声器（setSinkId feature-detect 内部兑底，
+        // 不支持的内核静默跳过 —— 设置区输出下拉已禁用并标注，非静默无效果）
+        applyAudioOutputSink(audioElement);
         // 尝试播放（处理 autoplay 限制）
         audioElement.play().catch(() => {
           // 忽略 autoplay 限制错误，用户交互后会自动播放
@@ -169,6 +177,21 @@ function ParticipantVideo({
       }
     };
   }, [audioStream, isLocal]);
+
+  // 输出设备偏好变化（设置页改动/设备插拔）时重应用 sinkId（新挂流元素已在挂流 effect 应用；
+  // 本 effect 覆盖「元素已在播放中，偏好后到」的场景。isLocal 无 audio 元素，不订阅）
+  useEffect(() => {
+    if (isLocal) {
+      return undefined;
+    }
+    const apply = () => {
+      if (audioRef.current) {
+        applyAudioOutputSink(audioRef.current);
+      }
+    };
+    apply();
+    return subscribeMeetingAudioDevices(apply);
+  }, [isLocal]);
 
   // 修复：如果创建者的名称与房间名称相同，说明后端返回的是房间名而非用户名
   const displayName = (() => {
@@ -364,6 +387,23 @@ export default function MeetingPage() {
   const availableResolutions = getAvailableResolutions();
 
   const webrtc = useWebRTC();
+
+  // 会议中热切换麦克风（桌面端会议窗）：设置面板在主窗改动 → 本窗 storage 事件到达此处
+  // → switchAudioInputDevice（失败回滚旧设备并经 mediaError 如实呈现）。
+  // 仅在 input 选择值真正变化时触发，避免 devicechange / output 变更误触发；
+  // 切换成功/回滚后的本地持久化与 ref 同值，订阅回调不再递归触发。
+  const selectedInputRef = useRef<string | null>(getSelectedAudioInputId());
+  // 解构取稳定引用：useCallback 依赖链（startVolumeDetection）稳定 → 不逐渲染重订阅
+  const { switchAudioInputDevice } = webrtc;
+  useEffect(() => {
+    return subscribeMeetingAudioDevices(() => {
+      const next = getSelectedAudioInputId();
+      if (next !== selectedInputRef.current) {
+        selectedInputRef.current = next;
+        void switchAudioInputDevice(next);
+      }
+    });
+  }, [switchAudioInputDevice]);
 
   // 初始化：读取会议数据
   useEffect(() => {

@@ -32,6 +32,8 @@ import { SoundSelector } from './SoundSelector';
 import { DeviceListPanel } from './DeviceListPanel';
 import { AuthorizedAppsPanel } from './AuthorizedAppsPanel';
 import { BlacklistPanel } from './BlacklistPanel';
+import { MeetingAudioSettings } from './MeetingAudioSettings';
+import { isDesktop } from '../../utils/platform';
 import './styles.css';
 
 // ============================================
@@ -472,6 +474,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
             />
           </SettingsGroup>
         </SettingsSection>
+
+        {/* 会议音频设备（仅桌面端：isDesktop 门控 —— SettingsPanel 为双端共享组件，
+            移动端经 MobileSettingsPage 也渲染本面板，门控保证移动端零渲染零逻辑） */}
+        {isDesktop() && (
+          <SettingsSection title="会议音频">
+            <SettingsGroup>
+              <MeetingAudioSettings />
+            </SettingsGroup>
+          </SettingsSection>
+        )}
 
         {/* 分组三：存储与数据 */}
         <SettingsSection title="存储与数据">
