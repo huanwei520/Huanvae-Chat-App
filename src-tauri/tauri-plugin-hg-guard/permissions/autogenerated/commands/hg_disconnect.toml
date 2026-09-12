@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hg-disconnect"
+description = "Enables the hg_disconnect command without any pre-configured scope."
+commands.allow = ["hg_disconnect"]
+
+[[permission]]
+identifier = "deny-hg-disconnect"
+description = "Denies the hg_disconnect command without any pre-configured scope."
+commands.deny = ["hg_disconnect"]

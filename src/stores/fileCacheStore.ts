@@ -40,6 +40,12 @@ export interface DownloadTask {
   error?: string;
   localPath?: string;
   startTime: number;
+  /**
+   * 终态如实标记（F1，2026-09-02）：URL 过期重取链（重新 presign → 换新 URL 续传）
+   * 已用尽次数仍失败。true ⇒ 本次失败发生在重取穷举之后，属于不可自动恢复的终态，
+   * 人工介入（重试按钮 / 重新打开会话）才有意义；false/缺省 ⇒ 与 URL 过期无关或未穷举。
+   */
+  urlExpiredExhausted?: boolean;
 }
 
 /** 预签名 URL 缓存项 */
@@ -64,7 +70,7 @@ interface FileCacheActions {
   addDownloadTask: (task: Omit<DownloadTask, 'status' | 'downloaded' | 'percent' | 'startTime'>) => void;
   updateDownloadProgress: (cacheKey: string, downloaded: number, total: number, percent: number) => void;
   completeDownload: (cacheKey: string, localPath: string) => void;
-  failDownload: (cacheKey: string, error: string) => void;
+  failDownload: (cacheKey: string, error: string, urlExpiredExhausted?: boolean) => void;
   removeDownloadTask: (cacheKey: string) => void;
   clearCompletedTasks: () => void;
 
@@ -148,7 +154,7 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
     });
   },
 
-  failDownload: (cacheKey, error) => {
+  failDownload: (cacheKey, error, urlExpiredExhausted = false) => {
     set((state) => {
       const task = state.downloadTasks[cacheKey];
       if (!task) { return state; }
@@ -160,6 +166,7 @@ export const useFileCacheStore = create<FileCacheState & FileCacheActions>((set,
             ...task,
             status: 'failed',
             error,
+            urlExpiredExhausted,
           },
         },
       };

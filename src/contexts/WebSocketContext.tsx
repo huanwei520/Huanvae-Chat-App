@@ -89,6 +89,8 @@ import type {
 } from '../types/websocket';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp, rediscoverOnFailure, getActiveEndpoint } from '../services/discovery';
+import { isDevControl } from '../remote-control/devGate';
+import { registerControlSessionWsSender } from '../remote-control/wsSender';
 
 // ============================================
 // 常量
@@ -152,6 +154,9 @@ interface WebSocketContextType {
     timestamp: string
   ) => void;
   onNewMessage: (callback: (msg: WsNewMessage) => void) => () => void;
+  /** 把一条与 WS new_message 同形的**本地**帧送进同一个监听器集合（转发写穿用，见 chat/shared/forwardEcho.ts）。
+   *  只分发到 newMessageListeners，不碰 unreadSummary / DB —— 那两跳由调用方按需另行处理。 */
+  emitLocalNewMessage: (msg: WsNewMessage) => void;
   onMessageRecalled: (callback: (msg: WsMessageRecalled) => void) => () => void;
   onSystemNotification: (callback: (msg: WsSystemNotification) => void) => () => void;
   /** 订阅已读回执（私聊对方已读 / 群聊某成员已读），用于发送方显示"已读"/"N 人已读" */
@@ -572,6 +577,16 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
         startPing(ws);
 
+        // 会议内远程控制（设计 §8.3 块 C，dev 门控）：向控制域注册主 WS 发送器，
+        // 供 M1/M2/M3 上行。生产构建 isDevControl() 恒 false → 永不注册，零行为改变。
+        if (isDevControl()) {
+          registerControlSessionWsSender((payload) => {
+            if (wsRef.current?.readyState === RustWebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify(payload));
+            }
+          });
+        }
+
         // onReconnected 的触发由 wsHandlers 中 connected 消息的 resumed 字段决定
         // 这里仅在非首次连接 + 非 resumed 时触发（见 wsHandlers 中的处理）
         if (isFirstConnectRef.current) {
@@ -617,6 +632,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+    }
+
+    // 会议内远程控制（dev 门控）：注销控制域主 WS 发送器
+    if (isDevControl()) {
+      registerControlSessionWsSender(null);
     }
 
     setConnected(false);
@@ -764,6 +784,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     return () => { newMessageListeners.current.delete(callback); };
   }, []);
 
+  /** 转发写穿：本机发出的消息不会有 WS 回显（后端只推接收方 + 发送者其他设备），
+   *  由转发路径构造本地帧走这里，让打开中的目标会话消息流即时上屏。 */
+  const emitLocalNewMessage = useCallback((msg: WsNewMessage) => {
+    newMessageListeners.current.forEach(cb => cb(msg));
+  }, []);
+
   const onMessageRecalled = useCallback((callback: (msg: WsMessageRecalled) => void) => {
     recalledListeners.current.add(callback);
     return () => { recalledListeners.current.delete(callback); };
@@ -832,6 +858,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     updateLastMessage,
     refreshLastMessagePreview,
     onNewMessage,
+    emitLocalNewMessage,
     onMessageRecalled,
     onSystemNotification,
     onReadSync,
@@ -853,6 +880,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     updateLastMessage,
     refreshLastMessagePreview,
     onNewMessage,
+    emitLocalNewMessage,
     onMessageRecalled,
     onSystemNotification,
     onReadSync,

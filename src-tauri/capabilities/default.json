@@ -3,7 +3,7 @@
   "identifier": "desktop-default",
   "description": "桌面端权限配置 (Windows/macOS/Linux)",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "editor", "huanvae-guard"],
+  "windows": ["main", "meeting", "media", "lan-transfer", "theme-editor", "editor", "huanvae-guard", "remote-control"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -28,6 +28,7 @@
     "os:allow-version",
     "core:window:allow-create",
     "core:window:allow-close",
+    "core:window:allow-destroy",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",

@@ -20,6 +20,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSession } from '../../contexts/SessionContext';
 import { selectFilesForTransfer, cleanupTempFiles, type FilePreparationStatus } from '../../utils/androidFileHandler';
 import { createTempCleanupTracker } from '../../lanTransfer/tempCleanupTracker';
+import { resolveHashingTargetDevice } from '../../lanTransfer/batchProgressAttribution';
+import {
+  deriveFileCounts,
+  describeBatchDirection,
+  describeBatchOutcome,
+  describeBatchFailure,
+  formatBatchCardTitle,
+} from '../../lanTransfer/batchDisplay';
 import {
   useLanTransfer,
   type DiscoveredDevice,
@@ -51,6 +59,9 @@ interface DebugInfo {
   allInterfaces: Array<{ name: string; ip: string }>;
   deviceId: string;
   hostname: string;
+  /** D-12：从 get_lan_transfer_network_info 拉真实值（可能拿不到，null = 未知） */
+  servicePort: number | null;
+  mdnsServiceType: string | null;
 }
 
 // ============================================
@@ -225,9 +236,14 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const serviceStartedRef = useRef(false);
   // 待清理的 Android 临时文件（按 sessionId 登记，传完才删）
   const tempCleanupRef = useRef(createTempCleanupTracker());
+  // D-19：cleanup 判据 —— 只停「真的跑起来」的服务（StrictMode 双挂载时首次 cleanup
+  // 触发时服务还没起来，不会把第二次挂载刚要启动的服务提前杀掉）
+  const isRunningRef = useRef(false);
+  useEffect(() => {
+    isRunningRef.current = transfer.isRunning;
+  }, [transfer.isRunning]);
 
   // 文件准备状态（Android 专用）
   const [filePreparation, setFilePreparation] = useState<FilePreparationStatus | null>(null);
@@ -239,55 +255,56 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
     setDebugLogs((prev) => [`[${timestamp}] ${message}`, ...prev.slice(0, 99)]);
   }, []);
 
-  // 获取调试信息（兼容移动端和桌面端）
+  // 获取调试信息（D-12：get_lan_transfer_network_info 已在 Rust 侧注册，
+  // 端口/mDNS 服务类型/设备 ID 均为真实值，不再有「永远检测中」的备用分支）
   const fetchDebugInfo = useCallback(async () => {
     try {
       addDebugLog('正在获取调试信息...');
 
-      // 尝试获取网络信息
       const networkInfo = await invoke<{
-        local_ip: string;
-        interfaces: Array<[string, string]>;
-        device_id: string;
+        local_ip?: string;
+        port?: number;
+        mdns_service_type?: string;
+        device_id?: string;
+        is_running?: boolean;
+        interfaces?: Array<[string, string]>;
       }>('get_lan_transfer_network_info').catch(() => null);
 
-      if (networkInfo) {
-        setDebugInfo({
-          localIp: networkInfo.local_ip,
-          allInterfaces: networkInfo.interfaces.map(([name, ip]) => ({ name, ip })),
-          deviceId: networkInfo.device_id,
-          hostname: '-',
-        });
-        addDebugLog(`✓ 本地 IP: ${networkInfo.local_ip}`);
-        addDebugLog(`✓ 设备 ID: ${networkInfo.device_id}`);
-        addDebugLog(`✓ 网络接口数: ${networkInfo.interfaces.length}`);
-      } else {
-        addDebugLog('⚠ 命令不可用，使用备用方式');
-        // 备用：从 transfer 状态获取
-        setDebugInfo({
-          localIp: '检测中...',
-          allInterfaces: [],
-          deviceId: session?.userId || '-',
-          hostname: '-',
-        });
+      if (!networkInfo) {
+        addDebugLog('⚠ 无法获取网络信息');
+        setDebugInfo(null);
+        return;
       }
+
+      setDebugInfo({
+        localIp: networkInfo.local_ip ?? '-',
+        allInterfaces: Array.isArray(networkInfo.interfaces)
+          ? networkInfo.interfaces.map(([name, ip]) => ({ name, ip }))
+          : [],
+        deviceId: networkInfo.device_id ?? '-',
+        hostname: '-',
+        servicePort: typeof networkInfo.port === 'number' ? networkInfo.port : null,
+        mdnsServiceType: networkInfo.mdns_service_type ?? null,
+      });
+      addDebugLog(`✓ 本地 IP: ${networkInfo.local_ip ?? '-'}`);
+      addDebugLog(`✓ 设备 ID: ${networkInfo.device_id ?? '-'}`);
+      addDebugLog(`✓ 服务端口: ${networkInfo.port ?? '-'}`);
     } catch (error) {
       addDebugLog(`❌ 获取调试信息失败: ${error}`);
     }
-  }, [addDebugLog, session?.userId]);
+  }, [addDebugLog]);
 
-  // 启动服务（仅在组件挂载时执行一次）
+  // 启动服务：以 session 为依赖，session 未就绪时先不启动、就绪后自动重试
+  // （原实现 deps 为 [] 且直接 return，session 晚到就永远不启动）。
+  // D-19：StrictMode 双挂载安全 —— 不用 ref 挡二次启动（那会与「无条件 stopService 清理」
+  // 组合成「启动即被停」），改为：
+  //   · 重复启动由 hook 内部去重（并发调用共享同一次 invoke）；
+  //   · cleanup 只在服务真的跑起来（isRunning）后才停；
+  //   · stopService 内部已捕获错误（D-08），不会阻塞卸载流程。
   useEffect(() => {
-    // 防止重复启动
-    if (serviceStartedRef.current) {
-      return;
-    }
-
     if (!session) {
       return;
     }
-
-    serviceStartedRef.current = true;
     const userId = session.userId;
     const nickname = session.profile?.user_nickname || userId;
     const deviceModel = getDeviceModel();
@@ -302,21 +319,23 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         addDebugLog(`❌ 服务启动失败: ${err}`);
       });
 
-    // 组件卸载时停止服务
+    // 组件卸载时停止服务（条件清理，见上方注释）
     return () => {
-      transfer.stopService();
+      if (isRunningRef.current) {
+        transfer.stopService();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session]);
 
   // 监听服务状态变化
   useEffect(() => {
     if (transfer.isRunning) {
       addDebugLog('✓ 服务状态: 运行中');
-    } else if (serviceStartedRef.current) {
+    } else if (session) {
       addDebugLog('⚠ 服务状态: 未运行');
     }
-  }, [transfer.isRunning, addDebugLog]);
+  }, [transfer.isRunning, session, addDebugLog]);
 
   // 监听设备发现
   useEffect(() => {
@@ -349,9 +368,16 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
     }
   }, [transfer.batchProgressMap, addDebugLog]);
 
-  // 传完即删：会话在进度表里出现过又消失 = 这一批落幕
+  // 传完即删：会话在进度表里出现过又消失 = 这一批落幕。
+  // 终态保留条目（D-15：失败/取消后条目留在表里展示原因）对清理来说同样已经落幕，
+  // 从「活跃集合」里排除，避免临时文件一直拖着不删。
   useEffect(() => {
-    const activeIds = new Set(transfer.batchProgressMap.keys());
+    const activeIds = new Set(
+      Array.from(transfer.batchProgressMap.entries())
+        .filter(([, bp]) =>
+          bp.outcome === undefined || bp.outcome === null || bp.outcome === 'completed')
+        .map(([sessionId]) => sessionId),
+    );
     for (const paths of tempCleanupRef.current.settle(activeIds)) {
       cleanupTempFiles(paths).catch((e) => {
         console.warn('[LanTransfer] 清理临时文件失败:', e);
@@ -562,6 +588,14 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
     exit: { x: '100%', opacity: 0, transition: { duration: 0.2 } },
   };
 
+  // D-15：整批失败横幅（终态条目保留在进度表里，这里再做页级提醒）
+  const failedBatches = Array.from(transfer.batchProgressMap.entries())
+    .filter(([, bp]) => bp.outcome === 'failed')
+    .map(([sessionId, bp]) => ({
+      sessionId,
+      message: describeBatchFailure(bp),
+    }));
+
   return (
     <motion.div
       className="mobile-lan-transfer-page"
@@ -596,6 +630,11 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         {transfer.loading && <LoadingSpinner />}
       </div>
 
+      {/* D-08：服务启停失败原因可见 */}
+      {transfer.serviceError && (
+        <div className="mobile-lan-service-error" role="alert">⚠ {transfer.serviceError}</div>
+      )}
+
       {/* 存储目录 */}
       <div className="mobile-lan-save-directory">
         <span className="save-directory-label">接收目录:</span>
@@ -628,6 +667,15 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
                   <div className="mobile-lan-debug-item">
                     <span className="label">设备 ID:</span>
                     <span className="value mono">{debugInfo.deviceId.substring(0, 16)}...</span>
+                  </div>
+                  {/* D-12：真实端口/mDNS 服务类型 */}
+                  <div className="mobile-lan-debug-item">
+                    <span className="label">服务端口:</span>
+                    <span className="value">{debugInfo.servicePort ?? '-'}</span>
+                  </div>
+                  <div className="mobile-lan-debug-item">
+                    <span className="label">mDNS 类型:</span>
+                    <span className="value mono">{debugInfo.mdnsServiceType ?? '-'}</span>
                   </div>
                   {debugInfo.allInterfaces.length > 0 && (
                     <div className="mobile-lan-debug-interfaces">
@@ -734,123 +782,185 @@ export function MobileLanTransferPage({ onClose }: MobileLanTransferPageProps) {
         )}
       </AnimatePresence>
 
-      {/* 哈希计算进度（大文件预处理） */}
-      {transfer.hashingProgress && transfer.batchProgressMap.size === 0 && (
-        <div className="mobile-lan-batch-progress hashing">
-          <div className="batch-progress-header">
-            <span className="batch-progress-title">正在计算校验值...</span>
-            <span className="batch-progress-count">
-              {transfer.hashingProgress.currentFile}/{transfer.hashingProgress.totalFiles} 文件
-            </span>
+      {/* 哈希计算进度（大文件预处理）—— D-17：按会话/设备归属渲染，
+          不再被批量进度整体吞掉（归属不明时不渲染，也不全员广播） */}
+      {(() => {
+        const hashingDeviceId = resolveHashingTargetDevice(
+          transfer.hashingProgress,
+          transfer.activeSessions,
+          transfer.hashingDeviceId,
+        );
+        if (!transfer.hashingProgress || !hashingDeviceId) {
+          return null;
+        }
+        return (
+          <div className="mobile-lan-batch-progress hashing">
+            <div className="batch-progress-header">
+              <span className="batch-progress-title">正在计算校验值...</span>
+              <span className="batch-progress-count">
+                {transfer.hashingProgress.currentFile}/{transfer.hashingProgress.totalFiles} 文件
+              </span>
+            </div>
+            <div className="batch-current-file">
+              {transfer.hashingProgress.fileName}
+            </div>
+            <div className="batch-progress-bar">
+              <div
+                className="batch-progress-fill hashing"
+                style={{
+                  width: `${transfer.hashingProgress.fileSize > 0
+                    ? (transfer.hashingProgress.processedBytes / transfer.hashingProgress.fileSize) * 100
+                    : 0}%`,
+                }}
+              />
+            </div>
+            <div className="batch-progress-stats">
+              <span>{formatSize(transfer.hashingProgress.processedBytes)} / {formatSize(transfer.hashingProgress.fileSize)}</span>
+            </div>
           </div>
-          <div className="batch-current-file">
-            {transfer.hashingProgress.fileName}
-          </div>
-          <div className="batch-progress-bar">
-            <div
-              className="batch-progress-fill hashing"
-              style={{
-                width: `${transfer.hashingProgress.fileSize > 0
-                  ? (transfer.hashingProgress.processedBytes / transfer.hashingProgress.fileSize) * 100
-                  : 0}%`,
-              }}
-            />
-          </div>
-          <div className="batch-progress-stats">
-            <span>{formatSize(transfer.hashingProgress.processedBytes)} / {formatSize(transfer.hashingProgress.fileSize)}</span>
-          </div>
+        );
+      })()}
+
+      {/* D-15：整批失败可见错误横幅 */}
+      {failedBatches.length > 0 && (
+        <div className="mobile-lan-batch-error-banner" role="alert">
+          {failedBatches.map(({ sessionId, message }) => (
+            <div key={sessionId} className="mobile-lan-batch-error-item">
+              <span className="mobile-lan-batch-error-text">⚠ {message}</span>
+              <button
+                className="mobile-lan-batch-error-dismiss"
+                onClick={() => transfer.dismissBatchSession(sessionId)}
+              >
+                关闭
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
       {/* 批量传输进度（支持多个并行会话） */}
-      {Array.from(transfer.batchProgressMap.entries()).map(([sessionId, bp]) => (
-        <div key={sessionId} className="mobile-lan-batch-progress">
-          <div className="batch-progress-header">
-            <span className="batch-progress-title">
-              批量传输 {transfer.batchProgressMap.size > 1 ? `#${Array.from(transfer.batchProgressMap.keys()).indexOf(sessionId) + 1}` : ''}
-            </span>
-            <span className="batch-progress-count">
-              {bp.completedFiles}/{bp.totalFiles} 文件
-            </span>
-            <button
-              className="batch-cancel-btn"
-              onClick={() => transfer.cancelSession(sessionId)}
-            >
-              全部取消
-            </button>
-          </div>
-
-          {/* 文件列表 */}
-          {bp.files && bp.files.length > 0 && (
-            <div className="mobile-lan-file-list">
-              {bp.files.map((file) => {
-                const filePercentage = file.fileSize > 0
-                  ? (file.transferredBytes / file.fileSize) * 100
-                  : 0;
-                const canCancel = file.status === 'pending' || file.status === 'transferring';
-                // 根据状态获取标签
-                const getStatusLabel = (): string => {
-                  switch (file.status) {
-                    case 'completed': return '✓';
-                    case 'failed': return '✗';
-                    case 'cancelled': return '已跳过';
-                    default: return '';
-                  }
-                };
-                const statusLabel = getStatusLabel();
-
-                return (
-                  <div key={file.fileId} className={`mobile-lan-file-item ${file.status}`}>
-                    <div className="mobile-lan-file-info">
-                      <div className="mobile-lan-file-name" title={file.fileName}>
-                        {file.fileName}
-                      </div>
-                      <div className="mobile-lan-file-progress-bar">
-                        <div
-                          className={`mobile-lan-file-progress-fill ${file.status}`}
-                          style={{ width: `${filePercentage}%` }}
-                        />
-                      </div>
-                      <div className="mobile-lan-file-stats">
-                        <span>{formatSize(file.transferredBytes)} / {formatSize(file.fileSize)}</span>
-                        {statusLabel && <span className={`mobile-lan-file-status ${file.status}`}>{statusLabel}</span>}
-                      </div>
-                    </div>
-                    {canCancel && (
-                      <button
-                        className="mobile-lan-file-cancel-btn"
-                        onClick={() => transfer.cancelFileTransfer(file.fileId)}
-                        title="跳过此文件"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+      {Array.from(transfer.batchProgressMap.entries()).map(([sessionId, bp], index) => {
+        // D-22：方向+对端 —— 优先 payload 直读（direction/peerDeviceName），回退会话表
+        const meta = describeBatchDirection(bp, transfer.activeSessions);
+        const title = formatBatchCardTitle(meta);
+        // D-23：计数由 files 数组状态推导，不再直接用后端 completed_files
+        const counts = deriveFileCounts(bp.files);
+        const outcomeInfo = describeBatchOutcome(bp.outcome);
+        const isTerminal =
+          bp.outcome !== undefined &&
+          bp.outcome !== null &&
+          bp.outcome !== 'completed';
+        return (
+          <div key={sessionId} className="mobile-lan-batch-progress">
+            <div className="batch-progress-header">
+              <span className="batch-progress-title">
+                {title}
+                {transfer.batchProgressMap.size > 1 ? ` #${index + 1}` : ''}
+              </span>
+              {outcomeInfo && (
+                <span className={`batch-outcome-badge ${outcomeInfo.className}`}>
+                  {outcomeInfo.label}
+                </span>
+              )}
+              <span className="batch-progress-count">
+                {counts.completed}/{counts.total} 文件
+                {counts.cancelled > 0 ? ` · 已跳过 ${counts.cancelled}` : ''}
+              </span>
+              {isTerminal ? (
+                <button
+                  className="batch-cancel-btn"
+                  onClick={() => transfer.dismissBatchSession(sessionId)}
+                >
+                  关闭
+                </button>
+              ) : (
+                <button
+                  className="batch-cancel-btn"
+                  onClick={() => transfer.cancelSession(sessionId)}
+                >
+                  全部取消
+                </button>
+              )}
             </div>
-          )}
 
-          {/* 总进度条 */}
-          <div className="batch-progress-bar">
-            <div
-              className="batch-progress-fill"
-              style={{
-                width: `${bp.totalBytes > 0
-                  ? (bp.transferredBytes / bp.totalBytes) * 100
-                  : 0}%`,
-              }}
-            />
-          </div>
-          <div className="batch-progress-stats">
-            <span>{formatSize(bp.transferredBytes)} / {formatSize(bp.totalBytes)}</span>
-            <span>{formatSpeed(bp.speed)}</span>
-            {bp.etaSeconds && (
-              <span>剩余 {formatEta(bp.etaSeconds)}</span>
+            {/* 文件列表 */}
+            {bp.files && bp.files.length > 0 && (
+              <div className="mobile-lan-file-list">
+                {bp.files.map((file) => {
+                  const filePercentage = file.fileSize > 0
+                    ? (file.transferredBytes / file.fileSize) * 100
+                    : 0;
+                  const canCancel = file.status === 'pending' || file.status === 'transferring';
+                  // 根据状态获取标签
+                  const getStatusLabel = (): string => {
+                    switch (file.status) {
+                      case 'completed': return '✓';
+                      case 'failed': return '✗';
+                      case 'cancelled': return '已跳过';
+                      default: return '';
+                    }
+                  };
+                  const statusLabel = getStatusLabel();
+
+                  return (
+                    <div key={file.fileId} className={`mobile-lan-file-item ${file.status}`}>
+                      <div className="mobile-lan-file-info">
+                        <div className="mobile-lan-file-name" title={file.fileName}>
+                          {file.fileName}
+                        </div>
+                        <div className="mobile-lan-file-progress-bar">
+                          <div
+                            className={`mobile-lan-file-progress-fill ${file.status}`}
+                            style={{ width: `${filePercentage}%` }}
+                          />
+                        </div>
+                        <div className="mobile-lan-file-stats">
+                          <span>{formatSize(file.transferredBytes)} / {formatSize(file.fileSize)}</span>
+                          {statusLabel && <span className={`mobile-lan-file-status ${file.status}`}>{statusLabel}</span>}
+                        </div>
+                        {/* D-15：失败原因行内展示 */}
+                        {file.error && (
+                          <div className="mobile-lan-file-error" title={file.error}>
+                            {file.error}
+                          </div>
+                        )}
+                      </div>
+                      {canCancel && (
+                        <button
+                          className="mobile-lan-file-cancel-btn"
+                          onClick={() => transfer.cancelFileTransfer(file.fileId)}
+                          title="跳过此文件"
+                        >
+                        ✕
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
+
+            {/* 总进度条 */}
+            <div className="batch-progress-bar">
+              <div
+                className="batch-progress-fill"
+                style={{
+                  width: `${bp.totalBytes > 0
+                    ? (bp.transferredBytes / bp.totalBytes) * 100
+                    : 0}%`,
+                }}
+              />
+            </div>
+            <div className="batch-progress-stats">
+              <span>{formatSize(bp.transferredBytes)} / {formatSize(bp.totalBytes)}</span>
+              <span>{formatSpeed(bp.speed)}</span>
+              {bp.etaSeconds && (
+                <span>剩余 {formatEta(bp.etaSeconds)}</span>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* 设备列表 */}
       <div className="mobile-lan-transfer-content">

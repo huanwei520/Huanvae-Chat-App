@@ -60,6 +60,8 @@ export interface CreateRoomRequest {
   password?: string;
   /** 最大人数（默认10，最大50） */
   max_participants?: number;
+  /** 创建者设备标识（可选，8.2 同账号同设备重复入会顶替用） */
+  device_id?: string;
   // 注意：expires_minutes 已移除，房间现在无限时长，仅空置后自动清理
 }
 
@@ -86,6 +88,17 @@ export interface JoinRoomRequest {
   display_name: string;
   /** 头像URL（可选） */
   avatar_url?: string;
+  /** 登录用户的用户 ID（可选，登录用户入会时传入；8.2 同账号同设备重复入会顶替用） */
+  user_id?: string;
+  /** 设备标识（可选，8.2 同账号同设备重复入会顶替用） */
+  device_id?: string;
+}
+
+/** 被踢出消息（服务器→客户端，定向：8.2 同账号同设备重复入会时旧会话收到） */
+export interface KickedMessage {
+  type: 'kicked';
+  /** 被踢原因（机器可读）：session_replaced=被同账号同设备的新入会会话顶替 */
+  reason: string;
 }
 
 /** 加入房间响应 */
@@ -213,6 +226,7 @@ export type ServerMessage =
   | RoomClosedMessage
   | ErrorMessage
   | PongMessage
+  | KickedMessage
   | MediaTypeServerMessage
   | MediaStateChangedMessage;
 
@@ -258,6 +272,8 @@ export function createRoom(
  * @param roomId - 房间号
  * @param password - 密码
  * @param displayName - 显示名称
+ * @param avatarUrl - 头像URL（可选）
+ * @param identity - 入会身份（可选，8.2 同账号同设备重复入会顶替用）
  */
 export function joinRoom(
   api: ApiClient,
@@ -265,6 +281,7 @@ export function joinRoom(
   password: string,
   displayName: string,
   avatarUrl?: string,
+  identity?: { userId?: string; deviceId?: string },
 ): Promise<JoinRoomResponse> {
   const body: JoinRoomRequest = {
     password,
@@ -272,6 +289,12 @@ export function joinRoom(
   };
   if (avatarUrl) {
     body.avatar_url = avatarUrl;
+  }
+  if (identity?.userId) {
+    body.user_id = identity.userId;
+  }
+  if (identity?.deviceId) {
+    body.device_id = identity.deviceId;
   }
   return api.post<JoinRoomResponse>(
     `/api/webrtc/rooms/${roomId}/join`,

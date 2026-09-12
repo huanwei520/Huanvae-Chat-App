@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // 稳定的 api 引用（组件 useEffect 依赖 [api, botUserId]，不稳定会导致重复 fetch）
 const apiMock = vi.hoisted(() => ({}));
@@ -46,6 +46,7 @@ vi.mock('../../src/api/bots', async (orig) => ({
 import { ChatInputArea } from '../../src/chat/shared/ChatInputArea';
 import { useChatStore } from '../../src/stores/chatStore';
 import { useBotCommandsStore } from '../../src/stores/botCommandsStore';
+import { useSettingsStore } from '../../src/stores/settingsStore';
 import type { Friend } from '../../src/types/chat';
 
 const BOT_FRIEND: Friend = {
@@ -84,6 +85,13 @@ beforeEach(() => {
 
 function typeInput(value: string) {
   fireEvent.change(screen.getByRole('textbox'), { target: { value } });
+}
+
+/** act 包裹的开关切换（store 变更会触发被渲染组件的同步重渲染） */
+function setEnterSends(enabled: boolean) {
+  act(() => {
+    useSettingsStore.getState().setEnterSendsMessage(enabled);
+  });
 }
 
 describe('ChatInputArea 斜杠命令面板', () => {
@@ -137,13 +145,18 @@ describe('ChatInputArea 斜杠命令面板', () => {
   });
 });
 
-// —— IME(输入法)组字 vs 普通回车发送 ——
-// 覆盖 Mac 中文输入法：组字确认候选词的 Enter 不发送；组字结束后的 Enter 才发送。
+// —— IME(输入法)组字 vs 回车 —— 与「回车发送」开关 ——
+// 默认（开关关）：Enter=换行不发送（不拦截默认行为），Shift+Enter 同样换行；
+// 开关开（设置→聊天输入→回车发送消息）：Enter=发送、Shift+Enter=换行 —— 桌面既有习惯由开关恢复。
+// 两档下 IME 组字确认候选词的 Enter 都绝不发送。
 // 用 friend 会话（非 bot）→ 斜杠面板恒关，Enter 直连发送主路径。
+// 开关状态用真实 settingsStore 切换（zustand，无 persist 副作用泄漏到其它用例）。
 describe('ChatInputArea 输入法组字回车不误发', () => {
   beforeEach(() => {
     // 覆盖顶层 beforeEach 的 bot 目标：friend 会话下斜杠面板恒关
     useChatStore.getState().setChatTarget({ type: 'friend', data: BOT_FRIEND });
+    // 回车发送开关回到默认（关闭）
+    setEnterSends(false);
   });
 
   function typeAndGetTextarea(value: string) {
@@ -151,15 +164,19 @@ describe('ChatInputArea 输入法组字回车不误发', () => {
     return screen.getByRole('textbox') as HTMLTextAreaElement;
   }
 
-  it('普通回车（非组字）→ 发送', () => {
+  it('默认档（开关关）：普通回车（非组字）→ 不发送、不拦截默认行为（换行）', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     const ta = typeAndGetTextarea('你好');
-    fireEvent.keyDown(ta, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledTimes(1);
+    const native = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(native, 'preventDefault');
+    fireEvent(ta, native);
+    expect(onSend).not.toHaveBeenCalled();
+    // 未 preventDefault ⇒ 浏览器原生换行得以发生
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
   });
 
-  it('Shift+Enter → 换行，不发送', () => {
+  it('默认档：Shift+Enter → 换行，不发送', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     const ta = typeAndGetTextarea('你好');
@@ -167,38 +184,79 @@ describe('ChatInputArea 输入法组字回车不误发', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('isComposing=true 的回车（确认候选词）→ 不发送', () => {
+  it('开关开：普通回车（非组字）→ 发送', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
+    setEnterSends(true);
+    const ta = typeAndGetTextarea('你好');
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('开关开：Shift+Enter → 换行，不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    setEnterSends(true);
+    const ta = typeAndGetTextarea('你好');
+    fireEvent.keyDown(ta, { key: 'Enter', shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('开关开：isComposing=true 的回车（确认候选词）→ 不发送', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    setEnterSends(true);
     const ta = typeAndGetTextarea('nihao');
     fireEvent.keyDown(ta, { key: 'Enter', isComposing: true });
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('keyCode=229 的回车（旧内核组字键码）→ 不发送', () => {
+  it('开关开：keyCode=229 的回车（旧内核组字键码）→ 不发送', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
+    setEnterSends(true);
     const ta = typeAndGetTextarea('nihao');
     fireEvent.keyDown(ta, { key: 'Enter', keyCode: 229 });
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('compositionstart 后回车（isComposing 未随 keydown 置位的内核）→ 不发送', () => {
+  it('开关开：compositionstart 后回车（isComposing 未随 keydown 置位的内核）→ 不发送', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
+    setEnterSends(true);
     const ta = typeAndGetTextarea('nihao');
     fireEvent.compositionStart(ta);
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('compositionend 之后回车 → 发送', () => {
+  it('开关开：compositionend 之后回车 → 发送', () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
+    setEnterSends(true);
     const ta = typeAndGetTextarea('你好');
     fireEvent.compositionStart(ta);
     fireEvent.compositionEnd(ta);
     fireEvent.keyDown(ta, { key: 'Enter' });
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('移动软键盘契约：enterKeyHint 随开关切换（关=enter 换行键，开=send 发送键）', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    let ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(ta.getAttribute('enterkeyhint')).toBe('enter');
+
+    setEnterSends(true);
+    ta = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(ta.getAttribute('enterkeyhint')).toBe('send');
+  });
+
+  it('placeholder 随开关提示当前回车行为', () => {
+    render(<Harness onSend={vi.fn()} />);
+    expect(screen.getByPlaceholderText('输入消息... (Enter 换行)')).toBeInTheDocument();
+
+    setEnterSends(true);
+    expect(screen.getByPlaceholderText('输入消息... (Shift+Enter 换行)')).toBeInTheDocument();
   });
 });

@@ -55,6 +55,10 @@ import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp } from '../services/discovery';
 import { isMobile } from '../utils/platform';
 import {
+  isAndroidScreenShareSupported,
+  startAndroidScreenShare,
+} from './androidScreenShare';
+import {
   buildAudioConstraints,
   getSelectedAudioInputId,
   setSelectedAudioInputId,
@@ -1092,6 +1096,18 @@ export function useWebRTC(): UseWebRTCReturn {
         lastPongAtRef.current = Date.now();
         break;
 
+      case 'kicked':
+        // 8.2 同账号同设备重复入会：本会话被新会话顶替。服务端随后主动断开本 WS，
+        // 禁止重连（否则旧会话会以新 join 无限复活，顶替规则失效）。
+        suppressReconnectRef.current = true;
+        setError(
+          msg.reason === 'session_replaced'
+            ? '本账号已在本设备的其他会议窗口入会，当前会话已被替换'
+            : `已被移出会议: ${msg.reason}`,
+        );
+        setMeetingState('error');
+        break;
+
       case 'room_closed':
         suppressReconnectRef.current = true;
         setError(`房间已关闭: ${msg.reason}`);
@@ -1403,14 +1419,26 @@ export function useWebRTC(): UseWebRTCReturn {
         const frameRate = settings?.frameRate ?? 60;
         const { width, height } = RESOLUTION_MAP[resolution];
 
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            frameRate: { ideal: frameRate, max: frameRate },
-            width: { ideal: width },
-            height: { ideal: height },
-          },
-          audio: false,
-        });
+        // 取流分流：Android WebView 不支持 getDisplayMedia，屏幕画面由原生
+        // MediaProjection 插件（tauri-plugin-screen-capture）采集后经 canvas
+        // captureStream 注入（对齐桌面同一 WebRTC 链路）；桌面/其他平台走原
+        // 路径零改动。安卓侧帧经 IPC 下行，默认限 720p/10fps。
+        const stream = isAndroidScreenShareSupported()
+          ? (
+            await startAndroidScreenShare({
+              width: Math.min(width, 1280),
+              height: Math.min(height, 720),
+              fps: Math.min(frameRate, 10),
+            })
+          ).stream
+          : await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              frameRate: { ideal: frameRate, max: frameRate },
+              width: { ideal: width },
+              height: { ideal: height },
+            },
+            audio: false,
+          });
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
 
@@ -1504,6 +1532,11 @@ export function useWebRTC(): UseWebRTCReturn {
     };
 
     ws.onmessage = (event) => {
+      // 8.2 顶替后旧 WS 被服务端关闭/被新连接替换时，残留帧不得再进共享 handler：
+      // 否则旧会话的 kicked 会在新会话页面误报「被顶替」。仅处理当前套接字的消息。
+      if (wsRef.current !== ws) {
+        return;
+      }
       try {
         const msg = JSON.parse(event.data as string) as ServerMessage;
         handleMessageRef.current(msg);
@@ -1520,6 +1553,10 @@ export function useWebRTC(): UseWebRTCReturn {
       if (heartbeat) {
         clearInterval(heartbeat);
         heartbeat = null;
+      }
+      // 8.2：被顶替/替换后的陈旧套接字关闭不得触发重连（否则旧会话会以新 join 无限复活）
+      if (wsRef.current !== ws) {
+        return;
       }
       if (shouldReconnectOnClose(event.code, suppressReconnectRef.current, pongTimedOut)) {
         scheduleReconnectRef.current();

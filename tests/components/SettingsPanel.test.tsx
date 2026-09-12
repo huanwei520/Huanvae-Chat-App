@@ -48,10 +48,14 @@ vi.mock('../../src/stores/settingsStore', () => ({
     fileCache: {
       largeFileThresholdMB: 100,
     },
+    chatInput: {
+      enterSendsMessage: false,
+    },
     setNotificationEnabled: vi.fn(),
     setNotificationSound: vi.fn(),
     setNotificationVolume: vi.fn(),
     setLargeFileThreshold: vi.fn(),
+    setEnterSendsMessage: vi.fn(),
   }),
 }));
 
@@ -98,7 +102,9 @@ describe('设置面板组件 (SettingsPanel)', () => {
     it('应渲染分组标题', () => {
       render(<SettingsPanel onClose={mockOnClose} />);
 
+      expect(screen.getByText('聊天输入')).toBeInTheDocument();
       expect(screen.getByText('通知与提醒')).toBeInTheDocument();
+      expect(screen.getByText('会议音频')).toBeInTheDocument();
       expect(screen.getByText('存储与数据')).toBeInTheDocument();
       expect(screen.getByText('账户与安全')).toBeInTheDocument();
       expect(screen.getByText('关于')).toBeInTheDocument();
@@ -107,6 +113,7 @@ describe('设置面板组件 (SettingsPanel)', () => {
     it('应渲染设置行标题', () => {
       render(<SettingsPanel onClose={mockOnClose} />);
 
+      expect(screen.getByText('回车发送消息')).toBeInTheDocument();
       expect(screen.getByText('消息提示音')).toBeInTheDocument();
       expect(screen.getByText('大文件直连阈值')).toBeInTheDocument();
       expect(screen.getByText('清空消息缓存')).toBeInTheDocument();
@@ -233,19 +240,23 @@ describe('设置面板组件 (SettingsPanel)', () => {
   });
 
   describe('分组结构', () => {
-    it('应渲染五个设置分组', () => {
+    it('应渲染设置分组（含「聊天输入」段与桌面端「会议音频」段）', () => {
       const { container } = render(<SettingsPanel onClose={mockOnClose} />);
 
-      // 外观、通知与提醒、存储与数据、账户与安全、关于
+      // 外观、聊天输入、会议音频（桌面端）、通知与提醒、存储与数据、账户与安全、关于
       const sections = container.querySelectorAll('.settings-section');
-      expect(sections.length).toBe(5);
+      expect(sections.length).toBe(7);
+      // 回车发送开关段（双端共享）
+      expect(screen.getByText('聊天输入')).toBeInTheDocument();
+      // 新增段只应出现在桌面端（jsdom UA 无移动关键词 → isDesktop() 恒真）
+      expect(screen.getByText('会议音频')).toBeInTheDocument();
     });
 
     it('每个分组应包含分组标题', () => {
       const { container } = render(<SettingsPanel onClose={mockOnClose} />);
 
       const sectionTitles = container.querySelectorAll('.settings-section-title');
-      expect(sectionTitles.length).toBe(5);
+      expect(sectionTitles.length).toBe(7);
     });
 
     it('消息提示音开关开启时应显示 SoundSelector', () => {

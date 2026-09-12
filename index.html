@@ -12,9 +12,15 @@
          同一手势打上本补丁后恒为 1）。注意这条【不影响】图片查看器的缩放——
          那一套走的是 src/chat/shared/useImageZoom.ts 的 touch 事件 + CSS transform，
          与浏览器页面缩放是两条独立通道。 -->
+    <!-- interactive-widget=overlays-content：软键盘弹起时 Chromium 【不】自行缩放视口（键盘直接
+         盖在内容上）。键盘跟随的唯一权威是 MainActivity 里的 WindowInsets 监听（ime() insets →
+         WebView 实际高度），双通道缩放会让输入框悬空在键盘上方一个键盘距。此 key 仅 Chrome/WebView
+         ≥108（Android）生效，桌面浏览器/Playwright 忽略，不影响其他端。缺它时旧 WebView 默认行为
+         不一致（有的 resizes-content 有的不动），正是「键盘偶发遮挡输入框」的根源之一。
+         契约测试：tests/safe-area-viewport.test.ts -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content"
     />
     <title>Tauri + React + Typescript</title>
   </head>

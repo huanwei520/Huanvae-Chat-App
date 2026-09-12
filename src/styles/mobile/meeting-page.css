@@ -403,6 +403,96 @@
   background: #dc2626;
 }
 
+/* 屏幕共享中态标识（对齐桌面 control-btn.sharing） */
+.mobile-control-btn.sharing {
+  background: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.mobile-control-btn.sharing svg {
+  color: #86efac;
+}
+
+/* 屏幕共享徽章（对齐桌面 screen-share-badge） */
+.mobile-screen-share-badge {
+  margin-left: 6px;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+}
+
+/* 屏幕共享中视频框描边（对齐桌面 participant-video.screen-sharing） */
+.mobile-participant-video.screen-sharing {
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.55);
+}
+
+/* 屏幕共享敏感内容提示弹窗 */
+.mobile-screen-share-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 24px;
+}
+
+.mobile-screen-share-confirm {
+  width: 100%;
+  max-width: 340px;
+  background: var(--bg-secondary, #1f2937);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.mobile-screen-share-confirm__title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary, #f9fafb);
+}
+
+.mobile-screen-share-confirm__body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #d1d5db);
+}
+
+.mobile-screen-share-confirm__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.mobile-screen-share-confirm__btn {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mobile-screen-share-confirm__btn.cancel {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary, #f9fafb);
+}
+
+.mobile-screen-share-confirm__btn.primary {
+  background: #22c55e;
+  color: #fff;
+}
+
+.mobile-screen-share-confirm__btn:active {
+  transform: scale(0.97);
+}
+
 /* ============================================
    会议入口页面样式
    ============================================ */

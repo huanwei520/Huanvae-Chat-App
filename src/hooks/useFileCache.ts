@@ -10,8 +10,8 @@
  * 缓存流程：
  * 1. getFileSource() 检查本地缓存
  * 2. 无缓存则获取预签名 URL
- * 3. 图片 onLoad / 视频 onPlay 触发 cacheFile()
- * 4. triggerBackgroundDownload() 调用 Rust 下载
+ * 3. 图片在 presign 取得后立即 kick 后台缓存（F2，不等 onLoad）；视频等 onPlay
+ * 4. triggerBackgroundDownload() 调用 Rust 下载（URL 过期自动重取续传，见 F1）
  * 5. 保存到 data/file/{type}/ 并更新 file_mappings 表
  * 6. 显示 LocalBadge 标识
  */
@@ -185,9 +185,30 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
         hasLocalPath: !!source.localPath,
       });
 
-      // 如果是远程文件且需要自动缓存，标记需要下载
+      // F2（2026-09-02）：presign URL 取得后立即 kick 后台缓存下载，**不等 <img> onLoad**。
+      // 旧时序「onLoad 成功后才缓存」的漏洞：接收时显示成功 ≠ 缓存已落地，重启后
+      // URL 内存缓存清空、本地又无文件，必然重走 presign+反代整链，任一环失败即不可见。
+      // 触发提前到 getFileSource 返回远程源的那一刻，切断「曾显示 ≠ 已缓存」的错位。
+      // 去重：downloadTriggeredRef 置位后 onLoad/cacheFile 不会再 kick；同一 fileUuid 的
+      // 并发 kick 由 triggerBackgroundDownload 的在飞占位 + store 任务表幂等（复用现有
+      // downloading 状态机）。传 refetch 上下文 ⇒ 下载链获得 URL 过期重取能力（F1）。
       if (!source.isLocal && autoCache && fileType === 'image') {
-        downloadTriggeredRef.current = false; // 重置，等待图片加载完成
+        if (source.presignedUrl) {
+          downloadTriggeredRef.current = true;
+          void triggerBackgroundDownload(
+            source.presignedUrl,
+            cacheKeyRef.current,
+            fileName,
+            fileType,
+            fileSize,
+            { api, urlType, fileUuid },
+          ).catch((kickError) => {
+            console.error('[useFileCache] 后台缓存下载异常:', kickError);
+          });
+        } else {
+          // 异常形态（远程却无原始 URL）：回退旧语义，等 onLoad 由 cacheFile 用 src 兑底
+          downloadTriggeredRef.current = false;
+        }
       }
     } catch (err) {
       setError(String(err));
@@ -195,7 +216,7 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
     } finally {
       setLoading(false);
     }
-  }, [api, fileUuid, fileHash, urlType, enabled, autoCache, fileType]);
+  }, [api, fileUuid, fileHash, urlType, enabled, autoCache, fileType, fileName, fileSize]);
 
   // 初始加载：mount 时（或 loadSource 依赖变化时）发起一次文件位置请求
   // —— Rust get_cached_file_path 会 stat 实际文件，不存在则清理 file_mappings 映射并返回 None
@@ -246,14 +267,16 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
 
     // 用**原始** presigned URL 下载（Rust directIpUrl 重写 host→IP + pinned client）；
     // 不能用 currentResult.src（已是反代 loopback URL，会被 directIpUrl 弄坏）。
+    // 传 refetch 上下文 ⇒ 下载链获得 URL 过期重取能力（F1）。
     await triggerBackgroundDownload(
       currentResult.presignedUrl ?? currentResult.src,
       currentKey,
       fileName,
       fileType,
       fileSize,
+      { api, urlType, fileUuid },
     );
-  }, [fileName, fileType, fileSize]);
+  }, [api, urlType, fileUuid, fileName, fileType, fileSize]);
 
   // 重新加载
   const reload = useCallback(() => {
@@ -305,10 +328,11 @@ export function useFileCache(options: UseFileCacheOptions): UseFileCacheResult {
           fileName,
           fileType,
           fileSize,
+          { api, urlType, fileUuid },
         );
       }
     }
-  }, [reload, fileName, fileType, fileSize]);
+  }, [reload, fileName, fileType, fileSize, api, urlType, fileUuid]);
 
   return {
     src: result?.src ?? null,

@@ -108,28 +108,52 @@ static FULLNAME_TO_DEVICE_ID: OnceCell<Arc<Mutex<HashMap<String, String>>>> = On
 /// key: device_id, value: 连续失败次数
 static VERIFY_FAILURE_COUNT: OnceCell<Arc<Mutex<HashMap<String, u32>>>> = OnceCell::new();
 
-/// 是否有活跃的传输任务
-/// 传输期间暂停设备验证，避免高负载时误判设备离线
-static HAS_ACTIVE_TRANSFERS: OnceCell<Arc<std::sync::atomic::AtomicBool>> = OnceCell::new();
+/// 标记为 stale 的设备（D-24：信息可能过期但保留表项）
+///
+/// 连接请求失败后 refresh_device 只标记 stale，不从设备表删除；
+/// 重试时仍能读到原表项（避免「设备点一下就消失」+ DeviceNotFound 二次失败）。
+/// mDNS 重新发现（ServiceResolved）时移除标记；确认离线（ServiceRemoved/验证失败）时随设备一并清理。
+static STALE_DEVICE_IDS: OnceCell<Arc<Mutex<std::collections::HashSet<String>>>> = OnceCell::new();
 
-/// 获取活跃传输标志
-fn get_active_transfer_flag() -> Arc<std::sync::atomic::AtomicBool> {
+/// 是否有活跃的传输任务（D-10：引用计数）
+///
+/// 传输期间暂停设备验证，避免高负载时误判设备离线。
+/// 原先为全局 bool：会话 A 先结束就把标志清掉，会话 B 仍在传输 → 传输中设备被误判离线；
+/// 改为 AtomicU32 引用计数：每个会话开始 +1 / 结束 -1，归零才恢复验证。
+static HAS_ACTIVE_TRANSFERS: OnceCell<Arc<std::sync::atomic::AtomicU32>> = OnceCell::new();
+
+/// 获取活跃传输计数器
+fn get_active_transfer_counter() -> Arc<std::sync::atomic::AtomicU32> {
     HAS_ACTIVE_TRANSFERS
-        .get_or_init(|| Arc::new(std::sync::atomic::AtomicBool::new(false)))
+        .get_or_init(|| Arc::new(std::sync::atomic::AtomicU32::new(0)))
         .clone()
 }
 
-/// 设置活跃传输状态
+/// 设置活跃传输状态（D-10：true = 计数 +1，false = 计数 -1，下限饱和到 0）
 /// 
-/// 在批量传输开始时设置为 true，结束时设置为 false。
-/// 传输期间设备验证任务会跳过验证，避免高负载时误判设备离线。
+/// 批量传输开始时 +1，结束时 -1；计数 > 0 时设备验证任务跳过验证。
 pub fn set_active_transfer(active: bool) {
-    get_active_transfer_flag().store(active, std::sync::atomic::Ordering::SeqCst);
+    use std::sync::atomic::Ordering;
+    let counter = get_active_transfer_counter();
     if active {
-        println!("[LanTransfer] 🔄 活跃传输标志已设置，暂停设备验证");
+        let prev = counter.fetch_add(1, Ordering::SeqCst);
+        if prev == 0 {
+            println!("[LanTransfer] 🔄 活跃传输计数 0→1，暂停设备验证");
+        }
     } else {
-        println!("[LanTransfer] 🔄 活跃传输标志已清除，恢复设备验证");
+        // 饱和递减：配对错误（多减）也不会下溢
+        let _ = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_sub(1))
+        });
+        if counter.load(Ordering::SeqCst) == 0 {
+            println!("[LanTransfer] 🔄 活跃传输计数归零，恢复设备验证");
+        }
     }
+}
+
+/// 重置活跃传输计数（D-09：停服清理时调用，丢弃残留计数）
+pub fn reset_active_transfer_counter() {
+    get_active_transfer_counter().store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// 获取 fullname 到 device_id 的映射表
@@ -143,6 +167,13 @@ fn get_fullname_to_device_id_map() -> Arc<Mutex<HashMap<String, String>>> {
 fn get_verify_failure_count_map() -> Arc<Mutex<HashMap<String, u32>>> {
     VERIFY_FAILURE_COUNT
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
+}
+
+/// 获取 stale 设备标记表
+fn get_stale_device_ids() -> Arc<Mutex<std::collections::HashSet<String>>> {
+    STALE_DEVICE_IDS
+        .get_or_init(|| Arc::new(Mutex::new(std::collections::HashSet::new())))
         .clone()
 }
 
@@ -347,12 +378,18 @@ pub async fn start_service(
 
     // mDNS 要求主机名必须以 .local. 结尾
     // 将主机名中的非法字符替换为连字符，并添加 .local. 后缀
-    // 同时确保名称不超过 15 字节（NetBIOS 兼容性要求）
-    let safe_hostname: String = device_name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
-        .take(15)  // 截断到 15 字符
-        .collect();
+    // S-01：追加设备 UUID 前 4 位后缀 —— 两台同型号 Android / 中文名设备清洗后可能同名，
+    // 注册相同 <name>.local. 会互相顶替导致互发现不稳定；UUID 前 4 位保证主机名唯一。
+    // 总长仍控制在 15 字节（NetBIOS 兼容性要求）：基础名 10 + '-' + 4 = 15
+    let uuid_suffix: String = device_id.chars().take(4).collect();
+    let safe_hostname: String = {
+        let base: String = device_name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+            .take(10)
+            .collect();
+        format!("{}-{}", base, uuid_suffix)
+    };
     let host_name = format!("{}.local.", safe_hostname);
 
     // 服务实例名称也需要限制在 15 字节以内
@@ -517,6 +554,15 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
         println!("[LanTransfer] 设备验证任务已停止");
     }
 
+    // D-09：取消全部在途传输并清理传输侧状态（避免「半死」状态：
+    // 服务停了但发送任务还在传/会话表残留，下次开窗旧会话被捞回来）
+    {
+        super::transfer::shutdown_all_transfers();
+        server::clear_all_upload_sessions();
+        reset_active_transfer_counter();
+        println!("[LanTransfer] 在途传输已全部取消，传输侧状态已清理");
+    }
+
     // 断开所有活跃的点对点连接
     {
         let connections = server::get_active_peer_connections_map();
@@ -564,6 +610,11 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
         devices.clear();
     }
 
+    // 清空 stale 标记（D-24）
+    {
+        get_stale_device_ids().lock().clear();
+    }
+
     // 清空 fullname 到 device_id 的映射
     {
         let map = get_fullname_to_device_id_map();
@@ -602,73 +653,35 @@ pub async fn stop_service() -> Result<(), DiscoveryError> {
 
 /// 强制刷新指定设备的信息
 ///
-/// 清除设备缓存信息，等待 mDNS 自动重新发现设备。
-/// 不会重启 browse（避免事件监听任务混乱）。
-///
-/// 工作流程：
-/// 1. 从设备列表中移除该设备
-/// 2. 清除相关映射和计数器
-/// 3. 等待 mDNS 自动重新发现（browse 仍在运行）
-///
-/// 返回值：是否成功触发刷新
+/// D-24：不再从设备表删除（删除会导致前端立即移除卡片，且重试时读不到设备
+/// 以 DeviceNotFound 二次失败），改为标记 stale —— 表项保留，重试用原表项；
+/// mDNS 重新发现时刷新信息并移除标记，确认离线时才真正移除。
 pub fn refresh_device(device_id: &str) -> Result<(), DiscoveryError> {
     let state = get_lan_transfer_state();
 
-    println!("[LanTransfer] 🔄 开始刷新设备: {}", device_id);
+    println!("[LanTransfer] 🔄 标记设备为 stale: {}", device_id);
 
-    // 1. 从设备列表中移除该设备
-    let device_info = {
-        let mut devices = state.devices.write();
-        if let Some(device) = devices.remove(device_id) {
+    // 1. 标记 stale（保留表项）
+    {
+        get_stale_device_ids().lock().insert(device_id.to_string());
+        if let Some(device) = state.devices.read().get(device_id) {
             println!(
-                "[LanTransfer] 🔄 从列表中移除: {} ({}:{})",
+                "[LanTransfer] 🔄 表项保留: {} ({}:{})",
                 device.device_name, device.ip_address, device.port
             );
-            Some((device.device_name.clone(), device.ip_address.clone()))
-        } else {
-            println!(
-                "[LanTransfer] 🔄 设备不在列表中: {}",
-                device_id
-            );
-            None
-        }
-    };
-
-    // 2. 清除 fullname 映射
-    {
-        let map = get_fullname_to_device_id_map();
-        let mut map = map.lock();
-        let fullname_to_remove: Option<String> = map
-            .iter()
-            .find(|(_, did)| *did == device_id)
-            .map(|(fname, _)| fname.clone());
-
-        if let Some(fullname) = fullname_to_remove {
-            map.remove(&fullname);
-            println!("[LanTransfer] 🔄 清除映射: {}", fullname);
         }
     }
 
-    // 3. 清除验证失败计数
+    // 2. 清除验证失败计数（给设备重新计账）
     {
         let count_map = get_verify_failure_count_map();
         let mut count_map = count_map.lock();
         count_map.remove(device_id);
     }
 
-    // 4. 发送设备离线事件（让前端也移除）
-    if device_info.is_some() {
-        let event = LanTransferEvent::DeviceLeft {
-            device_id: device_id.to_string(),
-        };
-        let _ = get_event_sender().send(event.clone());
-        emit_lan_event(&event);
-    }
-
-    // 5. 不重启 browse，mDNS 会自动重新发现设备
-    // 已有的 browse 任务会在设备重新广播时收到 ServiceResolved 事件
+    // 3. 不重启 browse，mDNS 会自动重新发现设备并刷新信息（含可能变化的 IP）
     println!(
-        "[LanTransfer] 🔄 设备已从缓存移除，等待 mDNS 自动重新发现: {}",
+        "[LanTransfer] 🔄 设备已标记 stale（信息可能过期），等待 mDNS 自动刷新: {}",
         device_id
     );
 
@@ -682,7 +695,8 @@ pub fn refresh_device(device_id: &str) -> Result<(), DiscoveryError> {
 /// 获取设备唯一标识（UUID）
 ///
 /// 使用持久化的 UUID 作为设备标识，确保重启应用后 ID 保持一致
-fn get_device_id() -> Result<String, DiscoveryError> {
+/// （D-12：get_lan_transfer_network_info 命令也需要取真实设备 ID，故 pub(crate)）
+pub(crate) fn get_device_id() -> Result<String, DiscoveryError> {
     get_or_create_device_uuid()
 }
 
@@ -757,7 +771,8 @@ async fn handle_mdns_events(
     let mut event_count = 0u64;
 
     loop {
-        match receiver.recv() {
+        // D-07c：改用异步收包，不再阻塞占用一个 tokio worker
+        match receiver.recv_async().await {
             Ok(event) => {
                 event_count += 1;
                 match event {
@@ -851,6 +866,11 @@ async fn handle_mdns_events(
                             let is_new = !devices.contains_key(&device_id);
                             devices.insert(device_id.clone(), device.clone());
 
+                            // D-24：设备已重新发现，移除 stale 标记
+                            {
+                                get_stale_device_ids().lock().remove(&device_id);
+                            }
+
                             // 重置验证失败计数
                             {
                                 let count_map = get_verify_failure_count_map();
@@ -921,7 +941,12 @@ async fn handle_mdns_events(
                             let mut devices = state.devices.write();
                             if devices.remove(&device_id).is_some() {
                                 println!("[LanTransfer] ❌ 设备离线: {}", device_id);
-                                
+
+                                // D-24：同步清理 stale 标记
+                                {
+                                    get_stale_device_ids().lock().remove(&device_id);
+                                }
+
                                 // 清理映射表
                                 {
                                     let map = get_fullname_to_device_id_map();
@@ -1011,8 +1036,8 @@ async fn run_device_verify_task(my_device_id: String) {
             break;
         }
 
-        // 检查是否有活跃传输，如果有则跳过本次验证
-        if get_active_transfer_flag().load(std::sync::atomic::Ordering::SeqCst) {
+        // 检查是否有活跃传输，如果有则跳过本次验证（D-10：引用计数 > 0 即有活跃传输）
+        if get_active_transfer_counter().load(std::sync::atomic::Ordering::SeqCst) > 0 {
             println!("[LanTransfer] 🔍 有活跃传输，跳过本次设备验证");
             continue;
         }
@@ -1117,6 +1142,11 @@ async fn run_device_verify_task(my_device_id: String) {
                         };
 
                         if removed {
+                            // D-24：同步清理 stale 标记
+                            {
+                                get_stale_device_ids().lock().remove(&device_id);
+                            }
+
                             // 清理映射表
                             {
                                 let map = get_fullname_to_device_id_map();

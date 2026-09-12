@@ -284,12 +284,15 @@ function getFileType(
 
 /**
  * 上传单个分片（使用 XMLHttpRequest 实现真实进度）
+ * 反代 URL 解析(proxyRequestUrl,未就绪短等待/超时抛错)先于 XHR 发起;拒绝经
+ * uploadChunkWithRetry 的重试/catch 链显性上报,不退化直连源站(webview 验不过私有 CA 自签 leaf)。
  */
-function uploadChunk(
+async function uploadChunk(
   url: string,
   chunk: Blob,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<void> {
+  const proxiedUrl = await proxyRequestUrl(url);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
@@ -323,7 +326,7 @@ function uploadChunk(
     xhr.timeout = 90000;
 
     // 预签名分片 URL 经回环安全反代转发(Host=逻辑域名,兼容 presigned 签名);webview 直传验不过自签 leaf。
-    xhr.open('PUT', proxyRequestUrl(url));
+    xhr.open('PUT', proxiedUrl);
     xhr.send(chunk);
   });
 }
@@ -414,7 +417,9 @@ export function useFileUpload() {
           },
         });
 
-        pushProgress({ status: 'requesting', percent: 5, statusDetail: '正在请求上传...' });
+        // 百分比归零起步（huanwei 反馈"环起步就 ~12%"）：请求检查点不再虚标 5%，
+        // 一个字节没传时环必须停在 0%，状态语义走 status/statusDetail 字段表达。
+        pushProgress({ status: 'requesting', percent: 0, statusDetail: '正在请求上传...' });
 
         // 2. 请求上传（包含图片尺寸，后端文档要求）
         const uploadInfo = await api.post<UploadRequestResponse>('/api/storage/upload/request', {
@@ -474,7 +479,8 @@ export function useFileUpload() {
         pushProgress({
           status: 'uploading',
           totalChunks,
-          percent: 10,
+          // 起步检查点不再虚标 10%：分片还没开始传，真实占比就是 0%（0 字节 ⇒ 0%）。
+          percent: 0,
           statusDetail: `0 / ${formatFileSize(file.size)}`,
         });
 
@@ -508,9 +514,13 @@ export function useFileUpload() {
             resolvedPartUrl,
             chunk,
             (chunkLoaded, _chunkTotal) => {
-              // 计算总进度：已完成分片 + 当前分片已上传
+              // 计算总进度：已完成分片 + 当前分片已上传。
+              // 真实字节占比 × 95：上限给"确认中"的 95 检查点留位，最后一帧恰好满量时
+              // confirming 不会回退（进度单调不减）；除零防护：total=0（空文件）时恒 0%，
+              // 不会算出 NaN 污染下游（NaN 会让环画成满环伪影 + "NaN%" 文本）。
+              // 修复前是 10 + x*80：一个字节没传就虚标 10%，真实 2.5% 时显示成 12%。
               const totalUploaded = completedChunksSize + chunkLoaded;
-              const uploadPercent = 10 + (totalUploaded / file.size) * 80; // 10%-90%
+              const uploadPercent = file.size > 0 ? (totalUploaded / file.size) * 95 : 0;
               pushProgress({
                 percent: uploadPercent,
                 loaded: totalUploaded,

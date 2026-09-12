@@ -62,6 +62,10 @@ export interface ForwardSource {
   is_recalled: boolean;
   /** 客户端发送态：仍在途 / 已失败的消息没有服务端身份，不能转发 */
   sendStatus?: 'sending' | 'sent' | 'failed' | string;
+  /** 原图宽高（仅图片）：转发本地写穿（forwardEcho）要用它渲染正确宽高比。
+   *  不进发送请求体 —— 后端按复用的 file_uuid 自行下发尺寸，请求体带了也没人读。 */
+  image_width?: number | null;
+  image_height?: number | null;
 }
 
 /** 私聊 `Message` 与群聊 `GroupMessage` 共有的那部分形状（两者都结构满足） */
@@ -75,6 +79,8 @@ export interface ForwardableLike {
   send_time: string;
   is_recalled: boolean;
   sendStatus?: string;
+  image_width?: number | null;
+  image_height?: number | null;
 }
 
 /**
@@ -93,6 +99,8 @@ export function toForwardSource(m: ForwardableLike, senderName: string): Forward
     senderName,
     is_recalled: m.is_recalled,
     sendStatus: m.sendStatus,
+    image_width: m.image_width ?? null,
+    image_height: m.image_height ?? null,
   };
 }
 

@@ -39,6 +39,9 @@
  * - 如果已存在连接，返回现有 connectionId 而不是创建新连接
  *
  * 更新日志：
+ * - 2026-02: D-08 服务启停错误入 serviceError；D-15 失败原因入文件级状态、终态条目保留；
+ *   D-16 仅发起方写 currentConnection；D-17 哈希进度按发起目标归属；D-18 删除死状态 paused；
+ *   D-12 调试事件真实计数；批量 payload 增补 direction/peer（D-01/D-22 归属依据）
  * - 2026-02-04: 移除旧版传输请求模式 (sendTransferRequest/respondToTransferRequest)
  * - 2026-01-25: 修复设备 IP 不更新、批量进度不更新、取消按钮不工作问题
  * - 2026-01-25: 支持多个并行传输会话（batchProgressMap）
@@ -107,7 +110,7 @@ export interface TransferTask {
   file: FileMetadata;
   direction: 'send' | 'receive';
   targetDevice: DiscoveredDevice;
-  status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   transferredBytes: number;
   speed: number;
   startedAt: string;
@@ -117,7 +120,7 @@ export interface TransferTask {
 /** 文件传输状态 */
 export interface FileTransferState {
   file: FileMetadata;
-  status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   transferredBytes: number;
   resumeInfo?: ResumeInfo;
 }
@@ -138,14 +141,17 @@ export interface TransferSession {
   requestId: string;
   files: FileTransferState[];
   filePaths: string[];
-  status: 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'transferring' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
   targetDevice: DiscoveredDevice;
   direction: 'send' | 'receive';
 }
 
-/** 传输状态 */
-export type TransferStatus = 'pending' | 'transferring' | 'paused' | 'completed' | 'failed' | 'cancelled';
+/** 传输状态（D-18：paused 是无人产出的死状态，已从状态机删除） */
+export type TransferStatus = 'pending' | 'transferring' | 'completed' | 'failed' | 'cancelled';
+
+/** 批量会话终态（Rust 增补字段，可能缺省） */
+export type BatchOutcome = 'completed' | 'cancelled' | 'failed' | 'partial';
 
 /** 单文件进度信息（用于前端显示文件列表） */
 export interface FileProgressInfo {
@@ -159,6 +165,8 @@ export interface FileProgressInfo {
   transferredBytes: number;
   /** 传输状态 */
   status: TransferStatus;
+  /** 失败原因（transfer_failed / failed_files 下发，D-15：不再丢弃） */
+  error?: string;
 }
 
 /** 批量传输进度 */
@@ -173,6 +181,14 @@ export interface BatchTransferProgress {
   etaSeconds?: number;
   /** 每个文件的进度信息 */
   files?: FileProgressInfo[];
+  /** 传输方向（Rust 增补，可能缺省；归属/展示优先于会话表回退） */
+  direction?: 'send' | 'receive';
+  /** 对端设备 ID（Rust 增补，可能缺省） */
+  peerDeviceId?: string;
+  /** 对端设备名（Rust 增补，可能缺省） */
+  peerDeviceName?: string;
+  /** 会话终态（batch_transfer_completed 下发；completed 的条目被移除，其余保留展示失败原因） */
+  outcome?: BatchOutcome;
 }
 
 /** 信任设备 */
@@ -221,7 +237,16 @@ export type LanTransferEvent =
   | { type: 'transfer_progress'; task: TransferTask }
   | { type: 'batch_progress'; progress: BatchTransferProgress }
   | { type: 'transfer_completed'; task_id: string; saved_path: string }
-  | { type: 'batch_transfer_completed'; session_id: string; total_files: number; save_directory: string }
+  | {
+      type: 'batch_transfer_completed';
+      session_id: string;
+      total_files: number;
+      save_directory: string;
+      /** 会话终态（Rust 增补，可能缺省；缺省按 completed 处理） */
+      outcome?: BatchOutcome;
+      /** 失败文件清单（Rust 增补，可能缺省） */
+      failed_files?: Array<{ file_id?: string; file_name?: string; error?: string }>;
+    }
   | { type: 'transfer_failed'; task_id: string; error: string }
   | { type: 'service_state_changed'; is_running: boolean }
   // 哈希计算进度（大文件预处理时显示）
@@ -243,12 +268,20 @@ export interface UseLanTransferReturn {
   batchProgressMap: Map<string, BatchTransferProgress>;
   /** 哈希计算进度（大文件预处理时显示） */
   hashingProgress: HashingProgress | null;
+  /** 哈希进度归属的设备 ID（D-17；null = 交给会话表回退判定，UI 不得全员广播） */
+  hashingDeviceId: string | null;
   /** 活跃的传输会话 */
   activeSessions: TransferSession[];
   /** 保存目录 */
   saveDirectory: string;
   /** 配置 */
   config: LanTransferConfig | null;
+  /** 服务启停错误信息（D-08：不再吞错，供 UI 服务状态区展示；null = 无错误） */
+  serviceError: string | null;
+  /** 已收到的局域网传输事件总数（D-12：调试面板真实计数） */
+  eventCount: number;
+  /** 最后一次收到的事件类型名 */
+  lastEvent: string | null;
 
   // ========== 点对点连接（新版） ==========
   /** 活跃的点对点连接 */
@@ -287,6 +320,8 @@ export interface UseLanTransferReturn {
   cancelFileTransfer: (fileId: string) => Promise<void>;
   /** 取消传输会话 */
   cancelSession: (sessionId: string) => Promise<void>;
+  /** 关闭已终结的批量条目（失败/取消/部分完成后保留在进度表里的终态卡片） */
+  dismissBatchSession: (sessionId: string) => void;
 
   // ========== 配置管理 ==========
   /** 设置保存目录 */
@@ -329,28 +364,66 @@ export function useLanTransfer(): UseLanTransferReturn {
   const [pendingPeerConnectionRequests, setPendingPeerConnectionRequests] = useState<PeerConnectionRequest[]>([]);
   const [currentConnection, setCurrentConnection] = useState<PeerConnection | null>(null);
 
+  // D-08：服务启停错误不再吞掉，供 UI 服务状态区展示
+  const [serviceError, setServiceError] = useState<string | null>(null);
+  // D-12：调试面板真实事件计数
+  const [eventCount, setEventCount] = useState(0);
+  const [lastEvent, setLastEvent] = useState<string | null>(null);
+  // D-17：哈希进度归属（发起发送时锁定的目标设备；null = 交给会话表回退判定）
+  const [hashingDeviceId, setHashingDeviceId] = useState<string | null>(null);
+
+  // 事件回调里读取最新列表用的镜像（listener 只挂载一次，闭包里的 state 会过期）
+  const activeTransfersRef = useRef<TransferTask[]>([]);
+  const activeConnectionsRef = useRef<PeerConnection[]>([]);
+  useEffect(() => { activeTransfersRef.current = activeTransfers; }, [activeTransfers]);
+  useEffect(() => { activeConnectionsRef.current = activeConnections; }, [activeConnections]);
+  // 发送发起时锁定的哈希归属目标（哈希阶段先于会话落表，会话表那时还查不到这次发送）
+  const hashingTargetRef = useRef<string | null>(null);
+  // StrictMode 双挂载/重复点击时的启动去重：并发调用共享同一次 invoke
+  const startInProgressRef = useRef<Promise<void> | null>(null);
+
   // 启动服务
   const startService = useCallback(async (userId: string, userNickname: string, deviceName?: string) => {
-    if (loading) {
-      return;
+    // D-19：并发调用（StrictMode 双挂载会连跑两遍 effect）共享同一次 invoke，
+    // 避免「第二调用被 loading 挡板丢弃 → 服务永远没启动」。
+    if (startInProgressRef.current) {
+      return startInProgressRef.current;
     }
-
-    setLoading(true);
+    const run = (async () => {
+      setLoading(true);
+      setServiceError(null);
+      try {
+        await invoke('start_lan_transfer_service', { userId, userNickname, deviceName: deviceName ?? null });
+        setIsRunning(true);
+      } catch (error) {
+        // D-08/D-15：失败原因写入 serviceError 供 UI 展示，不再只进 console
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[LanTransfer] 启动服务失败:', error);
+        setIsRunning(false);
+        setServiceError(`服务启动失败：${message}`);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    startInProgressRef.current = run;
     try {
-      await invoke('start_lan_transfer_service', { userId, userNickname, deviceName: deviceName ?? null });
-      setIsRunning(true);
-    } catch (error) {
-      console.error('[LanTransfer] 启动服务失败:', error);
+      await run;
     } finally {
-      setLoading(false);
+      startInProgressRef.current = null;
     }
-  }, [loading]);
+  }, []);
 
   // 停止服务
   const stopService = useCallback(async () => {
     setLoading(true);
     try {
       await invoke('stop_lan_transfer_service');
+    } catch (error) {
+      // D-08：停止失败（如服务本就没在运行的关窗竞态）不能打断调用方的关窗/清理流程
+      console.error('[LanTransfer] 停止服务失败:', error);
+      setServiceError(`服务停止失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // 无论 invoke 成败都把本地状态清干净，UI 才能可靠地关窗/复位
       setIsRunning(false);
       setDevices([]);
       setPendingRequests([]);
@@ -358,7 +431,9 @@ export function useLanTransfer(): UseLanTransferReturn {
       setActiveConnections([]);
       setPendingPeerConnectionRequests([]);
       setCurrentConnection(null);
-    } finally {
+      setHashingProgress(null);
+      setHashingDeviceId(null);
+      hashingTargetRef.current = null;
       setLoading(false);
     }
   }, []);
@@ -412,8 +487,18 @@ export function useLanTransfer(): UseLanTransferReturn {
 
   // 向已连接的设备发送文件
   const sendFilesToPeer = useCallback(async (connectionId: string, filePaths: string[]) => {
-    const sessionId = await invoke<string>('send_files_to_peer', { connectionId, filePaths });
-    return sessionId;
+    // D-17：哈希进度归属 —— 哈希阶段先于会话落表（会话表里还查不到这次发送），
+    // 发起时按连接锁定目标设备，后续 hashing_progress 事件归属到它
+    hashingTargetRef.current = activeConnectionsRef.current.find(
+      (c) => c.connectionId === connectionId,
+    )?.peerDevice?.deviceId ?? null;
+    try {
+      const sessionId = await invoke<string>('send_files_to_peer', { connectionId, filePaths });
+      return sessionId;
+    } catch (error) {
+      hashingTargetRef.current = null;
+      throw error;
+    }
   }, []);
 
   // ========== 旧版兼容函数 ==========
@@ -443,6 +528,16 @@ export function useLanTransfer(): UseLanTransferReturn {
   // 取消传输会话
   const cancelSession = useCallback(async (requestId: string) => {
     await invoke('cancel_transfer_session', { requestId });
+  }, []);
+
+  // 关闭已终结的批量条目（失败/取消后保留在进度表里的终态卡片）
+  const dismissBatchSession = useCallback((sessionId: string) => {
+    setBatchProgressMap((prev) => {
+      const next = new Map(prev);
+      next.delete(sessionId);
+      return next;
+    });
+    sessionsFetchedForRef.current.delete(sessionId);
   }, []);
 
   // 设置保存目录
@@ -498,9 +593,18 @@ export function useLanTransfer(): UseLanTransferReturn {
     const setupListener = async () => {
       unlisten = await listen<LanTransferEvent>('lan-transfer-event', (event) => {
         const payload = event.payload;
+        if (!payload || typeof payload.type !== 'string') {
+          return;
+        }
+        // D-12：调试面板真实事件计数
+        setEventCount((c) => c + 1);
+        setLastEvent(payload.type);
 
         switch (payload.type) {
           case 'device_discovered':
+            if (!payload.device?.deviceId) {
+              break;
+            }
             setDevices((prev) => {
               const exists = prev.some((d) => d.deviceId === payload.device.deviceId);
               if (exists) {
@@ -518,6 +622,9 @@ export function useLanTransfer(): UseLanTransferReturn {
 
           // 点对点连接事件
           case 'peer_connection_request':
+            if (!payload.request?.connectionId) {
+              break;
+            }
             setPendingPeerConnectionRequests((prev) => {
               const exists = prev.some((r) => r.connectionId === payload.request.connectionId);
               if (exists) {
@@ -527,23 +634,31 @@ export function useLanTransfer(): UseLanTransferReturn {
             });
             break;
 
-          case 'peer_connection_established':
+          case 'peer_connection_established': {
+            const connection = payload.connection;
+            if (!connection?.connectionId) {
+              break;
+            }
             setActiveConnections((prev) => {
-              const exists = prev.some((c) => c.connectionId === payload.connection.connectionId);
+              const exists = prev.some((c) => c.connectionId === connection.connectionId);
               if (exists) {
                 return prev.map((c) =>
-                  c.connectionId === payload.connection.connectionId ? payload.connection : c,
+                  c.connectionId === connection.connectionId ? connection : c,
                 );
               }
-              return [...prev, payload.connection];
+              return [...prev, connection];
             });
             // 连接建立后，清理来自该设备的待处理请求（解决互相请求时的重复显示问题）
             setPendingPeerConnectionRequests((prev) =>
-              prev.filter((r) => r.fromDevice.deviceId !== payload.connection.peerDevice.deviceId),
+              prev.filter((r) => r.fromDevice?.deviceId !== connection.peerDevice?.deviceId),
             );
-            // 自动设置为当前连接（可以用于打开传输窗口）
-            setCurrentConnection(payload.connection);
+            // D-16：仅发起方写入 currentConnection —— 被动接受对方发起的连接不该
+            // 覆盖用户正在操作的连接（多连接时无条件抢占是埋雷）
+            if (connection.isInitiator === true) {
+              setCurrentConnection(connection);
+            }
             break;
+          }
 
           case 'peer_connection_closed':
             setActiveConnections((prev) =>
@@ -577,10 +692,14 @@ export function useLanTransfer(): UseLanTransferReturn {
             break;
 
           case 'batch_progress': {
-            const { sessionId } = payload.progress;
+            const progress = payload.progress;
+            if (!progress?.sessionId) {
+              break;
+            }
+            const { sessionId } = progress;
             setBatchProgressMap((prev) => {
               const newMap = new Map(prev);
-              newMap.set(sessionId, payload.progress);
+              newMap.set(sessionId, progress);
               return newMap;
             });
             // 新会话首次上报进度 → 补拉会话表，让 UI 能把进度归属到具体设备
@@ -594,13 +713,25 @@ export function useLanTransfer(): UseLanTransferReturn {
                   console.error('[LanTransfer] 获取会话列表失败:', error);
                 });
             }
-            // 传输开始后清除哈希进度
-            setHashingProgress(null);
+            // 哈希阶段结束的判定：归属设备的首条 batch_progress 到达。
+            // 只清「自己这一批」的哈希进度 —— 其它会话（如另一台设备的并行传输）的进度
+            // 不能把正在进行的哈希进度吞掉（D-17）。对端字段缺省（旧后端）时退回无条件清理。
+            const hashingTarget = hashingTargetRef.current;
+            if (
+              progress.peerDeviceId === undefined ||
+              progress.peerDeviceId === null ||
+              hashingTarget === null ||
+              progress.peerDeviceId === hashingTarget
+            ) {
+              hashingTargetRef.current = null;
+              setHashingProgress(null);
+              setHashingDeviceId(null);
+            }
             break;
           }
 
           case 'hashing_progress':
-            // 大文件哈希计算进度
+            // 大文件哈希计算进度（D-17：归属 = sendFilesToPeer 发起时锁定的目标设备）
             setHashingProgress({
               fileName: payload.file_name,
               fileSize: payload.file_size,
@@ -608,6 +739,7 @@ export function useLanTransfer(): UseLanTransferReturn {
               currentFile: payload.current_file,
               totalFiles: payload.total_files,
             });
+            setHashingDeviceId(hashingTargetRef.current);
             break;
 
           case 'transfer_completed':
@@ -616,25 +748,101 @@ export function useLanTransfer(): UseLanTransferReturn {
             );
             break;
 
-          case 'batch_transfer_completed':
+          case 'batch_transfer_completed': {
+            // D-15：终态不再无条件删条目 —— outcome!=='completed' 或带失败文件时保留
+            // 终态卡片，把失败原因合并到对应文件上，用户才能看到“哪个文件为什么失败”。
+            const outcome = payload.outcome ?? 'completed';
+            const failedFiles = Array.isArray(payload.failed_files) ? payload.failed_files : [];
+            const keepEntry = outcome !== 'completed' || failedFiles.length > 0;
             setBatchProgressMap((prev) => {
-              const newMap = new Map(prev);
-              newMap.delete(payload.session_id);
-              return newMap;
+              const next = new Map(prev);
+              const existing = next.get(payload.session_id);
+              if (!keepEntry) {
+                next.delete(payload.session_id);
+                return next;
+              }
+              const failedById = new Map<string, { file_name?: string; error?: string }>();
+              const failedByName = new Map<string, { file_name?: string; error?: string }>();
+              for (const fail of failedFiles) {
+                if (fail.file_id) { failedById.set(fail.file_id, fail); }
+                if (fail.file_name) { failedByName.set(fail.file_name, fail); }
+              }
+              const markTerminal = (f: FileProgressInfo): FileProgressInfo => {
+                const fail = failedById.get(f.fileId) ?? failedByName.get(f.fileName);
+                if (fail) {
+                  return { ...f, status: 'failed', error: fail.error ?? '传输失败' };
+                }
+                // 会话已终态：没有明确终态的残留文件不能永远挂在“传输中”
+                if (f.status === 'pending' || f.status === 'transferring') {
+                  return { ...f, status: outcome === 'cancelled' ? 'cancelled' : 'failed' };
+                }
+                return f;
+              };
+              if (existing) {
+                next.set(payload.session_id, {
+                  ...existing,
+                  outcome,
+                  files: (existing.files ?? []).map(markTerminal),
+                });
+              } else if (failedFiles.length > 0) {
+                // 终态先于任何进度事件到达：构造最小终态条目，避免失败被无声吞掉
+                next.set(payload.session_id, {
+                  sessionId: payload.session_id,
+                  totalFiles: payload.total_files ?? failedFiles.length,
+                  completedFiles: 0,
+                  totalBytes: 0,
+                  transferredBytes: 0,
+                  speed: 0,
+                  outcome,
+                  files: failedFiles.map((fail) => ({
+                    fileId: fail.file_id ?? fail.file_name ?? '',
+                    fileName: fail.file_name ?? fail.file_id ?? '未知文件',
+                    fileSize: 0,
+                    transferredBytes: 0,
+                    status: 'failed' as TransferStatus,
+                    error: fail.error ?? '传输失败',
+                  })),
+                });
+              }
+              return next;
             });
             sessionsFetchedForRef.current.delete(payload.session_id);
             // 刷新会话列表
-            invoke<TransferSession[]>('get_all_transfer_sessions').then(setActiveSessions);
+            invoke<TransferSession[]>('get_all_transfer_sessions')
+              .then(setActiveSessions)
+              .catch((error) => console.error('[LanTransfer] 获取会话列表失败:', error));
             break;
+          }
 
-          case 'transfer_failed':
+          case 'transfer_failed': {
+            // D-15：失败原因不再丢弃 —— 写入批量条目的文件级状态，供文件行内展示。
+            // task_id → sessionId/fileId 的映射借 activeTransfers 镜像完成。
+            const message = typeof payload.error === 'string' && payload.error.length > 0 ? payload.error : '传输失败';
+            const task = activeTransfersRef.current.find((t) => t.taskId === payload.task_id);
+            if (task?.sessionId && task.file?.fileId) {
+              setBatchProgressMap((prev) => {
+                const entry = prev.get(task.sessionId);
+                if (!entry) {
+                  return prev;
+                }
+                const files = (entry.files ?? []).map((f) =>
+                  f.fileId === task.file.fileId
+                    ? { ...f, status: 'failed' as TransferStatus, error: message }
+                    : f,
+                );
+                const next = new Map(prev);
+                next.set(task.sessionId, { ...entry, files });
+                return next;
+              });
+            }
             setActiveTransfers((prev) =>
               prev.filter((t) => t.taskId !== payload.task_id),
             );
             break;
+          }
 
           case 'service_state_changed':
-            setIsRunning(payload.is_running);
+            setIsRunning(payload.is_running === true);
             break;
         }
       });
@@ -727,9 +935,13 @@ export function useLanTransfer(): UseLanTransferReturn {
     activeTransfers,
     batchProgressMap,
     hashingProgress,
+    hashingDeviceId,
     activeSessions,
     saveDirectory,
     config,
+    serviceError,
+    eventCount,
+    lastEvent,
 
     // 点对点连接
     activeConnections,
@@ -752,6 +964,7 @@ export function useLanTransfer(): UseLanTransferReturn {
     cancelTransfer,
     cancelFileTransfer,
     cancelSession,
+    dismissBatchSession,
 
     // 配置管理
     setSaveDirectory,

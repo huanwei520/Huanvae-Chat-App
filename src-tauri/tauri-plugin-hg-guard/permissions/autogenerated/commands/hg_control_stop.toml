@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hg-control-stop"
+description = "Enables the hg_control_stop command without any pre-configured scope."
+commands.allow = ["hg_control_stop"]
+
+[[permission]]
+identifier = "deny-hg-control-stop"
+description = "Denies the hg_control_stop command without any pre-configured scope."
+commands.deny = ["hg_control_stop"]

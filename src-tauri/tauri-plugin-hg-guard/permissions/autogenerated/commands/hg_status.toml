@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hg-status"
+description = "Enables the hg_status command without any pre-configured scope."
+commands.allow = ["hg_status"]
+
+[[permission]]
+identifier = "deny-hg-status"
+description = "Denies the hg_status command without any pre-configured scope."
+commands.deny = ["hg_status"]

@@ -27,6 +27,8 @@ import { StockPage } from './stocks';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
 import { initSafeAreaFallback } from './utils/safeAreaFallback';
+import { ControlWindow } from './remote-control/ControlWindow';
+import { isDevControl } from './remote-control/devGate';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
@@ -71,6 +73,16 @@ function RootApp() {
     );
   }
 
+  // 会议内远程控制独立窗口（dev 门控：仅 VITE_DEV_CONTROL=1 构建可达该路由——
+  // 窗口仅由 wsHandlers N2 分支的 dev 门控代码创建；生产构建本分支恒占位页）
+  if (pathname === '/remote-control') {
+    return (
+      <ThemeProvider>
+        {isDevControl() ? <ControlWindow /> : null}
+      </ThemeProvider>
+    );
+  }
+
   // 主应用
   return (
     <ThemeProvider>
@@ -95,7 +107,11 @@ function renderApp() {
 // 做后端数据面调用的子窗口必须先从共享磁盘缓存(discovery.json,父窗口登录时已落盘)载入 active,
 // 否则 resolveForSecureHttp() 返回 null → URL 主机不被改写为 IP → 连逻辑域名(发 SNI)→ 被阿里云 ICP 拦。
 // 缓存新鲜时仅一次磁盘读(无网络),阻塞渲染极短;主窗口由 App.tsx 登录/恢复链路自行发现,不在此列。
-const DATA_PLANE_SUBWINDOWS = new Set(['/meeting', '/media', '/huanvae-guard', '/stocks']);
+const DATA_PLANE_SUBWINDOWS = new Set(
+  ['/meeting', '/media', '/huanvae-guard', '/stocks',
+    // 会议内远程控制独立窗口（dev 门控面，设计 §4.2/§8.2；生产构建窗口不可达，路由分支 inert）
+    '/remote-control'],
+);
 
 async function bootstrap(): Promise<void> {
   // 安全区兜底:老旧移动端 WebView 的 env(safe-area-inset-*) 失效时(上下同时为 0)注入固定高度

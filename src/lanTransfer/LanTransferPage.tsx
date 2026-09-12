@@ -41,7 +41,17 @@ import {
   PeerConnectionRequest,
 } from '../hooks/useLanTransfer';
 import { loadLanTransferData, clearLanTransferData } from './api';
-import { pickBatchProgressForDevice } from './batchProgressAttribution';
+import {
+  pickBatchProgressForDevice,
+  resolveHashingTargetDevice,
+} from './batchProgressAttribution';
+import {
+  deriveFileCounts,
+  describeBatchDirection,
+  describeBatchOutcome,
+  describeBatchFailure,
+  type BatchDirectionMeta,
+} from './batchDisplay';
 import './styles.css';
 
 // ============================================================================
@@ -54,11 +64,10 @@ interface DebugInfo {
   deviceId: string;
   hostname: string;
   os: string;
-  servicePort: number;
-  mdnsServiceType: string;
+  /** D-12：从 get_lan_transfer_network_info 拉真实值（可能拿不到，null = 未知） */
+  servicePort: number | null;
+  mdnsServiceType: string | null;
   startTime: string;
-  eventCount: number;
-  lastEvent: string;
 }
 
 // ============================================================================
@@ -184,7 +193,10 @@ interface DeviceCardProps {
   isConnected?: boolean;
   connection?: PeerConnection;
   batchProgress?: BatchTransferProgress | null;
+  /** D-22：卡片方向/对端元信息（页面向按 payload+会话表解析好再传下来） */
+  batchMeta?: BatchDirectionMeta | null;
   hashingProgress?: HashingProgress | null;
+  onDismissSession?: (sessionId: string) => void;
 }
 
 function DeviceCard({
@@ -199,7 +211,9 @@ function DeviceCard({
   isConnected,
   connection,
   batchProgress,
+  batchMeta,
   hashingProgress,
+  onDismissSession,
 }: DeviceCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -279,11 +293,13 @@ function DeviceCard({
           <InlineTransferPanel
             connection={connection}
             batchProgress={batchProgress ?? null}
+            batchMeta={batchMeta ?? null}
             hashingProgress={hashingProgress ?? null}
             onSendFiles={onSendFiles ?? (() => {})}
             onSendFilePaths={onSendFilePaths ?? (() => {})}
             onCancelFile={onCancelFile ?? (() => {})}
             onCancelSession={onCancelSession ?? (() => {})}
+            onDismissSession={onDismissSession}
           />
         )}
       </AnimatePresence>
@@ -376,11 +392,13 @@ function PeerConnectionRequestCard({ request, onAccept, onReject }: PeerConnecti
 interface InlineTransferPanelProps {
   connection: PeerConnection;
   batchProgress: BatchTransferProgress | null;
+  batchMeta?: BatchDirectionMeta | null;
   hashingProgress: HashingProgress | null;
   onSendFiles: () => void;
   onSendFilePaths: (paths: string[]) => void;
   onCancelFile: (fileId: string) => void;
   onCancelSession: (sessionId: string) => void;
+  onDismissSession?: (sessionId: string) => void;
 }
 
 /** 获取状态标签和样式类 */
@@ -396,8 +414,7 @@ function getStatusInfo(status: TransferStatus): { label: string; className: stri
       return { label: '失败', className: 'failed' };
     case 'cancelled':
       return { label: '已取消', className: 'cancelled' };
-    case 'paused':
-      return { label: '已暂停', className: 'paused' };
+    // D-18：paused 是无人产出的死状态，已从状态机删除
     default:
       return { label: '未知', className: '' };
   }
@@ -412,14 +429,24 @@ const globalDragDropState = {
 function InlineTransferPanel({
   connection: _connection,
   batchProgress,
+  batchMeta,
   hashingProgress,
   onSendFiles,
   onSendFilePaths,
   onCancelFile,
   onCancelSession,
+  onDismissSession,
 }: InlineTransferPanelProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  // D-23：计数由 files 数组状态推导（completed 计 completed、cancelled 单列），
+  // 不再直接用后端 completed_files（Cancelled 被计进去会造成「3/3 文件」而进度不满）
+  const counts = deriveFileCounts(batchProgress?.files);
+  const outcomeInfo = batchProgress ? describeBatchOutcome(batchProgress.outcome) : null;
+  const isTerminal =
+    batchProgress?.outcome !== undefined &&
+    batchProgress?.outcome !== null &&
+    batchProgress.outcome !== 'completed';
 
   // 处理拖放事件 - 使用全局状态避免重复注册
   useEffect(() => {
@@ -484,6 +511,22 @@ function InlineTransferPanel({
       exit={{ opacity: 0, height: 0 }}
       transition={{ duration: 0.2 }}
     >
+      {/* 方向标识 + 终态徽标（D-22：桌面卡片同样补方向标识） */}
+      {(batchMeta?.direction || outcomeInfo) && (
+        <div className="lan-batch-meta">
+          {batchMeta?.direction && (
+            <span className={`lan-direction-tag ${batchMeta.direction}`}>
+              {batchMeta.direction === 'send' ? '发送' : '接收'}
+            </span>
+          )}
+          {outcomeInfo && (
+            <span className={`lan-batch-outcome ${outcomeInfo.className}`}>
+              {outcomeInfo.label}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* 拖放区域 */}
       <div
         ref={dropZoneRef}
@@ -518,7 +561,10 @@ function InlineTransferPanel({
         <div className="lan-file-list">
           <div className="lan-file-list-header">
             <span>文件列表</span>
-            <span>{batchProgress.completedFiles}/{batchProgress.totalFiles} 文件</span>
+            <span>
+              {counts.completed}/{counts.total} 文件
+              {counts.cancelled > 0 ? ` · 已跳过 ${counts.cancelled}` : ''}
+            </span>
           </div>
           <div className="lan-file-list-items">
             {batchProgress.files.map((file) => {
@@ -549,6 +595,12 @@ function InlineTransferPanel({
                         {statusInfo.label}
                       </span>
                     </div>
+                    {/* D-15：失败原因行内展示，不再无声消失 */}
+                    {file.error && (
+                      <div className="lan-file-item-error" title={file.error}>
+                        {file.error}
+                      </div>
+                    )}
                   </div>
                   {canCancel && (
                     <button
@@ -579,12 +631,22 @@ function InlineTransferPanel({
             <span>{formatSize(batchProgress.transferredBytes)} / {formatSize(batchProgress.totalBytes)}</span>
             <span>{formatSpeed(batchProgress.speed)}</span>
             {batchProgress.etaSeconds && <span>剩余 {formatEta(batchProgress.etaSeconds)}</span>}
-            <button
-              className="lan-inline-cancel-all"
-              onClick={() => onCancelSession(batchProgress.sessionId)}
-            >
-              取消全部
-            </button>
+            {/* D-15：终态批次保留展示（失败原因/已跳过），按钮从「取消全部」变为「关闭」 */}
+            {isTerminal ? (
+              <button
+                className="lan-inline-cancel-all"
+                onClick={() => onDismissSession?.(batchProgress.sessionId)}
+              >
+                关闭
+              </button>
+            ) : (
+              <button
+                className="lan-inline-cancel-all"
+                onClick={() => onCancelSession(batchProgress.sessionId)}
+              >
+                取消全部
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -699,8 +761,12 @@ export default function LanTransferPage() {
     batchProgressMap,
     activeSessions,
     hashingProgress,
+    hashingDeviceId,
     saveDirectory,
     config,
+    serviceError,
+    eventCount,
+    lastEvent,
     // 点对点连接
     activeConnections,
     pendingPeerConnectionRequests,
@@ -715,6 +781,7 @@ export default function LanTransferPage() {
     respondToRequest,
     cancelSession,
     cancelFileTransfer,
+    dismissBatchSession,
     // 配置
     setSaveDirectory,
     openSaveDirectory,
@@ -736,33 +803,44 @@ export default function LanTransferPage() {
     try {
       addDebugLog('正在获取调试信息...');
 
-      const networkInfo = await invoke<{
-        local_ip: string;
-        interfaces: Array<[string, string]>;
-        device_id: string;
-        hostname: string;
-        os: string;
-      }>('get_lan_debug_info').catch(() => null);
+      const [debugBase, networkInfo] = await Promise.all([
+        invoke<{
+          local_ip: string;
+          interfaces: Array<[string, string]>;
+          device_id: string;
+          hostname: string;
+          os: string;
+        }>('get_lan_debug_info').catch(() => null),
+        // D-12：端口/mDNS 服务类型/设备 ID 从后端拉真实值，不再硬编码
+        invoke<{
+          local_ip?: string;
+          port?: number;
+          mdns_service_type?: string;
+          device_id?: string;
+          is_running?: boolean;
+        }>('get_lan_transfer_network_info').catch(() => null),
+      ]);
 
-      if (networkInfo) {
-        setDebugInfo({
-          localIp: networkInfo.local_ip,
-          allInterfaces: networkInfo.interfaces.map(([name, ip]) => ({ name, ip })),
-          deviceId: networkInfo.device_id,
-          hostname: networkInfo.hostname,
-          os: networkInfo.os,
-          servicePort: 53317,
-          mdnsServiceType: '_hvae-xfer._tcp.local.',
-          startTime: new Date().toISOString(),
-          eventCount: 0,
-          lastEvent: '-',
-        });
-        addDebugLog(`✓ 本地 IP: ${networkInfo.local_ip}`);
-        addDebugLog(`✓ 设备 ID: ${networkInfo.device_id}`);
-        addDebugLog(`✓ 网络接口数: ${networkInfo.interfaces.length}`);
-      } else {
+      if (!debugBase && !networkInfo) {
         addDebugLog('⚠ 无法获取调试信息');
+        return;
       }
+
+      setDebugInfo({
+        localIp: networkInfo?.local_ip ?? debugBase?.local_ip ?? '-',
+        allInterfaces: Array.isArray(debugBase?.interfaces)
+          ? debugBase.interfaces.map(([name, ip]) => ({ name, ip }))
+          : [],
+        deviceId: networkInfo?.device_id ?? debugBase?.device_id ?? '-',
+        hostname: debugBase?.hostname ?? '-',
+        os: debugBase?.os ?? '-',
+        servicePort: typeof networkInfo?.port === 'number' ? networkInfo.port : null,
+        mdnsServiceType: networkInfo?.mdns_service_type ?? null,
+        startTime: new Date().toISOString(),
+      });
+      addDebugLog(`✓ 本地 IP: ${networkInfo?.local_ip ?? debugBase?.local_ip ?? '-'}`);
+      addDebugLog(`✓ 设备 ID: ${networkInfo?.device_id ?? debugBase?.device_id ?? '-'}`);
+      addDebugLog(`✓ 服务端口: ${networkInfo?.port ?? '-'}`);
     } catch (error) {
       addDebugLog(`❌ 获取调试信息失败: ${error}`);
     }
@@ -818,6 +896,7 @@ export default function LanTransferPage() {
   useEffect(() => {
     return () => {
       if (isRunning) {
+        // D-08：stopService 内部已捕获错误，不会阻塞卸载清理
         stopService();
       }
     };
@@ -825,11 +904,15 @@ export default function LanTransferPage() {
 
   // 关闭窗口
   const handleClose = useCallback(async () => {
-    if (isRunning) {
-      await stopService();
+    try {
+      if (isRunning) {
+        await stopService();
+      }
+    } finally {
+      // D-08：即使停服务出异常也必须清数据并关窗（Esc 快按两次/清理 effect 竞态等）
+      clearLanTransferData();
+      window.close();
     }
-    clearLanTransferData();
-    window.close();
   }, [isRunning, stopService]);
 
   // 请求建立点对点连接
@@ -936,6 +1019,17 @@ export default function LanTransferPage() {
     return config?.trustedDevices?.some((d) => d.deviceId === deviceId) ?? false;
   };
 
+  // D-17：哈希进度归属 —— 只有归属设备才收到哈希进度，不再全员广播
+  const hashingTargetDeviceId = resolveHashingTargetDevice(hashingProgress, activeSessions, hashingDeviceId);
+
+  // D-15：整批失败横幅（终态条目保留在进度表里，这里再做页级提醒）
+  const failedBatches = Array.from(batchProgressMap.entries())
+    .filter(([, progress]) => progress.outcome === 'failed')
+    .map(([sessionId, progress]) => ({
+      sessionId,
+      message: describeBatchFailure(progress),
+    }));
+
   if (!userData) {
     return (
       <div className="lan-page lan-loading">
@@ -982,6 +1076,23 @@ export default function LanTransferPage() {
 
       {/* 内容区域 */}
       <main className="lan-main">
+        {/* D-15：整批失败可见错误横幅 */}
+        {failedBatches.length > 0 && (
+          <div className="lan-batch-error-banner" role="alert">
+            {failedBatches.map(({ sessionId, message }) => (
+              <div key={sessionId} className="lan-batch-error-item">
+                <span className="lan-batch-error-text">⚠ {message}</span>
+                <button
+                  className="lan-batch-error-dismiss"
+                  onClick={() => dismissBatchSession(sessionId)}
+                >
+                  关闭
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 设置面板 */}
         <AnimatePresence>
           {showSettings && (
@@ -1067,6 +1178,11 @@ export default function LanTransferPage() {
             </span>
           </div>
 
+          {/* D-08：服务启停失败原因，不再无声 */}
+          {serviceError && (
+            <div className="lan-service-error" role="alert">⚠ {serviceError}</div>
+          )}
+
           {/* 空状态 */}
           {devices.length === 0 && !loading && (
             <div className="lan-empty-state">
@@ -1081,23 +1197,33 @@ export default function LanTransferPage() {
           {/* 设备卡片列表 */}
           <div className="lan-cards-list">
             <AnimatePresence mode="popLayout">
-              {devices.map((device) => (
-                <DeviceCard
-                  key={device.deviceId}
-                  device={device}
-                  onRequestConnection={() => handleRequestConnection(device)}
-                  onSendFiles={() => handleSendFilesFromCard(device)}
-                  onSendFilePaths={(paths) => handleSendFilePathsFromCard(device, paths)}
-                  onDisconnect={() => handleDisconnectDevice(device)}
-                  onCancelFile={cancelFileTransfer}
-                  onCancelSession={cancelSession}
-                  isTrusted={isDeviceTrusted(device.deviceId)}
-                  isConnected={isDeviceConnected(device.deviceId)}
-                  connection={getConnectionForDevice(device.deviceId)}
-                  batchProgress={getBatchProgressForDevice(device.deviceId)}
-                  hashingProgress={isDeviceConnected(device.deviceId) ? hashingProgress : null}
-                />
-              ))}
+              {devices.map((device) => {
+                const progress = getBatchProgressForDevice(device.deviceId);
+                // D-22：方向+对端（payload 直读优先，会话表回退；对端名缺省时用卡片上下文的设备名兜底）
+                const batchMeta = progress ? describeBatchDirection(progress, activeSessions) : null;
+                if (batchMeta && !batchMeta.peerName) {
+                  batchMeta.peerName = device.deviceName;
+                }
+                return (
+                  <DeviceCard
+                    key={device.deviceId}
+                    device={device}
+                    onRequestConnection={() => handleRequestConnection(device)}
+                    onSendFiles={() => handleSendFilesFromCard(device)}
+                    onSendFilePaths={(paths) => handleSendFilePathsFromCard(device, paths)}
+                    onDisconnect={() => handleDisconnectDevice(device)}
+                    onCancelFile={cancelFileTransfer}
+                    onCancelSession={cancelSession}
+                    isTrusted={isDeviceTrusted(device.deviceId)}
+                    isConnected={isDeviceConnected(device.deviceId)}
+                    connection={getConnectionForDevice(device.deviceId)}
+                    batchProgress={progress}
+                    batchMeta={batchMeta}
+                    hashingProgress={hashingTargetDeviceId === device.deviceId ? hashingProgress : null}
+                    onDismissSession={dismissBatchSession}
+                  />
+                );
+              })}
             </AnimatePresence>
           </div>
         </section>
@@ -1140,11 +1266,11 @@ export default function LanTransferPage() {
                       </div>
                       <div className="lan-debug-item">
                         <span className="lan-debug-label">服务端口:</span>
-                        <span className="lan-debug-value">{debugInfo.servicePort}</span>
+                        <span className="lan-debug-value">{debugInfo.servicePort ?? '-'}</span>
                       </div>
                       <div className="lan-debug-item">
                         <span className="lan-debug-label">mDNS 类型:</span>
-                        <span className="lan-debug-value mono">{debugInfo.mdnsServiceType}</span>
+                        <span className="lan-debug-value mono">{debugInfo.mdnsServiceType ?? '-'}</span>
                       </div>
                     </div>
                   ) : (
@@ -1192,6 +1318,14 @@ export default function LanTransferPage() {
                     <div className="lan-debug-item">
                       <span className="lan-debug-label">活跃传输:</span>
                       <span className="lan-debug-value">{activeTransfers.length}</span>
+                    </div>
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">事件数:</span>
+                      <span className="lan-debug-value">{eventCount}</span>
+                    </div>
+                    <div className="lan-debug-item">
+                      <span className="lan-debug-label">最后事件:</span>
+                      <span className="lan-debug-value mono">{lastEvent ?? '-'}</span>
                     </div>
                   </div>
                 </div>

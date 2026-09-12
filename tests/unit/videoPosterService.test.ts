@@ -35,7 +35,7 @@ vi.mock('../../src/services/videoPosterCapture', async (importOriginal) => ({
   ...capture,
 }));
 
-const { loadVideoPosterSrc, captureAndSaveVideoPoster } = await import(
+const { loadVideoPosterSrc, captureAndSaveVideoPoster, peekCachedPosterSrc, clearVideoPosterSessionCache } = await import(
   '../../src/services/videoPoster'
 );
 
@@ -217,6 +217,179 @@ describe('captureAndSaveVideoPoster：截一次 → 落盘 → 返回本地 src'
 
     gates[3].resolve(litFrame([1]));
     await Promise.all(tasks);
+  });
+});
+
+/**
+ * 会话内解析缓存（`resolvedPosterSrc`）：同源封面切换零重复读取的读侧语义。
+ *
+ * 背景（huanwei 反馈「切换视频封面时反复重新读取」）：修复前每次挂载都打一轮
+ * `get_video_poster_path`（IPC + SQLite + stat），自愈解码也刚好落在「切回」那次挂载上。
+ * 现在解析结果按 posterKey 记在进程内，登出（SessionContext.clearSession）与
+ * 重置所有数据两个失效点由 tests/components/VideoPosterSwitchCache.test.tsx 钉住。
+ */
+describe('会话内解析缓存：同键第二次读零 IPC、零解码', () => {
+  it('命中一次后同键再读：不再发 IPC、不再解码，两次拿到同一个 src', async () => {
+    const posterKey = nextHash('memo-hit');
+    core.invoke.mockImplementation(async (cmd: string) =>
+      (cmd === 'get_video_poster_path' ? `/data/u_s/file/posters/${posterKey}.jpg` : null));
+    capture.readImagePixels.mockResolvedValue(new Uint8ClampedArray([255, 255, 255, 255]));
+
+    const first = await loadVideoPosterSrc(posterKey);
+    const second = await loadVideoPosterSrc(posterKey);
+
+    expect(second).toBe(first);
+    expect(core.invoke.mock.calls.filter((c) => c[0] === 'get_video_poster_path')).toHaveLength(1);
+    expect(capture.readImagePixels).toHaveBeenCalledTimes(1);
+  });
+
+  it('peek 只读不回源：命中给出缓存值，未命中给 null 且不发 IPC', async () => {
+    const hitKey = nextHash('memo-peek-hit');
+    core.invoke.mockResolvedValue('/data/u_s/file/posters/x.jpg');
+    await loadVideoPosterSrc(hitKey);
+    core.invoke.mockClear();
+
+    expect(peekCachedPosterSrc(hitKey)).toBe('asset://localhost//data/u_s/file/posters/x.jpg');
+    expect(peekCachedPosterSrc(nextHash('memo-peek-miss'))).toBeNull();
+    expect(core.invoke).not.toHaveBeenCalled();
+  });
+
+  it('未命中（null）不进缓存：再读仍真查一次（不被旧 null 自锁，稍后才截好的封面能被看到）', async () => {
+    const posterKey = nextHash('memo-miss');
+    core.invoke.mockResolvedValue(null);
+
+    await loadVideoPosterSrc(posterKey);
+    await loadVideoPosterSrc(posterKey);
+
+    expect(core.invoke.mock.calls.filter((c) => c[0] === 'get_video_poster_path')).toHaveLength(2);
+  });
+
+  it('截帧落盘成功即入缓存：同会话随后同键读取零 IPC（写侧结果喂读侧）', async () => {
+    const posterKey = nextHash('memo-save');
+    capture.captureVideoFrame.mockResolvedValue(litFrame([1]));
+    core.invoke.mockImplementation(async (cmd: string) =>
+      (cmd === 'save_video_poster' ? `/data/u_s/file/posters/${posterKey}.jpg` : null));
+
+    await captureAndSaveVideoPoster(posterKey, 'src://v');
+    core.invoke.mockClear();
+
+    expect(await loadVideoPosterSrc(posterKey)).toBe(
+      `asset://localhost//data/u_s/file/posters/${posterKey}.jpg`,
+    );
+    expect(core.invoke).not.toHaveBeenCalled();
+  });
+
+  it('黑帧作废路径不把毒地址留在缓存里（自愈不被缓存挡住）', async () => {
+    const posterKey = nextHash('memo-black');
+    core.invoke.mockImplementation(async (cmd: string) =>
+      (cmd === 'get_video_poster_path' ? '/data/u_s/file/posters/poisoned.jpg' : null));
+    capture.readImagePixels.mockResolvedValue(new Uint8ClampedArray(64 * 4)); // 全黑
+
+    expect(await loadVideoPosterSrc(posterKey)).toBeNull();
+    expect(peekCachedPosterSrc(posterKey)).toBeNull();
+  });
+
+  it('clearVideoPosterSessionCache 清空后恢复真读（登出/切换账号的串台防护）', async () => {
+    const posterKey = nextHash('memo-clear');
+    core.invoke.mockImplementation(async (cmd: string) =>
+      (cmd === 'get_video_poster_path' ? `/data/u_s/file/posters/${posterKey}.jpg` : null));
+    capture.readImagePixels.mockResolvedValue(new Uint8ClampedArray([255, 255, 255, 255]));
+
+    await loadVideoPosterSrc(posterKey);
+    clearVideoPosterSessionCache();
+    await loadVideoPosterSrc(posterKey);
+
+    expect(core.invoke.mock.calls.filter((c) => c[0] === 'get_video_poster_path')).toHaveLength(2);
+  });
+});
+
+/**
+ * 会话内集合的容量上限（LRU / FIFO，512 条）：防极端长会话无界缓涨。
+ *
+ * 驱逐是**纯性能**语义：被驱逐的键下次访问重付一轮读链路，不改变任何正确性。
+ * 这里用「填满 + 溢出 1 条」真驱逐的方式验证：最旧的被摘、最新的保留、
+ * 命中刷新新近度（久用不过期）、`posterInspected` 被驱逐后自愈解码重做一次。
+ */
+describe('会话内集合容量上限：超限驱逐最旧，驱逐后重付一轮（不改变正确性）', () => {
+  /** 真实把一个键读进缓存（有落盘行 + 读得出像素 ⇒ 走「验过 + 入缓存」全链路） */
+  async function warmKey(key: string): Promise<void> {
+    core.invoke.mockImplementation(async (cmd: string, args?: { fileKey?: string }) => {
+      if (cmd === 'get_video_poster_path') {
+        return args?.fileKey === key ? `/data/u_s/file/posters/${key}.jpg` : null;
+      }
+      return null;
+    });
+    capture.readImagePixels.mockResolvedValue(new Uint8ClampedArray([255, 255, 255, 255]));
+    await loadVideoPosterSrc(key);
+  }
+
+  it('resolvedPosterSrc 超限（512+1）：最旧被驱逐（peek 给 null、再读重发 IPC），最新保留', async () => {
+    const keys = Array.from({ length: 513 }, (_, i) => nextHash(`cap-${i}`));
+    for (const key of keys) {
+      await warmKey(key);
+    }
+
+    // 最旧的 k0 已被摘掉：peek 不命中；真读会重新发一次 IPC（重新解析，非命中）
+    expect(peekCachedPosterSrc(keys[0])).toBeNull();
+    const ipcAfterEvict = core.invoke.mock.calls.filter((c) => c[0] === 'get_video_poster_path')
+      .length;
+    await loadVideoPosterSrc(keys[0]);
+    expect(
+      core.invoke.mock.calls.filter((c) => c[0] === 'get_video_poster_path').length,
+    ).toBe(ipcAfterEvict + 1);
+
+    // 最新的那条仍在缓存里：peek 命中同一地址，且不回源
+    core.invoke.mockClear();
+    expect(peekCachedPosterSrc(keys[512])).toBe(
+      `asset://localhost//data/u_s/file/posters/${keys[512]}.jpg`,
+    );
+    expect(core.invoke).not.toHaveBeenCalled();
+  });
+
+  it('LRU 新近度：命中刷新后，久未用的邻居先被驱逐，被刷新的键存活', async () => {
+    const keys = Array.from({ length: 512 }, (_, i) => nextHash(`lru-${i}`));
+    for (const key of keys) {
+      await warmKey(key);
+    }
+    // k0 刚被 peek 过（提到最新）；再挤进一条新的，被驱逐的应是 k1 而不是 k0
+    expect(peekCachedPosterSrc(keys[0])).not.toBeNull();
+    await warmKey(nextHash('lru-fresh'));
+
+    expect(peekCachedPosterSrc(keys[0])).not.toBeNull();
+    expect(peekCachedPosterSrc(keys[1])).toBeNull();
+  });
+
+  it('posterInspected 超限：被驱逐路径的自愈解码重做一次（黑帧防护不因驱逐失效）', async () => {
+    const keys = Array.from({ length: 513 }, (_, i) => nextHash(`inspect-${i}`));
+    for (const key of keys) {
+      await warmKey(key);
+    }
+    const decodeCalls = capture.readImagePixels.mock.calls.length;
+    await warmKey(keys[0]); // 路径被驱逐 ⇒ 自愈重新解码验一次
+    expect(capture.readImagePixels.mock.calls.length).toBe(decodeCalls + 1);
+
+    const decodeCalls2 = capture.readImagePixels.mock.calls.length;
+    await warmKey(keys[0]); // 刚验过 ⇒ 不重复解码
+    expect(capture.readImagePixels.mock.calls.length).toBe(decodeCalls2);
+  });
+
+  it('captureFailed 超限：被驱逐的失败键下次再试一次截帧（不永久拉黑）', async () => {
+    capture.captureVideoFrame.mockRejectedValue(new Error('环境性失败'));
+    core.invoke.mockResolvedValue(null);
+    const keys = Array.from({ length: 513 }, (_, i) => nextHash(`failcap-${i}`));
+    for (const key of keys) {
+      await captureAndSaveVideoPoster(key, 'src://v'); // 全部失败 ⇒ 逐键记入 captureFailed
+    }
+    // captureVideoFrame 的实参是 video src，不是键 ⇒ 每键恰好试过一次 = 总调用数 513
+    const totalAfterFlood = capture.captureVideoFrame.mock.calls.length;
+    expect(totalAfterFlood).toBe(513);
+
+    await captureAndSaveVideoPoster(keys[0], 'src://v'); // k0 被驱逐 ⇒ 再试一次
+    expect(capture.captureVideoFrame.mock.calls.length).toBe(totalAfterFlood + 1);
+
+    // 反向对照：仍在拉黑名单里的最新键不再重试（不会把失败键全部重洗一遍）
+    await captureAndSaveVideoPoster(keys[512], 'src://v');
+    expect(capture.captureVideoFrame.mock.calls.length).toBe(totalAfterFlood + 1);
   });
 });
 

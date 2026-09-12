@@ -21,6 +21,7 @@ import {
   saveMeetingData,
   type CreateRoomResponse,
 } from '../api';
+import { getMeetingIdentity } from '../identity';
 import { fetchCreatorIceServers } from '../creatorIce';
 import { CopyIcon, VideoMeetingIcon } from '../../components/common/Icons';
 
@@ -146,6 +147,8 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
         avatar_url: session?.profile.user_avatar_url || undefined, // 传入创建者头像URL
         password: roomPassword || undefined,
         max_participants: maxParticipants,
+        // 8.2 同账号同设备重复入会顶替：创建者也带设备标识
+        device_id: (await getMeetingIdentity(session?.profile.user_id)).deviceId,
       });
       setCreatedRoom(room);
     } catch (err) {
@@ -224,7 +227,10 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     try {
       // 如果用户已登录，传入头像URL
       const avatarUrl = session?.profile.user_avatar_url || undefined;
-      const response = await joinRoom(api, joinRoomId, joinPassword, displayName, avatarUrl);
+      // 8.2 同账号同设备重复入会顶替：登录用户上报 user_id + device_id，
+      // 同一账号在同一设备第二次入会时由服务端顶替旧会话（访客两参皆空不参与）
+      const identity = await getMeetingIdentity(session?.profile.user_id);
+      const response = await joinRoom(api, joinRoomId, joinPassword, displayName, avatarUrl, identity);
 
       // 保存会议数据到 localStorage
       saveMeetingData({

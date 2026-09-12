@@ -2,6 +2,7 @@
  * 设置面板组件
  *
  * iOS/macOS 风格的设置面板，按功能分组：
+ * - 聊天输入：「回车发送」开关（默认关闭=Enter 换行不发送；开启=Enter 发送）
  * - 通知与提醒：消息提示音设置
  * - 存储与数据：大文件直连阈值、缓存清理、数据重置
  * - 账户与安全：设备管理（查看和删除登录设备）
@@ -34,6 +35,8 @@ import { AuthorizedAppsPanel } from './AuthorizedAppsPanel';
 import { BlacklistPanel } from './BlacklistPanel';
 import { MeetingAudioSettings } from './MeetingAudioSettings';
 import { isDesktop } from '../../utils/platform';
+import { SendIcon } from '../common/Icons';
+import { clearVideoPosterSessionCache } from '../../services/videoPoster';
 import './styles.css';
 
 // ============================================
@@ -280,7 +283,8 @@ const ResultToast: React.FC<ResultToastProps> = ({ type, message }) => (
 // ============================================
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeClick, onNfcTrustedCardsClick }) => {
-  const { notification, setNotificationEnabled, fileCache, setLargeFileThreshold } = useSettingsStore();
+  const { notification, setNotificationEnabled, fileCache, setLargeFileThreshold,
+    chatInput, setEnterSendsMessage } = useSettingsStore();
 
   // 数据管理状态
   const [clearingMessages, setClearingMessages] = useState(false);
@@ -375,6 +379,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
 
     try {
       await invoke('db_clear_all_data');
+      // 后端刚把 video_posters 索引清空 —— 前端进程内的封面解析缓存同步失效，
+      // 否则本会话内剩下的缩略图还在吐已被清掉索引的旧地址
+      clearVideoPosterSessionCache();
       setShowResetConfirm(false);
       setResult({ type: 'success', message: '所有数据已重置' });
       setTimeout(() => setResult(null), 3000);
@@ -470,6 +477,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
               expandable
               expanded={notification.enabled}
               expandContent={<SoundSelector />}
+              showDivider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        {/* 分组二点五：聊天输入 —— 「回车发送」开关（双端共享：桌面物理键盘 / 移动软键盘同一开关）。
+            关闭（默认）：Enter=换行不发送；开启：Enter=发送、Shift+Enter 换行（桌面既有习惯）。 */}
+        <SettingsSection title="聊天输入">
+          <SettingsGroup>
+            <SettingsRow
+              icon={<SendIcon />}
+              title="回车发送消息"
+              subtitle={chatInput.enterSendsMessage ? '开启中：Enter 发送，Shift+Enter 换行' : '已关闭：Enter 换行，不发送消息'}
+              type="toggle"
+              checked={chatInput.enterSendsMessage}
+              onToggle={setEnterSendsMessage}
               showDivider={false}
             />
           </SettingsGroup>

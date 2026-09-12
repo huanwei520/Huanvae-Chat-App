@@ -3,7 +3,9 @@
  *
  * 与桌面端 MeetingPage 功能相似，但针对移动端优化：
  * - 简化的控制按钮布局
- * - 移除屏幕共享功能（Android WebView 不支持）
+ * - 屏幕共享：Android WebView 不支持 getDisplayMedia，改由 MediaProjection
+ *   插件（tauri-plugin-screen-capture）采集，经 useWebRTC 既有链路注入；
+ *   UI 对齐桌面形态（发起/停止按钮、共享中态标识、敏感内容提示）
  * - 全屏视频显示
  * - 适配触摸操作
  * - 支持最小化为悬浮图标（可同时使用其他功能）
@@ -35,8 +37,12 @@ import {
   PhoneEndIcon,
   ParticipantsIcon,
   ShareIcon,
+  ScreenShareIcon,
+  ScreenShareOffIcon,
 } from '../../components/common/Icons';
+import { isAndroidScreenShareSupported } from '../../meeting/androidScreenShare';
 import { ShareMeetingModal } from '../../meeting/components/ShareMeetingModal';
+import { MeetingShareSheet, buildMeetingInviteText } from '../../meeting/components/MeetingShareSheet';
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
@@ -85,8 +91,12 @@ function ParticipantVideo({
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // 视频流：本地使用 propStream，远程使用 participant.cameraStream 或 stream
-  const stream = propStream || participant?.cameraStream || participant?.stream;
+  // 视频流优先级：屏幕共享 > 摄像头 > 混合流（与桌面端同序）
+  const stream =
+    propStream || participant?.screenStream || participant?.cameraStream || participant?.stream;
+  // 是否正在共享屏幕：优先读粗粒度信令 media_state（徽章在屏幕轨到达前即正确），
+  // 回退实际收到的 screenStream（与桌面端同判定）
+  const isScreenSharing = participant?.media_state?.screen ?? !!participant?.screenStream;
   const [hasActiveVideo, setHasActiveVideo] = useState(false);
 
   // 检查视频轨道状态（事件监听 + 轮询兜底，与桌面端一致）
@@ -172,7 +182,7 @@ function ParticipantVideo({
 
   return (
     <div
-      className={`mobile-participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''}`}
+      className={`mobile-participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''} ${isScreenSharing ? 'screen-sharing' : ''}`}
       onClick={onClick}
     >
       {/* 远程音频 */}
@@ -196,6 +206,7 @@ function ParticipantVideo({
       <div className="mobile-participant-name">
         {displayName}
         {participant?.is_creator && <span className="mobile-creator-badge">主持人</span>}
+        {isScreenSharing && <span className="mobile-screen-share-badge">屏幕共享</span>}
       </div>
     </div>
   );
@@ -230,6 +241,15 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
   const [meetingData, setMeetingData] = useState<MeetingWindowData | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  // 2026-09-10 会议分享改版（块 1788982832352-3）：分享入口收敛后，点分享先弹
+  // 两类选项的动作面板（转发给好友 / 复制会议链接），不再直开选人面板
+  const [showShareActions, setShowShareActions] = useState(false);
+  // 复制结果 toast（「已复制会议链接」/「复制失败」），2s 自动消失
+  const [shareToast, setShareToast] = useState<string | null>(null);
+
+  // 屏幕共享：发起前敏感内容提示弹窗（Android MediaProjection 采集，UI 对齐桌面形态）
+  const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false);
+  const screenShareSupported = isAndroidScreenShareSupported();
 
   // 全屏聚焦模式状态
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -323,14 +343,85 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
     };
   }, []);
 
-  // Android 返回键：聚焦中优先退出聚焦
+  // 分享 toast 2s 自动消失
+  useEffect(() => {
+    if (!shareToast) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setShareToast(null), 2000);
+    return () => clearTimeout(timer);
+  }, [shareToast]);
+
+  // Android 返回键：共享确认弹窗 > 分享动作面板 > 退出聚焦
   useMobileBackHandler(() => {
+    if (showScreenShareConfirm) {
+      setShowScreenShareConfirm(false);
+      return true;
+    }
+    if (showShareActions) {
+      setShowShareActions(false);
+      return true;
+    }
     if (focusedId) {
       exitFocus();
       return true;
     }
     return false;
   });
+
+  // 屏幕共享按钮点击（桌面 MeetingPage.handleScreenShareClick 同形态）：
+  // 共享中直接停；未共享先弹敏感内容提示，确认后再发起（系统授权弹窗在插件层）
+  const handleScreenShareClick = useCallback(() => {
+    if (webrtc.mediaState.screenSharing) {
+      webrtc.toggleScreenShare();
+    } else {
+      setShowScreenShareConfirm(true);
+    }
+  }, [webrtc]);
+
+  // 敏感内容提示确认 → 发起共享（分辨率/帧率由 useWebRTC 安卓分支钳制 720p/10fps）
+  const handleConfirmScreenShare = useCallback(() => {
+    setShowScreenShareConfirm(false);
+    void webrtc.toggleScreenShare();
+  }, [webrtc]);
+
+  // 分享动作面板：「转发给好友」→ 打开既有选人/发送面板（ShareMeetingModal，逻辑零改动）
+  const handleShareForward = useCallback(() => {
+    setShowShareActions(false);
+    setShowShareModal(true);
+  }, []);
+
+  // 分享动作面板：「复制会议链接」→ 会议信息写系统剪贴板
+  // （文案与加入页「粘贴房间信息」解析器同构，粘贴即可解析入会）
+  const handleCopyMeetingLink = useCallback(() => {
+    setShowShareActions(false);
+    if (!meetingData) {
+      return;
+    }
+    const text = buildMeetingInviteText({
+      roomName: meetingData.roomName,
+      roomId: meetingData.roomId,
+      password: meetingData.password,
+    });
+    // 优先走 Tauri clipboard 插件（Android WebView 拒绝 web 层
+    // navigator.clipboard.writeText → NotAllowedError: Write permission denied，
+    // 2026-09-09 真机实测）；插件不可用（浏览器开发环境）再回退 web API。
+    const writeViaPlugin = async () => {
+      const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+      await writeText(text);
+    };
+    const writeViaWeb = async () => {
+      await navigator.clipboard.writeText(text);
+    };
+    writeViaPlugin()
+      .catch(() => writeViaWeb())
+      .then(() => {
+        setShareToast('已复制会议链接');
+      })
+      .catch(() => {
+        setShareToast('复制失败，请重试');
+      });
+  }, [meetingData]);
 
   // 加载中
   if (!meetingData) {
@@ -358,7 +449,7 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className="mobile-meeting-header-btn"
-            onClick={() => setShowShareModal(true)}
+            onClick={() => setShowShareActions(true)}
             title="分享会议"
           >
             <ShareIcon />
@@ -498,6 +589,17 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
           <span>摄像头</span>
         </button>
 
+        {/* 屏幕共享（Android MediaProjection，UI 对齐桌面：发起/停止、共享中态标识） */}
+        {screenShareSupported && (
+          <button
+            className={`mobile-control-btn ${webrtc.mediaState.screenSharing ? 'sharing' : ''}`}
+            onClick={handleScreenShareClick}
+          >
+            {webrtc.mediaState.screenSharing ? <ScreenShareOffIcon /> : <ScreenShareIcon />}
+            <span>{webrtc.mediaState.screenSharing ? '停止共享' : '共享'}</span>
+          </button>
+        )}
+
         {/* 最小化（悬浮窗模式） */}
         {onMinimize && (
           <button className="mobile-control-btn" onClick={handleMinimize}>
@@ -605,7 +707,75 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
         )}
       </AnimatePresence>
 
-      {/* 分享会议邀请弹窗 */}
+      {/* 屏幕共享敏感内容提示弹窗（发起前确认；系统授权弹窗在插件层随后出现） */}
+      <AnimatePresence>
+        {showScreenShareConfirm && (
+          <motion.div
+            className="mobile-screen-share-confirm-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowScreenShareConfirm(false)}
+          >
+            <motion.div
+              className="mobile-screen-share-confirm"
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={{ duration: 0.18 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="mobile-screen-share-confirm__title">开始屏幕共享？</h3>
+              <p className="mobile-screen-share-confirm__body">
+                屏幕共享会把您的<strong>整个屏幕内容</strong>展示给会议中的其他参会者，
+                包括通知、消息等敏感信息。共享期间系统会显示屏幕共享标识。
+              </p>
+              <div className="mobile-screen-share-confirm__actions">
+                <button
+                  className="mobile-screen-share-confirm__btn cancel"
+                  onClick={() => setShowScreenShareConfirm(false)}
+                >
+                  取消
+                </button>
+                <button
+                  className="mobile-screen-share-confirm__btn primary"
+                  onClick={handleConfirmScreenShare}
+                >
+                  开始共享
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 会议分享动作面板（2026-09-10 改版：点分享先弹两类选项） */}
+      <MeetingShareSheet
+        open={showShareActions}
+        roomName={meetingData.roomName}
+        roomId={meetingData.roomId}
+        onClose={() => setShowShareActions(false)}
+        onForward={handleShareForward}
+        onCopy={handleCopyMeetingLink}
+      />
+
+      {/* 复制结果 toast（外层只负责定位居中：framer-motion 会以内联 transform
+          覆盖 CSS translate(-50%)，所以居中用 flex 容器而不是 transform） */}
+      <AnimatePresence>
+        {shareToast && (
+          <motion.div
+            className="meeting-share-toast-wrap"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <span className="meeting-share-toast">{shareToast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 分享会议邀请弹窗（转发给好友，沿用既有逻辑） */}
       {showShareModal && meetingData && (
         <ShareMeetingModal
           isOpen={showShareModal}

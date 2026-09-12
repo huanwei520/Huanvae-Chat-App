@@ -54,7 +54,13 @@ export function SendingMediaOverlay({ clientId, onRetry, onCancel }: SendingMedi
   }
 
   const failed = entry.status === 'failed';
-  const percent = entry.status === 'uploading' ? Math.min(100, Math.max(0, entry.percent)) : 0;
+  // 除零/NaN 防护：上游 total=0 之类的算术异常会把 percent 污染成 NaN，
+  // Math.min/max 拦不住 NaN ⇒ dashoffset=NaN（浏览器当 0 画成满环伪影）+ "NaN%" 文本。
+  // 非有限值一律按 0% 画，与"未开始即 0%"同口径。
+  const percent =
+    entry.status === 'uploading' && Number.isFinite(entry.percent)
+      ? Math.min(100, Math.max(0, entry.percent))
+      : 0;
   const dashOffset = RING_CIRCUMFERENCE * (1 - percent / 100);
 
   return (

@@ -7,7 +7,7 @@
  * - 底部：输入区域（复用 ChatInputArea）
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import type { Session } from '../../types/session';
 import type { ChatTarget, Message, AIConversation } from '../../types/chat';
@@ -33,6 +33,8 @@ import { friendDisplayName } from '../../utils/friendName';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
 import { useProfileViewStore, useGroupDetailStore } from '../../stores';
 import { useKbdFocusRing } from '../../hooks/useKbdFocusRing';
+// 三段式 IME 布局护栏（header 固定 / 消息区唯一可压缩 / 输入栏贴键盘；仅移动端）
+import { useImeThreeSegmentLayout } from './useImeThreeSegmentLayout';
 import type { AIMessage } from '../../types/chat';
 import type { AIToolStatus, AIPendingToolCall } from '../../chat/ai/useAIMessages';
 
@@ -242,6 +244,10 @@ export function MobileChatView({
   // 顶栏头像（气泡区那两个头像搬来的落点）：放谁的头像与桌面顶栏同一条规则，见 ChatTargetAvatar
   const showHeaderAvatar = hasChatTargetAvatar(chatTarget);
 
+  // 三段式 IME 布局护栏：文档滚动钉扎（顶栏恒不被推出屏）+ 压缩贴底保持（底部消息恒可见）
+  const viewRef = useRef<HTMLDivElement>(null);
+  useImeThreeSegmentLayout(viewRef);
+
   // 获取实际的 friend/group 对象（bot 的 data 也是 Friend，走 friend 消息链路）
   const friend = isFriendLikeTarget(chatTarget) ? chatTarget.data : undefined;
   const group = chatTarget.type === 'group' ? chatTarget.data : undefined;
@@ -262,6 +268,7 @@ export function MobileChatView({
   return (
     <motion.div
       className="mobile-chat-view"
+      ref={viewRef}
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       exit={{ x: '100%' }}

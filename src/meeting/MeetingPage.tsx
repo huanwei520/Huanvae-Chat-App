@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { emit } from '@tauri-apps/api/event';
 import {
   useWebRTC,
   type RemoteParticipant,
@@ -29,6 +30,7 @@ import {
   RESOLUTION_MAP,
 } from './useWebRTC';
 import { loadMeetingData, clearMeetingData, joinRoom, type MeetingWindowData, type IceServer } from './api';
+import { getMeetingIdentity } from './identity';
 import {
   applyAudioOutputSink,
   getSelectedAudioInputId,
@@ -48,6 +50,10 @@ import {
   ShareIcon,
 } from '../components/common/Icons';
 import { MediaPermissionGuide } from './components/MediaPermissionGuide';
+import { MeetingAudioEntry } from './components/MeetingAudioEntry';
+import { MeetingBridge } from '../remote-control/meetingBridge';
+import { isDevControl } from '../remote-control/devGate';
+import { RC_REQUEST_CONTROL } from '../remote-control/bus';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
 import './styles.css';
@@ -409,6 +415,26 @@ export default function MeetingPage() {
   useEffect(() => {
     const data = loadMeetingData();
     if (!data) {
+      // dev 门控面（会议内远程控制 §8.2）：演示环境无真实入会链路，seed 演示数据
+      // 让 meeting 窗壳可渲染（授权弹层/横幅/dev 面板截图载体）；生产构建维持原行为。
+      if (isDevControl()) {
+        setMeetingData({
+          role: 'creator',
+          roomId: 'dev-room',
+          password: '',
+          roomName: 'dev 演示会议（远程控制面）',
+          displayName: '演示共享者',
+          token: '',
+          serverUrl: '',
+          userInfo: {
+            user_id: 'dev-user',
+            nickname: '演示共享者',
+            avatar_url: null,
+            is_authenticated: false,
+          },
+        });
+        return;
+      }
       // 没有会议数据，关闭窗口
       window.close();
       return;
@@ -452,6 +478,8 @@ export default function MeetingPage() {
             meetingData.password,
             meetingData.displayName,
             meetingData.userInfo?.avatar_url ?? undefined,
+            // 8.2：重连也要带同一身份（同账号同设备），避免重连被当成幽灵双会话
+            await getMeetingIdentity(meetingData.userInfo?.user_id),
           );
           return { token: resp.ws_token, iceServers: resp.ice_servers };
         } catch {
@@ -460,13 +488,20 @@ export default function MeetingPage() {
       };
 
       // 连接信令服务器
-      webrtc.connect(
-        meetingData.roomId,
-        meetingData.token,
-        iceServers,
-        meetingData.serverUrl,
-        rejoin,
-      );
+      // 信令断开误报根修（2026-09-09，任务卡「远控页顶部常驻信令断开」）：token 为空
+      // = 无真实会议可信令（dev 门控的远程控制演示面 seed 即此形态：面板/弹层/横幅由
+      // 主窗 WS 信令驱动，会议窗信令无用武之地）。此时跳过 connect——旧行为用空 token
+      // 建连必然失败，指数退避重连耗尽后 setError('信令连接已断开') 横幅常驻页顶。
+      // 真会议 create/join 恒发非空 ws_token → 零行为变化。
+      if (meetingData.token) {
+        webrtc.connect(
+          meetingData.roomId,
+          meetingData.token,
+          iceServers,
+          meetingData.serverUrl,
+          rejoin,
+        );
+      }
     };
 
     init();
@@ -490,12 +525,97 @@ export default function MeetingPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [webrtc]);
 
+  // 8.1 桌面关窗退出：Tauri 关窗（标题栏 X / 系统关闭）时 beforeunload 在部分平台不触发，
+  // 这里显式拦 CloseRequested 先发 leave 信令（webrtc.disconnect → {type:'leave'}）再放行关窗。
+  // 仅新增「关窗前发退出信令」一步，不阻止关窗、不改其他行为；非 Tauri 环境（浏览器 dev）静默跳过。
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    // 8.1 保底退出钩子：Rust 侧拦到会议窗 CloseRequested 后先 eval 本钩子发 leave（见 src-tauri/src/lib.rs）。
+    // 与下方 onCloseRequested 互为备份：哪条路径先到都能发出退出信令；重复调用由 readyState 守卫去重。
+    (window as unknown as { __meetingLeave?: () => void }).__meetingLeave = () => {
+      try {
+        webrtc.disconnect();
+        clearMeetingData();
+      } catch { /* 关窗竞态下尽力而为 */ }
+    };
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        unlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+          // 8.1 桌面关窗退出信令：显式拦截关窗（preventDefault）→ 同步发 leave → 等 WS 帧冲刷上线 → 自行 destroy()。
+          // 不能依赖包装器在 handler 返回后自动 destroy：帧在 webview 缓冲区里未上线就被销毁，
+          // 服务端只能看到 TCP RST。try/finally 保底：无论如何窗口最终都会关闭（不改既有行为）。
+          event.preventDefault();
+          try {
+            webrtc.disconnect(); // → ws.send({type:'leave'}) + ws.close()（close 排队在 leave 帧之后）
+            clearMeetingData();
+          } finally {
+            // 等 leave 帧 + WS close 握手真正发上线再销毁 webview
+            await new Promise((resolve) => {
+              setTimeout(resolve, 300);
+            });
+            if (import.meta.env.DEV) {
+              // 仅 dev 构建：关窗流程可视化取证角标（prod 无此 DOM）
+              const badge = document.getElementById('close-debug-badge');
+              if (badge) { badge.textContent = 'close:flushed'; badge.style.background = '#d7301f'; }
+            }
+            void getCurrentWindow().destroy();
+          }
+        });
+        if (import.meta.env.DEV) {
+          // 仅 dev 构建：注册成功角标（prod 无此 DOM）
+          let badge = document.getElementById('close-debug-badge');
+          if (!badge) {
+            badge = document.createElement('div');
+            badge.id = 'close-debug-badge';
+            badge.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:99999;background:#1b6ec2;color:#fff;font:11px monospace;padding:2px 6px;border-radius:4px;pointer-events:none;opacity:.85';
+            badge.textContent = 'close-listener:registered';
+            document.body.appendChild(badge);
+          }
+        }
+      } catch (e) {
+        // 非 Tauri 环境（纯浏览器 dev）：无关窗事件，beforeunload 已兜底；注册失败在 dev 角标可见
+        if (import.meta.env.DEV) {
+          const badge = document.createElement('div');
+          badge.id = 'close-debug-badge';
+          badge.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:99999;background:#d7301f;color:#fff;font:11px monospace;padding:2px 6px;border-radius:4px';
+          badge.textContent = `close-listener:FAIL ${String(e).slice(0, 80)}`;
+          document.body.appendChild(badge);
+        }
+      }
+    })();
+    return () => {
+      unlisten?.();
+      delete (window as unknown as { __meetingLeave?: () => void }).__meetingLeave;
+    };
+  }, [webrtc]);
+
   // 当权限被拒绝时显示引导弹窗
   useEffect(() => {
     if (webrtc.mediaError?.reason === 'denied') {
       setShowPermissionGuide(true);
     }
   }, [webrtc.mediaError]);
+
+  // 会议内远程控制 dev 面：tile 右键菜单（观看端「申请控制」入口，设计 §8.2⑤）。
+  // 菜单状态在 MeetingPage（右键宿主），菜单项发 RC_REQUEST_CONTROL 事件给主窗。
+  const [gridMenu, setGridMenu] = useState<{ x: number; y: number } | null>(null);
+  const handleGridContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setGridMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+  useEffect(() => {
+    if (!gridMenu) {
+      return undefined;
+    }
+    const t = window.setTimeout(() => setGridMenu(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [gridMenu]);
+
+  const devRequestControl = useCallback(() => {
+    setGridMenu(null);
+    void emit(RC_REQUEST_CONTROL, { participant_name: '共享屏幕' }).catch(() => undefined);
+  }, []);
 
   // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
   useEffect(() => {
@@ -648,6 +768,8 @@ export default function MeetingPage() {
             <CopyIcon />
             {copied && <span className="copy-toast">已复制</span>}
           </button>
+          {/* 会议内音频输入/输出设备选择入口（桌面端；面板复用 MeetingAudioSettings） */}
+          <MeetingAudioEntry />
           <button
             className={`meeting-header-btn ${showParticipants ? 'active' : ''}`}
             onClick={() => setShowParticipants(!showParticipants)}
@@ -661,7 +783,10 @@ export default function MeetingPage() {
 
       {/* 视频区域 */}
       <main className="meeting-main">
-        <div className={`video-grid ${showParticipants ? 'with-sidebar' : ''}`}>
+        <div
+          className={`video-grid ${showParticipants ? 'with-sidebar' : ''}`}
+          onContextMenu={isDevControl() ? handleGridContextMenu : undefined}
+        >
           {/* 网格模式：所有 tile 作为 grid 直接子元素 */}
           <LocalVideo
             stream={webrtc.localStream}
@@ -682,6 +807,18 @@ export default function MeetingPage() {
             ))}
           </AnimatePresence>
         </div>
+
+        {/* 会议内远程控制域（dev 门控面，设计 §8.2/§8.3 块二：授权弹层挂载点＋
+            dev 面板＋「正在被控制」横幅；生产构建零渲染） */}
+        {isDevControl() && (
+          <MeetingBridge screenSharing={webrtc.mediaState.screenSharing} />
+        )}
+        {isDevControl() && gridMenu && (
+          <div className="rc-tilemenu" style={{ left: gridMenu.x, top: gridMenu.y }}>
+            <button onClick={devRequestControl}>申请控制（dev）</button>
+            <span className="rc-tilemenu__note">对共享中的参会者 tile 右键可用 · dev</span>
+          </div>
+        )}
 
         {/* 参与者侧边栏 */}
         <AnimatePresence>

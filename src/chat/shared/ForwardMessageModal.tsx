@@ -18,9 +18,11 @@
  */
 
 import { useCallback } from 'react';
-import { useApi } from '../../contexts/SessionContext';
+import { useApi, useSession } from '../../contexts/SessionContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { sendMessage } from '../../api/messages';
 import { sendGroupMessage } from '../../api/groupMessages';
+import { saveMessageToLocal } from '../../contexts/wsHandlers';
 import { formatMessageTime } from '../../utils/time';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { ShareTargetPicker, type ShareTarget } from '../../components/share/ShareTargetPicker';
@@ -30,6 +32,7 @@ import {
   summarizeForwardSource,
   type ForwardSource,
 } from './forwardMessage';
+import { buildForwardEcho } from './forwardEcho';
 import './ForwardMessageModal.css';
 
 interface ForwardMessageModalProps {
@@ -69,11 +72,48 @@ function ForwardPreview({ messages }: { messages: ForwardSource[] }) {
 
 export function ForwardMessageModal({ messages, onClose, onSent }: ForwardMessageModalProps) {
   const api = useApi();
+  const { session } = useSession();
+  const ws = useWebSocket();
 
   const handleConfirm = useCallback(async (targets: ShareTarget[]) => {
-    const sendOne = (m: ForwardSource, t: ShareTarget) => (t.type === 'friend'
-      ? sendMessage(api, buildFriendForwardRequest(m, t.id))
-      : sendGroupMessage(api, buildGroupForwardRequest(m, t.id)));
+    if (!session) { return; }
+
+    const sendOne = async (m: ForwardSource, t: ShareTarget) => {
+      // 先发（服务端的 message_uuid / seq / send_time 是本地写穿的唯一事实源）
+      const receipt = t.type === 'friend'
+        ? await sendMessage(api, buildFriendForwardRequest(m, t.id))
+        : await sendGroupMessage(api, buildGroupForwardRequest(m, t.id));
+
+      // 写穿（为什么需要见 chat/shared/forwardEcho.ts 文件头）：本机发出的转发消息
+      // 收不到 WS 回显（后端只推接收方全设备 + 发送者其他设备），不写的话目标会话的
+      // 列表卡片与打开中的消息流都停在旧消息上，必须点进会话触发同步才刷新。
+      // ① saveMessageToLocal 落库（消息行 + last_seq + 卡片预览，与 WS 推送同一函数）
+      //    → 防抖触发 conversation-previews-changed → 卡片即时刷新；
+      // ② emitLocalNewMessage 把同形帧送进 newMessageListeners → 目标会话正打开时
+      //    消息流即时上屏（uuid 去重幂等），没打开则无监听器命中、为 no-op。
+      try {
+        const echo = buildForwardEcho({
+          source: m,
+          target: { type: t.type, id: t.id },
+          currentUserId: session.userId,
+          currentUserNickname: session.profile.user_nickname,
+          currentUserAvatarUrl: session.profile.user_avatar_url,
+          receipt,
+        });
+        await saveMessageToLocal(echo, session.userId);
+        ws.emitLocalNewMessage(echo);
+        // 诊断走线：后端不发回显帧给本机，这条日志是写穿路径唯一的在轨证据
+        console.warn('[Forward] 本地写穿完成', {
+          uuid: receipt.message_uuid,
+          target: t.type,
+          seq: receipt.seq,
+        });
+      } catch (err) {
+        // 发送已成功，写穿失败不吞掉转发结果：卡片/消息流退回增量同步兑现（修复前唯一路径）
+        console.error('[Forward] 本地写穿失败（已发送成功，靠增量同步兜底）:', err);
+      }
+      return receipt;
+    };
 
     // 同一目标内**串行**发（保住原顺序：并行 Promise.all 会让多条到达顺序乱掉）；
     // 不同目标之间并行。用 promise 链而非 for-await，绕开 no-await-in-loop。
@@ -83,7 +123,7 @@ export function ForwardMessageModal({ messages, onClose, onSent }: ForwardMessag
     )));
 
     onSent?.();
-  }, [api, messages, onSent]);
+  }, [api, messages, onSent, session, ws]);
 
   return (
     <ShareTargetPicker

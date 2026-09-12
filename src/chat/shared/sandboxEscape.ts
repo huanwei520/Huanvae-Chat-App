@@ -82,9 +82,14 @@ export async function signSandboxInitData(fields: Record<string, string>, secret
 
 /**
  * 构建逃逸窗口 URL:fields 各键值 + `hash=signature` 并入 targetUrl 的 query,
- * 再经 proxyRequestUrl(私有 CA 反代收口)返回。
+ * 再经 proxyRequestUrl(私有 CA 反代收口)返回。proxyRequestUrl 未就绪时短暂等待、
+ * 超时/URL 非法抛错 —— 经 openSandboxEscapeWindow 的 async 链路向上暴露(ActionButton catch)。
  */
-export function buildSandboxWindowUrl(targetUrl: string, fields: Record<string, string>, signature: string): string {
+export function buildSandboxWindowUrl(
+  targetUrl: string,
+  fields: Record<string, string>,
+  signature: string,
+): Promise<string> {
   const u = new URL(targetUrl);
   for (const [k, v] of Object.entries(fields)) {
     u.searchParams.set(k, v);
@@ -128,8 +133,9 @@ export async function openSandboxEscapeWindow(opts: {
     return true;
   }
 
+  const winUrl = await buildSandboxWindowUrl(opts.url, fields, signature);
   const win = new WebviewWindow(SANDBOX_WINDOW_LABEL, {
-    url: buildSandboxWindowUrl(opts.url, fields, signature),
+    url: winUrl,
     title: opts.title ?? '卡片',
     width: 960,
     height: 640,

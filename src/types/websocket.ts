@@ -27,6 +27,9 @@
  * 第二批（2025-12-21）：friend_deleted, owner_transferred,
  *        admin_set/removed, member_muted/unmuted,
  *        group_info_updated, group_avatar_updated, group_member_joined
+ * 第三批（2026-09 会议内远程控制 dev 面，设计 §6.3 下行）：
+ *        control_session_requested / control_session_decided / control_session_released
+ *        （后端 feature `control-session` 默认关；类型镜像先行，防新帧无 TS 分支静默丢失）
  */
 
 import type { ShelfItem } from '../api/shelf';
@@ -181,8 +184,50 @@ export interface WsSystemNotification {
     | 'member_unmuted'
     | 'group_info_updated'
     | 'group_avatar_updated'
-    | 'group_member_joined';
+    | 'group_member_joined'
+    // 第三批（2026-09 会议内远程控制 dev 面；设计 §6.3 下行 N1/N2/N3，
+    // 后端 feature `control-session` 默认关，生产流量不含三值）
+    | 'control_session_requested'
+    | 'control_session_decided'
+    | 'control_session_released';
   data: Record<string, unknown>;
+}
+
+// ============================================
+// 会议内远程控制载荷（设计 §6.3 下行表逐字段镜像；域内详情见 src/remote-control/types.ts）
+// ============================================
+
+/** N1 control_session_requested data */
+export interface WsControlSessionRequestedData {
+  request_id: string;
+  from: { user_id: string; device_id: string; device_name: string; display_name: string };
+  meeting_ctx: { room_id: string; participant_id: string } | null;
+  created_at: number;
+}
+
+/** N2 control_session_decided data */
+export interface WsControlSessionDecidedData {
+  request_id: string;
+  grant_id: string | null;
+  approved: boolean;
+  by: { user_id: string };
+  decided_at: number;
+}
+
+/** N3 control_session_released data（reason 七枚举逐字，§6.3） */
+export interface WsControlSessionReleasedData {
+  grant_id: string;
+  request_id: string;
+  reason:
+    | 'revoked'
+    | 'share_stopped'
+    | 'participant_left'
+    | 'timeout'
+    | 'network'
+    | 'error'
+    | 'killswitch';
+  by: { user_id: string; device_id: string };
+  released_at: number;
 }
 
 /**

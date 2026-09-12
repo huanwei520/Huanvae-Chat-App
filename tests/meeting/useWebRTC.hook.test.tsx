@@ -444,4 +444,55 @@ describe('useWebRTC hook：信令/装配状态机', () => {
       vi.useRealTimers();
     }
   });
+
+  it('14. kicked（8.2 被顶替）：置被替换提示并抑制重连（服务端随后关 WS 不复连）', async () => {
+    const { result, ws } = setup();
+    await feed(ws, JOINED);
+    await feed(ws, { type: 'kicked', reason: 'session_replaced' });
+
+    expect(result.current.meetingState).toBe('error');
+    expect(result.current.error).toContain('已在本设备的其他会议窗口入会');
+
+    // 服务端顶替后主动断开本 WS；异常码 1006 下 suppress 必须生效（旧会话不得以新 join 复活）
+    const before = wsControl.instances.length;
+    await act(async () => {
+      ws.onclose?.({ code: 1006 });
+      await flushAsync();
+    });
+    expect(wsControl.instances.length).toBe(before);
+  });
+
+  it('15. kicked 非 session_replaced 原因：展示通用被移出提示', async () => {
+    const { result, ws } = setup();
+    await feed(ws, { type: 'kicked', reason: 'room_closed_by_creator' });
+    expect(result.current.error).toBe('已被移出会议: room_closed_by_creator');
+    expect(result.current.meetingState).toBe('error');
+  });
+
+  it('16. 陈旧 WS 守卫：被新连接替换后，旧套接字的消息与 close 不再驱动状态机', async () => {
+    const { result } = setup();
+    const ws1 = wsControl.instances[0];
+    // 二次 connect（移动端同页重复入会场景）：openSignaling 直接替换 wsRef，旧 ws 不被主动关闭
+    act(() => {
+      result.current.connect('room1', 'tok2', ICE, 'https://api.example.com');
+    });
+    const ws2 = wsControl.instances[1];
+    expect(ws2).not.toBe(ws1);
+
+    // 旧套接字（已被服务端顶替/关闭）的 joined 不进 handler：myParticipantId 仍为 null
+    await feed(ws1, { type: 'joined', participant_id: 'p_old', participants: [] });
+    expect(result.current.myParticipantId).toBeNull();
+
+    // 新套接字正常工作
+    await feed(ws2, JOINED);
+    expect(result.current.myParticipantId).toBe('p_aaa');
+
+    // 旧套接字的异常 close 不得触发重连（否则旧会话以新 join 无限复活）
+    const before = wsControl.instances.length;
+    await act(async () => {
+      ws1.onclose?.({ code: 1006 });
+      await flushAsync();
+    });
+    expect(wsControl.instances.length).toBe(before);
+  });
 });

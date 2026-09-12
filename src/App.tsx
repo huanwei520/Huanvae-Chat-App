@@ -36,6 +36,8 @@ import { discoverEndpoints } from './services/discovery';
 import { isE2E, e2eBaseUrl } from './services/e2eMode';
 import { resolveServerAvatarUrl } from './utils/avatar';
 import { UpdateToast, useStartupUpdateCheck, useUpdateToastProps } from './update';
+import { MainBridge as RemoteControlMainBridge } from './remote-control/mainBridge';
+import { isDevControl } from './remote-control/devGate';
 import './styles/index.css';
 
 // 认证表单类型：登录或注册
@@ -60,6 +62,23 @@ function App() {
 
   // 启动时更新检查（mount 后 5s 触发一次检测；登录后 Main 的 3s 检测仍照旧，由 store 双锁兜底保证只一次有效检测）
   useStartupUpdateCheck();
+
+  // 会议内远程控制 dev 面（设计 §8.2，仅 VITE_DEV_CONTROL=1 构建）：启动后自动开启
+  // meeting 窗作为演示载体（无会议数据时由 MeetingPage dev bootstrap seed）。
+  // 生产构建恒不触发；真实入口仍为会议入口弹窗（MeetingEntryModal）。
+  // 位置注：置于全部既有顶层 hook 之后（useStartupUpdateCheck 契约测试以「首个 return」
+  // 划定顶层区，本 effect 体内含 return，不得插到其前——2025-09-08 音频设备卡代为顺位修正）。
+  useEffect(() => {
+    if (!isDevControl()) {
+      return undefined;
+    }
+    const t = setTimeout(() => {
+      import('./meeting/components/MeetingEntryModal')
+        .then(({ openMeetingWindow }) => openMeetingWindow())
+        .catch(() => undefined);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const [currentPage, setCurrentPage] = useState<AppPage>('loading');
   const [authForm, setAuthForm] = useState<AuthFormType>('login');
@@ -479,6 +498,19 @@ function App() {
   // 用于追踪上一次的登录状态，检测退出登录
   const prevLoggedInRef = useRef(isLoggedIn);
 
+  // 会议内远程控制 dev 面（设计 §8.2，仅 VITE_DEV_CONTROL=1 **且** VITE_DEV_AUTOLOGIN
+  // 构建期注入才激活）：UI 自动化环境下以应用既有命令/API 完成「已保存账号直登」
+  // （钥匙串读回 → login → profile → createSessionAndLogin 唯一公共收口点）。
+  // 生产构建两 env 均未定义 → 分支死代码搖树；失败仅告警不阻塞（账号选择页仍可手点）。
+  useEffect(() => {
+    if (!isDevControl() || !import.meta.env.VITE_DEV_AUTOLOGIN) {
+      return;
+    }
+    import('./remote-control/devAutologin')
+      .then(({ devAutologin }) => devAutologin(createSessionAndLogin))
+      .catch((err) => console.warn('[RC-dev] autologin failed:', err));
+  }, [createSessionAndLogin]);
+
   // 监听退出登录（isLoggedIn 从 true 变为 false）
   useEffect(() => {
     const wasLoggedIn = prevLoggedInRef.current;
@@ -507,6 +539,9 @@ function App() {
       <>
         {/* 全局更新提示弹窗 - 灵动岛风格（所有平台唯一实例） */}
         <UpdateToast {...updateToastProps} />
+        {/* 会议内远程控制主窗桥（dev 门控面，设计 §8.3：meeting 窗事件 → 主 WS M1/M2 上行；
+            组件恒渲染 null，生产构建内部分支死代码） */}
+        {!isMobile() && <RemoteControlMainBridge />}
         {isMobile() ? <MobileMain /> : <Main />}
       </>
     );

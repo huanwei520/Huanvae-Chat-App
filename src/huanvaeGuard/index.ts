@@ -6,6 +6,9 @@
  *   - Windows：HuanvaeGuard Windows Service（sc.exe 控制，src-tauri 侧 huanvaeguard.rs）
  *   - macOS：hg-macos LaunchDaemon（launchctl 控制，src-tauri 侧 huanvaeguard_macos.rs）
  * 架构：独立 Tauri 窗口运行
+ *   - Android：单窗口全屏覆盖页（MobileGuardPage，经 openHuanvaeGuardWindow 的 android
+ *     分支派发 `huanvae-guard:open` 事件）；取数走插件命令面（guardAndroid.ts），
+ *     与桌面回环 HTTP 轨（localApi.ts）双轨分流，见 HuanvaeGuardPage.tsx 平台分支
  *
  * ## 窗口生命周期
  *   - Windows：Tauri setup() 异步启动 Service；RunEvent::Exit 同步停止（释放 svc.exe 文件锁）
@@ -33,7 +36,38 @@ export function describeInvokeError(e: unknown): string {
 }
 
 /**
- * 打开 HuanvaeGuard 窗口（Windows / macOS 桌面端）
+ * 安卓开页事件：openHuanvaeGuardWindow 的 android 分支派发，MobileMain 监听后以
+ * 全屏覆盖页承载（MobileGuardPage）。同 JS 上下文内的 window 级事件，零 IPC。
+ */
+export const HUANVAE_GUARD_OPEN_EVENT = 'huanvae-guard:open';
+
+/** 安卓覆盖页的凭据载荷（与桌面 URL query 同一四元组；内存传递，不落盘） */
+export interface HuanvaeGuardOverlayData {
+  userId: string;
+  serverUrl: string;
+  accessToken: string;
+  refreshToken: string;
+}
+
+/**
+ * 打开 HuanvaeGuard（Windows / macOS = 独立 WebviewWindow；android = 单窗口覆盖页事件）
+ *
+ * ## 安卓形态选型（任务卡要求实证选型，理由）
+ * 选**单窗口全屏覆盖页**，不选独立 WebviewWindow：
+ * 1. 桌面式「独立 WebviewWindow 子窗口」在安卓没有同屏对应物：tauri 的移动端窗口面是
+ *    「每窗口一个 Activity」语义（tauri-runtime-wry 安卓窗口配置带 activity_name、wry
+ *    WryActivity 单 mWebView 槽位），运行时建窗=另起 Activity 整屏切换、原页面入后台，
+ *    且窗口生命周期命令面（close/hide/show…）在 tauri 源码整组 #[cfg(desktop)]；App 安卓
+ *    壳本身也是单 Activity（manifest launchMode=singleTask）单 WebView。本仓同裁决先例：
+ *    MobileMiniAppsPage「Tauri Android 不支持多窗口」/ MobileMediaPreview、MobileFilesPage
+ *    「移动端不支持 WebviewWindow」/ MobileDrawer「不使用 WebviewWindow」。（file:line 级
+ *    双端查测清单见阶段 2b 交付 §1.1）
+ * 2. App 安卓侧的全屏页面全部是单窗口内覆盖页（MobileFilesPage / MobileLanTransferPage /
+ *    MobileMeetingPage …，均由 MobileMain state + AnimatePresence 承载，无一路走 WebviewWindow）；
+ *    桌面专属的 openLanTransferWindow/openStocksWindow 在移动壳里也从不被调用。Guard 页沿用
+ *    该既有形态，行为与 App 安卓整体一致。
+ * 3. 数据面差异（localApi 回环 HTTP → 插件命令面）与载体无关，页面组件复用同一份
+ *    （HuanvaeGuardPage 接 initialData 直传，桌面子窗口仍走 URL query，见 HuanvaeGuardPage.tsx）。
  */
 export async function openHuanvaeGuardWindow(
   userId: string,
@@ -42,8 +76,16 @@ export async function openHuanvaeGuardWindow(
   refreshToken: string,
 ): Promise<void> {
   const p = platform();
-  if (p !== 'windows' && p !== 'macos') {
-    console.warn('[HuanvaeGuard] Only available on Windows and macOS');
+  if (p !== 'windows' && p !== 'macos' && p !== 'android') {
+    console.warn('[HuanvaeGuard] Only available on Windows, macOS and Android');
+    return;
+  }
+
+  // 安卓：见上方形态选型注释。开页意图经 CustomEvent 交给移动层宿主（MobileMain）。
+  if (p === 'android') {
+    window.dispatchEvent(new CustomEvent<HuanvaeGuardOverlayData>(HUANVAE_GUARD_OPEN_EVENT, {
+      detail: { userId, serverUrl, accessToken, refreshToken },
+    }));
     return;
   }
 

@@ -345,7 +345,8 @@ export async function createVoiceProfile(
   // 经回环安全反代上传 multipart/FormData:webview→http://127.0.0.1:<port>(本地明文回环)→ Rust 反代
   // 钉内置 CA、连源站 IP、不发 SNI、Host=逻辑域名转发到源站。原生 fetch 直连逻辑域名会被 ICP/SNI 拦 +
   // 验不过私有 CA 自签 leaf,故必须经反代;反代逐字节转发请求体(含 multipart 边界),无需 secure_net 支持 multipart。
-  const url = proxyRequestUrl(`${baseUrl}/api/ai/voice_profiles`);
+  // 反代未就绪时 proxyRequestUrl 短暂等待,超时/URL 非法抛错 → 由调用方(useVoiceProfiles.upload)catch 呈现。
+  const url = await proxyRequestUrl(`${baseUrl}/api/ai/voice_profiles`);
   console.warn('[VoiceProfile] 发送 POST 请求 (经回环安全反代)', { url });
 
   const response = await globalThis.fetch(url, {

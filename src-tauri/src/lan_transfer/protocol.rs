@@ -7,7 +7,7 @@
  * 1. 设备通过 mDNS 广播自身信息（服务类型：_huanvae-transfer._tcp.local）
  * 2. 发送方向接收方发送连接请求
  * 3. 接收方确认后建立传输通道
- * 4. 文件分块传输，每块进行 CRC32 校验（高性能跨平台）
+ * 4. 文件分块传输，整文件以 SHA-256 校验完整性（分块偏移由 /api/upload?offset= 校验）
  */
 
 use serde::{Deserialize, Serialize};
@@ -199,9 +199,10 @@ pub struct FileMetadata {
     pub file_size: u64,
     /// 文件 MIME 类型
     pub mime_type: String,
-    /// 文件哈希 (CRC32，8字符十六进制)
-    /// 用于传输完整性验证，采用高性能 crc32fast 库
-    pub sha256: String,  // 字段名保持不变以兼容现有协议
+    /// 文件哈希 (SHA-256，64 字符十六进制)
+    /// 用于传输完整性验证（D-04：字段名保持 sha256 以兼容现有协议，
+    /// 内容自 2026-02 起为真实 SHA-256；8 字符十六进制为旧版 CRC32 legacy 值）
+    pub sha256: String,
 }
 
 // ============================================================================
@@ -214,7 +215,8 @@ pub struct FileMetadata {
 pub struct ResumeInfo {
     /// 文件 ID
     pub file_id: String,
-    /// 文件哈希（CRC32，用于校验是否是同一个文件）
+    /// 文件哈希（SHA-256，用于校验是否是同一个文件；
+    /// 旧版断点文件中 8 位十六进制为 CRC32 legacy 值，不可比时不因哈希拒绝续传）
     /// 字段名保持 file_sha256 以兼容现有协议
     pub file_sha256: String,
     /// 本地临时文件路径
@@ -309,6 +311,18 @@ pub struct FileProgressInfo {
     pub status: TransferStatus,
 }
 
+/// 批次中失败文件的描述（batch_transfer_completed.failed_files 元素，D-15）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedFileInfo {
+    /// 文件 ID
+    pub file_id: String,
+    /// 文件名
+    pub file_name: String,
+    /// 失败原因
+    pub error: String,
+}
+
 /// 批量传输进度
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -332,6 +346,52 @@ pub struct BatchTransferProgress {
     /// 每个文件的进度信息
     #[serde(default)]
     pub files: Vec<FileProgressInfo>,
+    /// 传输方向（"send" | "receive"，D-01/D-22：serde default 保证向后兼容）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<TransferDirection>,
+    /// 对端设备 ID（发送侧 = 目标设备；接收侧 = 发起方）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_device_id: Option<String>,
+    /// 对端设备名
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_device_name: Option<String>,
+}
+
+/// 根据文件终态集合推导整批 outcome（纯函数，发送端/接收端共用，D-15）。
+///
+/// 规则：全部完成 → completed；全部失败 → failed；全部取消 → cancelled；
+/// 其余混合情况（含部分失败）→ partial。
+pub fn compute_batch_outcome(statuses: &[TransferStatus]) -> &'static str {
+    let total = statuses.len();
+    let completed = statuses.iter().filter(|s| **s == TransferStatus::Completed).count();
+    let failed = statuses.iter().filter(|s| **s == TransferStatus::Failed).count();
+    let cancelled = statuses.iter().filter(|s| **s == TransferStatus::Cancelled).count();
+
+    if total == 0 || completed == total {
+        "completed"
+    } else if failed == total {
+        "failed"
+    } else if cancelled == total {
+        "cancelled"
+    } else {
+        "partial"
+    }
+}
+
+/// 是否为旧版 CRC32 哈希（8 位十六进制）。
+/// 新协议为 SHA-256（64 位十六进制）；续传兼容判定用（D-04）。
+pub fn is_legacy_crc32_hash(hash: &str) -> bool {
+    hash.len() == 8 && hash.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// 计算数据的 SHA-256 十六进制字符串（流式与一次性结果一致的便捷封装）
+/// （生产路径直接用 hasher 增量计算；本函数供测试与便捷调用）
+#[allow(dead_code)]
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
 }
 
 // ============================================================================
@@ -557,10 +617,16 @@ pub enum LanTransferEvent {
     /// 传输完成
     TransferCompleted { task_id: String, saved_path: String },
     /// 批量传输完成
+    /// D-15：outcome 显式化终态（completed/cancelled/failed/partial），
+    /// failed_files 列出失败文件；两者 serde default 保证旧事件可反序列化
     BatchTransferCompleted {
         session_id: String,
         total_files: u32,
         save_directory: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failed_files: Option<Vec<FailedFileInfo>>,
     },
     /// 传输失败
     TransferFailed { task_id: String, error: String },
@@ -583,3 +649,67 @@ pub enum LanTransferEvent {
     },
 }
 
+
+// ============================================================================
+// 单元测试
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D-04：SHA-256 已知向量（NIST FIPS 180-4 示例）+ 流式/一次性一致性
+    #[test]
+    fn sha256_known_vectors() {
+        // SHA-256(b"abc") =
+        // ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // SHA-256(b"") = e3b0c442...（空输入，覆盖 0 字节文件的 finish 校验路径）
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        // 流式喂入（分两块）与一次性结果一致——传输侧增量更新的正确性依据
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(b"ab");
+        h.update(b"c");
+        assert_eq!(hex::encode(h.finalize()), sha256_hex(b"abc"));
+        // 超过一个块大小的输入（CHUNK_SIZE 边界）
+        let big = vec![0xABu8; CHUNK_SIZE + 7];
+        let mut h = sha2::Sha256::new();
+        h.update(&big[..CHUNK_SIZE]);
+        h.update(&big[CHUNK_SIZE..]);
+        assert_eq!(hex::encode(h.finalize()), sha256_hex(&big));
+    }
+
+    /// D-04：legacy CRC32 哈希识别（8 位十六进制）
+    #[test]
+    fn legacy_crc32_hash_detection() {
+        assert!(is_legacy_crc32_hash("deadbeef"));
+        assert!(is_legacy_crc32_hash("00000000"));
+        assert!(!is_legacy_crc32_hash(""), "空串不是 legacy 哈希");
+        assert!(!is_legacy_crc32_hash("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "SHA-256 不是 legacy");
+        assert!(!is_legacy_crc32_hash("deadbeeff"), "9 位不是 legacy");
+        assert!(!is_legacy_crc32_hash("zzzzzzzz"), "非十六进制不是 legacy");
+    }
+
+    /// D-15：outcome 推导规则
+    #[test]
+    fn batch_outcome_derivation() {
+        use TransferStatus::*;
+        assert_eq!(compute_batch_outcome(&[]), "completed", "空会话视为完成");
+        assert_eq!(compute_batch_outcome(&[Completed, Completed]), "completed");
+        assert_eq!(compute_batch_outcome(&[Failed, Failed]), "failed");
+        assert_eq!(compute_batch_outcome(&[Cancelled, Cancelled]), "cancelled");
+        // 部分失败 → partial（D-15 核心场景）
+        assert_eq!(compute_batch_outcome(&[Completed, Failed]), "partial");
+        // 完成 + 取消混合 → partial
+        assert_eq!(compute_batch_outcome(&[Completed, Cancelled]), "partial");
+        // 失败 + 取消混合 → partial
+        assert_eq!(compute_batch_outcome(&[Failed, Cancelled]), "partial");
+    }
+}

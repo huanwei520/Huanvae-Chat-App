@@ -17,6 +17,8 @@
     "android-package-install:default",
     "android-package-install:allow-check-permissions",
     "android-package-install:allow-request-permissions",
-    "android-package-install:allow-install"
+    "android-package-install:allow-install",
+    "hg-guard:default",
+    "screen-capture:default"
   ]
 }

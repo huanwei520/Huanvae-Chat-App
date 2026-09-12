@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  tauri-plugin-screen-capture 插件 Manifest —— 屏幕共享采集链路的权限与前台服务
+  声明，经 gradle manifest merger 自动并入宿主 App（hg-guard 同模式先例）：
+   * FOREGROUND_SERVICE + FOREGROUND_SERVICE_MEDIA_PROJECTION：API 34+ 起
+     mediaProjection 类型的前台服务为硬性要求（Android 14 行为变更）；
+   * POST_NOTIFICATIONS：前台服务常驻通知在 API 33+ 的运行时权限；
+   * service 块：foregroundServiceType=mediaProjection，Android 14 要求
+     MediaProjection 授权（createScreenCaptureIntent 用户同意）先于投影创建。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 屏幕共享采集挂前台服务 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- API 34+ mediaProjection 前台服务类型（Android 14 行为变更硬要求） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- 常驻通知在 API 33+ 需运行时通知权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- 屏幕共享采集前台服务：MediaProjection + VirtualDisplay，逐帧经
+             tauri Channel 下行到 WebView（协议见 ScreenCaptureService 头注释）。
+             exported=false 仅应用内 startForegroundService 触达。 -->
+        <service
+            android:name="dev.huanvae.screen.capture.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+    </application>
+</manifest>

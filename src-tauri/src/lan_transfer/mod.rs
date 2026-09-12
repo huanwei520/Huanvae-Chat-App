@@ -46,8 +46,10 @@ pub mod discovery;
 pub mod protocol;
 pub mod resume;
 pub mod server;
+pub mod speed;
 pub mod transfer;
 
+use chrono::Utc;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -196,11 +198,21 @@ pub async fn respond_to_connection_request(
 ///
 /// 注：前端 useLanTransfer.ts 仍在调用此命令；新点对点接口为
 /// `get_pending_peer_connection_requests`，两者并存。
+///
+/// D-11a：legacy 表与新表同病 —— 条目只在 `respond_to_request` 里移除，
+/// 用户不响应（关窗/设备消失）时永久残留，之后每次列表刷新都会把陈旧
+/// 请求返回给前端。读取时惰性清扫过期项（写锁内同步完成，无 await），
+/// 过期判定与新表共用 [`server::is_peer_request_expired`] /
+/// [`server::PENDING_PEER_REQUEST_TTL_SECS`]（TTL 对齐前端弹窗生命周期）。
 #[allow(deprecated)]
 #[tauri::command]
 pub fn get_pending_connection_requests() -> Vec<ConnectionRequest> {
     let state = get_lan_transfer_state();
-    let requests = state.pending_requests.read();
+    let now = Utc::now();
+    let mut requests = state.pending_requests.write();
+    requests.retain(|_, req| {
+        !server::is_peer_request_expired(now, &req.requested_at, server::PENDING_PEER_REQUEST_TTL_SECS)
+    });
     requests.values().cloned().collect()
 }
 
@@ -289,6 +301,50 @@ pub async fn send_files_to_peer(
 #[tauri::command]
 pub fn get_all_transfer_sessions() -> Vec<TransferSession> {
     transfer::get_all_sessions()
+}
+
+/// 获取局域网传输网络信息（D-12：桌面/移动端调试面板的真实数据源）
+///
+/// 返回字段为前端钉死契约：`local_ip` / `port` / `mdns_service_type` / `device_id` /
+/// `is_running`，另附 `interfaces`（网卡列表 [名称, IP] 数组）供诊断展示。
+/// 全部为真实值：设备 ID 用持久化 UUID（与 mDNS 广播同源），不再用 MAC 拼凑。
+#[tauri::command]
+pub fn get_lan_transfer_network_info() -> Result<serde_json::Value, String> {
+    let state = get_lan_transfer_state();
+
+    let (local_ip, device_id, is_running) = {
+        let local = state.local_device.read();
+        let is_running = *state.is_running.read();
+        match local.as_ref() {
+            // 服务已启动：取本机 mDNS 注册信息（IP 为接口选择策略命中的地址）
+            Some(d) => (d.ip_address.clone(), d.device_id.clone(), is_running),
+            // 服务未启动：回退默认路由 IP + 持久化设备 UUID（与下次启动广播的一致）
+            None => {
+                let ip = local_ip_address::local_ip()
+                    .map(|ip| ip.to_string())
+                    .unwrap_or_default();
+                let id = discovery::get_device_id().map_err(|e| e.to_string())?;
+                (ip, id, is_running)
+            }
+        }
+    };
+
+    let interfaces: Vec<(String, String)> = local_ip_address::list_afinet_netifas()
+        .map(|list| {
+            list.into_iter()
+                .map(|(name, ip)| (name, ip.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(serde_json::json!({
+        "local_ip": local_ip,
+        "port": protocol::SERVICE_PORT,
+        "mdns_service_type": protocol::SERVICE_TYPE,
+        "device_id": device_id,
+        "is_running": is_running,
+        "interfaces": interfaces,
+    }))
 }
 
 /// 取消传输会话

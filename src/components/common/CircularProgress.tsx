@@ -60,7 +60,11 @@ export const CircularProgress = memo(function CircularProgress({
   // 计算圆环参数
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (progress / 100) * circumference;
+  // 渲染端除零/NaN 防护：progress 非有限值（如 total=0 除零算出的 NaN/Infinity）一律按 0% 画，
+  // 越界值夹回 0..100 —— offset 与百分比文本永不产生 NaN / 负环 / 满环伪影。
+  // 对一切合法输入（0..100 的有限数）行为逐字节不变；transition 动画口径不动。
+  const safeProgress = Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0;
+  const offset = circumference - (safeProgress / 100) * circumference;
   const center = size / 2;
 
   return (
@@ -135,7 +139,7 @@ export const CircularProgress = memo(function CircularProgress({
             textShadow: '0 1px 2px var(--black-alpha-50)',
           }}
         >
-          {Math.round(progress)}%
+          {Math.round(safeProgress)}%
         </span>
       )}
     </div>

@@ -33,12 +33,21 @@ export interface FileCacheSettings {
   largeFileThresholdMB: number;
 }
 
+/** 聊天输入设置 */
+export interface ChatInputSettings {
+  /** 回车发送：开启=Enter 发送、Shift+Enter 换行；关闭（默认）=Enter 换行、不发送。
+   *  桌面 / 移动端（软键盘 IME 动作键）共用此开关。 */
+  enterSendsMessage: boolean;
+}
+
 /** 设置状态 */
 interface SettingsState {
   /** 通知设置 */
   notification: NotificationSettings;
   /** 文件缓存设置 */
   fileCache: FileCacheSettings;
+  /** 聊天输入设置 */
+  chatInput: ChatInputSettings;
 
   /** 设置提示音 */
   setNotificationSound: (soundName: string) => void;
@@ -48,6 +57,8 @@ interface SettingsState {
   setNotificationVolume: (volume: number) => void;
   /** 设置大文件阈值（MB） */
   setLargeFileThreshold: (mb: number) => void;
+  /** 设置「回车发送」开关 */
+  setEnterSendsMessage: (enabled: boolean) => void;
 }
 
 // ============================================
@@ -65,6 +76,9 @@ export const useSettingsStore = create<SettingsState>()(
       },
       fileCache: {
         largeFileThresholdMB: 100, // 默认 100MB
+      },
+      chatInput: {
+        enterSendsMessage: false, // 默认关闭：回车=换行（不发送）
       },
 
       // 设置提示音
@@ -93,6 +107,16 @@ export const useSettingsStore = create<SettingsState>()(
           notification: {
             ...state.notification,
             volume: Math.max(0, Math.min(100, volume)),
+          },
+        }));
+      },
+
+      // 设置「回车发送」开关
+      setEnterSendsMessage: (enabled: boolean) => {
+        set((state) => ({
+          chatInput: {
+            ...state.chatInput,
+            enterSendsMessage: enabled,
           },
         }));
       },

@@ -23,11 +23,12 @@
  * @updated 2026-02-04 添加保存到相册功能（移动端专属）
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
 import { isMobile } from '../../utils/platform';
+import { clampMobileMenuPlacement, probeSafeAreaInsets, type MobileMenuPlacement } from './menuPlacement';
 
 interface MessageContextMenuProps {
   isOpen: boolean;
@@ -107,6 +108,9 @@ export function MessageContextMenu({
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const mobile = isMobile();
+
+  // 渲染后实测校正位（三缘限位第二道钳制）：null = 尚未实测，用估算位首帧占位
+  const [measuredPlacement, setMeasuredPlacement] = useState<MobileMenuPlacement | null>(null);
 
   // 复制消息内容（移动端优先复制选中的文字）
   const handleCopy = useCallback(async () => {
@@ -204,13 +208,67 @@ export function MessageContextMenu({
   // 转发：同样要求开关 + 回调都给（不可转发的消息由调用方置 canForward=false）
   const showForward = !!canForward && !!onForward;
 
+  // 渲染后实测校正（三缘限位第二道钳制）：菜单挂载后用 offsetWidth/offsetHeight
+  // 拿真实布局尺寸（CSS transform 不影响 offset*，framer-motion 入场动画不干扰测量），
+  // 重跑同一钳制函数，paint 前完成校正（useLayoutEffect + setState 同步重渲染），无闪跳。
+  // bubbleRect 缺失时以触点为锚（零宽/零高合成矩形），移动端任何路径都走移动端钳制。
+  // jsdom 等无布局环境 offset* 为 0 → 保留首帧估算位，不影响既有单测。
+  useLayoutEffect(() => {
+    if (!isOpen || !mobile) {
+      setMeasuredPlacement(null);
+      return;
+    }
+    const el = menuRef.current;
+    const w = el?.offsetWidth ?? 0;
+    const h = el?.offsetHeight ?? 0;
+    if (!el || w <= 0 || h <= 0) { return; }
+    const anchor = bubbleRect ?? {
+      left: position.x, right: position.x, top: position.y, bottom: position.y,
+    };
+    const next = clampMobileMenuPlacement({
+      bubble: anchor,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      insets: probeSafeAreaInsets(),
+      menuWidth: w,
+      menuHeight: h,
+    });
+    setMeasuredPlacement((prev) => (
+      prev && prev.left === next.left && prev.top === next.top && prev.placement === next.placement
+        ? prev
+        : next
+    ));
+  }, [isOpen, mobile, bubbleRect, position.x, position.y, showReply, hasMessageContent, showForward,
+    canRecall, canSaveToGallery, onSelectText, canBlockSender, onToggleBlockSender,
+    canSpecialCareSender, onToggleSpecialCareSender, canRemarkSender, onSetRemark]);
+
   // 计算菜单位置，确保不超出视口
   const getMenuStyle = (): React.CSSProperties => {
     const padding = 10;
 
-    // 移动端：菜单显示在气泡上方居中（微信风格）
-    if (mobile && bubbleRect) {
-      // 移动端水平菜单宽度估算（每个按钮约 50px）
+    // 移动端（含长按）：菜单永远走移动端钳制路径。
+    // 设备实测发现：bubbleRect 偶发缺失（列表重挂载等竞态，见证据
+    // metrics-px3-touchpoint-overflow.json）时，旧实现落入桌面分支——以触点定位、
+    // 按桌面 160px 宽假设钳制，而移动端菜单真实宽 291~337px → 右缘溢出 167.5px。
+    // 故 mobile 时 bubbleRect 缺失不再回退桌面分支，改用触点零宽/零高合成矩形走同一钳制。
+    if (mobile) {
+      // 已有渲染后实测校正位（真实 offsetWidth/offsetHeight 重跑钳制的结果）→ 直接采用
+      if (measuredPlacement) {
+        return {
+          position: 'fixed',
+          left: measuredPlacement.left,
+          top: measuredPlacement.top,
+          zIndex: 99999,
+        };
+      }
+
+      // 首帧估算（仅用于占位；渲染后 useLayoutEffect 用 offsetWidth/Height 实测二次
+      // 校正，校正发生在 paint 前，估算偏差不会产生可见闪跳）。
+      // 实测参照（1080×2400@420dpi 模拟器，CSS 视口 412×915）：6 项菜单真实
+      // 291.52×62.02，每项 ≈44.25px（min-width 44 border-box 主导，
+      // main.css .mobile-horizontal .context-menu-item）；长标签/字号放大会使单项目
+      // 宽超过 52（群聊最长项 ≈92px），故首帧估算取偏宽的 n*64+14 并以视口上限封顶
+      // ——首帧宁可过钳勿漏钳，最终以实测位为准。
       let itemCount = 2; // 删除 + 多选
       if (showReply) { itemCount += 1; } // 回复
       if (hasMessageContent) { itemCount += 1; } // 复制
@@ -221,35 +279,24 @@ export function MessageContextMenu({
       if (canBlockSender && onToggleBlockSender) { itemCount += 1; } // 屏蔽此人
       if (canSpecialCareSender && onToggleSpecialCareSender) { itemCount += 1; } // 特别关心
       if (canRemarkSender && onSetRemark) { itemCount += 1; } // 设置备注
-      const menuWidth = itemCount * 52 + 16; // 每项 52px + padding
-      const menuHeight = 44;
 
-      // 气泡中心位置
-      const bubbleCenterX = bubbleRect.left + bubbleRect.width / 2;
-
-      // 菜单 x 位置：居中对齐气泡
-      let x = bubbleCenterX - menuWidth / 2;
-
-      // 防止超出左右边界
-      if (x < padding) {
-        x = padding;
-      }
-      if (x + menuWidth > window.innerWidth - padding) {
-        x = window.innerWidth - menuWidth - padding;
-      }
-
-      // 菜单 y 位置：气泡上方
-      let y = bubbleRect.top - menuHeight - 8; // 8px 间距
-
-      // 如果上方空间不足，显示在下方
-      if (y < padding) {
-        y = bubbleRect.bottom + 8;
-      }
-
+      // 渲染前钳制：水平居中锚点 + 左/右缘钳制；垂直上贴/下翻 + 底缘钳制；
+      // 边界避安全区（env(safe-area-inset-*)，老平板并入 --sai-* 兑底）。
+      // 估算宽度不封顶时会超出窄屏（项多时 flex 会收缩真实宽度）→ 用视口上限兜住首帧。
+      const estimated = clampMobileMenuPlacement({
+        bubble: bubbleRect ?? {
+          left: position.x, right: position.x, top: position.y, bottom: position.y,
+        },
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        insets: probeSafeAreaInsets(),
+        menuWidth: Math.min(itemCount * 64 + 14, window.innerWidth - 20),
+        menuHeight: 58,
+      });
       return {
         position: 'fixed',
-        left: x,
-        top: y,
+        left: estimated.left,
+        top: estimated.top,
         zIndex: 99999,
       };
     }

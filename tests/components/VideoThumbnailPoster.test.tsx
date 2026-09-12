@@ -21,6 +21,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 const posterService = vi.hoisted(() => ({
   loadVideoPosterSrc: vi.fn(),
   captureAndSaveVideoPoster: vi.fn(),
+  // 进程内解析缓存（2026-09 新增导出）：组件同步命中用。这里给个可控的假值，
+  // 默认恒 null（= 缓存永不命中），不影响本文件原有的逐条行为
+  peekCachedPosterSrc: vi.fn(() => null),
+  clearVideoPosterSessionCache: vi.fn(),
 }));
 vi.mock('../../src/services/videoPoster', () => posterService);
 
@@ -33,6 +37,9 @@ beforeEach(() => {
   posterService.loadVideoPosterSrc.mockReset();
   posterService.captureAndSaveVideoPoster.mockReset();
   posterService.captureAndSaveVideoPoster.mockResolvedValue(null);
+  posterService.peekCachedPosterSrc.mockReset();
+  posterService.peekCachedPosterSrc.mockImplementation(() => null);
+  posterService.clearVideoPosterSessionCache.mockReset();
 });
 
 describe('本地已有封面：走 <img>，不建 <video>、不再截帧', () => {

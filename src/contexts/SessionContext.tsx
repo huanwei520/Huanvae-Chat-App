@@ -20,6 +20,7 @@ import { createApiClient, type ApiClient } from '../api/client';
 import { removeSessionLock } from '../services/sessionLock';
 import { persistSession, clearPersistedSession } from '../services/sessionPersist';
 import { destroySyncService } from '../services/syncService';
+import { clearVideoPosterSessionCache } from '../services/videoPoster';
 import { getTokenExpiresAt } from '../utils/jwt';
 import { useChatStore } from '../stores/chatStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
@@ -74,6 +75,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     useCardLiveStore.getState().clear();
     useShelfStore.getState().clear();
     useBotCommandsStore.getState().clear();
+    // 封面解析的进程内缓存同理：封面文件按 data/{user}_{server}/ 分账号分目录，
+    // 跨账号复用就是把上一个账号的封面路径递给下一个账号的 <img>。
+    // 挂在同一条收敛点上覆盖全部登出路径（见 services/videoPoster 的缓存注释）。
+    clearVideoPosterSessionCache();
 
     // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
     destroySyncService();

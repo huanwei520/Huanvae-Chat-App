@@ -57,14 +57,17 @@ import { proxyRequestUrl } from '../services/secureProxy';
  * }
  * ```
  */
-export function uploadWithProgress<T = unknown>(
+export async function uploadWithProgress<T = unknown>(
   url: string,
   token: string,
   file: File,
   fieldName: string,
   onProgress?: ProgressCallback,
 ): Promise<T> {
-  return new Promise((resolve, reject) => {
+  // 反代 URL 解析(proxyRequestUrl,未就绪短等待/超时抛错)先于 XHR 发起;拒绝沿既有
+  // Promise reject 通道暴露给调用方 try/catch,不退化直连源站(验不过私有 CA 自签 leaf)。
+  const proxiedUrl = await proxyRequestUrl(url);
+  return new Promise<T>((resolve, reject) => {
     const formData = new FormData();
     formData.append(fieldName, file);
 
@@ -98,7 +101,7 @@ export function uploadWithProgress<T = unknown>(
 
     // 经回环安全反代上传(webview 原生 XHR 验不过私有 CA 自签 leaf,且连逻辑域名会触发 ICP/SNI 拦截):
     // 反代转发到源站 IP(钉内置 CA、不发 SNI、Host=逻辑域名)。
-    xhr.open('POST', proxyRequestUrl(url));
+    xhr.open('POST', proxiedUrl);
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.send(formData);
   });

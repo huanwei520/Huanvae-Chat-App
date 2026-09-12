@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hg-prepare-vpn"
+description = "Enables the hg_prepare_vpn command without any pre-configured scope."
+commands.allow = ["hg_prepare_vpn"]
+
+[[permission]]
+identifier = "deny-hg-prepare-vpn"
+description = "Denies the hg_prepare_vpn command without any pre-configured scope."
+commands.deny = ["hg_prepare_vpn"]

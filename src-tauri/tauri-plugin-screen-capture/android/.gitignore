@@ -1,0 +1,5 @@
+# tauri-plugin-screen-capture 安卓 module 本地构建产物（不入库）
+build/
+.tauri/
+.gradle/
+local.properties

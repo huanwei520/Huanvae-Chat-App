@@ -2590,3 +2590,46 @@ gen-45 的卡只写了「每秒采样 `.hvpart` 字节」，**没要求采界面
 ⇒ 给出的 `0.000000` 对「压缩会不会抬亮真黑」**零判别力**，已换成稳态帧重做。
 
 **一手来源**：单4 §3.1 · §7 第 3 条（那条被换掉的坏正对照）。
+
+## 排查「重启后坏」类环境故障：时钟偏移放第一梯队；本仓全部时间判定是本机口径、无服务器对账（穷举证实）
+
+### 现状（2026-09-01 块 1788248546750-1-win-restart-filechain 穷举，覆盖 403 个 .ts/.tsx + 49 个 .rs）
+
+- 三组检索**零命中×3**：NTP/w32tm/timesync/chrony 族、server_time/clock_skew 族、HTTP Date 响应头读取族。
+- `Date.now()` **53 处** + Rust `SystemTime` **8 处**全景逐条归类：**全部**是「本机钟 vs 本地截止值 / 本机计时」（token exp 刷新调度 jwt.ts:73、presigned expires_at fileCacheStore.ts:208/231、discovery ttl :212……），**无一处读服务器时钟对账/校准**。
+- urlCache 过期判定纯本机口径（fileCacheStore.ts:206-221）：**本机落后 ⇒ 已过期 URL 仍命中；本机超前 ⇒ 提前判废**（4 用例钉死语义）。
+
+### 后果：时钟偏移能产生「一坏全坏但文字正常」的形状
+
+presigned GET/PUT 是 SigV4 签名（MinIO 偏移容忍 ~15min），请求时间出自**客户机时钟** ⇒ 偏移超限 ⇒ **所有** presigned 全 403（典型 `RequestTimeTooSkewed`），而 JWT 面（exp 由服务端校验）全部正常——**唯一**能产生「文字正常、presigned_url 能拿到、图片文件收发全灭」症状形状的客户端侧病灶。RTC 漂移 / Windows 时间服务未同步是重启后真实常见的偏移来源，偏移随开机时长累积时症状呈「先用着 → 渐进死亡」。
+
+### 规则
+
+1. **新增任何「在本地判定远端凭证/URL 是否仍有效」的逻辑时**：注释明确标注它依赖本机时钟口径；若失效模式是全局性的（一坏全坏），优先设计成失效可见（403 上浮）而非静默重试到放弃。
+2. **「重启后坏 / 用着用着坏」类环境工单**：时钟偏移与持久化状态盘点同列第一梯队，客户端代码无法自证清白（无对账点）——先 `w32tm /query /status`（或 `Get-Date`）与后端 `date -u` 对表，偏移 >15min 即实锤方向。
+3. **排除「时钟对账缺失」指控前先 grep 三组**（NTP 族 / server_time 族 / HTTP Date 族）确认现状，别凭印象说「肯定有对账」或「肯定没有」。
+4. **端口烘焙类嫌疑**（对照）：端口/内存态字段要证「不持久」用三件套——持久化写入 grep 零命中 + 启动重 bind 实读 + 收口函数剥旧值回归用例（删防线必红）。本仓反代端口已按此钉死（secureProxy.ts:98-100 + tests/services/secureProxy.test.ts），**不是**通病，别重复排查。
+
+**一手来源**：块 1788248546750-1-win-restart-filechain code/review 双 PASS 交付（穷举流水账 E-13~E-18/E-32/E-49；判别树 R4、对表清单 R6、真机流程 R8）；本条目配套完整排查清单（持久化点盘点 12 项总表／定层位判别树／backend 对表证据格式）见 update 沉淀交付：`/root/pipeline-lines/huanvae-chat-app/blocks/1788248546750-1-win-restart-filechain/update/deliverable.md`。
+
+## 🔴 图片消息的 URL 生命周期链路图谱 ＋「presign 进消息体 × 客户端无刷新」断点模式的识别（2026-09-01 · 块 1788276072694-2-img-app-receive 沉淀）
+
+> 上节管「重启后坏」的**环境侧**排查（时钟/持久化）；本节管同症状家族的**代码侧**链路（URL 从哪来、缓存何时落、刷新在哪条路径上）。逐条 file:line 见一手来源。
+
+### 链路图谱（两端只读源码实证；「唯一收口」的显示路由不变量见 frontend-test.md，本节不重复）
+
+- **消息体里的 `file_url` 是死的**：后端消息面（`GET /api/messages` / `POST /api/messages/sync` / WS 帧）回传的恒为**存储时写入的相对路径** `api/storage/file/{uuid}`，从不动态重签（后端消息三模块 `generate_presigned` 零命中）；全仓 `.file_url` 的 14 处消费点全部是「落库映射 / 转发载荷 / 发送构造」，**零渲染点**——图片显示只认 `file_uuid`。
+- **渲染链**：`FileMessageContent`（消息图片唯一渲染点）→ `useImageCache(fileUuid)` → `getFileSource`：先查本地两层键（`file_uuid_hash` 表 → `file_mappings` 表 + Rust `Path::exists` 实测）→ 命中 `asset://` 本地显示，**不碰远程 URL**；未命中 → `POST /api/storage/friends_file/{uuid}/presigned_url` **现签**（默认 3h；服务端 Redis 缓存剩余 >600s 才复用）→ `resolveDisplayUrl` 反代收口。
+- **URL 缓存纯内存**：`urlCache` 是 Zustand 内存态（`fileCacheStore` 无 persist，grep rc=1），提前 5 分钟失效，**重启即空** ⇒ 重启后必然重新现签。「重启后用旧 presign」这条假设被两端代码否定，别往这个方向排障。
+- **缓存落盘挂在显示成功之后**：只有 `<img>` **onLoad 成功后**才触发后台下载（`cacheFile`）；下载失败只 `failDownload` + console，无重试。⇒ **「接收时看得见」≠「本地已有缓存」**。
+- **刷新逻辑按路径不对称**：显示路径有 `<img>` onError → `retryWithNewUrl` 清缓存重签（上限 `IMAGE_MAX_RETRIES=2` 次）；下载路径**无刷新**——Rust 引擎把 401/403 分类为 `HV_URL_EXPIRED` 上浮（注释明说"重取 URL 后可从断点续传"），但 TS 编排层对该形态**零消费**（双侧 grep rc=1），下载失败即终结。
+
+### 断点模式识别要点（下次遇到「URL 类断点」按这五条走）
+
+1. **「URL 进没进消息体」必须在契约两端分别查**，单看一端会得出假结论：后端查「消息路径是否动态签 URL」（`generate_presigned` 限定消息模块 pathspec，跟踪面+untracked 双侧）；前端查「渲染是否消费消息体 URL」（`.file_url` 全量消费面逐条归类，而不是只看组件 props）。本次两端一查，假设直接被否定——省掉一个不存在的 bug 方向。
+2. **「无刷新逻辑」按路径分，不按资源分**：同一资源走显示/下载两条路径，刷新机制可能只有一半。判据形态 = 错误形态常量（`HV_URL_EXPIRED`）在**引擎层**的定义点 + 在**编排层**的消费面，两侧分别 grep；消费面 rc=1 + 失败落点只有 `failDownload` ⇒ 该路径无刷新。
+3. **「曾经可见」≠「已经缓存」**：后台缓存的触发时机如果挂在显示成功之后（onLoad），那「接收当时显示正常」对「缓存是否落地」**零证明力**；重启后重走整链时才暴露。这是「重启后才坏」类症状的最短解释之一——先查触发时序，再查环境。
+4. **「错误分类上浮但上层零消费」＝死知识**：引擎内精心分类错误（`401 | 403 => UrlExpired`）不等于存在重取逻辑——分类没有消费者就是摆设。识别动作：对每个错误变体的字面量前缀（`HV_URL_EXPIRED:`）在跨语言边界两侧各 grep 一次。
+5. **候选断点先过「症状矛盾」过滤**：「文本消息正常」能同时排除 token 失效（sync 走同一 api client / 同一 auth_guard）与账号目录漂移（同库根 `data/{user_id}_{server}/`）；与症状矛盾的断点要显式标「排除」并写明矛盾点，不许留在清单里装候选。
+
+**一手来源**：块 1788276072694-2-img-app-receive code 交付（`/root/pipeline-lines/huanvae-chat-backend/blocks/1788276072694-2-img-app-receive/code/deliverable.md`，§1 三张链路表 / §2.2 断点清单 / §4 六组穷举原样输出）＋ review 交付（同目录 `review/`，六组穷举全部重跑、约百处 file:line 零漂移）＋ update 沉淀交付（同目录 `update/`）。

@@ -22,6 +22,12 @@ describe('移动端安全区 viewport 契约', () => {
     expect(m![1]).toMatch(/viewport-fit\s*=\s*cover/);
   });
 
+  it('index.html 的 viewport meta 含 interactive-widget=overlays-content（键盘跟随唯一权威是 MainActivity 的 ime() insets，禁止 Chromium 双通道缩放）', () => {
+    const m = INDEX_HTML.match(/<meta\s+name=["']viewport["'][^>]*\bcontent=["']([^"']+)["']/i);
+    expect(m).not.toBeNull();
+    expect(m![1]).toMatch(/interactive-widget\s*=\s*overlays-content/);
+  });
+
   it('安全区 CSS 仍在使用 env(safe-area-inset-*)（确保 viewport-fit 有消费方，非空配置）', () => {
     const header = readFileSync(resolve(__dirname, '../src/styles/mobile/header.css'), 'utf-8');
     const tabBar = readFileSync(resolve(__dirname, '../src/styles/mobile/tab-bar.css'), 'utf-8');

@@ -144,8 +144,24 @@ impl ResumeManager {
             Err(e) => return Err(e),
         };
 
-        // 检查文件 SHA256 是否匹配
-        if info.file_sha256 != expected_sha256 {
+        // 检查文件哈希是否匹配
+        // D-04：旧版断点文件中 8 位十六进制是 CRC32 legacy 哈希，与 SHA-256 不可比；
+        // 不可比时不因哈希拒绝续传（临时文件大小/内容校验仍在后续步骤生效，
+        // 且已收部分的哈希会在 prepare-upload 时用 SHA-256 从头重建，finish 校验不受影响）
+        let legacy_stored = super::protocol::is_legacy_crc32_hash(&info.file_sha256);
+        let legacy_expected = super::protocol::is_legacy_crc32_hash(expected_sha256);
+        let hash_mismatch = if legacy_stored != legacy_expected {
+            if legacy_stored {
+                println!(
+                    "[ResumeManager] 断点信息为 legacy CRC32 哈希，跳过哈希比对（不拒绝续传）: {}",
+                    file_id
+                );
+            }
+            false
+        } else {
+            info.file_sha256 != expected_sha256
+        };
+        if hash_mismatch {
             println!(
                 "[ResumeManager] 文件哈希不匹配，需要重新传输: {}",
                 file_id
@@ -368,4 +384,42 @@ impl Default for ResumeManager {
 /// 获取全局续传管理器实例
 pub fn get_resume_manager() -> ResumeManager {
     ResumeManager::new()
+}
+
+// ============================================================================
+// 单元测试（D-04：legacy CRC32 断点兼容）
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::super::protocol::{is_legacy_crc32_hash, sha256_hex};
+
+    /// 8 位十六进制判为 legacy（旧版 CRC32 断点文件），不因与新 SHA-256 不可比而拒绝续传
+    #[test]
+    fn legacy_crc32_resume_hashes_are_recognized() {
+        // 旧版断点文件存的 CRC32 值
+        assert!(is_legacy_crc32_hash("1a2b3c4d"));
+        // 新版存的是 SHA-256（64 hex）
+        assert!(!is_legacy_crc32_hash(&sha256_hex(b"resume-content")));
+        // 两侧不可比（一边 legacy 一边 SHA-256）→ 调用方（can_resume）跳过哈希比对，
+        // 这里验证判定本身的双向性
+        let stored_legacy = "deadbeef";
+        let expected_sha = sha256_hex(b"resume-content");
+        assert_ne!(
+            is_legacy_crc32_hash(stored_legacy),
+            is_legacy_crc32_hash(&expected_sha),
+            "legacy 与 SHA-256 必须落在可比性判定两侧"
+        );
+    }
+
+    /// SHA-256 与 SHA-256 可比：相同内容可比且相等，不同内容不等
+    #[test]
+    fn sha256_hashes_remain_comparable() {
+        let a = sha256_hex(b"same");
+        let b = sha256_hex(b"same");
+        let c = sha256_hex(b"different");
+        assert_eq!(is_legacy_crc32_hash(&a), is_legacy_crc32_hash(&b));
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
 }

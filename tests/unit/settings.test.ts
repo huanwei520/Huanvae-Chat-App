@@ -13,9 +13,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 
 // 模拟 localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
+// 🔴 必须用 vi.hoisted 安装（不能只在模块体里 defineProperty）：
+// ES import 会提升 —— settingsStore 模块在本文件模块体**之前**求值，
+// 而 zustand persist 默认 `createJSONStorage(() => window.localStorage)` 会在
+// settingsStore 求值那一刻**急切捕获** window.localStorage。
+// 晚于模块体安装的 mock 永远观测不到持久化写入（.setItem 恒 0 命中）。
+const localStorageMock = vi.hoisted(() => {
+  const store: Record<string, string> = {};
+  const mock = {
     getItem: vi.fn((key: string) => store[key] ?? null),
     setItem: vi.fn((key: string, value: string) => {
       store[key] = value;
@@ -24,13 +29,20 @@ const localStorageMock = (() => {
       delete store[key];
     }),
     clear: vi.fn(() => {
-      store = {};
+      for (const k of Object.keys(store)) { delete store[k]; }
     }),
   };
-})();
-
-Object.defineProperty(globalThis, 'localStorage', {
-  value: localStorageMock,
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mock,
+    configurable: true,
+  });
+  if (typeof window !== 'undefined') {
+    Object.defineProperty(window as unknown as object, 'localStorage', {
+      value: mock,
+      configurable: true,
+    });
+  }
+  return mock;
 });
 
 // 导入需要放在模拟之后
@@ -47,6 +59,7 @@ describe('设置状态管理 (settingsStore)', () => {
     store.setNotificationEnabled(true);
     store.setNotificationSound('water');
     store.setNotificationVolume(70);
+    store.setEnterSendsMessage(false);
   });
 
   describe('默认值', () => {
@@ -177,6 +190,53 @@ describe('设置状态管理 (settingsStore)', () => {
       });
 
       expect(result.current.notification.volume).toBe(100);
+    });
+  });
+
+  describe('聊天输入（回车发送开关）', () => {
+    it('默认应关闭（Enter=换行不发送）', () => {
+      const { result } = renderHook(() => useSettingsStore());
+
+      expect(result.current.chatInput).toBeDefined();
+      expect(result.current.chatInput.enterSendsMessage).toBe(false);
+    });
+
+    it('开启后 Enter=发送，且可再次关闭', () => {
+      const { result } = renderHook(() => useSettingsStore());
+
+      act(() => {
+        result.current.setEnterSendsMessage(true);
+      });
+      expect(result.current.chatInput.enterSendsMessage).toBe(true);
+
+      act(() => {
+        result.current.setEnterSendsMessage(false);
+      });
+      expect(result.current.chatInput.enterSendsMessage).toBe(false);
+    });
+
+    it('开关状态应持久化到 localStorage（zustand persist）', () => {
+      const { result } = renderHook(() => useSettingsStore());
+
+      act(() => {
+        result.current.setEnterSendsMessage(true);
+      });
+
+      const raw = localStorageMock.getItem('huanvae-settings');
+      if (!raw) { throw new Error('huanvae-settings not persisted'); }
+      expect(JSON.parse(raw).state.chatInput.enterSendsMessage).toBe(true);
+    });
+
+    it('切换开关不影响通知设置', () => {
+      const { result } = renderHook(() => useSettingsStore());
+
+      act(() => {
+        result.current.setEnterSendsMessage(true);
+      });
+
+      expect(result.current.notification.enabled).toBe(true);
+      expect(result.current.notification.soundName).toBe('water');
+      expect(result.current.notification.volume).toBe(70);
     });
   });
 

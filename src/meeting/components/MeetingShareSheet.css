@@ -1,0 +1,169 @@
+/**
+ * 会议分享动作面板样式（移动端）
+ *
+ * 设计特点：
+ * - 底部弹出的动作面板（action sheet），毛玻璃遮罩
+ * - 两个大选项行（转发给好友 / 复制会议链接）+ 取消
+ * - 接入主题变量，跟随设置里的主题颜色管理
+ *
+ * 2026-09-10 会议分享改版（块 1788982832352-3）
+ */
+
+/* 遮罩层 */
+.meeting-share-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* 底部面板 */
+.meeting-share-sheet {
+  margin: 0 10px;
+  margin-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)) + 10px);
+  padding: 8px;
+
+  background: var(--bg-secondary, #f8fafc);
+  border-radius: 20px;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.18);
+}
+
+/* 顶部预览 */
+.meeting-share-sheet-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.meeting-share-sheet-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.meeting-share-sheet-preview {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 选项行 */
+.meeting-share-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  width: 100%;
+  padding: 14px 12px;
+  margin-top: 4px;
+
+  background: transparent;
+  border: none;
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.meeting-share-option:active {
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.05));
+}
+
+.meeting-share-option-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+
+  background: var(--accent-subtle, rgba(139, 92, 246, 0.15));
+  color: var(--accent-text, #6d28d9);
+}
+
+.meeting-share-option-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.meeting-share-option-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meeting-share-option-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.meeting-share-option-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 取消 */
+.meeting-share-sheet-cancel {
+  width: 100%;
+  padding: 14px;
+  margin-top: 8px;
+
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
+  border: none;
+  border-radius: 14px;
+
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.meeting-share-sheet-cancel:active {
+  background: var(--bg-muted, rgba(0, 0, 0, 0.08));
+}
+
+/* 复制成功/失败 toast：全宽 flex 容器负责固定定位与居中，
+   内层 span 是胶囊本体（framer-motion 会以内联 transform 覆盖 CSS transform，
+   故不能依赖 translate(-50%) 居中） */
+.meeting-share-toast-wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)) + 120px);
+  z-index: 100000;
+
+  display: flex;
+  justify-content: center;
+
+  pointer-events: none;
+}
+
+.meeting-share-toast {
+  padding: 10px 20px;
+  border-radius: 999px;
+
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 14px;
+  white-space: nowrap;
+}

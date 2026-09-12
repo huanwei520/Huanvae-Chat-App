@@ -27,11 +27,17 @@
         android:theme="@style/Theme.huanvae_chat_app"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- windowSoftInputMode=adjustResize：API 28/29 设备上 ime() insets 不可用（WindowInsetsCompat
+             Type.ime() 需 API 30+），键盘跟随退回经典窗口缩放路径，必须显式声明（默认 adjustUnspecified
+             会随机选 adjustPan 导致输入框不跟随）。API 30+ 上 enableEdgeToEdge 的
+             setDecorFitsSystemWindows(false) 使 adjustResize 失效（窗口不因 IME 缩放），跟随由
+             MainActivity 的 WindowInsets 监听接管，两者不冲突。 -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -39,6 +45,26 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- NFC PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
+            <intent-filter>
+              <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+              <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            
+            <intent-filter>
+              <action android:name="android.nfc.action.TECH_DISCOVERED" />
+              <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            
+            <intent-filter>
+              <action android:name="android.nfc.action.TAG_DISCOVERED" />
+              <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            
+            <meta-data
+              android:name="android.nfc.action.TECH_DISCOVERED"
+              android:resource="@xml/nfc_tech_filter" />
+            <!-- NFC PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>
 
         <provider

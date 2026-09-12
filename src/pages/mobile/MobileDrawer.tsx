@@ -110,6 +110,13 @@ const BotIcon = () => (
   </svg>
 );
 
+// VPN 组网图标（盾形，与桌面 Sidebar.tsx GuardIcon 同一路径，视觉一致）
+const GuardIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+  </svg>
+);
+
 // 视频会议图标
 const MeetingIcon = () => (
   <svg
@@ -160,6 +167,8 @@ interface MobileDrawerProps {
   onMiniAppsClick: () => void;
   /** 机器人点击回调 */
   onBotsClick: () => void;
+  /** VPN 组网点击回调（阶段 2b：安卓入口，桌面同函数 openHuanvaeGuardWindow） */
+  onHuanvaeGuardClick: () => void;
   /** 视频会议点击回调 */
   onMeetingClick: () => void;
   /** 设置点击回调 */
@@ -177,6 +186,7 @@ export function MobileDrawer({
   onLanTransferClick,
   onMiniAppsClick,
   onBotsClick,
+  onHuanvaeGuardClick,
   onMeetingClick,
   onSettingsClick,
   onLogout,
@@ -273,6 +283,19 @@ export function MobileDrawer({
           >
             <BotIcon />
             <span>机器人</span>
+          </div>
+
+          {/* VPN 组网（阶段 2b：安卓入口。桌面在 Sidebar.tsx 的浮层工具项；
+              安卓侧 Sidebar 不挂载（App.tsx isMobile→MobileMain），抽屉即安卓的工具面） */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onHuanvaeGuardClick();
+              onClose();
+            }}
+          >
+            <GuardIcon />
+            <span>VPN 组网</span>
           </div>
 
           {/* 视频会议 */}

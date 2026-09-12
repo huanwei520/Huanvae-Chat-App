@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-hg-guard"
+version = "0.1.0"
+edition = "2021"
+description = "HuanvaeGuard VPN 接入插件（阶段 2a 原生侧：Kotlin 桥 + libhg_android.so + VpnService 服务块）"
+authors = ["Huanvae"]
+license = "UNLICENSED"
+publish = false
+links = "tauri-plugin-hg-guard"
+
+[dependencies]
+tauri = { version = "2.11", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[build-dependencies]
+tauri-plugin = { version = "2.5", features = ["build"] }

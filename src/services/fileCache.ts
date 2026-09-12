@@ -14,8 +14,9 @@
  *
  * 缓存入口：
  * 1. 用户上传文件 → copy_file_to_cache → 复制到缓存目录
- * 2. 图片加载完成 → triggerBackgroundDownload → 下载到缓存目录
- * 3. 视频点击播放 → triggerBackgroundDownload → 下载到缓存目录
+ * 2. presign URL 取得后立即 kick（F2，不等 <img> onLoad；loadSource 远程分支触发）
+ *    → triggerBackgroundDownload → 下载到缓存目录
+ * 3. 视频点击播放 → triggerBackgroundDownload → 下载到缓存目录（视频仍等 onPlay）
  *
  * 跨窗口通信：
  * - 下载完成时发送 'file-download-completed' 事件
@@ -166,6 +167,22 @@ export async function resolveContentHash(
 export function isFileNotFoundError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /文件不存在|文件\s*未找到|未找到|HTTP\s*404|\b404\b/.test(msg);
+}
+
+/**
+ * Detects whether the given error indicates the presigned download URL has expired/been
+ * rejected (F1, 2026-09-02)。
+ *
+ * 两种形态都认：
+ * - Rust 统一下载引擎的稳定机器前缀 `HV_URL_EXPIRED`（unified_download.rs: 401/403 →
+ *   UrlExpired 变体，Display 带 `HV_URL_EXPIRED: ` 前缀；其它状态是 `HV_HTTP_<code>`）；
+ * - 裸 HTTP 401/403 文本（TS 层 api 错误 / 未来其它下载通道的同语义形态）。
+ *
+ * `HV_HTTP_404`、`HV_NET` 等其它形态不会误命中。
+ */
+export function isUrlExpiredError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /HV_URL_EXPIRED|HTTP[_\s]40[13]\b/.test(msg);
 }
 
 /**
@@ -397,13 +414,66 @@ export async function getVideoSource(
 }
 
 /**
- * 触发后台下载（图片 onLoad / 视频 onPlay 时调用）
+ * URL 过期（HV_URL_EXPIRED / 401 / 403）的最大重取次数（F1，不含首次下载尝试）。
+ * 超过即终态失败，DownloadTask.urlExpiredExhausted = true。
+ */
+export const URL_EXPIRED_REFETCH_LIMIT = 2;
+/**
+ * 一般下载失败（网络/IO 等，非 URL 过期）的最大退避重试次数（F2，不含首次尝试）。
+ */
+export const DOWNLOAD_RETRY_LIMIT = 3;
+/**
+ * 退避基数（毫秒）：第 n 次重试前等待 base × 2^(n-1) = 1s / 2s / 4s（指数退避）。
+ */
+export const DOWNLOAD_RETRY_BASE_DELAY_MS = 1000;
+
+/** URL 过期重取所需的调用方上下文；不传 `api` ⇒ 不重取（过期即终态失败）。 */
+export interface BackgroundDownloadRefetchOptions {
+  /** API 客户端：重取 presign 端点用 */
+  api?: ApiClient;
+  /** presign 端点类型（默认 'user'），与首次取 URL 时一致 */
+  urlType?: 'user' | 'friend' | 'group';
+  /**
+   * presign / urlCache 用的 fileUuid。消息面 cacheKey 就是 fileUuid 可省；
+   * 个人文件面 cacheKey 是内容哈希（urlCache 的键是 uuid），必须显式传。
+   */
+  fileUuid?: string;
+}
+
+/**
+ * 同一 cacheKey 的在飞去重（模块级，同步读写）：F2 把缓存下载触发提前到 presign
+ * 取得后，同一张图可能被「loadSource kick」+「onLoad cacheFile」几乎同时 kick，
+ * 两次调用都会先撞上 async 的本地缓存预检查才能到 addDownloadTask，仅靠 store
+ * 任务表挡不住这个窗口。进入函数即同步占位，终了（成功/失败/异常）在 finally 释放。
+ */
+const inFlightDownloads = new Set<string>();
+
+/** 测试用：清空在飞占位（prod 不调用）。用例中途失败可能把占位泄漏给同文件后续用例。 */
+export function __resetInFlightDownloadsForTest(): void {
+  inFlightDownloads.clear();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+
+/**
+ * 触发后台下载（图片 onLoad / 视频 onPlay / presign 取得后 kick 时调用）
  *
  * 将远程文件下载并保存到本地缓存目录：
  * data/{用户名}_{服务器}/file/{pictures|videos|documents}/
  *
  * `cacheKey` 是**文件身份键**（见 `fileIdentityKey`），不是内容哈希 —— 消息面开下载这一刻
  * 内容哈希还不存在，它由 Rust 在下载完成后自算并落 `file_mappings` / `file_uuid_hash`。
+ *
+ * 失败处置（F1/F2，2026-09-02）：
+ * - URL 过期（HV_URL_EXPIRED / 401 / 403）：重试同一个过期 URL 只会再 403（引擎注释
+ *   明示），唯一有效动作是重新 presign 换新 URL 重调。重调同一 cacheKey 时 Rust 侧
+ *   `.hvpart`/sidecar 按身份键（identity+ETag，与 URL 无关）续传，不重头下载。
+ *   最多重取 [`URL_EXPIRED_REFETCH_LIMIT`] 次，穷举后终态失败并标
+ *   `urlExpiredExhausted = true`。需要 `refetch.api`（无重取上下文时过期即终态）。
+ * - 其它失败：指数退避重试 [`DOWNLOAD_RETRY_LIMIT`] 次（base × 2^(n-1)）。
+ * - 同一 cacheKey 并发调用幂等（在飞占位 + store 任务表双保险）。
  */
 export async function triggerBackgroundDownload(
   presignedUrl: string,
@@ -411,6 +481,7 @@ export async function triggerBackgroundDownload(
   fileName: string,
   fileType: 'image' | 'video' | 'document',
   fileSize?: number,
+  refetch?: BackgroundDownloadRefetchOptions,
 ): Promise<void> {
   const store = useFileCacheStore.getState();
 
@@ -422,13 +493,22 @@ export async function triggerBackgroundDownload(
     fileSize,
   });
 
-  // 检查是否已在下载
+  // 并发 kick 幂等：同 cacheKey 已在飞 ⇒ 直接返回（见 inFlightDownloads 注释）
+  if (inFlightDownloads.has(cacheKey)) {
+    // eslint-disable-next-line no-console
+    console.log('[FileCache] 跳过：同 cacheKey 下载已在飞', { cacheKey });
+    return;
+  }
+
+  // 检查是否已在下载/已完成（failed 允许重试）
   const existingTask = store.downloadTasks[cacheKey];
   if (existingTask && existingTask.status !== 'failed') {
     // eslint-disable-next-line no-console
     console.log('[FileCache] 跳过：任务已存在', { status: existingTask.status });
     return; // 已在下载中或已完成
   }
+
+  inFlightDownloads.add(cacheKey);
 
   // 检查本地是否已有缓存（避免 HMR 后重复触发）。
   // 先做 uuid -> hash 那一跳；解析不到就没有本地缓存可查（本机从没下过这个 uuid）。
@@ -455,35 +535,102 @@ export async function triggerBackgroundDownload(
     total: fileSize ?? 0,
   });
 
+  let currentUrl = presignedUrl;
+  let urlExpiredRefetches = 0;
+  let generalRetries = 0;
+
   try {
-    // eslint-disable-next-line no-console
-    console.log('[FileCache] 开始后台下载...', { fileName });
+    // 循环重试：URL 过期走重取链（≤ URL_EXPIRED_REFETCH_LIMIT），其它失败走指数退避（≤ DOWNLOAD_RETRY_LIMIT）
+    for (;;) {
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[FileCache] 开始后台下载...', { fileName });
 
-    const localPath = await downloadAndSaveFile(
-      presignedUrl,
-      cacheKey,
-      fileName,
-      fileType,
-      fileSize,
-    );
-    store.completeDownload(cacheKey, localPath);
+        // 串行重试是刻意的：同一 cacheKey 同一时刻只允许一个在飞下载（见 inFlightDownloads）
+        // eslint-disable-next-line no-await-in-loop
+        const localPath = await downloadAndSaveFile(
+          currentUrl,
+          cacheKey,
+          fileName,
+          fileType,
+          fileSize,
+        );
+        store.completeDownload(cacheKey, localPath);
 
-    // eslint-disable-next-line no-console
-    console.log('%c[FileCache] 后台下载完成', 'color: #4CAF50; font-weight: bold', {
-      fileName,
-      localPath,
-    });
+        // eslint-disable-next-line no-console
+        console.log('%c[FileCache] 后台下载完成', 'color: #4CAF50; font-weight: bold', {
+          fileName,
+          localPath,
+          urlExpiredRefetches,
+          generalRetries,
+        });
 
-    // 发送跨窗口事件，通知所有窗口（包括独立媒体窗口）
-    emit('file-download-completed', {
-      cacheKey,
-      localPath,
-      fileName,
-      fileType,
-    } as FileDownloadCompletedEvent);
-  } catch (error) {
-    store.failDownload(cacheKey, String(error));
-    console.error('[FileCache] 后台下载失败:', error);
+        // 发送跨窗口事件，通知所有窗口（包括独立媒体窗口）
+        emit('file-download-completed', {
+          cacheKey,
+          localPath,
+          fileName,
+          fileType,
+        } as FileDownloadCompletedEvent);
+        return;
+      } catch (error) {
+        if (isUrlExpiredError(error)) {
+          // URL 过期：重试同一个 URL 无意义，只能换新 URL（重取后 Rust 按身份键续传）
+          if (refetch?.api && urlExpiredRefetches < URL_EXPIRED_REFETCH_LIMIT) {
+            urlExpiredRefetches += 1;
+            console.warn(
+              `[FileCache] 下载 URL 过期，重取 presigned URL（第 ${urlExpiredRefetches}/${URL_EXPIRED_REFETCH_LIMIT} 次）`,
+              error,
+            );
+            const refetchUuid = refetch.fileUuid ?? cacheKey;
+            // 先清 URL 缓存：里面存的正是刚过期的这条 URL，不清会把旧 URL 又拿回来
+            useFileCacheStore.getState().removeUrlCache(refetchUuid);
+            try {
+              // eslint-disable-next-line no-await-in-loop -- 重取必须串行在重试循环内
+              const { url } = await getPresignedUrl(refetch.api, refetchUuid, refetch.urlType ?? 'user');
+              currentUrl = url;
+            } catch (refetchError) {
+              // 重取端点本身失败（鉴权/网络/404）：如实终态，非「穷举」但同样不可自动恢复
+              store.failDownload(
+                cacheKey,
+                `URL 过期后重取 presigned URL 失败: ${String(refetchError)}`,
+                false,
+              );
+              console.error('[FileCache] 后台下载失败（重取 presign 失败）:', refetchError);
+              return;
+            }
+            continue;
+          }
+          // 重取已穷举（或无重取上下文）：终态失败，如实标穷举位
+          const exhausted = Boolean(refetch?.api);
+          const terminalMsg = exhausted
+            ? `URL 过期，重取 ${URL_EXPIRED_REFETCH_LIMIT} 次后仍失败: ${String(error)}`
+            : `URL 过期且无重取上下文: ${String(error)}`;
+          store.failDownload(cacheKey, terminalMsg, exhausted);
+          console.error('[FileCache] 后台下载失败（URL 过期重取已穷举）:', error);
+          return;
+        }
+
+        if (generalRetries < DOWNLOAD_RETRY_LIMIT) {
+          generalRetries += 1;
+          const delayMs = DOWNLOAD_RETRY_BASE_DELAY_MS * 2 ** (generalRetries - 1);
+          console.warn(
+            `[FileCache] 后台下载失败，${delayMs}ms 后第 ${generalRetries}/${DOWNLOAD_RETRY_LIMIT} 次重试`,
+            error,
+          );
+          // 退避等待必须串行：下一轮尝试要等上一轮失败后间隔到期（见 sleep 注释）
+          // eslint-disable-next-line no-await-in-loop
+          await sleep(delayMs);
+          continue;
+        }
+
+        store.failDownload(cacheKey, String(error));
+        console.error('[FileCache] 后台下载失败:', error);
+        return;
+      }
+    }
+  } finally {
+    inFlightDownloads.delete(cacheKey);
   }
 }
 

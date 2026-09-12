@@ -4,8 +4,8 @@
  * 用假 ApiClient（get/post/put/delete 为 vi.fn）验证每个函数：
  *   - 正常：以正确 path/query/body 调用对应方法，并返回解包后的数据；
  *   - 异常：api 抛错时函数原样向上抛（薄封装不 try/catch 不兜底）。
- * createVoiceProfile 走 globalThis.fetch（FormData 直传，经 proxyRequestUrl；
- * 测试环境反代端口未初始化为 0 → URL 原样透传），单独 stub fetch 验证。
+ * createVoiceProfile 走 globalThis.fetch（FormData 直传，经 proxyRequestUrl），单独 stub fetch 验证；
+ * proxyRequestUrl 本身 mock 成直通 —— 反代未就绪等待/抛错（F5）行为归 tests/services/secureProxy.test.ts。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -13,6 +13,11 @@ import type { ApiClient } from '../../src/api/client';
 
 // ai.ts 顶层 import discovery（其内部又拉 plugin-store），与 apiClient.test.ts 同款 mock 掉
 vi.mock('../../src/services/discovery', () => ({ resolveForSecureHttp: () => null }));
+
+// 反代收口 mock 直通（sync string）：消费方 await proxyRequestUrl(url) 对 sync 返回值兼容
+vi.mock('../../src/services/secureProxy', () => ({
+  proxyRequestUrl: (url: string) => url,
+}));
 
 import * as ai from '../../src/api/ai';
 
@@ -181,7 +186,7 @@ describe('AI API 封装 (api/ai 非流式)', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      // 反代端口未初始化（0）→ proxyRequestUrl 原样透传
+      // proxyRequestUrl mock 直通（反代收口行为归 secureProxy 单测）
       expect(url).toBe('https://api.example.com/api/ai/voice_profiles');
       expect(init.method).toBe('POST');
       expect(init.headers).toEqual({ Authorization: 'Bearer tok' });

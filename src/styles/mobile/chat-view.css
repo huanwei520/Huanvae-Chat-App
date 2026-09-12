@@ -1,10 +1,16 @@
 /**
- * 移动端聊天页面样式
+ * 移动端聊天页面样式 —— 三段式 IME 布局契约
  *
- * ## 布局结构
- * - 顶部：标题栏（含安全区域）
- * - 中间：消息列表（flex: 1，可滚动）
- * - 底部：输入区域（含安全区域）
+ * ## 布局结构（header 固定 / 消息区唯一可压缩段 / 输入栏贴键盘）
+ * - 顶栏 .mobile-chat-header：flex-shrink: 0，位置与视口无关，键盘弹起位移恒为零
+ * - 中间 .mobile-chat-messages：唯一的 flex: 1 + min-height: 0 可压缩段，滚动由内部容器管理
+ * - 底部 .mobile-chat-input：flex-shrink: 0，贴容器底沿 = 键盘弹起时的新视口底沿（键盘上沿）
+ *
+ * ## IME 避让通道（与壳层键盘跟随修复配套）
+ * 键盘弹起 → MainActivity ime() insets 把 WebView 高度减去键盘高度（API<30 由 manifest
+ * adjustResize 兜底；Chromium 自身缩放被 index.html 的 interactive-widget=overlays-content
+ * 关闭）→ 本容器高度随视口变矮 → flex 压缩中间段，顶栏/输入栏各就其位。
+ * 页面侧护栏（useImeThreeSegmentLayout）钉扎文档滚动 + 压缩贴底保持，见该 hook 注释。
  *
  * ## 安全区域适配
  * 使用 env(safe-area-inset-*) 适配 Android/iOS 刘海屏和底部手势条
@@ -27,6 +33,10 @@
     var(--color-primary-2) 100%
   );
   z-index: 50;
+  /* 三段式总约束：本容器高度 = 视口高度（键盘弹起时 = 变矮后的视口），
+     三段纵向排布，任何一段都不得把其它段推出视口。
+     （故意不加 overflow: hidden —— 本元素带 motion transform，会把内部 fixed 弹层
+     变为以其为包含块并遭裁剪；三段约束由各段自身收缩属性保证） */
 }
 
 /* 聊天页顶部栏 - 包含状态栏安全区域 */
@@ -41,6 +51,7 @@
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   z-index: 10;
+  /* 三段式第一段：顶栏固定。不参与 flex 收缩，视口因 IME 变矮时高度与位移都为零 */
   flex-shrink: 0; /* 不参与 flex 收缩 */
 }
 
@@ -98,9 +109,11 @@
   height: 22px;
 }
 
-/* 消息区域 - 容器，不设置滚动，由内部 ChatMessages 组件管理 */
+/* 消息区域 - 容器，不设置滚动，由内部 ChatMessages 组件管理。
+   三段式第二段：唯一可压缩段—— flex-basis 0 + min-height 0，
+   键盘弹起时视口变矮的全部压缩量都落在本段（顶栏/输入栏 shrink 0 不参与） */
 .mobile-chat-messages {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0; /* 关键：允许 flex 子元素收缩，否则会溢出 */
   overflow: hidden; /* 不在此层滚动，让内部组件处理 */
   position: relative;
@@ -112,7 +125,8 @@
   -webkit-overflow-scrolling: touch; /* iOS 平滑滚动 */
 }
 
-/* 输入区域 - 固定在底部，包含安全区域 */
+/* 输入区域 - 固定在底部，包含安全区域。
+   三段式第三段：不参与收缩，永远贴在容器底沿 = 键盘弹起时的键盘上沿 */
 .mobile-chat-input {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
@@ -120,6 +134,7 @@
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   /* 底部 padding 包含安全区域（手势条/Home键高度） */
   padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px));
+  /* 三段式第三段：不参与 flex 收缩（键盘弹起时不被压缩，贴新视口底沿） */
   flex-shrink: 0; /* 不参与 flex 收缩 */
 }
 

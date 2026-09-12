@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-screen-capture"
+version = "0.1.0"
+edition = "2021"
+description = "安卓屏幕共享采集插件（MediaProjection 前台服务 → 帧通道 → WebView WebRTC 视频轨）"
+authors = ["Huanvae"]
+license = "UNLICENSED"
+publish = false
+links = "tauri-plugin-screen-capture"
+
+[dependencies]
+tauri = { version = "2.11", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[build-dependencies]
+tauri-plugin = { version = "2.5", features = ["build"] }

@@ -57,7 +57,9 @@ import { AppButton } from '../components/common/AppButton';
 import { useConfirmDialog, usePromptDialog } from '../components/common/ConfirmDialog';
 import { SecretDisplay } from '../components/common/SecretDisplay';
 import { getDeviceInfo } from '../services/deviceInfo';
+import { directIpUrl } from '../services/discovery';
 import * as localApi from './localApi';
+import * as guardAndroid from './guardAndroid';
 import * as serverApi from './serverApi';
 import type {
   TunnelStatus,
@@ -175,8 +177,11 @@ type ServiceInstallState = 'installed' | 'not_installed' | 'unknown';
 // 旧实现把这三类压成同一句「服务未运行」，用户与排查者都无从区分
 // （这正是本次 Windows VPN 故障最难定位的一环）。
 function serviceStatusLabel(os: string, running: boolean, install: ServiceInstallState): string {
-  if (running) { return '服务运行中'; }
-  if (os !== 'macos' && os !== 'windows') { return '服务未运行'; }
+  // 安卓无「服务」概念：桥可用 = 组件就绪；桥不可用 = 组件不可用（不是"未安装"）
+  if (running) { return os === 'android' ? 'Guard 组件就绪' : '服务运行中'; }
+  if (os !== 'macos' && os !== 'windows') {
+    return os === 'android' ? 'Guard 组件不可用' : '服务未运行';
+  }
   if (install === 'installed') { return '已安装未运行'; }
   if (install === 'unknown') { return '服务状态未知'; }
   return '未安装';
@@ -230,9 +235,28 @@ function parseWindowData(): WindowData | null {
   }
 }
 
-export default function HuanvaeGuardPage() {
+/**
+ * 页面入参。
+ * @param initialData 安卓覆盖页直传的窗口数据（桌面独立子窗口走 URL query，
+ *   不传本参 ⇒ `parseWindowData() ?? initialData ?? null` 与原行为逐字等价）。
+ */
+interface HuanvaeGuardPageProps {
+  initialData?: WindowData;
+}
+
+export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps = {}) {
   const [windowData, setWindowData] = useState<WindowData | null>(null);
-  const [osPlatform, setOsPlatform] = useState<string>('');
+  // platform() 是同步读（window.__TAURI_OS_PLUGIN_INTERNALS__，零 IPC），直接作初值：
+  // 首帧探活就走对轨道（异步 set 时首探会落在桌面轨，被单飞复用后要等一个 3s 轮询拍才纠正）
+  const [osPlatform] = useState<string>(() => {
+    try {
+      return platform();
+    } catch {
+      return '';
+    }
+  });
+  /** 安卓轨开关（取数双轨分流点）：真值来自 plugin-os platform()，挂载时判定一次 */
+  const isAndroid = osPlatform === 'android';
   const [serviceRunning, setServiceRunning] = useState(false);
   // 「文件是否装好」与「守护进程是否在跑」是两件事：半装态 = 'installed' && !serviceRunning。
   // 初值取 'unknown'：挂载那一刻我们**确实还没查过**，写 'not_installed' 等于先替它下了个结论。
@@ -305,14 +329,26 @@ export default function HuanvaeGuardPage() {
     const run = async (): Promise<boolean> => {
       let running = false;
       let status: TunnelStatus | null = null;
+      // 取数双轨分流点：安卓 = 插件命令面 hg_status 轮询投影（guardAndroid）；
+      // 桌面 = 回环 HTTP（localApi，路径零改动）。两轨投影到同一对
+      // (serviceRunning, tunnelStatus)，下游（状态冠/cp-warn/对端表/占用判定）平台无关。
       try {
-        const r = await localApi.getStatus();
-        if (r.success && r.data) {
-          running = true;
-          status = r.data;
+        if (isAndroid) {
+          // available = 桥自检过（.so 加载 + BRIDGE_VERSION=3）；statusJson 与桌面
+          // TunnelStatus 同型（guardAndroid.getStatus 内已 JSON.parse）
+          const snap = await guardAndroid.getStatus();
+          running = snap.available;
+          status = snap.status;
+        } else {
+          const r = await localApi.getStatus();
+          if (r.success && r.data) {
+            running = true;
+            status = r.data;
+          }
         }
       } catch {
-        // 连接被拒 / 超时 —— 本地控制面此刻不可用，按未运行处理（localApi 已有超时上限兜住）
+        // 连接被拒 / 超时 / 桥调用失败 —— 本地控制面此刻不可用，按未运行处理
+        // （桌面 localApi 已有超时上限兜住；安卓插件调用是进程内 IPC，不挂起）
       }
       setServiceRunning(running);
       setTunnelStatus(status);
@@ -320,12 +356,16 @@ export default function HuanvaeGuardPage() {
       if (lastLoggedRunningRef.current !== running) {
         lastLoggedRunningRef.current = running;
         if (running) {
-          // 端口是动态解析的（同机可并存多路实例），写死会让日志在排查"到底连了哪个端口"
-          // 时把人带偏；真值来自 localApi 的单一解析口，和刚才发请求用的是同一个
-          const port = await localApi.resolveLocalPort();
-          addLog(`已检测到本地服务（localhost:${port}）`);
+          if (!isAndroid) {
+            // 端口是动态解析的（同机可并存多路实例），写死会让日志在排查"到底连了哪个端口"
+            // 时把人带偏；真值来自 localApi 的单一解析口，和刚才发请求用的是同一个
+            const port = await localApi.resolveLocalPort();
+            addLog(`已检测到本地服务（localhost:${port}）`);
+          } else {
+            addLog('Guard 原生组件就绪');
+          }
         } else {
-          addLog('本地服务未运行');
+          addLog(isAndroid ? 'Guard 原生组件不可用' : '本地服务未运行');
         }
       }
 
@@ -356,7 +396,7 @@ export default function HuanvaeGuardPage() {
     const p = run().finally(() => { probeInFlightRef.current = null; });
     probeInFlightRef.current = p;
     return p;
-  }, [addLog]);
+  }, [addLog, isAndroid]);
 
   // 查询「服务是否已安装」，返回最新值（调用方常需要立即用，不能等 state 落地）。
   // macOS = LaunchDaemon 文件是否就位；Windows = 是否已在 SCM 注册（Rust 侧一次 `sc query`）。
@@ -380,20 +420,24 @@ export default function HuanvaeGuardPage() {
     }
   }, [osPlatform, addLog]);
 
-  // Init
+  // Init —— 开窗数据只在挂载时消费一次。
+  // 🔴 为什么 initialData 必须走 ref、不进依赖数组（2026-09-09，安卓「token认证失败」根因）：
+  // MobileGuardPage 每次渲染都传一个**新的对象字面量**（{ ...data, installError: null }），
+  // 若把它放进依赖，父组件每渲染一次（安卓上主窗口 WS 重连风暴每几秒 re-render 一次
+  // MobileMain → MobileGuardPage），本 effect 就把 windowData **整个重置回开页那一刻的
+  // 快照** —— 主窗口 session:tokens-updated 刚同步进来的新令牌随即被旧值覆盖，页面从此
+  // 拿过期令牌调 /api/hg/*，服务端 401「Token 无效或已过期」刷屏（日志面板全是
+  // 「加载设备失败」）。桌面路径本就等价于只跑一次（initialData 恒为 undefined），行为零变化。
+  const initialDataRef = useRef(initialData);
   useEffect(() => {
-    const data = parseWindowData();
+    // 桌面子窗口：URL query（原路径，不变）；安卓覆盖页：props 直传（parse 落空时兜底）
+    const data = parseWindowData() ?? initialDataRef.current ?? null;
     setWindowData(data);
     // 开窗前的安装失败原因（由 openHuanvaeGuardWindow 经 URL 透传）：挂载时一次性显示成
     // 错误横幅 + 日志，用户才知道是"取消了授权"还是别的原因，而不是只看到"未安装"
     if (data?.installError) {
       setError(data.installError);
       addLog(`服务安装未完成：${data.installError}`);
-    }
-    try {
-      setOsPlatform(platform());
-    } catch {
-      setOsPlatform('');
     }
   }, [addLog]);
 
@@ -557,6 +601,56 @@ export default function HuanvaeGuardPage() {
       setError('请先选择一个设备');
       return;
     }
+    // ── 安卓轨：插件命令面全链（拉配置在 hg_connect 内部完成，不单拉 serverApi 配置）──
+    // 生物识别门禁是 macOS 专属语义（勘察 §6.10：biometric_authenticate 在安卓无意义），
+    // 故安卓分支先于门禁分流。缺凭据即中止、不静默降级的纪律与桌面分支同一份。
+    if (isAndroid) {
+      setLoading(true);
+      setError(null);
+      try {
+        const missing = [
+          windowData.serverUrl ? null : 'master 地址',
+          windowData.accessToken ? null : '访问令牌',
+        ].filter((v): v is string => v !== null);
+        if (missing.length > 0) {
+          const why = missing.join('、');
+          setError(`无法建立隧道：缺少${why}，配置热更新将无法工作。请回到主界面重新打开 VPN`);
+          addLog(`控制面凭据不完整（缺${why}）：已中止连接`);
+          return;
+        }
+        if (!windowData.refreshToken) {
+          addLog('缺少刷新令牌：配置热更新会在访问令牌过期后停止，届时需断开重连才能恢复');
+        }
+        addLog('正在启动隧道（Guard 原生组件）...');
+        // masterUrl 走直连 IP（与主应用 secureFetch 同一「连 IP 不连域名」语义：模拟器/被
+        // ICP 拦截网内直连域名会在 TLS 握手被断；IP 字面量不发 SNI，leaf 由核心内置 CA 验）。
+        // directIpUrl 无 active 端点时原样返回域名（安全兜底）。
+        const androidMasterUrl = directIpUrl(windowData.serverUrl);
+        const r = await guardAndroid.startTunnel({
+          masterUrl: androidMasterUrl,
+          userId: windowData.userId,
+          deviceId: selectedDeviceId,
+          accessToken: windowData.accessToken,
+          refreshToken: windowData.refreshToken || undefined,
+        });
+        // resolve 只代表服务被拉起（statusCode 多为 CONNECTING），最终态以 hg_status 轮询为准
+        if (r.controlStarted) {
+          addLog('隧道已启动，控制面已连接');
+        } else {
+          addLog(`隧道已启动，但控制面启动失败：${r.controlError ?? '未知原因'}`);
+        }
+        await probeService();
+      } catch (e) {
+        // reject 前缀族 → 人话错误条（映射表见 guardAndroid.describeError；
+        // 文案只含 redact 后缀，不含凭据原值）
+        const text = guardAndroid.describeError(e);
+        setError(text);
+        addLog(`启动失败：${text}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     // 打开 VPN 前生物识别门禁：本机有 Touch ID 则优先验证（macOS）；通过或本机无 Touch ID（含
     // Windows/Linux，命令返回 'unavailable'）→ 继续；取消/失败 → 抛错 → 中止打开。
     try {
@@ -641,13 +735,20 @@ export default function HuanvaeGuardPage() {
   const handleDisconnect = async () => {
     setLoading(true);
     try {
-      const r = await localApi.stopTunnel();
-      if (r.success) {
+      if (isAndroid) {
+        // 安卓轨：hg_disconnect（幂等，含服务收尾）+ hg_control_stop（契约面显式收尾）
+        await guardAndroid.stopTunnel();
         addLog('隧道已停止');
-        // 立刻复查一次，别等常驻轮询下一拍：否则「已连接」冠 + 那台设备的可选态
-        // 最长要滞后一个 POLL_INTERVAL_MS 才更新。写状态的仍然只有 probeService 这一个权威。
         await probeService();
-      } else { addLog(`停止失败：${r.error}`); }
+      } else {
+        const r = await localApi.stopTunnel();
+        if (r.success) {
+          addLog('隧道已停止');
+          // 立刻复查一次，别等常驻轮询下一拍：否则「已连接」冠 + 那台设备的可选态
+          // 最长要滞后一个 POLL_INTERVAL_MS 才更新。写状态的仍然只有 probeService 这一个权威。
+          await probeService();
+        } else { addLog(`停止失败：${r.error}`); }
+      }
     } catch (e) {
       addLog(`错误：${e}`);
     } finally {
@@ -949,7 +1050,11 @@ export default function HuanvaeGuardPage() {
   // 就是"什么都没发生"（新增的设备永远不出现），用户没有任何理由怀疑界面。
   // 五种读数各自的措辞与判据见 tunnelSummary.ts 的 controlPlaneWarning。
   const controlPlaneAlert = isActive ? controlPlaneWarning(tunnelStatus?.control_plane) : null;
-  const isSupported = osPlatform === 'windows' || osPlatform === 'macos';
+  // 平台支持面：阶段 2b 起含 android（取数走插件命令面，无回环服务）；
+  // 「安装/修复服务」是桌面 SCM/LaunchDaemon 专属语义，安卓隐藏（勘察 §1.2 #1 裁决、§6.10），
+  // 故另立 canRepairService 门——isSupported 用于支持面/提示，canRepairService 只门修复钮。
+  const isSupported = osPlatform === 'windows' || osPlatform === 'macos' || osPlatform === 'android';
+  const canRepairService = osPlatform === 'windows' || osPlatform === 'macos';
   // 四态：服务运行中 / 已安装未运行 / 未安装 / 服务状态未知（macOS + Windows 同款，判据见 serviceStatusLabel）
   const serviceLabel = serviceStatusLabel(osPlatform, serviceRunning, installState);
   const selectedDevice = devices.find(d => d.device_id === selectedDeviceId);
@@ -989,9 +1094,10 @@ export default function HuanvaeGuardPage() {
   }
   // 未连接时第二行给下一步，而不是留白。
   // 不说"下方"：隧道按钮就在本行右侧，且在链接/群组 tab 上设备列表根本不可见。
-  const crownHint = serviceRunning
-    ? '先在「设备」里选一台，再点「连接」'
-    : '需要先让本机服务跑起来，才能建立隧道';
+  // 安卓的休眠态是桥不可用（非"服务没起"），措辞分开，避免把人引向一个不存在的服务。
+  let dormantHint = '需要先让本机服务跑起来，才能建立隧道';
+  if (isAndroid) { dormantHint = 'Guard 原生组件不可用：请重启应用后重试'; }
+  const crownHint = serviceRunning ? '先在「设备」里选一台，再点「连接」' : dormantHint;
 
   // 邀请码解析反馈（纯展示提示，**不是** role="alert" —— 全页只允许一个 live region）
   const decodedInvite = groupInviteCode.trim() === '' ? null : decodeGroupInvite(groupInviteCode);
@@ -1010,7 +1116,7 @@ export default function HuanvaeGuardPage() {
         <div className="hg-crown-main">
           <span className={`hg-crown-dot hg-crown-dot--${crownDotTone}`} />
           <span className="hg-crown-word">{crownWord}</span>
-          {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS 支持</span>}
+          {osPlatform !== '' && !isSupported && <span className="hg-os-hint">仅 Windows / macOS / Android 支持</span>}
         </div>
         <div className="hg-crown-sub">
           <span className="hg-crown-facts">
@@ -1041,8 +1147,10 @@ export default function HuanvaeGuardPage() {
               会让人以为它们是两件不相干的事，且在别的 tab 上只剩一半可达。 */}
           <span className="hg-crown-actions">
             {/* 服务没起来时唯一能"动手"的入口。Windows 上此前**完全没有**这个按钮 ——
-                安装器把服务注册搞砸了，用户在界面上除了看见「服务未运行」之外无事可做。 */}
-            {isSupported && !serviceRunning && (
+                安装器把服务注册搞砸了，用户在界面上除了看见「服务未运行」之外无事可做。
+                安卓不渲染本钮（canRepairService 门）：无 SCM/LaunchDaemon，"修复服务"
+                语义不存在（勘察 §1.2 #1 / §6.10 裁决）。 */}
+            {canRepairService && !serviceRunning && (
               <AppButton variant="secondary" size="sm" loading={loading} onClick={handleRepair}>
                 {/* 🔴 只有【确知没装】才说「安装服务」。'unknown' 走「修复服务」——
                     修复本身是幂等重装（stop → delete → create），对两种可能都成立；

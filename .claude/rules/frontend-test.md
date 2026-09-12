@@ -1601,3 +1601,46 @@ release 版 APK 的 WebView devtools socket 实测**是开着的**（`/proc/net/
 右键被 App 自己的菜单接管 / ad-hoc 签名下 Inspector 起不来）⇒ 重做前先想好怎么读到它。
 
 **一手来源**：单4 §4 · §3.2 · 单3 §2.4。
+
+## 🔴 共享工作树追加（2026-09-02 · 块 `1788312588493-1-img-fix-f1f2`）：全量偶红的「双态隔离复跑」归因法 + async 幂等占位时点 —— **本节只追加在 EOF，不改上文任何一行**
+
+> 来源：该块 code 交付 §三-④ / review 交付 §一-§三 / update 交付（pipeline `/root/pipeline-lines/huanvae-chat-app/blocks/1788312588493-1-img-fix-f1f2/`）。
+> 追加在文件末尾是为了**不位移任何既有行号**（本文件被多份归档交付按 file:line 钉着）。
+> 上文「AnimatePresence 消失断言」节记过「单文件跑绿、全量偶红」的一种成因（卸载滞后抢跑）；本节第一条补**另一成因**（他线并发编辑/资源争用）的归因法，第二条是一条 production 并发模式。
+
+### 一、共享工作树多线并行期的全量偶红：先过「双态隔离复跑」再定归因
+
+**场景**：共享工作树上多线并行开发，全量 vitest 出现本线改动解释不了的偶发失败。本块实例：首轮全量 **7 例红**，全部位于 `tests/services/secureProxy.test.ts`（5）与 `tests/unit/uploadRingZeroStart.test.tsx`（2）——而两文件的被测模块（`secureProxy.ts` / `useFileUpload.ts`）与本线三个改动文件**零传递依赖**（grep import 链复核）；终态全量复跑 **367 文件 / 4102 用例全绿**（review 独立实跑，`/tmp/review2-fullsuite-tail.log` 在档）。
+
+**归因三步（缺一步立不住）**：
+1. **零传递依赖复核**：对失败文件的被测模块 grep import 链，确认与本线改动文件无传递依赖 ⇒ 语义上不可能是本线引入。
+2. **基线快照三件套前置**：动工前先存 commit / diff / status 三件（本块 `/tmp/f1f2-baseline-commit.txt`、`f1f2-baseline.diff`、`f1f2-baseline-status.txt`，commit=`a209c92264beb90e5511e08675828a6332d02867`），用「本线文件不在基线 dirty 清单」证明 `git diff HEAD -- 本线文件` 即精确改动——共享树上此刻的 `git status` 混着他线 dirty 项，不能当本线改动清单用。
+3. **双态隔离复跑**：失败集合单独跑两遍——本线文件换回 HEAD 基线态一遍、换回本线改动态一遍（本块 code 交付 §三-④：两态各 **31/31 绿**；该数字系 code worker 会话实测的交付转述）⇒ 失败仅在多线并发负载下偶发、非确定性、非本线引入。只跑单遍或只看当下 status，都不构成归因。
+
+**坑**：共享树上全量单跑也重（本块 review 独立全量：墙钟 18.80s / transform 1023.59s，同上日志在档），高负载本身放大「他线编辑中的文件被半途读到」的互扰窗口；多线并行期全量宜错峰，偶发红先走上面三步再动手修。
+
+### 二、async 函数的幂等占位必须放在函数体**第一个 `await` 之前**同步完成
+
+**规则**：用模块级 `Set`/`Map` 做「同 key 同时只允许一个在飞」的幂等闸时，检查+占位必须**同步**——放在函数入口与第一个 `await` 之间，`finally` 释放。放在任何 `await` 之后：两个并发调用会先一起越过 async 预检查（如本地缓存查询），再先后到达占位点，**闸被双穿**——在飞表本身挡不住 async 窗口，时点错了等于没挡。
+
+**正例（本块落地，并发单测锁定；行号后跟原文自保，漂移可 grep 回来）**：`src/services/fileCache.ts` 的 `inFlightDownloads`（模块级 `Set<string>`）——
+:497 `if (inFlightDownloads.has(cacheKey)) {`（检查+早退，同步）· :511 `inFlightDownloads.add(cacheKey);`（占位，仍在首个 `await` 前）· :633 `inFlightDownloads.delete(cacheKey);`（`finally` 释放）。
+配对测试 `tests/unit/fileCacheUrlExpiredRetry.test.ts`「同一 cacheKey 并发 kick 只触发一次下载」，verbose 实跑日志（`/tmp/review2-target-tests-verbose.log` 在档）可见第二次 kick 打出「跳过：同 cacheKey 下载已在飞」。
+
+**同类先例**：上文「秒传命中的极小文件」条的 `utils/mediaDimensions`（`WeakMap` + 在飞 promise 复用）是同一模式的近亲；本条补的是**占位时点**约束。
+
+**一手来源**：块 `1788312588493-1-img-fix-f1f2` code/review/update 三层交付（update 层第 2 次执行沉淀）。
+
+## 🔴 e2e 证据工件的稳健性与确定性（2026-09-02 块 `1788317606883-1-img-fix-artifacts` 沉淀）—— **本节只追加在 EOF，不改上文任何一行**
+
+> 来源：该块 code 交付 §1/§4/§5 与 review 交付 §2/§8（pipeline `/root/pipeline-lines/huanvae-chat-app/blocks/1788317606883-1-img-fix-artifacts/`）。场景：e2e spec 以「测试体内先行断言 + 落盘工件（console/timeline/diagnostics/截图）」向 pipeline 判官/review 提供链证据时的四条实测坑。
+
+**1. finally 里第二次读工件 = 覆写竞态，工件可能被写空**。playwright reporter 收尾会触发 vite page reload（本仓 spec 注释自述的已知机制），finally 块里第二次 `readTimeline()` 撞上 reload 就把 `[]` 写进工件——实测同一条 spec 上游跑出 1792B 完整 timeline、复核重跑同路径写出 `[]`。**工件内容只在断言时刻读一次、集中一次性落盘**（并入 dumpDiagnostics 类单次读取）；finally 只做复制/补拍，不做第二次读取。链证据不因工件损毁失效的前提 = 断言先行 + 先行落盘的 diagnostics 双备份。
+
+**2. 截图/工件内嵌运行时变量 = md5 跨 run 必变**。证据面板文本内嵌 `t=${download.t}` 类时间戳模板串，逐 run 必变（实测 5 张截图 4 张 md5 跨 run 逐字节一致、1 张因面板时间戳必变：49925B→50162B）。要可逐字节复现，面板文本派生自确定性输入或移出画面；复核侧遇 md5 不一致，先归因运行时变量（拿画面显示值与自己 timeline 工件数值互证，如 1506ms vs 1505ms）再谈篡改。
+
+**3. 固定路径工件会被任何复跑覆写——复核层必须双轨取证**。spec 固定路径写工件 ⇒ review「亲跑复现」天然覆写上游当轮工件。复核交付必须显式声明覆写，并以「上游先行落盘的清单/哈希工件（如 final-manifest/md5 清单，早于复核窗口）+ 自己重跑产物的独立复现」双轨为证；上游当轮内容的证词以未覆写清单为锚，不以被覆写文件现值为准。
+
+**4. 截图内嵌「证据面板」的证明力口径**。面板是手工常量叙述文本（非工件派生），证明力归于测试体内先行的机器断言 + 独立工件（timeline/diagnostics/console）；截图只作场景对应性目检载体。review 按此口径审，写 spec 时别把关键证据只画进面板。
+
+**一手来源**：块 `1788317606883-1-img-fix-artifacts` code/review 两层交付（update 层第 3 次执行沉淀）。

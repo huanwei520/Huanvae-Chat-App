@@ -30,7 +30,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { captureAndSaveVideoPoster, loadVideoPosterSrc } from '../../services/videoPoster';
+import {
+  captureAndSaveVideoPoster,
+  loadVideoPosterSrc,
+  peekCachedPosterSrc,
+} from '../../services/videoPoster';
 
 export type VideoPosterStatus = 'pending' | 'poster' | 'capture';
 
@@ -40,11 +44,19 @@ export interface VideoPosterState {
   posterSrc: string | null;
 }
 
-/** 无 posterKey ⇒ 没有键可查，直接进 capture（= 落地前的行为） */
+/**
+ * 初态：有进程内解析结果 ⇒ 同步 poster（首帧就是封面，不进 pending、零 IPC）；
+ * 有键没结果 ⇒ pending；没键 ⇒ 同步 capture（= 落地前的行为）。
+ */
 function initialState(posterKey: string | null | undefined): VideoPosterState {
-  return posterKey
-    ? { status: 'pending', posterSrc: null }
-    : { status: 'capture', posterSrc: null };
+  if (!posterKey) {
+    return { status: 'capture', posterSrc: null };
+  }
+  const cached = peekCachedPosterSrc(posterKey);
+  if (cached) {
+    return { status: 'poster', posterSrc: cached };
+  }
+  return { status: 'pending', posterSrc: null };
 }
 
 /**
@@ -59,16 +71,21 @@ export function useVideoPoster(
 ): VideoPosterState {
   const [state, setState] = useState<VideoPosterState>(() => initialState(posterKey));
 
-  // posterKey 变了（列表项复用同一个组件实例）要重新解析，否则会把上一条视频的封面留在屏上
-  useEffect(() => {
-    setState(initialState(posterKey));
-  }, [posterKey]);
-
-  // 第一步：问本地有没有存过
+  // 第一步：问本地有没有存过。posterKey 变了（列表项复用同一个组件实例）也要重新解析，
+  // 否则会把上一条视频的封面留在屏上
   useEffect(() => {
     if (!posterKey) {
       return undefined;
     }
+    // 进程内已有解析结果：连 promise 都不必拆，直接同步进 poster
+    // （initialState 已在挂载首帧用过它；这里兜的是「渲染到 effect 之间才入缓存」的窗口期）
+    const cached = peekCachedPosterSrc(posterKey);
+    if (cached) {
+      setState({ status: 'poster', posterSrc: cached });
+      return undefined;
+    }
+    // 无缓存 ⇒ 先回 pending：换键复用的实例不许把上一条视频的封面留到新键解析完成
+    setState({ status: 'pending', posterSrc: null });
     let cancelled = false;
     loadVideoPosterSrc(posterKey).then((posterSrc) => {
       if (cancelled) {

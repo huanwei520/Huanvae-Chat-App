@@ -117,6 +117,39 @@ describe('会议 API 封装 (meeting/api)', () => {
     });
   });
 
+  it('joinRoom 带 identity（8.2）：body 含 user_id + device_id', async () => {
+    api.post.mockResolvedValue({ participant_id: 'p3' });
+    await meeting.joinRoom(api, 'room-1', '123456', 'Alice', undefined, {
+      userId: 'u-42',
+      deviceId: '00:11:22:33:44:55',
+    });
+    expect(api.post).toHaveBeenCalledWith('/api/webrtc/rooms/room-1/join', {
+      password: '123456',
+      display_name: 'Alice',
+      user_id: 'u-42',
+      device_id: '00:11:22:33:44:55',
+    });
+  });
+
+  it('joinRoom identity 为空/半空（访客）：不产生 user_id/device_id 键', async () => {
+    api.post.mockResolvedValue({ participant_id: 'p4' });
+    await meeting.joinRoom(api, 'room-1', '123456', 'Guest', undefined, {
+      userId: undefined,
+      deviceId: undefined,
+    });
+    const body = api.post.mock.calls[0][1] as Record<string, unknown>;
+    expect('user_id' in body).toBe(false);
+    expect('device_id' in body).toBe(false);
+
+    // 只有 device_id（未登录但有设备标识）：仅 device_id 入 body
+    await meeting.joinRoom(api, 'room-1', '123456', 'Guest', undefined, {
+      deviceId: 'uuid:abc',
+    });
+    const body2 = api.post.mock.calls[1][1] as Record<string, unknown>;
+    expect('user_id' in body2).toBe(false);
+    expect(body2['device_id']).toBe('uuid:abc');
+  });
+
   // ---- getSignalingUrl ----
 
   it('getSignalingUrl https → wss', () => {

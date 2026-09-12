@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  tauri-plugin-hg-guard 插件 Manifest —— Guard 侧 service 块全集经 gradle
+  manifest merger 并入宿主 App（对照 HuanvaeGuard client/android/app/src/main/
+  AndroidManifest.xml:15-58，勘察 §4 对账清单）：
+   * 四条权限：INTERNET（宿主已有，merger 去重）/ FOREGROUND_SERVICE /
+     FOREGROUND_SERVICE_SPECIAL_USE（API 34+ specialUse 类型）/ POST_NOTIFICATIONS；
+   * service 块：BIND_VPN_SERVICE 系统绑定权限 + foregroundServiceType=specialUse
+     + intent-filter android.net.VpnService + PROPERTY_SPECIAL_USE_FGS_SUBTYPE。
+  类名用全限定名 dev.huanvae.guard.HgVpnService（桥文件保持原包名的直接后果，
+  避免 namespace 解析歧义）。
+  Play 政策项（specialUse 专项说明）沿用 Guard 侧 M4 复核口径。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 隧道数据面出站 UDP（宿主 App 已声明 INTERNET，merger 去重） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 隧道挂前台服务 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- API 34+ specialUse 前台服务类型（Play 政策项 M4 复核） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 常驻通知在 API 33+ 需运行时通知权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- VpnService：BIND_VPN_SERVICE 系统绑定权限 + 标准 action，
+             授权流走 VpnService.prepare（插件 hg_prepare_vpn 命令）。 -->
+        <service
+            android:name="dev.huanvae.guard.HgVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <!-- specialUse 类型必须声明用途说明（Play 政策要求） -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="WireGuard-compatible VPN tunnel data plane; foreground lifetime bound to VpnService session" />
+        </service>
+    </application>
+</manifest>

@@ -3,10 +3,16 @@
  *
  * 零 Tauri 依赖:openSandboxEscapeWindow 涉及 WebviewWindow 静态方法,留给组件/e2e;
  * 这里锁死纯函数契约 —— 总开关/白名单默认全拒、initData 风格 data-check-string、
- * HMAC-SHA256 签名(独立验签)、开窗 URL 拼装(经反代收口,端口 0 时原样透传)。
+ * HMAC-SHA256 签名(独立验签)、开窗 URL 拼装(经反代收口;proxyRequestUrl mock 直通)。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// buildSandboxWindowUrl 经 proxyRequestUrl 反代收口（F5 后未就绪会等待/抛错）；本测试聚焦 URL 拼装，mock 直通
+vi.mock('../../src/services/secureProxy', () => ({
+  proxyRequestUrl: (url: string) => url,
+}));
+
 import {
   SANDBOX_ESCAPE_ENABLED,
   SANDBOX_ESCAPE_ALLOWED_ORIGINS,
@@ -98,8 +104,8 @@ describe('signSandboxInitData', () => {
 });
 
 describe('buildSandboxWindowUrl', () => {
-  it('fields + hash 并入 query,保留既有参数(反代端口 0 时原样透传)', () => {
-    const out = buildSandboxWindowUrl(
+  it('fields + hash 并入 query,保留既有参数(proxyRequestUrl mock 直通)', async () => {
+    const out = await buildSandboxWindowUrl(
       'https://a.example/page?x=1',
       { auth_date: '1', nonce: 'n' },
       'abc',
@@ -111,8 +117,8 @@ describe('buildSandboxWindowUrl', () => {
     expect(u.searchParams.get('hash')).toBe('abc');
   });
 
-  it('target 已有同名参数时被 fields 覆盖', () => {
-    const out = buildSandboxWindowUrl('https://a.example/p?nonce=old', { nonce: 'new' }, 'h');
+  it('target 已有同名参数时被 fields 覆盖', async () => {
+    const out = await buildSandboxWindowUrl('https://a.example/p?nonce=old', { nonce: 'new' }, 'h');
     expect(new URL(out).searchParams.get('nonce')).toBe('new');
   });
 });

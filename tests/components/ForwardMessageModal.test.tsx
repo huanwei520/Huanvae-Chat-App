@@ -17,7 +17,25 @@ import type { ForwardSource } from '../../src/chat/shared/forwardMessage';
 const api = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn() }));
 vi.mock('../../src/contexts/SessionContext', () => ({
   useApi: () => api,
-  useSession: () => ({ session: { userId: 'me' } }),
+  useSession: () => ({
+    session: {
+      userId: 'me',
+      profile: { user_nickname: '测试者', user_avatar_url: null },
+    },
+  }),
+}));
+
+// 转发写穿（forwardEcho）依赖的 WebSocket 上下文：只需 emitLocalNewMessage 可被调用
+const wsEmit = vi.hoisted(() => vi.fn());
+vi.mock('../../src/contexts/WebSocketContext', () => ({
+  useWebSocket: () => ({ emitLocalNewMessage: wsEmit }),
+}));
+
+// 写穿落库走 contexts/wsHandlers 的 saveMessageToLocal（与 WS 推送同一函数），
+// 单测里 mock 掉 invoke 依赖，只断言「被调了 + 帧形状正确」
+const saveLocal = vi.hoisted(() => vi.fn());
+vi.mock('../../src/contexts/wsHandlers', () => ({
+  saveMessageToLocal: saveLocal,
 }));
 
 const messagesApi = vi.hoisted(() => ({ sendMessage: vi.fn() }));
@@ -74,8 +92,10 @@ function rowByName(name: string): HTMLElement {
 
 describe('ForwardMessageModal', () => {
   beforeEach(() => {
-    messagesApi.sendMessage.mockReset().mockResolvedValue({ message_uuid: 'new', send_time: 'now' });
-    groupApi.sendGroupMessage.mockReset().mockResolvedValue({ message_uuid: 'new', send_time: 'now', seq: 1 });
+    messagesApi.sendMessage.mockReset().mockResolvedValue({ message_uuid: 'new', send_time: 'now', seq: 7 });
+    groupApi.sendGroupMessage.mockReset().mockResolvedValue({ message_uuid: 'new', send_time: 'now', seq: 7 });
+    saveLocal.mockReset().mockResolvedValue(undefined);
+    wsEmit.mockReset();
   });
 
   it('渲染：单条转发时预览显示发送者 + 内容摘要', () => {
@@ -160,6 +180,26 @@ describe('ForwardMessageModal', () => {
     expect(groupReq.file_uuid).toBe('file-uuid-1');
     expect('reply_to' in groupReq).toBe(false);
     expect('media_group_id' in groupReq).toBe(false);
+
+    // 转发写穿（本机无 WS 回显 → 必须主动落库 + 通知打开中的会话）：
+    // 每个目标各一次，回显帧与 WS new_message 同形（source_id = 接收者视角的会话对端）
+    expect(saveLocal).toHaveBeenCalledTimes(2);
+    expect(wsEmit).toHaveBeenCalledTimes(2);
+    const friendEcho = saveLocal.mock.calls[0][0] as Record<string, unknown>;
+    expect(friendEcho).toMatchObject({
+      type: 'new_message',
+      source_type: 'friend',
+      source_id: 'u-lin',
+      sender_id: 'me',
+      message_uuid: 'new',
+      seq: 7,
+      reply_to: null,
+      media_group_id: null,
+      file_uuid: 'file-uuid-1',
+    });
+    expect(wsEmit.mock.calls[0][0]).toBe(saveLocal.mock.calls[0][0]);
+    const groupEcho = saveLocal.mock.calls[1][0] as Record<string, unknown>;
+    expect(groupEcho).toMatchObject({ source_type: 'group', source_id: 'g-week' });
   });
 
   it('发送：多条按原顺序逐条发出（不是并发乱序）', async () => {
@@ -185,6 +225,9 @@ describe('ForwardMessageModal', () => {
 
     await waitFor(() => expect(messagesApi.sendMessage).toHaveBeenCalledTimes(3));
     expect(order).toEqual(['第一条', '第二条', '第三条']);
+    // 写穿与发送同序：三条各自落库，uuid 都来自各自响应
+    expect(saveLocal).toHaveBeenCalledTimes(3);
+    expect(saveLocal.mock.calls.every((c) => (c[0] as { sender_id: string }).sender_id === 'me')).toBe(true);
   });
 
   it('发送失败：错误摆在面板上，不调 onSent', async () => {
@@ -197,5 +240,8 @@ describe('ForwardMessageModal', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('后端拒绝了这条'));
     expect(onSent).not.toHaveBeenCalled();
+    // 发送失败时绝不写穿（本地没有这条消息的服务器身份）
+    expect(saveLocal).not.toHaveBeenCalled();
+    expect(wsEmit).not.toHaveBeenCalled();
   });
 });

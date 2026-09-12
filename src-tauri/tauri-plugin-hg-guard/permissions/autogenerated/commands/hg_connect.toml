@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-hg-connect"
+description = "Enables the hg_connect command without any pre-configured scope."
+commands.allow = ["hg_connect"]
+
+[[permission]]
+identifier = "deny-hg-connect"
+description = "Denies the hg_connect command without any pre-configured scope."
+commands.deny = ["hg_connect"]

@@ -427,6 +427,48 @@
   height: 18px;
 }
 
+/* ============================================
+   会议内音频设备入口（MeetingAudioEntry，桌面端）
+   齿轮按钮复用 .meeting-header-btn；下拉内容复用
+   设置页 .settings-audio-devices 样式体系
+   ============================================ */
+
+.meeting-audio-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 90;
+}
+
+.meeting-audio-popover {
+  position: fixed;
+  top: 64px;
+  right: 24px;
+  z-index: 91;
+  width: 320px;
+  max-width: calc(100vw - 48px);
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-95) 0%,
+    var(--white-alpha-90) 100%
+  );
+  backdrop-filter: var(--blur-lg);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  padding: 14px 16px 10px;
+}
+
+.meeting-audio-popover-title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .participant-count {
   font-size: 12px;
   font-weight: 500;

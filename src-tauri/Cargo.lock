@@ -2113,6 +2113,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+ "tauri-plugin-hg-guard",
  "tauri-plugin-http",
  "tauri-plugin-mobile-onbackpressed-listener",
  "tauri-plugin-nfc",
@@ -2120,6 +2121,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-os",
  "tauri-plugin-process",
+ "tauri-plugin-screen-capture",
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "thiserror 2.0.18",
@@ -5413,6 +5415,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-hg-guard"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-http"
 version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5528,6 +5541,17 @@ version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55511a7bf6cd70c8767b02c97bf8134fa434daf3926cfc1be0a0f94132d165a"
 dependencies = [
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-screen-capture"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-plugin",
 ]

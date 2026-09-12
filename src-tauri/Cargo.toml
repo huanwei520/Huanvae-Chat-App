@@ -207,6 +207,14 @@ tauri-plugin-store = "2.4.3"
 tauri-plugin-mobile-onbackpressed-listener = "2.0.1"
 
 # ============================================
+# 剪贴板（移动端）：会议分享「复制会议链接」用
+# ============================================
+# Android WebView 拒绝 web 层 navigator.clipboard.writeText（NotAllowedError），
+# 必须走插件原生 ClipboardManager；桌面臂同款依赖（版本一致由 cargo 统一），
+# 2026-09-10 会议分享改版（块 1788982832352-3）加入。
+tauri-plugin-clipboard-manager = "2.3.2"
+
+# ============================================
 # NFC 读卡（Android / iOS）
 # ============================================
 # 前台扫卡 + 读 NDEF URI Record，App 内主动调 scan() 监听
@@ -226,3 +234,8 @@ tauri-plugin-android-fs = "24.1.0"
 # 应用内 APK 自动更新（下载 + 调用系统安装器）
 # 参考: https://jsr.io/@kingsword/tauri-plugin-android-package-install
 tauri-plugin-android-package-install = "2.0.1"
+
+# 自研插件：HuanvaeGuard VPN 接入（阶段 2a 原生侧；仅安卓链路注册，
+# 见 lib.rs `#[cfg(target_os = "android")]` builder 段；工程在本仓内 path 依赖）
+tauri-plugin-hg-guard = { path = "tauri-plugin-hg-guard" }
+tauri-plugin-screen-capture = { path = "tauri-plugin-screen-capture" }

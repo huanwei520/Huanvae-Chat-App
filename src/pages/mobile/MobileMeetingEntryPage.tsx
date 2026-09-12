@@ -18,12 +18,11 @@ import {
   createRoom,
   joinRoom,
   saveMeetingData,
-  type CreateRoomResponse,
 } from '../../meeting/api';
+import { getMeetingIdentity } from '../../meeting/identity';
 import { fetchCreatorIceServers } from '../../meeting/creatorIce';
 import {
   VideoMeetingIcon,
-  CopyIcon,
 } from '../../components/common/Icons';
 
 // 返回按钮图标（内联定义，避免导入不存在的图标）
@@ -71,7 +70,6 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
   const [roomName, setRoomName] = useState('');
   const [roomPassword, setRoomPassword] = useState('');
   const [maxParticipants, setMaxParticipants] = useState(10);
-  const [createdRoom, setCreatedRoom] = useState<CreateRoomResponse | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   // 加入房间状态
@@ -84,8 +82,6 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
 
   // 错误提示
   const [error, setError] = useState<string | null>(null);
-  // 复制成功提示
-  const [copied, setCopied] = useState(false);
 
   /**
    * 解析粘贴的房间信息
@@ -114,7 +110,10 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
     }
   }, []);
 
-  // 创建会议房间
+  // 创建会议房间并直接入会
+  // 2026-09-10 会议分享改版（块 1788982832352-3）①：创建成功后不再展示「会议信息」
+  // 中间页（房间号/密码/复制信息/进入会议），而是取 ICE → 存会议数据 → 进会议页
+  // 一气呵成；任一步失败即在本页报错，不半途进会。
   const handleCreate = useCallback(async () => {
     setIsCreating(true);
     setError(null);
@@ -126,49 +125,34 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
         avatar_url: session?.profile.user_avatar_url || undefined,
         password: roomPassword || undefined,
         max_participants: maxParticipants,
+        // 8.2 同账号同设备重复入会顶替：创建者也带设备标识
+        device_id: (await getMeetingIdentity(session?.profile.user_id)).deviceId,
       });
-      setCreatedRoom(room);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '创建会议失败');
-    } finally {
-      setIsCreating(false);
-    }
-  }, [api, roomName, roomPassword, maxParticipants, session]);
 
-  // 加入已创建的房间（作为创建者）
-  const handleJoinCreatedRoom = useCallback(async () => {
-    if (!createdRoom) {
-      return;
-    }
-
-    setIsJoining(true);
-    setError(null);
-
-    try {
       // 与桌面端同一件事：createRoom 的响应不带 ice_servers，创建者必须自己取一次，
       // 否则会议页只能退到公共 STUN（见 meeting/creatorIce 的模块注释）。
       const iceServers = await fetchCreatorIceServers(api);
 
       saveMeetingData({
         role: 'creator',
-        roomId: createdRoom.room_id,
-        password: createdRoom.password,
-        roomName: createdRoom.name,
+        roomId: room.room_id,
+        password: room.password,
+        roomName: room.name,
         displayName: session?.profile.user_nickname || '会议主持人',
-        token: createdRoom.ws_token,
+        token: room.ws_token,
         iceServers,
-        userInfo: createdRoom.user_info,
+        userInfo: room.user_info,
         serverUrl: session?.serverUrl || '',
       });
 
-      // 进入会议页面
+      // 直接进入会议页面（无信息中间页）
       onEnterMeeting();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加入会议失败');
+      setError(err instanceof Error ? err.message : '创建会议失败');
     } finally {
-      setIsJoining(false);
+      setIsCreating(false);
     }
-  }, [api, createdRoom, session, onEnterMeeting]);
+  }, [api, roomName, roomPassword, maxParticipants, session, onEnterMeeting]);
 
   // 加入会议房间（作为参与者）
   const handleJoin = useCallback(async () => {
@@ -182,7 +166,9 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
 
     try {
       const avatarUrl = session?.profile.user_avatar_url || undefined;
-      const response = await joinRoom(api, joinRoomId, joinPassword, displayName, avatarUrl);
+      // 8.2 同账号同设备重复入会顶替：登录用户上报 user_id + device_id（访客两参皆空不参与）
+      const identity = await getMeetingIdentity(session?.profile.user_id);
+      const response = await joinRoom(api, joinRoomId, joinPassword, displayName, avatarUrl, identity);
 
       saveMeetingData({
         role: 'participant',
@@ -204,19 +190,6 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
       setIsJoining(false);
     }
   }, [api, joinRoomId, joinPassword, displayName, session, onEnterMeeting]);
-
-  // 复制房间信息
-  const handleCopy = useCallback(() => {
-    if (!createdRoom) {
-      return;
-    }
-
-    const text = `会议名称: ${createdRoom.name}\n房间号: ${createdRoom.room_id}\n密码: ${createdRoom.password}`;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [createdRoom]);
 
   return (
     <motion.div
@@ -249,7 +222,6 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
             onClick={() => {
               setActiveTab('create');
               setError(null);
-              setCreatedRoom(null);
             }}
           >
             创建会议
@@ -272,8 +244,8 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
           </div>
         )}
 
-        {/* 创建会议表单 */}
-        {activeTab === 'create' && !createdRoom && (
+        {/* 创建会议表单（创建成功直接入会，无信息中间页） */}
+        {activeTab === 'create' && (
           <div className="mobile-meeting-form">
             <div className="mobile-meeting-field">
               <label>会议名称（可选）</label>
@@ -311,44 +283,8 @@ export function MobileMeetingEntryPage({ onClose, onEnterMeeting }: MobileMeetin
               onClick={handleCreate}
               disabled={isCreating}
             >
-              {isCreating ? '创建中...' : '创建会议'}
+              {isCreating ? '创建并进入中...' : '创建会议'}
             </button>
-          </div>
-        )}
-
-        {/* 创建成功后显示房间信息 */}
-        {activeTab === 'create' && createdRoom && (
-          <div className="mobile-meeting-created">
-            <div className="mobile-meeting-info">
-              <div className="mobile-meeting-info-item">
-                <span className="label">会议名称</span>
-                <span className="value">{createdRoom.name}</span>
-              </div>
-              <div className="mobile-meeting-info-item">
-                <span className="label">房间号</span>
-                <span className="value">{createdRoom.room_id}</span>
-              </div>
-              <div className="mobile-meeting-info-item">
-                <span className="label">密码</span>
-                <span className="value">{createdRoom.password}</span>
-              </div>
-            </div>
-            <div className="mobile-meeting-actions">
-              <button
-                className="mobile-meeting-copy"
-                onClick={handleCopy}
-              >
-                <CopyIcon />
-                {copied ? '已复制' : '复制信息'}
-              </button>
-              <button
-                className="mobile-meeting-submit"
-                onClick={handleJoinCreatedRoom}
-                disabled={isJoining}
-              >
-                {isJoining ? '进入中...' : '进入会议'}
-              </button>
-            </div>
           </div>
         )}
 

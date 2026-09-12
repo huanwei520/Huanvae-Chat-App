@@ -43,6 +43,8 @@ import {
   notifySystemEvent,
   type SystemNotificationType,
 } from '../services/notificationService';
+import { isDevControl } from '../remote-control/devGate';
+import { handleControlSessionNotification } from '../remote-control/dispatch';
 
 // ============================================
 // 类型定义
@@ -725,6 +727,18 @@ export function handleWebSocketMessage(
       }
 
       case 'system_notification':
+        // 会议内远程控制裁决信令（设计 §8.3 块 C；dev 门控——生产构建恒 false，
+        // 分支死代码摇树，三值在生产流量不存在：后端 feature 默认关）。返回 true 时短路
+        // 既有计数/系统通知路径（控制帧不该进待处理角标与系统通知栏）。
+        if (
+          isDevControl() &&
+          (msg.notification_type === 'control_session_requested' ||
+            msg.notification_type === 'control_session_decided' ||
+            msg.notification_type === 'control_session_released')
+        ) {
+          handleControlSessionNotification(msg);
+          break;
+        }
         // 根据通知类型更新待处理通知计数
         switch (msg.notification_type) {
           case 'friend_request':

@@ -38,6 +38,7 @@ import { formatFileSize } from '../../utils/format';
 import { panelFadeTransition } from './animations';
 import { SendIcon, MuteIcon } from '../../components/common/Icons';
 import { useChatStore, selectCurrentMuteStatus } from '../../stores';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { isMobile } from '../../utils/platform';
 import { useApi } from '../../contexts/SessionContext';
 import { useBotCommandsStore } from '../../stores/botCommandsStore';
@@ -128,6 +129,11 @@ export function ChatInputArea({
   // IME 组字标志：compositionstart 置真、compositionend 置假。
   // 兜住个别 WebView 内核在组字确认的 keydown 上未置 isComposing 的时序差（见 handleKeyDown）。
   const isComposingRef = useRef(false);
+
+  // 「回车发送」开关（设置面板可切换，zustand persist 持久化）：
+  // - false（默认）：Enter=换行、不发送；Shift+Enter 同样换行 —— 两端（桌面物理键盘 / 移动软键盘）一致；
+  // - true：Enter=发送、Shift+Enter=换行（桌面既有习惯，开关开启后恢复）。
+  const enterSendsMessage = useSettingsStore((s) => s.chatInput.enterSendsMessage);
 
   // 从 store 获取当前群的禁言状态
   const muteInfo = useChatStore(selectCurrentMuteStatus);
@@ -366,15 +372,18 @@ export function ChatInputArea({
   }, [messageInput, adjustTextareaHeight]);
 
   // 处理键盘事件
+  // 「回车发送」开关（enterSendsMessage）同时约束桌面物理键盘与移动软键盘：
+  // Android WebView 会把软键盘 IME 动作键（enterKeyHint='send' 时）与换行键都派发成
+  // key='Enter' 的 keydown，因此两条输入路径在同一个分支里被同一位开关管住。
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // IME 组字进行中：Enter 只用于「确认候选词」，绝不触发发送 / 命令选择。
+    // IME 组字进行中：Enter 只用于「确认候选词」，绝不触发发送 / 命令选择，也不插入换行。
     // 三重判据（任一为真即视为组字中）：
     // - e.nativeEvent.isComposing：组字期 keydown 的根因信号（Blink/Gecko/现代 WebKit 均置 true，含确认候选词那一下）
     // - e.keyCode === 229：旧内核在组字期 keydown 上报的 "process" 键码
     // - isComposingRef：compositionstart→compositionend 间的手动标志，兜住个别内核 isComposing 未置位
     const composing = e.nativeEvent.isComposing || e.keyCode === 229 || isComposingRef.current;
 
-    // 命令面板打开时：方向键/Enter/Tab/ESC 归面板，Enter 绝不发送
+    // 命令面板打开时：方向键/Enter/Tab/ESC 归面板，Enter 绝不发送（两档开关下都是「选中命令」，非消息发送）
     if (slashPanelOpen) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSlashActiveIndex((i) => (i + 1) % filteredCommands.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSlashActiveIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length); return; }
@@ -384,11 +393,16 @@ export function ChatInputArea({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       if (composing) { return; }
+      if (!enterSendsMessage) {
+        // 默认档：Enter=换行（不发送）。不 preventDefault，让 textarea 原生插入换行符。
+        return;
+      }
+      // 「回车发送」开启：Enter=发送；Shift+Enter 在上面被条件排除，原生换行。
       e.preventDefault();
       // 回车 = 发送「待发区附件 + 文字」；没有附件时 handleSend 退回原来的纯文本路径
       handleSend();
     }
-  }, [handleSend, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
+  }, [enterSendsMessage, handleSend, slashPanelOpen, filteredCommands, slashActiveIndex, selectSlashCommand]);
 
   // IME 组字事件：维护 isComposingRef，供 handleKeyDown 判断「Enter 是否为确认候选词」。
   const handleCompositionStart = useCallback(() => { isComposingRef.current = true; }, []);
@@ -596,7 +610,7 @@ export function ChatInputArea({
 
         <textarea
           ref={textareaRef}
-          placeholder="输入消息... (Shift+Enter 换行)"
+          placeholder={enterSendsMessage ? '输入消息... (Shift+Enter 换行)' : '输入消息... (Enter 换行)'}
           value={messageInput}
           onChange={(e) => {
             onMessageChange(e.target.value);
@@ -607,6 +621,9 @@ export function ChatInputArea({
           onCompositionEnd={handleCompositionEnd}
           onPaste={handlePaste}
           rows={1}
+          // 移动端软键盘：跟随「回车发送」开关切换 IME 动作键 ——
+          // 开启=send（软键盘回车=发送，与桌面一致）；关闭=enter（软键盘回车=换行，默认档）。
+          enterKeyHint={enterSendsMessage ? 'send' : 'enter'}
         />
         <motion.button
           className="send-btn"

@@ -1,0 +1,70 @@
+/**
+ * HuanvaeGuard 安卓全屏覆盖页样式（阶段 2b）
+ *
+ * 形态对齐 App 移动端全屏页既有模式（src/styles/mobile/lan-transfer-page.css）：
+ * fixed 全屏 + safe-area 顶栏 + 主题变量。颜色全部走主题 token，随深色模式切换。
+ * 页面本体（.hg-page）自带背景渐变与滚动，这里只提供承载层。
+ */
+
+.mobile-guard-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* 顶部栏：返回 + 标题（与移动端各全屏页同构） */
+.mobile-guard-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(12px + max(env(safe-area-inset-top, 0px), var(--sai-top, 0px))) 12px 10px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.mobile-guard-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mobile-guard-back:active {
+  background: var(--bg-secondary);
+}
+
+.mobile-guard-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 页面本体：HuanvaeGuardPage 的 .hg-page（height:100% + overflow-y:auto）填满余下空间 */
+.mobile-guard-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-guard-body .hg-page {
+  flex: 1;
+  min-height: 0;
+}

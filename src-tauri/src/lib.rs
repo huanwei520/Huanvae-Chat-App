@@ -831,6 +831,9 @@ pub fn run() {
     // - android-fs: 处理 content:// URI 文件读取（仅 Android）
     // - android-package-install: 应用内 APK 安装（仅 Android）
     // - mobile-onbackpressed-listener: 在 setup 中注册（文档要求）
+    // - clipboard-manager: 会议分享「复制会议链接」用（2026-09-10 会议分享改版；
+    //   Android WebView 拒绝 web 层 navigator.clipboard.writeText → NotAllowedError，
+    //   必须走插件原生 ClipboardManager；桌面臂同款插件，桌面路径零变化）
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -841,13 +844,22 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_nfc::init());
 
     // Android 专属插件（iOS 上没有对应 crate）
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(tauri_plugin_android_fs::init())
-        .plugin(tauri_plugin_android_package_install::init());
+        .plugin(tauri_plugin_android_package_install::init())
+        // HuanvaeGuard VPN 接入（阶段 2a 原生侧）：hg_status/hg_connect/hg_disconnect/
+        // hg_prepare_vpn/hg_control_start/hg_control_stop 六条命令面，见
+        // tauri-plugin-hg-guard/src/commands.rs 契约注释
+        .plugin(tauri_plugin_hg_guard::init())
+        // 安卓屏幕共享采集（MediaProjection 前台服务 → 帧通道 → WebView WebRTC）：
+        // capture_start/capture_stop/capture_status 三条命令面，见
+        // tauri-plugin-screen-capture/src/commands.rs 契约注释
+        .plugin(tauri_plugin_screen_capture::init());
 
     builder
         .setup(|app| {
@@ -993,6 +1005,27 @@ pub fn run() {
                 let _ = window.hide();
             }
 
+            // 8.1 会议窗关窗退出信令（桌面端）：拦会议窗 CloseRequested → 先触发前端退出钩子发
+            // leave 信令（window.__meetingLeave，MeetingPage 关窗 useEffect 同步注册），留出帧冲刷
+            // 时间再销毁窗口。此前原生关窗直接走 GTK 销毁，webview 带着未冲刷的信令 socket 被杀，
+            // 服务端只见 TCP RST、收不到主动退出信令。仅拦 label=="meeting"，主窗托盘逻辑与其他
+            // 子窗零变化；关窗结果不变（窗口最终仍销毁，仅延后 ≤600ms）。
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "meeting"
+            {
+                use tauri::Manager;
+                api.prevent_close();
+                let meeting_win = window.app_handle().get_webview_window("meeting");
+                std::thread::spawn(move || {
+                    if let Some(w) = meeting_win {
+                        let _ = w.eval("window.__meetingLeave && window.__meetingLeave();");
+                        std::thread::sleep(std::time::Duration::from_millis(600));
+                        let _ = w.destroy();
+                    }
+                });
+            }
+
             // 移动端：不拦截关闭事件
             #[cfg(any(target_os = "android", target_os = "ios"))]
             {
@@ -1110,6 +1143,8 @@ pub fn run() {
             lan_transfer::get_active_transfers,
             lan_transfer::cancel_transfer,
             lan_transfer::get_lan_debug_info,
+            // 局域网传输（网络诊断真实数据源，D-12）
+            lan_transfer::get_lan_transfer_network_info,
             // 局域网传输（点对点连接）
             lan_transfer::request_peer_connection,
             lan_transfer::respond_peer_connection,

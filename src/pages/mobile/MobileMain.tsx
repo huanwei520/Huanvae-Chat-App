@@ -61,6 +61,12 @@ import { useWebRTC } from '../../meeting/useWebRTC';
 import { loadMeetingData, clearMeetingData, type IceServer } from '../../meeting/api';
 import { useApi } from '../../contexts/SessionContext';
 import { listPublishedMiniApps, listMyMiniApps, type MiniApp } from '../../api/miniapps';
+import {
+  openHuanvaeGuardWindow,
+  HUANVAE_GUARD_OPEN_EVENT,
+  type HuanvaeGuardOverlayData,
+} from '../../huanvaeGuard';
+import { MobileGuardPage } from '../../huanvaeGuard/MobileGuardPage';
 
 // 导入移动端样式
 import '../../styles/mobile/index.css';
@@ -86,6 +92,9 @@ export function MobileMain() {
   const [showThemePage, setShowThemePage] = useState(false);
   const [showAddPage, setShowAddPage] = useState(false);
   const [showNfcTrustedCards, setShowNfcTrustedCards] = useState(false);
+  // VPN 组网（阶段 2b）：载荷由 openHuanvaeGuardWindow 的 android 分支经 CustomEvent 派发
+  // （桌面同函数走 WebviewWindow，安卓走单窗口覆盖页，选型理由见 index.ts）
+  const [guardData, setGuardData] = useState<HuanvaeGuardOverlayData | null>(null);
 
   // NFC executor 用：按 id 查找小程序（published 优先，fallback 到 mine）
   const api = useApi();
@@ -139,6 +148,16 @@ export function MobileMain() {
 
   // Android 应用启动时静默检查更新（弹窗在 App.tsx 统一渲染）
   useAutoUpdateCheckAndroid();
+
+  // VPN 组网开页事件（阶段 2b）：openHuanvaeGuardWindow 的 android 分支派发（同 JS 上下文
+  // window CustomEvent，零 IPC）。载荷四元组与桌面 URL query 同一契约。
+  useEffect(() => {
+    const onGuardOpen = (e: Event) => {
+      setGuardData((e as CustomEvent<HuanvaeGuardOverlayData>).detail);
+    };
+    window.addEventListener(HUANVAE_GUARD_OPEN_EVENT, onGuardOpen);
+    return () => window.removeEventListener(HUANVAE_GUARD_OPEN_EVENT, onGuardOpen);
+  }, []);
 
   // Android 启动时请求通知权限并初始化通知渠道
   useEffect(() => {
@@ -262,6 +281,12 @@ export function MobileMain() {
       return true;
     }
 
+    // 优先级 3b：VPN 组网页打开 → 关闭覆盖页
+    if (guardData) {
+      setGuardData(null);
+      return true;
+    }
+
     // 优先级 4：我的文件页面打开 → 关闭页面
     if (showFilesPage) {
       setShowFilesPage(false);
@@ -327,7 +352,7 @@ export function MobileMain() {
 
     // 未处理 → 执行默认行为（退出应用）
     return false;
-  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, showFilesPage, showLanTransferPage, showMiniAppsPage, showBotsPage, showAddPage, showMeetingPage, showMeetingEntryPage, showNfcTrustedCards, meetingMinimized, nav, handleBack]);
+  }, [page, miniAppLaunching, showThemePage, showSettings, showProfilePage, guardData, showFilesPage, showLanTransferPage, showMiniAppsPage, showBotsPage, showAddPage, showMeetingPage, showMeetingEntryPage, showNfcTrustedCards, meetingMinimized, nav, handleBack]);
 
   // 注册返回按钮处理
   useMobileBackHandler(handleMobileBack);
@@ -369,6 +394,19 @@ export function MobileMain() {
         }}
         onBotsClick={() => {
           setShowBotsPage(true);
+          nav.closeDrawer();
+        }}
+        onHuanvaeGuardClick={() => {
+          if (page.session) {
+            // 与桌面 Main.tsx handleHuanvaeGuardClick 同一入口函数：
+            // 桌面开 WebviewWindow，安卓由其 android 分支派发开页事件 → 本组件渲染覆盖页
+            void openHuanvaeGuardWindow(
+              page.session.userId,
+              page.session.serverUrl,
+              page.session.accessToken,
+              page.session.refreshToken,
+            );
+          }
           nav.closeDrawer();
         }}
         onMeetingClick={() => {
@@ -583,6 +621,13 @@ export function MobileMain() {
       <AnimatePresence>
         {showLanTransferPage && (
           <MobileLanTransferPage onClose={() => setShowLanTransferPage(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* VPN 组网（阶段 2b 安卓轨）：全屏覆盖页承载 HuanvaeGuardPage */}
+      <AnimatePresence>
+        {guardData && (
+          <MobileGuardPage data={guardData} onClose={() => setGuardData(null)} />
         )}
       </AnimatePresence>
 
