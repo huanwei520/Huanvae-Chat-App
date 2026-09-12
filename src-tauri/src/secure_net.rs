@@ -138,32 +138,10 @@ fn acquire_client(req: &SecureHttpReq, timeout: u64) -> Result<reqwest::Client, 
     Ok(c)
 }
 
-/// 数据面"Rust 侧直连源站下载"复用的钉 CA 客户端(pin_ca + 不验主机名 + 内置 CA,与 secure_http 同套信任)。
-/// 供 download.rs / storage.rs 等复用;调用方传入**已改写成源站 IP 的 URL**(不发 SNI,绕 ICP)。
-pub(crate) fn pinned_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    let key = client_key(true, None, timeout_secs, false);
-    let mut guard = CLIENTS.lock().map_err(|_| "client 缓存锁中毒".to_string())?;
-    if let Some(c) = guard.get(&key) {
-        return Ok(c.clone());
-    }
-    let c = build_client(true, None, timeout_secs, false)?;
-    guard.insert(key, c.clone());
-    Ok(c)
-}
-
-/// 同 `pinned_client`,但**强制 HTTP/1.1** —— 专供 `secure_proxy` 反代:它显式设 `Host=逻辑域名`
-/// (兼容 presigned 按 Host 签名)。HTTP/2 下显式 Host 与 :authority(=URL 的源站 IP)冲突会被服务端
-/// 判 malformed 返 400(头像/上传全挂);HTTP/1.1 无 :authority,显式 Host 即权威。
-pub(crate) fn pinned_http1_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    let key = client_key(true, None, timeout_secs, true);
-    let mut guard = CLIENTS.lock().map_err(|_| "client 缓存锁中毒".to_string())?;
-    if let Some(c) = guard.get(&key) {
-        return Ok(c.clone());
-    }
-    let c = build_client(true, None, timeout_secs, true)?;
-    guard.insert(key, c.clone());
-    Ok(c)
-}
+// 本模块历史上有 pinned_client / pinned_http1_client 两个 pub(crate) 复用入口，
+// 自 secure_proxy 改为自建 client（见其模块头「超时拆分」节）后已零调用方，
+// v1.1.40 发布门禁清警告时删除（dead_code）；如下载面再需要钉 CA 客户端，按上面
+// get_or_insert 同款模式重建，勿恢复死代码。
 
 /// 统一安全 HTTP 请求。前端(client.ts 等)经 `invoke('secure_http', { req })` 调用。
 #[tauri::command]

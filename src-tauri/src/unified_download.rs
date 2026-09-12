@@ -115,8 +115,12 @@ pub struct DownloadOutcome {
     /// 响应的 Content-Type（无则 None，调用方给缺省）。
     pub content_type: Option<String>,
     /// 本次开跑前已在盘上的字节数（断点续传起点；全新下载为 0）。
+    /// 结果语义字段：当前由测试与排障日志消费，非 test 构建无读者（rustc 1.97 起报
+    /// dead_code），属结果契约的一部分，用 allow 保留而非删字段。
+    #[allow(dead_code)]
     pub resumed_from: u64,
-    /// 是否走了 Range 分片路径（false = 降级单流）。
+    /// 是否走了 Range 分片路径（false = 降级单流）。同上，结果契约字段。
+    #[allow(dead_code)]
     pub sharded: bool,
 }
 
@@ -180,8 +184,9 @@ fn status_err(ctx: &str, status: reqwest::StatusCode) -> DownloadError {
     }
 }
 
-/// 构建下载专用 reqwest client：与 secure_net 同套信任（内置 CA + mTLS + 不验主机名
-/// + 强制 HTTP/1.1），但**超时语义是 connect + 读 idle，不设含 body 读完的总时限**。
+/// 构建下载专用 reqwest client：与 secure_net 同套信任
+/// （内置 CA + mTLS + 不验主机名 + 强制 HTTP/1.1），
+/// 但**超时语义是 connect + 读 idle，不设含 body 读完的总时限**。
 /// 必须 `.no_proxy()` 的理由见模块头（系统代理检测分钟级卡顿 + 直连语义）。
 fn build_download_client(
     connect_secs: u64,
@@ -716,14 +721,14 @@ fn finalize_download(
     // 调用方给了期望值就对账，不一致 = 这堆字节不可信，连 part 带清单丢弃。
     let actual_hash = crate::content_hash::sampled_sha256_of_file(&req.part_path)
         .map_err(|e| io_err("计算采样哈希失败", e))?;
-    if let Some(expected) = &req.expected_sampled_hash {
-        if expected != &actual_hash {
-            discard_part(&req.part_path, meta_path);
-            return Err(DownloadError::HashMismatch {
-                expected: expected.clone(),
-                actual: actual_hash,
-            });
-        }
+    if let Some(expected) = &req.expected_sampled_hash
+        && expected != &actual_hash
+    {
+        discard_part(&req.part_path, meta_path);
+        return Err(DownloadError::HashMismatch {
+            expected: expected.clone(),
+            actual: actual_hash,
+        });
     }
 
     // 下载完整 ⇒ 清单删掉（清单在 = part 是半截的，见 resume_meta 模块头）
@@ -776,7 +781,7 @@ mod tests {
             let end = start + len;
             while off < end {
                 let n = std::cmp::min(end - off, 1024 * 1024) as usize;
-                h.update(&gen_chunk(seed, off, n));
+                h.update(gen_chunk(seed, off, n));
                 off += n as u64;
             }
         };
