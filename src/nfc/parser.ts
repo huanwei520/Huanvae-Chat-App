@@ -58,7 +58,12 @@ export function decodeNdefUriPayload(payload: number[]): string {
  * 范围 = 整个 payload bytes（含 prefix code byte）—— 更严格防卡片改写
  */
 export async function computePayloadHash(payload: number[]): Promise<string> {
-  const buf = new Uint8Array(payload).buffer;
+  // 直接传 Uint8Array（与其 .buffer 逐字节等同，offset=0/len=n）。
+  // 必须传 TypedArray 而非裸 ArrayBuffer：vitest jsdom 环境下 crypto 与测试
+  // 跨 realm，jsdom 的 SubtleCrypto 对另一 realm 的裸 ArrayBuffer 做品牌检查
+  // 会抛 "2nd argument is not instance of ArrayBuffer"，而 BufferSource 的
+  // TypedArray 分支走 IDL 转换（按内容拷贝），无此问题；浏览器行为不变。
+  const buf = new Uint8Array(payload);
   const digest = await crypto.subtle.digest('SHA-256', buf);
   return bytesToHex(Array.from(new Uint8Array(digest)));
 }
