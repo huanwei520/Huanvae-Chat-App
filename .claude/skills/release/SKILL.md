@@ -741,3 +741,76 @@ token 须吊销轮换）。
 TAURI_SIGNING_PRIVATE_KEY / keystore）。⇒ 本地产物与 CI/R2 签名产物的 sha256 **必然不同**
 （签名改变字节），属预期、不是对不上。交付口径：**两套分别落档**；与 R2 清单对账只用 CI/R2 那套，
 不得拿本地未签名 sha256 去对清单，也不得混写成一套。
+
+## 🔴 发布期 in-flight 遗落与整树回填（2026-09-12 整合块 bjj26jbq-1 沉淀）：遗落机制 / 回填手法 / flaky 声称口径 / 本机 clippy-android env / 取证留痕
+
+> **本节是 EOF 追加，不改上文任何一行**（零行号位移）。来源：09-12 v1.1.40 发布 rebase 期
+> 13 项功能遗落事件的整合块（整合 SHA 55825f7；review 层独立复核 CONDITIONAL_PASS）。
+> 五条均上文（含补正 1–5）未写、该轮实操踩出/验证过；写前查重「cherry-pick -n / parked-during /
+> patch-id / CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER」在 `.claude/` 全树 0 命中 = 新案。
+
+### A. 发布窗口会 park in-flight 工作树 —— 发布前后各清点一次 stash 与 inflight/* 分支
+
+机制实例（git 实证在该整合块 code/evidence/git-evidence-01/03）：v1.1.40 发布期 main 被
+rebase 到 v1.1.39（4b80164），发布实例 05:10:06Z 把当时 in-flight 工作树 park 成
+`stash@{0}`（d75eba8，base 79ce79a）；同周期会议音频 commit 7a056b2 停在
+`inflight/meeting-audio-7a056b2` 分支——13 项新功能就此全部遗落主干外。**发布前**：
+`git stash list` + `git for-each-ref 'refs/heads/inflight/*'` + `git worktree list`，
+有 in-flight 就先显式 park/归档再发；**发布后**：回看同一清单，遗落即排回填卡。
+
+### B. 遗落整树回填手法（已验证）：三方合并回填 + patch-id 防重 + ABSENT 矩阵
+
+1. 单 commit 遗落：`git cherry-pick <sha>`；等价性证明 = `git diff A B | git patch-id` 两侧相等。
+2. parked 工作树整棵回填：`git cherry-pick -n -m 1 stash@{0}`（真三方合并；巨树上裸
+   `git stash pop` 不可控）。冲突通常只剩版本号文件——手工保留当前 VERSION，勿吞回旧版号。
+3. 结果验证：合并树 vs stash 树逐 tracked blob 比对，差异逐个列明归属（lint 修复/版本号）。
+4. stash 第三父（untracked）不随 cherry-pick 走：按「功能代码/文档/临时物」逐类甄别并给
+   精确分解清单（本块 492 中 102 进 HEAD，390 = 363 test-artifacts + 12 docs + 5 .claude/skills
+   + 7 .pi + 3 杂项，零功能代码遗漏；分解实证见该块 review/evidence/r-stash-unclassified-count.txt）。
+   🔴 **CLAUDE.md 引用的 skill 若整在第三父里、整合时不回填 = 必读链断链**（本块实况：
+   card-rebuild / long-task-card / rate-limit-reclose / rejudge-recheck / superseded-archive
+   五个 SKILL.md 在 HEAD 全 ABSENT，而 CLAUDE.md 多处点名「动笔前必读」）——回填清点时把
+   CLAUDE.md 的引用面当清单过一遍。
+5. 防重复合并：每项动手前 `git branch --contains` / `git tag --contains` /
+   `git merge-base --is-ancestor` 三件套；关键新文件 × 已发布 tag 全并集
+   `git cat-file -e <ref>:<path>` 打 ABSENT 矩阵。**tag 口径先对齐**：本地 `git tag -l` 与
+   `git ls-remote --tags origin` 逐行比（浅仓先 `fetch --deepen`；本地缺 tag ≠ 远端缺——
+   v1.1.39 即假缺口）；「双端均无 tag 但 release commit 在 main 史」也是合法台账形态
+   （v1.1.41 = d37fa4b），如实登记、不虚构成因。
+
+### C. flaky 门禁的声称口径 —— 不得取最好一次成绩当「通过」
+
+实例：playwright 全量 E2E 同一 HEAD 三跑三样（test-all.sh 内 FAIL → 独立复跑 41/41 →
+review 复跑 36/41 RC=1；失败例隔离 5/5 过，全是 `Execution context was destroyed…navigation`
+导航竞态）。与 rules/common.md「间歇性失败（flaky）不等于可以忽略」（归属判定侧）衔接，
+本条补**声称侧**口径：
+
+- 定性既有 flaky 后，交付声称**跟随最严一次复跑降级**（按「未通过/待复验」登记并进
+  frontmatter blocking_conditions），不得拿最好一次 41/41 宣称通过；
+- 放行条件显式挂独立干净环境（本仓 = release.yml 的 gate job），作为阶段放行前置；
+- verdict 相应降档（PASS → CONDITIONAL_PASS），与正文结论逐字一致。
+
+### D. 本机 clippy-android（三态①）env 注入配方（Linux 宿主实测）
+
+三态规则见 CLAUDE.md「clippy Android 是三态」；此前只有规则没有本机配方，补齐：
+
+```bash
+export PATH=/opt/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=aarch64-linux-android28-clang  # 28 = minSdk
+cargo clippy --target aarch64-linux-android -- -D warnings
+```
+
+实测 RC=0（整合块 code 层 1m33s / review 层独立复跑 21.89s）。**NDK 版本以实机为准**
+（本宿主 r27c = 27.2.12479018；曾有交付照抄日志自述 27.3.13750724 被 review 更正——环境版本
+引实机 `ls /opt/android-ndk`，勿抄日志）。cargo 在 `/root/.cargo/bin/cargo`（工具 shell
+HOME 为空，裸 `cargo` 可能找不到）。
+
+### E. 设备取证当场留痕 —— 截图命令与 logcat 缓冲不等人
+
+本块 47 张真机截图 1 张 0 字节损坏、摄制命令未当场留痕、原始时段 logcat 随模拟器关闭丢失，
+review 只能以「同 APK（sha256 一致）重装+重启复现取图链路」作近似佐证并登记残余不确定性。
+规约本就在盘（forward-echo-e2e「入库形态：截图 PNG 原件 + 全程 logcat 入库」、ui-real
+「logcat 尾部」、android-screenshare-e2e「screencap -p 帧缓冲」）——执行侧开工先读对应
+skill。实测会话纪律：`adb exec-out screencap -p > x.png` 命令与输出字节数当场落日志；
+模拟器退出前 `adb logcat -d > full.log` 落盘。debug 候选 APK 与 CI 签名 APK 两套 sha256
+分别落档不混写（补正 5 口径）；本机 debug 候选如实标 debug，不冒充正式包。
