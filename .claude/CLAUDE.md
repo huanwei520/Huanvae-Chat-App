@@ -495,6 +495,8 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 
 排查工作树归属时注意：本仓是巨树，**禁用 `git status` / `git add -A` 做排查**（会超时），改用 `git diff --name-only`、`git diff --cached --name-only`、`git ls-files --others --exclude-standard -- <目录>`。
 
+📌 **v1.1.44 发布实例沉淀（2026-09-12）已落入 SKILL.md 末尾追加节**（`.claude/skills/release/SKILL.md:678` 起）：① Android 版本链 autogen 派生、验收须复验 `tauri.properties`；② 回滚手册必须先于 push 成文（四场景 A/B/C/D 模板）；③ 既定推送通道之二（`release` 镜像远端 + credential.helper=store）；④ 「推完自核远端」扩为五项发布后验收闭环（含 R2 下载复算 sha256 与清单逐字符对账）；⑤ 本地未签名 vs CI 签名产物两套 sha256 口径分别落档。
+
 ## 语言偏好
 
 - **交流语言**: 中文

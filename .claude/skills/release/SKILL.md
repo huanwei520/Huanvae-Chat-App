@@ -674,3 +674,70 @@ GIT_TERMINAL_PROMPT=0 git \
      这正是 [.claude/rules/common.md](../../rules/common.md)「改动一个被文档按行号引用的脚本/源文件后，
      必须回头重锚所有 `文件:行`」那条纪律的又一次发作。
      **本单按「纯追加、零行号位移」纪律没有就地改那两处锚点** —— 重锚与修分支都另立单。
+
+## 🔴 v1.1.44 发布实例沉淀追加（2026-09-12）：五处补正 —— Android 版本链复验 / 回滚手册 / 既定推送通道之二 / 发布后验收闭环 / 双套 sha256 口径
+
+> **本节是 EOF 追加，不改上文任何一行**（零行号位移）。来源：v1.1.43 → v1.1.44 发布实例
+> （单独版本 commit b539d6f，CI run 34685298333 六腿全绿，Release Latest，R2 双清单与下载复算对账一致），
+> 五处均为上文**未写**、而该轮实操踩出来并验收过的口径。
+> README 跟进：`scripts/linux/README.md` / `scripts/README.md` 是二手入门描述，未含本节内容；
+> 是否同步另立批次，不阻塞本节生效。
+
+### 补正 1：「三处同步」之外，Android 版本链是 autogen 派生 —— 不用手改，但验收必须复验
+
+步骤 2/7 的 sed 只改三处（package.json / tauri.conf.json / Cargo.toml）。Android 版本号是**派生**的：
+`tauri.conf.json` →（Tauri 自动生成）`src-tauri/gen/android/app/tauri.properties`
+（`tauri.android.versionName` / `tauri.android.versionCode`）→ `src-tauri/gen/android/app/build.gradle.kts:46-47`
+（读取 tauriProperties）。⇒ 手动只动三处是对的，但**验收清单必须加一条**：复验 tauri.properties 的
+versionName/versionCode 已跟上目标版本（v1.1.44 实例实测 tauri.properties = 1.1.44/1001044）。
+**versionCode 公式**（实测归纳）：`1000000 + major×10000 + minor×100 + patch`（1.1.44 → 1001044）。
+
+### 补正 2：🔴 回滚手册必须先于 push 成文 —— 四场景模板
+
+上文只写了「push tag 那一刻发布就已不可撤销地对外发生」，**没写出事之后怎么退**。
+v1.1.44 实例的硬要求：**回滚手册在 push 之前落笔**（该轮手册 mtime 08:55:19Z，先于 09:13:47Z push 18 分钟，
+review 复核 stat 亲验）。四个场景按不可逆程度递进，各含命令与回滚后核验：
+
+| 场景 | 状态 | 动作 |
+|---|---|---|
+| A | push 前 | `git tag -d v<X>` + `git reset --hard <前版sha>`，影响面为零 |
+| B | main 已推、tag 未推（CI 未触发） | `git push --force-with-lease <远端> <前版sha>:main` 回退 main；若是零代码增量的纯版本发布，回退无代码损失（这一点要写进手册，决定 B 的风险等级） |
+| C | tag 已推、CI 已触发 | 先删远端 tag（`git push <远端> :refs/tags/v<X>`，进行中的 run 随 ref 消失自然失效）；Release 已创建则 `gh release delete v<X>`；再按 B 回退 main |
+| D | 产物已分发、被用户拉取（最严重） | **不删已分发产物**（删了已拉取的用户也救不回，还毁掉溯源），立刻热修发下一版（+0.0.1）并登记事故：时间线 / 影响版本 / 根因 / 修复版本 |
+
+回滚后核验命令成文：`git ls-remote <远端> refs/heads/main` 期望前版 sha；
+`git ls-remote <远端> refs/tags/v<X>` 期望**空输出**。
+
+### 补正 3：既定推送通道之二 —— 仓内 `release` 镜像远端 + credential.helper=store
+
+上文「步骤 7/7 的 push 在本环境必然失败」节只记了 GH_TOKEN 内联 helper 一种修法。
+v1.1.40–v1.1.44 **连续五轮**实际走的是另一条已验证通道：本仓 git config 里既定的 `release` 镜像远端
+（公共 gh-proxy 中转同一个 GitHub 仓）+ `credential.helper=store`。origin 直连鉴权失败（rc=128，
+`Invalid username or token`，v1.1.44 实例 09:11:39Z 原件在档）时走它，main 与 tag 同批推、rc=0。
+🔴 **凭据零明文红线与 PUBLIC 仓脱敏核同级适用**：凭据文件的**路径**可提，**值**一律不进命令行 /
+日志 / 交付物；leak-check 的扫描面要含**会话存档目录**，不止交付物与 evidence —— 已有反例：
+早期会话存档在打印凭据文件内容时把 token 明文留在了本地 jsonl 里（非交付面，但同样是泄露面，
+token 须吊销轮换）。
+
+### 补正 4：「推完必须自核远端」扩为发布后验收闭环（五项，逐项留档）
+
+坑 4 末节的三个 sha 一致（HEAD / 远端 main / 远端 tag）只是闭环的**第一格**，证明不了 CI、Release、
+分发侧终态。完整闭环五项（v1.1.44 实例全绿跑通，可直接当 checklist）：
+
+1. **五位一体**：本地 HEAD = 本地 tag = 远端 main（`git ls-remote`）= 远端 tag
+   （ls-remote + `gh api repos/<owner>/<repo>/git/ref/tags/v<X>` 双通道）= Release `targetCommitish`，全指同一 commit；
+2. **CI 终态**：`gh run view <run-id> --json status,conclusion,jobs` → `completed/success`，
+   六腿（Quality Gate / build linux / build windows / build macos / build-android / generate-manifest）逐一 success；
+3. **Release 回执**：`gh release view v<X>` → isDraft=false、publishedAt 在档，`gh release list` 标 **Latest**；
+   资产数以 `gh release view --json assets` **实测**为准，不凭印象写（v1.1.44 交付曾把 12 误写 13）；
+4. **R2 清单**：`curl .../update/huanvae-chat/latest.json` 与 `android-latest.json` 的 version 均 = 目标版本；
+5. 🔴 **远端产物下载复算（最重的一层，不可替代）**：R2 **真实下载**签名产物 → `sha256sum` →
+   **与清单里的 sha256 字段逐字符对账**（v1.1.44 实例：签名 APK 复算值与 android-latest.json 逐字符一致）。
+   「页面能打开 / curl 通了」**不算**验收。
+
+### 补正 5：本地未签名产物 vs CI 签名产物 —— 两套 sha256 口径，分别落档，不混写
+
+本机构建不带签名（deb 需 `--no-sign`、APK 为 unsigned；发布签名在 CI，本机无
+TAURI_SIGNING_PRIVATE_KEY / keystore）。⇒ 本地产物与 CI/R2 签名产物的 sha256 **必然不同**
+（签名改变字节），属预期、不是对不上。交付口径：**两套分别落档**；与 R2 清单对账只用 CI/R2 那套，
+不得拿本地未签名 sha256 去对清单，也不得混写成一套。
