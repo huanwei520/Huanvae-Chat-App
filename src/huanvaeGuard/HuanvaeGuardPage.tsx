@@ -710,7 +710,13 @@ export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps 
         dns: config.dns ?? undefined,
         mtu: config.mtu,
         control: {
-          master_url: windowData.serverUrl,
+          // master_url 与安卓轨（:628 androidMasterUrl）同一「连 IP 不连域名」语义：
+          // api.huanvae.cn 现被 ICP 合规阻断——带 SNI 的 TLS 握手在边缘被 RST（2026-09-13
+          // 实测：SNI=api.huanvae.cn 双 IP 均 reset，同机无 SNI 握手正常），daemon 以域名
+          // 连接时控制面恒「upgrade request failed」→「配置热更新已断开」。IP 字面量
+          // 不发 SNI 绕过边缘阻断，leaf 由核心内置 CA 验（tls.rs hostname 校验本就关闭）。
+          // directIpUrl 无 active 端点时原样返回域名（安全兜底）。
+          master_url: directIpUrl(windowData.serverUrl),
           device_id: selectedDeviceId,
           access_token: windowData.accessToken,
           // 空串要变成"这个键不存在"，而不是把空串当令牌递过去：
