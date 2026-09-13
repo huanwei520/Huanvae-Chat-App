@@ -89,7 +89,7 @@ import type {
 } from '../types/websocket';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp, rediscoverOnFailure, getActiveEndpoint } from '../services/discovery';
-import { isDevControl } from '../remote-control/devGate';
+import { isRemoteControlEnabled } from '../remote-control/devGate';
 import { registerControlSessionWsSender } from '../remote-control/wsSender';
 
 // ============================================
@@ -577,9 +577,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
         startPing(ws);
 
-        // 会议内远程控制（设计 §8.3 块 C，dev 门控）：向控制域注册主 WS 发送器，
-        // 供 M1/M2/M3 上行。生产构建 isDevControl() 恒 false → 永不注册，零行为改变。
-        if (isDevControl()) {
+        // 会议内远程控制（设计 §8.3 块 C；正式功能入口——缺口修复前仅 dev 门控，
+        // 常规构建无上行通道）：向控制域注册主 WS 发送器，供 M1/M2/M3 上行。
+        if (isRemoteControlEnabled()) {
           registerControlSessionWsSender((payload) => {
             if (wsRef.current?.readyState === RustWebSocket.OPEN) {
               wsRef.current.send(JSON.stringify(payload));
@@ -634,8 +634,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       wsRef.current = null;
     }
 
-    // 会议内远程控制（dev 门控）：注销控制域主 WS 发送器
-    if (isDevControl()) {
+    // 会议内远程控制（正式功能入口）：注销控制域主 WS 发送器
+    if (isRemoteControlEnabled()) {
       registerControlSessionWsSender(null);
     }
 

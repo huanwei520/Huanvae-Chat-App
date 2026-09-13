@@ -352,9 +352,12 @@
 .mobile-meeting-controls {
   display: flex;
   justify-content: center;
-  gap: 24px;
-  padding: 16px;
-  padding-bottom: calc(16px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
+  /* 小屏防裁切：间距与内边距随视宽收缩（≥960px 恢复 24px/16px 原观感），
+     极端窄屏 wrap 兜底保证每个控件完整可点（360px 屏 5 控件实测不溢出） */
+  flex-wrap: wrap;
+  gap: clamp(8px, 2.5vw, 24px);
+  padding: 12px clamp(8px, 3vw, 16px);
+  padding-bottom: calc(12px + max(env(safe-area-inset-bottom, 0px), var(--sai-bottom, 0px)));
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -373,7 +376,9 @@
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
-  min-width: 70px;
+  /* 小屏防裁切：≥437px 屏维持 70px；窄屏按 16vw 收缩，配合 wrap 不裁切 */
+  min-width: min(70px, 16vw);
+  padding: 12px clamp(10px, 2.5vw, 16px);
 }
 
 .mobile-control-btn:active {

@@ -52,7 +52,7 @@ import {
 import { MediaPermissionGuide } from './components/MediaPermissionGuide';
 import { MeetingAudioEntry } from './components/MeetingAudioEntry';
 import { MeetingBridge } from '../remote-control/meetingBridge';
-import { isDevControl } from '../remote-control/devGate';
+import { isDevControl, isRemoteControlEnabled } from '../remote-control/devGate';
 import { RC_REQUEST_CONTROL } from '../remote-control/bus';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
@@ -223,6 +223,10 @@ function ParticipantVideo({
   return (
     <motion.div
       className={`participant-video ${isLocal ? 'local' : ''} ${speaking ? 'speaking' : ''} ${isScreenSharing ? 'screen-sharing' : ''}`}
+      /* 缺口③正式入口（2026-09-13）：网格层右键菜单经 data-* 委托解析目标 tile ——
+         user_id = M1.target_user_id 真值源；本地 tile 不带该属性（自己不可被自己控制） */
+      data-rc-user-id={participant?.user_info?.user_id ?? undefined}
+      data-rc-name={participant?.name}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
@@ -597,12 +601,25 @@ export default function MeetingPage() {
     }
   }, [webrtc.mediaError]);
 
-  // 会议内远程控制 dev 面：tile 右键菜单（观看端「申请控制」入口，设计 §8.2⑤）。
+  // 会议内远程控制：tile 右键菜单（观看端「申请控制」入口，设计 §8.2⑤）。
   // 菜单状态在 MeetingPage（右键宿主），菜单项发 RC_REQUEST_CONTROL 事件给主窗。
-  const [gridMenu, setGridMenu] = useState<{ x: number; y: number } | null>(null);
+  // 缺口③正式入口（2026-09-13）：菜单同时记录命中 tile 的参会者 user_id/显示名
+  // （经 data-rc-user-id / data-rc-name 委托解析），供 M1.target_user_id 真值源。
+  const [gridMenu, setGridMenu] = useState<{
+    x: number;
+    y: number;
+    userId: string | null;
+    name: string | null;
+  } | null>(null);
   const handleGridContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setGridMenu({ x: e.clientX, y: e.clientY });
+    const tile = (e.target as HTMLElement).closest<HTMLElement>('[data-rc-user-id]');
+    setGridMenu({
+      x: e.clientX,
+      y: e.clientY,
+      userId: tile?.dataset.rcUserId ?? null,
+      name: tile?.dataset.rcName ?? null,
+    });
   }, []);
   useEffect(() => {
     if (!gridMenu) {
@@ -612,10 +629,13 @@ export default function MeetingPage() {
     return () => window.clearTimeout(t);
   }, [gridMenu]);
 
-  const devRequestControl = useCallback(() => {
+  const tileRequestControl = useCallback(() => {
     setGridMenu(null);
-    void emit(RC_REQUEST_CONTROL, { participant_name: '共享屏幕' }).catch(() => undefined);
-  }, []);
+    void emit(RC_REQUEST_CONTROL, {
+      participant_name: gridMenu?.name ?? '共享屏幕',
+      target_user_id: gridMenu?.userId ?? null,
+    }).catch(() => undefined);
+  }, [gridMenu]);
 
   // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
   useEffect(() => {
@@ -785,7 +805,7 @@ export default function MeetingPage() {
       <main className="meeting-main">
         <div
           className={`video-grid ${showParticipants ? 'with-sidebar' : ''}`}
-          onContextMenu={isDevControl() ? handleGridContextMenu : undefined}
+          onContextMenu={isRemoteControlEnabled() ? handleGridContextMenu : undefined}
         >
           {/* 网格模式：所有 tile 作为 grid 直接子元素 */}
           <LocalVideo
@@ -808,15 +828,15 @@ export default function MeetingPage() {
           </AnimatePresence>
         </div>
 
-        {/* 会议内远程控制域（dev 门控面，设计 §8.2/§8.3 块二：授权弹层挂载点＋
-            dev 面板＋「正在被控制」横幅；生产构建零渲染） */}
-        {isDevControl() && (
+        {/* 会议内远程控制域（正式功能入口 + dev 面板：授权弹层挂载点＋
+            「正在被控制」横幅正式构建可用；dev 面板仅 VITE_DEV_CONTROL=1 构建渲染） */}
+        {isRemoteControlEnabled() && (
           <MeetingBridge screenSharing={webrtc.mediaState.screenSharing} />
         )}
-        {isDevControl() && gridMenu && (
+        {isRemoteControlEnabled() && gridMenu && (
           <div className="rc-tilemenu" style={{ left: gridMenu.x, top: gridMenu.y }}>
-            <button onClick={devRequestControl}>申请控制（dev）</button>
-            <span className="rc-tilemenu__note">对共享中的参会者 tile 右键可用 · dev</span>
+            <button onClick={tileRequestControl}>申请控制</button>
+            <span className="rc-tilemenu__note">对共享中的参会者 tile 右键可用</span>
           </div>
         )}
 

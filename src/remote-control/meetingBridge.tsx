@@ -23,6 +23,7 @@ import {
   type ControlSessionChangedPayload,
   type RcAuthRequestPayload,
 } from './bus';
+import { isDevControl } from './devGate';
 import ControlAuthPopup from './ControlAuthPopup';
 import type { ControlSessionRequestedData } from './types';
 
@@ -164,27 +165,31 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
         <div className="rc-banner">正在被 {controlledByName} 控制</div>
       )}
 
-      <div className="rc-devpanel" data-testid="rc-devpanel">
-        <span className="rc-devpanel__title">远程控制 dev 面板（VITE_DEV_CONTROL=1）</span>
-        <div className="rc-devpanel__row">
-          <button onClick={simulateIncomingRequest}>模拟收到控制申请</button>
-          <button onClick={realRequestControl}>申请控制（真 WS）</button>
-          <button onClick={simulateShareStart} disabled={sharingOn}>
-            模拟共享开始
-          </button>
-          <button onClick={simulateShareStop} disabled={!sharingOn}>
-            模拟共享停止
-          </button>
-          <button onClick={simulateControlEnd}>模拟控制结束</button>
-          <button onClick={killswitch}>本地急停</button>
+      {/* dev 面板仅 VITE_DEV_CONTROL=1 构建渲染；正式构建只保留授权弹层＋横幅
+          （正式功能入口），模拟按钮群不进入正式包（缺口③修复，2026-09-13） */}
+      {isDevControl() && (
+        <div className="rc-devpanel" data-testid="rc-devpanel">
+          <span className="rc-devpanel__title">远程控制 dev 面板（VITE_DEV_CONTROL=1）</span>
+          <div className="rc-devpanel__row">
+            <button onClick={simulateIncomingRequest}>模拟收到控制申请</button>
+            <button onClick={realRequestControl}>申请控制（真 WS）</button>
+            <button onClick={simulateShareStart} disabled={sharingOn}>
+              模拟共享开始
+            </button>
+            <button onClick={simulateShareStop} disabled={!sharingOn}>
+              模拟共享停止
+            </button>
+            <button onClick={simulateControlEnd}>模拟控制结束</button>
+            <button onClick={killswitch}>本地急停</button>
+          </div>
+          <span className="rc-devpanel__note">
+            共享态：{sharingOn ? '共享中' : '未共享'} · {daemonNote ?? '（等待操作）'}
+          </span>
+          <span className="rc-devpanel__note" data-testid="rc-dev-target">
+            申请目标（真 WS M1 target_user_id）：{devTargetUser()}
+          </span>
         </div>
-        <span className="rc-devpanel__note">
-          共享态：{sharingOn ? '共享中' : '未共享'} · {daemonNote ?? '（等待操作）'}
-        </span>
-        <span className="rc-devpanel__note" data-testid="rc-dev-target">
-          申请目标（真 WS M1 target_user_id）：{devTargetUser()}
-        </span>
-      </div>
+      )}
     </>
   );
 }

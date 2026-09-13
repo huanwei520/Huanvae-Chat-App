@@ -28,7 +28,7 @@ import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
 import { initSafeAreaFallback } from './utils/safeAreaFallback';
 import { ControlWindow } from './remote-control/ControlWindow';
-import { isDevControl } from './remote-control/devGate';
+import { isRemoteControlEnabled } from './remote-control/devGate';
 import './index.css';
 
 // 根据路径判断渲染哪个页面
@@ -78,7 +78,7 @@ function RootApp() {
   if (pathname === '/remote-control') {
     return (
       <ThemeProvider>
-        {isDevControl() ? <ControlWindow /> : null}
+        {isRemoteControlEnabled() ? <ControlWindow /> : null}
       </ThemeProvider>
     );
   }

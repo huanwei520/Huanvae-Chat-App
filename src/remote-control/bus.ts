@@ -43,8 +43,13 @@ export interface RcAuthDecisionPayload {
 }
 
 export interface RcRequestControlPayload {
-  /** 发起 tile 的参会者展示名（dev 面演示用；真实目标 user_id 由主窗 dev 配置承载） */
+  /** 发起 tile 的参会者展示名（申请记录/本地态展示用） */
   participant_name: string;
+  /** 右键 tile 对应参会者的聊天 user_id（正式链路 M1.target_user_id 真值源，
+   *  缺口③修复 2026-09-13：由 MeetingPage tile 的 data-rc-user-id 解析）。
+   *  访客 tile / 未命中 tile 为 null —— 主窗仅 dev 构建回退 devTargetUser()，
+   *  正式构建无目标不盲发（防止把控制申请发给硬编码占位用户）。 */
+  target_user_id?: string | null;
 }
 
 export interface ControlSessionChangedPayload {

@@ -16,3 +16,17 @@
 export function isDevControl(): boolean {
   return import.meta.env.VITE_DEV_CONTROL === '1';
 }
+
+/**
+ * 会议内远程控制正式功能开关（真实用户入口：会议 tile 右键菜单申请/授权 +
+ * /remote-control 独立控制窗 + 主 WS 控制信令上行/分发）。
+ *
+ * 缺口修复（2026-09-13 发布块 cwsecdh0）：此前整个控制域仅 isDevControl() 门控，
+ * 常规构建无任何入口，正式版本承诺的远控功能不可达。现将「正式功能入口」与
+ * 「dev 自动化面」（自动开会议窗/autologin/seed 演示数据/模拟按钮）拆分：
+ * 正式入口改由本开关门控，常规构建恒可用；构建期注入 VITE_DISABLE_REMOTE_CONTROL=1
+ * 可显式关闭（供需要阉割该功能的定制构建），常规构建不定义该变量 → 恒 true。
+ */
+export function isRemoteControlEnabled(): boolean {
+  return import.meta.env.VITE_DISABLE_REMOTE_CONTROL !== '1';
+}

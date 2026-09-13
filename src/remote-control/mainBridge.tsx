@@ -23,6 +23,7 @@ import {
 import { sendControlSessionWs } from './wsSender';
 import { useControlSessionStore } from './sessionStore';
 import { devTargetUser } from './meetingBridge';
+import { isDevControl } from './devGate';
 
 export function MainBridge() {
   const onAuthDecision = useCallback((payload: RcAuthDecisionPayload) => {
@@ -41,7 +42,15 @@ export function MainBridge() {
   }, []);
 
   const onRequestControl = useCallback((payload: RcRequestControlPayload) => {
-    const target = devTargetUser();
+    // M1.target_user_id 真值源 = 右键 tile 参会者的聊天 user_id（MeetingPage
+    // data-rc-user-id 委托解析，缺口③修复 2026-09-13）；dev 构建才回退
+    // devTargetUser() 演示链 —— 正式构建无目标（访客 tile/非 tile 右键）不盲发，
+    // 防止把控制申请发给硬编码占位用户。
+    const target = payload.target_user_id ?? (isDevControl() ? devTargetUser() : null);
+    if (!target) {
+      console.warn('[RemoteControl] M1 未发送：右键目标无 user_id（访客不可被指定为控制目标）');
+      return;
+    }
     const requestId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
