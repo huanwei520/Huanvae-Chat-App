@@ -399,16 +399,20 @@ BUILD_OUTPUT=$(pnpm build 2>&1) || BUILD_EXIT=$?
 if [[ $BUILD_EXIT -eq 0 ]]; then
     # 检查 Vite 优化警告（忽略无害的 "dynamic import will not move module" 警告）
     # 这类警告是第三方库同时被静态和动态导入导致的，不影响功能
-    if echo "$BUILD_OUTPUT" | grep -q "\[plugin vite:reporter\]" | grep -v "dynamic import will not move module"; then
-        # 检查是否有非 "dynamic import" 类型的 Vite 警告
-        NON_DYNAMIC_WARNINGS=$(echo "$BUILD_OUTPUT" | grep "\[plugin vite:reporter\]" -A5 | grep -v "dynamic import will not move module" | grep -v "^\-\-$" || true)
-        if [[ -n "$NON_DYNAMIC_WARNINGS" && "$NON_DYNAMIC_WARNINGS" != *"is dynamically imported"* ]]; then
-            echo -e "  ${RED}✗ FAIL: 构建存在 Vite 警告${NC}"
-            echo "$NON_DYNAMIC_WARNINGS" | head -10
-            ALL_PASSED=false
-        else
-            echo -e "  ${GREEN}✓ PASS: 前端构建 (仅有无害的动态导入优化提示)${NC}"
-        fi
+    # 修复(grep -q 管道漏报)：原写法 `grep -q X | grep -v Y` 中 -q 吞掉 stdout，
+    # 后级 grep -v 恒无输入恒退出 1，任何真实 Vite 警告都进不了 FAIL 分支。
+    # 现改为两级过滤后统一判非空（判据不变：存在非 dynamic-import 的 vite:reporter 警告 ⇒ FAIL）。
+    # 警告内容行锚点为 "(!) "（vite:reporter 块结构：标记行 → 空行 → (!) 内容行），
+    # 判据语义不变：存在非「dynamic import will not move module」类的 Vite 警告内容行 ⇒ FAIL。
+    VITE_WARN_CONTENT=$(echo "$BUILD_OUTPUT" | grep -A2 "\[plugin vite:reporter\]" | grep "^(!)" || true)
+    if echo "$VITE_WARN_CONTENT" | grep -v "dynamic import will not move module" | grep -q .; then
+        # 存在非 "dynamic import" 类型的 Vite 警告
+        NON_DYNAMIC_WARNINGS=$(echo "$VITE_WARN_CONTENT" | grep -v "dynamic import will not move module" || true)
+        echo -e "  ${RED}✗ FAIL: 构建存在 Vite 警告${NC}"
+        echo "$NON_DYNAMIC_WARNINGS" | head -10
+        ALL_PASSED=false
+    elif [[ -n "$VITE_WARN_CONTENT" ]]; then
+        echo -e "  ${GREEN}✓ PASS: 前端构建 (仅有无害的动态导入优化提示)${NC}"
     # 检查其他构建警告（非调试信息）
     elif echo "$BUILD_OUTPUT" | grep -iE "^(warning|warn):" | grep -v "node_modules"; then
         echo -e "  ${RED}✗ FAIL: 构建存在警告${NC}"
