@@ -539,9 +539,12 @@ function App() {
       <>
         {/* 全局更新提示弹窗 - 灵动岛风格（所有平台唯一实例） */}
         <UpdateToast {...updateToastProps} />
-        {/* 会议内远程控制主窗桥（dev 门控面，设计 §8.3：meeting 窗事件 → 主 WS M1/M2 上行；
-            组件恒渲染 null，生产构建内部分支死代码） */}
-        {!isMobile() && <RemoteControlMainBridge />}
+        {/* 会议内远程控制主窗桥（设计 §8.3：meeting 页事件 → 主 WS M1/M2 上行；
+            组件恒渲染 null）。缺口修复（2026-09-13 远控弹窗缺失诊断）：移动端此前被
+            !isMobile() 排除——安卓/iOS 上弹层「接受」后 RC_AUTH_DECISION 无人监听，
+            M2 永不上行，授权链断在主窗桥。MainBridge 平台无关（纯事件→WS 转发），
+            与桌面同实例语义，正式门控已在 WebSocketContext 发送器注册处（§583） */}
+        <RemoteControlMainBridge />
         {isMobile() ? <MobileMain /> : <Main />}
       </>
     );

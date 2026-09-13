@@ -46,6 +46,8 @@ import { MeetingShareSheet, buildMeetingInviteText } from '../../meeting/compone
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { MeetingBridge } from '../../remote-control/meetingBridge';
+import { isRemoteControlEnabled } from '../../remote-control/devGate';
 
 // 最小化图标（内联定义）
 const MinimizeIcon = () => (
@@ -440,6 +442,12 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
+      {/* 会议内远程控制域（缺口③修复同源：移动端授权弹层挂载点，2026-09-13 弹窗缺失
+          诊断实锤——MobileMeetingPage 此前不挂 MeetingBridge，安卓上 N1 送达且事件
+          已发（CDP 实证 sysNotif/authReqSeen 均增）但无人渲染弹层。桌面同款门控） */}
+      {isRemoteControlEnabled() && (
+        <MeetingBridge screenSharing={webrtc.mediaState.screenSharing} />
+      )}
       {/* 顶部栏 */}
       <header className="mobile-meeting-header">
         <div className="mobile-meeting-info">
