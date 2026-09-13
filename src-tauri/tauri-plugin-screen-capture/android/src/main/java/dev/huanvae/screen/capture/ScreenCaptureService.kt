@@ -60,6 +60,13 @@ class ScreenCaptureService : Service() {
     private var frameCount = 0L
     private var channelNullLogged = false
 
+    // —— 1d0t34vy 打桩扩展（采集/IPC 段计数；卡帧逐段定位用，只读观测不改行为）——
+    private var jpegBytesTotal = 0L
+    private var throttleSkipCount = 0L
+    private var emitFailCount = 0L
+    private var sendFailCount = 0L
+    private var sendOkCount = 0L
+
     /** 当前会话的投影停止回调（unregister 需持引用；teardown 时先注销防级联停服） */
     private var projectionCallback: MediaProjection.Callback? = null
 
@@ -96,6 +103,11 @@ class ScreenCaptureService : Service() {
                 frameCount = 0L
                 lastFrameAt = 0L
                 channelNullLogged = false
+                jpegBytesTotal = 0L
+                throttleSkipCount = 0L
+                emitFailCount = 0L
+                sendOkCount = 0L
+                sendFailCount = 0L
                 // 参数（width/height/fps/quality 由前端透传，带安全缺省与钳制）
                 val reqW = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(160, 1920)
                 val reqH = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(120, 1920)
@@ -203,32 +215,41 @@ class ScreenCaptureService : Service() {
         Log.i(TAG, "virtualDisplay=${virtualDisplay != null} ${outWidth}x${outHeight} fps=${1000L / frameIntervalMs} q=$jpegQuality")
     }
 
-    /** 帧回调：按 fps 节流；acquireLatestImage 丢弃积压帧（延迟优先）。 */
+    /** 帧回调：按 fps 节流；acquireLatestImage 丢弃积压帧（延迟优先）。
+     *
+     * 🔧 1d0t34vy 卡首帧修复（2026-09-13 模拟器双端实测定位）：节流命中时
+     * **必须同样 acquire+close 排空队列**。此前节流分支直接 return 不取图，
+     * SurfaceFlinger 以 60fps 往 maxImages=4 的 ImageReader 队列产帧，约
+     * 3-4 帧后队列塞满，生产端 dequeuBuffer 永久阻塞 —— onImageAvailable
+     * 从此不再触发，采集端只见第 1 帧（对端永远看首帧静图；TUN 晚入会者
+     * 等不到关键帧则全黑）。修复后每回调必 drain，产出仍按 fps 节流发射。
+     */
     private fun onImageAvailable(reader: ImageReader) {
         if (stopped) return
-        val now = System.currentTimeMillis()
-        if (now - lastFrameAt < frameIntervalMs) return
-        var image: Image? = null
         try {
-            image = reader.acquireLatestImage() ?: return
-            lastFrameAt = now
-            val bitmap = imageToBitmap(image)
-            image.close()
-            image = null
-            if (bitmap != null) {
-                frameCount++
-                if (frameCount == 1L || frameCount % 30L == 0L) {
-                    Log.i(TAG, "frame #$frameCount ${bitmap.width}x${bitmap.height} emitted")
+            reader.acquireLatestImage()?.use { image ->
+                val now = System.currentTimeMillis()
+                if (now - lastFrameAt < frameIntervalMs) {
+                    throttleSkipCount++
+                    return
                 }
-                emitFrame(bitmap)
-                bitmap.recycle()
+                lastFrameAt = now
+                imageToBitmap(image)?.let { bitmap ->
+                    frameCount++
+                    if (frameCount == 1L || frameCount % 30L == 0L) {
+                        Log.i(
+                            TAG,
+                            "frame #$frameCount ${bitmap.width}x${bitmap.height} emitted"
+                                + " jpegKB=${jpegBytesTotal / 1024} skip=$throttleSkipCount"
+                                + " sendOk=$sendOkCount sendFail=$sendFailCount emitFail=$emitFailCount",
+                        )
+                    }
+                    emitFrame(bitmap)
+                    bitmap.recycle()
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "frame error: ${e.javaClass.simpleName}")
-            try {
-                image?.close()
-            } catch (_: Exception) {
-            }
         }
     }
 
@@ -271,6 +292,7 @@ class ScreenCaptureService : Service() {
             val out = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
             val data = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            jpegBytesTotal += out.size()
             val msg = JSObject()
             msg.put("type", "frame")
             msg.put("width", bitmap.width)
@@ -281,11 +303,14 @@ class ScreenCaptureService : Service() {
             mainHandler.post {
                 try {
                     channel.send(msg)
+                    sendOkCount++
                 } catch (e: Exception) {
+                    sendFailCount++
                     Log.e(TAG, "channel send failed: ${e.javaClass.simpleName}")
                 }
             }
         } catch (e: Exception) {
+            emitFailCount++
             Log.e(TAG, "emit frame failed: ${e.javaClass.simpleName}")
         }
     }

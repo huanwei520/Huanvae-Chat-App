@@ -57,12 +57,18 @@ import { isMobile } from '../utils/platform';
 import {
   isAndroidScreenShareSupported,
   startAndroidScreenShare,
+  stopAndroidScreenShare,
 } from './androidScreenShare';
+import { getScreenSharePipeProbe } from './screenShareProbe';
+import { startScreenQualityController } from './screenShareQuality';
 import {
   buildAudioConstraints,
   getSelectedAudioInputId,
   setSelectedAudioInputId,
 } from './audioDevices';
+
+// 1d0t34vy 诊断仪表：全局探针注册（被动注册零开销；仅显式 __hgSSPipe.start() 才采样）
+getScreenSharePipeProbe();
 
 // ============================================
 // 类型定义
@@ -289,6 +295,15 @@ export function useWebRTC(): UseWebRTCReturn {
   // ========== Refs ==========
   const wsRef = useRef<RustWebSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+
+  // 1d0t34vy 诊断仪表：PC 集合透出给 screenShareProbe（只读引用；Map 实例生命周期内不变）
+  useEffect(() => {
+    (window as unknown as { __hgPCs?: Map<string, RTCPeerConnection> }).__hgPCs =
+      peerConnectionsRef.current;
+    return () => {
+      (window as unknown as { __hgPCs?: Map<string, RTCPeerConnection> }).__hgPCs = undefined;
+    };
+  }, []);
   const iceServersRef = useRef<IceServer[]>([]);
   const myIdRef = useRef<string | null>(null);
 
@@ -326,6 +341,8 @@ export function useWebRTC(): UseWebRTCReturn {
   const pendingCandidatesRef = useRef<PendingCandidates>(new PendingCandidates());
   // 每对 peer 已发过 media_type 的 mid（去重，mid 生命周期内稳定）
   const sentMediaTypeMidsRef = useRef<Map<string, Set<string>>>(new Map());
+  // 屏幕共享发送质量控制器（#4：按 peer 停函数；共享停止/断连时清理）
+  const screenQualityStopsRef = useRef<Map<string, () => void>>(new Map());
   // ICE 持续 disconnected 的 restartIce 定时器
   const iceRestartTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -719,6 +736,15 @@ export function useWebRTC(): UseWebRTCReturn {
         refs.screen.direction = 'sendrecv';
       }
     }
+
+    // #4 屏享发送质量：显式码率档位 + 自适应（high 起点，降快升慢迟滞）。
+    // 仅作用于本 peer 的 screen sender，摄像头/麦克风不受影响；
+    // 同 peer 重复接线先停旧控制器防泄漏。
+    screenQualityStopsRef.current.get(peerId)?.();
+    screenQualityStopsRef.current.set(
+      peerId,
+      startScreenQualityController(refs.screen.sender),
+    );
   }, [getTransceiverRefs]);
 
   /**
@@ -726,6 +752,8 @@ export function useWebRTC(): UseWebRTCReturn {
    * 保留 transceiver 引用（复用同一 mid），避免接收端无法识别流。
    */
   const stopScreenTransceiver = useCallback(async (peerId: string) => {
+    screenQualityStopsRef.current.get(peerId)?.();
+    screenQualityStopsRef.current.delete(peerId);
     const refs = getTransceiverRefs(peerId);
     if (refs.screen) {
       await refs.screen.sender.replaceTrack(null);
@@ -925,6 +953,8 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 关闭 PeerConnection 并清理该 peer 的全部状态 */
   const closePeerConnection = useCallback((peerId: string) => {
+    screenQualityStopsRef.current.get(peerId)?.();
+    screenQualityStopsRef.current.delete(peerId);
     const pc = peerConnectionsRef.current.get(peerId);
     if (pc) {
       pc.close();
@@ -1384,6 +1414,16 @@ export function useWebRTC(): UseWebRTCReturn {
     );
     await Promise.all(stopPromises);
 
+    // 🔧 1d0t34vy 修复：安卓侧必须显式停原生采集。
+    // 此前只 track.stop()——规范上自调 stop() 不派发 'ended' 事件，
+    // androidScreenShare 的 capture_stop 永不被调，MediaProjection
+    // 前台服务与 ImageReader 采帧在「停止共享」后继续运行
+    // （2026-09-13 双端实测：停止后仍产出 14100+ 帧，隐私红线）。
+    // stopAndroidScreenShare() 幂等，桌面端为 no-op。
+    if (isAndroidScreenShareSupported()) {
+      await stopAndroidScreenShare().catch(() => undefined);
+    }
+
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((t) => t.stop());
       screenStreamRef.current = null;
@@ -1422,16 +1462,27 @@ export function useWebRTC(): UseWebRTCReturn {
         // 取流分流：Android WebView 不支持 getDisplayMedia，屏幕画面由原生
         // MediaProjection 插件（tauri-plugin-screen-capture）采集后经 canvas
         // captureStream 注入（对齐桌面同一 WebRTC 链路）；桌面/其他平台走原
-        // 路径零改动。安卓侧帧经 IPC 下行，默认限 720p/10fps。
-        const stream = isAndroidScreenShareSupported()
-          ? (
-            await startAndroidScreenShare({
-              width: Math.min(width, 1280),
-              height: Math.min(height, 720),
-              fps: Math.min(frameRate, 10),
-            })
-          ).stream
-          : await navigator.mediaDevices.getDisplayMedia({
+        // 路径零改动。#4 修复：画布按真实屏幕纵横比取竖幅（720×H，≤1920 钳制），
+        // 消除旧 1280×720 横幅把竖屏内容信箱式压缩成细条的糊屏主因；
+        // 帧率 10→15、JPEG 质量 60→70 配合发送端码率档位提升。
+        const stream = await (async () => {
+          if (isAndroidScreenShareSupported()) {
+            const dpr = window.devicePixelRatio || 1;
+            const screenW = window.screen.width * dpr;
+            const screenH = window.screen.height * dpr;
+            const aspect = screenW > 0 ? screenH / screenW : 2;
+            const capW = 720;
+            const capH = Math.min(1920, Math.round(capW * aspect));
+            return (
+              await startAndroidScreenShare({
+                width: capW,
+                height: capH,
+                fps: Math.min(frameRate, 15),
+                quality: 70,
+              })
+            ).stream;
+          }
+          return navigator.mediaDevices.getDisplayMedia({
             video: {
               frameRate: { ideal: frameRate, max: frameRate },
               width: { ideal: width },
@@ -1439,6 +1490,7 @@ export function useWebRTC(): UseWebRTCReturn {
             },
             audio: false,
           });
+        })();
         screenStreamRef.current = stream;
         const track = stream.getVideoTracks()[0];
 
@@ -1481,6 +1533,8 @@ export function useWebRTC(): UseWebRTCReturn {
 
   /** 关闭并清理所有 PeerConnection / DataChannel（保留 localStream/mediaState，用于重连） */
   const cleanupPeers = useCallback(() => {
+    screenQualityStopsRef.current.forEach((stop) => stop());
+    screenQualityStopsRef.current.clear();
     dataChannelsRef.current.forEach((channel) => channel.close());
     dataChannelsRef.current.clear();
 

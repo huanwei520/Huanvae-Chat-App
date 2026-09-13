@@ -38,13 +38,13 @@ const CMD = {
 
 /** 采集参数（插件侧带安全缺省与钳制） */
 export interface AndroidScreenShareOptions {
-  /** 虚拟显示宽（像素，缺省 1280） */
+  /** 虚拟显示宽（像素，缺省 720，#4 起与设备纵横比联动由调用方计算） */
   width?: number;
-  /** 虚拟显示高（像素，缺省 720） */
+  /** 虚拟显示高（像素，缺省 1600） */
   height?: number;
-  /** 帧率上限（缺省 10，插件钳制 1-30） */
+  /** 帧率上限（缺省 15，插件钳制 1-30） */
   fps?: number;
-  /** JPEG 质量 20-90（缺省 60） */
+  /** JPEG 质量 20-90（缺省 70） */
   quality?: number;
 }
 
@@ -84,6 +84,23 @@ interface ScreenShareDebugProbe {
   trackMuted: boolean | null;
   /** requestFrame 泵累计强采帧数（静屏持续推流计数） */
   pumped: number;
+  // —— 1d0t34vy 打桩扩展（IPC→JS 段计数；卡帧逐段定位用）——
+  /** 收到的 base64 字符长度累计（≈帧载荷字节，含 base64 膨胀） */
+  bytesRcvd: number;
+  /** Image 解码失败次数 */
+  decodeErr: number;
+  /** 最近一次帧解码+绘制耗时（ms，从帧挂起到 onload 绘毕） */
+  decodeMsLast: number;
+  /** 帧处理耗时峰值（ms） */
+  decodeMsMax: number;
+  /** 帧处理耗时均值（ms） */
+  decodeMsAvg: number;
+  /** 原生帧到达间隔峰值（ms；持续 > 2×帧周期 = 采集/IPC 段疑似停流） */
+  nativeGapMsMax: number;
+  /** 当前挂起帧年龄（ms；持续增长不回落 = 解码链卡死） */
+  readonly pendingAgeMs: number;
+  /** 最近一次绘帧时间戳（0 = 尚未绘出任何帧） */
+  drawnAt: number;
 }
 const debugProbe: ScreenShareDebugProbe = {
   framesRcvd: 0,
@@ -94,7 +111,23 @@ const debugProbe: ScreenShareDebugProbe = {
   canvas: null,
   trackMuted: null,
   pumped: 0,
+  bytesRcvd: 0,
+  decodeErr: 0,
+  decodeMsLast: 0,
+  decodeMsMax: 0,
+  decodeMsAvg: 0,
+  nativeGapMsMax: 0,
+  get pendingAgeMs() {
+    return pendingFrameAt > 0 ? Date.now() - pendingFrameAt : 0;
+  },
+  drawnAt: 0,
 };
+
+/** 当前挂起帧的入队时间戳（0 = 无挂起帧；pendingAgeMs getter 读它） */
+let pendingFrameAt = 0;
+/** 帧处理耗时累计（均值分母 = 已完成帧数） */
+let decodeMsTotal = 0;
+let decodeMsCount = 0;
 
 const pushProbe = () => {
   (window as unknown as { __hgSS?: ScreenShareDebugProbe }).__hgSS = debugProbe;
@@ -160,6 +193,8 @@ export async function startAndroidScreenShare(
   // ---- 帧泵：仅保留最新帧（背压丢弃），解码完即绘 + requestFrame ----
   let pendingFrame: string | null = null;
   let decoding = false;
+  /** 上一原生帧到达时刻（间隔峰值 = nativeGapMsMax） */
+  let prevFrameAt = 0;
 
   // ---- requestFrame 泵（静态屏幕关键防线 · WebView 变体）----
   // MediaProjection 只在屏幕内容变化时产新帧；会议页静止时原生零帧。
@@ -168,7 +203,7 @@ export async function startAndroidScreenShare(
   // （canvas 自拷贝 drawImage）再 requestFrame 才真实产帧。故每拍先自拷贝
   // dirty 化画布再强采：静屏也持续推最后一帧，轨道保持 unmuted，与桌面
   // getDisplayMedia 行为对齐。
-  const pumpFps = options.fps ?? 10;
+  const pumpFps = options.fps ?? 15;
   const framePump = setInterval(() => {
     if (channelClosed) { return; }
     try {
@@ -185,14 +220,23 @@ export async function startAndroidScreenShare(
   const drawPending = () => {
     if (pendingFrame === null) {
       decoding = false;
+      pendingFrameAt = 0;
       return;
     }
     const src = pendingFrame;
     pendingFrame = null;
+    const startedAt = Date.now();
     const img = new Image();
     img.onload = () => {
+      const decodeMs = Date.now() - startedAt;
+      debugProbe.decodeMsLast = decodeMs;
+      debugProbe.decodeMsMax = Math.max(debugProbe.decodeMsMax, decodeMs);
+      decodeMsTotal += decodeMs;
+      decodeMsCount += 1;
+      debugProbe.decodeMsAvg = Math.round(decodeMsTotal / Math.max(1, decodeMsCount));
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       debugProbe.drawn += 1;
+      debugProbe.drawnAt = Date.now();
       if (typeof track.requestFrame === 'function') {
         track.requestFrame();
       } else {
@@ -203,6 +247,7 @@ export async function startAndroidScreenShare(
     };
     img.onerror = () => {
       debugProbe.err = 'image decode failed';
+      debugProbe.decodeErr += 1;
       pushProbe();
       drawPending();
     };
@@ -218,12 +263,23 @@ export async function startAndroidScreenShare(
   debugProbe.consentOk = false;
   debugProbe.canvas = { w: canvas.width, h: canvas.height };
   debugProbe.pumped = 0;
+  debugProbe.bytesRcvd = 0;
+  debugProbe.decodeErr = 0;
+  debugProbe.decodeMsLast = 0;
+  debugProbe.decodeMsMax = 0;
+  debugProbe.decodeMsAvg = 0;
+  debugProbe.nativeGapMsMax = 0;
+  debugProbe.drawnAt = 0;
+  decodeMsTotal = 0;
+  decodeMsCount = 0;
   pushProbe();
 
   const cleanup = () => {
     if (channelClosed) { return; }
     channelClosed = true;
     pendingFrame = null;
+    pendingFrameAt = 0;
+    prevFrameAt = 0;
     clearInterval(framePump);
     // 触发 useWebRTC 既有 track.onended → stopScreenShareInternal（幂等）
     try {
@@ -250,16 +306,26 @@ export async function startAndroidScreenShare(
     switch (message.type) {
       case 'frame':
         if (message.data && !channelClosed) {
+          const now = Date.now();
           debugProbe.framesRcvd += 1;
-          debugProbe.lastFrameAt = Date.now();
+          debugProbe.bytesRcvd += message.data.length;
+          debugProbe.lastFrameAt = now;
+          if (debugProbe.framesRcvd >= 2) {
+            debugProbe.nativeGapMsMax = Math.max(
+              debugProbe.nativeGapMsMax,
+              now - prevFrameAt,
+            );
+          }
+          prevFrameAt = now;
           debugProbe.trackMuted = track.muted;
           pushProbe();
-          if (debugProbe.framesRcvd <= 3) {
+          if (debugProbe.framesRcvd <= 3 || debugProbe.framesRcvd % 100 === 0) {
             console.warn(
               `[androidScreenShare] frame#${debugProbe.framesRcvd} bytes=${message.data.length} muted=${track.muted}`,
             );
           }
           pendingFrame = message.data;
+          pendingFrameAt = now;
           if (!decoding) {
             decoding = true;
             drawPending();
@@ -297,8 +363,8 @@ export async function startAndroidScreenShare(
       channel,
       width: canvas.width,
       height: canvas.height,
-      fps: options.fps ?? 10,
-      quality: options.quality ?? 60,
+      fps: options.fps ?? 15,
+      quality: options.quality ?? 70,
     });
     if (ret?.authorized === false) {
       throw new Error('screen_capture_denied');
