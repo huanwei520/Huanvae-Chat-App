@@ -97,6 +97,9 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
       // T9/T10/T11/T13：双端终态——输入捕获停/窗口转「控制已结束」/横幅撤下
       store.release(data.reason);
       store.reset();
+      // 撤销/终止到达时同步拆本机 daemon 链（被控端 T10；控制端本机无 daemon 时静默失败）。
+      // 缺口③撤销臂接线（2026-09-14）：此前客户端只能收 N3，从不停 daemon。
+      void import('./api').then(({ controlDisarm }) => controlDisarm()).catch(() => undefined);
       void emit(RC_SESSION_STATE, {
         state: 'released',
         grant_id: data.grant_id,

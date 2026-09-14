@@ -53,6 +53,9 @@ import { MediaPermissionGuide } from './components/MediaPermissionGuide';
 import { MeetingAudioEntry } from './components/MeetingAudioEntry';
 import { MeetingBridge } from '../remote-control/meetingBridge';
 import { isDevControl, isRemoteControlEnabled } from '../remote-control/devGate';
+import { useControlSessionStore } from '../remote-control/sessionStore';
+import { sendControlSessionWs } from '../remote-control/wsSender';
+import { PlatformBadge } from './components/PlatformBadge';
 import { RC_REQUEST_CONTROL } from '../remote-control/bus';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
@@ -77,12 +80,15 @@ function ParticipantVideo({
   roomName,
   isSpeaking,
   onClick,
+  onClickControl,
 }: {
   participant?: RemoteParticipant;
   isLocal?: boolean;
   roomName?: string;
   isSpeaking?: boolean;
   onClick?: () => void;
+  /** #7：点击本 tile 上的「申请控制」胶囊（owner 选定 K2 修改版，hover 从底部伸出） */
+  onClickControl?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -268,6 +274,29 @@ function ParticipantVideo({
         {participant?.is_creator && <span className="creator-badge">主持人</span>}
         {isScreenSharing && <span className="screen-share-badge">屏幕共享</span>}
       </div>
+
+      {/* #9 平台徽章（owner 选定 P1 玻璃圆徽章）：左上角，仅对端渲染 ——
+          本端 tile 不显示自己的平台（见 PlatformBadge 文件头口径 1）。
+          字段缺席/ios/unknown 时组件自身返回 null。 */}
+      {!isLocal && <PlatformBadge platform={participant?.platform} />}
+
+      {/* #7 控制入口（owner 选定 K2 修改版）：底部「申请控制」胶囊，
+          默认隐藏，鼠标进入本参会人画面框时从底部向上伸出（CSS transition），
+          离开收回。右键菜单（.rc-tilemenu）保留为等价入口。 */}
+      {!isLocal && onClickControl && isRemoteControlEnabled() && (
+        <button
+          type="button"
+          className="tile-control-pill"
+          onClick={(e) => { e.stopPropagation(); onClickControl(); }}
+          title="申请控制"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 3l14 7-6.5 1.5L9 18z" fill="currentColor" strokeLinejoin="round" />
+            <path d="M13 12l5 5" />
+          </svg>
+          申请控制
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -637,6 +666,44 @@ export default function MeetingPage() {
     }).catch(() => undefined);
   }, [gridMenu]);
 
+  /**
+   * #7 tile 内联控制入口（owner 选定 K2 修改版）：直接对某一个参会人发起控制申请。
+   *
+   * 与右键菜单（{@link tileRequestControl}）**同一个落点**（RC_REQUEST_CONTROL → 主窗发 M1），
+   * 区别只是目标来源：菜单从 gridMenu 取，这里从 tile 的 participant 直接取。
+   * 两条路都保留 —— 菜单是「已学会的老路径」，胶囊是「可见的新路径」。
+   */
+  const requestControlFor = useCallback((target: { userId: string | null; name: string }) => {
+    void emit(RC_REQUEST_CONTROL, {
+      participant_name: target.name,
+      target_user_id: target.userId,
+    }).catch(() => undefined);
+  }, []);
+
+  // 撤销臂（2026-09-14）：观看端主动撤销——发 M3 control_session_release(revoked)。
+  // grant_id/request_id 真值源＝sessionStore（N2/decided advanceLinking 写入，服务器权威 id）。
+  // by 字段身份口径与 mainBridge M1 相同：服务端按 JWT 重写 user_id/device_id。
+  const controlState = useControlSessionStore((s) => s.state);
+  const revokeControlNow = useCallback(() => {
+    const st = useControlSessionStore.getState();
+    if (!st.grantId) {
+      return;
+    }
+    sendControlSessionWs({
+      type: 'control_session_release',
+      grant_id: st.grantId,
+      request_id: st.requestId ?? '',
+      reason: 'revoked',
+      by: {
+        user_id: meetingData?.userInfo?.user_id ?? '',
+        device_id: 'self-device',
+      },
+      released_at: Date.now(),
+    });
+    // 本地立即终态（N3 自回执到达后 dispatch released 再走一次，幂等）
+    st.release('revoked');
+  }, [meetingData]);
+
   // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
   useEffect(() => {
     if (!focusedId) {
@@ -823,6 +890,10 @@ export default function MeetingPage() {
                 roomName={meetingData.roomName}
                 isSpeaking={participant.isSpeaking}
                 onClick={() => handleTileClick(participant.id)}
+                onClickControl={() => requestControlFor({
+                  userId: participant.user_info?.user_id ?? null,
+                  name: participant.name,
+                })}
               />
             ))}
           </AnimatePresence>
@@ -832,6 +903,20 @@ export default function MeetingPage() {
             「正在被控制」横幅正式构建可用；dev 面板仅 VITE_DEV_CONTROL=1 构建渲染） */}
         {isRemoteControlEnabled() && (
           <MeetingBridge screenSharing={webrtc.mediaState.screenSharing} />
+        )}
+        {isRemoteControlEnabled() && (controlState === 'linking' || controlState === 'active') && (
+          <button
+            className="rc-stop-ctl"
+            style={{
+              position: 'fixed', right: 16, bottom: 16, zIndex: 60, padding: '10px 18px',
+              border: 'none', borderRadius: 999, cursor: 'pointer', color: '#fff',
+              fontSize: 14, fontWeight: 600,
+              background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 4px 14px rgba(0,0,0,.35)',
+            }}
+            onClick={revokeControlNow}
+          >
+            停止远程控制
+          </button>
         )}
         {isRemoteControlEnabled() && gridMenu && (
           <div className="rc-tilemenu" style={{ left: gridMenu.x, top: gridMenu.y }}>
@@ -1015,12 +1100,20 @@ export default function MeetingPage() {
                   (() => {
                     const focused = webrtc.participants.find((p) => p.id === focusedId);
                     if (!focused) { return null; }
+                    /* #7 K2 在聚焦（spotlight）形态的入口（缺口闭合 2026-09-14）：
+                       此前未传 onClickControl ⇒ 胶囊渲染条件不成立，聚焦态下控制入口不可达。
+                       桌面胶囊本就是 `:hover` 驱动（.participant-video:hover .tile-control-pill），
+                       所以这里只需补上回调，鼠标进入聚焦画面框即会从底部滑出胶囊。 */
                     return (
                       <ParticipantVideo
                         key={`spotlight-${focused.id}`}
                         participant={focused}
                         roomName={meetingData.roomName}
                         isSpeaking={focused.isSpeaking}
+                        onClickControl={() => requestControlFor({
+                          userId: focused.user_info?.user_id ?? null,
+                          name: focused.name,
+                        })}
                       />
                     );
                   })()
@@ -1048,6 +1141,12 @@ export default function MeetingPage() {
                       participant={p}
                       roomName={meetingData.roomName}
                       isSpeaking={p.isSpeaking}
+                      /* K2 修改版在聚焦态缩略图条同样提供控制入口：桌面胶囊是 hover 驱动且
+                         胶囊按钮自带 stopPropagation ⇒ 与「点击缩略图切换聚焦对象」零冲突。 */
+                      onClickControl={() => requestControlFor({
+                        userId: p.user_info?.user_id ?? null,
+                        name: p.name,
+                      })}
                       onClick={() => setFocusedId(p.id)}
                     />
                   ))}
