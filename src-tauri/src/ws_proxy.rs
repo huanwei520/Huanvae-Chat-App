@@ -324,6 +324,8 @@ pub async fn ws_connect(
 pub fn ws_send_text(conn_id: u64, data: String) {
     if let Some(tx) = conns().get(&conn_id) {
         let _ = tx.send(Message::Text(data.into()));
+    } else {
+        println!("[RC-DBG] ws_send_text conn_id={} NOT_FOUND (rust conn gone)", conn_id);
     }
 }
 

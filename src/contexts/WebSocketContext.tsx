@@ -585,7 +585,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           registerControlSessionWsSender((payload) => {
             if (wsRef.current?.readyState === RustWebSocket.OPEN) {
               wsRef.current.send(JSON.stringify(payload));
-              void rcDbgInvoke('rc_debug_marker', { marker: 'DBG6-ws-sent type=' + String((payload as { type?: string }).type) }).catch(() => undefined);
+              void rcDbgInvoke('rc_debug_marker', { marker: 'DBG6-ws-sent type=' + String((payload as { type?: string }).type) + ' state=' + String(wsRef.current?.readyState) }).catch(() => undefined);
             } else {
               void rcDbgInvoke('rc_debug_marker', { marker: 'DBG5-ws-not-open state=' + String(wsRef.current?.readyState) }).catch(() => undefined);
             }
