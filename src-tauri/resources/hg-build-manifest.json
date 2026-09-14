@@ -41,10 +41,14 @@
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "e74cf62733d23d2735def1813e8318af5e89c960343f60dcd589437bee2254f4",
+      "sha256": "fa1e0f688893af4c1e571e3bc4e9397bc81163cca65a39171024cb21ad26be50",
       "ship_role": "实际发货（Windows 服务）",
       "source_commit": "e34de18860f843caf7c99e4c56fcb5a658e69505",
-      "built_at_utc": "2026-09-14T09:34:00Z"
+      "built_at_utc": "2026-09-14T14:23:55Z",
+      "size": 5396480,
+      "build_host": "HG_WIN_BUILD_HOST（winserver-hg，Windows 真机构建）",
+      "rebuild_note": "整改令 05779122-③：Windows 腿在真实宿主重建（cargo build --release -p hg-windows --target x86_64-pc-windows-gnu），替换沙箱交叉编译件 e74cf627…；dlltool 缺口以 dlltool-shim（rust-lld /LIB /DEF 等价）+ w64devkit gcc 弥合；remap-path-prefix 防泄露规则全量保留（泄露扫描通过）",
+      "daemon_rs_672_assert": "client/common/src/daemon.rs:672 = if s.connected {（abcc9cc 修复体，源码断言命中）"
     },
     {
       "path": "src-tauri/tauri-plugin-hg-guard/android/src/main/jniLibs/arm64-v8a/libhg_android.so",
