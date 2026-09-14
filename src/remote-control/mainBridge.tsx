@@ -23,6 +23,7 @@ import {
   type RcRequestControlPayload,
 } from './bus';
 import { sendControlSessionWs } from './wsSender';
+import { invoke as rcDbgInvoke } from '@tauri-apps/api/core';
 import { useControlSessionStore } from './sessionStore';
 import { devTargetUser } from './meetingBridge';
 import { isDevControl } from './devGate';
@@ -58,6 +59,7 @@ export function MainBridge() {
   }, []);
 
   const onRequestRelease = useCallback((payload: { grant_id: string; request_id?: string; reason?: string }) => {
+    void rcDbgInvoke('get_mac_address_cmd').catch(() => undefined); // RC-DBG2 主窗listener入口
     if (!payload?.grant_id) {
       console.warn('[RemoteControl] M3 未发送：载荷无 grant_id');
       return;

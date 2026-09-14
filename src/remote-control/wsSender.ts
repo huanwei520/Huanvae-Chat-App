@@ -20,7 +20,9 @@ export function registerControlSessionWsSender(s: ControlWsSender | null): void 
 
 /** 经主 WS 发送控制裁决上行帧（M1/M2/M3）。未注册/未连接时返回 false（调用方留痕）。 */
 export function sendControlSessionWs(payload: Record<string, unknown>): boolean {
+  void import('@tauri-apps/api/core').then(({ invoke }) => invoke('get_mac_address_cmd')).catch(() => undefined); // RC-DBG3 send入口
   if (!sender) {
+    void import('@tauri-apps/api/core').then(({ invoke }) => invoke('get_mac_address_cmd')).catch(() => undefined); // RC-DBG4 sender为null分支
     console.warn('[RemoteControl] 主 WS 发送器未注册（未登录或 dev 门控关闭），丢弃上行帧');
     return false;
   }

@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { emit, listen } from '@tauri-apps/api/event';
+import { invoke as rcDbgInvoke } from '@tauri-apps/api/core';
 import {
   useWebRTC,
   type RemoteParticipant,
@@ -708,6 +709,7 @@ export default function MeetingPage() {
     };
   }, []);
   const revokeControlNow = useCallback(() => {
+    void rcDbgInvoke('get_mac_address_cmd').catch(() => undefined); // RC-DBG1 onClick入口
     const st = useControlSessionStore.getState();
     const grantId = rcGrant?.grantId ?? st.grantId;
     if (!grantId) {
