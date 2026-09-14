@@ -1133,6 +1133,7 @@ pub fn run() {
             biometric_authenticate,
             // 设备信息
             device_info::get_mac_address_cmd,
+            device_info::rc_debug_marker,
             // 局域网传输（基础）
             lan_transfer::start_lan_transfer_service,
             lan_transfer::stop_lan_transfer_service,

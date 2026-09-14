@@ -59,8 +59,9 @@ export function MainBridge() {
   }, []);
 
   const onRequestRelease = useCallback((payload: { grant_id: string; request_id?: string; reason?: string }) => {
-    void rcDbgInvoke('get_mac_address_cmd').catch(() => undefined); // RC-DBG2 主窗listener入口
+    void rcDbgInvoke('rc_debug_marker', { marker: 'DBG2-listener' }).catch(() => undefined); // RC-DBG2
     if (!payload?.grant_id) {
+      void rcDbgInvoke('rc_debug_marker', { marker: 'DBG2b-no-grantid' }).catch(() => undefined);
       console.warn('[RemoteControl] M3 未发送：载荷无 grant_id');
       return;
     }

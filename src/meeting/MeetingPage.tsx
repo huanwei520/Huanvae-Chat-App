@@ -709,7 +709,7 @@ export default function MeetingPage() {
     };
   }, []);
   const revokeControlNow = useCallback(() => {
-    void rcDbgInvoke('get_mac_address_cmd').catch(() => undefined); // RC-DBG1 onClick入口
+    void rcDbgInvoke('rc_debug_marker', { marker: 'DBG1-onclick' }).catch(() => undefined); // RC-DBG1
     const st = useControlSessionStore.getState();
     const grantId = rcGrant?.grantId ?? st.grantId;
     if (!grantId) {

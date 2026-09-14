@@ -69,3 +69,10 @@ mod tests {
     }
 }
 
+
+/// 【临时诊断】撤销链探针：前端打点 → Rust println → stdout（bA/bB.log 可见）。
+/// 发布列车前随 DBG 插桩一并移除。
+#[tauri::command]
+pub fn rc_debug_marker(marker: String) {
+    println!("[RC-DBG] {} at {:?}", marker, std::time::SystemTime::now());
+}
