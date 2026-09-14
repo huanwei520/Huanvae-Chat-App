@@ -70,12 +70,19 @@ export function MainBridge() {
       grant_id: payload.grant_id,
       request_id: payload.request_id ?? '',
       reason: payload.reason ?? 'revoked',
+      // M3 必填 by{user_id,device_id}（ControlSessionReleaseMsg 无 serde(default)，
+      // 缺字段 = serde 反序列化失败 = 服务器当 invalid 帧丢弃 —— 2026-09-14 DBG 探针定位）。
+      // 值为占位：handle_control_session_release 首行按 JWT 重写 by 两字段。
+      by: {
+        user_id: session?.profile?.user_id ?? '',
+        device_id: 'self-device',
+      },
       released_at: Date.now(),
     });
     if (!sent) {
       console.warn('[RemoteControl] M3 未发送（主 WS 不可用）');
     }
-  }, []);
+  }, [session]);
 
   const onRequestControl = useCallback((payload: RcRequestControlPayload) => {
     // M1.target_user_id 真值源 = 右键 tile 参会者的聊天 user_id（MeetingPage
