@@ -64,5 +64,8 @@ export interface ControlSessionChangedPayload {
 export interface RcSessionStatePayload {
   state: 'linking' | 'active' | 'released';
   grant_id?: string | null;
+  /** N2 的 request_id（2026-09-14 补）：meeting 窗 rcGrant 镜像依赖它填 M3.request_id——
+   *  服务端 validate_release 对空 request_id 回 control_release_malformed（实测复现）。 */
+  request_id?: string;
   reason?: ControlReleaseReason;
 }

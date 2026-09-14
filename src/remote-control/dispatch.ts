@@ -78,6 +78,7 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
         void emit(RC_SESSION_STATE, {
           state: 'linking',
           grant_id: data.grant_id,
+          request_id: data.request_id,
         } satisfies RcSessionStatePayload).catch(() => undefined);
       } else {
         // T3：已拒绝 → 终态
@@ -103,6 +104,7 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
       void emit(RC_SESSION_STATE, {
         state: 'released',
         grant_id: data.grant_id,
+        request_id: data.request_id,
         reason: data.reason,
       } satisfies RcSessionStatePayload).catch(() => undefined);
       void emit(CONTROL_SESSION_CHANGED, {
