@@ -43,6 +43,9 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": [
+      "binaries/hv-control-daemon"
+    ],
     "targets": [
       "nsis",
       "appimage",
@@ -70,7 +73,10 @@
     "windows": {
       "nsis": {
         "installMode": "perMachine",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "displayLanguageSelector": true,
         "installerHooks": "./windows/hooks.nsi"
       }
