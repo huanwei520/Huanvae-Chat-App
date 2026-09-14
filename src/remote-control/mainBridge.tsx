@@ -12,11 +12,13 @@
  * @module remote-control/mainBridge
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { useSession } from '../contexts/SessionContext';
 import {
   RC_AUTH_DECISION,
   RC_REQUEST_CONTROL,
+  RC_REQUEST_RELEASE,
   type RcAuthDecisionPayload,
   type RcRequestControlPayload,
 } from './bus';
@@ -26,6 +28,20 @@ import { devTargetUser } from './meetingBridge';
 import { isDevControl } from './devGate';
 
 export function MainBridge() {
+  // 申请人展示名真值源＝本机会话昵称（缺省才回落「我」）。
+  // 🔴 病历（2026-09-14 双机真机实测）：这里原先把 display_name 硬编码为 '我'，
+  //    服务端只重写 user_id/device_id、**不重写 display_name**（见文件头「身份口径」），
+  //    于是**被申请方**的授权弹层里渲染成了「我 申请控制你正在共享的屏幕」、
+  //    接受后横幅变成「正在被 我 控制」——把申请人叫成被申请人自己。
+  const { session } = useSession();
+  const selfDisplayName = session?.profile?.user_nickname?.trim() || '我';
+  // 用 ref 传给发送回调，而不是把 selfDisplayName 加进 onRequestControl 的依赖：
+  // 后者会让下方 listen() 效果在昵称到货时**重新注册**监听器，在注销→重注之间
+  // 存在丢事件的窗口（而这个文件的历史教训正是「同一 emit 双发/漏发」，见下方
+  // cancelled 守卫注释）。ref 读最新值、依赖保持 []，注册一次不再变。
+  const selfNameRef = useRef(selfDisplayName);
+  selfNameRef.current = selfDisplayName;
+
   const onAuthDecision = useCallback((payload: RcAuthDecisionPayload) => {
     const { peerUserId } = useControlSessionStore.getState();
     const sent = sendControlSessionWs({
@@ -38,6 +54,23 @@ export function MainBridge() {
     });
     if (!sent) {
       console.warn('[RemoteControl] M2 未发送（主 WS 不可用）——演示链路仅本地态');
+    }
+  }, []);
+
+  const onRequestRelease = useCallback((payload: { grant_id: string; request_id?: string; reason?: string }) => {
+    if (!payload?.grant_id) {
+      console.warn('[RemoteControl] M3 未发送：载荷无 grant_id');
+      return;
+    }
+    const sent = sendControlSessionWs({
+      type: 'control_session_release',
+      grant_id: payload.grant_id,
+      request_id: payload.request_id ?? '',
+      reason: payload.reason ?? 'revoked',
+      released_at: Date.now(),
+    });
+    if (!sent) {
+      console.warn('[RemoteControl] M3 未发送（主 WS 不可用）');
     }
   }, []);
 
@@ -64,7 +97,7 @@ export function MainBridge() {
         user_id: 'self',
         device_id: 'self-device',
         device_name: 'watcher',
-        display_name: '我',
+        display_name: selfNameRef.current,
       },
       meeting_ctx: null,
       created_at: Date.now(),
@@ -91,6 +124,11 @@ export function MainBridge() {
       })
       .catch(() => undefined);
     listen<RcRequestControlPayload>(RC_REQUEST_CONTROL, (ev) => onRequestControl(ev.payload))
+      .then((fn) => {
+        if (cancelled) { fn(); } else { unlisteners.push(fn); }
+      })
+      .catch(() => undefined);
+    listen<{ grant_id: string; request_id?: string; reason?: string }>(RC_REQUEST_RELEASE, (ev) => onRequestRelease(ev.payload))
       .then((fn) => {
         if (cancelled) { fn(); } else { unlisteners.push(fn); }
       })

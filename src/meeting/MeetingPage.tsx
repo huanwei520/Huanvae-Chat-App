@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import {
   useWebRTC,
   type RemoteParticipant,
@@ -54,9 +54,8 @@ import { MeetingAudioEntry } from './components/MeetingAudioEntry';
 import { MeetingBridge } from '../remote-control/meetingBridge';
 import { isDevControl, isRemoteControlEnabled } from '../remote-control/devGate';
 import { useControlSessionStore } from '../remote-control/sessionStore';
-import { sendControlSessionWs } from '../remote-control/wsSender';
 import { PlatformBadge } from './components/PlatformBadge';
-import { RC_REQUEST_CONTROL } from '../remote-control/bus';
+import { RC_REQUEST_CONTROL, RC_REQUEST_RELEASE, RC_SESSION_STATE } from '../remote-control/bus';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
 import './styles.css';
@@ -684,25 +683,45 @@ export default function MeetingPage() {
   // grant_id/request_id 真值源＝sessionStore（N2/decided advanceLinking 写入，服务器权威 id）。
   // by 字段身份口径与 mainBridge M1 相同：服务端按 JWT 重写 user_id/device_id。
   const controlState = useControlSessionStore((s) => s.state);
+  // meeting 窗本地镜像：主窗 dispatch 在 N2/decided 与终态时 emit RC_SESSION_STATE（Tauri 全局事件），
+  // meeting 窗（独立 store 实例，无主 WS）监听后本地持有 grant 真值——按钮渲染与撤销载荷都用它。
+  const [rcGrant, setRcGrant] = useState<{ grantId: string; requestId: string } | null>(null);
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let cancelled = false;
+    void listen<{
+      state: string;
+      grant_id?: string;
+      request_id?: string;
+    }>(RC_SESSION_STATE, (ev) => {
+      if (ev.payload?.state === 'linking' && ev.payload.grant_id) {
+        setRcGrant({ grantId: ev.payload.grant_id, requestId: ev.payload.request_id ?? '' });
+      } else if (ev.payload?.state === 'released' || ev.payload?.state === 'error') {
+        setRcGrant(null);
+      }
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { un = fn; }
+    });
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
   const revokeControlNow = useCallback(() => {
     const st = useControlSessionStore.getState();
-    if (!st.grantId) {
+    const grantId = rcGrant?.grantId ?? st.grantId;
+    if (!grantId) {
       return;
     }
-    sendControlSessionWs({
-      type: 'control_session_release',
-      grant_id: st.grantId,
-      request_id: st.requestId ?? '',
+    // meeting 窗无主 WS 属权：与 M1 同模式，经 Tauri 事件转发给主窗发 M3。
+    void emit(RC_REQUEST_RELEASE, {
+      grant_id: grantId,
+      request_id: rcGrant?.requestId ?? st.requestId ?? '',
       reason: 'revoked',
-      by: {
-        user_id: meetingData?.userInfo?.user_id ?? '',
-        device_id: 'self-device',
-      },
-      released_at: Date.now(),
-    });
+    }).catch(() => undefined);
     // 本地立即终态（N3 自回执到达后 dispatch released 再走一次，幂等）
     st.release('revoked');
-  }, [meetingData]);
+  }, [meetingData, rcGrant]);
 
   // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
   useEffect(() => {
@@ -904,7 +923,7 @@ export default function MeetingPage() {
         {isRemoteControlEnabled() && (
           <MeetingBridge screenSharing={webrtc.mediaState.screenSharing} />
         )}
-        {isRemoteControlEnabled() && (controlState === 'linking' || controlState === 'active') && (
+        {isRemoteControlEnabled() && ((controlState === 'linking' || controlState === 'active') || rcGrant) && (
           <button
             className="rc-stop-ctl"
             style={{

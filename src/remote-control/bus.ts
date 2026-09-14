@@ -23,6 +23,10 @@ export const RC_AUTH_REQUEST = 'rc-auth-request';
 export const RC_AUTH_DECISION = 'rc-auth-decision';
 /** meeting 窗 → 主窗：观看端 tile dev 菜单「申请控制」（主窗发 M1） */
 export const RC_REQUEST_CONTROL = 'rc-request-control';
+/** meeting 窗 → 主窗：观看端「停止远程控制」撤销（主窗经主 WS 发 M3）。
+ * 2026-09-14 缺口③补：撤销与 M1 同模式跨窗转发（meeting 窗无主 WS 属权，
+ * 直接调 sendControlSessionWs 摸不到主窗注册的 sender）。 */
+export const RC_REQUEST_RELEASE = 'rc-request-release';
 /** 控制域 → meeting 窗：§4.3 具名单向状态通知（「正在被 <name> 控制」横幅） */
 export const CONTROL_SESSION_CHANGED = 'control-session-changed';
 /** 主窗 → remote-control 窗：会话状态推进 */
