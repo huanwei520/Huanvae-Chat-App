@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "source_repo_commit": "abcc9cc1e5f33ae6aa2f1962c8975a6ce1177f2d",
+  "source_repo_commit": "e34de18860f843caf7c99e4c56fcb5a658e69505",
   "source_repo_dirty": true,
   "source_repo_dirty_files": [
     ".claude/CLAUDE.md",
@@ -17,8 +17,8 @@
     "test/mock-master/src/main.rs"
   ],
   "source_repo_note": "2026-09-14 重建：client/common/src/daemon.rs 的 2026-09-09 修复（控制面重连成功仅在链路健康时清 last_error，修安卓「配置热更新已断开」无原因横幅）已单独提交为 abcc9cc（daemon.rs:672 `if s.connected { s.last_error = None; }`）；上列 12 个 dirty 文件为 cwsecdh0-1 遗留 WIP 原样保留未提交，构建树 = abcc9cc + 该 WIP，完整 diff 快照随任务块 evidence 归档可复算。",
-  "built_at_utc": "2026-09-14T08:49:00Z",
-  "build_note": "scripts/build-hg-binaries.sh §3b 安卓腿按脚本纪律逐字执行（rsync 白名单同步 → 远程 runner cargo build --release -p hg-android --target <triple> → 取回 → ELF 断言 → 泄露扫 → 落点替换 sha 复算）：构建宿主 HG_ANDROID_BUILD_HOST=root@127.0.0.1（本机自连），NDK /opt/android-ndk；aarch64 为脚本定义腿，armv7/x86_64 为同一 runner 同一 env 纪律的扩展腿（jniLibs 三 ABI 一致性）。macOS/Windows 腿本次未构建（见各 artifact 保留的历史记录与 windows-service BLOCKED 说明）。",
+  "built_at_utc": "2026-09-14T09:34:00Z",
+  "build_note": "scripts/build-hg-binaries.sh §3b/§3 腿纪律逐字执行（rsync 白名单同步 → 远程 runner cargo build --release → 取回 → ELF/PE 断言 → 泄露扫 → 落点替换 sha 复算）：安卓腿 HG_ANDROID_BUILD_HOST=root@127.0.0.1（NDK /opt/android-ndk）；windows 腿因构建宿主 windows-gnu self-contained dlltool 生成 import library 失败（缺陷记录见 evidence/win-cross-build-0934utc.log），改由同 target triple x86_64-pc-windows-gnu 的 linux 交叉编译产出（宿主 rustc 1.98.1/mingw-w64，源 commit e34de18 含 abcc9cc 修复），PE32+ x86-64 断言与泄露扫同口径过检；macOS 腿本次未构建（macOS 构建宿主不在本环境）。",
   "android_source_note": "jniLibs 三 ABI 与 resources 参照副本均由本次 abcc9cc(+WIP) 源码构建，commit 可考（修复此前的 55825f7 入仓期「对应 commit 不可考」状态）。",
   "legacy_reference": {
     "note": "2026-08-28 构建期 manifest（v1）保留备查",
@@ -35,6 +35,16 @@
       "sha256": "b578ef815a691735f28bb5ff20074c3a52bab5377d068a6cdba9c74d2d5e5140",
       "codesign_flags": "CodeDirectory v=20400 size=9290 flags=0x2(adhoc) hashes=284+2 location=embedded",
       "note": "2026-08-28 既有发货件，本块未重建（macOS 构建宿主不在本环境；HG_WIN_BUILD_HOST 同缺）"
+    },
+    {
+      "path": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
+      "crate": "hg-windows",
+      "target": "x86_64-pc-windows-gnu",
+      "pe_machine": "x86-64",
+      "sha256": "e74cf62733d23d2735def1813e8318af5e89c960343f60dcd589437bee2254f4",
+      "ship_role": "实际发货（Windows 服务）",
+      "source_commit": "e34de18860f843caf7c99e4c56fcb5a658e69505",
+      "built_at_utc": "2026-09-14T09:34:00Z"
     },
     {
       "path": "src-tauri/tauri-plugin-hg-guard/android/src/main/jniLibs/arm64-v8a/libhg_android.so",
