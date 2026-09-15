@@ -111,8 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Windows x64
+        include:          # Windows x64
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ''
@@ -130,8 +129,15 @@ jobs:
             target: aarch64-apple-darwin
             args: ''
             name: darwin-aarch64
+            # v1.1.46 登记式降级：externalBin(hv-control-daemon) 的 macOS 件
+            # (aarch64-apple-darwin) 依赖 hv-demo-x11 后端替换（块3 产品化范围），
+            # 当前无 macOS 构建宿主无法产出可信件——宁缺勿假（发货二进制无人验证
+            # =两起生产故障根因）。macOS 腿 continue-on-error：包不带 daemon
+            # (与 v1.1.45 同状态，不回退存量用户面)，其余三平台照常携带。
+            continue_on_error: true
 
     runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ matrix.continue_on_error == true }}
 
     steps:
       - name: Checkout
