@@ -112,14 +112,13 @@ jobs:
       fail-fast: false
       matrix:
         include:          # Windows x64
-          # v1.1.46 登记式降级：externalBin 的 msvc 形态件缺位（现发货件为
-          # windows-gnu 形态，winserver-hg 原生构建先例；msvc 交叉需 xwin 新工程=块3 产品化范围）。
-          # 宁缺勿假：Windows 包与 v1.1.45 同状态不带 daemon。
+          # v1.1.46：externalBin 的 daemon 携带限定 Android/Linux 腿（tauri.windows.conf.json
+          # 置空 externalBin）——msvc 形态 daemon 件缺位（块3 产品化范围），Windows 包与
+          # v1.1.45 同状态，构建恢复正常产出 exe+sig。
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ''
             name: windows-x86_64
-            continue_on_error: true
           
           # Linux x64
           - platform: ubuntu-24.04
@@ -131,14 +130,13 @@ jobs:
           # 注意: macos-13 (Intel) 已被 GitHub 废弃
           # macOS Apple Silicon (macos-14/15 是 ARM64 机器)
           # 注意: macos-13 (Intel) 已被 GitHub 废弃
-          # v1.1.46 登记式降级：externalBin 的 aarch64-apple-darwin 件依赖
-          # hv-demo-x11 后端替换（块3 产品化范围），无 macOS 构建宿主宁缺勿假。
-          # macOS 包与 v1.1.45 同状态不带 daemon。
+          # v1.1.46：daemon 携带限定 Android/Linux 腿（tauri.macos.conf.json 置空
+          # externalBin）——apple-darwin 件依赖 hv-demo-x11 后端替换（块3 范围），
+          # macOS 包与 v1.1.45 同状态，构建恢复 dmg+updater sig 产出。
           - platform: macos-14
             target: aarch64-apple-darwin
             args: ''
             name: darwin-aarch64
-            continue_on_error: true
 
     runs-on: ${{ matrix.platform }}
     continue-on-error: ${{ matrix.continue_on_error == true }}
