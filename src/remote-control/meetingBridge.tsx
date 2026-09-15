@@ -114,6 +114,31 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
     return () => { un?.(); };
   }, []);
 
+  // —— 缺口②修复（R25）：被控端横幅兜底清理 ——
+  // 服务端对 control_session_released 回执仅路由 sender 侧（qd3 journal 只见
+  // "routed to sender devices" 行），被控端收不到 M3/N3，横幅无信令可清。
+  // 以 daemon grant 状态为准轮询兜底：授权消失/Released ⇒ 清横幅＋拆本机链。
+  // daemon 不可达（status=null）保守不清，避免 daemon 重启误清活跃会话。
+  useEffect(() => {
+    if (!controlledByName) { return; }
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const { controlStatus, controlDisarm } = await import('./api');
+        const s = await controlStatus();
+        if (stopped || !s) { return; }
+        const gs = s.grant_state ?? null;
+        if (gs === null || gs === 'released') {
+          setControlledByName(null);
+          void controlDisarm().catch(() => undefined);
+        }
+      } catch { /* 轮询失败静默，下轮重试 */ }
+    };
+    const t = setInterval(poll, 4000);
+    void poll();
+    return () => { stopped = true; clearInterval(t); };
+  }, [controlledByName]);
+
   // —— 授权裁决：meeting 窗 → 主窗（主窗发 M2）＋本地演示推进 ——
   const onDecide = useCallback((approved: boolean, req: ControlSessionRequestedData) => {
     setAuthRequest(null);
