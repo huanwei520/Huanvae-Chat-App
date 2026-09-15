@@ -1,19 +1,2 @@
-# ============================================
-# Huanvae Chat App 发布配置
-# ============================================
-#
-# 使用方法:
-#   1. 修改 VERSION 为要发布的版本号
-#   2. 修改 MESSAGE 为本次更新说明
-#   3. 运行 ./scripts/linux/release.sh
-#
-# 发布流程:
-#   1. 脚本会检查当前项目版本号一致性
-#   2. 如果版本不同，自动更新所有配置文件
-#   3. 运行完整测试（必须全部通过）
-#   4. Git 提交 + 创建标签 + 推送
-#
-# ============================================
-
-VERSION=1.1.48
-MESSAGE=热修复发货 VPN guard 新二进制（根治 v1.1.47 发布早于新件产出 11 分钟、渠道包携带旧件 huanvaeguard-svc.exe fa1e0f68(08-28 构建)与当前服务端不兼容致 Windows VPN 不可用）。落点实证：Windows huanvaeguard-svc.exe=6bc85eb0（scripts/build-hg-binaries.ps1 @winserver PS1_EXIT=0）、macOS hg-macos=617f9d02（scripts/build-hg-binaries.sh @macos-14 run 35003209658），源锚 HuanvaeGuard@b1d7c8df 含 0909 daemon.rs:672 修复，hg-build-manifest.json 双腿溯源在仓。本版同时修复 d79efcea 误删 hg-macos（a0c03276 manifest 记双腿但树缺文件，将致 macOS 构建腿与门禁第14步静态腿红）——自发货内容 e9898dc2 blob 913fc82c 恢复（sha256=617f9d02 与 manifest 一致）。验证：test-all 14 项全量（第14步产物内容断言真跑）；发布后对 GitHub Release 渠道包解包复算包内 guard 哈希（必须=6bc85eb0）+ winserver-hg 真机装包验收（sc start HuanvaeGuard 返回0+隧道握手+通流+热更新横幅稳定≥60s）。步骤3 在 Linux 宿主按登记惯例 HG_BINARIES_SKIP_REGISTERED=1（macOS 腿本宿主不可交叉构建），发货件=d79efcea resources 落点原样（sha256 逐一复算与 manifest 一致，本版要发货的正是这对新件）；vpn-connectivity Linux 宿主结构性不可执行（hg-connectivity-test.sh 非 Darwin 即退出码3），登记式放行+如实报告，VPN 真实握手/通流由本版发布后 winserver-hg 真机验收补足。
+VERSION=1.1.49
+MESSAGE=纠偏热修：v1.1.48 发货 Windows guard 件 6bc85eb0（ps1 管道 18:14Z 产物）在 winserver-hg 实装启动即原生崩溃——sc start 恒 1053、WER Event 1000（huanvaeguard-svc.exe, ntdll+0x15F954, c0000005）、服务日志零新增；对照同源锚另一构建同机可正常运行，环境级实证显示构建时段 C:\w64devkit libgcc 库被现场手术（mtime 18:07:20Z）且构建树内工具链路径失效，判定 ps1 产物本身缺陷。本版以同一源锚 HuanvaeGuard@b1d7c8df 重建 Windows 件：宿主 git archive 字节级覆盖构建树源码 + daemon.rs:672 断言过，配方=rustup gnu self-contained PATH + C:\w64devkit\w64devkit gcc/dlltool 显式 linker，产物 c9c27c7f（5401088B）；发货前 SCM 冒烟真跑：服务位替换后 sc start HuanvaeGuard → STATE 4 RUNNING（pid 4024）+ API 127.0.0.1:19198 listening + HEARTBEAT 正常。macOS 腿不变 617f9d02（v1.1.48 已验证在包）。验证：test-all 14 项全量（第14步产物断言真跑）、渠道包解包复算包内 guard=c9c27c7f、winserver-hg 装 v1.1.49 全套硬验收（sc start 返回0/RUNNING + VPN 页服务运行中 + 隧道握手通流 + ≥60s 稳定）。步骤3 按登记惯例 HG_BINARIES_SKIP_REGISTERED=1（macOS 腿本宿主不可交叉构建；Windows 腿已按上述配方独立重建并冒烟）；vpn-connectivity Linux 宿主结构性不可执行，登记式放行，由 winserver-hg 真机验收补足。1.1.48 已装用户经热更新通道升至本版即修复。

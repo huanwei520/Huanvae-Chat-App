@@ -2,10 +2,10 @@
   "source_repo_commit": "b1d7c8df4a9bbd362b99122ac4a9aae631145bb0",
   "source_repo_dirty": false,
   "source_repo_dirty_files": [],
-  "built_at_utc": "2026-09-15T18:15:30Z",
+  "built_at_utc": "2026-09-15T20:54:04Z",
   "leg_provenance": {
-    "macos": "scripts/build-hg-binaries.sh @ macos-14 GH runner (run 35003209658, CI log archived)",
-    "windows": "scripts/build-hg-binaries.ps1 @ Windows build host (PS1_EXIT=0, full log archived)"
+    "macos": "scripts/build-hg-binaries.sh @ macos-14 GH runner (run 35003209658, CI log archived; unchanged since v1.1.48)",
+    "windows": "rebuilt 2026-09-15 on Windows build host from same source anchor b1d7c8df (source verified via host-side git archive byte-exact extraction + daemon.rs:672 assertion), recipe: rustup gnu self-contained PATH + C:/w64devkit/w64devkit gcc/dlltool explicit linker (cargo build --release -p hg-windows --target x86_64-pc-windows-gnu). Reason: v1.1.48 shipped windows artifact 6bc85eb0 (built 18:14Z via ps1 pipeline) crashed at startup on winserver-hg (sc start 1053, WER Event 1000 ntdll c0000005); replacement c9c27c7f smoke-verified in SCM service slot before shipping: sc start -> STATE 4 RUNNING (pid 4024), API 127.0.0.1:19198 listening, HEARTBEAT ok"
   },
   "artifacts": [
     {
@@ -21,7 +21,8 @@
       "crate": "hg-windows",
       "target": "x86_64-pc-windows-gnu",
       "pe_machine": "x86-64",
-      "sha256": "6bc85eb0533160edc8374d91cceb400024937310262faff31a3afcb331e7f644",
+      "sha256": "c9c27c7fcae753541f7940e7fae8c31ef3d4095840e679591aa441b078d6ab9e",
+      "superseded_sha256_1_1_48": "6bc85eb0533160edc8374d91cceb400024937310262faff31a3afcb331e7f644",
       "codesign_flags": ""
     }
   ]
