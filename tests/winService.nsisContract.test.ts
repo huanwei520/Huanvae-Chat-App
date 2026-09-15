@@ -42,7 +42,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 function read(rel: string): string {
@@ -89,6 +89,15 @@ const CONF = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   bundle: { windows: { nsis: { installMode?: string } } };
   plugins: { updater: { windows: { installMode?: string } } };
 };
+
+/** 平台 conf 与基础 conf 的 bundle.resources（tauri-cli 2.11.1 json_patch::merge 即 RFC 7396：对象深合并、数组整体覆盖，
+ *  映射写在任一处都生效，故守卫判【并集】而非硬性要求写在哪个文件） */
+function resourcesOf(file: string): Record<string, string> {
+  const conf = JSON.parse(read(file)) as { bundle?: { resources?: Record<string, string> } };
+  return conf.bundle?.resources ?? {};
+}
+const RES_DESKTOP = { ...resourcesOf('src-tauri/tauri.conf.json'), ...resourcesOf('src-tauri/tauri.windows.conf.json') };
+const RES_MACOS = { ...resourcesOf('src-tauri/tauri.conf.json'), ...resourcesOf('src-tauri/tauri.macos.conf.json') };
 
 const POSTINSTALL = macroBody(NSI, 'NSIS_HOOK_POSTINSTALL');
 const PREINSTALL = macroBody(NSI, 'NSIS_HOOK_PREINSTALL');
@@ -630,5 +639,75 @@ describe('perMachine 的必要配套：Windows 数据根不能落在 Program Fil
     expect(
       PREINSTALL.match(/^\s*!insertmacro\s+HUANVAE_UNINSTALL_PREVIOUS\s+HK/gm) ?? [],
     ).toHaveLength(2);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// bundle.resources — HuanvaeGuard 组件必须真的映射进安装包
+// ────────────────────────────────────────────────────────────────────────────
+//
+// ## 它守的是什么（v1.1.46 真实事故，owner 实机两次撞墙）
+//
+// 06e52282 为绕过 msvc/apple-darwin 形态件缺位，把 tauri.windows/macos.conf.json 改成
+// `{"bundle":{"externalBin":[]}}`，把平台 conf 里原有的 bundle.resources 映射一并删掉：
+//   · Windows 包从此不含 HuanvaeGuard/huanvaeguard-svc.exe 与 wintun.dll；
+//   · 安装器 sc create 成功（注册不校验文件存在）→ sc start 恒返回 2（系统找不到文件）
+//     → App 内「修复服务」同样失败；
+//   · 安装日志与既有门禁全部绿灯（门禁只查脚本与配置文本，从不开解产物看内容），
+//     带病发了 v1.1.46。
+//
+// ## 合并语义依据（为什么判"并集"）
+//
+// tauri-cli 2.11.1 src/helpers/config.rs:6 `use json_patch::merge`（RFC 7396 JSON Merge
+// Patch：对象递归深合并、数组整体覆盖）⇒ 映射写在基础 conf 或平台 conf 任一处都生效，
+// 所以这里判【并集】，不硬性要求写在哪个文件；但只要任何一处把 guard 映射删干净，
+// 这组用例立刻红。Notification-Sounds 一并钉住：防止平台映射调整时把基础映射静默挤丢。
+//
+// ## 本文件抓不到什么（同上文静态扫描的边界）
+//
+// 它证明不了"构建机真的把映射的文件打进了产物"——产物内容由
+// scripts/linux/assert-artifact-content.sh 的产物腿（解包核对）承担，两者配套。
+describe('bundle.resources — HuanvaeGuard 组件映射（v1.1.46 缺件事故的门禁）', () => {
+  const entriesOf = (m: Record<string, string>) => Object.entries(m);
+
+  it('Windows/桌面并集必须含 HuanvaeGuard → HuanvaeGuard/ 映射（缺 = sc start 必失败的事故形态）', () => {
+    const hits = entriesOf(RES_DESKTOP).filter(
+      ([k, v]) => /HuanvaeGuard\/\*$/.test(k) && v === 'HuanvaeGuard/',
+    );
+    expect(
+      hits,
+      `并集中 HuanvaeGuard 映射缺失或不唯一：${JSON.stringify(RES_DESKTOP)}`,
+    ).toHaveLength(1);
+  });
+
+  it('macOS 并集必须含 HuanvaeGuard-macos → HuanvaeGuard-macos/ 映射', () => {
+    const hits = entriesOf(RES_MACOS).filter(
+      ([k, v]) => /HuanvaeGuard-macos\/\*$/.test(k) && v === 'HuanvaeGuard-macos/',
+    );
+    expect(
+      hits,
+      `并集中 HuanvaeGuard-macos 映射缺失或不唯一：${JSON.stringify(RES_MACOS)}`,
+    ).toHaveLength(1);
+  });
+
+  it('既有 Notification-Sounds 映射不得在任一并集中静默丢失', () => {
+    for (const [label, res] of [['desktop', RES_DESKTOP], ['macos', RES_MACOS]] as const) {
+      const hits = entriesOf(res).filter(
+        ([k, v]) => /Notification-Sounds\/\*$/.test(k) && v === 'Notification-Sounds/',
+      );
+      expect(hits, `${label} 并集中 Notification-Sounds 映射缺失或不唯一`).toHaveLength(1);
+    }
+  });
+
+  it('映射源文件必须在仓且非空（空占位文件进包也是坏的）', () => {
+    for (const rel of [
+      'src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe',
+      'src-tauri/resources/HuanvaeGuard/wintun.dll',
+      'src-tauri/resources/HuanvaeGuard-macos/hg-macos',
+    ]) {
+      const st = statSync(resolve(__dirname, '..', rel));
+      expect(st.isFile(), `${rel} 不是常规文件`).toBe(true);
+      expect(st.size, `${rel} 是空文件`).toBeGreaterThan(0);
+    }
   });
 });

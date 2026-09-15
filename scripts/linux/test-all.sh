@@ -91,9 +91,9 @@ START_TIME=$(date +%s)
 ALL_PASSED=true
 
 # 无 flag 时恒定执行的 8 块：
-#   NSIS / package.json / Tauri 版本 / TypeScript / ESLint / 单元测试 / 前端构建 / VPN 连通性
+#   NSIS / package.json / Tauri 版本 / TypeScript / ESLint / 单元测试 / 前端构建 / 产物内容清单断言
 # 其中 VPN 块与 E2E 块同口径：--skip-* 时不执行（不计入 TOTAL_STEPS），但仍登记进跳过表。
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 $SKIP_E2E || TOTAL_STEPS=$((TOTAL_STEPS + 1))
 $SKIP_VPN || TOTAL_STEPS=$((TOTAL_STEPS + 1))
 if ! $SKIP_RUST; then
@@ -787,13 +787,36 @@ if ! $SKIP_VPN; then
 fi
 
 # ============================================
+# 14. 产物内容清单断言（HuanvaeGuard 组件必须真的进安装包）
+# ============================================
+# 为什么必须有这一块：v1.1.46 及之前，tauri.windows/macos.conf.json 的 bundle.resources
+# 映射随 06e52282 被删，Windows 安装包从此不含 HuanvaeGuard/huanvaeguard-svc.exe 与
+# wintun.dll —— 安装器 sc create 成功、sc start 恒返回 2（文件不存在），而既有检查只验
+# 脚本与配置文本、从不开解产物看内容，带病发版无人拦。本步骤堵住这个盲区：
+#   · 静态腿恒跑：映射并集 + 源文件在仓（映射被删 / 源文件丢失 → FAIL）
+#   · 产物腿：本机有已构建安装包时逐个解包核对必含文件；无产物时如实说明（本宿主
+#     不构建安装包，产物由 CI 构建并在分发侧复验），不虚构通过也不谎报失败。
+# 独立用法（对已发布产物核验）：scripts/linux/assert-artifact-content.sh <产物文件>
+step_header "产物内容清单断言 (HuanvaeGuard 组件进包核验)..."
+
+ARTIFACT_EXIT=0
+ARTIFACT_OUTPUT=$("$SCRIPT_DIR/assert-artifact-content.sh" 2>&1) || ARTIFACT_EXIT=$?
+printf '%s\n' "$ARTIFACT_OUTPUT"
+if [[ $ARTIFACT_EXIT -eq 0 ]]; then
+    echo -e "  ${GREEN}✓ PASS: 产物内容清单断言${NC}"
+else
+    echo -e "  ${RED}✗ FAIL: 产物内容清单断言（映射/源文件/产物内容存在缺失，退出码 ${ARTIFACT_EXIT}）${NC}"
+    ALL_PASSED=false
+fi
+
+# ============================================
 # 结果汇总
 # ============================================
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
-# 全量口径固定 13 项，与本脚本的 13 个检查块一一对应；跳过项不计入"真跑通过"
-CANONICAL_TOTAL=13
+# 全量口径固定 14 项，与本脚本的 14 个检查块一一对应；跳过项不计入"真跑通过"
+CANONICAL_TOTAL=14
 SKIP_COUNT=${#SKIPPED_IDS[@]}
 RAN_COUNT=$((CANONICAL_TOTAL - SKIP_COUNT))
 

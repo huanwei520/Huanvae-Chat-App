@@ -1,5 +1,9 @@
 {
+  "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": []
+    "externalBin": [],
+    "resources": {
+      "resources/HuanvaeGuard-macos/*": "HuanvaeGuard-macos/"
+    }
   }
 }
