@@ -29,6 +29,11 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 45
     steps:
+      - name: Probe secret availability (length only, never the value)
+        run: echo "HG_MACOS_TOKEN length = \${#HG_MACOS_TOKEN}"
+        env:
+          HG_MACOS_TOKEN: ${{ secrets.HG_MACOS_TOKEN }}
+
       - name: Checkout HuanvaeGuard @ e34de18
         uses: actions/checkout@v4
         with:
