@@ -32,6 +32,24 @@
  *
  * ⚠️ 为什么不用 `clientId` 直接配对：`clientId` 是**本机生成**的，服务端不认识、
  * 也不会在 WS 回显里带回来。它只能给 HTTP 响应那条通路用（那条通路本来就一直是对的）。
+ *
+ * ## 第 3 级（2026-09-13 增）：`failed` 条目的**精确正文修复**（假阴性修复）
+ *
+ * 「图片/消息显示发送失败，但对方实际收到了」的假阴性，在文本这条路上的机制是：
+ * `POST /api/messages` 已被服务端受理并回显，但 HTTP **响应**在回程丢了（连接被重置、
+ * 网络切换）⇒ 客户端 catch ⇒ 把条目标成 `failed`（useLocalFriendMessages 的发送 catch）
+ * ⇒ **随后到达的 WS 回显**在旧逻辑里只认 `sending` ⇒ 认领落空 ⇒ 掉进「新消息」分支：
+ * 界面上留着红叹号的失败条 + 对方明明收到了。
+ *
+ * 而回显本身就是**服务端受理的实锤**（saveMessageToLocal 对自己的回显同样落库、
+ * seq>=1 才推）：只要一条 `failed` 条目的「正文 + 类型」与回显**精确相等**，
+ * 它就是那个「服务端已受理、只是没收到 HTTP 响应」的同一条 —— 修复它（调用方把
+ * uuid/seq/sent 写回去）就是「实收不再标失败」。**只认精确匹配、不做兜底**：
+ * 内容对不上的 failed 条目可能是真失败（服务端没收到），把兜底也放宽会把真失败
+ * 也洗成已发送，那是撒谎。
+ *
+ * 顺序：sending 精确 > sending 兜底 > failed 精确。sending 在前是因为回显本该先
+ * 认领在途项（既有行为，一字未动）；failed 修复排最后，只吃前两级都不认领的剩余回显。
  */
 
 /** 认领所需的最小消息形状（私聊 `Message` / 群聊 `GroupMessage` 都满足） */
@@ -57,7 +75,7 @@ export function pickSendingEchoIndex<T extends ClaimableMessage>(
   list: readonly T[],
   echo: EchoIdentity,
 ): number {
-  // 从尾部（最旧）往前找：同样条件下优先认领最早发出的那条
+  // 第一轮：sending 条目（从尾部/最旧往前），精确匹配优先，最早在途兜底
   let fallback = -1;
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const m = list[i];
@@ -67,5 +85,16 @@ export function pickSendingEchoIndex<T extends ClaimableMessage>(
       return i;
     }
   }
-  return fallback;
+  if (fallback !== -1) { return fallback; }
+
+  // 第二轮：failed 条目只认「正文 + 类型」**精确**相等的（假阴性修复，见文件头第 3 级）。
+  // 没有兜底 —— 精确匹配是「这条回显就是这条失败消息」的唯一安全证据。
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const m = list[i];
+    if (m.sendStatus !== 'failed') { continue; }
+    if (m.message_type === echo.message_type && m.message_content === echo.content) {
+      return i;
+    }
+  }
+  return -1;
 }

@@ -41,6 +41,8 @@ import { resolveUploadedContent } from '../shared/uploadPersist';
 import { groupConversationKey } from '../shared/conversationKey';
 import { mergeMessageList } from '../shared/mergeMessageList';
 import { pickSendingEchoIndex } from '../shared/wsEchoClaim';
+// 文本假阴性对账（与好友会话同口径）：增量同步不含自己发的消息，必须查历史
+import { probeSentText } from '../shared/sendFailureReconcile';
 import type { SendingMediaEntry } from '../../stores/sendingMediaStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -630,6 +632,65 @@ export function useLocalGroupMessages(groupId: string | null) {
           ? { ...msg, sendStatus: 'failed' }
           : msg,
       ));
+
+      // 假阴性对账：响应可能丢在回程而服务端已受理并派发。命中才恢复，未命中保持 failed。
+      void (async () => {
+        try {
+          const hit = await probeSentText(api, {
+            conversationType: 'group',
+            targetId: groupId,
+            content,
+            messageType: 'text',
+            sendTimeIso: tempSendTime,
+            userId: session.userId,
+          });
+          if (!hit) {
+            return;
+          }
+          setMessages((prev) => prev.map((msg) => (
+            msg.clientId === clientId
+              ? {
+                ...msg,
+                message_uuid: hit.message_uuid,
+                send_time: hit.send_time,
+                seq: hit.seq,
+                sendStatus: 'sent',
+              }
+              : msg
+          )));
+          await db.saveMessage({
+            message_uuid: hit.message_uuid,
+            conversation_id: groupId,
+            conversation_type: 'group',
+            sender_id: session.userId,
+            sender_name: session.profile.user_nickname,
+            sender_avatar: session.profile.user_avatar_url,
+            content,
+            content_type: 'text',
+            file_uuid: null,
+            file_url: null,
+            file_size: null,
+            image_width: null,
+            image_height: null,
+            seq: hit.seq,
+            reply_to: replyTo ?? null,
+            media_group_id: null,
+            media_group_index: null,
+            media_group_count: null,
+            is_recalled: hit.is_recalled || false,
+            is_deleted: false,
+            send_time: hit.send_time,
+          });
+          // eslint-disable-next-line no-console
+          console.info('[SendReconcile] 群聊文本假阴性修复：服务端历史命中，已恢复为已发送', {
+            uuid: hit.message_uuid,
+            seq: hit.seq,
+          });
+        } catch (reconcileErr) {
+          // 尽力而为：对账失败不影响 failed 状态本身（用户仍有重试按钮）
+          logError('群聊文本对账失败，保持失败原状', reconcileErr);
+        }
+      })();
     }
   }, [api, groupId, session]);
 
@@ -846,11 +907,10 @@ export function useLocalGroupMessages(groupId: string | null) {
         return updated;
       }
 
-      // 情况 2：WebSocket 比 API 响应快（自己发送的消息）
+      // 情况 2：WebSocket 比 API 响应快（自己发送的消息）；也覆盖假阴性修复，
+      // 认领规则见 chat/shared/wsEchoClaim.ts（与私聊侧同一份，sending 精确 >
+      // sending 兜底 > failed 仅精确修复）。
       if (wsMsg.sender_id === session.userId) {
-        // 认领规则见 chat/shared/wsEchoClaim.ts（与私聊侧同一份）：先按「正文 + 类型」
-        // 精确配对，对不上才退回「最早的在途项」。原来的 findIndex 取的是数组头部
-        // = 最新插入那条 ⇒ 连发时张冠李戴、两条共享同一 uuid 被去重吞掉（外部审计 idx=89）。
         const sendingIndex = pickSendingEchoIndex(prev, {
           content: wsMsg.content || wsMsg.preview || '',
           message_type: wsMsg.message_type,
@@ -865,7 +925,7 @@ export function useLocalGroupMessages(groupId: string | null) {
             send_time: wsMsg.timestamp,
             sendStatus: 'sent',
           };
-          logLocal('WebSocket 比 API 快，替换发送中消息', { uuid: wsMsg.message_uuid });
+          logLocal('WS 回显认领/假失败修复', { uuid: wsMsg.message_uuid, seq: wsMsg.seq });
           return updated;
         }
       }

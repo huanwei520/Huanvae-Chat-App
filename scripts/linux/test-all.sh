@@ -371,7 +371,10 @@ if ! $SKIP_E2E; then
     step_header "E2E 视觉回归测试 (Playwright)..."
 
     E2E_EXIT=0
-    E2E_OUTPUT=$(npx playwright test 2>&1) || E2E_EXIT=$?
+    # v1.1.46 登记式修正：fullyParallel 下 animation-health:548 / visual-regression:88 两个
+    # evaluate 类用例在并行负载下偶发 Execution-context-destroyed（实测三轮：并行 4→2→2 failed，
+    # 串行 41/41 稳定全绿）；串行代价 ~2 分钟可接受，发布门禁优先确定性。
+    E2E_OUTPUT=$(npx playwright test --workers=1 2>&1) || E2E_EXIT=$?
 
     if [[ $E2E_EXIT -eq 0 ]]; then
         E2E_PASSED=$(echo "$E2E_OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)

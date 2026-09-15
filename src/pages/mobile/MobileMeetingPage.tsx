@@ -48,6 +48,12 @@ import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { MeetingBridge } from '../../remote-control/meetingBridge';
 import { isRemoteControlEnabled } from '../../remote-control/devGate';
+import { RC_REQUEST_CONTROL } from '../../remote-control/bus';
+import { emit } from '@tauri-apps/api/event';
+import { PlatformBadge } from '../../meeting/components/PlatformBadge';
+// #7 目标能力门控（owner 2026-09-14 二次评审②）+ 移动端专属控制按钮（评审①）
+import { MobileControlPill } from '../../meeting/components/MobileControlPill';
+import { isControllablePlatform } from '../../utils/platform';
 
 // 最小化图标（内联定义）
 const MinimizeIcon = () => (
@@ -80,6 +86,10 @@ interface ParticipantVideoProps {
   isSpeaking?: boolean;
   avatarUrl?: string | null;
   onClick?: () => void;
+  /** #7 K2 修改版：本 tile 的控制胶囊是否处于「已伸出」态（安卓端由点按 toggle） */
+  controlOpen?: boolean;
+  /** 点击「申请控制」胶囊 */
+  onControlPill?: () => void;
 }
 
 function ParticipantVideo({
@@ -89,6 +99,8 @@ function ParticipantVideo({
   isSpeaking,
   avatarUrl,
   onClick,
+  controlOpen = false,
+  onControlPill,
 }: ParticipantVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -210,6 +222,22 @@ function ParticipantVideo({
         {participant?.is_creator && <span className="mobile-creator-badge">主持人</span>}
         {isScreenSharing && <span className="mobile-screen-share-badge">屏幕共享</span>}
       </div>
+
+      {/* #9 平台徽章（owner 选定 P1）：左上角，仅对端渲染 */}
+      {!isLocal && <PlatformBadge platform={participant?.platform} className="platform-badge--mobile" />}
+
+      {/* #7 控制入口（owner 2026-09-14 二次评审①/②）：
+          ① 移动端用**自己的**组件与配色（MobileControlPill），不再复用桌面胶囊；
+          ② 只对**可被控平台**渲染 —— Android/iOS 没有控制 daemon，
+             旧行为会在安卓 tile 上给出一个点下去必然失败的入口。
+          交互：安卓无 hover，点按该 tile 伸出、再点或点别处收回（toggle 由 controlOpen 驱动）。 */}
+      {!isLocal && isRemoteControlEnabled() && onControlPill
+        && isControllablePlatform(participant?.platform) && (
+        <MobileControlPill
+          open={controlOpen}
+          onPress={onControlPill}
+        />
+      )}
     </div>
   );
 }
@@ -311,6 +339,23 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       lastGridTapIdRef.current = id;
     }
   }, [enterFocus]);
+
+  // ============================================================
+  // #7 控制入口（owner 选定 K2 修改版）—— 安卓端等价交互
+  // ============================================================
+  // 安卓无 hover，等价交互 = 点按该 tile 伸出胶囊、再点该 tile 或点别处收回。
+  // 与既有的「双击进聚焦」（handleGridTap）**不冲突**：单击本来就只是记账
+  // （double-tap 判定靠两次 click 的时间差），所以单击拿来 toggle 胶囊正好。
+  const [controlPillId, setControlPillId] = useState<string | null>(null);
+
+  /** 对某个参会人发起控制申请（与桌面端 K2 / 右键菜单同一落点：主窗发 M1） */
+  const requestControlFor = useCallback((target: { userId: string | null; name: string }) => {
+    setControlPillId(null);
+    void emit(RC_REQUEST_CONTROL, {
+      participant_name: target.name,
+      target_user_id: target.userId,
+    }).catch(() => undefined);
+  }, []);
 
   // 覆盖层点击检测：单击 toggle 控制栏（300ms 延迟确认），双击退出聚焦
   const handleOverlayTap = useCallback(() => {
@@ -474,7 +519,18 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
 
       {/* 视频区域 */}
       <main className="mobile-meeting-main">
-        <div className="mobile-video-grid">
+        <div
+          className="mobile-video-grid"
+          onClick={(e) => {
+            // #7 K2：点空白处或本端 tile = 收回胶囊。
+            // ⚠️ 必须放过「对端 tile」自身的点击：tile 的 onClick 会 toggle 出胶囊，
+            //    而这里作为父节点会在同一次冒泡里再清成 null，等于刚点开就收回
+            //    （2026-09-14 双机真机实测发现的第二个缺陷）。
+            const tile = (e.target as HTMLElement).closest?.('.mobile-participant-video');
+            if (tile && !tile.classList.contains('local')) { return; }
+            setControlPillId(null);
+          }}
+        >
           {/* 本地视频（双击进入聚焦） */}
           <ParticipantVideo
             isLocal
@@ -484,14 +540,23 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
             onClick={() => handleGridTap('local')}
           />
 
-          {/* 远程参与者（双击进入聚焦） */}
+          {/* 远程参与者（双击进聚焦；单击 toggle 控制胶囊） */}
           <AnimatePresence>
             {webrtc.participants.map((participant) => (
               <ParticipantVideo
                 key={participant.id}
                 participant={participant}
                 isSpeaking={participant.isSpeaking}
-                onClick={() => handleGridTap(participant.id)}
+                onClick={() => {
+                  handleGridTap(participant.id);
+                  // 单击 toggle：再点同一 tile 收回，点其他 tile 改指向另一个
+                  setControlPillId((prev) => (prev === participant.id ? null : participant.id));
+                }}
+                controlOpen={controlPillId === participant.id}
+                onControlPill={() => requestControlFor({
+                  userId: participant.user_info?.user_id ?? null,
+                  name: participant.name,
+                })}
               />
             ))}
           </AnimatePresence>
@@ -646,10 +711,21 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
                 (() => {
                   const focused = webrtc.participants.find((p) => p.id === focusedId);
                   if (!focused) { return null; }
+                  /* #7 K2 在聚焦（spotlight）形态的入口（缺口闭合 2026-09-14）：
+                     此前只传 participant/isSpeaking ⇒ 胶囊的渲染条件（需 onControlPill）
+                     不成立，聚焦态下控制入口**完全不可达**。
+                     这里不新增手势：聚焦主画面的单击本来就由外层 handleOverlayTap 用来
+                     toggle 控制栏，所以直接把胶囊的伸出态接到同一个 controlsVisible 上——
+                     单击画面伸出 / 再单击收回，与网格态的「点按伸出·再点收回」同语义。 */
                   return (
                     <ParticipantVideo
                       participant={focused}
                       isSpeaking={focused.isSpeaking}
+                      controlOpen={controlsVisible}
+                      onControlPill={() => requestControlFor({
+                        userId: focused.user_info?.user_id ?? null,
+                        name: focused.name,
+                      })}
                     />
                   );
                 })()

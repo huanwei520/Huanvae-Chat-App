@@ -53,7 +53,7 @@ import {
 } from './webrtcCore';
 import { RustWebSocket } from '../services/rustWebSocket';
 import { resolveForSecureHttp } from '../services/discovery';
-import { isMobile } from '../utils/platform';
+import { detectPlatform, isMobile } from '../utils/platform';
 import {
   isAndroidScreenShareSupported,
   startAndroidScreenShare,
@@ -1560,7 +1560,7 @@ export function useWebRTC(): UseWebRTCReturn {
     if (!params) {
       return;
     }
-    const url = getSignalingUrl(params.roomId, token, params.serverUrl);
+    const url = getSignalingUrl(params.roomId, token, params.serverUrl, detectPlatform());
     const ws = new RustWebSocket(url, resolveForSecureHttp() ?? { pin_ca: true });
     wsRef.current = ws;
     lastPongAtRef.current = Date.now();

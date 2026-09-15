@@ -52,6 +52,8 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('../../src/contexts/SessionContext', () => ({
   useSession: () => mocks.sessionCtx,
+  // 2026-09-13 起泵的失败对账（sendFailureReconcile）需要 api：假客户端即可（对账在测试路径里不该命中）
+  useApi: () => ({ get: vi.fn().mockRejectedValue(new Error('测试路径不应发起对账请求')), post: vi.fn() }),
 }));
 
 // 只替换 useFileUpload 这一个导出，其余（UPLOAD_CANCELLED 等常量）保持真值

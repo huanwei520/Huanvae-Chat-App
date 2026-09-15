@@ -359,7 +359,8 @@ export const SERVICES: ComponentEntry[] = [
   { name: 'conversationKey', path: 'chat/shared/conversationKey', category: 'services', description: '会话身份 key 纯逻辑（草稿与回复草稿的归属校验共用同一口径，key 格式单一真值源）' },
   { name: 'scrollMessageIntoView', path: 'chat/shared/scrollMessageIntoView', category: 'services', description: '消息定位滚动（手算消息列表容器 scrollTop 居中，不用 scrollIntoView 以免沿祖先链冒泡把整个 App 顶上去；桌面+移动共用）' },
   { name: 'mergeMessageList', path: 'chat/shared/mergeMessageList', category: 'services', description: '消息列表增量合并（私聊/群聊 × loadMessages/后台同步 四个调用点共用一份：db 窗口只更新与追加，绝不把翻出来的历史砍回最近 50 条）' },
-  { name: 'wsEchoClaim', path: 'chat/shared/wsEchoClaim', category: 'services', description: 'WS 回显认领（按正文+类型在在途消息里配对，取代"第一个 sending"——后者在列表 [新→旧] 下取到的恒是最新那条，会把 uuid 写到另一条上并让它被去重滤掉）' },
+  { name: 'wsEchoClaim', path: 'chat/shared/wsEchoClaim', category: 'services', description: 'WS 回显认领（sending 精确 > sending 兜底 > failed 仅精确修复；第三级是「HTTP 响应回程丢失但服务端已受理」假阴性的修复 —— 回显即服务端受理实锤，实收不再标失败）' },
+  { name: 'sendFailureReconcile', path: 'chat/shared/sendFailureReconcile', category: 'services', description: '媒体假阴性失败的服务端对账（上传 confirm/秒传响应回程丢失 ⇒ 条目标 failed 但对端实收；唯一真值来源是服务端历史，命中即落库并恢复为已发送；未命中保持 failed 不洗白）' },
   // 工具模块
   { name: 'formatUtils', path: 'utils/format', category: 'services', description: '格式化工具函数' },
   { name: 'avatarColor', path: 'utils/avatarColor', category: 'services', description: '头像占位首字母 + emoji 判定 + 白底/描边/固定蓝渐变样式常量（引用 --avatar-placeholder-* 设计 token，固定蓝不随主题）纯函数' },

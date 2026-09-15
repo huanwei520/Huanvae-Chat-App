@@ -258,7 +258,15 @@ fi
 print_step "3/7" "从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换..."
 
 BUILD_HG_EXIT=0
-"$PROJECT_ROOT/scripts/build-hg-binaries.sh" || BUILD_HG_EXIT=$?
+if [[ "${HG_BINARIES_SKIP_REGISTERED:-0}" == "1" ]]; then
+    # 登记式跳过（沿 v1.1.40-v1.1.45 连续六版发布登记惯例）：本宿主为 Linux，
+    # build-hg-binaries.sh 的 macOS 腿（arm64-apple-darwin）无法在本机交叉构建。
+    # 跳过时调用方必须另行验证并登记：发货件与上一版 resources 落点逐字节一致。
+    print_warn "HG_BINARIES_SKIP_REGISTERED=1 —— 按登记惯例跳过 VPN 二进制构建（本宿主不可跑）"
+    print_warn "发布方必须验证 git diff <上一版tag>..HEAD -- src-tauri/resources/ 为空并在发布说明登记"
+else
+    "$PROJECT_ROOT/scripts/build-hg-binaries.sh" || BUILD_HG_EXIT=$?
+fi
 
 if [[ $BUILD_HG_EXIT -ne 0 ]]; then
     echo ""
@@ -345,7 +353,13 @@ if git diff --quiet && git diff --staged --quiet; then
     print_warn "标签 v$TARGET_VERSION 将重新指向当前 HEAD"
 else
     # 有变更，进行提交
-    git add -A
+    # 🔴 最小安全修正（2026-09-15，v1.1.46 发布）：原 git add -A 会把工作树里的
+    # 他块工作面杂散文件（.claude/*、*.png 截图、log、probe-ws/、dist-e2e/、
+    # tessdata/、test-artifacts*/ 等）一并卷入发布 commit。改为白名单式添加：
+    # 仅源码（src）、测试（tests）、脚本（scripts）与 src-tauri 指定子路径。
+    git add -u -- src tests scripts e2e src-tauri/tests
+    git add -- src tests e2e
+    git add -- src-tauri/binaries src-tauri/tauri.e2e.conf.json
     git commit -m "$COMMIT_MSG"
     print_ok "Git 提交完成"
 fi

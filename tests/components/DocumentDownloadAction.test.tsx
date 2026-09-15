@@ -83,7 +83,7 @@ describe('DocumentDownloadAction', () => {
     expect(document.querySelector('.document-download-progress')).not.toBeInTheDocument();
   });
 
-  it('inline 下载中：渲染 CircularProgress，无下载按钮', () => {
+  it('inline 下载中：渲染文档专用进度环（DocumentProgressRing），无下载按钮', () => {
     mockHooks.useFileCacheStore.mockReturnValue({
       fileHash: 'hash-abc',
       fileName: 'doc.pdf',
@@ -98,7 +98,12 @@ describe('DocumentDownloadAction', () => {
     render(<DocumentDownloadAction layout="inline" {...PROPS} />);
 
     expect(document.querySelector('.document-download-progress')).toBeInTheDocument();
-    expect(document.querySelector('.circular-progress-svg')).toBeInTheDocument();
+    // #6 owner 2026-09-14：「下载进度圈要类似 Telegram 而不是现在同一的图片视频进度圈套用在文件上」
+    // ⇒ 文档卡用 DocumentProgressRing（.document-progress-ring）
+    expect(document.querySelector('.document-progress-ring')).toBeInTheDocument();
+    expect(document.querySelector('[role="progressbar"]')).toBeInTheDocument();
+    // 反向断言：**不得**再用图片/视频那圈 CircularProgress（回退即红）
+    expect(document.querySelector('.circular-progress-svg')).not.toBeInTheDocument();
     // 反向断言：未下载的下载按钮不存在
     expect(document.querySelector('.document-download')).not.toBeInTheDocument();
   });

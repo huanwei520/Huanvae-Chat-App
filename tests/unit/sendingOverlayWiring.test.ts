@@ -80,10 +80,15 @@ describe('A. 三个渲染点都把 clientId 递给 FileMessageContent', () => {
     expect(props).not.toContain('<缺失>');
   });
 
-  it('相册那处递的是**每一格自己**的 clientId（不是整组一个）', () => {
+  it('相册每一处（网格格 + 文件堆叠行）递的都是**每一项自己**的 clientId（不是整组一个）', () => {
     const code = stripComments(read('src/chat/shared/AlbumMessage.tsx'));
-    // item 是 cells.map 的元素 ⇒ 每格一个键；写成 album.xxx 就成了整组共用一个
-    expect(clientIdPropsOf(code)).toEqual(['item.clientId']);
+    const props = clientIdPropsOf(code);
+    // 键一律是 item.*（网格的 cells.map 元素 / 文件堆叠的 rows.map 元素，两者都是单项）；
+    // 写成 album.xxx 就成了整组共用一个 —— 那正是这条锁要防的。
+    // 去重后必须只剩一个值：**允许多条渲染路径**（owner 2026-09-14 二次评审③：文件组改竖向
+    // 堆叠后，相册内部有两处渲染点），但**不允许出现第二种键**。
+    expect([...new Set(props)]).toEqual(['item.clientId']);
+    expect(props.length).toBeGreaterThan(0);
     expect(code).toMatch(/clientId\?:\s*string;/);
   });
 });

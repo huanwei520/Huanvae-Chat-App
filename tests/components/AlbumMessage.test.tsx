@@ -16,9 +16,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('../../src/chat/shared/FileMessageContent', () => ({
+  // 默认值与真实组件一致（`displayVariant = 'bubble'`）：不传时就是单文件那张卡，
+  // 这样「文件组每行用的是单文件款」这条断言才验的是真契约而不是 mock 的缺口。
   FileMessageContent: ({
     fileUuid,
-    displayVariant,
+    displayVariant = 'bubble',
     messageType,
   }: { fileUuid: string | null; displayVariant?: string; messageType?: string }) => (
     <div data-testid="media" data-uuid={fileUuid} data-variant={displayVariant} data-type={messageType} />
@@ -283,5 +285,116 @@ describe('AlbumMessage — message_type 收窄', () => {
     );
 
     expect(screen.getByTestId('media')).toHaveAttribute('data-type', 'image');
+  });
+});
+
+/**
+ * #6 文件多发（owner 2026-09-14 二次评审③改定的口径）
+ *
+ * OWNER 原话要点：「文件多发应像单文件一样竖向排列、其余整体样式不变，而非三正方形横排」。
+ * 所以文件组**不再**走图片/视频那套方格排布：
+ *   - 容器 = `.album-file-stack`（竖向），**不得**出现 `.album-grid`（那就是被否掉的横排）；
+ *   - 每行 = 单文件那张卡（FileMessageContent 默认 displayVariant='bubble'）；
+ *   - 头上是数量徽标；行仍各带自己的 `data-message-uuid` 定位锚点；
+ *   - message_type 仍必须是 file（不得被收窄成 image，否则文件名/下载环全错）。
+ *
+ * Telegram 式圆环进度圈保留（在 DocumentDownloadAction → DocumentProgressRing，
+ * 本组件不动那一路）。
+ */
+describe('#6 文件组：必须是竖向堆叠 + 同单文件卡，不得是横排方格', () => {
+  function fileItem(index: number): AlbumMediaItem {
+    return {
+      message_uuid: `fm${index}`,
+      message_content: '报告.pdf',
+      message_type: 'file',
+      file_uuid: `ff${index}`,
+      file_size: 2048,
+      media_group_index: index,
+    };
+  }
+
+  function fileAlbum(): AlbumNode<AlbumMediaItem> {
+    return {
+      kind: 'album',
+      groupId: 'gf',
+      items: [fileItem(0), fileItem(1), fileItem(2)],
+      expectedCount: 3,
+      caption: '',
+      isComplete: true,
+    };
+  }
+
+  it('三条 file 成组时走竖向堆叠容器，且**不产出** .album-grid 方格排布', () => {
+    const { container } = render(<AlbumMessage album={fileAlbum()} />);
+
+    expect(screen.getByTestId('album-file-stack')).toBeInTheDocument();
+    // 被否掉的那版是「图片式三正方形横排」：grid 容器一旦出现就说明回退了
+    expect(container.querySelector('.album-grid')).toBeNull();
+  });
+
+  it('每行复用 FileMessageContent 且 displayVariant 为单文件款（bubble，不是 album）', () => {
+    render(<AlbumMessage album={fileAlbum()} />);
+
+    const rows = screen.getAllByTestId('media');
+    expect(rows).toHaveLength(3);
+    expect(rows.every((n) => n.getAttribute('data-variant') === 'bubble')).toBe(true);
+    expect(rows.every((n) => n.getAttribute('data-type') === 'file')).toBe(true);
+  });
+
+  it('数量徽标标注本组张数', () => {
+    render(<AlbumMessage album={fileAlbum()} />);
+
+    expect(screen.getByText('3 个文件')).toBeInTheDocument();
+  });
+
+  it('每行各带自己的定位锚点（折叠后组内非首位仍能被搜到）', () => {
+    const { container } = render(<AlbumMessage album={fileAlbum()} />);
+
+    const anchors = Array.from(container.querySelectorAll('.album-file-stack__row'))
+      .map((n) => n.getAttribute('data-message-uuid'));
+    expect(anchors).toEqual(['fm0', 'fm1', 'fm2']);
+  });
+
+  it('行序按 media_group_index（与眼睛看到的一致）', () => {
+    render(
+      <AlbumMessage
+        album={{ ...fileAlbum(), items: [fileItem(2), fileItem(0), fileItem(1)] }}
+      />,
+    );
+
+    const uuids = screen.getAllByTestId('media').map((n) => n.getAttribute('data-uuid'));
+    expect(uuids).toEqual(['ff0', 'ff1', 'ff2']);
+  });
+
+  it('image 组仍走网格（回归：竖排只吃下文件组）', () => {
+    const { container } = render(<AlbumMessage album={album()} />);
+
+    expect(container.querySelector('.album-grid')).not.toBeNull();
+    expect(screen.queryByTestId('album-file-stack')).toBeNull();
+    for (const cell of screen.getAllByTestId('media')) {
+      expect(cell).toHaveAttribute('data-type', 'image');
+      expect(cell).toHaveAttribute('data-variant', 'album');
+    }
+  });
+
+  it('video 组仍走网格（收窄函数三分支互不串位）', () => {
+    render(
+      <AlbumMessage
+        album={{
+          kind: 'album',
+          groupId: 'gv',
+          items: [
+            { ...item(0), message_type: 'video' },
+            { ...item(1), message_type: 'video' },
+          ],
+          expectedCount: 2,
+          caption: '',
+          isComplete: true,
+        }}
+      />,
+    );
+    for (const cell of screen.getAllByTestId('media')) {
+      expect(cell).toHaveAttribute('data-type', 'video');
+    }
   });
 });

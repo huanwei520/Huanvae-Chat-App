@@ -67,7 +67,7 @@ interface UseInitialSyncReturn {
 export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncProps): UseInitialSyncReturn {
   const { session } = useSession();
   const api = useApi();
-  const { onReconnected } = useWebSocket();
+  const { onReconnected, connected: wsConnected } = useWebSocket();
   const syncRef = useRef(false);
   const syncingRef = useRef(false);
   const [notification, setNotification] = useState<SyncNotification | null>(null);
@@ -131,6 +131,12 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
     await db.saveConversation(newConversation);
     return { ...newConversation, synced_at: null, last_read_seq: 0, is_pinned: false };
   }, []);
+
+  // WS 连接状态用 ref 读取：报错那一刻的状态必须进错误文案（任务卡要求的
+  // 「标记失败时刻 WS 状态与同步报错时间窗同源性」从此在每条横幅里自证），
+  // 但不能把 connected 写进 performSync 依赖 —— 那会让每次 WS 抖动都重建回调。
+  const wsConnectedRef = useRef(false);
+  wsConnectedRef.current = wsConnected;
 
   /**
    * 执行全量增量同步
@@ -206,8 +212,12 @@ export function useInitialSync({ friendsLoaded, groupsLoaded }: UseInitialSyncPr
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '同步失败';
-      console.error('[InitialSync] 同步失败:', error);
+      const reason = error instanceof Error ? error.message : '同步失败';
+      // 失败时刻的 WS 状态随报错一起进横幅：WS断开 = 与断连同源（网络层共性），
+      // WS已连接 = HTTP 数据面独立故障。这是「真实原因」的一部分，不是装饰。
+      const wsState = wsConnectedRef.current ? 'WS已连接' : 'WS断开';
+      const errorMessage = `${reason}（${wsState}）`;
+      console.error('[InitialSync] 同步失败:', error, { wsConnected: wsConnectedRef.current, trigger });
       if (trigger) {
         setNotificationWithAutoClear({ type: 'error', message: errorMessage });
       }

@@ -26,6 +26,7 @@ import { CircularProgress } from '../common/CircularProgress';
 import { UserAvatar } from '../common/Avatar';
 import { CameraIcon, EditIcon } from './ProfileIcons';
 import type { Session } from '../../types/session';
+import { snapshotPickedFile } from '../../utils/pickedFile';
 
 interface AvatarUploaderProps {
   session: Session;
@@ -77,12 +78,14 @@ export function AvatarUploader({
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      onFileSelect(file);
+      // 先读进内存再清空 input：安卓 WebView 返回的是文件背衬 Blob，
+      // 先清空会让 Image/fetch 之后完全读不到字节（头像裁剪报「图片加载失败」）。
+      onFileSelect(await snapshotPickedFile(file));
     }
-    // 清空 input 以支持重复选择同一文件
+    // 清空 input 以支持重复选择同一文件（必须在读字节之后）
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }

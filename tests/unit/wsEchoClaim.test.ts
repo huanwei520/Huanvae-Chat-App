@@ -74,6 +74,39 @@ describe('① pickSendingEchoIndex 行为', () => {
     const list = [sent('A'), sending('A')];
     expect(pickSendingEchoIndex(list, { content: 'A', message_type: 'text' })).toBe(1);
   });
+
+  // ===== 第 3 级：failed 仅精确修复（假阴性：HTTP 响应回程丢失，服务端已受理并回显） =====
+  const failed = (content: string, type = 'text') => ({
+    message_content: content,
+    message_type: type,
+    sendStatus: 'failed' as const,
+  });
+
+  it('假阴性修复：无在途项时，failed 条目被同正文同类型的回显精确认领', () => {
+    const list = [sent('别的'), failed('你好')];
+    expect(pickSendingEchoIndex(list, { content: '你好', message_type: 'text' })).toBe(1);
+  });
+
+  it('假阴性修复不做兜底：正文对不上的 failed 保持失败（可能是真失败，不能洗成已发送）', () => {
+    const list = [failed('A')];
+    expect(pickSendingEchoIndex(list, { content: '完全不同', message_type: 'text' })).toBe(-1);
+  });
+
+  it('类型也对不上时不认领 failed', () => {
+    const list = [failed('x.png', 'image')];
+    expect(pickSendingEchoIndex(list, { content: 'x.png', message_type: 'text' })).toBe(-1);
+    expect(pickSendingEchoIndex(list, { content: 'x.png', message_type: 'image' })).toBe(0);
+  });
+
+  it('sending 优先于 failed：同一回显先认领在途项，不抢修复位', () => {
+    const list = [failed('A'), sending('A')];
+    expect(pickSendingEchoIndex(list, { content: 'A', message_type: 'text' })).toBe(1);
+  });
+
+  it('多条同正文 failed ⇒ 取最早发出的那条（数组尾部）', () => {
+    const list = [failed('同一句'), failed('同一句')];
+    expect(pickSendingEchoIndex(list, { content: '同一句', message_type: 'text' })).toBe(1);
+  });
 });
 
 describe('② 两个 hook 都接到共享认领（接线扫描）', () => {

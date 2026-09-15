@@ -65,6 +65,7 @@ import { isTopLayerActive } from '../../hooks/useTopLayer';
 import { isFriendLikeTarget } from '../../utils/chatTarget';
 import type { MenuView } from '../shared/menu/types';
 import type { ChatTarget } from '../../types/chat';
+import { snapshotPickedFile } from '../../utils/pickedFile';
 
 // ============================================
 // 类型定义
@@ -566,7 +567,7 @@ export function useChatMenu({
   const handleAvatarUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     if (target.type !== 'group' || !e.target.files?.[0]) { return; }
 
-    const file = e.target.files[0];
+    const file = await snapshotPickedFile(e.target.files[0]);
     if (fileInputRef.current) { fileInputRef.current.value = ''; }
     if (file.size > 10 * 1024 * 1024) {
       setError('图片大小不能超过 10MB');

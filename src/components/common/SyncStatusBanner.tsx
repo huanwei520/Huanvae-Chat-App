@@ -97,7 +97,10 @@ export function SyncStatusBanner({ notification, onRetry }: SyncStatusBannerProp
             onKeyDown={(e) => e.key === 'Enter' && onRetry?.()}
           >
             <AlertIcon />
-            <span className="sync-banner-text">同步失败，点击重试</span>
+            {/* 真实原因：notification.message 由 useInitialSync 生成（含报错原文 +
+                失败时刻的 WS 连接状态）。原先这里写死「同步失败，点击重试」，
+                真因在链路里早已拿到却被丢掉 ——「同步失败不给原因」的病灶（2026-09-13）。 */}
+            <span className="sync-banner-text">同步失败：{notification.message}，点击重试</span>
           </div>
         );
 

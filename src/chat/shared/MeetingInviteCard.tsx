@@ -74,33 +74,35 @@ export function MeetingInviteCard({ messageContent }: MeetingInviteCardProps) {
 
   return (
     <div className={`meeting-invite-card ${expired ? 'meeting-invite-expired' : ''}`}>
-      <div className="meeting-invite-header">
-        <svg className="meeting-invite-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polygon points="23 7 16 12 23 17 23 7" />
-          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-        </svg>
-        <span className="meeting-invite-title">会议邀请</span>
+      {/* ---- D2「左章横条卡」修改版（owner 2026-09-14 选定）----
+          章（46px 圆角方章）= **创建会议人的头像**（有头像用头像，无头像回退到会议图标章）。
+          骨架：左右两栏（章 | 标题+元信息）+ 底部全宽实心 CTA。 */}
+      <div className="meeting-invite-body-row">
+        <span className="meeting-invite-medal" aria-hidden="true">
+          {payload.creator_avatar
+            ? (
+              <img
+                className="meeting-invite-medal-avatar"
+                src={resolveServerAvatarUrl(payload.creator_avatar) || ''}
+                alt=""
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+            )
+            : null}
+          {/* 无头像（或头像加载失败被隐藏）时的回退图标：会议摄像头章 */}
+          <svg className="meeting-invite-medal-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+        </span>
+
+        <div className="meeting-invite-info">
+          <div className="meeting-invite-room-name">{payload.room_name}</div>
+          <div className="meeting-invite-meta">房间号 {payload.room_id} · {payload.creator_name}</div>
+        </div>
       </div>
 
-      <div className="meeting-invite-body">
-        <div className="meeting-invite-room-name">{payload.room_name}</div>
-        <div className="meeting-invite-info-row">
-          <span className="meeting-invite-label">房间号</span>
-          <span className="meeting-invite-value">{payload.room_id}</span>
-        </div>
-        <div className="meeting-invite-creator">
-          {payload.creator_avatar && (
-            <img
-              className="meeting-invite-avatar"
-              src={resolveServerAvatarUrl(payload.creator_avatar) || ''}
-              alt=""
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-          )}
-          <span className="meeting-invite-creator-name">{payload.creator_name}</span>
-        </div>
-      </div>
-
+      {/* D2 原案：底部全宽实心 CTA（原先是透明底+上边框的文字链） */}
       <button
         className="meeting-invite-join-btn"
         onClick={handleJoin}

@@ -56,6 +56,8 @@ import { MeetingBridge } from '../remote-control/meetingBridge';
 import { isDevControl, isRemoteControlEnabled } from '../remote-control/devGate';
 import { useControlSessionStore } from '../remote-control/sessionStore';
 import { PlatformBadge } from './components/PlatformBadge';
+// #7 目标能力门控（owner 2026-09-14 二次评审②）：胶囊/右键菜单/授权弹窗共用同一判据
+import { isControllablePlatform } from '../utils/platform';
 import { RC_REQUEST_CONTROL, RC_REQUEST_RELEASE, RC_SESSION_STATE } from '../remote-control/bus';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
@@ -233,6 +235,10 @@ function ParticipantVideo({
          user_id = M1.target_user_id 真值源；本地 tile 不带该属性（自己不可被自己控制） */
       data-rc-user-id={participant?.user_info?.user_id ?? undefined}
       data-rc-name={participant?.name}
+      /* #7 目标能力门控（owner 2026-09-14 二次评审②）：右键菜单与胶囊读同一个真值源 */
+      data-rc-controllable={
+        !isLocal && isControllablePlatform(participant?.platform) ? 'true' : undefined
+      }
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
@@ -282,8 +288,12 @@ function ParticipantVideo({
 
       {/* #7 控制入口（owner 选定 K2 修改版）：底部「申请控制」胶囊，
           默认隐藏，鼠标进入本参会人画面框时从底部向上伸出（CSS transition），
-          离开收回。右键菜单（.rc-tilemenu）保留为等价入口。 */}
-      {!isLocal && onClickControl && isRemoteControlEnabled() && (
+          离开收回。右键菜单（.rc-tilemenu）保留为等价入口。
+          🔴 目标能力门控（owner 2026-09-14 二次评审②）：只对**可被控平台**渲染。
+          Android/iOS 无控制 daemon ⇒ 不给入口（旧行为会在 Android 端弹出一个
+          永远不可能生效的接受授权框）。平台未知（旧客户端不上报）同样不给。 */}
+      {!isLocal && onClickControl && isRemoteControlEnabled()
+        && isControllablePlatform(participant?.platform) && (
         <button
           type="button"
           className="tile-control-pill"
@@ -639,6 +649,8 @@ export default function MeetingPage() {
     y: number;
     userId: string | null;
     name: string | null;
+    /** 命中 tile 是否可被控（#7 目标能力门控；见 data-rc-controllable） */
+    controllable: boolean;
   } | null>(null);
   const handleGridContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -648,6 +660,8 @@ export default function MeetingPage() {
       y: e.clientY,
       userId: tile?.dataset.rcUserId ?? null,
       name: tile?.dataset.rcName ?? null,
+      // 能力门控真值源：与胶囊读同一个 data-* （见 ParticipantVideo 的渲染条件）
+      controllable: tile?.dataset.rcControllable === 'true',
     });
   }, []);
   useEffect(() => {
@@ -723,7 +737,7 @@ export default function MeetingPage() {
     }).catch(() => undefined);
     // 本地立即终态（N3 自回执到达后 dispatch released 再走一次，幂等）
     st.release('revoked');
-  }, [meetingData, rcGrant]);
+  }, [rcGrant]);
 
   // Esc 退出聚焦模式（显示器全屏时浏览器先退出 fullscreen，再按 Esc 退出窗口全屏）
   useEffect(() => {
@@ -941,7 +955,15 @@ export default function MeetingPage() {
         )}
         {isRemoteControlEnabled() && gridMenu && (
           <div className="rc-tilemenu" style={{ left: gridMenu.x, top: gridMenu.y }}>
-            <button onClick={tileRequestControl}>申请控制</button>
+            {/* 与 tile 胶囊同一个能力判据（data-rc-controllable 委托解析），
+                避免「胶囊不给、右键却给」的両套口径。 */}
+            {gridMenu.controllable ? (
+              <button onClick={tileRequestControl}>申请控制</button>
+            ) : (
+              <span className="rc-tilemenu__note" data-testid="rc-tilemenu-blocked">
+                该参会者所在设备不支持被控（控制程序仅在桌面端运行）
+              </span>
+            )}
             <span className="rc-tilemenu__note">对共享中的参会者 tile 右键可用</span>
           </div>
         )}

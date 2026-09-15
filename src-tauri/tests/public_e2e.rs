@@ -165,11 +165,20 @@ async fn upload() {
     let base = base_url();
 
     // 一个极小的文本"文件"内容（避免依赖外部文件）。
-    let content = b"huanvae-e2e-upload-probe\n";
+    // 每次运行内容带唯一后缀：后端按 file_hash 去重（命中即秒传），唯一内容才能保证
+    // 真正走 part_url+PUT+confirm 全链路。
+    let content = format!("huanvae-e2e-upload-probe-{}\n", uuid_like()).into_bytes();
     let file_size = content.len();
-    // 内容 + |size:N| 影响哈希；这里用固定可复现的 hash 占位（后端按 hash 去重，
-    // 用唯一 hash 避免命中历史秒传，从而真正走 part_url+PUT+confirm 全链路）。
-    let file_hash = format!("e2e-probe-{}", uuid_like());
+    // file_hash 必须是 64 位小写十六进制（后端 `验证错误: 哈希值必须是64位十六进制字符串（SHA-256）`）。
+    // 按上传侧同一算法自算：digest("|size:{字节数}|" ‖ 文件内容)。
+    // 算法契约见 src-tauri/src/content_hash.rs 模块头 与 src/hooks/useFileUpload.ts calculateSHA256。
+    let file_hash = {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(format!("|size:{}|", file_size).as_bytes());
+        h.update(&content);
+        hex::encode(h.finalize())
+    };
 
     // 1. request 上传
     let request_body = format!(
@@ -238,28 +247,26 @@ async fn upload() {
     let put_url = resolve_relative(&part_url, &base);
 
     // 3. PUT 分片（Host=api.huanvae.cn，这是 presigned 签名校验的关键）
-    let mut put_headers = HashMap::new();
-    put_headers.insert("Host".to_string(), logical_host());
-    let put_req = SecureHttpReq {
-        method: "PUT".to_string(),
-        url: put_url,
-        headers: put_headers,
-        body: Some(String::from_utf8_lossy(content).into_owned()),
-        pin_ca: true,
-        extra_ca_pem: None,
-        timeout_secs: Some(60),
-    };
-    let resp = secure_http(put_req)
+    //    ⚠ 必须走 HTTP/1.1 出站腿：presigned PUT/GET 要显式带 `Host`，而 `secure_http` 的 client
+    //    允许 HTTP/2 —— h2 下显式 `Host` 与 `:authority`（IP 字面量 URL 得出）冲突，
+    //    按 RFC7540 §8.1.2.3 被 nginx 判 malformed 返 400（实测）。生产同理走 secure_proxy 的
+    //    h1-only 出站腿（useFileUpload.ts XHR → secure_proxy.rs）。
+    let put_resp = presigned_outbound_client()
+        .put(&put_url)
+        .header("Host", logical_host())
+        .body(String::from_utf8_lossy(&content).into_owned())
+        .send()
         .await
-        .unwrap_or_else(|e| panic!("[upload/PUT] secure_http 失败: {e}"));
-    println!("[upload/PUT] status={}", resp.status);
-    if !(200..300).contains(&resp.status) {
-        println!("[upload/PUT] body: {}", resp.body);
+        .unwrap_or_else(|e| panic!("[upload/PUT] 请求失败: {e}"));
+    let put_status = put_resp.status().as_u16();
+    let put_body = put_resp.text().await.unwrap_or_default();
+    println!("[upload/PUT] status={put_status}");
+    if !(200..300).contains(&put_status) {
+        println!("[upload/PUT] body: {put_body}");
     }
     assert!(
-        (200..300).contains(&resp.status),
-        "[upload/PUT] 期望 2xx，实际 {}（403=SignatureDoesNotMatch 通常是 Host 头不对）",
-        resp.status
+        (200..300).contains(&put_status),
+        "[upload/PUT] 期望 2xx，实际 {put_status}（403=SignatureDoesNotMatch 通常是 Host 头不对）"
     );
 
     // 4. confirm
@@ -350,26 +357,50 @@ async fn display() {
     let download_url = resolve_relative(&presigned, &base);
 
     // 3. GET presigned 下载 URL（Host=api.huanvae.cn）→ 200。
-    let mut get_headers = HashMap::new();
-    get_headers.insert("Host".to_string(), logical_host());
-    let get_req = SecureHttpReq {
-        method: "GET".to_string(),
-        url: download_url,
-        headers: get_headers,
-        body: None,
-        pin_ca: true,
-        extra_ca_pem: None,
-        timeout_secs: Some(60),
-    };
-    let resp = secure_http(get_req)
+    //    同样必须 HTTP/1.1 出站腿（显式 Host，见 upload() 中 presigned_outbound_client 注释）。
+    let get_resp = presigned_outbound_client()
+        .get(&download_url)
+        .header("Host", logical_host())
+        .send()
         .await
-        .unwrap_or_else(|e| panic!("[display/GET] secure_http 失败: {e}"));
-    println!("[display/GET] status={} body_len={}", resp.status, resp.body.len());
+        .unwrap_or_else(|e| panic!("[display/GET] 请求失败: {e}"));
+    let get_status = get_resp.status().as_u16();
+    let get_body = get_resp.text().await.unwrap_or_default();
+    println!("[display/GET] status={get_status} body_len={}", get_body.len());
     assert_eq!(
-        resp.status, 200,
+        get_status, 200,
         "[display/GET] 期望 200，实际 {}（403=Host 头不对或 presigned 过期）",
-        resp.status
+        get_status
     );
+}
+
+/// 反代出站腿同款 HTTP/1.1 贪 CA + mTLS 客户端（presigned PUT/GET 专用）。
+///
+/// 为什么不直接用 `secure_http`：presigned 请求必须显式带 `Host: api.huanvae.cn`（签名
+/// 校验依据），而 `secure_http` 的 client 允许 HTTP/2 —— h2 下显式 `Host` 与 `:authority`
+/// 不一致，被 nginx 判 malformed 返 400（本测试 2026-09-14 实测）。生产的同一环节走
+/// `src-tauri/src/secure_proxy.rs` 的 **h1-only** 出站腿；本函数是其最小复刻
+/// （PEM 从 `resources/` 读，与生产同一批文件）。
+fn presigned_outbound_client() -> reqwest::Client {
+    let res = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+    let ca = std::fs::read(res.join("huanvae-ca.pem")).expect("读 huanvae-ca.pem");
+    let cert = std::fs::read(res.join("app-client.cert.pem")).expect("读 app-client.cert.pem");
+    let key = std::fs::read(res.join("app-client.key.pem")).expect("读 app-client.key.pem");
+    let mut identity_pem = Vec::with_capacity(key.len() + cert.len());
+    identity_pem.extend_from_slice(&key);
+    identity_pem.extend_from_slice(&cert);
+    let mut b = reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(std::time::Duration::from_secs(60))
+        .http1_only()
+        .tls_built_in_root_certs(false)
+        .danger_accept_invalid_hostnames(true);
+    for c in reqwest::Certificate::from_pem_bundle(&ca).expect("解析内置 CA") {
+        b = b.add_root_certificate(c);
+    }
+    b.identity(reqwest::Identity::from_pem(&identity_pem).expect("加载客户端证书"))
+        .build()
+        .expect("构建 h1 出站客户端")
 }
 
 // ============================================

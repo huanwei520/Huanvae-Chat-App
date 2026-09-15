@@ -45,6 +45,11 @@
      ============================================ */
   
   /* 主色系 */
+  /* 🔴 变量名就是 `--primary` / `--accent`（ThemeProvider 注入的也是这两个名字）。
+     凡写 `var(--accent-color, …)` / `var(--primary-color, …)` 的，**别名从未被注入过**：
+     fallback 恒生效 ⇒ 字面色写死、主题切换失效、系统调色盘形同虚设。
+     owner 2026-09-14 二次评审④（会议卡仍是紫色硬编码）的根因就是这组别名 ——
+     已全部收敛（全仓 grep `--accent-color`/`--primary-color` 应为 0 命中）。 */
   --primary: #3b82f6;
   --primary-hover: #2563eb;
   --primary-active: #1d4ed8;

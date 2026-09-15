@@ -98,3 +98,77 @@
  * on the first image. It is rendered by chat/shared/MediaBubbleFrame.tsx, which
  * wraps grid + caption into one bubble shared with the single-media shapes --
  * see src/styles/components/media-bubble.css. */
+
+/* ============================================================
+   文件组：竖向堆叠（owner 2026-09-14 二次评审）
+   ============================================================
+   OWNER 原话要点：「文件多发应像单文件一样竖向排列、其余整体样式不变，
+   而非三正方形横排」。故文件组不走 .album-grid 的方格排布 —— 每一行直接就是
+   **单文件那张卡**（FileMessageContent 默认 displayVariant='bubble'），
+   这里只负责把它们竖着摞起来 + 头上一枚数量徽标。
+
+   为什么不是 3 个正方形横排（被否掉的那版）：正方形的宽高比是为图片/视频
+   设计的（缩略图有画面可看），文件卡的信息面是**文字**（图标 + 文件名 + 大小 +
+   下载环），塞进 ~90px 的方格里文件名只能截断成 3~4 个字，且每行 3 个并排会
+   把时间戳/昵称的药丸浮层挤到没有落点。竖排则与单文件卡逐像素同款。 */
+
+.album-file-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 与单文件卡同宽口径：卡片自带 min-width: 200px，这里只兜一个上限，
+     不写死宽度（否则会话侧边栏变窄时卡片会被裁）。 */
+  max-width: 320px;
+  min-width: 0;
+}
+
+/* 数量徽标：告诉用户「这是一组 N 个文件」，取代原来靠横排方格数量暗示的做法。
+   配色走系统 token（--text-secondary / --bg-muted / --border-subtle），
+   不引入任何字面色 —— owner 二次评审③「清除紫色硬编码，走系统调色盘」。 */
+.album-file-stack__count {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.album-file-stack__count-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* 每一行 = 一个文件；行本身不画任何东西（卡片自带背景/边框/圆角），
+   只承担定位锚点与 flex 排布。min-width:0 让卡片里的长文件名能正常省略。 */
+.album-file-stack__row {
+  display: flex;
+  min-width: 0;
+}
+
+.album-file-stack__row .file-message {
+  /* 竖排时每张卡各自撑满列宽，观感与单文件一致；不继承气泡层的 max-width 上限 */
+  max-width: none;
+  width: 100%;
+}
+
+/* 时间戳与网格分支同一条口径：文件组不是媒体面，meta 落在堆叠下方而不是浮层。
+   .bubble-metafoot 自带 justify-content:flex-end ⇒ 不加 body 也靠右。 */
+.album-file-stack__meta {
+  margin-top: 2px;
+}
+
+/* 整组配文（文件组）：与网格分支同一条「配文属于整组、落在下方」的口径。
+   这里借用 .media-bubble-caption 的排版（字号/行高/换行），但不套 .media-bubble
+   那层带底色的大气泡 —— 文件卡自己就是白底卡片，再套一层气泡会是两层背景叠着。 */
+.album-file-stack__caption {
+  padding: 0 2px;
+}

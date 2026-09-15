@@ -113,7 +113,7 @@
 }
 
 .mobile-meeting-header-btn.active {
-  background: var(--primary-color, #3b82f6);
+  background: var(--primary);
 }
 
 .mobile-meeting-header-btn svg {
@@ -570,7 +570,7 @@
 .mobile-meeting-icon svg {
   width: 64px;
   height: 64px;
-  color: var(--accent-color, #3b82f6);
+  color: var(--primary);
 }
 
 /* 标签页切换 */
@@ -598,7 +598,7 @@
 
 .mobile-meeting-tab.active {
   background: var(--glass-bg, rgba(255, 255, 255, 0.9));
-  color: var(--accent-color, #3b82f6);
+  color: var(--primary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -647,7 +647,7 @@
 .mobile-meeting-field input:focus,
 .mobile-meeting-field select:focus,
 .mobile-meeting-field textarea:focus {
-  border-color: var(--accent-color, #3b82f6);
+  border-color: var(--primary);
 }
 
 .mobile-meeting-field textarea {
@@ -666,7 +666,7 @@
   font-size: 16px;
   font-weight: 600;
   color: #fff;
-  background: var(--accent-color, #3b82f6);
+  background: var(--primary);
   border: none;
   border-radius: 12px;
   cursor: pointer;
@@ -732,9 +732,9 @@
   padding: 14px 24px;
   font-size: 15px;
   font-weight: 500;
-  color: var(--accent-color, #3b82f6);
+  color: var(--primary);
   background: var(--glass-bg, rgba(255, 255, 255, 0.8));
-  border: 1px solid var(--accent-color, #3b82f6);
+  border: 1px solid var(--primary);
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s ease;
@@ -837,7 +837,7 @@
 }
 
 .mobile-spotlight-sidebar .mobile-participant-video:active {
-  border-color: var(--primary-color, #3b82f6);
+  border-color: var(--primary);
 }
 
 .mobile-spotlight-sidebar .mobile-participant-name {
@@ -891,4 +891,83 @@
 
 .mobile-spotlight-btn.end-call:active {
   background: #dc2626;
+}
+
+/* ============================================================
+   #9 平台徽章（移动端）—— 复用桌面 .platform-badge 基础规则，
+   仅把尺寸收小一档（手机 tile 更小，30px 会压到画面）。
+   ============================================================ */
+.platform-badge--mobile {
+  width: 26px;
+  height: 26px;
+  top: 8px;
+  left: 8px;
+}
+
+.platform-badge--mobile svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ============================================================
+   #7 「申请控制」按钮（移动端专属组件 MobileControlPill）
+   ------------------------------------------------------------
+   owner 2026-09-14 二次评审①：原先两端复用同一个 `.tile-control-pill`
+   （桌面只是加了个 `--mobile` 修饰符微调内边距），结果是「两端看起来一模一样」
+   且桌面尺寸/配色在触屏上不合手。故移动端拆成**自己的组件 + 自己的类名**
+   （.mob-control-pill），不再继承桌面胶囊的任何尺寸/颜色。
+
+   触屏尺寸口径：最小触击高度 40px（WCAG 2.5.8 的 24px 下限之上取中），
+   圆角 999px，字号 14px——都比桌面那份大一号。
+
+   配色：走系统 token（--primary 底 + --text-on-color 恒白字），
+   不写字面色、也不再钉在 accent 紫上（二次评审①「紫色与整体产品设计风格不符」）。
+
+   交互：安卓无 hover，伸出态只由 `--open` 修饰符驱动（点按 tile toggle）。
+   动画所有权本组件自己的 CSS transition（transform/opacity），与桌面同口径。
+   ============================================================ */
+.mob-control-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid var(--border-strong, rgba(147, 197, 253, 0.5));
+  border-radius: 999px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.9));
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    var(--shadow-md);
+  /* 隐藏态：向下移出自身高度 + 留白（与桌面胶囊同一几何口径） */
+  transform: translate(-50%, calc(100% + 20px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+  z-index: 5;
+}
+
+.mob-control-pill svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.mob-control-pill:active {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.95));
+}
+
+/* 伸出态：只由本组件自己的修饰符驱动（不依赖 :hover / :focus-within） */
+.mob-control-pill--open {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
 }

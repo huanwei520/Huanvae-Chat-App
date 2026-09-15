@@ -1726,9 +1726,10 @@
 }
 
 .lan-direction-tag.receive {
-  color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.12);
-  border: 1px solid rgba(139, 92, 246, 0.35);
+  /* owner 2026-09-14 二次评审③：紫色字面量收敛到系统 token（accent 族） */
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
 }
 
 .lan-batch-outcome {

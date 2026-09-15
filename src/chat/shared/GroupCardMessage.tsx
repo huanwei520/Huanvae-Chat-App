@@ -38,7 +38,16 @@ interface GroupCardMessageProps {
   messageContent: string;
 }
 
-/** 卡片正脸：群头像 + 群名 + 副行。发送侧的预览条复用同一张脸，两边不会长得不一样 */
+/**
+ * 卡片正脸：46px 群头像章 + 群名 + 副行。
+ *
+ * 🔴 **骨架与真实卡片逐字同形**（owner 2026-09-14 选定 D2「左章横条卡」）：
+ * 分享群名片弹窗的预览条直接复用本组件（`ShareGroupCardModal`），
+ * 所以它必须长得和聊天里收到的那张卡**一模一样**（所见即所得）。
+ * 改本组件 = 同时改预览与真卡，两者不会漂。
+ *
+ * 章 = **群头像**（owner 细则：群聊卡片显示群聊头像）；缺头像时回退到首字占位。
+ */
 export function GroupCardFace({
   name,
   avatarUrl,
@@ -52,10 +61,10 @@ export function GroupCardFace({
 }) {
   return (
     <div className={`group-card-face${muted ? ' group-card-face--muted' : ''}`}>
-      <span className="group-card-avatar">
+      <span className="group-card-medal">
         {avatarUrl
           ? <img src={avatarUrl} alt="" />
-          : <AvatarPlaceholder name={name} fontSize={18} />}
+          : <AvatarPlaceholder name={name} fontSize={20} />}
       </span>
       <span className="group-card-textcol">
         <span className="group-card-name">{name}</span>
@@ -125,9 +134,8 @@ export function GroupCardMessage({ messageContent }: GroupCardMessageProps) {
       onClick={() => openGroupDetail(groupId, 'referral')}
       aria-label={info ? `查看群聊 ${name}` : '查看群聊'}
     >
-      <div className="group-card-head">
-        <span className="group-card-tag">群名片</span>
-      </div>
+      {/* D2 修改版（owner 选定）：**无标签行**，识别交给左侧群头像章；
+          底部是**全宽实心 CTA**（原先是上边框分隔的文字链）。 */}
       <GroupCardFace
         name={name || (loadFailed ? '未知群聊' : '加载中...')}
         avatarUrl={avatarUrl}

@@ -211,24 +211,30 @@
   justify-content: center;
   gap: 8px;
   padding: 12px 20px;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 10px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
 }
 
+/* D2 玻璃描边（owner 2026-09-15 选定）：透明表面底+1px 描边+主色字 */
 .meeting-btn.primary {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-  color: var(--text-inverse);
-  box-shadow: var(--shadow-glow);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.8));
+  color: var(--primary);
+  border-color: var(--border-strong, rgba(147, 197, 253, 0.5));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .meeting-btn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-active) 100%);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.9));
+  border-color: var(--primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 8px var(--primary-subtle);
 }
 
 .meeting-btn.primary:disabled {
@@ -885,15 +891,17 @@
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  border: 1px solid var(--border-default);
-  background: var(--white-alpha-80);
+  border: 1px solid var(--border-strong, rgba(147, 197, 253, 0.5));
+  background: var(--bg-surface, rgba(255, 255, 255, 0.8));
   color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
-  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .control-btn svg {
@@ -902,9 +910,13 @@
 }
 
 .control-btn:hover {
-  background: var(--white-alpha-95);
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.9));
+  border-color: var(--primary);
+  color: var(--primary);
   transform: scale(1.05);
-  box-shadow: var(--shadow-md);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 8px var(--primary-subtle);
 }
 
 .control-btn.off {
@@ -1434,4 +1446,109 @@
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
+}
+/* ============================================================
+   #9 平台徽章（owner 选定 P1「玻璃圆徽章」）
+   ------------------------------------------------------------
+   落在 tile 左上角：避让左下角人名条、以及 #7 控制胶囊所在的底部中央。
+   pointer-events: none —— 纯标识，不抢 tile 的点击（点击 tile 是聚焦/切换主画面）。
+   平台字段缺席 / ios / unknown 时组件不渲染本元素（见 PlatformBadge.tsx 文件头）。
+   ============================================================ */
+.platform-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--white-alpha-30, rgba(255, 255, 255, 0.3));
+  color: var(--white-alpha-95, rgba(255, 255, 255, 0.95));
+  pointer-events: none;
+  z-index: 3;
+}
+
+.platform-badge svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+/* ============================================================
+   #7 参会人 tile 控制入口（owner 选定 K2 修改版）
+   ------------------------------------------------------------
+   默认隐藏（向下位移出 tile 下沿 + opacity 0 + pointer-events none），
+   鼠标进入该参会人画面框时从底部向上伸出，离开收回。
+
+   ⚠️ 动画所有权：transform/opacity 归**本按钮自己**的 CSS transition。
+   父元素 .participant-video 是 framer-motion 的 motion.div（transform/opacity 归 JS），
+   两者是不同元素 —— 本规则只写自己的 transform/opacity，不触及父元素属性，
+   因此不构成 .claude/rules/animation.md 规则一的双主人。
+   本按钮**不是** motion.* 元素，故无需登记 tests/animation-conflict.test.ts。
+   ============================================================ */
+.tile-control-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1px solid var(--border-strong, rgba(147, 197, 253, 0.5));
+  border-radius: 999px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.85));
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  /* 隐藏态：向下移出（自身高度 + 底部留白），不可点、不挡人名条 */
+  transform: translate(-50%, calc(100% + 20px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+  z-index: 4;
+}
+
+.tile-control-pill svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tile-control-pill:hover {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.95));
+  border-color: var(--primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 8px var(--primary-subtle);
+}
+
+/* 伸出态：鼠标进入该参会人画面框（或键盘 tab 进到胶囊上） */
+.participant-video:hover .tile-control-pill,
+.participant-video:focus-within .tile-control-pill {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 触屏设备没有 hover：**仅**给未走移动端显式开关的胶囊兜底常显。
+   ⚠️ 必须排除 .tile-control-pill--mobile：移动端会议页的等价交互是
+   「点按 tile 伸出 / 再点或点别处收回」，由 .tile-control-pill--open 类名驱动。
+   若这里不加 :not()，本媒体查询会在安卓 WebView（hover:none）下把移动端胶囊
+   钉成常显，令 --open 开关失效——此缺陷由 2026-09-14 真机实测发现并修复。 */
+@media (hover: none) {
+  .tile-control-pill:not(.tile-control-pill--mobile) {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

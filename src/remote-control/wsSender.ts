@@ -20,7 +20,7 @@ export function registerControlSessionWsSender(s: ControlWsSender | null): void 
 
 /** 经主 WS 发送控制裁决上行帧（M1/M2/M3）。未注册/未连接时返回 false（调用方留痕）。 */
 export function sendControlSessionWs(payload: Record<string, unknown>): boolean {
-  void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: 'DBG3-send-entry type=' + String((payload as { type?: string }).type) })).catch(() => undefined); // RC-DBG3
+  void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: `DBG3-send-entry type=${String((payload as { type?: string }).type)}` })).catch(() => undefined); // RC-DBG3
   if (!sender) {
     void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: 'DBG4-sender-null' })).catch(() => undefined); // RC-DBG4
     console.warn('[RemoteControl] 主 WS 发送器未注册（未登录或 dev 门控关闭），丢弃上行帧');
@@ -28,6 +28,5 @@ export function sendControlSessionWs(payload: Record<string, unknown>): boolean 
   }
   sender(payload);
   void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: 'DBG3b-handoff-to-wsRef' })).catch(() => undefined); // RC-DBG3b
-  return true;
   return true;
 }

@@ -4,7 +4,8 @@
  * 提供会议创建和加入功能：
  * - 创建会议：生成房间号和密码
  * - 加入会议：输入房间号和密码加入
- * - 复制房间信息
+ * - 创建成功后「转发给好友」：复用 ShareMeetingModal/ShareTargetPicker 既有选人/发送链路
+ *   （与安卓 1.1.45 的「转发给好友」同行为，发同一份 meeting_invite）
  *
  * 会议窗口通过 Tauri WebviewWindow API 打开为独立窗口
  * 与主页面同时存在
@@ -23,7 +24,8 @@ import {
 } from '../api';
 import { getMeetingIdentity } from '../identity';
 import { fetchCreatorIceServers } from '../creatorIce';
-import { CopyIcon, VideoMeetingIcon } from '../../components/common/Icons';
+import { ForwardIcon, VideoMeetingIcon } from '../../components/common/Icons';
+import { ShareMeetingModal } from './ShareMeetingModal';
 
 /**
  * 打开会议窗口
@@ -98,8 +100,8 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
 
   // 错误提示
   const [error, setError] = useState<string | null>(null);
-  // 复制成功提示
-  const [copied, setCopied] = useState(false);
+  // 转发面板开关（创建成功后「转发给好友」→ ShareMeetingModal，发送逻辑全在既有链路里）
+  const [showShare, setShowShare] = useState(false);
 
   /**
    * 解析粘贴的房间信息
@@ -258,19 +260,6 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     }
   }, [api, joinRoomId, joinPassword, displayName, session, resetState, onClose]);
 
-  // 复制房间信息
-  const handleCopy = useCallback(() => {
-    if (!createdRoom) {
-      return;
-    }
-
-    const text = `会议名称: ${createdRoom.name}\n房间号: ${createdRoom.room_id}\n密码: ${createdRoom.password}`;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [createdRoom]);
-
   // 关闭弹窗并重置状态
   const handleClose = useCallback(() => {
     resetState();
@@ -346,13 +335,14 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
                       </div>
 
                       <div className="meeting-actions">
+                        {/* 转发给好友：复用既有 ShareMeetingModal（meeting_invite 同一请求体），
+                            与安卓 1.1.45 行为对齐；原先的「复制信息」按钮已由它取代（2026-09-13） */}
                         <button
                           className="meeting-btn secondary"
-                          onClick={handleCopy}
-                          disabled={copied}
+                          onClick={() => setShowShare(true)}
                         >
-                          <CopyIcon />
-                          {copied ? '已复制' : '复制信息'}
+                          <ForwardIcon />
+                          转发给好友
                         </button>
                         <button
                           className="meeting-btn primary"
@@ -495,5 +485,24 @@ export function MeetingEntryModal({ isOpen, onClose }: MeetingEntryModalProps) {
     </AnimatePresence>
   );
 
-  return createPortal(modalContent, document.body);
+  return (
+    <>
+      {createPortal(modalContent, document.body)}
+      {/* 转发面板（自带 portal + 「只在显示时挂载」语义；创建者信息从登录态取，
+          与 MobileMeetingPage 的 meetingData 同一口径） */}
+      {showShare && createdRoom && (
+        <ShareMeetingModal
+          isOpen={showShare}
+          onClose={() => setShowShare(false)}
+          meetingData={{
+            roomId: createdRoom.room_id,
+            password: createdRoom.password,
+            roomName: createdRoom.name,
+            creatorName: session?.profile.user_nickname || '',
+            creatorAvatar: session?.profile.user_avatar_url || '',
+          }}
+        />
+      )}
+    </>
+  );
 }

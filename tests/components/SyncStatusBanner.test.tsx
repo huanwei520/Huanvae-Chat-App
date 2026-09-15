@@ -71,7 +71,7 @@ describe('SyncStatusBanner', () => {
       render(<SyncStatusBanner notification={notification} onRetry={onRetry} />);
     });
 
-    const errorElement = screen.getByText('同步失败，点击重试');
+    const errorElement = screen.getByText('同步失败：网络错误，点击重试');
     expect(errorElement).toBeInTheDocument();
 
     await act(async () => {
@@ -102,12 +102,26 @@ describe('SyncStatusBanner', () => {
       render(<SyncStatusBanner notification={notification} onRetry={onRetry} />);
     });
 
-    const errorElement = screen.getByText('同步失败，点击重试');
+    const errorElement = screen.getByText('同步失败：网络错误，点击重试');
 
     await act(async () => {
       fireEvent.keyDown(errorElement, { key: 'Enter' });
     });
 
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('同步失败横幅展示真实原因（不再写死「同步失败，点击重试」）', async () => {
+    const notification: SyncNotification = {
+      type: 'error',
+      message: 'HTTP 500（WS已连接）',
+    };
+
+    await act(async () => {
+      render(<SyncStatusBanner notification={notification} />);
+    });
+
+    expect(screen.getByText('同步失败：HTTP 500（WS已连接），点击重试')).toBeInTheDocument();
+    expect(screen.queryByText('同步失败，点击重试')).not.toBeInTheDocument();
   });
 });

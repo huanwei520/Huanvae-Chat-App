@@ -284,7 +284,7 @@
 }
 
 .markdown-body .hljs-keyword,
-.markdown-body .hljs-selector-tag { color: #8b5cf6; }
+.markdown-body .hljs-selector-tag { color: var(--accent-text, #8b5cf6); }
 .markdown-body .hljs-string,
 .markdown-body .hljs-addition { color: #059669; }
 .markdown-body .hljs-number,

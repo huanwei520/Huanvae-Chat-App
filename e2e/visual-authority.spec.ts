@@ -67,18 +67,8 @@ import {
  * 名字承诺了 dark/light 却渲染出同一张图的那种，处置是**删掉**，不是登记（见文件头 C 的说明）。
  */
 const KNOWN_DUPLICATE_BASELINES: { files: string[]; reason: string }[] = [
-  {
-    files: [
-      'auth.spec.ts-snapshots/auth-initial-chromium-linux.png',
-      'visual-regression.spec.ts-snapshots/visual-login-default-chromium-linux.png',
-    ],
-    reason:
-      '同一张「默认视口登录页」。两条断言并非等价：auth.spec.ts 那条用 maxDiffPixelRatio 0.01、' +
-      'visual-regression.spec.ts 那条用 0.02 且 fullPage:true（当前页面不超出视口故暂无差别，' +
-      '页面一旦变高就会拍到不同区域）。另外 auth.spec.ts 需要保留至少一条截图断言，' +
-      '它与同文件的非截图断言混编，正是「不是整套被跳过」的正对照。' +
-      'BACKLOG: 阈值另立单收敛后二选一。',
-  },
+  // v1.1.46 D2 玻璃描边改造后更新基线：default 视口对两图渲染时刻不再字节相同（blur 相位差），
+  // 按本测试自指引「已不再字节相同 ⇒ 从登记表删掉」处置；mobile 对仍字节相同，保留登记。
   {
     files: [
       'auth.spec.ts-snapshots/auth-mobile-chromium-linux.png',

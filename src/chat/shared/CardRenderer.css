@@ -1,13 +1,24 @@
 /* Interactive card (S2) renderer styles.
    Class names are a closed whitelist consumed by CardRenderer.tsx; card fields never
-   feed className. Theme-agnostic via CSS vars with neutral fallbacks. */
+   feed className. Theme-agnostic via CSS vars with neutral fallbacks.
+
+   ---- D2「左章横条卡」原案（owner 2026-09-14 选定）----
+   本卡是 schema 驱动的任意内容卡（Bot 卡），**没有** bot 头像/图标字段；
+   但 D2 原案的章是「**类型**章」（头像章是会议卡/群名片卡各自的事），
+   所以这里不新增 schema 字段：左栏 = 固定 bot 类型图标，右栏 = 卡内首个顶层
+   heading（存在时升格为标题并从正文摘出）。散列在 container/row 里的 heading
+   不摘——深子树摘出会改掉卡片作者原本的版式语义。
+   三处 D2 结构性特征：
+   1. 容器圆角 14px（与会议卡/群名片卡对齐，三卡同一圆角语言）
+   2. 首个顶层 heading 升格为头部标题（两栏头部：左章 + 文本栏）
+   3. 主动作 = **全宽实心 CTA**（.card-action-buttons 竖排 + 按钮 100% 宽） */
 
 .card-renderer {
   width: 280px;
   max-width: 100%;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--bg-secondary, rgba(255, 255, 255, 0.08));
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border: 1px solid var(--border-default, var(--border-color, rgba(255, 255, 255, 0.12)));
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -19,6 +30,41 @@
 .card-renderer.card-invalid {
   color: var(--text-tertiary, #888);
   font-size: 13px;
+}
+
+/* ---- D2 头部：左章（46px 类型章） + 文本栏 ---- */
+.card-medallion-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card-medallion {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  /* 与会议卡/群名片卡同一条渐变语言（accent → primary） */
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-medallion svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* 升格上来的标题（原 heading 的文本） */
+.card-medallion-title {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #e6e6e6);
+  overflow-wrap: anywhere;
 }
 
 /* ---- layout ---- */
@@ -124,7 +170,7 @@
 .card-progress-bar-fill {
   height: 100%;
   border-radius: 4px;
-  background: var(--accent-color, #6c63ff);
+  background: var(--primary);
   transition: width 0.3s ease;
 }
 
@@ -194,8 +240,8 @@
 }
 
 .card-button-primary {
-  background: var(--accent-color, #6c63ff);
-  border-color: var(--accent-color, #6c63ff);
+  background: var(--primary);
+  border-color: var(--primary);
   color: #fff;
 }
 
@@ -222,11 +268,15 @@
 }
 
 /* ---- action button group ---- */
+/* D2 原案：动作区竖排、每个按钮全宽（实心全宽 CTA 语言） */
 .card-action-buttons {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
+}
+
+.card-action-buttons > .card-button {
+  width: 100%;
 }
 
 /* ---- action button state modifiers ---- */

@@ -538,11 +538,21 @@ function DocumentMessage({
   filename,
   fileSize,
   urlType,
+  displayVariant = 'bubble',
 }: {
   fileUuid: string;
   filename: string;
   fileSize: number | null;
   urlType: 'user' | 'friend' | 'group';
+  /**
+   * 显示形态：
+   * - `bubble`（默认）聊天里的完整文档卡（图标+名称+大小+下载钮）
+   * - `album`  联排格子内铺满（owner 2026-09-14「文件也可以和图片一样组成联排发送」）
+   *
+   * 🔴 album 态下**不改任何下载/打开行为**，只改布局：卡片骨架（图标/名称/大小）
+   * 与下载动作仍是同一个 DocumentDownloadAction，只是按钮在格子里被 CSS 隐去。
+   */
+  displayVariant?: 'bubble' | 'album';
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const { src, presignedUrl, isLocal, localPath, openInFolder } = useFileCache({
@@ -585,7 +595,7 @@ function DocumentMessage({
 
   return (
     <>
-      <div className="file-message document-message" onClick={handleDocumentClick}>
+      <div className={`file-message document-message${displayVariant === 'album' ? ' document-message--album' : ''}`} onClick={handleDocumentClick}>
         {/* 不渲染 LocalBadge：白底文档气泡白勾不可见；已下载状态通过下方本地路径文本 + 下载按钮消失体现 */}
 
         <div className="document-icon">
@@ -839,6 +849,7 @@ export function FileMessageContent({
           filename={filename}
           fileSize={fileSize}
           urlType={urlType}
+          displayVariant={displayVariant}
         />
       );
   }

@@ -4903,6 +4903,108 @@
   justify-content: center;
 }
 
+/* ============================================================
+   文档下载进度环（Telegram 式）—— DocumentProgressRing.tsx
+   ------------------------------------------------------------
+   与图片/视频那圈（.circular-progress-svg，深底粗白环）**是两套东西**：
+   本环为白底文档卡设计：细环 2.5px + 主题蓝，环内是下载箭头而非百分比。
+   由 owner 2026-09-14 细则要求拆分（不要图片/视频进度圈套用在文件上）。
+   动画所有权：进度弧只写 stroke-dasharray（JS 每次渲染直接给值，无 CSS transition），
+   因此无 transform/opacity 抢帧问题，无需登记 animation-conflict 注册表。
+   ============================================================ */
+.document-progress-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.document-progress-ring svg {
+  display: block;
+}
+
+.document-progress-ring-track {
+  stroke: var(--primary-subtle, rgba(59, 130, 246, 0.2));
+}
+
+.document-progress-ring-arc {
+  stroke: var(--primary, #3b82f6);
+}
+
+/* 环内箭头：绝对居中，颜色跟主题蓝（与环同色系） */
+.document-progress-ring-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary, #3b82f6);
+}
+
+.document-progress-ring-glyph svg {
+  width: 55%;
+  height: 55%;
+}
+
+/* ============================================================
+   文件联排（相册格子里的文档卡）—— owner 2026-09-14 细则
+   「文件也可以和图片一样组成联排发送的样式」
+   ------------------------------------------------------------
+   相册格子是正方形（.album-cell 有 aspect-ratio），文档卡进去后必须**铺满格子**，
+   否则会按 min-width: 200px 撑破网格。故 album 变体：
+   - 去掉卡片自带底/边框（格子的底色由 .album-cell 承担，与图片格同源）
+   - 竖排：大图标在上、文件名在下（横排的 40px 图标+文字在方格里挤不下）
+   ============================================================ */
+.document-message.document-message--album {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 8px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.document-message--album .document-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.document-message--album .document-info {
+  flex: 0 1 auto;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+}
+
+.document-message--album .document-name {
+  font-size: 11px;
+  max-width: 100%;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.document-message--album .document-size {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 联排格子里的文档不显示下载按钮（格子太小；点格子即走卡片自己的点击行为），
+   已下载态的本地路径文本同样隐去 */
+.document-message--album .document-actions,
+.document-message--album .document-local-path {
+  display: none;
+}
+
 /* Local-cached file indicator: glass-white circular badge with white checkmark.
 
    The geometry lives in tokens because a SECOND element has to keep out of this

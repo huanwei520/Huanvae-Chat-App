@@ -56,7 +56,7 @@ configure({ asyncUtilTimeout: 5000 });
 // 都会报 `No "Channel" export is defined on the mock`。
 // 🔴 class 定义在工厂内部：vi.mock 会被提升到文件顶部，引用外层变量必 ReferenceError。
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+  invoke: vi.fn(() => Promise.resolve(undefined)),
   Channel: class {
     onmessage: ((msg: unknown) => void) | null = null;
     id = 1;

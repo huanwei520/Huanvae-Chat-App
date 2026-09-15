@@ -61,6 +61,7 @@ vi.mock('../../src/services/discovery', () => ({
 }));
 
 import { useWebRTC } from '../../src/meeting/useWebRTC';
+import { detectPlatform, _resetPlatformCache } from '../../src/utils/platform';
 import type { IceServer } from '../../src/meeting/api';
 
 type FakeWs = InstanceType<typeof wsControl.FakeRustWebSocket>;
@@ -207,6 +208,8 @@ function sentMessages(ws: FakeWs): Array<Record<string, unknown>> {
 
 describe('useWebRTC hook：信令/装配状态机', () => {
   beforeEach(() => {
+    // #9：平台缓存是模块级单例，跨用例必须复位（否则前一个用例的环境会影响 URL 断言）
+    _resetPlatformCache();
     wsControl.instances.length = 0;
     FakeRTCPeerConnection.instances.length = 0;
     globalThis.RTCPeerConnection =
@@ -229,8 +232,9 @@ describe('useWebRTC hook：信令/装配状态机', () => {
     const { result } = setup();
     expect(result.current.meetingState).toBe('connecting');
     expect(wsControl.instances).toHaveLength(1);
+    // #9：URL 现在带上本端平台（服务端据此写进参与者信息，供 tile 左上角平台图标）
     expect(wsControl.instances[0].url).toBe(
-      'wss://api.example.com/ws/webrtc/rooms/room1?token=tok',
+      `wss://api.example.com/ws/webrtc/rooms/room1?token=tok&platform=${detectPlatform()}`,
     );
   });
 
@@ -436,7 +440,7 @@ describe('useWebRTC hook：信令/装配状态机', () => {
       expect(oldPc.close).toHaveBeenCalledTimes(1);
       expect(wsControl.instances).toHaveLength(2);
       expect(wsControl.instances[1].url).toBe(
-        'wss://api.example.com/ws/webrtc/rooms/room1?token=tok2',
+        `wss://api.example.com/ws/webrtc/rooms/room1?token=tok2&platform=${detectPlatform()}`,
       );
 
       unmount(); // 在假定时器环境内显式卸载，清掉 hook 内部定时器

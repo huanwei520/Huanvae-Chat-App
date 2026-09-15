@@ -40,7 +40,7 @@
 
 import { useMemo, type ReactNode } from 'react';
 import { FileMessageContent } from './FileMessageContent';
-import { MediaBubbleFrame } from './MediaBubbleFrame';
+import { MediaBubbleFrame, resolveMediaCaption } from './MediaBubbleFrame';
 import type { MessageType } from '../../types/chat';
 import type { AlbumNode } from './mediaGroup';
 
@@ -160,12 +160,32 @@ export function albumGridPlan(count: number): AlbumGridPlan {
  * 把组内一项的 message_type 收窄成 FileMessageContent 需要的类型。
  *
  * AlbumMediaItem.message_type 是 `string`（为了让私聊 Message 与群聊 GroupMessage
- * 都能结构化满足；后者还多一个 'system'）。相册项按后端约束只可能是媒体，
- * 故这里做一个**全域函数**式收窄：不是 video 就当 image 渲染。
+ * 都能结构化满足；后者还多一个 'system'）。相册项按后端约束只可能是媒体或文件
+ * （后端强制规则：`file` 只能与 `file` 同组，`image`/`video` 同组），故：
+ * - `video` → video；`file` → file（owner 2026-09-14：文件也可联排发送）
+ * - 其余 → image
+ *
  * 不用 `as` 强转 —— 强转会把「将来混进非媒体类型」这种情况静默放过去。
  */
 function albumItemMediaType(rawType: string): MessageType {
-  return rawType === 'video' ? 'video' : 'image';
+  if (rawType === 'video') { return 'video'; }
+  if (rawType === 'file') { return 'file'; }
+  return 'image';
+}
+
+/**
+ * 这个相册是不是**文件组**（组内每一条都是 `file`）。
+ *
+ * 后端把组限成同类型（`file` 只与 `file` 同组、`image`/`video` 同组），所以只要看已到货的
+ * 项就够；`items` 为空（还没加载到任何一条）时返回 false → 走网格分支（网格有按
+ * expectedCount 预留的高度，不会跳版；文件组改成竖排后没有预留高的必要性）。
+ *
+ * OWNER 2026-09-14 二次评审：**文件多发不得做成图片式三正方形横排**，要与单文件同卡、
+ * 竖向堆叠、用数量徽标标注。故这里按组类型分流，图片/视频组照旧走网格（那条是 huanwei
+ * 2026-08-13 明确要的「铺满不留空槽」）。
+ */
+export function isFileAlbum(album: AlbumNode<AlbumMediaItem>): boolean {
+  return album.items.length > 0 && album.items.every((item) => item.message_type === 'file');
 }
 
 export function AlbumMessage({ album, urlType = 'friend', meta, senderName }: AlbumMessageProps) {
@@ -174,8 +194,11 @@ export function AlbumMessage({ album, urlType = 'friend', meta, senderName }: Al
     [album.expectedCount],
   );
 
+  const fileAlbum = useMemo(() => isFileAlbum(album), [album]);
+
   // 按位次铺格子：已加载的放真内容，未到货的放占位格。
   // 这样布局只取决于 expectedCount，与"这一刻加载到几张"无关 → loadMore 不会重排。
+  // ⚠️ 必须在 fileAlbum 早退分支之前调用（rules-of-hooks：早退后不能再调 hook）。
   const cells = useMemo(() => {
     const byIndex = new Map<number, AlbumMediaItem>();
     for (const item of album.items) {
@@ -185,6 +208,73 @@ export function AlbumMessage({ album, urlType = 'friend', meta, senderName }: Al
     }
     return Array.from({ length: album.expectedCount }, (_, i) => byIndex.get(i) ?? null);
   }, [album.items, album.expectedCount]);
+
+  /* ============================================================
+     文件组：竖向堆叠（owner 2026-09-14 二次评审）
+     ============================================================
+     为什么是「让每一行各自就是单文件那张卡」而不是再写一套行样式：owner 的要求是
+     「与单文件同卡样式纵向排列」。复用同一个 FileMessageContent（displayVariant 用
+     默认的 'bubble'，即单文件那张白底卡）是唯一能保证两条路径**逐像素同款**的做法 ——
+     另写一套行样式就是第二个真相源，改了单文件卡这里不会跟着变。
+
+     与网格分支的三处关键差异（都不是随手定的）：
+     1. **不做占位行**。网格的占位格是为了「布局只取决于 expectedCount」防 2×2→2×3 重排；
+        而文件卡是内容高度（文件名换行数不同），行数增加本来就是一条条追加，与
+        收到 N 条独立消息的观感一致。硬塞一个空占位行会渲染成一张「空文件卡」，
+        读起来像缺陷而不是「还没加载」。
+     2. **锚点仍然每行一个** `data-message-uuid`（与网格同口径）：相册折叠会把 index>=1
+        的成员从消息列表里抹掉，不给锚点用户就定位不到组内第 2 个文件。
+     3. **meta 落在堆叠下方**（与文档卡同一摆法）。网格分支把 meta 交给 MediaBubbleFrame
+        做成「媒体右下角药丸浮层」；文件卡不是媒体面，浮层没有参照系。 */
+  if (fileAlbum) {
+    const rows = [...album.items].sort(
+      (a, b) => (a.media_group_index ?? 0) - (b.media_group_index ?? 0),
+    );
+    /* 配文不能丢：网格分支是由 MediaBubbleFrame 在网格**下方**渲染配文条的，
+       文件组不走那层包裹（否则文件卡会被套上一个带底色的气泡框，与单文件卡不同款），
+       所以这里自己判一次 —— 判定收口点仍是同一个 resolveMediaCaption（
+       不自己写第二套「算不算配文」的规则）。 */
+    const caption = resolveMediaCaption(album.caption);
+
+    return (
+      <div className="album-file-stack" data-testid="album-file-stack" data-count={album.expectedCount}>
+        {senderName}
+        {/* 数量徽标：owner 要求「数量徽标标注」。只标注**本组张数**，不重复文件名。 */}
+        <div className="album-file-stack__count">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="album-file-stack__count-icon">
+            <path
+              d="M15.5 2H8.6C7.7 2 7 2.7 7 3.6v16.8c0 .9.7 1.6 1.6 1.6h8.3c.9 0 1.6-.7 1.6-1.6V6.5zm0 14.5H8.6V3.6h5.6l1.3 1.3z"
+              fill="currentColor"
+            />
+          </svg>
+          {album.expectedCount} 个文件
+        </div>
+        {rows.map((item) => (
+          <div
+            className="album-file-stack__row"
+            key={item.message_uuid}
+            // 与网格的 .album-cell 同一职责与同一理由（见上方网格分支的长注释）
+            data-message-uuid={item.message_uuid}
+          >
+            <FileMessageContent
+              messageUuid={item.message_uuid}
+              messageType="file"
+              messageContent={item.message_content}
+              fileUuid={item.file_uuid}
+              fileSize={item.file_size}
+              urlType={urlType}
+              clientId={item.clientId}
+            />
+          </div>
+        ))}
+        {/* 整组配文：仍渲染在整组**下方**（与网格分支同一条「配文属于整组」的口径） */}
+        {caption && (
+          <div className="media-bubble-caption album-file-stack__caption">{caption}</div>
+        )}
+        {meta && <div className="bubble-metafoot album-file-stack__meta">{meta}</div>}
+      </div>
+    );
+  }
 
   return (
     // 配文与网格共用一个大气泡；无配文时 MediaBubbleFrame 直接吐回网格本身，不多一个节点。

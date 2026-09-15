@@ -279,6 +279,7 @@ import * as conversationKey from '../../src/chat/shared/conversationKey';
 import * as scrollMessageIntoView from '../../src/chat/shared/scrollMessageIntoView';
 import * as mergeMessageList from '../../src/chat/shared/mergeMessageList';
 import * as wsEchoClaim from '../../src/chat/shared/wsEchoClaim';
+import * as sendFailureReconcile from '../../src/chat/shared/sendFailureReconcile';
 import * as creatorIce from '../../src/meeting/creatorIce';
 import * as batchProgressAttribution from '../../src/lanTransfer/batchProgressAttribution';
 import * as tempCleanupTracker from '../../src/lanTransfer/tempCleanupTracker';
@@ -589,6 +590,7 @@ const COMPONENT_MAP = {
   scrollMessageIntoView,
   mergeMessageList,
   wsEchoClaim,
+  sendFailureReconcile,
   creatorIce,
   batchProgressAttribution,
   tempCleanupTracker,

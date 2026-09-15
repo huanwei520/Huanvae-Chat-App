@@ -147,7 +147,7 @@ export function MainBridge() {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [onAuthDecision, onRequestControl]);
+  }, [onAuthDecision, onRequestControl, onRequestRelease]);
 
   return null;
 }

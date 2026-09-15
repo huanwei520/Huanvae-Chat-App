@@ -40,6 +40,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
 import { mergeMessageList } from '../shared/mergeMessageList';
 import { pickSendingEchoIndex } from '../shared/wsEchoClaim';
+// 文本假阴性对账：HTTP 响应丢在回程、服务端已受理的那条，靠历史查询认领
+// （增量同步不含自己发的消息，实测确认，详见该模块文件头）
+import { probeSentText } from '../shared/sendFailureReconcile';
 import { sendMessage, recallMessage } from '../../api/messages';
 import { recordUploadedFile } from '../../services/fileService';
 import { useChatStore } from '../../stores/chatStore';
@@ -692,6 +695,68 @@ export function useLocalFriendMessages(friendId: string | null) {
           ? { ...msg, sendStatus: 'failed' }
           : msg,
       ));
+
+      // 假阴性对账：响应可能丢在回程，而服务端其实已受理并派发给了对端。
+      // 同步接口返回的是「我收到的消息」，不含自己发的（实测：置 failed 后连
+      // 续 sync 与点横幅重试都不会自愈），因此这里必须直接查历史；命中才把
+      // 气泡恢复成已发送并落库，未命中保持 failed（真失败仍有重试按钮）。
+      void (async () => {
+        try {
+          const hit = await probeSentText(api, {
+            conversationType: 'friend',
+            targetId: friendId,
+            content,
+            messageType: 'text',
+            sendTimeIso: tempSendTime,
+            userId: session.userId,
+          });
+          if (!hit) {
+            return;
+          }
+          setMessages((prev) => prev.map((msg) => (
+            msg.clientId === clientId
+              ? {
+                ...msg,
+                message_uuid: hit.message_uuid,
+                send_time: hit.send_time,
+                seq: hit.seq,
+                sendStatus: 'sent',
+              }
+              : msg
+          )));
+          await db.saveMessage({
+            message_uuid: hit.message_uuid,
+            conversation_id: conversationId,
+            conversation_type: 'friend',
+            sender_id: session.userId,
+            sender_name: session.profile.user_nickname,
+            sender_avatar: session.profile.user_avatar_url,
+            content,
+            content_type: 'text',
+            file_uuid: null,
+            file_url: null,
+            file_size: null,
+            image_width: null,
+            image_height: null,
+            seq: hit.seq,
+            reply_to: replyTo ?? null,
+            media_group_id: null,
+            media_group_index: null,
+            media_group_count: null,
+            is_recalled: hit.is_recalled || false,
+            is_deleted: false,
+            send_time: hit.send_time,
+          });
+          // eslint-disable-next-line no-console
+          console.info('[SendReconcile] 文本假阴性修复：服务端历史命中，已恢复为已发送', {
+            uuid: hit.message_uuid,
+            seq: hit.seq,
+          });
+        } catch (reconcileErr) {
+          // 尽力而为：对账失败不影响 failed 状态本身（用户仍有重试按钮）
+          logError('文本对账失败，保持失败原状', reconcileErr);
+        }
+      })();
     }
   }, [api, friendId, session]);
 
@@ -928,13 +993,10 @@ export function useLocalFriendMessages(friendId: string | null) {
         return updated;
       }
 
-      // 情况 2：WebSocket 比 API 响应快（自己发送的消息）
-      // 查找是否有正在发送中的消息（sender_id 是自己）
+      // 情况 2：WebSocket 比 API 响应快（自己发送的消息）；也覆盖「HTTP 响应回程丢失
+      // 已被标 failed 但服务端已受理」的假阴性修复 —— 回显认领规则同一份（
+      // chat/shared/wsEchoClaim.ts）：sending 精确 > sending 兜底 > failed 仅精确修复。
       if (wsMsg.sender_id === session.userId) {
-        // 认领规则见 chat/shared/wsEchoClaim.ts：先按「正文 + 类型」精确配对，
-        // 对不上才退回「最早的在途项」。原来是 findIndex(sendStatus==='sending')，
-        // 取的是数组头部 = **最新插入**的那条 ⇒ 连发两条时张冠李戴，
-        // 两条消息拿到同一个 message_uuid，被列表去重吞掉一条（外部审计 idx=89）。
         const sendingIndex = pickSendingEchoIndex(prev, {
           content: wsMsg.content || wsMsg.preview || '',
           message_type: wsMsg.message_type,
@@ -951,7 +1013,7 @@ export function useLocalFriendMessages(friendId: string | null) {
             send_time: wsMsg.timestamp,
             sendStatus: 'sent',
           };
-          logLocal('WebSocket 比 API 快，替换发送中消息', { uuid: wsMsg.message_uuid });
+          logLocal('WS 回显认领/假失败修复', { uuid: wsMsg.message_uuid, seq: wsMsg.seq });
           return updated;
         }
       }

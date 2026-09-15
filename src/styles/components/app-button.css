@@ -146,61 +146,29 @@
 /* ============================================
    variant: primary（默认）
    ============================================
-   毛玻璃 + 三段渐变 + 多层阴影 + 扫光动画
-   复刻 .glass-button 的视觉语言
+   D2 玻璃描边（owner 2026-09-15 选定）：
+   透明表面底 + 1px 描边 + 主色字 + blur + 内高光。
+   设计注记「主行动力度偏弱」已被 owner 明确选择覆盖。
 */
 .app-btn--primary {
-  --btn-rgb-light: var(--color-primary-5-rgb, 96, 165, 250);
-  --btn-rgb-mid:   var(--color-primary-6-rgb, 59, 130, 246);
-  --btn-rgb-dark:  var(--color-primary-7-rgb, 37, 99, 235);
-
-  color: var(--text-inverse, #fff);
-  text-shadow: 0 1px 2px rgba(var(--btn-rgb-dark), 0.3);
-  background: linear-gradient(
-    135deg,
-    rgba(var(--btn-rgb-light), 0.55) 0%,
-    rgba(var(--btn-rgb-mid),   0.6)  50%,
-    rgba(var(--btn-rgb-dark),  0.55) 100%
-  );
-  backdrop-filter: var(--blur-lg, blur(20px)) var(--saturate-high, saturate(1.5));
-  -webkit-backdrop-filter: var(--blur-lg, blur(20px)) var(--saturate-high, saturate(1.5));
-  border-color: var(--glass-white-40, rgba(255, 255, 255, 0.4));
-  box-shadow:
-    0 0 30px rgba(var(--btn-rgb-light), 0.25),
-    0 8px 20px rgba(var(--btn-rgb-mid),  0.25),
-    0 4px 8px  rgba(var(--btn-rgb-dark), 0.15),
-    inset 0 1px 1px var(--glass-white-50, rgba(255, 255, 255, 0.5)),
-    inset 1px 0 1px var(--glass-white-25, rgba(255, 255, 255, 0.25)),
-    inset 0 -1px 1px rgba(var(--btn-rgb-dark), 0.2);
+  color: var(--primary, var(--color-primary-6, #3b82f6));
+  background: var(--bg-surface, rgba(255, 255, 255, 0.8));
+  border-color: var(--border-strong, rgba(147, 197, 253, 0.5));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 /* ============================================
-   variant: danger（同样的玻璃感，红色调）
+   variant: danger（D2 同构描边，红色调）
    ============================================ */
 .app-btn--danger {
-  /* 红色 RGB 三段（fallback 来自 Tailwind red-400/500/600） */
-  --btn-rgb-light: var(--color-error-5-rgb, 248, 113, 113);
-  --btn-rgb-mid:   var(--color-error-6-rgb, 239, 68, 68);
-  --btn-rgb-dark:  var(--color-error-7-rgb, 220, 38, 38);
-
-  color: var(--text-inverse, #fff);
-  text-shadow: 0 1px 2px rgba(var(--btn-rgb-dark), 0.3);
-  background: linear-gradient(
-    135deg,
-    rgba(var(--btn-rgb-light), 0.55) 0%,
-    rgba(var(--btn-rgb-mid),   0.6)  50%,
-    rgba(var(--btn-rgb-dark),  0.55) 100%
-  );
-  backdrop-filter: var(--blur-lg, blur(20px)) var(--saturate-high, saturate(1.5));
-  -webkit-backdrop-filter: var(--blur-lg, blur(20px)) var(--saturate-high, saturate(1.5));
-  border-color: var(--glass-white-40, rgba(255, 255, 255, 0.4));
-  box-shadow:
-    0 0 30px rgba(var(--btn-rgb-light), 0.25),
-    0 8px 20px rgba(var(--btn-rgb-mid),  0.25),
-    0 4px 8px  rgba(var(--btn-rgb-dark), 0.15),
-    inset 0 1px 1px var(--glass-white-50, rgba(255, 255, 255, 0.5)),
-    inset 1px 0 1px var(--glass-white-25, rgba(255, 255, 255, 0.25)),
-    inset 0 -1px 1px rgba(var(--btn-rgb-dark), 0.2);
+  color: var(--error, var(--color-error-6, #ef4444));
+  background: var(--bg-surface, rgba(255, 255, 255, 0.8));
+  border-color: var(--error-border, rgba(252, 165, 165, 0.6));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 /* ============================================
@@ -231,73 +199,22 @@
 }
 
 /* ============================================
-   顶部高光层（仅 primary / danger）
+   悬停态（D2：表面提亮 + 主色边染 + 轻投影）
    ============================================ */
-.app-btn--primary::before,
-.app-btn--danger::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 50%;
-  background: linear-gradient(
-    180deg,
-    var(--glass-white-35, rgba(255, 255, 255, 0.35)) 0%,
-    var(--glass-white-10, rgba(255, 255, 255, 0.1))  50%,
-    transparent 100%
-  );
-  border-radius: var(--btn-radius) var(--btn-radius) 0 0;
-  pointer-events: none;
-  transition: opacity var(--transition-normal, 0.2s ease);
-}
-
-/* ============================================
-   扫光动画层（仅 primary / danger，hover 触发）
-   ============================================ */
-.app-btn--primary::after,
-.app-btn--danger::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--glass-white-25, rgba(255, 255, 255, 0.25)) 50%,
-    transparent 100%
-  );
-  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-
-/* ============================================
-   悬停态
-   ============================================ */
-.app-btn--primary:hover:not(:disabled):not(.app-btn--loading),
-.app-btn--danger:hover:not(:disabled):not(.app-btn--loading) {
-  transform: translateY(-2px) scale(1.02);
-  border-color: var(--glass-border, rgba(255, 255, 255, 0.5));
-  background: linear-gradient(
-    135deg,
-    rgba(var(--btn-rgb-light), 0.65) 0%,
-    rgba(var(--btn-rgb-mid),   0.7)  50%,
-    rgba(var(--btn-rgb-dark),  0.65) 100%
-  );
+.app-btn--primary:hover:not(:disabled):not(.app-btn--loading) {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.9));
+  border-color: var(--primary, var(--color-primary-6, #3b82f6));
   box-shadow:
-    0 0 40px rgba(var(--btn-rgb-light), 0.35),
-    0 12px 28px rgba(var(--btn-rgb-mid),  0.3),
-    0 6px 12px  rgba(var(--btn-rgb-dark), 0.2),
-    inset 0 1px 2px var(--glass-white-60, rgba(255, 255, 255, 0.6)),
-    inset 1px 0 1px var(--glass-white-30, rgba(255, 255, 255, 0.3)),
-    inset 0 -1px 1px rgba(var(--btn-rgb-dark), 0.15);
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 8px rgba(var(--color-primary-6-rgb, 59, 130, 246), 0.18);
 }
 
-.app-btn--primary:hover:not(:disabled):not(.app-btn--loading)::after,
-.app-btn--danger:hover:not(:disabled):not(.app-btn--loading)::after {
-  left: 100%;
+.app-btn--danger:hover:not(:disabled):not(.app-btn--loading) {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.9));
+  border-color: var(--error, var(--color-error-6, #ef4444));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 8px rgba(var(--color-error-6-rgb, 239, 68, 68), 0.18);
 }
 
 .app-btn--secondary:hover:not(:disabled):not(.app-btn--loading) {
@@ -320,11 +237,7 @@
 .app-btn--danger:active:not(:disabled):not(.app-btn--loading) {
   transform: translateY(0) scale(0.98);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
-  box-shadow:
-    0 0 20px rgba(var(--btn-rgb-light), 0.2),
-    0 4px 12px rgba(var(--btn-rgb-mid),  0.2),
-    inset 0 1px 1px var(--glass-white-40, rgba(255, 255, 255, 0.4)),
-    inset 0 2px 4px rgba(var(--btn-rgb-dark), 0.1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .app-btn--secondary:active:not(:disabled):not(.app-btn--loading),
@@ -348,7 +261,3 @@
   transition: transform var(--transition-normal, 0.2s ease);
 }
 
-.app-btn--primary:hover .app-btn__icon--right svg,
-.app-btn--danger:hover .app-btn__icon--right svg {
-  transform: translateX(4px);
-}

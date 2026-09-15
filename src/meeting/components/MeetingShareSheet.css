@@ -94,8 +94,10 @@
   height: 42px;
   border-radius: 12px;
 
-  background: var(--accent-subtle, rgba(139, 92, 246, 0.15));
-  color: var(--accent-text, #6d28d9);
+  /* 会议域统一走品牌主色（与会议邀请卡/名片卡同一套 token），
+     不再用 accent 紫（owner 2026-09-14 二次评审③）。 */
+  background: var(--primary-subtle);
+  color: var(--primary-text);
 }
 
 .meeting-share-option-icon svg {

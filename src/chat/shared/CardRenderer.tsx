@@ -361,9 +361,31 @@ export function CardRenderer({ messageContent, messageUuid, messageRev, sourceTy
     return <div className="card-renderer card-invalid" data-source={sourceType}>[无法解析的卡片]</div>;
   }
 
+  /* ---- D2「左章横条卡」原案：46px 类型章（owner 2026-09-14 选定）----
+     卡是 schema 驱动的任意内容卡，**没有** bot 头像/图标字段；但 D2 原案的章是
+     「**类型**章」而非头像章（会议卡/群名片卡的章才是头像，见这两卡各自的实现）。
+     因此这里不新增 schema 字段，而是用卡自身已有的两样东西构成两栏头部：
+       左栏 = 固定的 bot **类型**图标（与 PlatformBadge / 控制胶囊同属「固定类型图标」）；
+       右栏 = 卡内**首个顶层 heading 节点**的文字（存在时升格为标题，并从正文摘出，
+               避免同一标题出现两次）。
+     没有顶层 heading 时只渲染左章（仍是「左章」布局，不伪造任何文案）。
+     注：只升格 `nodes[0]`，嵌在 container/row 里的 heading 一律留在原位——
+     深子树摘出会改变卡片作者原本的版式语义。 */
+  const headNode = parsed.nodes[0];
+  const hoistedHeading = headNode && headNode.type === 'heading' ? (headNode as CardHeadingNode) : null;
+  const bodyNodes = hoistedHeading ? parsed.nodes.slice(1) : parsed.nodes;
+
   return (
     <div className="card-renderer" data-source={sourceType}>
-      {parsed.nodes.map((node, i) => renderNode(node, 0, String(i)))}
+      <div className="card-medallion-row">
+        <span className="card-medallion" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 6V3m0 3a3 3 0 0 0-3 3v.75m3-3.75a3 3 0 0 1 3 3v.75M6.75 9.75h10.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5v-6a1.5 1.5 0 0 1 1.5-1.5zM9 13.5h.008v.008H9V13.5zm6 0h.008v.008H15V13.5z" />
+          </svg>
+        </span>
+        {hoistedHeading && <div className="card-medallion-title">{hoistedHeading.text}</div>}
+      </div>
+      {bodyNodes.map((node, i) => renderNode(node, 0, String(i)))}
       {actionError && <div className="card-action-error">{actionError}</div>}
     </div>
   );

@@ -12,6 +12,7 @@
  */
 
 import type { ApiClient } from '../api/client';
+import type { PlatformName } from '../utils/platform';
 
 // ============================================
 // ICE 服务器配置相关类型
@@ -131,6 +132,15 @@ export interface Participant {
   user_info?: UserInfo;
   /** 粗粒度媒体开关快照（服务器带默认值，旧消息可能缺失 → 可选） */
   media_state?: MediaState;
+  /**
+   * 参会人设备平台（#9：tile 左上角平台图标）。
+   *
+   * 闭集：`windows` / `android` / `macos` / `linux` / `ios` / `unknown`。
+   * **可选是向后兼容的核心**：旧版本服务端不序列化该字段、旧版本客户端不入房上报，
+   * 两种情况下都缺席 ⇒ 渲染端必须静默不画徽章（不得回退成「未知平台」图标，
+   * 那会给旧对端凭空扣一顶帽子）。
+   */
+  platform?: PlatformName;
 }
 
 // ============================================
@@ -307,11 +317,20 @@ export function joinRoom(
  * @param roomId - 房间号
  * @param token - access_token 或 ws_token
  * @param serverUrl - 当前登录的服务器地址（http(s) origin）
+ * @param platform - 本端平台标识（#9）。随查询串上报，服务端写进参与者信息后
+ *                   经 joined / peer_joined 分发给房间内其他人，供 tile 左上角平台图标渲染。
+ *                   缺省不追加该参数（旧调用点/测试无需改动），服务端按 None 处理。
  */
-export function getSignalingUrl(roomId: string, token: string, serverUrl: string): string {
+export function getSignalingUrl(
+  roomId: string,
+  token: string,
+  serverUrl: string,
+  platform?: PlatformName,
+): string {
   // 将 http(s):// 替换为 ws(s)://
   const wsBase = serverUrl.replace(/^http/, 'ws');
-  return `${wsBase}/ws/webrtc/rooms/${roomId}?token=${token}`;
+  const query = platform ? `&platform=${encodeURIComponent(platform)}` : '';
+  return `${wsBase}/ws/webrtc/rooms/${roomId}?token=${token}${query}`;
 }
 
 // ============================================

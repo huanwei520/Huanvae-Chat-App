@@ -435,7 +435,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     ws.onclose = async (event) => {
-      void rcDbgInvoke('rc_debug_marker', { marker: 'DBG7-ws-onclose code=' + String(event.code) + ' gen=' + String(generation) }).catch(() => undefined);
+      void rcDbgInvoke('rc_debug_marker', { marker: `DBG7-ws-onclose code=${String(event.code)} gen=${String(generation)}` }).catch(() => undefined);
       // 世代不匹配 = 这条 close 属于已被取代 / 已主动断开的连接。必须在改动任何共享状态
       //（wsRef / connected / connecting / ping 定时器）之前返回：否则上一代迟到的 close 会把
       // 当前连接连根拔掉（wsRef 置空 + 停 ping）并再排一次退避重连 → 并存双连接。
@@ -585,9 +585,9 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           registerControlSessionWsSender((payload) => {
             if (wsRef.current?.readyState === RustWebSocket.OPEN) {
               wsRef.current.send(JSON.stringify(payload));
-              void rcDbgInvoke('rc_debug_marker', { marker: 'DBG6-ws-sent type=' + String((payload as { type?: string }).type) + ' state=' + String(wsRef.current?.readyState) }).catch(() => undefined);
+              void rcDbgInvoke('rc_debug_marker', { marker: `DBG6-ws-sent type=${String((payload as { type?: string }).type)} state=${String(wsRef.current?.readyState)}` }).catch(() => undefined);
             } else {
-              void rcDbgInvoke('rc_debug_marker', { marker: 'DBG5-ws-not-open state=' + String(wsRef.current?.readyState) }).catch(() => undefined);
+              void rcDbgInvoke('rc_debug_marker', { marker: `DBG5-ws-not-open state=${String(wsRef.current?.readyState)}` }).catch(() => undefined);
             }
           });
         }

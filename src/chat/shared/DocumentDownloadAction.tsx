@@ -22,6 +22,7 @@ import { useFileCache } from '../../hooks/useFileCache';
 import { useFileCacheStore, selectDownloadTask } from '../../stores/fileCacheStore';
 import { triggerBackgroundDownload, fileIdentityKey } from '../../services/fileCache';
 import { CircularProgress } from '../../components/common/CircularProgress';
+import { DocumentProgressRing } from './DocumentProgressRing';
 
 // ============================================
 // 图标（搬自 FilePreviewModal 的局部定义，集中到此文件）
@@ -191,22 +192,20 @@ export function DocumentDownloadAction({
   // inline 布局（卡片右下角）
   // ============================================
   // chat-document variant 用 --status-success 主题绿（在白底文档气泡上可见度更好）
+  // 注：进度环已改为 DocumentProgressRing（自带主题蓝），故此处不再需要
+  // progressColor/progressBgColor —— 那两个变量原先是喂给 CircularProgress 的。
   const isChatDoc = variant === 'chat-document';
-  const progressColor = isChatDoc ? 'var(--status-success)' : undefined;
-  const progressBgColor = isChatDoc ? 'var(--status-success-subtle)' : undefined;
   const buttonClass = isChatDoc ? 'document-download chat-document' : 'document-download';
 
   return (
     <div className="document-actions">
       {isDownloading && downloadTask && (
         <div className="document-download-progress">
-          <CircularProgress
-            progress={downloadTask.percent}
-            size={28}
-            strokeWidth={3}
-            progressColor={progressColor}
-            backgroundColor={progressBgColor}
-          />
+          {/* 🔴 文档卡用**自己的**进度环（DocumentProgressRing），不再复用
+             图片/视频那圈 CircularProgress。
+             原因：那圈是为深色媒体宿主设计的粗白环，在白底文档卡上几乎不可见
+             （owner 2026-09-14：「不要同一的图片视频进度圈套用在文件上」）。 */}
+          <DocumentProgressRing progress={downloadTask.percent} size={32} strokeWidth={2.5} />
         </div>
       )}
       {!isDownloaded && !isDownloading && (

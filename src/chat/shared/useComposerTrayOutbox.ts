@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useSession } from '../../contexts/SessionContext';
+import { useSession, useApi } from '../../contexts/SessionContext';
 import { useChatStore } from '../../stores/chatStore';
 import { useFileUpload, UPLOAD_CANCELLED, type MediaGroupMeta } from '../../hooks/useFileUpload';
 import {
@@ -41,6 +41,7 @@ import { ALBUM_MIN_ITEMS, planComposerTraySend, splitIntoShapes } from './compos
 import { newLocalSendClientId } from './useStickToBottom';
 import { persistUploadedMessage } from './uploadPersist';
 import { registerUploadAbort, releaseUploadAbort } from './uploadAbortRegistry';
+import { reconcileFailedSendingEntry } from './sendFailureReconcile';
 import { getFriendConversationId } from '../../utils/conversationId';
 
 /** 一次发送动作的结果，交给调用方决定 UI 反馈 */
@@ -67,6 +68,7 @@ function mediaGroupOf(entry: SendingMediaEntry): MediaGroupMeta | undefined {
 
 export function useComposerTrayOutbox(conversationKey: string | null) {
   const { session } = useSession();
+  const api = useApi();
   const chatTarget = useChatStore((s) => s.chatTarget);
   const { uploadFriendFile, uploadGroupFile } = useFileUpload();
 
@@ -86,12 +88,12 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
 
   // 上传器 / session 会随 render 变，而泵是长跑的异步循环 —— 用 latest-ref 取最新值，
   // 否则泵里拿到的是启动那一刻的闭包（切账号后仍用旧 token 上传）。
-  const depsRef = useRef({ session, uploadFriendFile, uploadGroupFile });
-  depsRef.current = { session, uploadFriendFile, uploadGroupFile };
+  const depsRef = useRef({ session, api, uploadFriendFile, uploadGroupFile });
+  depsRef.current = { session, api, uploadFriendFile, uploadGroupFile };
 
   const uploadOne = useCallback(async (entry: SendingMediaEntry): Promise<void> => {
     const store = useSendingMediaStore.getState();
-    const { session: sess, uploadFriendFile: upFriend, uploadGroupFile: upGroup } = depsRef.current;
+    const { session: sess, api: apiClient, uploadFriendFile: upFriend, uploadGroupFile: upGroup } = depsRef.current;
     if (!sess) {
       store.markFailed(entry.clientId, '未登录');
       return;
@@ -162,6 +164,15 @@ export function useComposerTrayOutbox(conversationKey: string | null) {
         return;
       }
       useSendingMediaStore.getState().markFailed(entry.clientId, message);
+      // 假阴性对账：若失败发生在「服务端已受理、响应回程丢失」（confirm/秒传响应丢），
+      // 消息其实已建好、对端已收到 —— 查服务端最新历史把这条洗回已发送。
+      // 未命中（真失败）则保持 failed 原状；对账永不抛错（内部自吞），不影发送失败链。
+      if (sess) {
+        void reconcileFailedSendingEntry(apiClient, entry, {
+          userId: sess.userId,
+          profile: sess.profile,
+        });
+      }
     } finally {
       releaseUploadAbort(entry.clientId);
     }

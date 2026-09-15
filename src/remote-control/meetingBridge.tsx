@@ -24,6 +24,8 @@ import {
   type RcAuthRequestPayload,
 } from './bus';
 import { isDevControl } from './devGate';
+// #7 目标能力门控（owner 2026-09-14 二次评审②）：不可被控端不挂授权弹层
+import { detectPlatform, isControllablePlatform } from '../utils/platform';
 import ControlAuthPopup from './ControlAuthPopup';
 import type { ControlSessionRequestedData } from './types';
 
@@ -69,6 +71,21 @@ function mockRequest(): ControlSessionRequestedData {
 }
 
 export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
+  /* #7 目标能力门控（owner 2026-09-14 二次评审②）
+   * ------------------------------------------------------------
+   * 授权弹层 = 「有人要控制**本机**」的确认面。本机能不能被控，取决于控制 daemon 在不在
+   * —— daemon 只随桌面端（Windows/macOS/Linux）发布，Android/iOS 根本没有 ⇒ 安卓上弹出的
+   * 「接受授权」是**永远不可能生效**的按钮（病历：owner 在 Android 上点完接受，链路走完了、
+   * 但没有任何东西可以被控制）。
+   *
+   * 收口点选在这里而不是各调用方，是因为 MeetingBridge 是弹层的**唯一宿主**：
+   * 将来再多一个会议面（拆窗/新端）也不会绕过这条判据。
+   * 🔴 不能因此把 MobileMeetingPage 的挂载删掉：tests/unit/mobileRemoteControlWiring.test.ts
+   * 的 A 项锁的就是「移动端会议页必须挂载 MeetingBridge」（那条锁的是「弹层宿主不得被平台
+   * 排除」的历史缺失）。现在两端都挂，由本组件按**本机平台能力**自己决定是否成面 ——
+   * 是「条件更严」，不是「按平台排除」。 */
+  const controllableEnd = isControllablePlatform(detectPlatform());
+
   const [authRequest, setAuthRequest] = useState<ControlSessionRequestedData | null>(null);
   /** daemon grant 注册表为当前弹层申请签发的 pending grant_id（§3.2 T5；RC_AUTH_REQUEST 载荷回传） */
   const [authGrantId, setAuthGrantId] = useState<string | null>(null);
@@ -159,7 +176,8 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
 
   return (
     <>
-      <ControlAuthPopup request={authRequest} onDecide={onDecide} />
+      {/* 授权弹层仅在**本机可被控**时成面（见组件顶部的能力门控注释） */}
+      {controllableEnd && <ControlAuthPopup request={authRequest} onDecide={onDecide} />}
 
       {controlledByName && (
         <div className="rc-banner">正在被 {controlledByName} 控制</div>
