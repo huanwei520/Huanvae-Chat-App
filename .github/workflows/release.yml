@@ -428,8 +428,13 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # v1.1.46 修正：android-actions/setup-android@v3 在 2026-09 新版 runner 镜像上
+      # 因废弃包 `sdkmanager tools` exit 1（v1.1.45 时镜像 cmdline-tools<16.0 未触发）。
+      # runner 镜像已自带 sdkmanager/NDK/platform，只需显式接受 license。
+      - name: Accept Android SDK licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          sdkmanager --list | head -5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
