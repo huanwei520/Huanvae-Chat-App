@@ -1,0 +1,96 @@
+# guard-macos-build-only —— HuanvaeGuard macOS 守护进程「仅构建，不发布」CI
+#
+# 背景（1d0t34vy-3 块 #5）：发货落点 src-tauri/resources/HuanvaeGuard-macos/hg-macos
+# 仍是 2026-08-28 旧件（sha256 b578ef81…5140），不含 2026-09-09 的 daemon.rs:672
+# 修复（控制面重连成功仅在链路健康时清 last_error——安卓「配置热更新已断开」无原因
+# 横幅根因）。本地环境无 macOS 宿主（该腿=脚本本机构建+codesign，非 macOS 物理
+# 不可行），故用 GitHub 托管 macos-14 (Apple Silicon) runner 完成真实构建。
+#
+# 边界红线（与生产 release.yml 的区别）：
+#   * 触发器仅 workflow_dispatch（手动），无 push/tags 自动触发；
+#   * 无 GitHub Release / R2 / latest.json / 任何分发步骤；
+#   * 产物只走 actions artifact（构建者手动下载），不进任何发布面；
+#   * 本文件只存在于隔离分支，不随 main 发布链使用。
+#
+# 构建口径对齐 scripts/build-hg-binaries.sh（App 仓）macOS 腿：
+#   cargo build --release -p hg-macos → codesign -f -s - → 形态断言（Mach-O arm64）
+# 源码锚点：HuanvaeGuard@e34de18（abcc9cc 的 09-09 修复在内，client/common/src/daemon.rs:672）。
+
+name: guard-macos-build-only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-hg-macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout HuanvaeGuard @ e34de18
+        uses: actions/checkout@v4
+        with:
+          repository: huanwei520/HuanvaeGuard
+          ref: e34de18860f843caf7c99e4c56fcb5a658e69505
+          token: ${{ secrets.HG_MACOS_TOKEN }}
+          path: guard-src
+
+      - name: Source fix assertion (daemon.rs line 672 must contain the 09-09 guard)
+        run: |
+          set -euo pipefail
+          cd guard-src
+          echo "checkout HEAD: $(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "e34de18860f843caf7c99e4c56fcb5a658e69505" \
+            || { echo "FAIL: HEAD != e34de18"; exit 3; }
+          echo "--- daemon.rs 修复体（client/common/src/daemon.rs:666-676）---"
+          sed -n '666,676p' client/common/src/daemon.rs
+          grep -q "if s.connected {" client/common/src/daemon.rs \
+            || { echo "FAIL: 09-09 修复特征缺失"; exit 4; }
+          grep -q "s.last_error = None" client/common/src/daemon.rs \
+            || { echo "FAIL: last_error 清除语句缺失"; exit 4; }
+          echo "✅ 源码含 09-09 daemon.rs:672 修复（abcc9cc）"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build hg-macos (release, workspace profile = lto + strip symbols)
+        run: |
+          set -euo pipefail
+          cd guard-src
+          cargo build --release -p hg-macos
+          ls -la target/release/hg-macos
+
+      - name: Ad-hoc re-sign (codesign -f -s -; linker-signed 形态 launchd 可能拒载)
+        run: |
+          set -euo pipefail
+          ART=guard-src/target/release/hg-macos
+          codesign -dv --verbose=4 "$ART" 2>&1 | grep -E 'flags=' | head -1 || true
+          codesign -f -s - "$ART"
+          echo "--- 重签后 ---"
+          codesign -dv --verbose=4 "$ART" 2>&1 | grep -E 'flags=' | head -1
+          codesign --verify --strict "$ART" && echo "✅ codesign verify OK"
+
+      - name: Artifact shape assertion (Mach-O arm64) + checksums
+        run: |
+          set -euo pipefail
+          ART=guard-src/target/release/hg-macos
+          FILE_OUT="$(file "$ART")"
+          echo "$FILE_OUT"
+          echo "$FILE_OUT" | grep -q "Mach-O" || { echo "FAIL: 非 Mach-O"; exit 5; }
+          echo "$FILE_OUT" | grep -q "arm64" || { echo "FAIL: 非 arm64"; exit 5; }
+          ARCHS="$(lipo -archs "$ART" | tr -d ' ')"
+          echo "lipo -archs: $ARCHS"
+          test "$ARCHS" = "arm64" || { echo "FAIL: 架构 != arm64"; exit 5; }
+          echo "sha256: $(shasum -a 256 "$ART")"
+          echo "size  : $(stat -f%z "$ART") bytes"
+
+      - name: Upload artifact (hg-macos)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg-macos-e34de18
+          path: guard-src/target/release/hg-macos
+          if-no-files-found: error
