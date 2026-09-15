@@ -34,11 +34,11 @@ jobs:
         env:
           HG_MACOS_TOKEN: ${{ secrets.HG_MACOS_TOKEN }}
 
-      - name: Checkout HuanvaeGuard @ e34de18
+      - name: Checkout HuanvaeGuard @ b1d7c8d (0909 fix abcc9cc included)
         uses: actions/checkout@v4
         with:
           repository: huanwei520/HuanvaeGuard
-          ref: e34de18860f843caf7c99e4c56fcb5a658e69505
+          ref: b1d7c8df4a9bbd362b99122ac4a9aae631145bb0
           token: ${{ secrets.HG_MACOS_TOKEN }}
           path: guard-src
 
@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           cd guard-src
           echo "checkout HEAD: $(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "e34de18860f843caf7c99e4c56fcb5a658e69505" \
+          test "$(git rev-parse HEAD)" = "b1d7c8df4a9bbd362b99122ac4a9aae631145bb0" \
             || { echo "FAIL: HEAD != e34de18"; exit 3; }
           echo "--- daemon.rs 修复体（client/common/src/daemon.rs:666-676）---"
           sed -n '666,676p' client/common/src/daemon.rs
@@ -96,6 +96,6 @@ jobs:
       - name: Upload artifact (hg-macos)
         uses: actions/upload-artifact@v4
         with:
-          name: hg-macos-e34de18
+          name: hg-macos-b1d7c8d
           path: guard-src/target/release/hg-macos
           if-no-files-found: error
