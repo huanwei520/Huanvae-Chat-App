@@ -827,6 +827,11 @@ export default function MeetingPage() {
     if (webrtc.mediaState.screenSharing) {
       // 已在共享，直接停止
       webrtc.toggleScreenShare();
+      // 远控缺口①修复（R25）：共享停止＝收回受理并拆本机 daemon 链（T9 语义；
+      // 之前仅 dev 面板/主 WS N3 路径接 controlDisarm，正式共享停止未接）。
+      void import('../remote-control/api')
+        .then(({ controlDisarm }) => controlDisarm())
+        .catch(() => undefined);
     } else {
       // 未共享，显示设置弹窗
       setShowScreenShareSettings(true);
@@ -841,6 +846,12 @@ export default function MeetingPage() {
     };
     webrtc.toggleScreenShare(settings);
     setShowScreenShareSettings(false);
+    // 远控缺口①修复（R25）：被控端共享开始＝挂受理（arm，幂等）——
+    // daemon 门禁 armed 后 watcher 注入才放行（input_gate.check: Disarmed 拒）。
+    // 此前 controlArm 仅 mainBridge M1-fallback 与 dev 面板两调用点，正式共享开始未接。
+    void import('../remote-control/api')
+      .then(({ controlArm }) => controlArm())
+      .catch(() => undefined);
   }, [webrtc, screenShareResolution, screenShareFrameRate]);
 
   if (!meetingData) {
