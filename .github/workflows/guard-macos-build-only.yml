@@ -1,20 +1,20 @@
 # guard-macos-build-only —— HuanvaeGuard macOS 守护进程「仅构建，不发布」CI
 #
 # 背景（1d0t34vy-3 块 #5）：发货落点 src-tauri/resources/HuanvaeGuard-macos/hg-macos
-# 仍是 2026-08-28 旧件（sha256 b578ef81…5140），不含 2026-09-09 的 daemon.rs:672
-# 修复（控制面重连成功仅在链路健康时清 last_error——安卓「配置热更新已断开」无原因
-# 横幅根因）。本地环境无 macOS 宿主（该腿=脚本本机构建+codesign，非 macOS 物理
-# 不可行），故用 GitHub 托管 macos-14 (Apple Silicon) runner 完成真实构建。
+# 仍是 2026-08-28 旧件（b578ef81…），不含 2026-09-09 daemon.rs:672 修复。
+#
+# 任务卡口径：重建必须走「既有 macOS 构建宿主与 build-hg-binaries.sh 真实源码落点」。
+# 本地环境无 macOS 宿主，故用 GitHub 托管 macos-14 (Apple Silicon) runner 作为构建宿主，
+# 并**原样执行 App 仓 scripts/build-hg-binaries.sh**（步骤1 源校验 → 步骤2 构建+codesign
+# → 步骤4 落点替换+sha256 → 步骤5 泄露扫 → 步骤6 manifest → 步骤7 汇总），不再手搭
+# cargo/codesign 命令。Windows 腿在 CI runner 上不可达（需 ssh 内网 Windows 构建机），
+# 以 HG_SKIP_WINDOWS=1 跳过，由 Windows 构建宿主另行执行 scripts/build-hg-binaries.ps1
+# （ps1 本就是 Windows 腿的官方入口），双腿合力覆盖卡面两落点。
 #
 # 边界红线（与生产 release.yml 的区别）：
 #   * 触发器仅 workflow_dispatch（手动），无 push/tags 自动触发；
 #   * 无 GitHub Release / R2 / latest.json / 任何分发步骤；
-#   * 产物只走 actions artifact（构建者手动下载），不进任何发布面；
-#   * 本文件只存在于隔离分支，不随 main 发布链使用。
-#
-# 构建口径对齐 scripts/build-hg-binaries.sh（App 仓）macOS 腿：
-#   cargo build --release -p hg-macos → codesign -f -s - → 形态断言（Mach-O arm64）
-# 源码锚点：HuanvaeGuard@e34de18（abcc9cc 的 09-09 修复在内，client/common/src/daemon.rs:672）。
+#   * 产物只走 actions artifact（构建者手动下载），不进任何发布面。
 
 name: guard-macos-build-only
 
@@ -34,28 +34,33 @@ jobs:
         env:
           HG_MACOS_TOKEN: ${{ secrets.HG_MACOS_TOKEN }}
 
+      - name: Checkout App repo @ main (provides card-mandated scripts/build-hg-binaries.sh)
+        uses: actions/checkout@v4
+        with:
+          path: app
+
       - name: Checkout HuanvaeGuard @ b1d7c8d (0909 fix abcc9cc included)
         uses: actions/checkout@v4
         with:
           repository: huanwei520/HuanvaeGuard
           ref: b1d7c8df4a9bbd362b99122ac4a9aae631145bb0
           token: ${{ secrets.HG_MACOS_TOKEN }}
-          path: guard-src
+          path: HuanvaeGuard
 
-      - name: Source fix assertion (daemon.rs line 672 must contain the 09-09 guard)
+      - name: Source fix assertion (daemon.rs 672 must contain the 09-09 guard)
         run: |
           set -euo pipefail
-          cd guard-src
+          cd HuanvaeGuard
           echo "checkout HEAD: $(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "b1d7c8df4a9bbd362b99122ac4a9aae631145bb0" \
-            || { echo "FAIL: HEAD != e34de18"; exit 3; }
+            || { echo "FAIL: HEAD != b1d7c8df"; exit 3; }
           echo "--- daemon.rs 修复体（client/common/src/daemon.rs:666-676）---"
           sed -n '666,676p' client/common/src/daemon.rs
           grep -q "if s.connected {" client/common/src/daemon.rs \
             || { echo "FAIL: 09-09 修复特征缺失"; exit 4; }
           grep -q "s.last_error = None" client/common/src/daemon.rs \
             || { echo "FAIL: last_error 清除语句缺失"; exit 4; }
-          echo "✅ 源码含 09-09 daemon.rs:672 修复（abcc9cc）"
+          echo "OK: 源码含 09-09 daemon.rs:672 修复"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -65,42 +70,40 @@ jobs:
       - name: Write mTLS client key (gitignored; embedded via include_bytes! in tls.rs)
         env:
           APP_CLIENT_KEY_PEM_BASE64: ${{ secrets.APP_CLIENT_KEY_PEM_BASE64 }}
-        run: echo "$APP_CLIENT_KEY_PEM_BASE64" | openssl base64 -d -A > guard-src/client/cli/resources/app-client.key.pem
-
-      - name: Build hg-macos (release, workspace profile = lto + strip symbols)
         run: |
           set -euo pipefail
-          cd guard-src
-          cargo build --release -p hg-macos
-          ls -la target/release/hg-macos
+          echo "$APP_CLIENT_KEY_PEM_BASE64" | openssl base64 -d -A > HuanvaeGuard/client/cli/resources/app-client.key.pem
+          test -s HuanvaeGuard/client/cli/resources/app-client.key.pem
 
-      - name: Ad-hoc re-sign (codesign -f -s -; linker-signed 形态 launchd 可能拒载)
+      - name: Run card-mandated scripts/build-hg-binaries.sh (macOS leg)
+        env:
+          HG_REPO: ${{ github.workspace }}/HuanvaeGuard
+          HG_SKIP_WINDOWS: "1"
         run: |
           set -euo pipefail
-          ART=guard-src/target/release/hg-macos
-          codesign -dv --verbose=4 "$ART" 2>&1 | grep -E 'flags=' | head -1 || true
-          codesign -f -s - "$ART"
-          echo "--- 重签后 ---"
-          codesign -dv --verbose=4 "$ART" 2>&1 | grep -E 'flags=' | head -1
-          codesign --verify --strict "$ART" && echo "✅ codesign verify OK"
+          cd app
+          bash scripts/build-hg-binaries.sh 2>&1 | tee build-hg-binaries-run.log
+          exit "${PIPESTATUS[0]}"
 
-      - name: Artifact shape assertion (Mach-O arm64) + checksums
+      - name: Assert artifact at card-mandated fallback path + upload
         run: |
           set -euo pipefail
-          ART=guard-src/target/release/hg-macos
-          FILE_OUT="$(file "$ART")"
-          echo "$FILE_OUT"
-          echo "$FILE_OUT" | grep -q "Mach-O" || { echo "FAIL: 非 Mach-O"; exit 5; }
-          echo "$FILE_OUT" | grep -q "arm64" || { echo "FAIL: 非 arm64"; exit 5; }
-          ARCHS="$(lipo -archs "$ART" | tr -d ' ')"
-          echo "lipo -archs: $ARCHS"
-          test "$ARCHS" = "arm64" || { echo "FAIL: 架构 != arm64"; exit 5; }
-          echo "sha256: $(shasum -a 256 "$ART")"
-          echo "size  : $(stat -f%z "$ART") bytes"
+          ART=app/src-tauri/resources/HuanvaeGuard-macos/hg-macos
+          MAN=app/src-tauri/resources/hg-build-manifest.json
+          test -f "$ART" || { echo "FAIL: 落点无产物"; exit 6; }
+          echo "--- file ---"; file "$ART"
+          file "$ART" | grep -q "Mach-O" || { echo "FAIL: 非 Mach-O"; exit 5; }
+          echo "--- lipo ---"; lipo -archs "$ART"
+          lipo -archs "$ART" | grep -q "arm64" || { echo "FAIL: 架构 != arm64"; exit 5; }
+          echo "--- manifest ---"; cat "$MAN"
+          echo "sha256: $(shasum -a 256 "$ART" | awk '{print $1}')"
 
-      - name: Upload artifact (hg-macos)
+      - name: Upload artifact (hg-macos + manifest + full script log)
         uses: actions/upload-artifact@v4
         with:
-          name: hg-macos-b1d7c8d
-          path: guard-src/target/release/hg-macos
+          name: hg-macos-script-built
+          path: |
+            app/src-tauri/resources/HuanvaeGuard-macos/hg-macos
+            app/src-tauri/resources/hg-build-manifest.json
+            app/build-hg-binaries-run.log
           if-no-files-found: error
