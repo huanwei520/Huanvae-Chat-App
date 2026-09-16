@@ -311,6 +311,33 @@ export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps 
     setLog(prev => [...prev.slice(-49), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   }, []);
 
+  // 隧道此刻是否活跃：凭据推送的门控读它而不是 tunnelStatus state ——
+  // tokens-updated 监听器闭包里读 state 只能读到挂载那拍的旧值，ref 每拍由探活同步。
+  const tunnelActiveRef = useRef(false);
+
+  // 凭据推送（daemon 侧 401+刷新失败自愈链的 App 半边，端点见 localApi.updateControlCredentials）。
+  // 只在桌面轨发：安卓轨的会话走插件会话文件（sessionFd），没有本地 HTTP 控制面可推。
+  const pushControlCredentials = useCallback(async (accessToken: string, refreshToken?: string) => {
+    if (isAndroid) { return; }
+    if (!accessToken) { return; }
+    if (!tunnelActiveRef.current) { return; }
+    try {
+      const r = await localApi.updateControlCredentials({
+        access_token: accessToken,
+        // 空串要变成「这个键不存在」：与 start 时的 control.refresh_token 同一处理
+        refresh_token: refreshToken || undefined,
+      });
+      if (r.success) {
+        addLog('已向守护进程同步最新令牌，配置热更新继续');
+      } else {
+        // 守护进程无活跃控制面（隧道已断）时落到这里：记一行即可，不是错误
+        addLog(`令牌同步未生效：${r.error ?? '未知原因'}`);
+      }
+    } catch (e) {
+      addLog(`令牌同步失败：${e}`);
+    }
+  }, [isAndroid, addLog]);
+
   // ── 探活唯一权威 ──────────────────────────────────────────────────────────
   // serviceRunning / tunnelStatus 只能由这里写。之前有三个互不协调的写者（挂载 effect、
   // 3s 轮询、handleRepair），彼此无序：慢响应回来时旧结果会盖掉新结果，一次令牌刷新也会
@@ -352,6 +379,8 @@ export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps 
       }
       setServiceRunning(running);
       setTunnelStatus(status);
+      // 凭据推送的门控读数（见 pushControlCredentials）：ref 同步落，监听器闭包里才读得到新值
+      tunnelActiveRef.current = status?.active === true;
 
       if (lastLoggedRunningRef.current !== running) {
         lastLoggedRunningRef.current = running;
@@ -505,12 +534,39 @@ export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps 
           refreshToken: event.payload.refreshToken,
         } : prev));
         addLog('已从主窗口同步访问令牌');
+        // 同步链的下半场：令牌同时递给运行中的守护进程。只到本页（windowData）
+        // 的话，隧道里那对令牌依然是开窗快照 —— 重登/轮换后照样 401。
+        void pushControlCredentials(event.payload.accessToken, event.payload.refreshToken);
       },
     );
     // 挂载时主动请求一次（处理打开即过期的边界情况）
     void emit('session:request-tokens');
     return () => { void unlistenPromise.then(fn => fn()); };
-  }, [addLog]);
+  }, [addLog, pushControlCredentials]);
+
+  // 守护进程宣告「凭据已死」（401 后刷新也被 401）时的自愈触发器：
+  // emit `session:request-tokens` 向主窗口索要**当前**令牌（主窗口从 sessionRef 现取回发，
+  // 所以重登后的新会话也在覆盖范围内），回发即走上面的推送链路；同时用本页现值兑一次底。
+  // 节流 60s：探活 3s 一拍，不能让每拍都打一发；空转成本只是一个 emit + 一条日志。
+  const lastCredResyncRef = useRef(0);
+  const CRED_RESYNC_THROTTLE_MS = 60_000;
+  useEffect(() => {
+    const err = tunnelStatus?.control_plane?.last_error;
+    if (!err) { return; }
+    // 两个宣告源：WS 认证链（daemon.rs 的 sign-in required）与配置拉取链
+    // （config fetch kept failing: token refresh after 401 failed）。
+    const credentialDead =
+      err.includes('sign-in required') || err.includes('token refresh after 401 failed');
+    if (!credentialDead) { return; }
+    const now = Date.now();
+    if (now - lastCredResyncRef.current < CRED_RESYNC_THROTTLE_MS) { return; }
+    lastCredResyncRef.current = now;
+    addLog('守护进程凭据已失效：正在向主窗口重新获取当前令牌');
+    void emit('session:request-tokens');
+    if (windowData?.accessToken) {
+      void pushControlCredentials(windowData.accessToken, windowData.refreshToken);
+    }
+  }, [tunnelStatus, windowData, addLog, pushControlCredentials]);
 
   // 订阅设备在线态变更（跨 Tauri 窗口广播）
   // WS 只连在主窗口，主窗口收到后端 hg_device_status_changed 帧后转发成这个事件。

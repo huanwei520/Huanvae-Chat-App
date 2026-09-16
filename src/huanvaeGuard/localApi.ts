@@ -174,3 +174,42 @@ export function startTunnel(params: {
 export function stopTunnel(): Promise<ApiResponse<void>> {
   return localFetch('/api/tunnel/stop', { method: 'POST' });
 }
+
+/**
+ * 向**运行中**的守护进程推送当前令牌（`POST /api/tunnel/credentials`）。
+ *
+ * 🔴 为什么必须存在：后端在「同设备重登 / 登出」时**撤销旧 refresh token**
+ * （后端 token_service.rs 的 generate_token_pair：`SET "is-revoked" = true, … "设备重新登录"`），
+ * 而守护进程的凭据只在 `/api/tunnel/start` 时拿到一次。此后主窗口每张新令牌都只会广播到
+ * Tauri 窗口（`session:tokens-updated`），永远到不了守护进程 —— 它手里那对令牌一旦被撤销，
+ * 配置拉取 401、刷新也 401，横幅就是 owner 实机那张「config fetch kept failing: token
+ * refresh after 401 failed: …」。本函数是自愈链的 App 半边：把主窗口**当前**的令牌递进
+ * 守护进程的活会话，守护进程侧收到后立即重拉配置（HuanvaeGuard 仓 daemon.rs 的
+ * `ControlHandle::update_credentials`）。
+ *
+ * 调用时机（见 HuanvaeGuardPage 的凭据推送链）：
+ *   1. 收到 `session:tokens-updated`（主窗口主动/被动刷新、响应 request-tokens 回发）——
+ *      覆盖「令牌轮换」场景；
+ *   2. 探活发现守护进程宣告凭据已死（`last_error` 含 `sign-in required` /
+ *      `token refresh after 401 failed`）时，先 emit `session:request-tokens` 向主窗口
+ *      索要当前令牌（回发即走 1），同时用本页现值兑一次底 —— 覆盖「重登发生在隧道开启后」场景。
+ *
+ * 守护进程对「同值重推」是幂等防御的（不重置退避、不唤醒 socket），所以这里可以放心节流重试。
+ * 键名与 `ControlCredentials` 线格式一致（daemon.rs 的 `UpdateCredentialsRequest`）。
+ */
+export function updateControlCredentials(params: {
+  access_token: string;
+  refresh_token?: string;
+}): Promise<ApiResponse<void>> {
+  // 空串要变成「这个键不存在」（JSON.stringify 丢 undefined 键）：与 start 时
+  // control.refresh_token 的处理同一规则 —— 空串会被守护进程反序列化成 Some("")，
+  // 一个「存在但无用」的凭据，比整个键缺失更糟。归一化收在 localApi 这一道
+  // 闸门里，调用方忘处理也不会把空串递过线。
+  const body: { access_token: string; refresh_token?: string } = { access_token: params.access_token };
+  if (params.refresh_token) { body.refresh_token = params.refresh_token; }
+  return localFetch('/api/tunnel/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
