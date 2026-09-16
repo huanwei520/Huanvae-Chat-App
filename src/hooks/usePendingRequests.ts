@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApi, useSession } from '../contexts/SessionContext';
+import { useWebSocket } from '../contexts/WebSocketContext';
 import { approveFriendRequest, rejectFriendRequest, type PendingRequest } from '../api/friends';
 import {
   acceptGroupInvitation,
@@ -54,6 +55,9 @@ export function usePendingRequests(
 ): UsePendingRequestsReturn {
   const api = useApi();
   const { session } = useSession();
+  // 「+」角标计数（WebSocketContext.pendingNotifications）在动作成功回执后扣减：
+  // 不扣则处理完申请红点仍挂着、要重登才消（桌面端无移动端 openPending 清零掩蔽，必现）。
+  const { decrementPendingNotification } = useWebSocket();
 
   const [sources, setSources] = useState<PendingSources>(EMPTY_SOURCES);
   const [loading, setLoading] = useState(true);
@@ -90,12 +94,14 @@ export function usePendingRequests(
           ...prev,
           friendRequests: prev.friendRequests.filter((x) => x.request_id !== r.request_id),
         }));
+        // 回执后即时扣减「+」角标（floor 0），与桌面/移动共用本 hook 故两端同时生效
+        decrementPendingNotification('friendRequests');
         onFriendAdded?.();
       } catch (err) {
         setError(err instanceof Error ? err.message : '操作失败');
       }
     },
-    [api, session, onFriendAdded],
+    [api, session, onFriendAdded, decrementPendingNotification],
   );
 
   const rejectFriend = useCallback(
@@ -109,11 +115,13 @@ export function usePendingRequests(
           ...prev,
           friendRequests: prev.friendRequests.filter((x) => x.request_id !== r.request_id),
         }));
+        // 拒绝同样是「申请已处理」，角标同步扣减
+        decrementPendingNotification('friendRequests');
       } catch (err) {
         setError(err instanceof Error ? err.message : '操作失败');
       }
     },
-    [api, session],
+    [api, session, decrementPendingNotification],
   );
 
   const acceptInvite = useCallback(
@@ -124,6 +132,7 @@ export function usePendingRequests(
           ...prev,
           groupInvites: prev.groupInvites.filter((x) => x.request_id !== inv.request_id),
         }));
+        decrementPendingNotification('groupInvites');
         addGroup?.({
           group_id: inv.group_id,
           group_name: inv.group_name,
@@ -137,7 +146,7 @@ export function usePendingRequests(
         setError(err instanceof Error ? err.message : '操作失败');
       }
     },
-    [api, addGroup],
+    [api, addGroup, decrementPendingNotification],
   );
 
   const declineInvite = useCallback(
@@ -148,11 +157,12 @@ export function usePendingRequests(
           ...prev,
           groupInvites: prev.groupInvites.filter((x) => x.request_id !== inv.request_id),
         }));
+        decrementPendingNotification('groupInvites');
       } catch (err) {
         setError(err instanceof Error ? err.message : '操作失败');
       }
     },
-    [api],
+    [api, decrementPendingNotification],
   );
 
   return { items, loading, error, approveFriend, rejectFriend, acceptInvite, declineInvite };
