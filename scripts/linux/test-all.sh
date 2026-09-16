@@ -796,16 +796,26 @@ fi
 #   · 静态腿恒跑：映射并集 + 源文件在仓（映射被删 / 源文件丢失 → FAIL）
 #   · 产物腿：本机有已构建安装包时逐个解包核对必含文件；无产物时如实说明（本宿主
 #     不构建安装包，产物由 CI 构建并在分发侧复验），不虚构通过也不谎报失败。
-# 独立用法（对已发布产物核验）：scripts/linux/assert-artifact-content.sh <产物文件>
-step_header "产物内容清单断言 (HuanvaeGuard 组件进包核验)..."
+# 独立用法（对已发布产物核验）：scripts/assert-artifact-content-v2.sh <产物文件>
+#
+# 【v2 切换，2026-09-15 五层门禁改造】本步由 v1（assert-artifact-content.sh，保留在仓
+# 作回滚基线）切换到 v2（scripts/assert-artifact-content-v2.sh）：v2 在 v1 三条腿之上
+# 把产物腿升级为「必含件+期望 SHA256 来源逐哈希核对」（发货落点 manifest/仓内落点），
+# 缺件或哈希不符均 FAIL——1.1.47「包内旧件 fa1e0f68 流出」事故形态由本步拦住。
+# 目标版本经 ARTIFACT_TARGET_VERSION 注入（release.sh 步骤 0 自动算出后导出），
+# 用于「随 1.1.49 起 hv-control-daemon 必含」的 since 门；未设置时 v2 按 0.0.0 处理
+# （since 条目不强制，输出中会显式提醒）。回滚：本步改回调用 v1 即可（文件仍在仓）。
+step_header "产物内容清单断言 v2 (必含件+期望SHA256逐哈希核对)..."
 
 ARTIFACT_EXIT=0
-ARTIFACT_OUTPUT=$("$SCRIPT_DIR/assert-artifact-content.sh" 2>&1) || ARTIFACT_EXIT=$?
+ARTIFACT_V2_ARGS=()
+[[ -n "${ARTIFACT_TARGET_VERSION:-}" ]] && ARTIFACT_V2_ARGS+=(--target-version "$ARTIFACT_TARGET_VERSION")
+ARTIFACT_OUTPUT=$("$SCRIPT_DIR/../assert-artifact-content-v2.sh" "${ARTIFACT_V2_ARGS[@]}" 2>&1) || ARTIFACT_EXIT=$?
 printf '%s\n' "$ARTIFACT_OUTPUT"
 if [[ $ARTIFACT_EXIT -eq 0 ]]; then
-    echo -e "  ${GREEN}✓ PASS: 产物内容清单断言${NC}"
+    echo -e "  ${GREEN}✓ PASS: 产物内容清单断言 v2${NC}"
 else
-    echo -e "  ${RED}✗ FAIL: 产物内容清单断言（映射/源文件/产物内容存在缺失，退出码 ${ARTIFACT_EXIT}）${NC}"
+    echo -e "  ${RED}✗ FAIL: 产物内容清单断言 v2（映射/源文件/必含件/哈希存在缺失，退出码 ${ARTIFACT_EXIT}）${NC}"
     ALL_PASSED=false
 fi
 

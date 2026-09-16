@@ -8,7 +8,8 @@
 
 ```
 scripts/
-├── release-config.txt        # 共用配置文件
+├── release-config.txt        # 共用配置文件（VERSION 行已废弃；MESSAGE 仍必填）
+├── assert-artifact-content-v2.sh  # 【L1】产物内容断言 v2：必含件+期望SHA256逐哈希（全平台）
 ├── README.md                 # 本文件
 ├── release.ps1               # Windows 发布脚本（7 步）
 ├── pre-release.ps1           # Windows 预发布检查
@@ -29,10 +30,28 @@ scripts/
 │   └── test-editor-e2e.ps1   # 编辑器端到端测试
 └── linux/                    # Linux 脚本目录
     ├── README.md             # Linux 脚本说明
-    ├── release.sh            # Linux 发布脚本（7 步）
-    ├── test-all.sh           # Linux 完整测试（13 项）
+    ├── release.sh            # Linux 发布脚本（v3.1 十步·五层门禁）
+    ├── auto-version.sh       # 【版本规则】自动版本：查 GitHub 最新正式 tag +0.0.1（禁盲涨号）
+    ├── l2-install-smoke.sh   # 【L2】四平台安装冒烟（真机装包→服务/进程/渲染判据）
+    ├── l3-full-matrix.sh     # 【L3】全功能实测矩阵（十项，缺证即红，无 ALLOW_SKIP）
+    ├── l4-channel-verify.sh  # 【L4】渠道下载验证（Release 资产 SHA256+latest.json 对账）
+    ├── assert-artifact-content.sh  # 【L1 v1·回滚基线】产物内容清单断言（存在性口径）
+    ├── test-all.sh           # Linux 完整测试（14 项；第 14 步 = L1 产物内容断言 v2）
     └── setup-deps.sh         # Linux 开发依赖安装
 ```
+
+### 五层门禁（2026-09-15 起的发布唯一标准路径）
+
+| 层 | 脚本 | 接入点 |
+|---|---|---|
+| L0 代码门禁 | `linux/test-all.sh`（14 项） | release.sh 步骤 4 |
+| L1 产物内容断言 | `assert-artifact-content-v2.sh`（期望 SHA256 来源=发货落点 manifest/仓内落点） | test-all 第14步 + release.yml CI 出包即断言 |
+| L2 平台安装冒烟 | `linux/l2-install-smoke.sh`（四腿；环境经 L2_WIN_HOST/L2_MAC_HOST 注入，仓内不落盘） | release.sh 步骤 5 |
+| L3 全功能实测矩阵 | `linux/l3-full-matrix.sh`（十项；`--record` 登记证据 / `--register` 登记真实原因，无 ALLOW_SKIP） | release.sh 步骤 5 |
+| L4 渠道下载验证 | `linux/l4-channel-verify.sh`（资产 SHA256 复算 + latest.json/android-latest.json 对账 + 包内容复验） | release.sh 步骤 9（发布后）；可独立跑 |
+
+干跑验证：`RELEASE_DRY_RUN=1 ./scripts/linux/release.sh`（逐层真跑但不写版本/不 commit/不 push）。
+详见 `.claude/skills/release/SKILL.md`「五层门禁管线」章节。
 
 > 四个 `build-hg-binaries.*` / `hg-connectivity-test.*` 放在 `scripts/` 根、**不在 `linux/` 下**：
 > 它们按**宿主平台**成对（`.sh` = macOS 宿主，`.ps1` = Windows 宿主），两侧被
