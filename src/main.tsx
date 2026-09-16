@@ -26,6 +26,7 @@ import { HuanvaeGuardPage } from './huanvaeGuard';
 import { StockPage } from './stocks';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
+import { installFaultCapture } from './services/faultReport';
 import { initSafeAreaFallback } from './utils/safeAreaFallback';
 import { ControlWindow } from './remote-control/ControlWindow';
 import { isRemoteControlEnabled } from './remote-control/devGate';
@@ -33,6 +34,9 @@ import './index.css';
 
 // 根据路径判断渲染哪个页面
 const pathname = window.location.pathname;
+
+// 故障记录采集器：尽早安装（console/异常/网络错误摘要劫持，记录后原样转发，不改语义）
+installFaultCapture();
 
 function RootApp() {
   // 会议页面（独立窗口，不需要 Session）

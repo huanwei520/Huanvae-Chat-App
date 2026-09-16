@@ -10,6 +10,7 @@ export { SettingsGroup } from './SettingsGroup';
 export { SettingsRow } from './SettingsRow';
 export { SoundSelector } from './SoundSelector';
 export { DeviceListPanel } from './DeviceListPanel';
+export { FaultReportPanel } from './FaultReportPanel';
 
 export type { SettingsSectionProps } from './SettingsSection';
 export type { SettingsGroupProps } from './SettingsGroup';

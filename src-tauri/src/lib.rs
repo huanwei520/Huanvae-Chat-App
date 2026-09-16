@@ -40,6 +40,8 @@ mod content_hash;
 mod db;
 mod device_info;
 mod download;
+// 故障记录检测：Rust 侧追加层采集（脱敏环形缓冲 + log 门面 + 设备/机器码命令面）
+mod fault_report;
 mod lan_transfer;
 mod permissions;
 /// 断点续传的 sidecar 清单 + 「远端未变」判定 —— 桌面 updater 与安卓 APK 下载**共用同一份**
@@ -863,6 +865,9 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // 故障记录检测：安装 log 追加层（stdout 透传 + 脱敏入环形缓冲；幂等，不改既有 println! 语义）
+            fault_report::init();
+
             // 桌面端：把用户数据根目录注册到 asset 协议白名单
             //
             // 背景：tauri.conf.json `assetProtocol.scope` 内置变量（$DATA / $LOCALDATA / $APPDATA 等）
@@ -1108,6 +1113,10 @@ pub fn run() {
             // 回环安全反代(webview 原生加载/上传 走自签源站)
             secure_proxy::ensure_secure_proxy,
             secure_proxy::set_proxy_target,
+            // 故障记录检测（Rust 侧追加层采集命令面）
+            fault_report::fault_report_get_rust_logs,
+            fault_report::fault_report_device_info,
+            fault_report::fault_report_machine_code_hash,
             // 子窗口生命周期：登出时关闭所有子窗口
             close_child_windows,
             // 提示音管理

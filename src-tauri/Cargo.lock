@@ -2088,6 +2088,7 @@ dependencies = [
  "keyring",
  "libc",
  "local-ip-address",
+ "log",
  "mac_address",
  "mdns-sd",
  "mime_guess",
