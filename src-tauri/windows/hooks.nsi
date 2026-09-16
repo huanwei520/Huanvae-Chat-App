@@ -200,20 +200,49 @@ Var HgGuardWasRunning
   StrCpy $HgGuardExists 0
   StrCpy $HgGuardWasRunning 0
 
-  ; ① 探测服务是否存在：sc query 的 stdout 里有 STATE 行 ⇔ 服务已在 SCM 注册。
-  ;    find 是精确子串匹配且 sc query 输出恒大写；不存在的服务时 sc 把错误写到
-  ;    stderr，find 在空 stdin 上 rc=1 ⇒ 读成“不存在”，与 1060 分支同效。
-  nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STATE"'
+  ; ⚠️ nsExec 没有 shell：`cmd.exe /c ... | find "X"` 这类管道+引号写法在
+  ;    CreateProcess 直跑下到不了 find（VM 实测：rc=255，文件里留下
+  ;    'find' is not recognized）。所以本宏【禁用管道/引号】：
+  ;    · 存在性 → 直接 sc query 的退出码（0=已注册 / 1060=未注册）
+  ;    · STATE   → 用 cmd 只做重定向落到固定路径文件，再 FileRead 逐行找 STOPPED
+
+  ; ① 探测服务是否存在
+  nsExec::Exec 'sc.exe query HuanvaeGuard'
   Pop $0
   ${If} $0 = 0
     StrCpy $HgGuardExists 1
     ; ② 记录运行状态：不是 STOPPED 就按“更新前在运行”处理（含 START/STOP_PENDING，
     ;    保守恢复 —— POSTINSTALL 会把它拉起来）。判定用同一个读取（单变量前后对照）。
-    nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STOPPED"'
+    nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard 1>C:\Windows\Temp\huanvae-guard-state.txt 2>&1'
     Pop $0
-    ${If} $0 != 0
+    FileOpen $3 'C:\Windows\Temp\huanvae-guard-state.txt' r
+    ${If} $3 != ""
       StrCpy $HgGuardWasRunning 1
+      ${Do}
+        ClearErrors
+        FileRead $3 $4
+        ${If} ${Errors}
+          ${ExitDo}
+        ${EndIf}
+        StrCpy $5 0
+        ${Do}
+          StrCpy $6 $4 7 $5
+          ${If} $6 == ""
+            ${ExitDo}
+          ${EndIf}
+          ${If} $6 == "STOPPED"
+            StrCpy $HgGuardWasRunning 0
+            ${ExitDo}
+          ${EndIf}
+          IntOp $5 $5 + 1
+        ${Loop}
+        ${If} $HgGuardWasRunning = 0
+          ${ExitDo}
+        ${EndIf}
+      ${Loop}
+      FileClose $3
     ${EndIf}
+    Delete 'C:\Windows\Temp\huanvae-guard-state.txt'
   ${EndIf}
 
   ; ③ 在跑 ⇒ 停 + 轮询等 STOPPED（500ms × 60 = 30s 上限，覆盖隧道在跑时
@@ -228,8 +257,36 @@ Var HgGuardWasRunning
     StrCpy $1 0
     hg_guard_poll:
       IntOp $1 $1 + 1
-      nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STOPPED"'
+      nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard 1>C:\Windows\Temp\huanvae-guard-state.txt 2>&1'
       Pop $2
+      ; 扫描本次输出里有没有 STOPPED（同上：FileRead 子串扫描，不用 find）
+      StrCpy $2 1
+      FileOpen $3 'C:\Windows\Temp\huanvae-guard-state.txt' r
+      ${If} $3 != ""
+        ${Do}
+          ClearErrors
+          FileRead $3 $4
+          ${If} ${Errors}
+            ${ExitDo}
+          ${EndIf}
+          StrCpy $5 0
+          ${Do}
+            StrCpy $6 $4 7 $5
+            ${If} $6 == ""
+              ${ExitDo}
+            ${EndIf}
+            ${If} $6 == "STOPPED"
+              StrCpy $2 0
+              ${ExitDo}
+            ${EndIf}
+            IntOp $5 $5 + 1
+          ${Loop}
+          ${If} $2 = 0
+            ${ExitDo}
+          ${EndIf}
+        ${Loop}
+        FileClose $3
+      ${EndIf}
       ${If} $2 = 0
         Goto hg_guard_stopped
       ${EndIf}
@@ -239,6 +296,7 @@ Var HgGuardWasRunning
       Sleep 500
       Goto hg_guard_poll
     hg_guard_stop_timeout:
+      SetErrorLevel 7
       DetailPrint "HuanvaeGuard 服务在 30 秒内未能停止，已中止安装"
       MessageBox MB_ICONEXCLAMATION|MB_OK "无法停止 HuanvaeGuard VPN 服务（等待 30 秒仍未停止）。$\r$\n继续安装会因服务文件被占用而失败或留下残缺安装，本次安装已中止，未改动任何文件。$\r$\n请重启电脑后重试；若仍失败，请在管理员命令行执行：sc stop HuanvaeGuard" /SD IDOK
       Abort "已中止：无法停止 HuanvaeGuard 服务（等待超时）"

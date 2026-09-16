@@ -1599,4 +1599,88 @@ mod tests {
         let _ = guard_stop_failure_message("x");
         let _ = guard_query_failure_message(None);
     }
+
+    // ---------- 真机集成测试（#[ignore]，只在 Windows 实机上手动跑）----------
+    //
+    // 这两条在真实 SCM 上验证「停服等待」与「停不掉即中止」两个分支。它们对机器状态
+    // 有真实副作用（停服务 / 改服务 SDDL），所以不进常规 CI —— 由 VM 验收
+    // （winserver-hg，blockId 1789554821716-b12sxey0-1）显式跑：
+    //     cargo test --lib updater_download::tests::win_machine -- --ignored --nocapture
+
+    /// 停服分支：调 stop_guard_service_for_update 后，SCM 终态必须是 STOPPED；
+    /// 若服务此前在跑，测完恢复运行（测试不留状态）。
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "真机集成：需要 Windows + HuanvaeGuard 服务（会真的停/启服务）"]
+    fn win_machine_guard_stop_reaches_stopped() {
+        let running_before = stop_guard_service_for_update().expect("停服必须成功");
+        // 独立复核（不信被测函数自己的结论）：SCM 此刻必须报 STOPPED
+        assert_eq!(
+            guard_query_state(),
+            GuardState::Stopped,
+            "停服返回 Ok 但 SCM 未到 STOPPED"
+        );
+        println!("[win-machine] running_before={running_before}, SCM 终态=STOPPED");
+        // 恢复：更新前在跑的场景下把它拉回来（守模拟真实更新后的恢复路径）
+        if running_before {
+            let out = run_captured("sc.exe", &["start", GUARD_SERVICE_NAME]);
+            println!("[win-machine] 恢复启动 rc={out:?}");
+        }
+    }
+
+    /// 中止分支：人为让服务「停不掉」（回收 AU 的 SERVICE_STOP 权限）⇒
+    /// stop_guard_service_for_update 必须在超时后返回 Err（含「已中止」文案），
+    /// 而不是带着文件锁继续落地。测完恢复 SDDL 并拉回服务。
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "真机集成：需要 Windows + 管理员 + HuanvaeGuard 服务（会改服务 SDDL）"]
+    fn win_machine_undeniable_stop_aborts_update() {
+        // 前提：服务存在且【完全进入 RUNNING】——前一个测试可能刚 sc start，
+        // START_PENDING 中去 deny/stop 会遇到 SCM 竞态（START_PENDING 里的服务
+        // 可能被直接停掉，恰好绕过 deny），所以先等启动完成。
+        let mut saw_running = false;
+        for _ in 0..60 {
+            if guard_query_state() == GuardState::Running {
+                saw_running = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        assert!(
+            saw_running,
+            "本测试要求 HuanvaeGuard 服务已安装且完全进入 RUNNING"
+        );
+
+        // 保存现 SDDL（sc sdset 输出形如 "D:(A;;…;;;SY)…"）
+        let orig = run_captured("sc.exe", &["sdshow", GUARD_SERVICE_NAME])
+            .filter(|(rc, _)| *rc == 0)
+            .map(|(_, out)| out)
+            .filter(|s| s.contains("D:"))
+            .expect("读取服务 SDDL 失败");
+        let orig_sddl: String = orig.lines().map(|l| l.trim()).collect();
+        // 拿掉 AU 的授外，再给 BA 塞一条 STOP 拒绝 —— 只回收 AU 对提升后的管理员
+        // 调用者无效（BA 的 allow 仍在），必须显式 deny：(D;;0x20;;;BA) 才能让
+        // sc stop 返回 5（VM 实测；助记符 ST 在 sc sdset 的 SDDL 解析器里会被拒 1336，
+        // 必须写十六进制 0x20 = SERVICE_STOP）。
+        let revoked = orig_sddl
+            .replace("(A;;CCLCSWRPWPLOCRRC;;;AU)", "")
+            .replace("(A;;CCLCSWRPWPLOCRRC;;;IU)", "")
+            .replace("D:(", "D:(D;;0x20;;;BA)(");
+        assert_ne!(revoked, orig_sddl, "SDDL 里没找到 AU/IU 授权段，样本形态变了");
+        let set = run_captured("sc.exe", &["sdset", GUARD_SERVICE_NAME, revoked.as_str()]);
+        assert_eq!(set.map(|(rc, _)| rc), Some(0), "回收 AU 停服权限失败");
+
+        // 🔴 被测分支：sc stop 会被拒（5），轮询到点仍未 STOPPED ⇒ 必须 Err(已中止)
+        let result = stop_guard_service_for_update();
+
+        // 无论结果如何先恢复 SDDL + 服务（测试不留状态）
+        let _ = run_captured("sc.exe", &["sdset", GUARD_SERVICE_NAME, orig_sddl.as_str()]);
+        let _ = run_captured("sc.exe", &["start", GUARD_SERVICE_NAME]);
+
+        let err = result.expect_err("停不掉时必须 Err（中止更新），不得放行去硬覆盖");
+        assert!(err.contains("已中止"), "中止文案必须出现：{err}");
+        assert!(err.contains(GUARD_SERVICE_NAME), "文案必须点名服务：{err}");
+        assert!(!err.contains("C:\\"), "文案不得带路径：{err}");
+        println!("[win-machine] 中止分支文案：{err}");
+    }
 }

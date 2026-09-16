@@ -830,14 +830,52 @@ describe('hooks.nsi HUANVAE_GUARD_STOP_FOR_INSTALL — 停服 + 等 STOPPED + �
     expect(whole, '停服钩必须恰好被插入一次').toHaveLength(1);
   });
 
-  it('先探测/记录状态（sc query … find），再 sc stop —— 顺序不可换', () => {
-    const iQuery = STOP_GUARD.split(/\r?\n/).findIndex((l) =>
-      l.includes('sc.exe query HuanvaeGuard | find "STATE"'),
+  it('先探测服务存在性（sc query 的退出码），再 sc stop —— 顺序不可换', () => {
+    const lines = STOP_GUARD.split(/\r?\n/);
+    const iQuery = lines.findIndex(
+      (l) => l.trim() === "nsExec::Exec 'sc.exe query HuanvaeGuard'",
     );
     const iStop = lineIndexOf(STOP_GUARD, /sc\.exe stop HuanvaeGuard/);
-    expect(iQuery, '找不到服务存在性探测（find "STATE"）').toBeGreaterThanOrEqual(0);
+    expect(iQuery, '找不到服务存在性探测（裸 sc query 取 rc）').toBeGreaterThanOrEqual(0);
     expect(iStop, '找不到 sc.exe stop').toBeGreaterThanOrEqual(0);
     expect(iStop, 'sc stop 必须在存在性探测之后').toBeGreaterThan(iQuery);
+  });
+
+  it('nsExec 下没有 shell：全文件禁用管道/引号 find（VM 实测 rc=255 + find not recognized）', () => {
+    const lines = NSI.split(/\r?\n/);
+    const bad = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => l.includes('nsExec::') && (/\|/.test(l) || /find \"/.test(l)));
+    expect(
+      bad.map(({ i, l }) => `第 ${i + 1} 行: ${l.trim()}`),
+      'nsExec 命令行里出现管道或引号 find（CreateProcess 直跑会静默失败）',
+    ).toHaveLength(0);
+  });
+
+  it('STATE 判定走「重定向到固定文件 + FileRead 扫 STOPPED」，记录前态与轮询各一次', () => {
+    const lines = STOP_GUARD.split(/\r?\n/);
+    const iRedirects = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) =>
+        l.includes('sc.exe query HuanvaeGuard 1>C:\\Windows\\Temp\\huanvae-guard-state.txt 2>&1'),
+      )
+      .map(({ i }) => i);
+    expect(
+      iRedirects.length,
+      'state 重定向应出现两次（记录前态 + 轮询等待）',
+    ).toBe(2);
+    const iStop = lineIndexOf(STOP_GUARD, /sc\.exe stop HuanvaeGuard/);
+    expect(
+      iRedirects.find((i) => i > iStop),
+      'sc stop 之后必须有 STOPPED 轮询（重定向式）',
+    ).toBeGreaterThan(iStop);
+    // 轮询必须带上限（标签 + 计数器 + IntCmp），不能死循环
+    expect(STOP_GUARD).toMatch(/IntCmp \$\d+ 60 /);
+    expect(STOP_GUARD).toMatch(/^\s*Sleep 500\s*$/m);
+    // 子串扫描必须真的在找 STOPPED（FileRead 循环 + 7 字节切片）
+    expect(STOP_GUARD).toContain('FileRead $3 $4');
+    expect(STOP_GUARD).toContain('StrCpy $6 $4 7 $5');
+    expect((STOP_GUARD.match(/\$6 == "STOPPED"/g) ?? []).length, 'STOPPED 子串比较应出现两次（记录前态 + 轮询）').toBe(2);
   });
 
   it('记录了两个前态变量（fresh install 与「更新前停着」的恢复语义依赖它们）', () => {
@@ -847,23 +885,16 @@ describe('hooks.nsi HUANVAE_GUARD_STOP_FOR_INSTALL — 停服 + 等 STOPPED + �
     expect(STOP_GUARD).toContain('StrCpy $HgGuardWasRunning 0');
   });
 
-  it('停服后必须轮询等待 STATE=STOPPED（只看 sc stop 的 rc 不算数）', () => {
-    const lines = STOP_GUARD.split(/\r?\n/);
+  it('停服后必须轮询等待 STATE=STOPPED（只看 sc stop 的 rc 不算数）——上限与步长', () => {
     const iStop = lineIndexOf(STOP_GUARD, /sc\.exe stop HuanvaeGuard/);
-    // sc query + find "STOPPED" 在宏里出现两次：②记录状态时一次、③轮询里一次。
-    // 这里必须取【sc stop 之后】的那一次 —— 排在 stop 前的那次是“记录前态”，不是等待。
-    const iPolls = lines
-      .map((l, i) => ({ l, i }))
-      .filter(({ l }) => l.includes('sc.exe query HuanvaeGuard | find "STOPPED"'))
-      .map(({ i }) => i);
-    expect(iPolls.length, 'find "STOPPED" 应出现两次（记录前态 + 轮询等待）').toBe(2);
-    expect(
-      iPolls.find((i) => i > iStop),
-      'sc stop 之后必须有 STOPPED 轮询',
-    ).toBeGreaterThan(iStop);
-    // 轮询必须带上限（标签 + 计数器 + IntCmp），不能死循环
+    // 轮询主体（重定向 + 扫描 + 上限）在上一条已经钉死，这里只钉顺序关系。
+    const iRedirect = STOP_GUARD
+      .split(/\r?\n/)
+      .findIndex((l) => l.includes('sc.exe query HuanvaeGuard 1>C:\\Windows\\Temp\\huanvae-guard-state.txt 2>&1'));
+    expect(iRedirect, '找不到 state 重定向').toBeGreaterThanOrEqual(0);
     expect(STOP_GUARD).toMatch(/IntCmp \$\d+ 60 /);
     expect(STOP_GUARD).toMatch(/^\s*Sleep 500\s*$/m);
+    expect(iStop, 'sc stop 必须在首次 state 读取之后').toBeGreaterThan(iRedirect);
   });
 
   it('超时分支必须中止安装（MessageBox + Abort，且 MessageBox 带 /SD 默认答案）', () => {
@@ -872,6 +903,10 @@ describe('hooks.nsi HUANVAE_GUARD_STOP_FOR_INSTALL — 停服 + 等 STOPPED + �
     const lines = STOP_GUARD.split(/\r?\n/);
     const iAbort = lines.findIndex((l) => /^\s*Abort /.test(l));
     expect(iAbort, '超时分支必须 Abort（在文件被动之前中止，绝不硬覆盖）').toBeGreaterThan(iTimeout);
+    // 中止必须带确定性退出码（静默安装时 ExitCode=7，供更新链/MDM 判别）
+    const iSetErr = lines.findIndex((l) => /SetErrorLevel 7/.test(l));
+    expect(iSetErr, '超时中止必须 SetErrorLevel 7（否则静默模式退出码为 0）').toBeGreaterThanOrEqual(0);
+    expect(iSetErr).toBeLessThan(iAbort);
     const box = lines.find((l) => l.includes('MessageBox'));
     expect(box, '超时分支必须有用户可见的提示').toBeDefined();
     expect(box, 'MessageBox 缺 /SD 默认答案，静默安装会挂住').toContain('/SD');
