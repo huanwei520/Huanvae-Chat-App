@@ -33,7 +33,7 @@ export const FAULT_REPORT_ENDPOINT = '/api/fault-reports';
  */
 export const FAULT_REPORT_PUBLIC_KEY_PEM: string =
   `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VuAyEApjl9/nIZXXerXsEvtaJ/j5NDecE7EQXF0gFP1UURZho=
+MCowBQYDK2VuAyEAWuOlGBtKC9S4M5VqKYYj+f61zyEamvhCplSu8MCwdVw=
 -----END PUBLIC KEY-----`;
 
 /** 联调专用公钥覆盖（构建期注入；null=用正式公钥） */
