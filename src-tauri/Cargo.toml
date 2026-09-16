@@ -64,9 +64,6 @@ chrono = { version = "0.4.43", features = ["serde"] }
 # 错误处理
 thiserror = "2.0.18"
 
-# log 门面（fault_report 追加层接入点；std feature 供 set_boxed_logger / stdout 输出）
-log = { version = "0.4", features = ["std"] }
-
 # SQLite 数据库（纯 Rust 实现）
 rusqlite = { version = "0.34.0", features = ["bundled"] }
 
