@@ -25,6 +25,7 @@ import {
   getStatus,
   startTunnel,
   stopTunnel,
+  updateControlCredentials,
 } from '../../src/huanvaeGuard/localApi';
 import type { PeerConfig, ObfuscationParams } from '../../src/huanvaeGuard/types';
 
@@ -227,6 +228,61 @@ describe('localApi.startTunnel — 控制面凭据 control', () => {
 
     const control = sentBody().control as Record<string, unknown>;
     expect(Object.keys(control).sort()).toEqual(['access_token', 'device_id', 'master_url']);
+  });
+});
+
+describe('localApi.updateControlCredentials — 凭据推送（POST /api/tunnel/credentials）', () => {
+  /** 取本次 fetch 实际发出去的 body（解析后） */
+  function sentBody(): Record<string, unknown> {
+    const init = mockFetch.mock.calls[0][1] as { body: string };
+    return JSON.parse(init.body) as Record<string, unknown>;
+  }
+
+  it('POSTs /api/tunnel/credentials，Content-Type + 双令牌整体往返（键名是守护进程线格式契约）', async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    const result = await updateControlCredentials({
+      access_token: 'ZZQ-FAKE-ACCESS-2',
+      refresh_token: 'ZZQ-FAKE-REFRESH-2',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(`${LOCAL_BASE}/api/tunnel/credentials`, expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    // 键名与 daemon.rs 的 UpdateCredentialsRequest 逐字对齐，改一个字母就静默失效
+    expect(sentBody()).toEqual({
+      access_token: 'ZZQ-FAKE-ACCESS-2',
+      refresh_token: 'ZZQ-FAKE-REFRESH-2',
+    });
+    expect(result).toEqual({ success: true });
+  });
+
+  it('缺 refresh_token 时，只有那一个键不出现（JSON.stringify 丢 undefined，对齐 daemon 侧 Option）', async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    await updateControlCredentials({ access_token: 'ZZQ-FAKE-ACCESS-3' });
+
+    expect(Object.keys(sentBody()).sort()).toEqual(['access_token']);
+  });
+
+  it('空串 refresh_token 同样不出现（空串当令牌递过去会被反序列化成存在但无用的凭据）', async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResp({ success: true }));
+
+    await updateControlCredentials({ access_token: 'ZZQ-FAKE-ACCESS-4', refresh_token: '' });
+
+    expect(Object.keys(sentBody())).toEqual(['access_token']);
+  });
+
+  it('守护进程返回错误（无活跃控制面）时，success:false + error 透传给调用方记日志', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeFetchResp({ success: false, error: 'no active control plane: start the tunnel first' }),
+    );
+
+    const result = await updateControlCredentials({ access_token: 'ZZQ-FAKE-ACCESS-5' });
+
+    expect(result).toEqual({ success: false, error: 'no active control plane: start the tunnel first' });
   });
 });
 

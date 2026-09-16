@@ -43,6 +43,12 @@ const friendsApiMock = vi.hoisted(() => ({
 }));
 vi.mock('../../src/api/friends', () => friendsApiMock);
 
+// usePendingRequests 现会在动作回执后扣减「+」角标（WebSocketContext）——面板测试提供 spy 即可
+const wsContextMock = vi.hoisted(() => ({ decrementPendingNotification: vi.fn() }));
+vi.mock('../../src/contexts/WebSocketContext', () => ({
+  useWebSocket: () => wsContextMock,
+}));
+
 const useBotsMock = vi.hoisted(() => ({ create: vi.fn(), operatingId: null, error: null }));
 vi.mock('../../src/hooks/useBots', () => ({ useBots: () => useBotsMock }));
 
@@ -61,6 +67,7 @@ describe('AddMenu', () => {
     cleanup();
     Object.values(groupsApiMock).forEach((m) => m.mockReset());
     Object.values(friendsApiMock).forEach((m) => m.mockReset());
+    wsContextMock.decrementPendingNotification.mockClear();
     groupsApiMock.getGroupInvitations.mockResolvedValue({ invitations: [] });
     groupsApiMock.getSentJoinRequests.mockResolvedValue({ requests: [] });
     friendsApiMock.getPendingRequests.mockResolvedValue([]);
