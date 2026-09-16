@@ -1,10 +1,23 @@
 ; Huanvae Chat App - NSIS 安装钩子
 ;
 ; 职责：
-;   1. PREINSTALL：检测并静默卸载旧版本（HKCU + HKLM 双层），并**判定卸载到底成没成**
+;   1. PREINSTALL：🔴 在跑旧卸载器/覆盖文件【之前】停掉 HuanvaeGuard 服务并等完全停止
+;                   （HUANVAE_GUARD_STOP_FOR_INSTALL：停不掉则中止安装，绝不硬覆盖）；
+;                   然后检测并静默卸载旧版本（HKCU + HKLM 双层），并**判定卸载到底成没成**
 ;   2. POSTINSTALL：注册 HuanvaeGuard Windows Service 并授予 AU SDDL，
-;                   使非管理员运行的主程序也能启停服务（sc.exe sdset）
-;   3. PREUNINSTALL：关闭主进程 + 停止并删除 HuanvaeGuard 服务
+;                   使非管理员运行的主程序也能启停服务（sc.exe sdset）；
+;                   启动服务前按【安装前状态】决定是否拉起（fresh install 拉起；
+;                   更新前在跑 → 恢复；更新前停着 → 不拉）
+;   3. PREUNINSTALL：关闭主进程 + 停止并删除 HuanvaeGuard 服务（原有语义，未改动）
+;
+; ── 🔴 更新覆盖安装为什么必须先停 HuanvaeGuard（2026-09-16 owner 实机定案）────────────
+; 服务在跑 ⇒ huanvaeguard-svc.exe / wintun.dll 被服务进程独占上锁 ⇒ 旧卸载器删不掉、
+; 新安装器写不进 ⇒ 更新半截失败留下残缺安装 ⇒ 服务起不来（用户见 1053/已安装未运行）。
+; 修法是四段式：停 → 等 STOPPED（只看 sc stop 返回码不算数，要轮询 SCM 终态）→ 落地 →
+; 按前态恢复。App 内静默更新路径在 Rust 侧已同位修复（src-tauri/src/updater_download.rs
+; `stop_guard_service_for_update`，安装器启动前先停）；本钩子是第二道防线：覆盖手动安装、
+; 以及 App 停服失效/被杀的全部残余场景。两处的服务名常量一致性由
+; tests/winService.nsisContract.test.ts 跨文件断言守着。
 ;
 ; SDDL 设计：默认 SCM 只允许 Admin 启停服务；我们附加 (A;;CCLCSWRPWPLOCRRC;;;AU)
 ;           让 Authenticated Users 可 Start/Stop，Tauri 进程（非管理员）即可通过
@@ -35,6 +48,15 @@
 ; `!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"` 同址，
 ; PRODUCTNAME = Huanvae-Chat-App（tauri.conf.json）。提成一处，免得两个调用点各写一遍写岔。
 !define HUANVAE_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Huanvae-Chat-App"
+
+; ── 🔴 HuanvaeGuard 服务的安装前状态（PREINSTALL 记录 → POSTINSTALL 按前态恢复）────
+; HgGuardExists      : 服务在 SCM 里是否存在（1/0）。0 = fresh install（首次安装）。
+; HgGuardWasRunning  : 安装前服务是否不在 STOPPED 状态（1/0；START/STOP_PENDING 按
+;                      「在运行」处理 —— 保守恢复）。
+; 本文件被 Tauri NSIS 模板在【全局作用域】!include（tauri-cli 2.11.1 installer.nsi：
+; include 位置在所有 Function/Section 之前，已核对模板字节）⇒ Var 在这里合法。
+Var HgGuardExists
+Var HgGuardWasRunning
 
 ; ── 🔴 跑旧卸载器同样必须取退出码，而且必须先把注册表里的引号剥掉 ─────────────
 ;
@@ -150,10 +172,79 @@
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
+  ; 🔴 第一步永远是停 guard 服务：旧卸载器和新安装器都要动
+  ; $INSTDIR\HuanvaeGuard\ 下的文件，服务在跑它们就全是锁。必须赶在两个动作之前。
+  !insertmacro HUANVAE_GUARD_STOP_FOR_INSTALL
+
   ; 用户级安装（旧的 currentUser 模式写在 HKCU）
   !insertmacro HUANVAE_UNINSTALL_PREVIOUS HKCU "用户级"
   ; 机器级安装（perMachine 模式写在 HKLM）
   !insertmacro HUANVAE_UNINSTALL_PREVIOUS HKLM "系统级"
+!macroend
+
+; ── 🔴 安装/覆盖安装前：停 HuanvaeGuard 服务并等完全停止 ──────────────────
+;
+; 为什么必须停：服务在跑 ⇒ huanvaeguard-svc.exe / wintun.dll 被独占上锁 ⇒ 后面
+; （跑旧卸载器 + File 复制）对它们的删/写全部被拒 ⇒ 残缺安装。这是 owner 实机定案的
+; 更新写失败根因，修法四段式见本文件头注释。
+;
+; 为什么“只看 sc stop 返回码”不算数：rc=0 只代表 SCM 收下了停止请求，服务进程真正
+; 退出、文件句柄真正释放要以 SCM 终态（STOPPED）为准。所以必须轮询 sc query。
+;
+; 🔴 停不掉 ⇒ MessageBox + Abort，在【任何文件被动之前】中止安装。这比“硬覆盖”好得多：
+; 硬覆盖 = 残缺安装 = 服务起不来（1053）；中止 = 现有安装原封不动，用户重启后重试。
+;
+; ⚠️ 本宏内含 Goto 标签，只允许在 NSIS_HOOK_PREINSTALL 开头 insertmacro【一次】。
+; 状态记录在全局变量 $HgGuardExists / $HgGuardWasRunning，POSTINSTALL 消费。
+!macro HUANVAE_GUARD_STOP_FOR_INSTALL
+  StrCpy $HgGuardExists 0
+  StrCpy $HgGuardWasRunning 0
+
+  ; ① 探测服务是否存在：sc query 的 stdout 里有 STATE 行 ⇔ 服务已在 SCM 注册。
+  ;    find 是精确子串匹配且 sc query 输出恒大写；不存在的服务时 sc 把错误写到
+  ;    stderr，find 在空 stdin 上 rc=1 ⇒ 读成“不存在”，与 1060 分支同效。
+  nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STATE"'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $HgGuardExists 1
+    ; ② 记录运行状态：不是 STOPPED 就按“更新前在运行”处理（含 START/STOP_PENDING，
+    ;    保守恢复 —— POSTINSTALL 会把它拉起来）。判定用同一个读取（单变量前后对照）。
+    nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STOPPED"'
+    Pop $0
+    ${If} $0 != 0
+      StrCpy $HgGuardWasRunning 1
+    ${EndIf}
+  ${EndIf}
+
+  ; ③ 在跑 ⇒ 停 + 轮询等 STOPPED（500ms × 60 = 30s 上限，覆盖隧道在跑时
+  ;    sing-box + wintun 适配器拆除慢的场景）。
+  ${If} $HgGuardWasRunning = 1
+    DetailPrint "正在停止 HuanvaeGuard 服务（安装需要替换其文件）..."
+    nsExec::ExecToLog 'sc.exe stop HuanvaeGuard'
+    Pop $0
+    ; rc（0=受理 / 1062=本就没在跑 / 其它=被拒）在这里【不】作为结论：一律交给下面
+    ; 的轮询独立收口 —— 被拒可能只是 SCM 瞬时抖动，等满窗口再看终态；真停不掉
+    ; 自然走超时分支。这和文件头“不信自述，回头问 SCM”是同一条纪律。
+    StrCpy $1 0
+    hg_guard_poll:
+      IntOp $1 $1 + 1
+      nsExec::Exec 'cmd.exe /c sc.exe query HuanvaeGuard | find "STOPPED"'
+      Pop $2
+      ${If} $2 = 0
+        Goto hg_guard_stopped
+      ${EndIf}
+      ; 第 60 次仍未 STOPPED ⇒ 超时中止（IntCmp：小于继续，等/大于走超时）
+      IntCmp $1 60 hg_guard_stop_timeout hg_guard_poll_next hg_guard_stop_timeout
+    hg_guard_poll_next:
+      Sleep 500
+      Goto hg_guard_poll
+    hg_guard_stop_timeout:
+      DetailPrint "HuanvaeGuard 服务在 30 秒内未能停止，已中止安装"
+      MessageBox MB_ICONEXCLAMATION|MB_OK "无法停止 HuanvaeGuard VPN 服务（等待 30 秒仍未停止）。$\r$\n继续安装会因服务文件被占用而失败或留下残缺安装，本次安装已中止，未改动任何文件。$\r$\n请重启电脑后重试；若仍失败，请在管理员命令行执行：sc stop HuanvaeGuard" /SD IDOK
+      Abort "已中止：无法停止 HuanvaeGuard 服务（等待超时）"
+    hg_guard_stopped:
+      DetailPrint "HuanvaeGuard 服务已完全停止"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -196,14 +287,24 @@
       DetailPrint "警告：授予服务启停权限失败（sc sdset 返回 $0），主程序可能无法自动启停服务"
     ${EndIf}
 
-    ; 启动服务（demand 模式，主程序启动时由 Rust 侧自动拉起）
-    nsExec::ExecToLog 'sc.exe start HuanvaeGuard'
-    Pop $0
-    ${If} $0 == 0
-      DetailPrint "HuanvaeGuard 服务已注册并启动"
+    ; 启动服务 —— 🔴 按【安装前状态】决定是否拉起，不是无条件：
+    ;   · fresh install（服务原本不存在）  → 拉起（保持既有行为：装好即给一个能用的 VPN）；
+    ;   · 更新/覆盖且服务原本在跑           → 拉起（恢复更新前状态；App 内更新路径服务是被
+    ;     Rust 侧先停的，本钩子看到的 $HgGuardWasRunning=0，恢复由安装器重启 App 后的
+    ;     spawn_start_on_boot 完成 —— 两路都收敛到“按前态恢复”）；
+    ;   · 更新/覆盖且服务原本停着           → 不拉（更新前未运行则不拉）。
+    ${If} $HgGuardExists = 0
+    ${OrIf} $HgGuardWasRunning = 1
+      nsExec::ExecToLog 'sc.exe start HuanvaeGuard'
+      Pop $0
+      ${If} $0 == 0
+        DetailPrint "HuanvaeGuard 服务已注册并启动"
+      ${Else}
+        DetailPrint "HuanvaeGuard 服务已注册，但启动失败（sc start 返回 $0）"
+        MessageBox MB_ICONEXCLAMATION|MB_OK "HuanvaeGuard VPN 服务已注册，但启动失败（错误码 $0）。$\r$\n聊天功能不受影响；VPN 页会显示「已安装未运行」。$\r$\n请在应用的 VPN 页点击「修复服务」重试。" /SD IDOK
+      ${EndIf}
     ${Else}
-      DetailPrint "HuanvaeGuard 服务已注册，但启动失败（sc start 返回 $0）"
-      MessageBox MB_ICONEXCLAMATION|MB_OK "HuanvaeGuard VPN 服务已注册，但启动失败（错误码 $0）。$\r$\n聊天功能不受影响；VPN 页会显示「已安装未运行」。$\r$\n请在应用的 VPN 页点击「修复服务」重试。" /SD IDOK
+      DetailPrint "HuanvaeGuard 服务已随安装更新；更新前服务未在运行，保持停止状态"
     ${EndIf}
   ${Else}
     ; 🔴 这里就是本次故障的原点：以前这条失败是完全静默的。

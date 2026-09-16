@@ -460,11 +460,38 @@ interface NsisRun {
   boxes: string[];
 }
 
-/** 支持的最小子集：nsExec::ExecToLog / Pop / ${If}/${Else}/${EndIf} / DetailPrint / MessageBox / Sleep */
-function interpretPostinstall(body: string, rcOf: (cmd: string) => number): NsisRun {
+/**
+ * 条件表达式的求值：LogicLib 的三种比较
+ *   · `==` / `!=` ：NSIS 官方语义是**字符串**比较（`!=` 也是字符串不等）；
+ *   · `=`  / `!=` ：整数比较（LogicLib 手册：`$x = 0` 按整数比）。
+ * 我们的 `$HgGuardExists = 0` 走整数支；两边都能 parse 成数字才按数字比，
+ * 否则退回字符串比较（与 LogicLib「非数字操作数按字符串比」的宽容一致）。
+ */
+function evalCond(lhs: string, op: string, rhs: string): boolean {
+  if (op === '==') { return lhs === rhs; }
+  const ln = Number.parseInt(lhs, 10);
+  const rn = Number.parseInt(rhs, 10);
+  if (!Number.isNaN(ln) && !Number.isNaN(rn)) { return op === '=' ? ln === rn : ln !== rn; }
+  return op === '=' ? lhs === rhs : lhs !== rhs;
+}
+
+/**
+ * 支持的最小子集：nsExec::ExecToLog / Pop / ${If}/${OrIf}/${Else}/${EndIf} /
+ * DetailPrint / MessageBox / Sleep
+ *
+ * `initVars`：模拟安装前态变量（如 $HgGuardExists —— 它由 PREINSTALL 写入，不在
+ * POSTINSTALL 文本内；不注入就无法模拟「更新前在跑/停着」这两条分支）。
+ */
+function interpretPostinstall(
+  body: string,
+  rcOf: (cmd: string) => number,
+  initVars: Record<string, string> = { HgGuardExists: '0' },
+): NsisRun {
   const details: string[] = [];
   const boxes: string[] = [];
-  const regs = new Map<string, string>();
+  const regs = new Map<string, string>(
+    Object.entries(initVars).map(([k, v]) => [`$${k}`, v]),
+  );
   const pending: string[] = [];
   // 每一层记录 { taken: 本层是否已有分支被执行, active: 当前分支是否执行 }
   const stack: { taken: boolean; active: boolean }[] = [];
@@ -477,12 +504,28 @@ function interpretPostinstall(body: string, rcOf: (cmd: string) => number): Nsis
     const line = raw.trim();
     if (line === '') { continue; }
 
-    const mIf = /^\$\{If\}\s+(\$\d)\s+(==|!=)\s+(\S+)$/.exec(line);
+    const mIf = /^\$\{If\}\s+(\$\w+)\s+(==|!=|=)\s+(\S+)$/.exec(line);
     if (mIf) {
       const lhs = regs.get(mIf[1]) ?? '';
-      const ok = mIf[2] === '==' ? lhs === mIf[3] : lhs !== mIf[3];
+      const ok = evalCond(lhs, mIf[2], mIf[3]);
       const branch = active() && ok;
       stack.push({ taken: branch, active: branch });
+      continue;
+    }
+    // ${OrIf}：与上一支共栈。若之前的条件已命中（taken）⇒ 整块保持执行；
+    // 否则只有外层 active && 本条件成立才执行。
+    const mOrIf = /^\$\{OrIf\}\s+(\$\w+)\s+(==|!=|=)\s+(\S+)$/.exec(line);
+    if (mOrIf) {
+      const top = stack[stack.length - 1];
+      if (top === undefined) { throw new Error('${OrIf} 没有配对的 ${If}'); }
+      if (top.taken) {
+        top.active = true;
+      } else {
+        const lhs = regs.get(mOrIf[1]) ?? '';
+        top.active =
+          stack.slice(0, -1).every((f) => f.active) && evalCond(lhs, mOrIf[2], mOrIf[3]);
+        top.taken = top.taken || top.active;
+      }
       continue;
     }
     if (line === '${Else}') {
@@ -541,9 +584,31 @@ function rcTable(overrides: Record<string, number>): (cmd: string) => number {
 }
 
 describe('POSTINSTALL 失败路径可达性（对真实脚本文本注入 rc）', () => {
-  it('全成功：打印成功文案，一个 MessageBox 都不弹', () => {
+  it('全成功（fresh install）：打印成功文案，一个 MessageBox 都不弹', () => {
     const r = interpretPostinstall(POSTINSTALL, rcTable({}));
     expect(r.details).toContain('HuanvaeGuard 服务已注册并启动');
+    expect(r.boxes).toEqual([]);
+  });
+
+  it('🔴 更新且服务更新前在跑：start 必须执行（按前态恢复）', () => {
+    const r = interpretPostinstall(
+      POSTINSTALL,
+      rcTable({}),
+      { HgGuardExists: '1', HgGuardWasRunning: '1' },
+    );
+    expect(r.details).toContain('HuanvaeGuard 服务已注册并启动');
+    expect(r.details).not.toContain('保持停止状态');
+    expect(r.boxes).toEqual([]);
+  });
+
+  it('🔴 更新且服务更新前停着：不许 start（更新前未运行则不拉），且必须明说', () => {
+    const r = interpretPostinstall(
+      POSTINSTALL,
+      rcTable({}),
+      { HgGuardExists: '1', HgGuardWasRunning: '0' },
+    );
+    expect(r.details.join('\n')).toContain('保持停止状态');
+    expect(r.details.join('\n')).not.toMatch(/已注册并启动/);
     expect(r.boxes).toEqual([]);
   });
 
@@ -708,6 +773,173 @@ describe('bundle.resources — HuanvaeGuard 组件映射（v1.1.46 缺件事故�
       const st = statSync(resolve(__dirname, '..', rel));
       expect(st.isFile(), `${rel} 不是常规文件`).toBe(true);
       expect(st.size, `${rel} 是空文件`).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 🔴 更新/覆盖安装前停 HuanvaeGuard 服务并等完全停止（2026-09-16 owner 实机定案的
+//   更新写失败根因：服务在跑 ⇒ huanvaeguard-svc.exe/wintun.dll 被锁 ⇒ 写入被拒 ⇒
+//   残缺安装 ⇒ 1053/已安装未运行）
+//
+// 两条防线都必须在：
+//   · Rust 更新链：src-tauri/src/updater_download.rs `stop_guard_service_for_update`
+//     （App 内静默更新，在安装器启动之前停）；
+//   · NSIS 钩：hooks.nsi `HUANVAE_GUARD_STOP_FOR_INSTALL`（手动安装/覆盖安装/兜底，
+//     在跑旧卸载器与文件复制之前停）。
+//
+// 「停」与「等」缺一不可：sc stop rc=0 只代表 SCM 收下了请求，文件句柄释放要以
+// SCM 终态 STOPPED 为准 —— 所以守卫钉的是「停 → 轮询 STOPPED → 超时中止」整条形状。
+// 这里判的是**剥掉注释后**的代码（本文件头注释已记过"注释满足断言"的前科）。
+// ────────────────────────────────────────────────────────────────────────────
+
+const STOP_GUARD = macroBody(NSI, 'HUANVAE_GUARD_STOP_FOR_INSTALL');
+const RUST_UPDATER = read('src-tauri/src/updater_download.rs');
+
+/** HuanvaeGuard 服务名 —— 三处（NSIS 钩 / Rust 更新链 / Rust 常驻管理）必须逐字一致。 */
+describe('HuanvaeGuard 服务名 —— 跨文件一致性（写岔 = 停错/停不到同一个服务）', () => {
+  it('hooks.nsi 里所有 sc.exe 操作都指向同一个服务名，且与 Rust 两侧逐字一致', () => {
+    const nsiNames = [
+      ...NSI.matchAll(/sc\.exe (?:query|stop|start|delete|create) ([A-Za-z0-9_-]+)/g),
+    ].map((m) => m[1]);
+    expect(nsiNames.length, 'hooks.nsi 里应能扫到 sc.exe 服务操作').toBeGreaterThanOrEqual(6);
+    for (const n of nsiNames) {
+      expect(n, 'NSI 里出现了别的服务名').toBe('HuanvaeGuard');
+    }
+    expect(RUST_UPDATER).toMatch(/GUARD_SERVICE_NAME: &str = "HuanvaeGuard"/);
+    expect(RUST).toMatch(/const SERVICE_NAME: &str = "HuanvaeGuard"/);
+  });
+});
+
+describe('hooks.nsi HUANVAE_GUARD_STOP_FOR_INSTALL — 停服 + 等 STOPPED + 超时中止的形状', () => {
+  it('PREINSTALL 的第一个动作必须是停服钩（必须赶在跑旧卸载器/文件复制之前）', () => {
+    const lines = PREINSTALL.split(/\r?\n/).filter((l) => l.trim());
+    const iStop = lines.findIndex((l) =>
+      l.includes('!insertmacro HUANVAE_GUARD_STOP_FOR_INSTALL'),
+    );
+    expect(iStop, 'PREINSTALL 里找不到停服钩 insertmacro').toBeGreaterThanOrEqual(0);
+    expect(iStop, '停服钩必须是 PREINSTALL 的第一个动作').toBe(0);
+    const iUninst = lines.findIndex((l) => /HUANVAE_UNINSTALL_PREVIOUS/.test(l));
+    expect(iUninst, '旧卸载器必须排在停服之后').toBeGreaterThan(iStop);
+  });
+
+  it('停服宏只被 insertmacro 一次（内含 Goto 标签，展开两次 = 标签重名编译失败）', () => {
+    const whole = NSI.split(/\r?\n/).filter((l) =>
+      l.includes('!insertmacro HUANVAE_GUARD_STOP_FOR_INSTALL'),
+    );
+    expect(whole, '停服钩必须恰好被插入一次').toHaveLength(1);
+  });
+
+  it('先探测/记录状态（sc query … find），再 sc stop —— 顺序不可换', () => {
+    const iQuery = STOP_GUARD.split(/\r?\n/).findIndex((l) =>
+      l.includes('sc.exe query HuanvaeGuard | find "STATE"'),
+    );
+    const iStop = lineIndexOf(STOP_GUARD, /sc\.exe stop HuanvaeGuard/);
+    expect(iQuery, '找不到服务存在性探测（find "STATE"）').toBeGreaterThanOrEqual(0);
+    expect(iStop, '找不到 sc.exe stop').toBeGreaterThanOrEqual(0);
+    expect(iStop, 'sc stop 必须在存在性探测之后').toBeGreaterThan(iQuery);
+  });
+
+  it('记录了两个前态变量（fresh install 与「更新前停着」的恢复语义依赖它们）', () => {
+    expect(NSI).toMatch(/^Var HgGuardExists$/m);
+    expect(NSI).toMatch(/^Var HgGuardWasRunning$/m);
+    expect(STOP_GUARD).toContain('StrCpy $HgGuardExists 0');
+    expect(STOP_GUARD).toContain('StrCpy $HgGuardWasRunning 0');
+  });
+
+  it('停服后必须轮询等待 STATE=STOPPED（只看 sc stop 的 rc 不算数）', () => {
+    const lines = STOP_GUARD.split(/\r?\n/);
+    const iStop = lineIndexOf(STOP_GUARD, /sc\.exe stop HuanvaeGuard/);
+    // sc query + find "STOPPED" 在宏里出现两次：②记录状态时一次、③轮询里一次。
+    // 这里必须取【sc stop 之后】的那一次 —— 排在 stop 前的那次是“记录前态”，不是等待。
+    const iPolls = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => l.includes('sc.exe query HuanvaeGuard | find "STOPPED"'))
+      .map(({ i }) => i);
+    expect(iPolls.length, 'find "STOPPED" 应出现两次（记录前态 + 轮询等待）').toBe(2);
+    expect(
+      iPolls.find((i) => i > iStop),
+      'sc stop 之后必须有 STOPPED 轮询',
+    ).toBeGreaterThan(iStop);
+    // 轮询必须带上限（标签 + 计数器 + IntCmp），不能死循环
+    expect(STOP_GUARD).toMatch(/IntCmp \$\d+ 60 /);
+    expect(STOP_GUARD).toMatch(/^\s*Sleep 500\s*$/m);
+  });
+
+  it('超时分支必须中止安装（MessageBox + Abort，且 MessageBox 带 /SD 默认答案）', () => {
+    const iTimeout = lineIndexOf(STOP_GUARD, /^\s*hg_guard_stop_timeout:\s*$/);
+    expect(iTimeout, '找不到超时标签').toBeGreaterThanOrEqual(0);
+    const lines = STOP_GUARD.split(/\r?\n/);
+    const iAbort = lines.findIndex((l) => /^\s*Abort /.test(l));
+    expect(iAbort, '超时分支必须 Abort（在文件被动之前中止，绝不硬覆盖）').toBeGreaterThan(iTimeout);
+    const box = lines.find((l) => l.includes('MessageBox'));
+    expect(box, '超时分支必须有用户可见的提示').toBeDefined();
+    expect(box, 'MessageBox 缺 /SD 默认答案，静默安装会挂住').toContain('/SD');
+    // 中止文案必须交代三件事：发生了什么 / 无残缺 / 下一步
+    const stopLine = lines.find((l) => l.includes('继续安装会因服务文件被占用'));
+    expect(stopLine, '文案必须说明为何中止（文件被占用）').toBeDefined();
+    expect(stopLine, '文案必须说明未改动任何文件（无残缺安装）').toContain('未改动任何文件');
+    expect(stopLine, '文案必须给出下一步动作').toMatch(/重启电脑|sc stop/);
+  });
+
+  it('每条 nsExec 后的返回值都必须被 Pop 走（本文件自己的铁律，宏内同样适用）', () => {
+    const lines = STOP_GUARD.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('nsExec::')) {
+        const next = (lines[i + 1] ?? '').trim();
+        expect(next, `第 ${i + 1} 行的 nsExec 之后没有紧跟 Pop：${lines[i].trim()}`).toMatch(
+          /^Pop \$\d$/,
+        );
+      }
+    }
+  });
+});
+
+describe('hooks.nsi POSTINSTALL — 服务启动必须按安装前状态决定（更新前未运行则不拉）', () => {
+  it('sc.exe start 必须包在 ${If} $HgGuardExists = 0 ${OrIf} $HgGuardWasRunning = 1 里', () => {
+    const lines = POSTINSTALL.split(/\r?\n/);
+    const iCond = lines.findIndex(
+      (l) => l.includes('${If} $HgGuardExists = 0') || l.includes('${OrIf} $HgGuardWasRunning = 1'),
+    );
+    expect(iCond, 'POSTINSTALL 里找不到按前态启动的条件').toBeGreaterThanOrEqual(0);
+    const iStart = lines.findIndex((l) => l.includes('sc.exe start HuanvaeGuard'));
+    expect(iStart, '找不到 sc.exe start').toBeGreaterThanOrEqual(0);
+    expect(iStart, 'sc start 必须在前态条件之后').toBeGreaterThan(iCond);
+    // 条件必须是「fresh install 或 更新前在跑」这两支的并集
+    const condText = lines.slice(iCond, iCond + 3).join('\n');
+    expect(condText).toContain('${If} $HgGuardExists = 0');
+    expect(condText).toContain('${OrIf} $HgGuardWasRunning = 1');
+  });
+
+  it('「更新前未运行」分支必须有可见的说明（不许静默吞掉）', () => {
+    expect(POSTINSTALL).toContain('保持停止状态');
+  });
+});
+
+describe('Rust 更新链 — 安装器启动前必须先停服（src-tauri/src/updater_download.rs）', () => {
+  it('stop_guard_service_for_update 必须存在，且调用点排在 install() 之前、带 Windows cfg', () => {
+    const lines = RUST_UPDATER.split(/\r?\n/);
+    const iDef = lines.findIndex((l) => l.includes('pub fn stop_guard_service_for_update'));
+    expect(iDef, '找不到停服入口').toBeGreaterThanOrEqual(0);
+    const iCall = lines.findIndex((l) => l.includes('stop_guard_service_for_update()?'));
+    const iInstall = lines.findIndex((l) => l.includes('.install(&bytes)'));
+    expect(iCall, '找不到停服调用点').toBeGreaterThanOrEqual(0);
+    expect(iInstall, '找不到 install() 调用点').toBeGreaterThanOrEqual(0);
+    expect(iCall, '停服必须发生在 install() 之前').toBeLessThan(iInstall);
+    // 调用点必须带 #[cfg(target_os = "windows")]（紧邻上方）
+    const window = lines.slice(Math.max(0, iCall - 3), iCall).join('\n');
+    expect(window).toContain('#[cfg(target_os = "windows")]');
+  });
+
+  it('停服判定必须是纯函数（跨平台单测可达）且带轮询超时常量', () => {
+    for (const fn of [
+      'fn parse_guard_state(',
+      'fn classify_stop_rc(',
+      'fn stop_poll_decision(',
+      'const GUARD_STOP_TIMEOUT: Duration',
+      'const GUARD_STOP_POLL_INTERVAL: Duration',
+    ]) {
+      expect(RUST_UPDATER, `找不到 ${fn}`).toContain(fn);
     }
   });
 });
