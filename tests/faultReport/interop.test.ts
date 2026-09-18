@@ -4,7 +4,7 @@
  * 临时密钥对存于 test-artifacts/dg80pf1a-interop/（非仓库内密钥，联调用完即弃）。
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { base64ToBytes } from '../../src/services/faultReport/bytes';
 import { openFaultReport, parseFaultPublicKeyPem, type FaultEnvelope } from '../../src/services/faultReport/crypto';
@@ -12,8 +12,16 @@ import { FAULT_REPORT_PUBLIC_KEY_PEM } from '../../src/services/faultReport/conf
 
 const INTEROP_DIR = 'test-artifacts/dg80pf1a-interop';
 
+// 互操作夹具是联调临时密钥（gitignored，非仓内文件，用完即弃）：新鲜检出（CI/贡献者克隆）
+// 上不存在 → 相关断言 skip 带因，而非假红阻断发布管线（v1.1.50 发版车实测 CI gate 红在此）。
+const interopFixturesExist =
+  existsSync(`${INTEROP_DIR}/py-sealed-envelope.json`) && existsSync(`${INTEROP_DIR}/scratch-priv-b64.txt`);
+// 服务器仓交付 pem 是跨仓绝对路径（不在本仓）：同样仅在其存在时比对。
+const SERVER_PEM_PATH = '/work/Huanvae-Chat-Rust/docs/diagnosis/fault-report/fault-report-public-key.pem';
+const serverPemExist = existsSync(SERVER_PEM_PATH);
+
 describe('faultReport 与服务器 reference_encrypt.py 跨语言互操作', () => {
-  it('py seal → ts open：载荷逐字段一致（description/logs/screenshots）', () => {
+  it.skipIf(!interopFixturesExist)('py seal → ts open：载荷逐字段一致（description/logs/screenshots）', () => {
     const env = JSON.parse(readFileSync(`${INTEROP_DIR}/py-sealed-envelope.json`, 'utf8')) as FaultEnvelope;
     const privRaw = base64ToBytes(readFileSync(`${INTEROP_DIR}/scratch-priv-b64.txt`, 'utf8').trim());
     const opened = openFaultReport(env, privRaw) as Record<string, unknown>;
@@ -24,9 +32,9 @@ describe('faultReport 与服务器 reference_encrypt.py 跨语言互操作', () 
     expect(env.version).toBe(1);
   });
 
-  it('官方正式公钥（内置）与服务器交付文件解析结果一致（32 字节裸钥）', () => {
+  it.skipIf(!serverPemExist)('官方正式公钥（内置）与服务器交付文件解析结果一致（32 字节裸钥）', () => {
     const delivered = readFileSync(
-      '/work/Huanvae-Chat-Rust/docs/diagnosis/fault-report/fault-report-public-key.pem',
+      SERVER_PEM_PATH,
       'utf8',
     );
     expect(Array.from(parseFaultPublicKeyPem(delivered))).toEqual(
