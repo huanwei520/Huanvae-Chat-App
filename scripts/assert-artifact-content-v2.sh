@@ -140,10 +140,22 @@ console.log(hit?hit.sha256:'');" 2>/dev/null)
 }
 
 # 额外 --expect 期望（包内路径 → sha）
-declare -A EXTRA_EXPECT=()
-for e in "${EXPECT_ARGS[@]}"; do
+# bash3.2 兼容（v1.1.50 CI 实证）：macOS runner /bin/bash=3.2 无关联数组（declare -A →
+# "invalid option"），且 set -u 下空数组 "${EXPECT_ARGS[@]}" 展开报 unbound variable。
+# → 改平行索引数组线性查找 + ${arr[@]+...} 空数组守卫（bash3.2 同样可用）。
+EXTRA_EXPECT_KEYS=()
+EXTRA_EXPECT_VALS=()
+extra_expect_get() {  # $1=key → stdout=sha（未注册=空）
+    local i
+    for i in ${EXTRA_EXPECT_KEYS[@]+"${!EXTRA_EXPECT_KEYS[@]}"}; do
+        [[ "${EXTRA_EXPECT_KEYS[$i]}" == "$1" ]] && { echo "${EXTRA_EXPECT_VALS[$i]}"; return 0; }
+    done
+    return 0
+}
+for e in ${EXPECT_ARGS[@]+"${EXPECT_ARGS[@]}"}; do
     [[ "$e" == *=* ]] || { fail "--expect 格式应为 <包内路径>=<sha256>: $e"; continue; }
-    EXTRA_EXPECT["${e%%=*}"]="${e#*=}"
+    EXTRA_EXPECT_KEYS+=("${e%%=*}")
+    EXTRA_EXPECT_VALS+=("${e#*=}")
 done
 
 # 在解包树里按「必含件断言」核对一个文件
@@ -180,13 +192,18 @@ assert_item() {
 # ---------- 静态腿（v1 口径保留） ----------
 if ! $SKIP_STATIC; then
     echo -e "${CYAN}静态腿：bundle.resources 映射并集 + Guard 源文件在仓（v1 口径保留）${NC}"
+    # node 是原生 exe：git-bash（Windows runner）下 $SRC_TAURI 是 MSYS 风格路径（/d/a/...），
+    # node 读不到 → v1.1.50 CI 首跑实证“解析 tauri*.conf.json 失败”。有 cygpath 就转混合斜杠
+    # （D:/a/...，JS 字符串安全且 node-windows 可读）；Linux/macOS 无 cygpath 原样不动。
+    NODE_SRC_TAURI="$SRC_TAURI"
+    if command -v cygpath >/dev/null 2>&1; then NODE_SRC_TAURI=$(cygpath -m "$SRC_TAURI"); fi
     STATIC_JSON=$(node -e "
 const fs = require('fs');
 const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
-const base = read('$SRC_TAURI/tauri.conf.json');
+const base = read('$NODE_SRC_TAURI/tauri.conf.json');
 let win = {}, mac = {};
-try { win = read('$SRC_TAURI/tauri.windows.conf.json'); } catch (e) {}
-try { mac = read('$SRC_TAURI/tauri.macos.conf.json'); } catch (e) {}
+try { win = read('$NODE_SRC_TAURI/tauri.windows.conf.json'); } catch (e) {}
+try { mac = read('$NODE_SRC_TAURI/tauri.macos.conf.json'); } catch (e) {}
 const merge = (a, b) => {
   if (Array.isArray(a) || Array.isArray(b) || typeof a !== 'object' || typeof b !== 'object'
       || a === null || b === null) return b === undefined ? a : b;
@@ -387,7 +404,7 @@ check_artifact() {
                 line=$(unzip -l "$artifact" 2>/dev/null | grep -E "lib/$abi/libhg_android\.so")
                 if [[ -n "$line" ]]; then
                     local size; size=$(awk '{print $1}' <<<"$line")
-                    local want="${EXTRA_EXPECT[lib/$abi/libhg_android.so]:-}"
+                    local want; want=$(extra_expect_get "lib/$abi/libhg_android.so")
                     if [[ -n "$want" ]]; then
                         local got; got=$(cd "$work" && unzip -o -q "$artifact" "lib/$abi/libhg_android.so" && sha_of "lib/$abi/libhg_android.so")
                         [[ "$got" == "$want" ]] \
