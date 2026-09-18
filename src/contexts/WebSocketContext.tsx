@@ -36,12 +36,22 @@
  * - 指数退避：1s → 2s → 4s → 8s → 16s → 最大 30s
  * - 抖动：叠加随机延迟防止雷群效应（服务重启后所有客户端同时重连）
  *
- * 半开检测（假活防护）：
+ * 半开检测（假活防护，双层判据 evaluateLiveness）：
  * - 服务端心跳 = WS 协议层 Ping（每 30s，ws_proxy 转发为活性信号）
- * - 入站活性看门狗：超 LIVENESS_TIMEOUT 无任何入站帧 → 判半开 → terminate 本地
+ * - transport 层：超 LIVENESS_TIMEOUT 无任何入站帧 → 判半开 → terminate 本地
  *   强制 onclose → 走既有指数退避重连
+ * - 应用层：超 APP_FRAME_SILENCE_TIMEOUT 无应用层帧（含 ping→heartbeat 应答）→ 判
+ *   「推送路由被服务端顶替/摘除」型假活（协议层心跳仍在流但推送永绝，绿点常亮）
  * - Rust 层 idle_timeout_secs 兜底回收半开 reader；ws_connect 带 15s 建连超时
  * - 重连成功后强制补一次增量 sync（halfOpenSyncPendingRef），不依赖 resumed 重放
+ *
+ * 踢出/会话顶替帧显式处理：服务端 error 帧带 kick/session_replaced/force_logout 语义
+ * （isKickServerFrame，语义参照 meeting 侧 kicked）→ 立即 terminate 走既有重连链，
+ * 不再绿点常亮等用户重登。
+ *
+ * 前台/网络恢复活性校验：visibilitychange→visible / window online → checkLiveness →
+ * 活性异常则 terminate 重连（重连后增量补拉），连接丢失且无重连排队则立即建连，
+ * 断流期间漏收的消息不依赖重新登录即可拉回。
  *
  * 连接世代隔离（跨连接生命周期污染防护）：
  * - connect() 每次真正建连时递增「连接世代」，并把该世代**捕获进这条连接的全部回调闭包**；
@@ -111,6 +121,56 @@ const PING_INTERVAL = 25000;
 /** 入站活性超时（毫秒）。服务端心跳=WS 协议层 Ping 每 30s（经 ws_proxy 转发计入活性），
  *  健康连接的入站静默不超过一个心跳周期；连续 2 个周期 + 余量无任何入站帧判半开。 */
 const LIVENESS_TIMEOUT = 70000;
+/** 应用层帧静默超时（毫秒）：看门狗每 PING_INTERVAL 发一次应用层 ping，服务端经连接路由表
+ *  查到本连接后回 heartbeat 应答；而协议层 Ping/Pong 由连接处理任务直发、不经路由表。
+ *  服务端同账号同设备重复建连时静默摘除旧连接的路由条目（不发任何踢出帧/Close）→ 协议层
+ *  心跳仍在流而应用层帧永绝：单看 lastActivityAt 会假活（绿点），须叠加应用层静默判据。
+ *  超 3 个 ping 周期无任何应用层入站帧 = 路由已死，判死重连。 */
+const APP_FRAME_SILENCE_TIMEOUT = 75000;
+
+/** 入站活性裁决结果 */
+export type LivenessVerdict = 'healthy' | 'transport-stale' | 'app-silent';
+
+/**
+ * 入站活性裁决（纯函数，便于单测）。
+ * - transport-stale：连协议层心跳都断了（真正半开/网络死），lastActivityAt 不再刷新；
+ * - app-silent：协议层心跳仍在流（lastActivityAt 新鲜）但应用层帧静默超窗 —— 连接被服务端
+ *   顶替/摘除路由的特征（推送与 heartbeat 应答都经路由表，摘除后永绝），即「绿点假活」；
+ * - healthy：两层都新鲜。
+ * lastAppFrameAt <= 0 表示本连接尚未收到过任何应用层帧（onopen 时已基线化，正常不出现；
+ * 防御上不判 app-silent，交给 transport-stale 分支）。
+ */
+export function evaluateLiveness(now: number, lastActivityAt: number, lastAppFrameAt: number): LivenessVerdict {
+  if (now - lastActivityAt > LIVENESS_TIMEOUT) { return 'transport-stale'; }
+  if (lastAppFrameAt > 0 && now - lastAppFrameAt > APP_FRAME_SILENCE_TIMEOUT) { return 'app-silent'; }
+  return 'healthy';
+}
+
+/** 前台/网络恢复校验的决策动作 */
+export type ForegroundAction = 'terminate' | 'probe' | 'connect' | 'noop';
+
+/**
+ * 前台恢复/网络恢复时的决策（纯函数，便于单测）。
+ * - terminate：连接打开但活性裁决异常 → 强制断开走既有重连链（重连后补偿增量 sync）；
+ * - probe：连接打开且看起来新鲜 → 立即补发应用层 ping 探测（路由被摘则无应答，
+ *   看门狗按 APP_FRAME_SILENCE_TIMEOUT 判死），不等下个周期；
+ * - connect：连接未打开且无重连在途/排队（后台冻结期定时器丢失等）→ 立即建连；
+ * - noop：重连已在途，或无会话。
+ */
+export function decideForegroundAction(opts: {
+  hasSession: boolean;
+  socketOpen: boolean;
+  verdict: LivenessVerdict | null;
+  connecting: boolean;
+  reconnectScheduled: boolean;
+}): ForegroundAction {
+  if (!opts.hasSession) { return 'noop'; }
+  if (opts.socketOpen) {
+    return opts.verdict && opts.verdict !== 'healthy' ? 'terminate' : 'probe';
+  }
+  if (!opts.connecting && !opts.reconnectScheduled) { return 'connect'; }
+  return 'noop';
+}
 /** Rust 层入站空闲超时（秒）：3 个心跳周期，兜底回收半开连接的读任务并上抛 Error
  *  （覆盖 JS 看门狗 terminate 后残留的 Rust reader，以及 webview 假死等 JS 层失能场景） */
 const WS_IDLE_TIMEOUT_SECS = 90;
@@ -219,6 +279,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const reconnectJitterMsRef = useRef(3000);
   /** 看门狗判半开断开后待补偿：重连成功（收到 connected 帧）后强制触发一次增量 sync */
   const halfOpenSyncPendingRef = useRef(false);
+  /** 最近一次收到【应用层】入站帧（text，含 heartbeat 应答/connected/业务帧）的时刻。
+   *  协议层 Ping 不计（不经路由表，会话被顶替/路由摘除后仍在流，判不了假活）。
+   *  0 = 未基线化（onopen 时基线化，防跨连接旧值误判）。 */
+  const lastAppFrameAtRef = useRef(0);
 
   /** 离线/假活期间未能发出的 mark_read（按 type:id 去重），connected 后补发（服务端 GREATEST 幂等） */
   const pendingMarkReadsRef = useRef<Map<string, { targetType: 'friend' | 'group'; targetId: string }>>(new Map());
@@ -282,6 +346,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       );
       return;
     }
+
+    // 应用层入站帧活性基线（所有 text 帧都经服务端路由表投递，含 heartbeat 应答）。
+    // 这是「会话被顶替/路由摘除」假活状态的唯一可观测信号（协议层 Ping 不经路由表，会照常流）。
+    lastAppFrameAtRef.current = Date.now();
 
     const result = handleWebSocketMessage(data, {
       activeChatRef,
@@ -355,6 +423,15 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       // 看门狗恢复后无条件补一次增量 sync（syncService 按 seq 增量拉取，幂等）
       console.warn('[WebSocket] 半开恢复重连成功，补偿增量同步');
       reconnectedListeners.current.forEach(callback => callback());
+    }
+
+    // 服务端踢出/会话顶替帧：显式处理（此前 chat 侧无任何处理=服务端已停推流而绿点常亮，
+    // 只能重登恢复）。立即断开当前连接走既有重连链：重连→重新 register 恢复推送路由→
+    // connected 帧→halfOpenSyncPendingRef 补偿增量 sync，漏收段不丢、不依赖重新登录。
+    if (result.kicked && wsRef.current && generation === connectionGenRef.current) {
+      console.warn('[WebSocket] 服务端踢出/会话顶替：主动断开当前连接并重连（恢复推送路由）');
+      halfOpenSyncPendingRef.current = true;
+      wsRef.current.terminate();
     }
   }, []); // 使用 ref，不需要依赖
 
@@ -518,12 +595,19 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       if (ws.readyState !== RustWebSocket.OPEN) {
         return;
       }
-      // 入站活性看门狗：服务端协议层 Ping 每 30s（ws_proxy 转发计入 lastActivityAt），
-      // 超窗 = 半开连接（入站黑洞但 TCP 假活）。terminate 本地强制派发 onclose
-      // （半开时对端不会回应 Close 帧，常规 close 的 onclose 永不触发）→ 走既有
-      // 指数退避重连；置 halfOpenSyncPendingRef，重连成功后补一次增量 sync。
-      if (Date.now() - ws.lastActivityAt > LIVENESS_TIMEOUT) {
-        console.warn('[WebSocket] 入站活性超时（疑似半开连接），强制断开并重连');
+      // 入站活性看门狗（双层判据，evaluateLiveness 纯函数）：
+      // - transport-stale：连协议层 Ping 都断了（服务端心跳 30s 一发、ws_proxy 转发计入
+      //   lastActivityAt），超窗 = 半开连接（入站黑洞但 TCP 假活）；
+      // - app-silent：协议层心跳仍在流但应用层帧（含 ping→heartbeat 应答）静默超窗 =
+      //   连接路由被服务端顶替/摘除（推送不经路由表永绝），即「绿点假活」的真正信号。
+      // 任一命中：terminate 本地强制派发 onclose（半开时对端不会回应 Close 帧，常规 close
+      // 的 onclose 永不触发）→ 走既有指数退避重连；置 halfOpenSyncPendingRef，重连成功后
+      // 补一次增量 sync（漏收段按 seq 对账拉回，不依赖重新登录）。
+      const verdict = evaluateLiveness(Date.now(), ws.lastActivityAt, lastAppFrameAtRef.current);
+      if (verdict !== 'healthy') {
+        console.warn(
+          `[WebSocket] 入站活性超时（${verdict === 'transport-stale' ? '无任何入站帧' : '无应用层入站帧，疑似会话被顶替/推送路由摘除'}），强制断开并重连`,
+        );
         halfOpenSyncPendingRef.current = true;
         ws.terminate();
         return;
@@ -571,6 +655,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         connectingRef.current = false;
         setConnecting(false);
         reconnectAttemptsRef.current = 0;
+        // 应用层帧活性基线：从本连接建立时刻起算，防跨连接旧值在首个看门狗 tick 误判
+        lastAppFrameAtRef.current = Date.now();
 
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
@@ -650,6 +736,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     // 登出/账号切换：读位内存 Map 与离线暂存的 mark_read 同 unreadSummary 一起清，防跨账号串数据
     resetReadPositions();
     pendingMarkReadsRef.current.clear();
+    lastAppFrameAtRef.current = 0;
   }, []);
 
   // ============================================
@@ -779,6 +866,71 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const initPendingNotifications = useCallback((counts: Partial<PendingNotifications>) => {
     setPendingNotifications(prev => ({ ...prev, ...counts }));
   }, []);
+
+  // ============================================
+  // 前台恢复/网络恢复 → 活性校验 + 漏报增量补拉
+  // ============================================
+
+  /**
+   * 前台/网络恢复时的连接活性校验（decideForegroundAction 纯函数决策）。
+   * - 连接打开且活性异常（transport-stale / app-silent）→ terminate 走既有重连链：
+   *   重连 → 重新 register 恢复推送路由 → connected 帧 → halfOpenSyncPendingRef →
+   *   onReconnected → useInitialSync 增量补拉断流期间漏收的消息（不依赖重新登录）；
+   * - 连接打开且看起来新鲜 → 立即补发应用层 ping 探测（路由被摘则无 heartbeat 应答，
+   *   看门狗按 APP_FRAME_SILENCE_TIMEOUT 判死），不等下个周期；
+   * - 连接未打开且无重连在途/排队（后台冻结期定时器丢失等）→ 立即建连。
+   */
+  const checkLiveness = useCallback((source: string) => {
+    if (!tokenRef.current || !serverUrlRef.current) {
+      return;
+    }
+    const ws = wsRef.current;
+    const socketOpen = !!ws && ws.readyState === RustWebSocket.OPEN;
+    const verdict = socketOpen
+      ? evaluateLiveness(Date.now(), ws.lastActivityAt, lastAppFrameAtRef.current)
+      : null;
+    const action = decideForegroundAction({
+      hasSession: true,
+      socketOpen,
+      verdict,
+      connecting: connectingRef.current,
+      reconnectScheduled: reconnectTimerRef.current !== null,
+    });
+    if (action === 'terminate' && ws) {
+      console.warn(
+        `[WebSocket] 前台/网络恢复活性校验（${source}）：连接异常（${verdict}），强制断开并重连（重连后增量补拉）`,
+      );
+      halfOpenSyncPendingRef.current = true;
+      ws.terminate();
+      return;
+    }
+    if (action === 'probe' && ws) {
+      ws.send(JSON.stringify({ type: 'ping' }));
+      return;
+    }
+    if (action === 'connect') {
+      console.warn(`[WebSocket] 前台/网络恢复校验（${source}）：连接未建立且无重连排队，立即建连`);
+      connectRef.current();
+    }
+  }, []);
+
+  // 切后台（熚屏/切应用）期间 WebView 定时器可能被冻结，半开/被顶替的连接无人裁决；
+  // 回前台（visibilitychange→visible）或网络恢复（window online）时立即校验连接活性
+  // 并走既有重连+增量补拉链，把「断流期间漏收的消息」拉回，不再依赖用户重新登录。
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkLiveness('visibilitychange-visible');
+      }
+    };
+    const onOnline = () => { checkLiveness('window-online'); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [checkLiveness]);
 
   // ============================================
   // 事件订阅
