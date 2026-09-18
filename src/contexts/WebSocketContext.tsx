@@ -197,6 +197,12 @@ interface WebSocketContextType {
   getGroupUnread: (groupId: string) => number;
   pendingNotifications: PendingNotifications;
   clearPendingNotification: (type: keyof PendingNotifications) => void;
+  /**
+   * 扣减待处理通知计数（floor 0）：收到的好友申请在待通过面板被同意/拒绝、群邀请被接受/拒绝
+   * 的成功回执后调用，让「+」角标当场消减（修复：处理申请后红点挂着要重登才消）。
+   * 与 clearPendingNotification 同构（functional set），不引入新通道。
+   */
+  decrementPendingNotification: (type: keyof PendingNotifications, by?: number) => void;
   initPendingNotifications: (counts: Partial<PendingNotifications>) => void;
   /**
    * 标记会话已读：发 WS mark_read 帧（离线/假活时暂存，connected 后补发）+ 本地 summary 清零
@@ -863,6 +869,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     setPendingNotifications(prev => ({ ...prev, [type]: 0 }));
   }, []);
 
+  /** 扣减待处理通知计数（floor 0 防重复回执/竞态把计数打成负数） */
+  const decrementPendingNotification = useCallback((type: keyof PendingNotifications, by = 1) => {
+    setPendingNotifications(prev => ({ ...prev, [type]: Math.max(0, prev[type] - by) }));
+  }, []);
+
   const initPendingNotifications = useCallback((counts: Partial<PendingNotifications>) => {
     setPendingNotifications(prev => ({ ...prev, ...counts }));
   }, []);
@@ -1007,6 +1018,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     getGroupUnread,
     pendingNotifications,
     clearPendingNotification,
+    decrementPendingNotification,
     initPendingNotifications,
     markRead,
     connect,
@@ -1029,6 +1041,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     getGroupUnread,
     pendingNotifications,
     clearPendingNotification,
+    decrementPendingNotification,
     initPendingNotifications,
     markRead,
     connect,

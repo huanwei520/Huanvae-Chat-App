@@ -814,3 +814,98 @@ review 只能以「同 APK（sha256 一致）重装+重启复现取图链路」�
 skill。实测会话纪律：`adb exec-out screencap -p > x.png` 命令与输出字节数当场落日志；
 模拟器退出前 `adb logcat -d > full.log` 落盘。debug 候选 APK 与 CI 签名 APK 两套 sha256
 分别落档不混写（补正 5 口径）；本机 debug 候选如实标 debug，不冒充正式包。
+
+---
+
+## 🔴 五层门禁管线（2026-09-15 管线改造落地 · 之后的每次发布唯一标准路径）
+
+> 本节为 EOF 追加，不改上文任何一行。上文流程仍有效的部份已并入下述层；冲突处**以脚本为真值源**。
+> 落地块：1789501523261-3224uyx1（owner 已批准方案）。背景事故：1.1.47（06c45278）发布早于新
+> guard 件产出 11 分钟、渠道包携带旧件 huanvaeguard-svc.exe fa1e0f68 流出——既有门禁只查配置
+> 存在、不查产物内容、不做真机安装，本改造把五层焊死。
+
+### 层定义与真值源
+
+| 层 | 拦什么 | 真值源脚本 | 接入点 |
+|---|---|---|---|
+| L0 代码门禁 | 代码/配置坏 | `scripts/linux/test-all.sh`（14 项） | release.sh 步骤4 |
+| L1 产物内容断言 | 包内缺件/旧件（v1.1.47 事故形态） | `scripts/assert-artifact-content-v2.sh`（v1 保留作回滚基线） | test-all 第14步（本地）+ release.yml CI 出包即断言（桌面三腿+Android 腿上传前） |
+| L2 平台安装冒烟 | 装不上的包 | `scripts/linux/l2-install-smoke.sh`（win/mac/linux/android 四腿） | release.sh 步骤5（发布前置链） |
+| L3 全功能实测矩阵 | 功能不可用 | `scripts/linux/l3-full-matrix.sh`（十项，缺证即红，**无 ALLOW_SKIP**） | release.sh 步骤5（发布前置链） |
+| L4 渠道下载验证 | 渠道包/清单不一致 | `scripts/linux/l4-channel-verify.sh` | release.sh 步骤9（发布后链）+ 可独立跑 |
+
+### 自动版本规则（禁手工传参/禁盲涨号）
+
+`scripts/linux/auto-version.sh`：实时查 GitHub 最新**正式** release（非 draft/prerelease；
+通道依次 gh api → curl API（GITHUB_TOKEN 只进请求头，不打印）→ git ls-remote），patch 位
++0.0.1 得目标版本。目标 tag 已存在远端 → 核其 SHA：=本地 HEAD → skip（幂等重跑，礼貌退出）；
+≠ → conflict 停住（禁 force 覆盖，坑 3 的机器闸）。三条通道全失败也停住——**任何路径都不猜版本号**。
+release.sh 步骤0 接入（回滚开关 `RELEASE_AUTO_VERSION=0` 恢复旧口径）；release-config.txt 的
+VERSION 行废弃为提示，MESSAGE 仍必填。
+
+### L1 v2 与 v1 的差别（为何必须升级）
+
+v1（06c45278）解「包里**有没有**」；v2 加解「包里是不是**对的字节**」——每个必含件带期望
+SHA256 及**来源**（`src-tauri/resources/hg-build-manifest.json` 发货落点 manifest / 仓内落点
+文件逐字节），缺件或哈希不符即 FAIL 并打印差异表。必含件口径（对 v1.1.48 真实渠道包逐包核过）：
+Windows NSIS：`HuanvaeGuard/{huanvaeguard-svc.exe,wintun.dll}`；macOS .app：
+`HuanvaeGuard-macos/{hg-macos,com.huanvaeguard.daemon.plist}`；deb/AppImage：
+`usr/lib/Huanvae-Chat-App/HuanvaeGuard/*`；APK：四 ABI `lib/<abi>/libhg_android.so`。
+「随 1.1.49 起」条目（hv-control-daemon）由 `--target-version`（release.sh 自动版本步骤导出
+`ARTIFACT_TARGET_VERSION`）驱动 since 门，旧包核验不误伤。
+
+**已核出的真实渠道缺陷（L1/L2/L4 实测在案，逐版登记）**：
+- ① v1.1.45/1.1.48/1.1.49 渠道 APK 均缺 `lib/x86/libhg_android.so`（四 ABI 口径 FAIL；CI 明确装了含 i686 在内的四个 rust target，四 ABI 是项目意图）。1.1.50 发布前必须修 Android 构建补齐四 ABI，或 owner 显式改口径（`ARTIFACT_GUARD_ABIS` 登记式收窄 + 发布记录注明）。
+- ② v1.1.48 渠道 Windows guard 件 6bc85eb0 在 winserver-hg 上服务启动必崩（0xC0000005 BEX64，事件日志在案）——后被 v1.1.49 纠偏热修（新件 c9c27c7f）证实并修复；热修提交（e2115b90）自述根因=构建环境 w64devkit libgcc 库被现场手术+工具链路径失效致 ps1 产物缺陷（非 daemon 源码逻辑）；修复后仍有**启动竞态崩溃**（同偏移 0x526444，冷装可起、特定时序下频发，产品侧靠「修复服务」重试恢复，L2 win 腿已内置三轮修复重试）——根因源码级定位在 HuanvaeGuard 仓（源锚 b1d7c8df）待做。
+- ③ hv-control-daemon 未随 1.1.49 发货（卡片口径随 1.1.49 起必含）——v1.1.49 在本门禁上线前发布，缺口由 L4 实测拦出；1.1.50 必须补齐或 owner 显式改口径。
+- ④ v1.1.48 渠道 AppImage.sig 上游件缺失（latest.json 内嵌签名非空，更新链路可用）→ L4 已降为 WARN；1.1.49 已补齐全部 .sig。
+
+### L2 四腿与两个实测坑（本改造实测踩过）
+
+- **macOS plist 是模板**：发货 plist 内含 `__HG_INSTANCE__`/`__HG_API_LISTEN__` 占位符
+  （huanvaeguard_macos.rs:69-70，App 安装时 render_plist 渲染）。直接把发货 plist 拷进
+  /Library/LaunchDaemons 会带字面量参数启动即退（实测 exit 2 崩循环）。L2 脚本按 App 同源
+  语义渲染（127.0.0.1:19198）后再 load——这不是绕过判据，是复现产品安装路径。
+- **Android 判据要防子串误命中**：主页有「退出登录」节点，宽松匹配 `登录` 会把已登录主页
+  误判成登录页（实测发生过并已修）。判据 = 精确 `text="登陆|登录"` + EditText 同屏；
+  且安装后必须 `pm clear` 复位（残留会话直达主页）。另：应用内更新器会把渠道新版本
+  **实装**进设备（实测 v1.1.48 自更新到模拟器），装包前先 `pm uninstall` 旧包防降级拒绝。
+- 环境注入红线与全仓一致：`L2_WIN_HOST` / `L2_MAC_HOST` 等运行时注入，仓内零内网地址零凭据；
+  BLOCKED ≠ FAIL ≠ PASS，未 ack 的 BLOCKED 退出码 2。
+- **判定纪律（第4/5轮整改后定稿）**：win 腿判据为卡口径**字面**「`sc start HuanvaeGuard` 退出码 =0」——
+  安装器自启会使字面 start 必返 1056，故腿内先 `sc stop`→等 STOPPED 让路，再真实调 `sc start` 捕获 rc
+  （与冷启动同一 SCM 启动码路，启动竞态崩溃在 stop→start 下同样暴露，绝非绕判据）；rc≠0 或未 RUNNING →
+  修复流仅取证**永不翻判**（修复达成仍 FAIL）；只有全程无兜底的原样路径（L2WIN_NATIVE）才判 PASS；
+  linux 腿在无 systemd/只读 dpkg 容器里私根解包只能作补充参考（明确标「不计 PASS」），腿级判定 = BLOCKED 登记；
+  干跑中 L2 有腿 FAIL 同样中止（无降档记账分支），未 ack 的 BLOCKED 同样中止（实测：android 掉线未 ack → RC=1）。
+
+### L3 十项与留证位
+
+login / message / image / file / meeting-create-join / screenshare / bitrate-tier /
+remote-control-signaling / vpn-connect-hotupdate / update-detect。逐项登记证据路径
+（`--record id 路径`）或显式登记物理不可执行原因（`--register id "原因"`——原因进发布记录，
+禁 ALLOW_SKIP 机制）；任何一项既无证据也无登记 = release.sh 中止。
+
+### 干跑模式（验证管线，不触发发布）
+
+`RELEASE_DRY_RUN=1 ./scripts/linux/release.sh`：步骤0（真查远端）→1（真查）→2/3（跳过写操作，
+打印计划）→4（L0 降档组合 `--skip-rust --skip-e2e --skip-vpn`，**响亮标注不构成发布凭据**）
+→5（L2/L3 真跑，产物目录经 `RELEASE_L2_ARTIFACT_DIR` 注入；**L2 有腿 FAIL 或存在未 ack 的
+BLOCKED 时干跑同样中止**——与真实发布同律，无降档分支）→6/7/8（跳过，打印计划，明示「未推送」）
+→9（对远端最新正式版演示 L4 对账，目标从 auto-version 输出解析、解析落空即停住不猜 tag；
+演示目标是已发布旧版，其渠道真缺口不阻塞干跑）。**真实发布不得带 DRY_RUN**。
+
+### release.sh 步骤一览（v3.1，十步）
+
+| 步骤 | 做什么 | 留档 |
+|---|---|---|
+| 0/9 | 自动版本规则（auto-version.sh；skip=幂等退出；conflict=停） | `.release-logs/auto-version.log` |
+| 1/9 | 三处版本一致性 | — |
+| 2/9 | 版本号同步（sed 三处） | — |
+| 3/9 | 构建/替换 VPN 二进制（失败即中止） | manifest 打印 |
+| 4/9 | L0 全量测试（末项=L1 v2） | test-all 输出 |
+| 5/9 | L2 四腿安装冒烟 + L3 十项矩阵 | `.release-logs/l2-evidence/`、`l3-state.json` |
+| 6/9 | 依赖同步 | — |
+| 7/9 | commit + tag + assert_tag_points_at_head | — |
+| 8/9 | push（此后发布不可撤销） | — |
+| 9/9 | L4 渠道对账（`RELEASE_L4_WAIT=分钟` 内联等待，否则打印交接命令） | `.release-logs/l4-*/` |

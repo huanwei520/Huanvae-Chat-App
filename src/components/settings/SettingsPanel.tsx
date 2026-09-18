@@ -33,6 +33,7 @@ import { SoundSelector } from './SoundSelector';
 import { DeviceListPanel } from './DeviceListPanel';
 import { AuthorizedAppsPanel } from './AuthorizedAppsPanel';
 import { BlacklistPanel } from './BlacklistPanel';
+import { FaultReportPanel } from './FaultReportPanel';
 import { MeetingAudioSettings } from './MeetingAudioSettings';
 import { isDesktop } from '../../utils/platform';
 import { SendIcon } from '../common/Icons';
@@ -301,6 +302,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
   const [showDeviceList, setShowDeviceList] = useState(false);
   const [showAuthorizedApps, setShowAuthorizedApps] = useState(false);
   const [showBlacklist, setShowBlacklist] = useState(false);
+  // 故障记录检测面板（新增通道，最小挂载）
+  const [showFaultReport, setShowFaultReport] = useState(false);
 
   // 平台名（异步加载，加载完毕前 NFC 入口不渲染，避免桌面端首帧短暂出现按钮）
   const [platformName, setPlatformName] = useState<string | null>(null);
@@ -613,6 +616,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
               subtitle="管理已拉黑的用户"
               type="arrow"
               onClick={() => setShowBlacklist(true)}
+              showDivider={true}
+            />
+            <SettingsRow
+              title="故障记录检测"
+              subtitle="遇 bug 开启记录，加密上报工单号跟进"
+              type="arrow"
+              onClick={() => setShowFaultReport(true)}
               showDivider={false}
             />
           </SettingsGroup>
@@ -669,6 +679,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onThemeCl
       <AnimatePresence>
         {showBlacklist && (
           <BlacklistPanel onBack={() => setShowBlacklist(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* 故障记录检测面板 */}
+      <AnimatePresence>
+        {showFaultReport && (
+          <FaultReportPanel onBack={() => setShowFaultReport(false)} />
         )}
       </AnimatePresence>
 

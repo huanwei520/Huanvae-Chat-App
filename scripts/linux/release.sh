@@ -3,23 +3,42 @@
 # Huanvae Chat App 自动化版本发布脚本 (Linux)
 #
 # ## 功能
-# 严格的版本发布流程，确保代码质量和版本一致性
+# 严格的版本发布流程（五层门禁管线），确保代码质量和版本一致性
 # 测试通过后自动推送发布，无需手动确认
 #
-# ## 发布流程
-# 1. 读取 release-config.txt 中的目标版本号
-# 2. 检查当前项目版本号一致性（package.json / Cargo.toml / tauri.conf.json）
-# 3. 对比配置版本与当前版本
-# 4. 如果版本不一致，先更新所有版本号
-# 5. 从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进 App 落点
+# ## 发布流程（2026-09-15 五层门禁改造，v3.1）
+# 0. 自动版本规则：实时查 GitHub 最新正式 tag，+0.0.1 得出目标版本；目标已存在远端则
+#    核对其 SHA 是否=本地 HEAD（同=已发布过→跳过；异=冲突→停住）。禁手工传参、禁盲涨号
+#    （scripts/linux/auto-version.sh，旧「手工改 release-config.txt VERSION」流程废弃，
+#    VERSION 行仅作提示；回滚：RELEASE_AUTO_VERSION=0 恢复旧口径）
+# 1. 检查当前项目版本号一致性（package.json / Cargo.toml / tauri.conf.json）
+# 2. 如果版本不一致，先更新所有版本号
+# 3. 从 HuanvaeGuard 源码构建各平台 VPN 守护进程二进制并替换进 App 落点
 #    （失败即中止，绝不回落仓里的旧二进制继续发布）
-# 6. 运行完整测试（前后端 0 errors, 0 warnings）
+# 4. L0 代码门禁：运行完整测试（前后端 0 errors, 0 warnings；末项=产物内容断言 v2）
+# 5. L2 平台安装冒烟（真机装包：Windows/macOS/Linux/Android 四腿）
+#    + L3 全功能实测矩阵（十项必测，缺证即红，无 ALLOW_SKIP）
+# 6. 同步依赖
 # 7. 测试通过后自动进行 Git 提交、创建标签（并校验标签指向当前 HEAD，
-#    不一致即中止且不推送）、推送发布
+#    不一致即中止且不推送）
+# 8. 推送发布
+# 9. L4 渠道下载验证：等待 CI 出包后，从 GitHub Release 下载正式包复算 SHA256
+#    与 latest.json/android-latest.json 对账 + 包内容复验 + 实装交接
+#    （scripts/linux/l4-channel-verify.sh）
+#
+# ## 五层门禁总览（唯一标准路径，详见 .claude/skills/release/SKILL.md）
+#   L0 代码门禁 = 本脚本步骤4（test-all.sh 14 项，末项 L1 产物内容断言 v2）
+#   L1 产物内容断言 = test-all.sh 第14步（必含件+期望SHA256 逐哈希，scripts/assert-artifact-content-v2.sh）
+#                     + CI 侧 release.yml 每条构建腿出包后立即断言
+#   L2 平台安装冒烟 = 本脚本步骤5（scripts/linux/l2-install-smoke.sh）
+#   L3 全功能实测矩阵 = 本脚本步骤5（scripts/linux/l3-full-matrix.sh）
+#   L4 渠道下载验证 = 本脚本步骤9（scripts/linux/l4-channel-verify.sh）
 #
 # ## 使用方法
-# 1. 编辑 scripts/release-config.txt 设置版本号和更新说明
+# 1. 编辑 scripts/release-config.txt 设置更新说明（MESSAGE；VERSION 已废弃）
 # 2. 运行: ./scripts/linux/release.sh
+#    干跑（不写版本号/不 commit/不 push，逐层真跑证明管线可用）:
+#    RELEASE_DRY_RUN=1 ./scripts/linux/release.sh
 #
 # ## 测试标准
 # - 除了以下已知无害警告外，必须 0 errors, 0 warnings：
@@ -27,8 +46,8 @@
 #   - ESLint no-await-in-loop (已用 eslint-disable 标记的合理用法)
 #   - console.warn/error 调试日志（允许使用）
 #
-# @version 3.0
-# @date 2026-01-25
+# @version 3.1（五层门禁版）
+# @date 2026-09-15
 
 set -e
 
@@ -50,6 +69,14 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_PATH="$SCRIPT_DIR/../release-config.txt"
+
+# 干跑模式：逐层真跑但不写版本号/不 commit/不 push；L4 对最近已发布版本演示
+DRY_RUN=false
+[[ "${RELEASE_DRY_RUN:-0}" == "1" ]] && DRY_RUN=true
+
+# 发布过程留档目录（auto-version / L2 / L3 / L4 输出全部落这里，发布记录的原料）
+RELEASE_LOG_DIR="${RELEASE_LOG_DIR:-$PROJECT_ROOT/.release-logs}"
+mkdir -p "$RELEASE_LOG_DIR"
 
 cd "$PROJECT_ROOT"
 
@@ -128,44 +155,80 @@ assert_tag_points_at_head() {
 # ============================================
 # 读取配置文件
 # ============================================
-print_header "Huanvae Chat App 自动发布"
+print_header "Huanvae Chat App 自动发布（五层门禁管线）"
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
     print_error "配置文件未找到: $CONFIG_PATH"
     exit 1
 fi
 
-# 解析配置文件
-TARGET_VERSION=""
+# 解析配置文件（VERSION 行已废弃——版本号由步骤0自动计算；MESSAGE 仍必需）
+CONFIG_VERSION=""
 RELEASE_MESSAGE=""
 while IFS='=' read -r key value; do
     key=$(echo "$key" | tr -d '[:space:]')
     [[ -z "$key" || "$key" == \#* ]] && continue
     
     case "$key" in
-        VERSION) TARGET_VERSION="$value" ;;
+        VERSION) CONFIG_VERSION="$value" ;;
         MESSAGE) RELEASE_MESSAGE="$value" ;;
     esac
 done < "$CONFIG_PATH"
 
-if [[ -z "$TARGET_VERSION" || -z "$RELEASE_MESSAGE" ]]; then
-    print_error "配置格式错误，需要 VERSION 和 MESSAGE"
+if [[ -z "$RELEASE_MESSAGE" ]]; then
+    print_error "配置格式错误，需要 MESSAGE"
     echo ""
     echo "配置文件格式示例："
-    echo "  VERSION=1.0.25"
-    echo "  MESSAGE=mDNS设备下线检测修复、移动端消息气泡宽度优化"
+    echo "  MESSAGE=本次更新的一句话说明"
     exit 1
 fi
 
+# ============================================
+# 步骤 0: 自动版本规则（禁手工传参/禁盲涨号）
+# ============================================
+print_step "0/9" "自动版本规则: 查 GitHub 最新正式 tag → +0.0.1 → 目标 tag 冲突核 SHA..."
+
+if [[ "${RELEASE_AUTO_VERSION:-1}" == "0" ]]; then
+    print_warn "RELEASE_AUTO_VERSION=0 —— 回滚到旧口径：版本号取 release-config.txt 的 VERSION 行（废弃路径，仅排障用）"
+    TARGET_VERSION="$CONFIG_VERSION"
+    if [[ -z "$TARGET_VERSION" ]]; then
+        print_error "配置缺少 VERSION（旧口径下必需）"
+        exit 1
+    fi
+else
+    AUTO_VERSION_LOG="$RELEASE_LOG_DIR/auto-version.log" \
+    AV_OUTPUT=$("$SCRIPT_DIR/auto-version.sh") || AV_RC=$?
+    printf '%s\n' "$AV_OUTPUT"
+    if [[ "${AV_RC:-0}" -ne 0 ]]; then
+        print_error "自动版本规则未通过（冲突 / 查询失败）—— 发布中止。禁盲涨号：人工核对两侧 commit 后再决策"
+        exit 1
+    fi
+    TARGET_VERSION=$(sed -n 's/^AUTO_VERSION: .* target=\([0-9.]*\) action=.*$/\1/p' <<<"$AV_OUTPUT" | head -1)
+    AV_ACTION=$(sed -n 's/^AUTO_VERSION: .* action=\([a-z]*\) .*$/\1/p' <<<"$AV_OUTPUT" | head -1)
+    if [[ "$AV_ACTION" == "skip" ]]; then
+        print_warn "目标 tag v$TARGET_VERSION 已存在远端且 SHA=本地 HEAD —— 该 commit 已发布过，跳过本次发布（幂等重跑）"
+        exit 0
+    fi
+    if [[ "$AV_ACTION" != "release" || -z "$TARGET_VERSION" ]]; then
+        print_error "auto-version 输出无法解析（action=$AV_ACTION target=$TARGET_VERSION）"
+        exit 1
+    fi
+fi
+export ARTIFACT_TARGET_VERSION="$TARGET_VERSION"   # L1 v2 的 since 门用（随 1.1.49 起 hv-control-daemon 必含）
+
+if [[ -n "$CONFIG_VERSION" && "$CONFIG_VERSION" != "$TARGET_VERSION" ]]; then
+    print_warn "release-config.txt 的 VERSION=$CONFIG_VERSION 与自动计算值不一致 —— 手工版本号已废弃，以自动计算 v$TARGET_VERSION 为准"
+fi
+
 echo ""
-echo -e "  ${WHITE}目标版本: v$TARGET_VERSION${NC}"
+echo -e "  ${WHITE}目标版本: v$TARGET_VERSION（自动计算，最新正式 tag +0.0.1）${NC}"
 echo -e "  ${GRAY}更新说明: $RELEASE_MESSAGE${NC}"
 echo ""
 
 # ============================================
 # 步骤 1: 检查当前版本号一致性
 # ============================================
-print_step "1/7" "检查当前项目版本号一致性..."
+print_step "1/9" "检查当前项目版本号一致性..."
 
 # 读取各文件版本号
 PKG_VERSION=$(grep '"version"' "$PROJECT_ROOT/package.json" | head -1 | sed 's/.*: "\([^"]*\)".*/\1/')
@@ -191,7 +254,7 @@ fi
 # ============================================
 # 步骤 2: 对比目标版本与当前版本
 # ============================================
-print_step "2/7" "对比目标版本与当前版本..."
+print_step "2/9" "对比目标版本与当前版本..."
 
 echo -e "  ${GRAY}当前版本: v$CURRENT_VERSION${NC}"
 echo -e "  ${GRAY}目标版本: v$TARGET_VERSION${NC}"
@@ -255,8 +318,11 @@ fi
 # 发货的两个 VPN 守护进程二进制长期是"手工放进去、来源不明、无人验证"的仓内死文件，
 # 已连续造成两起生产故障（发货件落后于当前契约 / 签名形态不被系统服务管理器接受）。
 # 这一步把它们改成"每次发布前从源码构建 → 校验 → 替换"的可复现产物，且失败即中止发布。
-print_step "3/7" "从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换..."
+print_step "3/9" "从 HuanvaeGuard 源码构建各平台 VPN 二进制并替换..."
 
+if $DRY_RUN; then
+    print_warn "RELEASE_DRY_RUN=1 —— 干跑跳过二进制构建（真实发布必跑本步；发货件一致性由 L1 v2 哈希核对覆盖）"
+else
 BUILD_HG_EXIT=0
 if [[ "${HG_BINARIES_SKIP_REGISTERED:-0}" == "1" ]]; then
     # 登记式跳过（沿 v1.1.40-v1.1.45 连续六版发布登记惯例）：本宿主为 Linux，
@@ -289,18 +355,27 @@ if [[ -f "$HG_MANIFEST" ]]; then
 fi
 
 print_ok "VPN 二进制已从源码构建、校验并替换到位"
+fi   # $DRY_RUN else 分支结束
 
 # ============================================
 # 步骤 4: 运行完整测试
 # ============================================
-print_step "4/7" "运行完整代码质量测试..."
+print_step "4/9" "运行完整代码质量测试 (L0 代码门禁)..."
 echo ""
 echo -e "${YELLOW}  测试标准: 前后端 0 errors, 0 warnings${NC}"
 echo -e "${GRAY}  (忽略: Vite动态导入提示、已标记的await-in-loop、console调试日志)${NC}"
 echo ""
 
+TEST_ARGS=("$@")
+if $DRY_RUN; then
+    print_warn "RELEASE_DRY_RUN=1 —— 干跑用降档组合（--skip-rust --skip-e2e --skip-vpn + ALLOW_SKIP 同批登记）只验链路接线，【不构成发布凭据】；真实发布不得带这些降档，也不得设 ALLOW_SKIP"
+    TEST_ARGS+=(--skip-rust --skip-e2e --skip-vpn)
+    ALLOW_SKIP_DRY="e2e,cargo-check,clippy-desktop,clippy-android,cargo-test,vpn-connectivity"
+    export ALLOW_SKIP="${ALLOW_SKIP:-$ALLOW_SKIP_DRY}"
+fi
+
 TEST_EXIT=0
-"$SCRIPT_DIR/test-all.sh" "$@" || TEST_EXIT=$?
+"$SCRIPT_DIR/test-all.sh" "${TEST_ARGS[@]}" || TEST_EXIT=$?
 
 if [[ $TEST_EXIT -ne 0 ]]; then
     echo ""
@@ -325,11 +400,51 @@ echo ""
 print_ok "所有测试检查通过！"
 
 # ============================================
-# 步骤 5: 同步依赖
+# 步骤 5: L2 平台安装冒烟 + L3 全功能实测矩阵（发布前置链）
 # ============================================
-print_step "5/7" "同步 pnpm-lock.yaml..."
+# L2：把包**真的装到真机**（Windows/macOS/Linux/Android 四腿；环境经 L2_*_HOST 注入，
+#     仓内不落盘）。产物目录经 RELEASE_L2_ARTIFACT_DIR 注入（CI 出包后取渠道包或本地产物）。
+#     某腿环境不可达 = BLOCKED：不算失败也不算通过，必须 RELEASE_ACK_L2_BLOCKED="win,linux"
+#     显式确认（决策入发布记录）才能继续——不许静默跳过。
+# L3：十项必测功能矩阵，缺证即红（scripts/linux/l3-full-matrix.sh，无 ALLOW_SKIP）；
+#     状态文件落在发布留档目录，随发布记录归档。
+print_step "5/9" "L2 平台安装冒烟 + L3 全功能实测矩阵 (发布前置链)..."
 
-if pnpm install --frozen-lockfile >/dev/null 2>&1; then
+L2_RC=0
+L2_ARGS=(--out "$RELEASE_LOG_DIR/l2-evidence")
+[[ -n "${RELEASE_L2_ARTIFACT_DIR:-}" ]] && L2_ARGS+=(--artifact-dir "$RELEASE_L2_ARTIFACT_DIR")
+[[ -n "${RELEASE_ACK_L2_BLOCKED:-}" ]] && L2_ARGS+=(--ack-blocked "$RELEASE_ACK_L2_BLOCKED")
+if $DRY_RUN && [[ -z "${RELEASE_L2_ARTIFACT_DIR:-}" ]]; then
+    print_warn "干跑且未注入 RELEASE_L2_ARTIFACT_DIR —— L2 无产物可装，各腿按 BLOCKED 登记（真实发布必须配产物目录或显式 ack）"
+fi
+"$SCRIPT_DIR/l2-install-smoke.sh" "${L2_ARGS[@]}" || L2_RC=$?
+if [[ $L2_RC -eq 1 ]]; then
+    print_error "L2 安装冒烟有腿 FAIL —— 发布中止（装不上的包不能发；干跑同样中止，不降档记账）"
+    exit 1
+elif [[ $L2_RC -ne 0 ]]; then
+    print_error "L2 安装冒烟存在未确认的 BLOCKED —— 发布中止。确认某腿本次确实不可跑则（决策入发布记录）："
+    echo -e "${YELLOW}    RELEASE_ACK_L2_BLOCKED=win ./scripts/linux/release.sh${NC}"
+    exit 1
+fi
+
+L3_RC=0
+"$SCRIPT_DIR/l3-full-matrix.sh" --state "$RELEASE_LOG_DIR/l3-state.json" --check || L3_RC=$?
+if [[ $L3_RC -ne 0 ]]; then
+    print_error "L3 实测矩阵有缺证项 —— 发布中止。逐项实测后登记："
+    echo -e "${YELLOW}    scripts/linux/l3-full-matrix.sh --state $RELEASE_LOG_DIR/l3-state.json --record <id> <证据路径>${NC}"
+    echo -e "${YELLOW}    scripts/linux/l3-full-matrix.sh --state $RELEASE_LOG_DIR/l3-state.json --register <id> \"<物理不可执行的真实原因>\"${NC}"
+    exit 1
+fi
+print_ok "L2 安装冒烟 + L3 实测矩阵通过（留档 $RELEASE_LOG_DIR）"
+
+# ============================================
+# 步骤 6: 同步依赖
+# ============================================
+print_step "6/9" "同步 pnpm-lock.yaml..."
+
+if $DRY_RUN; then
+    print_warn "干跑跳过依赖同步（真实发布必跑）"
+elif pnpm install --frozen-lockfile >/dev/null 2>&1; then
     print_ok "依赖已同步 (frozen-lockfile)"
 else
     if pnpm install >/dev/null 2>&1; then
@@ -341,68 +456,115 @@ else
 fi
 
 # ============================================
-# 步骤 6: Git 提交和标签
+# 步骤 7: Git 提交和标签
 # ============================================
-print_step "6/7" "Git 提交和创建标签..."
+print_step "7/9" "Git 提交和创建标签..."
 
 COMMIT_MSG="v$TARGET_VERSION: $RELEASE_MESSAGE"
 
-# 检查是否有变更需要提交
-if git diff --quiet && git diff --staged --quiet; then
-    print_warn "没有检测到文件变更"
-    print_warn "标签 v$TARGET_VERSION 将重新指向当前 HEAD"
+if $DRY_RUN; then
+    print_warn "RELEASE_DRY_RUN=1 —— 干跑不提交不打标。计划动作："
+    echo -e "  ${GRAY}git add（白名单：src tests scripts e2e src-tauri/binaries src-tauri/tauri.e2e.conf.json）${NC}"
+    echo -e "  ${GRAY}git commit -m \"$COMMIT_MSG\"${NC}"
+    echo -e "  ${GRAY}git tag v$TARGET_VERSION <HEAD> + assert_tag_points_at_head${NC}"
 else
-    # 有变更，进行提交
-    # 🔴 最小安全修正（2026-09-15，v1.1.46 发布）：原 git add -A 会把工作树里的
-    # 他块工作面杂散文件（.claude/*、*.png 截图、log、probe-ws/、dist-e2e/、
-    # tessdata/、test-artifacts*/ 等）一并卷入发布 commit。改为白名单式添加：
-    # 仅源码（src）、测试（tests）、脚本（scripts）与 src-tauri 指定子路径。
-    git add -u -- src tests scripts e2e src-tauri/tests
-    git add -- src tests e2e
-    git add -- src-tauri/binaries src-tauri/tauri.e2e.conf.json
-    git commit -m "$COMMIT_MSG"
-    print_ok "Git 提交完成"
-fi
+    # 检查是否有变更需要提交
+    if git diff --quiet && git diff --staged --quiet; then
+        print_warn "没有检测到文件变更"
+        print_warn "标签 v$TARGET_VERSION 将重新指向当前 HEAD"
+    else
+        # 有变更，进行提交
+        # 🔴 最小安全修正（2026-09-15，v1.1.46 发布）：原 git add -A 会把工作树里的
+        # 他块工作面杂散文件（.claude/*、*.png 截图、log、probe-ws/、dist-e2e/、
+        # tessdata/、test-artifacts*/ 等）一并卷入发布 commit。改为白名单式添加：
+        # 仅源码（src）、测试（tests）、脚本（scripts）与 src-tauri 指定子路径。
+        git add -u -- src tests scripts e2e src-tauri/tests
+        git add -- src tests e2e
+        git add -- src-tauri/binaries src-tauri/tauri.e2e.conf.json
+        git commit -m "$COMMIT_MSG"
+        print_ok "Git 提交完成"
+    fi
 
-# 锁定本次发布的 commit：tag 显式指向它，不依赖 git tag 隐式解析 HEAD
-RELEASE_SHA=$(git rev-parse HEAD)
+    # 锁定本次发布的 commit：tag 显式指向它，不依赖 git tag 隐式解析 HEAD
+    RELEASE_SHA=$(git rev-parse HEAD)
 
-# 创建标签
-git tag -d "v$TARGET_VERSION" 2>/dev/null || true
-git tag "v$TARGET_VERSION" "$RELEASE_SHA"
+    # 创建标签
+    git tag -d "v$TARGET_VERSION" 2>/dev/null || true
+    git tag "v$TARGET_VERSION" "$RELEASE_SHA"
 
-# 推送之前必须校验：标签必须指向本次发布的 commit
-if ! assert_tag_points_at_head "v$TARGET_VERSION"; then
-    exit 1
+    # 推送之前必须校验：标签必须指向本次发布的 commit
+    if ! assert_tag_points_at_head "v$TARGET_VERSION"; then
+        exit 1
+    fi
 fi
 
 # ============================================
-# 步骤 7: 自动推送到 GitHub
+# 步骤 8: 自动推送到 GitHub
 # ============================================
-print_step "7/7" "推送到 GitHub..."
+print_step "8/9" "推送到 GitHub..."
 
-echo ""
-echo -e "  ${WHITE}推送分支: main${NC}"
-echo -e "  ${WHITE}推送标签: v$TARGET_VERSION${NC}"
-echo ""
+if $DRY_RUN; then
+    print_warn "RELEASE_DRY_RUN=1 —— 干跑不推送。计划动作：git push origin main && git push origin v$TARGET_VERSION"
+else
+    echo ""
+    echo -e "  ${WHITE}推送分支: main${NC}"
+    echo -e "  ${WHITE}推送标签: v$TARGET_VERSION${NC}"
+    echo ""
 
-git push origin main
-git push origin "v$TARGET_VERSION" --force
+    git push origin main
+    git push origin "v$TARGET_VERSION" --force
+fi
 
-print_ok "推送完成"
+if $DRY_RUN; then
+    print_warn "(干跑) 未推送——上一行的推送动作仅为计划展示"
+else
+    print_ok "推送完成"
+fi
+
+# ============================================
+# 步骤 9: L4 渠道下载验证（发布后链）
+# ============================================
+# tag 推上去后 CI 出包挂 Release 需要一段时间；RELEASE_L4_WAIT=分钟数时本步等待并
+# 真跑对账（默认打印交接命令，由发布方在 CI 完成后执行）。干跑时对最近已发布版本
+# 演示对账链路（明确标注非本版）。
+print_step "9/9" "L4 渠道下载验证 (发布后链)..."
+
+if $DRY_RUN; then
+    print_warn "干跑演示：对最近已发布版本跑 L4 对账链路（非本版，仅验管线接通）"
+    LATEST_TAG=$(printf '%s' "${AV_OUTPUT:-}" | sed -n 's/^AUTO_VERSION: latest=\(v[0-9.]*\) .*/\1/p' | head -1)
+    if [[ -z "$LATEST_TAG" ]]; then
+        print_error "干跑 L4 演示无法确定最近已发布版（auto-version 输出解析落空）——停住，不猜 tag"
+        exit 1
+    fi
+    print_ok "演示对账目标（远端最新正式版，非本版）: $LATEST_TAG"
+    "$SCRIPT_DIR/l4-channel-verify.sh" "$LATEST_TAG" --dir "$RELEASE_LOG_DIR/l4-demo" || print_warn "干跑 L4 演示未过（留档 $RELEASE_LOG_DIR/l4-demo）—— 演示目标是已发布旧版，其渠道真缺口不阻塞干跑；但真实发布时本步对本版 FAIL 即发布失败"
+elif [[ -n "${RELEASE_L4_WAIT:-}" ]]; then
+    "$SCRIPT_DIR/l4-channel-verify.sh" "v$TARGET_VERSION" --dir "$RELEASE_LOG_DIR/l4-$TARGET_VERSION" --wait-minutes "$RELEASE_L4_WAIT" \
+        || { print_error "L4 渠道对账未过 —— 渠道与清单不一致，发布判 FAIL（详见上方差异）"; exit 1; }
+else
+    echo -e "  ${CYAN}CI 出包需要一段时间；完成后必须真跑（发布记录以此为准）：${NC}"
+    echo -e "  ${YELLOW}    scripts/linux/l4-channel-verify.sh v$TARGET_VERSION --dir $RELEASE_LOG_DIR/l4-$TARGET_VERSION${NC}"
+    echo -e "  ${GRAY}  或在本步内等待：RELEASE_L4_WAIT=40 ./scripts/linux/release.sh（重跑至本步时 tag 已存在会走 skip 路径，可直接手工跑 L4）${NC}"
+fi
 
 # ============================================
 # 发布完成
 # ============================================
 print_header "发布完成! v$TARGET_VERSION"
 
-echo ""
-echo -e "  ${WHITE}版本: v$TARGET_VERSION${NC}"
-echo -e "  ${GRAY}$RELEASE_MESSAGE${NC}"
-echo ""
-echo -e "  ${CYAN}GitHub Actions:${NC}"
-echo "    https://github.com/huanwei520/Huanvae-Chat-App/actions"
-echo ""
-echo -e "  ${CYAN}Release 页面:${NC}"
-echo "    https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v$TARGET_VERSION"
-echo ""
+if $DRY_RUN; then
+    echo -e "  ${YELLOW}RELEASE_DRY_RUN=1 —— 干跑结束：未写版本号、未 commit、未 push。逐层接线已验，真实发布请去掉 RELEASE_DRY_RUN 全量跑。${NC}"
+else
+    echo ""
+    echo -e "  ${WHITE}版本: v$TARGET_VERSION${NC}"
+    echo -e "  ${GRAY}$RELEASE_MESSAGE${NC}"
+    echo ""
+    echo -e "  ${CYAN}GitHub Actions:${NC}"
+    echo "    https://github.com/huanwei520/Huanvae-Chat-App/actions"
+    echo ""
+    echo -e "  ${CYAN}Release 页面:${NC}"
+    echo "    https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v$TARGET_VERSION"
+    echo ""
+    echo -e "  ${CYAN}发布后必跑（L4 渠道对账）:${NC}"
+    echo "    scripts/linux/l4-channel-verify.sh v$TARGET_VERSION --dir $RELEASE_LOG_DIR/l4-$TARGET_VERSION"
+fi

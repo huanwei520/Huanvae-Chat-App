@@ -34,6 +34,13 @@ const friendsApiMock = vi.hoisted(() => ({
 }));
 vi.mock('../../src/api/friends', () => friendsApiMock);
 
+// usePendingRequests 现会在动作回执后扣减「+」角标（WebSocketContext）——
+// 面板测试只需提供 spy 断言动作后角标同步扣减
+const wsContextMock = vi.hoisted(() => ({ decrementPendingNotification: vi.fn() }));
+vi.mock('../../src/contexts/WebSocketContext', () => ({
+  useWebSocket: () => wsContextMock,
+}));
+
 const groupsApiMock = vi.hoisted(() => ({
   getGroupInvitations: vi.fn(),
   getSentJoinRequests: vi.fn(),
@@ -90,6 +97,7 @@ describe('PendingRequestsPanel（合并单列表）', () => {
   beforeEach(() => {
     cleanup();
     [...Object.values(friendsApiMock), ...Object.values(groupsApiMock)].forEach((m) => m.mockReset());
+    wsContextMock.decrementPendingNotification.mockClear();
     friendsApiMock.getPendingRequests.mockResolvedValue([]);
     friendsApiMock.getSentFriendRequests.mockResolvedValue([]);
     friendsApiMock.approveFriendRequest.mockResolvedValue(undefined);
@@ -114,6 +122,8 @@ describe('PendingRequestsPanel（合并单列表）', () => {
     await waitFor(() =>
       expect(friendsApiMock.approveFriendRequest).toHaveBeenCalledWith(mockApi, 'me', 'u1'),
     );
+    // 回执后即时扣减「+」角标（块 1789554954434-8kvwan3p-1 回归点）
+    expect(wsContextMock.decrementPendingNotification).toHaveBeenCalledWith('friendRequests');
     expect(onFriendAdded).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByText('Alice')).not.toBeInTheDocument());
   });

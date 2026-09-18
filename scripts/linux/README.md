@@ -8,8 +8,13 @@
 
 | 文件 | 说明 |
 |------|------|
-| `release.sh` | 自动化发布脚本（7 步；测试通过后自动推送，无需确认） |
-| `test-all.sh` | 完整代码质量检查（13 项） |
+| `release.sh` | 自动化发布脚本（**v3.1 十步·五层门禁**；测试通过后自动推送，无需确认） |
+| `test-all.sh` | 完整代码质量检查（**14 项**；第 14 步 = L1 产物内容断言 v2） |
+| `auto-version.sh` | 【版本规则】自动版本：查 GitHub 最新正式 tag +0.0.1；目标已存在则核 SHA（同=skip，异=conflict 停）；禁盲涨号 |
+| `l2-install-smoke.sh` | 【L2】四平台安装冒烟：真机装包→服务/进程/渲染判据；BLOCKED ≠ PASS |
+| `l3-full-matrix.sh` | 【L3】全功能实测矩阵：十项必测，缺证即红，**无 ALLOW_SKIP** |
+| `l4-channel-verify.sh` | 【L4】渠道下载验证：Release 资产 SHA256 复算 + latest.json/android-latest.json 对账 + 包内容复验 |
+| `assert-artifact-content.sh` | 【L1 v1·回滚基线】产物内容清单断言（存在性口径；现行口径见 `../assert-artifact-content-v2.sh`） |
 | `setup-deps.sh` | 开发环境依赖安装 |
 
 本目录之外、但被上面两个脚本调用的两个新脚本（放在 `scripts/` 根，按宿主平台成对，
@@ -179,13 +184,16 @@ ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│            release.sh 自动发布流程（7 步）               │
+│       release.sh 自动发布流程（v3.1 十步·五层门禁）        │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  读取 release-config.txt 目标版本号                     │
+│  0. 自动版本规则 (auto-version.sh)                      │
+│     查 GitHub 最新正式 tag → +0.0.1 得目标              │
+│     ├─ 目标 tag 已存在且 SHA=HEAD → 跳过(幂等)          │
+│     ├─ 已存在但 SHA≠HEAD → ❌ 冲突停住(禁覆盖)          │
+│     └─ 查不到 → ❌ 停住(禁盲涨号)                       │
 │                     ↓                                   │
 │  1. 检查当前项目版本号一致性                            │
-│     (package.json / Cargo.toml / tauri.conf.json)       │
 │     ├─ 一致 → 继续                                      │
 │     └─ 不一致 → ❌ 报错退出                             │
 │                     ↓                                   │
@@ -199,36 +207,49 @@ ANDROID_CLIPPY_HOST=user@host ./scripts/linux/test-all.sh
 │     ├─ 成功(0) → 继续                                   │
 │     └─ 失败(1) → ❌ 中止(绝不回落仓里的旧二进制)        │
 │                     ↓                                   │
-│  4. 运行完整测试 (test-all.sh，13 项)                   │
+│  4. L0 运行完整测试 (test-all.sh，14 项；末项=L1 v2)    │
 │     ├─ 全绿(0) → 继续                                   │
 │     ├─ 有 FAIL(1) → ❌ 报错退出                         │
 │     └─ 跳过未放行(2) → ❌ 中止(跳过≠通过)               │
 │                     ↓                                   │
-│  5. 同步 pnpm-lock.yaml                                 │
+│  5. L2 四平台安装冒烟 + L3 十项实测矩阵                 │
+│     (l2-install-smoke.sh / l3-full-matrix.sh)           │
+│     ├─ FAIL → ❌ 中止（装不上/缺证不能发）              │
+│     └─ BLOCKED 未 ack → ❌ 中止（决策入发布记录）        │
 │                     ↓                                   │
-│  6. Git 提交 + 创建标签(指向本次 commit)                │
+│  6. 同步 pnpm-lock.yaml                                 │
+│                     ↓                                   │
+│  7. Git 提交 + 创建标签(指向本次 commit)                │
 │     └─ 校验标签指向当前 HEAD                            │
 │        └─ 不一致 → ❌ 中止且不推送                      │
 │                     ↓                                   │
-│  7. 自动推送到 GitHub（无需确认）                       │
+│  8. 自动推送到 GitHub（无需确认）                       │
 │                     ↓                                   │
-│  ✅ 发布完成，GitHub Actions 自动构建                   │
+│  9. L4 渠道下载验证 (l4-channel-verify.sh)              │
+│     资产 SHA256 复算 + latest.json/android-latest.json  │
+│     对账 + 包内容复验 + 实装交接                         │
+│                     ↓                                   │
+│  ✅ 发布完成（五层门禁全绿 + 留档在 .release-logs/）      │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
+
+> 干跑模式：`RELEASE_DRY_RUN=1 ./scripts/linux/release.sh` —— 逐层真跑验证管线接通，
+> 但不写版本号、不 commit、不 push（步骤 9 对最近已发布版本演示对账）。
 
 ### 第一步：编辑配置文件
 
 编辑 `scripts/release-config.txt`：
 
 ```txt
-VERSION=1.0.26
 MESSAGE=局域网传输优化、统一MSI安装包
 ```
 
 **注意：**
-- `VERSION` 是目标版本号
-- `MESSAGE` 是本次更新说明（用于 Git commit message）
+- `VERSION` 行**已废弃**（2026-09-15 五层门禁改造）：版本号由 release.sh 步骤 0 自动计算
+  （GitHub 最新正式 tag +0.0.1），手工写 VERSION 会得到 WARN 提示且不生效；
+  回滚开关 `RELEASE_AUTO_VERSION=0` 恢复旧口径（仅排障用）
+- `MESSAGE` 是本次更新说明（用于 Git commit message），仍必填
 
 ### 第二步：运行发布脚本
 

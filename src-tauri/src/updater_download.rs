@@ -76,6 +76,42 @@
 //! （`reqwest-0.12.28/src/async_impl/response.rs:90-94`：`Body::size_hint(self.res.body()).exact()`）。
 //! HEAD 响应按定义没有 body ⇒ 它给 0，与头里的真实长度无关。
 //! 所以 [`probe`] 必须**自己读 `content-length` 头**。
+//!
+//! # 🔴 Windows：安装器落地前必须先停掉 HuanvaeGuard 服务（本模块 [`guard_stop`]）
+//!
+//! ## 根因（owner 实机定案，2026-09-16）
+//!
+//! Windows 上 App 内更新时 HuanvaeGuard 服务若仍在运行，`huanvaeguard-svc.exe` /
+//! `wintun.dll` 就被服务进程独占上锁。安装器（NSIS）覆盖这两个文件时写入被拒绝 ⇒
+//! 更新半截失败留下残缺安装 ⇒ 服务起不来（用户见 1053 /「已安装未运行」）。
+//! 对照实证：owner 从 GitHub 全新安装 1.1.49 后 VPN 正常 —— 包内二进制无缺陷，缺陷只在更新路径。
+//!
+//! ## 修法（「停服务 → 等 STOPPED → 落地 → 按前态恢复」四段式）
+//!
+//! 1. **停**：`sc.exe stop HuanvaeGuard`（服务 SDDL 已授予 Authenticated Users 启停权限，
+//!    见 `hooks.nsi` POSTINSTALL 的 `sc sdset`）；
+//! 2. **等**：轮询 `sc.exe query` 直到 `STATE` 行为 `STOPPED`，500ms × 60 = 30s 上限 ——
+//!    **只等 `sc stop` 的返回码不算数**（rc=0 只代表 SCM 收下了请求，服务进程真正退出、
+//!    文件句柄真正释放要以 SCM 最终态为准，与 [`crate::desktop::huanvaeguard::repair`]
+//!    末尾「不信自述、独立复核」是同一条纪律）；
+//! 3. **落地**：只有等到了 `STOPPED` 才调用 [`Update::install`]；
+//! 4. **恢复**：更新后 App 会被安装器重启（NSIS `/R`），启动时的
+//!    `desktop::huanvaeguard::spawn_start_on_boot` 照常拉起服务 —— 恢复逻辑复用
+//!    既有启动链，本模块不自己再 start（避免双拉）；NSIS 侧的同位修复见
+//!    `src-tauri/windows/hooks.nsi` 的 `HUANVAE_GUARD_STOP_FOR_INSTALL`
+//!    （覆盖安装/手动安装路径，与本模块互为冗余防线）。
+//!
+//! ## 失败分支（停不掉 ⇒ 中止更新，绝不硬覆盖）
+//!
+//! 停不掉（`sc stop` 被拒，或 30s 内仍未 `STOPPED`）⇒ 返回 `Err`，更新在**安装器启动之前**
+//! 中止：此时一个文件都没被动过，不存在半截安装；`.part` 与断点清单原样保留（已过验签，
+//! 重试 = 零重下）。文案必须让用户知道「为什么中止 + 下一步做什么」。
+//!
+//! 为什么这段逻辑放在本模块而不是 `desktop::huanvaeguard.rs`：那是服务生命周期的
+//! 常驻管理（启停绑定 App 生命周期），而这里是**更新落地专属**的时序动作 —— 它必须
+//! 卡在「验签之后、`install()` 之前」这个精确位置，挪走就失去时序保证。服务名常量
+//! 与 `hooks.nsi` / `desktop::huanvaeguard.rs` 的一致性由
+//! `tests/winService.nsisContract.test.ts` 的跨文件断言机器守着。
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -533,6 +569,259 @@ fn require_shardable(total: Option<u64>, accepts_range: bool) -> Result<u64, Str
     }
 }
 
+// ============================================================
+// 🔴 Windows：更新落地前停服（guard_stop）
+// ============================================================
+//
+// 模块头「Windows：安装器落地前必须先停掉 HuanvaeGuard 服务」一节是这段代码的完整设计
+// 说明；这里只记实现分工：
+//
+// - **纯函数**（[`parse_guard_state`] / [`classify_stop_rc`] / [`stop_poll_decision`]）
+//   不碰进程/SCM，任何平台都能跑单测 —— 「等待完全停止」「超时/失败中止」这两条
+//   分支的判定逻辑全部收敛在这里，测试不需要 Windows；
+// - **exec 薄壳**（[`#[cfg(windows)]` 的 `sc_query` / `stop_guard_service_for_update`）
+//   只负责起 `sc.exe`、喂参数、把判定函数的结论翻成 Ok/Err，判定逻辑零重复。
+//
+// 🔴 本段是**更新落地专属**，不是通用的服务启停 API —— 日常启停在
+// `desktop::huanvaeguard.rs`。这里**只停不启**：恢复交给安装器重启后的
+// `spawn_start_on_boot`（见模块头第 4 步）。
+
+/// HuanvaeGuard 服务的名字。与 `src-tauri/windows/hooks.nsi`、
+/// `src-tauri/src/desktop/huanvaeguard.rs` 的同名常量必须逐字一致 ——
+/// 由 `tests/winService.nsisContract.test.ts` 跨文件断言守着。
+pub const GUARD_SERVICE_NAME: &str = "HuanvaeGuard";
+
+/// `sc.exe stop` 后等待服务真正 `STOPPED` 的上限。
+///
+/// 健康服务通常 < 2s；给到 30s 是为了覆盖「隧道在跑、sing-box + wintun 适配器拆除慢」
+/// 的场景——这正是 owner 实机上更新写失败的那类现场。宁可多等，不可硬覆盖。
+#[allow(dead_code)]
+const GUARD_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+/// `STATE` 轮询间隔。30s / 500ms = 60 次。
+#[allow(dead_code)]
+const GUARD_STOP_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// `sc.exe query` 对**不存在**的服务返回的退出码（`ERROR_SERVICE_DOES_NOT_EXIST`）。
+#[allow(dead_code)]
+const SC_QUERY_NO_SERVICE: i32 = 1060;
+/// `sc.exe stop` 对**本来就没在跑**的服务返回的退出码（`ERROR_SERVICE_NOT_ACTIVE`）。
+/// 这不是失败：目标态就是 STOPPED，它已经达成了。
+const SC_STOP_NOT_ACTIVE: i32 = 1062;
+
+/// HuanvaeGuard 服务在 SCM 里的观测状态（更新停服路径只关心这几个）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum GuardState {
+    /// SCM 里没有这个服务（fresh 环境或已被卸载）⇒ 没有文件锁，无需停。
+    NotRegistered,
+    /// `STATE : 1  STOPPED` ⇒ 无需停。
+    Stopped,
+    /// `STATE : 4  RUNNING` ⇒ 必须停。
+    Running,
+    /// `START_PENDING` / `STOP_PENDING`：瞬态。等它翻到终态再决定。
+    Pending,
+    /// `sc query` 成功（rc=0）但输出里没有可识别的 `STATE` 行 —— 罕见（本地化输出/
+    /// 未来格式漂移）。按「停 + 轮询兜底」处理：停不下会显式报错，不会静默放行。
+    Unknown,
+    /// `sc.exe` 没能给出可信结论（非 1060 的非零退出码，或进程都没起来）。
+    /// 与 [`GuardState::NotRegistered`] 必须分开 —— 「没查到」≠「没装」，
+    /// 据此去装/停一个可能存在的服务正是本仓修过的同形病。
+    QueryFailed(Option<i32>),
+}
+
+/// `sc stop` 退出码的三分类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum StopRc {
+    /// SCM 收下了停止请求（rc=0）⇒ 进入轮询等待。
+    Accepted,
+    /// 服务本来就没在跑（rc=1062）⇒ 目标态已达成，直接当成功。
+    NotActive,
+    /// 其余一切（5=拒绝访问、1061=死锁收不下控制消息、`None`=sc.exe 没起来……）。
+    /// 🔴 这里**不**直接判死——`sc stop` 被拒后仍按超时口径轮询到点：万一 SCM 只是
+    /// 瞬时抖动，服务照样能翻到 STOPPED；翻不到再中止。拒绝访问的场景多等 30s 的
+    /// 代价远小于误杀一次本可完成的更新。
+    Failed,
+}
+
+/// 轮询等待的一步结论。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum PollDecision {
+    /// 还没到点、服务还没停 ⇒ 继续。
+    Continue,
+    /// 服务已 `STOPPED` ⇒ 可以落地。
+    ReachedStopped,
+    /// 超时仍未 `STOPPED` ⇒ 中止更新。
+    GiveUp,
+}
+
+/// 解析 `sc.exe query <svc>` 的 stdout 里的 `STATE` 行。
+///
+/// 只认行内的**状态关键字**（`RUNNING` / `STOPPED` / `*_PENDING`），不解析数字码也不认
+/// 逗号格式 —— 本仓其它 sc 解析（`desktop::huanvaeguard::query_state`）同款口径。
+/// 输出样例：`"        STATE              : 4  RUNNING"`。
+#[allow(dead_code)]
+fn parse_guard_state(sc_query_stdout: &str) -> GuardState {
+    let has = |needle: &str| {
+        sc_query_stdout
+            .lines()
+            .any(|l| l.trim_start().starts_with("STATE") && l.contains(needle))
+    };
+    // 🔴 顺序不可换：`STOP_PENDING`/`START_PENDING` 都包含 "PENDING"，而 `STOPPED` 不被
+    // 任何其它关键字包含；先判 PENDING 再判 STOPPED/RUNNING，避免瞬态被误读成终态。
+    if has("START_PENDING") || has("STOP_PENDING") {
+        GuardState::Pending
+    } else if has("STOPPED") {
+        GuardState::Stopped
+    } else if has("RUNNING") {
+        GuardState::Running
+    } else {
+        GuardState::Unknown
+    }
+}
+
+/// `sc stop` 的退出码 → [`StopRc`]。`None` = sc.exe 连进程都没起来。
+#[allow(dead_code)]
+fn classify_stop_rc(rc: Option<i32>) -> StopRc {
+    match rc {
+        Some(0) => StopRc::Accepted,
+        Some(SC_STOP_NOT_ACTIVE) => StopRc::NotActive,
+        _ => StopRc::Failed,
+    }
+}
+
+/// 轮询等待的单步判定：观测到什么状态、已经等了多久 ⇒ 下一步。
+///
+/// 🔴 `Stopped` 的判定**优先于**超时：哪怕已经到点，只要这一次观测到了 STOPPED
+/// （SCM 在超时瞬间恰好翻转完成）也算成功 —— 目标态达成比死守 deadline 重要。
+#[allow(dead_code)]
+fn stop_poll_decision(state: GuardState, elapsed: Duration, timeout: Duration) -> PollDecision {
+    if state == GuardState::Stopped {
+        return PollDecision::ReachedStopped;
+    }
+    if elapsed >= timeout {
+        return PollDecision::GiveUp;
+    }
+    PollDecision::Continue
+}
+
+/// 「停不掉 ⇒ 中止更新」的面向用户文案。
+///
+/// 必须交代：发生了什么（服务停不下来）、为什么不硬来（硬覆盖=残缺安装）、下一步做什么。
+/// 只带退出码数字，不带 sc.exe 的 stdout/stderr（那里可能带路径，见
+/// `desktop::huanvaeguard::query_failure_reason` 同一条纪律）。
+#[allow(dead_code)]
+fn guard_stop_failure_message(reason: &str) -> String {
+    format!(
+        "无法停止 HuanvaeGuard 服务（{reason}）。为避免文件被占用导致残缺安装，本次更新已中止，未改动任何文件。请重启电脑后重试更新；若仍失败，请在管理员命令行执行 sc stop {GUARD_SERVICE_NAME} 后重试。"
+    )
+}
+
+/// 「没有可信的服务状态」的文案（与 [`GuardState::NotRegistered`] 是两回事）。
+#[allow(dead_code)]
+fn guard_query_failure_message(rc: Option<i32>) -> String {
+    match rc {
+        Some(rc) => format!("查询 HuanvaeGuard 服务状态失败（sc query 返回 {rc}）"),
+        None => "查询 HuanvaeGuard 服务状态失败（系统的服务查询程序 sc.exe 没能运行）".to_string(),
+    }
+}
+
+/// 在 Windows 上执行命令并取 `(退出码, stdout)`；进程起不来返回 `None`。
+/// 一律隐藏控制台窗口（与 `desktop::huanvaeguard::sc_command` 同款 CREATE_NO_WINDOW）。
+#[cfg(target_os = "windows")]
+fn run_captured(program: &str, args: &[&str]) -> Option<(i32, String)> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let out = std::process::Command::new(program)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    Some((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).into_owned()))
+}
+
+#[allow(dead_code)]
+#[cfg(not(target_os = "windows"))]
+fn run_captured(_program: &str, _args: &[&str]) -> Option<(i32, String)> {
+    // 非 Windows 不会真的调用（调用点整段 cfg 掉），这里只是让本模块在所有平台可编译。
+    None
+}
+
+/// Windows：查询 HuanvaeGuard 服务的 SCM 状态。
+#[cfg(target_os = "windows")]
+fn guard_query_state() -> GuardState {
+    let Some((rc, stdout)) = run_captured("sc.exe", &["query", GUARD_SERVICE_NAME]) else {
+        return GuardState::QueryFailed(None);
+    };
+    if rc == SC_QUERY_NO_SERVICE {
+        return GuardState::NotRegistered;
+    }
+    if rc != 0 {
+        return GuardState::QueryFailed(Some(rc));
+    }
+    parse_guard_state(&stdout)
+}
+
+/// Windows：更新落地前停服。返回 `Ok(running_before)`：更新前服务是否在运行
+/// （仅用于日志/可观测；恢复不在这里做，见模块头第 4 步）。
+///
+/// - 服务不存在 / 已停止 ⇒ `Ok(false)`，零副作用；
+/// - 在跑 ⇒ `sc stop` + 轮询等到 `STOPPED` ⇒ `Ok(true)`；
+/// - 停不掉（`sc stop` 被拒且到点仍未停 / `sc query` 本身失败）⇒ `Err(面向用户的
+///   中止文案)` —— 调用方（[`updater_sharded_install`]）据此在**安装器启动之前**中止，
+///   绝不硬覆盖。
+#[cfg(target_os = "windows")]
+pub fn stop_guard_service_for_update() -> Result<bool, String> {
+    let state = guard_query_state();
+    match state {
+        GuardState::NotRegistered | GuardState::Stopped => return Ok(false),
+        GuardState::QueryFailed(rc) => {
+            return Err(guard_query_failure_message(rc));
+        }
+        _ => {}
+    }
+
+    // 先记下「更新前在跑」—— 无论后面停成停不成，它都描述更新前的真实状态。
+    let running_before = state == GuardState::Running;
+    println!(
+        "[Updater] 更新落地前停止 {GUARD_SERVICE_NAME} 服务（释放 huanvaeguard-svc.exe / wintun.dll 文件锁）..."
+    );
+    let stop_rc = run_captured("sc.exe", &["stop", GUARD_SERVICE_NAME]).map(|(rc, _)| rc);
+    // 🔴 `sc stop` 的 rc（包括被拒的）在这里**不**作为结论 —— 结论只认下面的轮询终态。
+    //    被拒只是让人多等满 30s，而不是立刻判死（理由见 [`StopRc::Failed`] 注释）；
+    //    打一行日志把分类留在案，方便实机排查。
+    match classify_stop_rc(stop_rc) {
+        StopRc::Accepted => println!("[Updater] sc stop 已被 SCM 受理，等待服务完全停止..."),
+        StopRc::NotActive => println!("[Updater] sc stop 返回 1062（服务本就未在运行），按已停止处理"),
+        StopRc::Failed => println!("[Updater] sc stop 未被受理（rc={stop_rc:?}），仍按超时口径轮询终态"),
+    }
+
+    let start = std::time::Instant::now();
+    loop {
+        let now_state = guard_query_state();
+        if let GuardState::QueryFailed(rc) = now_state {
+            // 轮询途中查询坏了（SCM 忙/权限突变）⇒ 没有可信结论就不许落地。
+            return Err(guard_query_failure_message(rc));
+        }
+        match stop_poll_decision(now_state, start.elapsed(), GUARD_STOP_TIMEOUT) {
+            PollDecision::ReachedStopped => {
+                println!("[Updater] {GUARD_SERVICE_NAME} 服务已完全停止，继续安装");
+                return Ok(running_before);
+            }
+            PollDecision::GiveUp => {
+                return Err(guard_stop_failure_message(&format!(
+                    "等待 {}s 后仍未进入 STOPPED 状态",
+                    GUARD_STOP_TIMEOUT.as_secs()
+                )));
+            }
+            PollDecision::Continue => {
+                std::thread::sleep(GUARD_STOP_POLL_INTERVAL);
+            }
+        }
+    }
+}
+
 /// 切分片区间：返回 `[(start, end_inclusive)]`，闭区间、首尾相接、恰好覆盖 `[0, len)`。
 ///
 /// 阈值分支删掉之后**所有**包都走分片，所以它必须对小 `len` 同样正确：
@@ -767,6 +1056,14 @@ pub async fn updater_sharded_install<R: Runtime>(
     }
 
     let _ = on_event.send(ShardedEvent::Finished);
+
+    // 🔴 Windows：安装器将覆盖 $INSTDIR 下的 huanvaeguard-svc.exe / wintun.dll，
+    //    必须先停掉 HuanvaeGuard 服务并**等到 STOPPED**（释放文件锁）才允许落地。
+    //    位置在验签之后：万一验签失败，服务不该被白停一次；在 Finished 事件之后：
+    //    停服失败 ⇒ Err 直接中止，前端拿到明确文案，不会出现「下载完成却装不上」的半截态。
+    //    停不掉 ⇒ 这里的 Err 在安装器启动**之前**返回 —— 一个文件都没动，无残缺安装。
+    #[cfg(target_os = "windows")]
+    let _guard_was_running = stop_guard_service_for_update()?;
 
     update
         .install(&bytes)
@@ -1159,5 +1456,231 @@ mod tests {
             debug.contains("TotalTimeout: 37s"),
             "用户配置的 timeout 必须落到 client 上，实际: {debug}"
         );
+    }
+
+    // ---------- 🔴 Windows 更新落地前停服：判定逻辑（跨平台可测的部分） ----------
+
+    /// `sc query` 输出 → 状态。真实 sc.exe（Win10/11 英文区）的 STATE 行形态就是
+    /// `"        STATE              : 4  RUNNING"`，这里按真实形态造样本。
+    /// 🔴 负对照思想同上文验签那两条：如果 parse 坏成「什么都给同一个答案」，
+    /// 停服循环要么永远等不到 STOPPED、要么把 RUNNING 读成 STOPPED 直接硬覆盖 ——
+    /// 两个方向都是事故，所以四态必须互不混洧。
+    #[test]
+    fn guard_state_parsing_distinguishes_all_states() {
+        let line = |state: &str| {
+            format!(
+                "SERVICE_NAME: HuanvaeGuard\r\n        TYPE               : 10  WIN32_OWN_PROCESS\r\n        STATE              : {state}\r\n"
+            )
+        };
+        assert_eq!(parse_guard_state(&line("4  RUNNING")), GuardState::Running);
+        assert_eq!(parse_guard_state(&line("1  STOPPED")), GuardState::Stopped);
+        assert_eq!(
+            parse_guard_state(&line("2  START_PENDING")),
+            GuardState::Pending
+        );
+        assert_eq!(
+            parse_guard_state(&line("3  STOP_PENDING")),
+            GuardState::Pending
+        );
+        // 无 STATE 行 / 空输出 / 错误文本 ⇒ Unknown（rc 判定在 guard_query_state，进不了这里）
+        assert_eq!(parse_guard_state(""), GuardState::Unknown);
+        assert_eq!(parse_guard_state("[SC] QueryServiceStatus FAILED 1058:"), GuardState::Unknown);
+        // 🔴 负对照：四态的形状必须互不相同 —— 否则上面的断言没有区分力
+        let all = [
+            parse_guard_state(&line("4  RUNNING")),
+            parse_guard_state(&line("1  STOPPED")),
+            parse_guard_state(&line("2  START_PENDING")),
+            GuardState::Unknown,
+        ];
+        for (i, a) in all.iter().enumerate() {
+            for (j, b) in all.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b, "第 {i} 态与第 {j} 态撞了：{a:?} == {b:?}");
+                }
+            }
+        }
+    }
+
+    /// STATE 行解析只认 STATE 行：其它行里的关键字不得干扰判定。
+    /// （sc query 输出里 SERVICE_NAME 就含服务名，若将来有人把 “RUNNING” 写进别名/描述
+    /// 也不得影响。）
+    #[test]
+    fn guard_state_parsing_only_trusts_the_state_line() {
+        // SERVICE_NAME 行含 "RUNNING" 但没有 STATE 行 ⇒ 不得读成 Running
+        assert_eq!(
+            parse_guard_state("SERVICE_NAME: HuanvaeGuard-RUNNING-SUFFIX"),
+            GuardState::Unknown
+        );
+        // STATE 行在后面的多行输出里也要能找到
+        let multi = "DISPLAY_NAME: HuanvaeGuard VPN Service\r\n        STATE              : 1  STOPPED\r\n";
+        assert_eq!(parse_guard_state(multi), GuardState::Stopped);
+    }
+
+    /// `sc stop` 退出码三分类。0=受理；1062=本就没在跑（目标态已达成，算成功）；
+    /// 其余一切（含 None=sc.exe 没起来）都是 Failed。
+    #[test]
+    fn stop_rc_classification_covers_every_exit() {
+        assert_eq!(classify_stop_rc(Some(0)), StopRc::Accepted);
+        assert_eq!(classify_stop_rc(Some(1062)), StopRc::NotActive);
+        assert_eq!(classify_stop_rc(Some(5)), StopRc::Failed, "拒绝访问不得读成成功");
+        assert_eq!(classify_stop_rc(Some(1061)), StopRc::Failed, "死锁 1061 不得读成成功");
+        assert_eq!(classify_stop_rc(None), StopRc::Failed, "sc.exe 没起来不得读成成功");
+    }
+
+    /// 「等待完全停止」的核心判定：STOPPED 优先于超时；未停且到点 ⇒ 放弃；
+    /// 未停未到点 ⇒ 继续。🔴 超时边界（elapsed == timeout）必须判放弃，
+    /// 否则轮询循环在钟点之后仍可能永远 Continue。
+    #[test]
+    fn stop_poll_decision_waits_then_gives_up() {
+        let t = Duration::from_secs(30);
+        // 已停：无论等多久都算到达（超时瞬间 SCM 刚翻转完成也算成功）
+        assert_eq!(
+            stop_poll_decision(GuardState::Stopped, Duration::ZERO, t),
+            PollDecision::ReachedStopped
+        );
+        assert_eq!(
+            stop_poll_decision(GuardState::Stopped, t, t),
+            PollDecision::ReachedStopped
+        );
+        // 没停、没到点 ⇒ 继续（Running / Pending / Unknown 一视同仁地等）
+        for s in [GuardState::Running, GuardState::Pending, GuardState::Unknown] {
+            assert_eq!(
+                stop_poll_decision(s, Duration::ZERO, t),
+                PollDecision::Continue,
+                "state={s:?} 在到点前必须继续等"
+            );
+        }
+        // 没停、恰好到点（边界）与过点 ⇒ 放弃
+        for s in [GuardState::Running, GuardState::Pending, GuardState::Unknown] {
+            assert_eq!(
+                stop_poll_decision(s, t, t),
+                PollDecision::GiveUp,
+                "state={s:?} 到点未停必须放弃，绝不硬覆盖"
+            );
+            assert_eq!(
+                stop_poll_decision(s, t + Duration::from_millis(1), t),
+                PollDecision::GiveUp
+            );
+        }
+    }
+
+    /// 中止文案必须交代「发生了什么/为什么不硬来/下一步做什么」，且不带路径。
+    /// （sc 的 stdout 可能含安装路径；本仓是 PUBLIC 仓 —— 同
+    /// `desktop::huanvaeguard::query_failure_reason` 的纪律。）
+    #[test]
+    fn guard_failure_message_is_actionable_and_leaks_no_path() {
+        let m = guard_stop_failure_message("等待 30s 后仍未进入 STOPPED 状态");
+        assert!(m.contains("已中止"), "必须说明已中止更新：{m}");
+        assert!(m.contains("未改动任何文件"), "必须说明无残缺安装：{m}");
+        assert!(m.contains("重启电脑"), "必须给出下一步动作：{m}");
+        assert!(m.contains("sc stop HuanvaeGuard"), "必须给出兜底命令：{m}");
+        assert!(!m.contains("C:\\"), "不得出现路径：{m}");
+
+        let q1 = guard_query_failure_message(Some(5));
+        let q2 = guard_query_failure_message(None);
+        assert!(q1.contains('5') && !q2.contains('5'), "退出码必须出现在原因里");
+        assert_ne!(q1, q2, "两种失败形态的文案不许撞");
+        for s in [&q1, &q2] {
+            assert!(!s.contains("C:\\"), "不得出现路径：{s}");
+        }
+    }
+
+    /// 🔴 Windows 之外的平台上，本段唯一的 Windows 出口
+    /// [`stop_guard_service_for_update`] 不得参与编译（调用点已用 `#[cfg]` 钉在
+    /// Windows）；这条在非 Windows 平台上只验证纯函数面存在且可调用 —— 防止有人把
+    /// 调用点的 `#[cfg]` 拆掉后，Linux 上才在编译期报错（CI 首轮就红不了）。
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn guard_stop_pure_surface_compiles_everywhere() {
+        // 纯函数在非 Windows 平台必须可用（这正是它们被抽成纯函数的原因）
+        let _ = parse_guard_state("STATE : 1  STOPPED");
+        let _ = classify_stop_rc(Some(0));
+        let _ = stop_poll_decision(GuardState::Stopped, Duration::ZERO, GUARD_STOP_TIMEOUT);
+        let _ = guard_stop_failure_message("x");
+        let _ = guard_query_failure_message(None);
+    }
+
+    // ---------- 真机集成测试（#[ignore]，只在 Windows 实机上手动跑）----------
+    //
+    // 这两条在真实 SCM 上验证「停服等待」与「停不掉即中止」两个分支。它们对机器状态
+    // 有真实副作用（停服务 / 改服务 SDDL），所以不进常规 CI —— 由 VM 验收
+    // （winserver-hg，blockId 1789554821716-b12sxey0-1）显式跑：
+    //     cargo test --lib updater_download::tests::win_machine -- --ignored --nocapture
+
+    /// 停服分支：调 stop_guard_service_for_update 后，SCM 终态必须是 STOPPED；
+    /// 若服务此前在跑，测完恢复运行（测试不留状态）。
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "真机集成：需要 Windows + HuanvaeGuard 服务（会真的停/启服务）"]
+    fn win_machine_guard_stop_reaches_stopped() {
+        let running_before = stop_guard_service_for_update().expect("停服必须成功");
+        // 独立复核（不信被测函数自己的结论）：SCM 此刻必须报 STOPPED
+        assert_eq!(
+            guard_query_state(),
+            GuardState::Stopped,
+            "停服返回 Ok 但 SCM 未到 STOPPED"
+        );
+        println!("[win-machine] running_before={running_before}, SCM 终态=STOPPED");
+        // 恢复：更新前在跑的场景下把它拉回来（守模拟真实更新后的恢复路径）
+        if running_before {
+            let out = run_captured("sc.exe", &["start", GUARD_SERVICE_NAME]);
+            println!("[win-machine] 恢复启动 rc={out:?}");
+        }
+    }
+
+    /// 中止分支：人为让服务「停不掉」（回收 AU 的 SERVICE_STOP 权限）⇒
+    /// stop_guard_service_for_update 必须在超时后返回 Err（含「已中止」文案），
+    /// 而不是带着文件锁继续落地。测完恢复 SDDL 并拉回服务。
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "真机集成：需要 Windows + 管理员 + HuanvaeGuard 服务（会改服务 SDDL）"]
+    fn win_machine_undeniable_stop_aborts_update() {
+        // 前提：服务存在且【完全进入 RUNNING】——前一个测试可能刚 sc start，
+        // START_PENDING 中去 deny/stop 会遇到 SCM 竞态（START_PENDING 里的服务
+        // 可能被直接停掉，恰好绕过 deny），所以先等启动完成。
+        let mut saw_running = false;
+        for _ in 0..60 {
+            if guard_query_state() == GuardState::Running {
+                saw_running = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        assert!(
+            saw_running,
+            "本测试要求 HuanvaeGuard 服务已安装且完全进入 RUNNING"
+        );
+
+        // 保存现 SDDL（sc sdset 输出形如 "D:(A;;…;;;SY)…"）
+        let orig = run_captured("sc.exe", &["sdshow", GUARD_SERVICE_NAME])
+            .filter(|(rc, _)| *rc == 0)
+            .map(|(_, out)| out)
+            .filter(|s| s.contains("D:"))
+            .expect("读取服务 SDDL 失败");
+        let orig_sddl: String = orig.lines().map(|l| l.trim()).collect();
+        // 拿掉 AU 的授外，再给 BA 塞一条 STOP 拒绝 —— 只回收 AU 对提升后的管理员
+        // 调用者无效（BA 的 allow 仍在），必须显式 deny：(D;;0x20;;;BA) 才能让
+        // sc stop 返回 5（VM 实测；助记符 ST 在 sc sdset 的 SDDL 解析器里会被拒 1336，
+        // 必须写十六进制 0x20 = SERVICE_STOP）。
+        let revoked = orig_sddl
+            .replace("(A;;CCLCSWRPWPLOCRRC;;;AU)", "")
+            .replace("(A;;CCLCSWRPWPLOCRRC;;;IU)", "")
+            .replace("D:(", "D:(D;;0x20;;;BA)(");
+        assert_ne!(revoked, orig_sddl, "SDDL 里没找到 AU/IU 授权段，样本形态变了");
+        let set = run_captured("sc.exe", &["sdset", GUARD_SERVICE_NAME, revoked.as_str()]);
+        assert_eq!(set.map(|(rc, _)| rc), Some(0), "回收 AU 停服权限失败");
+
+        // 🔴 被测分支：sc stop 会被拒（5），轮询到点仍未 STOPPED ⇒ 必须 Err(已中止)
+        let result = stop_guard_service_for_update();
+
+        // 无论结果如何先恢复 SDDL + 服务（测试不留状态）
+        let _ = run_captured("sc.exe", &["sdset", GUARD_SERVICE_NAME, orig_sddl.as_str()]);
+        let _ = run_captured("sc.exe", &["start", GUARD_SERVICE_NAME]);
+
+        let err = result.expect_err("停不掉时必须 Err（中止更新），不得放行去硬覆盖");
+        assert!(err.contains("已中止"), "中止文案必须出现：{err}");
+        assert!(err.contains(GUARD_SERVICE_NAME), "文案必须点名服务：{err}");
+        assert!(!err.contains("C:\\"), "文案不得带路径：{err}");
+        println!("[win-machine] 中止分支文案：{err}");
     }
 }
