@@ -434,7 +434,10 @@ check_artifact() {
         fail "[$artifact] 不认识的产物扩展名：.$ext（支持 .exe/.deb/.AppImage/.apk/.dmg/.tar.gz）"
         ;;
     esac
-    rm -rf "$work"
+    # 7z 从 DMG 解出的目录可能带只读权限（macOS 实证）：rm -rf 返回非零，在
+    # GitHub `bash -eo pipefail` 下会静默中止整个门禁（v1.1.50 run3：断言全绿却 exit 1、
+    # 汇总行都打不出来）。清理失败不影响断言结论，姑且吞掉。
+    rm -rf "$work" 2>/dev/null || true
 }
 
 echo ""
