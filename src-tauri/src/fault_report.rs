@@ -123,7 +123,7 @@ fn utf8_char_len(first: u8) -> usize {
 /// 在 `pos` 处尝试识别敏感键名形态：
 /// - 裸键：`token=xxx` / `token: xxx`（含键后空白）
 /// - 引号键（JSON 形态）：`"token" : "xxx"`
-/// 返回 (替换起点, 键名结束, 值起点)；替换起点包含前导引号（若有），调用方重建该段。
+///   返回 (替换起点, 键名结束, 值起点)；替换起点包含前导引号（若有），调用方重建该段。
 fn try_match_sensitive_kv(input: &str, pos: usize) -> Option<(usize, usize, usize)> {
     let b = input.as_bytes();
     let mut i = pos;
@@ -479,7 +479,7 @@ mod tests {
         }
         assert!(rb.bytes <= BUFFER_MAX_BYTES, "bytes={} 超上限", rb.bytes);
         assert!(rb.dropped > 0, "应有滚动丢弃");
-        assert!(rb.entries.len() < n as usize);
+        assert!(rb.entries.len() < n);
         // 最旧的已被丢弃：since(0) 里不存在 at=0
         assert!(rb.since(0).first().map(|e| e.at).unwrap_or(i64::MAX) > 0);
     }
