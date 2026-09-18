@@ -86,7 +86,15 @@ pass() { echo -e "  ${GREEN}✓ $1${NC}"; }
 warn() { echo -e "  ${YELLOW}⚠ $1${NC}"; }
 info() { echo -e "  ${GRAY}· $1${NC}"; }
 
-sha_of() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+sha_of() {
+    # macOS runner 无 sha256sum（v1.1.50 CI 实证：2>/dev/null 吔掉 command not found → 返回空串
+    # → 误报「哈希不符」）。有 sha256sum 用 sha256sum，否则退 shasum -a 256（macOS 自带）。
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" 2>/dev/null | awk '{print $1}'
+    else
+        shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    fi
+}
 
 version_ge() {  # $1=target $2=since → target>=since ?
     # 🔴 不能写 local IFS='.'：实测 local 列表里的 IFS 赋值不作用于后续 read（拆分失效，
