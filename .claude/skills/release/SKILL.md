@@ -909,3 +909,44 @@ BLOCKED 时干跑同样中止**——与真实发布同律，无降档分支）�
 | 7/9 | commit + tag + assert_tag_points_at_head | — |
 | 8/9 | push（此后发布不可撤销） | — |
 | 9/9 | L4 渠道对账（`RELEASE_L4_WAIT=分钟` 内联等待，否则打印交接命令） | `.release-logs/l4-*/` |
+
+## 🔴 L1 断言脚本三机械兼容与产物两口径（v1.1.50 run 35372812578 教训 · x4u0befp 沉淀 2026-09-18）
+
+v1.1.50 首跑三平台 build 腿同日全红。四根因 + 验证记录全文见
+`docs/release-ci-150-assert-fixes.md`，此处只沉流程性判据：
+
+### 断言脚本改动的三条机械红线（改 assert-artifact-content-v2.sh 前必查）
+
+1. **bash 3.2 是 macOS runner 的 /bin/bash**：禁关联数组（`declare -A` → invalid option）、
+   `set -u` 下空数组裸展开 `"${arr[@]}"` → unbound variable。守卫写法
+   `${arr[@]+"${arr[@]}"}`（仓内 163 行 EXPECT_ARGS 与扫描段同款）。**位置参数路径不崩
+   ≠ 扫描模式不崩**：无参数扫描段的 14 处空数组展开是 CI 测不到的盲区（CI 恒传产物），
+   改动后必须在 bash3.2 下跑一次「空 bundle 目录扫描」+ 一次「非空扫描」双锚。
+2. **Windows runner 的 node 是原生 exe**：Git Bash 传给它的 `/d/...` MSYS 路径会被解析成
+   `D:\d\...`（ENOENT）。任何 `node -e` 内嵌路径必须先过 `cygpath -m` 转混合斜杠
+   （`D:/...`）。本地无 Git Bash 时，可用「同一段 JS + 两种路径字符串」在原生 node 上
+   等价复现该机械（winserver-hg 无 Git Bash，x4u0befp 即此法实证）。
+3. **变量名与全角标点邻接要加花括号**（59a2b89c）：`$CHECKED_ARTIFACTS；` 这种全角分号
+   紧邻处，bash3.2 会把多字节字节吞进变量名 → set -u 崩。输出行里所有 `$var` 统一 `${var}`。
+
+### 产物必含口径的两条实体事实
+
+4. **NSIS 必含 hv-control-daemon（随 1.1.49 起）**：接线唯一落点 =
+   `src-tauri/tauri.windows.conf.json` 的 `bundle.externalBin` + 仓内
+   `binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe`（sha 6f92bcd8…）。
+   v1.1.46 曾因 msvc 件缺位置空 externalBin（Windows 包退回 v1.1.45 态），v1.1.50
+   发布后（c72a9672）恢复。动这两处任一，必跑：真 `pnpm tauri build --bundles nsis`
+   → 7z 解包 → 包内 daemon 与仓内件 sha256 逐字节一致 → L1 PASS。
+5. **APK guard sidecar 是仓内预构建件**：`tauri-plugin-hg-guard/android/src/main/jniLibs/<abi>/`
+   （现三 ABI）经 Gradle 约定进包——CI 装的 i686-linux-android target 只管 App 自身 lib，
+   与 sidecar 无关。x86 侧不可「现补」：发货件的 JNI 接线（jni.rs + lib.rs mod）是未跟踪
+   WIP 从未入库，现树重建任何 ABI 都是零 JNI 导出（i686 实测 0.32MB/0 导出 vs 在库
+   3.6-4.2MB/13 导出），装上也 UnsatisfiedLinkError。当前口径 =
+   `ARTIFACT_GUARD_ABIS=arm64-v8a armeabi-v7a x86_64` 登记式收窄（c72a9672，待 owner 追认）；
+   补齐正道 = 先把 JNI 接线入库、四 ABI 同源重建、ELF+导出面断言后再替换 jniLibs。
+
+### 清单断链因果（生成 job 被连坐）
+
+6. `generate-manifest` `needs: [build, build-android]`——任何 build 腿 L1 红 ⇒ latest.json /
+   android-latest.json 不生成 ⇒ R2（store.huanvae.cn）与 GitHub /latest/download/ 双源 404
+   ⇒ 客户端升级弹窗无源。用户报「没有更新提示」时先查这条链，别修客户端。
