@@ -318,7 +318,7 @@ check_artifact() {
                 fi
             fi
         else
-            fail "[$label] 7z 解包失败（不是可解的 NSIS 产物？）—— fail-closed（解包器: $SEVENZ）"
+            fail "[$label] 7z 解包失败（不是可解的 NSIS 产物？）—— fail-closed（解包器: ${SEVENZ}）"
         fi
         ;;
       deb)
@@ -431,7 +431,7 @@ check_artifact() {
         fi
         ;;
       *)
-        fail "[$artifact] 不认识的产物扩展名：.$ext（支持 .exe/.deb/.AppImage/.apk/.dmg/.tar.gz）"
+        fail "[$artifact] 不认识的产物扩展名：.${ext}（支持 .exe/.deb/.AppImage/.apk/.dmg/.tar.gz）"
         ;;
     esac
     # 7z 从 DMG 解出的目录可能带只读权限（macOS 实证）：rm -rf 返回非零，在
@@ -511,5 +511,5 @@ if [[ "$FAILED" -ne 0 ]]; then
     printf '  %s\n' "${DIFF_LINES[@]}"
     exit 1
 fi
-echo -e "${GREEN}产物内容清单断言 v2：PASS（产物腿核验对象数：$CHECKED_ARTIFACTS；期望来源：发货落点 manifest/仓内落点逐字节）${NC}"
+echo -e "${GREEN}产物内容清单断言 v2：PASS（产物腿核验对象数：${CHECKED_ARTIFACTS}；期望来源：发货落点 manifest/仓内落点逐字节）${NC}"
 exit 0
