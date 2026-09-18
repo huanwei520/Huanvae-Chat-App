@@ -509,15 +509,15 @@ jobs:
       # 四 ABI guard sidecar 口径（arm64-v8a/armeabi-v7a/x86/x86_64）；实包缺 ABI 即 FAIL。
       # 实测发现：v1.1.45/v1.1.48 渠道 APK 均缺 lib/x86/libhg_android.so —— 本步会红，
       # 直到 Android 构建补齐四 ABI 或 owner 显式改口径（ARTIFACT_GUARD_ABIS 登记式收窄）。
-      # 【v1.1.50 发版车 kbj1q7n0 收窄落地】x86(32位) libhg_android.so 无可同源重建的发货态
-      # （67089b8f 三 ABI 的 lib.rs JNI 接线 WIP 已不在树，重建件与在库三 ABI 不可比），
-      # 按本注释预登记的收窄机制将口径改为实际发货三 ABI（arm64-v8a/armeabi-v7a/x86_64）；
-      # 需 owner 追认；补齐 x86 件时删除本 env 即回默认四 ABI 口径。
+      # 【v1.1.50 发版车 kbj1q7n0 已补齐四 ABI】x86 件已入库：
+      # src-tauri/tauri-plugin-hg-guard/android/src/main/jniLibs/x86/libhg_android.so
+      # （HuanvaeGuard WIP 态 autostash 26795e0 同源构建，ELF EM_386，JNI 导出 13/13 与在库三 ABI
+      #  一致，sha256=be0f133b…，见 kbj1q7n0 交付书）——本步不再设 ARTIFACT_GUARD_ABIS，
+      # 维持默认四 ABI 原口径。
       - name: L1 artifact content assertion (v2, android)
         shell: bash
         env:
           ARTIFACT_TARGET_VERSION: ${{ github.ref_name }}
-          ARTIFACT_GUARD_ABIS: arm64-v8a armeabi-v7a x86_64
         run: |
           VER="${ARTIFACT_TARGET_VERSION#v}"
           ARGS=(--target-version "$VER")
