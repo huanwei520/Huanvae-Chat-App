@@ -78,6 +78,8 @@ export interface MessageHandlerResult {
   reconnectJitterMs?: number;
   /** 事件的连接级 seq（用于跳号检测） */
   eventSeq?: number;
+  /** 服务端踢出/会话顶替/强制下线帧（error 载荷带 kick 语义）→ Context 应立即断开重连 */
+  kicked?: boolean;
 }
 
 // ============================================
@@ -520,6 +522,22 @@ export function createInitialUnreadSummary(
 }
 
 /**
+ * 判定服务端 error 帧是否为「踢出/会话顶替/强制下线」语义。
+ *
+ * 背景：chat WS 服务端同账号同设备重复建连时**静默**顶替旧连接的推送路由
+ * （服务端 connection_manager.register 对同 device_id 旧连接仅 retain 移除，不发任何
+ * 通知帧/Close），客户端无从感知=绿点假活的根因之一。会议信令侧已有显式 kicked 帧
+ * 先例（webrtc_room signaling_ws「会话已被顶替/移除,服务端主动断开信令连接」），
+ * 本判定为 chat 侧显式处理兜底：服务端一旦开始下发此类帧，客户端立即重连恢复推送，
+ * 而非绿点常亮等用户重登。匹配面保守（kick/session_replaced/force_logout），
+ * 普通业务 error（如 invalid_message）绝不误判。纯函数，便于单测。
+ */
+export function isKickServerFrame(code: string | undefined, message: string | undefined): boolean {
+  const hay = `${code ?? ''} ${message ?? ''}`.toLowerCase();
+  return hay.includes('kick') || hay.includes('session_replaced') || hay.includes('force_logout');
+}
+
+/**
  * 处理 WebSocket 消息
  *
  * @returns 返回 session recovery 和 seq 信息供 Context 使用，解析失败返回 null
@@ -773,9 +791,18 @@ export function handleWebSocketMessage(
         // 服务器心跳，保持连接活跃
         break;
 
-      case 'error':
+      case 'error': {
         console.error('[WebSocket] 服务端错误:', msg.code, msg.message);
+        if (isKickServerFrame(msg.code, msg.message)) {
+          // 服务端踢出/会话顶替帧：chat 侧必须立即重连（语义参照 meeting 侧 useWebRTC
+          // kicked 处理——会议顶替后禁止重连是怕旧会话以新 join 复活；chat 相反，账号会话
+          // 被顶替/强制下线后【只有】重连才能恢复推送路由）。置 kicked 由 Context terminate
+          // 走既有重连链，重连后经 halfOpenSyncPendingRef → onReconnected 增量补拉漏收段。
+          console.warn('[WebSocket] 收到服务端踢出/会话顶替帧，标记主动断开重连');
+          result.kicked = true;
+        }
         break;
+      }
 
       case 'message_deleted':
         db.markMessageDeleted(msg.message_uuid).then(async () => {
