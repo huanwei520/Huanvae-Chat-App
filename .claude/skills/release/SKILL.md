@@ -938,12 +938,13 @@ v1.1.50 首跑三平台 build 腿同日全红。四根因 + 验证记录全文�
    发布后（c72a9672）恢复。动这两处任一，必跑：真 `pnpm tauri build --bundles nsis`
    → 7z 解包 → 包内 daemon 与仓内件 sha256 逐字节一致 → L1 PASS。
 5. **APK guard sidecar 是仓内预构建件**：`tauri-plugin-hg-guard/android/src/main/jniLibs/<abi>/`
-   （现三 ABI）经 Gradle 约定进包——CI 装的 i686-linux-android target 只管 App 自身 lib，
-   与 sidecar 无关。x86 侧不可「现补」：发货件的 JNI 接线（jni.rs + lib.rs mod）是未跟踪
-   WIP 从未入库，现树重建任何 ABI 都是零 JNI 导出（i686 实测 0.32MB/0 导出 vs 在库
-   3.6-4.2MB/13 导出），装上也 UnsatisfiedLinkError。当前口径 =
-   `ARTIFACT_GUARD_ABIS=arm64-v8a armeabi-v7a x86_64` 登记式收窄（c72a9672，待 owner 追认）；
-   补齐正道 = 先把 JNI 接线入库、四 ABI 同源重建、ELF+导出面断言后再替换 jniLibs。
+   经 Gradle 约定进包——CI 装的 i686-linux-android target 只管 App 自身 lib，与 sidecar 无关。
+   v1.1.50 期曾因「发货件的 JNI 接线（jni.rs + lib.rs mod）是未跟踪 WIP 不在树」而无 x86 可补
+   （树建件零 JNI 导出，i686 实测 0.32MB/0 导出 vs 发货件 3.6-4.2MB/13 导出）→ 一度登记式
+   收窄三 ABI（c72a9672）；97251102 把 WIP 源入 Guard 仓后同源重建 x86（EM_386/13 导出）
+   回默认四 ABI。教训：**sidecar 补 ABI 的正道 = 先把 JNI 接线源入库 → 同源重建 → ELF+导出面
+   断言（EM_xxx + Java_* 计数）→ 替换 jniLibs → 真包 unzip -l 四 ABI 非空 → L1 PASS**；
+   源不在树时宁可登记收窄（留痕待追认），绝不硬凑一个能装不能跑的件。
 
 ### 清单断链因果（生成 job 被连坐）
 

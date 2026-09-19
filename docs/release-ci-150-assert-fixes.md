@@ -2,8 +2,10 @@
 
 > 任务块：PIPELINE_TASK:x4u0befp（2026-09-18）
 > 触发：v1.1.50 Release CI run 35372812578 三条 build 腿同日全红
-> 基线：main 顶端 c72a9672（卡面基点 2dc1a05c 之后 main 已前进：59a2b89c 修全角标点邻接变量名、
-> c72a9672 落 ③④ 修复——本块按卡面机制差异条款「记录新顶 sha 以其为基点并 diff 说明」执行）
+> 基线：卡面基点 2dc1a05c；本块开工时 main=c72a9672（59a2b89c 修全角标点邻接变量名、
+> c72a9672 落 ③④ 修复），本块工作中 main 又前进至 **97251102**（kbj1q7n0 第5轮整改：
+> 撤销安卓 ABI 登记式收窄、x86 sidecar 同源补齐回默认四 ABI 口径）——本块已对新顶逐项
+> 独立复核并更新 §3，分支 fix/x4u0befp-ci-assert-150 基于工作全程双顶如实记录。
 
 ## 0. 四根因一览（与 run 35372812578 现象对照）
 
@@ -12,7 +14,7 @@
 | ① build macos-14 | `line 143: declare: -A: invalid option`、`line 147: EXPECT_ARGS[@]: unbound variable` | 脚本用了 bash 4+ 关联数组，macOS runner /bin/bash=3.2 不支持；且 set -u 下空数组裸展开必崩 | 4a413406：平行索引数组线性查找 + `${arr[@]+"${arr[@]}"}` 空数组守卫 |
 | ② build windows-latest（静态腿） | `解析 tauri*.conf.json 失败` | Git Bash 下 `$SRC_TAURI` 是 MSYS 风格路径（`/d/...`），Windows 原生 node.exe 解析成 `D:\d\...` → ENOENT | 4a413406：`cygpath -m` 转混合斜杠（`D:/...`） |
 | ②' build windows-latest（产物腿） | `NSIS 包缺 hv-control-daemon*.exe` | v1.1.46 起 tauri.windows.conf.json `externalBin: []`（msvc daemon 件缺位期登记），daemon 从未进包 | c72a9672：恢复 `externalBin: ["binaries/hv-control-daemon"]` + msvc 真件入库 |
-| ③ build-android | `必含 sidecar 缺失：lib/x86/libhg_android.so` | x86(32位) sidecar 无可同源重建的发货态（见 §3），历史渠道包 v1.1.45/48/49/50 实包均缺 | c72a9672：`ARTIFACT_GUARD_ABIS=arm64-v8a armeabi-v7a x86_64` 登记式收窄（待 owner 追认） |
+| ③ build-android | `必含 sidecar 缺失：lib/x86/libhg_android.so` | x86 sidecar 断点：仓内 jniLibs 三 ABI 无 x86，且发货件 JNI 接线（jni.rs+lib.rs mod）当时属未跟踪 WIP 不在树——树建任意 ABI 零 JNI 导出（本块 i686 实测）；后 97251102 将 WIP 入源并同源重建 x86（EM_386/13 导出）回四 ABI | c72a9672 曾登记式收窄（待追认）→ 97251102 撤销收窄补齐 x86 回默认四 ABI（本块独立复核） |
 | ④ generate-manifest | skipped → latest.json/android-latest.json 未生成 | `needs: [build, build-android]`，任一前置红即整段跳过 | ①②③ 修复后自愈（见 §4 断链说明） |
 
 ## 1. ① bash 3.2 兼容 + ② conf 解析失败（脚本机械类）
@@ -117,20 +119,20 @@ $ file → PE32+ executable (console) x86-64, for MS Windows（msvc 形态）
 产物内容清单断言 v2：PASS
 ```
 
-## 3. ③ APK 缺 lib/x86/libhg_android.so —— 断点实证与登记式收窄
+## 3. ③ APK 缺 lib/x86/libhg_android.so —— 断点实证、收窄始末与最终补齐
 
 ### 3.1 sidecar 链路（四 ABI 口径的物理来源）
 
 `libhg_android.so` **不是 CI 现构建**，是仓内预构建件：
 `src-tauri/tauri-plugin-hg-guard/android/src/main/jniLibs/<abi>/libhg_android.so` 经 Gradle
-jniLibs 约定进 APK。仓内现状只有三 ABI（arm64-v8a / armeabi-v7a / x86_64），
+jniLibs 约定进 APK。c72a9672 时点仓内只有三 ABI（arm64-v8a / armeabi-v7a / x86_64），
 **x86 目录自 55825f75/67089b8f 起从未存在**。CI 的 `i686-linux-android` rust target
 （release.yml ~472）只服务 App 自身 lib（`lib/x86/libhuanvae_chat_app_lib.so` 在包），与 guard
 sidecar 无关——「CI 装了 i686」与「APK 有 x86 sidecar」之间本就无生产链路。
 
-### 3.2 x86 断点实证（android 构建宿主真重建，本块原创）
+### 3.2 x86 断点实证（android 构建宿主真重建，本块原创，c72a9672 态）
 
-对 /work/HuanvaeGuard 当前树（白名单 rsync 同款流程 → 构建宿主 NDK 27.2）：
+对 /work/HuanvaeGuard **当时树**（白名单 rsync 同款流程 → 构建宿主 NDK 27.2）：
 
 ```
 $ cargo build --release -p hg-android --target i686-linux-android
@@ -142,15 +144,14 @@ JNI_EXPORTS=0           （nm -D --defined-only | grep -c 'Java_' = 0）
 对照在库发货三 ABI（jniLibs 现件）：arm64=3652984 B / v7a=2416068 B / x86_64=4174016 B，
 每件 **13 个 JNI 导出**（`Java_dev_huanvae_guard_HgNative_*`）。根因：发货件的 JNI 接线
 （client/android/src/jni.rs + lib.rs 的 mod 接线）在 67089b8f 构建时属**未跟踪 WIP**，从未入库
-——现树 `git ls-files client/android/src/` 仅 lib.rs、vpn.rs，lib.rs 仅 `pub mod vpn;`。
-⇒ 从当前树重建任意 ABI 的 .so 都零 JNI 导出，Kotlin 桥 `System.loadLibrary("hg_android")`
-后调用即 `UnsatisfiedLinkError`——补一个「能装不能跑」的 x86 件属混装造假，宁缺勿假。
+——当时树 `git ls-files client/android/src/` 仅 lib.rs、vpn.rs，lib.rs 仅 `pub mod vpn;`。
+⇒ 从当时树重建任意 ABI 的 .so 都零 JNI 导出，Kotlin 桥 `System.loadLibrary("hg_android")`
+后调用即 `UnsatisfiedLinkError`——这就是 x86 断点的实体，也是 c72a9672 选择
+登记式收窄而非硬凑 x86 的依据（宁缺勿假）。
 
-### 3.3 收窄落地与验证（c72a9672 已落，本块核对+验证）
+### 3.3 收窄态验证（c72a9672，本块独立复核）
 
-release.yml build-android L1 步 `ARTIFACT_GUARD_ABIS: arm64-v8a armeabi-v7a x86_64`
-（登记式收窄，**待 owner 追认**；补齐 x86 件时删该 env 即回默认四 ABI 口径）。
-
+release.yml build-android L1 步 `ARTIFACT_GUARD_ABIS: arm64-v8a armeabi-v7a x86_64`。
 修复前（默认四 ABI 口径，实包 1.1.50 APK sha256 `ae7971fe...`，前序块 9/18 15:22 构建，
 jniLibs 与现仓同源）：
 
@@ -158,11 +159,33 @@ jniLibs 与现仓同源）：
 ✗ FAIL: [APK] 必含 sidecar 缺失：lib/x86/libhg_android.so（ABI 列表口径：arm64-v8a armeabi-v7a x86 x86_64）
 ```
 
-修复后（收窄口径）：
+收窄口径下同包：三 ABI 全绿 PASS（bash 3.2 与 bash 5 双跑 exit 0）——收窄机制本身验证成立。
+
+### 3.4 最终态：撤销收窄、x86 同源补齐（97251102，本块独立复核全绿）
+
+本块工作中 main 前进至 97251102（kbj1q7n0 第5轮）：把 67089b8f 同刻的 WIP 源
+（HuanvaeGuard autostash 26795e0：jni.rs/control.rs + lib.rs mod 接线）入源，NDK r27 同源
+重建 x86 入 jniLibs，撤销 ARTIFACT_GUARD_ABIS env 回默认四 ABI。本块逐项独立复核：
 
 ```
-✓ lib/arm64-v8a / armeabi-v7a / x86_64 三件在包且非空
-产物内容清单断言 v2：PASS（bash 3.2 与 bash 5 双跑均 exit 0）
+$ git show 97251102:.../jniLibs/x86/libhg_android.so | sha256sum
+→ be0f133b6be12df2cb55b66d7ff2e02e3d1a46a5dbf56b6b67357315d920b192（与 commit 自述一致）
+$ file → ELF 32-bit LSB shared object, Intel 80386（EM_386）
+$ nm -D --defined-only | grep -c 'Java_' → 13（导出名与在库 arm64 件逐一对应）
+```
+
+真实四 ABI 新包（第5轮 22:37 构建，`test-artifacts/release-1.1.50/huanvae-chat-app-1.1.50-and-debug-4abi.apk`
+sha256 `4a6be8a26768b8cb...`）：
+
+```
+$ unzip -l <4abi.apk> | grep libhg_android
+  lib/arm64-v8a/libhg_android.so  3652984
+  lib/armeabi-v7a/libhg_android.so 2416068
+  lib/x86/libhg_android.so        4211972
+  lib/x86_64/libhg_android.so     4174016
+$ unzip -o … lib/x86/libhg_android.so && cmp → 与 97251102 仓内件逐字节一致
+$ bash scripts/assert-artifact-content-v2.sh --target-version 1.1.50 --skip-static <4abi.apk>
+  ✓ 四 ABI 全在包非空 → 产物内容清单断言 v2：PASS（exit 0，默认口径无 env）
 ```
 
 ## 4. ⑤ latest.json / android-latest.json 缺失 → App 更新弹窗无源（因果链）
