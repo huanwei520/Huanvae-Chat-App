@@ -53,9 +53,9 @@ export interface ScreenShareStatePayload {
 /** CONFIRM 事件载荷（即 ScreenShareSettings，显式别名以自文档化） */
 export type ScreenShareConfirmPayload = ScreenShareSettings;
 
-/** 会议窗判定 start 成败的轮询节奏（250ms × 16 ≈ 4s，覆盖 getDisplayMedia 选窗时间） */
+/** 会议窗判定 start 成败的轮询节奏（250ms × 120 = 30s，覆盖 WebView2 原生选源器的人工选择时间） */
 export const SCREEN_SHARE_POLL_INTERVAL_MS = 250;
-export const SCREEN_SHARE_POLL_MAX_TRIES = 16;
+export const SCREEN_SHARE_POLL_MAX_TRIES = 120;
 
 /**
  * 打开独立分享窗口（幂等：已存在则聚焦）
