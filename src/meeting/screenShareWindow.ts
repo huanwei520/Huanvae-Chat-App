@@ -41,6 +41,8 @@ export interface ScreenShareResultPayload {
   status: 'started' | 'failed';
   /** failed 时的原因描述（取自 mediaError 或轮询超时说明） */
   message?: string;
+  /** failed 时的原始诊断（lastScreenShareError 遥测，仅供状态区展示/排查） */
+  detail?: string;
 }
 
 /** STATE 事件载荷 */

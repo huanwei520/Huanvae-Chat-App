@@ -60,7 +60,11 @@ export function ScreenShareWindowPage() {
         closeSelf();
       } else {
         setPending(false);
-        setStatusNote(event.payload.message ?? '共享未能开始，可调整后重试');
+        setStatusNote(
+          event.payload.detail
+            ? `${event.payload.message ?? '共享未能开始，可调整后重试'}｜诊断: ${event.payload.detail}`
+            : (event.payload.message ?? '共享未能开始，可调整后重试'),
+        );
       }
     }).then((un) => { if (disposed) { un(); } else { unlisteners.push(un); } });
 

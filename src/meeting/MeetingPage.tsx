@@ -28,6 +28,7 @@ import {
   type ScreenShareResolution,
   type ScreenShareFrameRate,
   getAvailableResolutions,
+  lastScreenShareError,
 } from './useWebRTC';
 import { ScreenShareSettingsPanel } from './components/ScreenShareSettingsPanel';
 import {
@@ -926,9 +927,12 @@ export default function MeetingPage() {
         } else if (tries >= SCREEN_SHARE_POLL_MAX_TRIES) {
           clearInterval(timer);
           const reason = webrtcRef.current.mediaError?.message;
+          const detail = lastScreenShareError
+            ?? (reason ? `mediaError: ${reason}` : 'no_error_recorded');
           const result: ScreenShareResultPayload = {
             status: 'failed',
             message: reason ?? '未开始共享（可能在系统选择器中取消），可调整后重试',
+            detail,
           };
           void emit(SCREEN_SHARE_EV_RESULT, result).catch(() => undefined);
         }

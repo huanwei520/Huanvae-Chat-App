@@ -72,6 +72,13 @@ import {
   RESOLUTION_MAP,
   type ScreenShareSettings,
 } from './screenShareSettings';
+
+/**
+ * 最近一次屏幕共享发起失败的原始错误（诊断遥测，块 pvmk3dxq）。
+ * 纯记录：AbortError/unknown 被既有 parseMediaError 抑制不进 mediaError 时，
+ * 独立分享窗口的 RESULT 通道仍可回传真实原因。桌面采集分支语义零改动。
+ */
+export let lastScreenShareError: string | null = null;
 export {
   RESOLUTION_MAP,
   getAvailableResolutions,
@@ -1438,6 +1445,8 @@ export function useWebRTC(): UseWebRTCReturn {
       await stopScreenShareInternal();
     } else {
       try {
+        // 诊断遥测（块 pvmk3dxq）：发起前清空上次错误记录（纯记录，不改语义）
+        lastScreenShareError = null;
         const resolution = settings?.resolution ?? '1080p';
         const frameRate = settings?.frameRate ?? 60;
         const { width, height } = RESOLUTION_MAP[resolution];
@@ -1503,6 +1512,8 @@ export function useWebRTC(): UseWebRTCReturn {
         setMediaError(null);
         sendMediaState(next);
       } catch (err) {
+        // 诊断遥测（块 pvmk3dxq）：原始错误名+消息供跨窗口诊断（独立分享窗 RESULT 回传）
+        lastScreenShareError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
         const mediaErr = parseMediaError(err, 'screen');
         // AbortError 表示用户取消，不显示错误
         if (mediaErr.message && mediaErr.reason !== 'unknown') {
