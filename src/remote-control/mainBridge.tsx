@@ -9,6 +9,11 @@
  * 客户端只填展示用 device_name/display_name；M2.target_user_id 取 N1.from.user_id
  * （sessionStore 权威）。观看端 dev 目标用户经 localStorage `rc.dev.target-user`。
  *
+ * M1 目标解析（2026-09-21 生产 E2E 断链修复）：会议 join 不绑定聊天账号，信令层
+ * 参会者恒为访客（user_info 为空），tile 侧 payload.target_user_id 因此恒 null；
+ * 此处增加「参会人展示名 = 好友昵称」好友列表解析兜底（远控正当目标本应即好友），
+ * 解析不到再回落 devTargetUser()（仅 dev 构建）/不盲发，安全语义不变。
+ *
  * @module remote-control/mainBridge
  */
 
@@ -23,6 +28,7 @@ import {
   type RcRequestControlPayload,
 } from './bus';
 import { sendControlSessionWs } from './wsSender';
+import { getFriends } from '../api/friends';
 import { invoke as rcDbgInvoke } from '@tauri-apps/api/core';
 import { useControlSessionStore } from './sessionStore';
 import { devTargetUser } from './meetingBridge';
@@ -34,7 +40,7 @@ export function MainBridge() {
   //    服务端只重写 user_id/device_id、**不重写 display_name**（见文件头「身份口径」），
   //    于是**被申请方**的授权弹层里渲染成了「我 申请控制你正在共享的屏幕」、
   //    接受后横幅变成「正在被 我 控制」——把申请人叫成被申请人自己。
-  const { session } = useSession();
+  const { session, api } = useSession();
   const selfDisplayName = session?.profile?.user_nickname?.trim() || '我';
   // 用 ref 传给发送回调，而不是把 selfDisplayName 加进 onRequestControl 的依赖：
   // 后者会让下方 listen() 效果在昵称到货时**重新注册**监听器，在注销→重注之间
@@ -42,6 +48,9 @@ export function MainBridge() {
   // cancelled 守卫注释）。ref 读最新值、依赖保持 []，注册一次不再变。
   const selfNameRef = useRef(selfDisplayName);
   selfNameRef.current = selfDisplayName;
+  // api 同理走 ref：onRequestControl 依赖保持 []，监听器注册一次不再变。
+  const apiRef = useRef(api);
+  apiRef.current = api;
 
   const onAuthDecision = useCallback((payload: RcAuthDecisionPayload) => {
     const { peerUserId } = useControlSessionStore.getState();
@@ -84,12 +93,37 @@ export function MainBridge() {
     }
   }, [session]);
 
-  const onRequestControl = useCallback((payload: RcRequestControlPayload) => {
+  const onRequestControl = useCallback(async (payload: RcRequestControlPayload) => {
     // M1.target_user_id 真值源 = 右键 tile 参会者的聊天 user_id（MeetingPage
     // data-rc-user-id 委托解析，缺口③修复 2026-09-13）；dev 构建才回退
     // devTargetUser() 演示链 —— 正式构建无目标（访客 tile/非 tile 右键）不盲发，
     // 防止把控制申请发给硬编码占位用户。
-    const target = payload.target_user_id ?? (isDevControl() ? devTargetUser() : null);
+    let target = payload.target_user_id ?? null;
+    if (!target) {
+      // 缺口修复（2026-09-21 生产 E2E 断链实证）：会议 join 不绑定聊天账号，
+      // 信令层参会者恒为访客（user_info 为空，生产日志 user_id=(访客)），
+      // payload.target_user_id 因此恒 null，正式构建 M1 永远发不出。
+      // 此处按「参会人展示名 = 好友昵称」从好友列表解析 user_id：
+      // 会议内可申请控制的正当目标本应就是自己的好友（远控高敏操作），
+      // 非好友/改名访客解析不到 → 保持不盲发的安全语义不变。
+      const name = payload.participant_name?.trim();
+      const client = apiRef.current;
+      if (name && client) {
+        try {
+          const friends = await getFriends(client);
+          const hit =
+            friends.find((f) => f.friend_nickname?.trim() === name) ??
+            friends.find((f) => f.friend_nickname?.trim().toLowerCase() === name.toLowerCase());
+          if (hit) {
+            target = hit.friend_id;
+            console.info(`[RemoteControl] M1 目标经好友列表解析：${name} -> ${hit.friend_id}`);
+          }
+        } catch {
+          // 好友列表拉取失败按未命中处理（落下方不盲发分支）
+        }
+      }
+    }
+    target = target ?? (isDevControl() ? devTargetUser() : null);
     if (!target) {
       console.warn('[RemoteControl] M1 未发送：右键目标无 user_id（访客不可被指定为控制目标）');
       return;
@@ -133,7 +167,7 @@ export function MainBridge() {
         if (cancelled) { fn(); } else { unlisteners.push(fn); }
       })
       .catch(() => undefined);
-    listen<RcRequestControlPayload>(RC_REQUEST_CONTROL, (ev) => onRequestControl(ev.payload))
+    listen<RcRequestControlPayload>(RC_REQUEST_CONTROL, (ev) => { void onRequestControl(ev.payload); })
       .then((fn) => {
         if (cancelled) { fn(); } else { unlisteners.push(fn); }
       })
