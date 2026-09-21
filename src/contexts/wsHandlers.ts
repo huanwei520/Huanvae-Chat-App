@@ -29,6 +29,7 @@ import { friendDisplayName } from '../utils/friendName';
 import { useChatStore } from '../stores/chatStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
 import { useShelfStore, isShelfItem } from '../stores/shelfStore';
+import { useControlSessionStore } from '../remote-control/sessionStore';
 import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
 import {
   isReadPositionsLoaded,
@@ -793,6 +794,19 @@ export function handleWebSocketMessage(
 
       case 'error': {
         console.error('[WebSocket] 服务端错误:', msg.code, msg.message);
+        // 缺陷B（2026-09-19，安卓申请控制Windows无反应）：M1 control_session_request 上行
+        // 遇到未编译 control-session feature 的服务端时会被当 invalid_message 丢弃
+        // （Huanvae-Chat-Rust connection.rs：feature 关闭时未知上行照旧 invalid_message），
+        // N1 永不下发 → 申请方永远等不到回应＝「点击申请控制无反应」。此处做相关性反馈：
+        // 存在在途控制申请（requesting 态）时把 invalid_message 判为 M1 被拒收，
+        // 置 error 终态（release('error')），申请方 UI 据此给出「未送达」可见反馈。
+        if (msg.code === 'invalid_message') {
+          const cs = useControlSessionStore.getState();
+          if (cs.state === 'requesting') {
+            console.warn('[RemoteControl] M1 被服务端拒收（invalid_message）：服务端未启用控制信令或帧损坏，申请未送达');
+            cs.release('error');
+          }
+        }
         if (isKickServerFrame(msg.code, msg.message)) {
           // 服务端踢出/会话顶替帧：chat 侧必须立即重连（语义参照 meeting 侧 useWebRTC
           // kicked 处理——会议顶替后禁止重连是怕旧会话以新 join 复活；chat 相反，账号会话

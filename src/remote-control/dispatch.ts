@@ -15,6 +15,7 @@
  */
 
 import { emit } from '@tauri-apps/api/event';
+import { detectPlatform } from '../utils/platform';
 import type { WsSystemNotification } from '../types/websocket';
 import {
   CONTROL_SESSION_CHANGED,
@@ -72,9 +73,17 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
         approved: data.approved,
       });
       if (data.approved && data.grant_id) {
-        // T2：打开/聚焦独立控制窗口（getByLabel 单例先例）＋推进 Linking
+        // T2：推进 Linking（T7 语义：Active 仅由 daemon 在 P3 会话建立完成
+        // （offer/answer＋指纹锚定）后迁移，信令面不越权直达 active）。
         store.advanceLinking(data.request_id, data.grant_id);
-        void openRemoteControlWindow();
+        // 缺陷B（2026-09-20，安卓发起端控制窗缺失）：Tauri Android 为单 WebView，
+        // WebviewWindow 桌面多窗 API 在其上静默失败——平台条件化：仅桌面开窗；
+        // 安卓发起端在当前 WebView 内渲染「控制会话建立中」视图（见 MobileMeetingPage
+        // controlState==='linking' 分支），daemon 部署完成 T7 建链迁 active 后同
+        // 分支切换为帧流渲染（ControlWindow 轮询本机 daemon 回环 /control/frame）。
+        if (detectPlatform() !== 'android') {
+          void openRemoteControlWindow();
+        }
         void emit(RC_SESSION_STATE, {
           state: 'linking',
           grant_id: data.grant_id,

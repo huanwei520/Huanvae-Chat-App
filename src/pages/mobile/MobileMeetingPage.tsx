@@ -49,6 +49,8 @@ import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { MeetingBridge } from '../../remote-control/meetingBridge';
 import { isRemoteControlEnabled } from '../../remote-control/devGate';
 import { RC_REQUEST_CONTROL } from '../../remote-control/bus';
+import { useControlSessionStore } from '../../remote-control/sessionStore';
+import { ControlWindow } from '../../remote-control/ControlWindow';
 import { emit } from '@tauri-apps/api/event';
 import { PlatformBadge } from '../../meeting/components/PlatformBadge';
 // #7 目标能力门控（owner 2026-09-14 二次评审②）+ 移动端专属控制按钮（评审①）
@@ -276,6 +278,9 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
   const [showShareActions, setShowShareActions] = useState(false);
   // 复制结果 toast（「已复制会议链接」/「复制失败」），2s 自动消失
   const [shareToast, setShareToast] = useState<string | null>(null);
+  // 缺陷B（2026-09-19）：申请控制发出后的申请方可见反馈——此前 M1 上行成败用户
+  // 全然无感（服务端拒收时只有 console），是「点击申请控制无反应」体感的另一半。
+  const [controlNotice, setControlNotice] = useState<string | null>(null);
 
   // 屏幕共享：发起前敏感内容提示弹窗（Android MediaProjection 采集，UI 对齐桌面形态）
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false);
@@ -399,6 +404,32 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
     return () => clearTimeout(timer);
   }, [shareToast]);
 
+  // 缺陷B：控制会话状态机 → 申请方 toast。requesting＝M1 已上行；
+  // released+error＝服务端拒收（见 wsHandlers case 'error' 的相关性判定）；
+  // released+timeout＝对方 30s 未裁决。终态提示与 shareToast 同模式自动消失。
+  const controlState = useControlSessionStore((s) => s.state);
+  const controlReleaseReason = useControlSessionStore((s) => s.releaseReason);
+  useEffect(() => {
+    if (controlState === 'requesting') {
+      setControlNotice('已发出控制申请，等待对方响应…');
+    } else if (controlState === 'linking') {
+      setControlNotice('对方已授权，控制会话建立中…');
+    } else if (controlState === 'active') {
+      setControlNotice('控制会话已建立');
+    } else if (controlState === 'released' && controlReleaseReason === 'error') {
+      setControlNotice('控制申请未送达：服务端暂不支持远程控制信令');
+    } else if (controlState === 'released' && controlReleaseReason === 'timeout') {
+      setControlNotice('对方未响应控制申请（超时）');
+    }
+  }, [controlState, controlReleaseReason]);
+  useEffect(() => {
+    if (!controlNotice) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setControlNotice(null), 2600);
+    return () => clearTimeout(timer);
+  }, [controlNotice]);
+
   // Android 返回键：共享确认弹窗 > 分享动作面板 > 退出聚焦
   useMobileBackHandler(() => {
     if (showScreenShareConfirm) {
@@ -476,6 +507,42 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       <div className="mobile-meeting-loading">
         <div className="mobile-meeting-spinner" />
         <p>加载中...</p>
+      </div>
+    );
+  }
+
+  // 缺陷B（2026-09-20）：安卓发起端控制视图——授权后（linking，T7 建链中）/
+  // 建立后（active）在当前 WebView 内全屏渲染（Tauri Android 无多窗口，
+  // openRemoteControlWindow 静默失败的历史缺口）。linking 态展示建立中占位
+  // （daemon 部署后完成 T7 迁 active）；active 态帧面连本机 daemon 回环
+  // （ControlWindow 轮询 /control/frame，daemon 未部署时显示其内置「等待被控端
+  // 帧流」占位，既有降级路径，零新增）。桌面端零改动（桌面走独立窗）。
+  if (controlState === 'linking' || controlState === 'active') {
+    return (
+      <div className="mobile-meeting-page">
+        <header className="mobile-meeting-header">
+          <div className="mobile-meeting-info">
+            <h1>{controlState === 'active' ? '远程控制中' : '控制会话建立中'}</h1>
+            <span className="mobile-meeting-id">{roomName}</span>
+          </div>
+          <button
+            type="button"
+            className="mobile-control-btn end-call"
+            onClick={() => useControlSessionStore.getState().release('revoked')}
+          >
+            结束控制
+          </button>
+        </header>
+        <main className="mobile-meeting-main" style={{ padding: 0 }}>
+          {controlState === 'active' ? (
+            <ControlWindow />
+          ) : (
+            <div className="mobile-meeting-loading">
+              <div className="mobile-meeting-spinner" />
+              <p>对方已授权，控制会话建立中…</p>
+            </div>
+          )}
+        </main>
       </div>
     );
   }
@@ -855,6 +922,17 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
             transition={{ duration: 0.2 }}
           >
             <span className="meeting-share-toast">{shareToast}</span>
+          </motion.div>
+        )}
+        {controlNotice && (
+          <motion.div
+            className="meeting-share-toast-wrap"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <span className="meeting-share-toast">{controlNotice}</span>
           </motion.div>
         )}
       </AnimatePresence>
