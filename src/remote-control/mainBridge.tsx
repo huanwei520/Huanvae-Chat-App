@@ -116,6 +116,7 @@ export function MainBridge() {
             friends.find((f) => f.friend_nickname?.trim().toLowerCase() === name.toLowerCase());
           if (hit) {
             target = hit.friend_id;
+            // eslint-disable-next-line no-console -- 发布诊断日志（M1 解析命中），零行为变更的 lint 合规处理（4r2sli2c 门禁）
             console.info(`[RemoteControl] M1 目标经好友列表解析：${name} -> ${hit.friend_id}`);
           }
         } catch {

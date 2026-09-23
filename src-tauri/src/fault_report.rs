@@ -398,6 +398,8 @@ fn device_model() -> String {
     }
 }
 
+// android target 下调用点被 cfg 排除，函数随之不参与编译（对齐调用面同款 cfg，解 clippy-android dead_code）
+#[cfg(not(target_os = "android"))]
 fn hostname() -> Option<String> {
     std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string())
 }
