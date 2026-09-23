@@ -1,7 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": [],
+    "externalBin": [
+      "binaries/hv-control-daemon"
+    ],
     "resources": {
       "resources/HuanvaeGuard-macos/*": "HuanvaeGuard-macos/"
     }
