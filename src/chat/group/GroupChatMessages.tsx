@@ -251,6 +251,7 @@ export function GroupChatMessages({
       conversationKey: groupConversationKey(groupId),
       messageUuid: message.message_uuid,
       senderName: displayNameOf(message),
+      senderId: message.sender_id,
       preview: summarizeMessageForReply(message),
       // 组合消息快照的另外两件：类型 + 时间也在选中这一刻定格，发送时原样进信封
       messageType: message.message_type,
@@ -446,7 +447,7 @@ export function GroupChatMessages({
 
                 // 引用块内容：非回复消息为 null（不渲染）；本地反查落空时用随包快照兑底，
                 // 两者皆无（旧消息）才给「未加载」占位（仍可点）
-                const replyQuote = resolveReplyQuoteFromMessage(replyPreviewIndex, message);
+                const replyQuote = resolveReplyQuoteFromMessage(replyPreviewIndex, message, currentUserId);
 
                 return (
                   <GroupMessageBubble

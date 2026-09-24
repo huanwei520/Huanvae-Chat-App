@@ -569,7 +569,14 @@ export function useMainPage() {
     const replySnapshot = replyTo && replyDraft
       ? {
         reply_to: replyDraft.messageUuid,
-        sender_name: replyDraft.senderName,
+        // sender_name 必须是**对端可直接渲染**的名字：草稿里的 senderName 是发送方视角
+        // （私聊里自己的消息叫「我」），原样发给对端会把对方收到的引用错标成「我」。
+        // 自己的消息 → 换上自己的账号昵称；别人的消息 → 草稿值本身就是原始名字，直接用。
+        // 接收端另有 sender_id 做「我」的本地化，双保险。
+        sender_name: replyDraft.senderId === session?.userId
+          ? (session?.profile?.user_nickname ?? replyDraft.senderName)
+          : replyDraft.senderName,
+        sender_id: replyDraft.senderId,
         summary: replyDraft.preview,
         message_type: replyDraft.messageType,
         send_time: replyDraft.sendTime,
@@ -586,7 +593,7 @@ export function useMainPage() {
       await sendGroupMessage(content, replyTo, replySnapshot);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft]);
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft, session]);
 
   // ============================================
   // 文件上传

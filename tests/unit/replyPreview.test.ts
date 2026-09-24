@@ -252,4 +252,29 @@ describe('resolveReplyQuoteFromMessage', () => {
     expect(resolveReplyQuoteFromMessage(index, { reply_to: null, reply_snapshot: snapshot })).toBeNull();
     expect(resolveReplyQuoteFromMessage(index, {})).toBeNull();
   });
+
+  // 跨端「我」本地化：快照 sender_name 是发送方视角，接收端按 sender_id 与本地 userId 判定
+  it('快照 sender_id 命中本端 userId：senderName 本地化为「我」', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: { ...snapshot, sender_name: 'Alice', sender_id: 'me-1' },
+    }, 'me-1');
+    expect(out).toEqual({ senderName: '我', text: '很早的原消息', resolved: true });
+  });
+
+  it('快照 sender_id 是别人：原样渲染 sender_name，不可本地化为「我」', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: { ...snapshot, sender_name: 'Alice', sender_id: 'other-1' },
+    }, 'me-1');
+    expect(out).toEqual({ senderName: 'Alice', text: '很早的原消息', resolved: true });
+  });
+
+  it('旧信封无 sender_id：原样渲染 sender_name（兼容首版组合消息）', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: snapshot,
+    }, 'me-1');
+    expect(out).toEqual({ senderName: 'Bob', text: '很早的原消息', resolved: true });
+  });
 });

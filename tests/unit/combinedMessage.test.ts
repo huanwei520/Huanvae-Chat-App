@@ -101,6 +101,28 @@ describe('parseCombinedMessageContent 严格校验（兼容性核心）', () => 
     });
     expect(parseCombinedMessageContent(badTime)).toBeNull();
   });
+
+  it('sender_id 可选：缺失时解析成功且不带该字段（兼容首版信封）', () => {
+    const wire = buildCombinedMessageContent('hi', SNAPSHOT);
+    const out = parseCombinedMessageContent(wire);
+    expect(out).not.toBeNull();
+    expect(out?.reply.sender_id).toBeUndefined();
+  });
+
+  it('sender_id 出现则透传；非字符串整包拒收', () => {
+    const wire = JSON.stringify({
+      hv_combo_v1: 1,
+      text: 'hi',
+      reply: { ...SNAPSHOT, sender_id: 'user-9' },
+    });
+    expect(parseCombinedMessageContent(wire)?.reply.sender_id).toBe('user-9');
+    const bad = JSON.stringify({
+      hv_combo_v1: 1,
+      text: 'hi',
+      reply: { ...SNAPSHOT, sender_id: 42 },
+    });
+    expect(parseCombinedMessageContent(bad)).toBeNull();
+  });
 });
 
 describe('stripCombinedEnvelope（预览 / 搜索 / 通知路径用）', () => {

@@ -50,6 +50,13 @@ export interface ReplySnapshot {
   message_type: string;
   /** 原消息发送时间（ISO，取自原消息 send_time）；拿不到时为 null */
   send_time: string | null;
+  /**
+   * 原消息发送者 user_id（跨端身份锚点，可选——首版信封没有该字段，解析容忍缺失）。
+   * 为什么需要它：sender_name 是**发送方视角**的名字（好友私聊里自己的消息叫「我」），
+   * 直接把它渲染到对端会把别人的消息错标成「我」。接收端拿 sender_id 与本地 userId
+   * 比对，命中才本地化成「我」，否则原样显示 sender_name。
+   */
+  sender_id?: string;
 }
 
 /** 组合消息拆包结果 */
@@ -120,6 +127,11 @@ export function parseCombinedMessageContent(content: string): CombinedMessagePay
   if (sendTime !== null && sendTime !== undefined && typeof sendTime !== 'string') {
     return null;
   }
+  // sender_id 可选（首版信封无此字段）：出现就必须是字符串，缺失则不带
+  const senderId = replyRecord.sender_id;
+  if (senderId !== undefined && typeof senderId !== 'string') {
+    return null;
+  }
   return {
     text,
     reply: {
@@ -128,6 +140,7 @@ export function parseCombinedMessageContent(content: string): CombinedMessagePay
       summary: replyRecord.summary as string,
       message_type: replyRecord.message_type as string,
       send_time: typeof sendTime === 'string' ? sendTime : null,
+      ...(typeof senderId === 'string' ? { sender_id: senderId } : {}),
     },
   };
 }

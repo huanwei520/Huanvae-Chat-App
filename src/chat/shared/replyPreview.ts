@@ -166,6 +166,7 @@ export interface ReplyQuoteSource {
 export function resolveReplyQuoteFromMessage(
   index: ReadonlyMap<string, ReplyPreviewEntry> | undefined,
   message: ReplyQuoteSource,
+  currentUserId?: string,
 ): ResolvedReplyQuote | null {
   const local = resolveReplyQuote(index, message.reply_to);
   if (local?.resolved) {
@@ -173,7 +174,12 @@ export function resolveReplyQuoteFromMessage(
   }
   const snapshot = message.reply_snapshot;
   if (message.reply_to && snapshot && snapshot.reply_to === message.reply_to) {
-    return { senderName: snapshot.sender_name, text: snapshot.summary, resolved: true };
+    // sender_name 是发送方视角的名字：快照带 sender_id 且命中本端用户时，本地化为「我」，
+    // 否则原样渲染（它本来就是原始昵称，不是「我」——发送端已做过一次转换）。
+    const senderName = snapshot.sender_id && currentUserId && snapshot.sender_id === currentUserId
+      ? '我'
+      : snapshot.sender_name;
+    return { senderName, text: snapshot.summary, resolved: true };
   }
   return local;
 }
