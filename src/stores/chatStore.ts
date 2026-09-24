@@ -70,6 +70,10 @@ export interface ReplyDraft {
   senderName: string;
   /** 被回复消息的单行摘要 */
   preview: string;
+  /** 被回复消息的类型（组合消息快照字段；发送时原样进信封） */
+  messageType: string;
+  /** 被回复消息的发送时间 ISO（组合消息快照字段；发送时原样进信封） */
+  sendTime: string;
 }
 
 /** 禁言信息 */

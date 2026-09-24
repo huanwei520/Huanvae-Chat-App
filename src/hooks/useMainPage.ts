@@ -563,15 +563,27 @@ export function useMainPage() {
     const replyTo = draftKey && replyDraft?.conversationKey === draftKey
       ? replyDraft.messageUuid
       : undefined;
+    // 组合消息快照（owner 2026-09-24 定案）：发引用回复时把原消息「发送者/摘要/类型/时间/uuid」
+    // 随回复正文一起打包上行，接收端不再依赖本地加载过原消息才能显示引用内容。
+    // 草稿里的四件全是选中回复那一刻的定格值，不在此处反查（原消息可能已翻出窗口）。
+    const replySnapshot = replyTo && replyDraft
+      ? {
+        reply_to: replyDraft.messageUuid,
+        sender_name: replyDraft.senderName,
+        summary: replyDraft.preview,
+        message_type: replyDraft.messageType,
+        send_time: replyDraft.sendTime,
+      }
+      : undefined;
     // 先清草稿再 await：发送是异步的，不先清会让「正在回复」条在整个网络往返期间挂着，
     // 用户以为没发出去而重复点发送。
     if (replyDraft) { setReplyDraft(null); }
 
     if (isFriendLikeTarget(chatTarget)) {
-      await sendFriendMessage(content, replyTo);
+      await sendFriendMessage(content, replyTo, replySnapshot);
       updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
-      await sendGroupMessage(content, replyTo);
+      await sendGroupMessage(content, replyTo, replySnapshot);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
   }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft]);

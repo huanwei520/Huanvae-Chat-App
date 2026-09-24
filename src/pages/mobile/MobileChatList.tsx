@@ -19,6 +19,7 @@ import { BotBadge } from '../../components/common/BotBadge';
 import { comparePinnedThenTime } from '../../components/unified/conversationSort';
 import { ConversationContextMenu, PinFlagIcon } from '../../components/unified/ConversationContextMenu';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
+import { stripCombinedEnvelopeNullable } from '../../chat/shared/combinedMessage';
 import { MobileDownloadCard } from '../../update/components/MobileDownloadCard';
 import { GlobalMessageSearchResults } from '../../components/search/GlobalMessageSearchResults';
 import { useChatStore, useProfileViewStore, useGroupDetailStore } from '../../stores';
@@ -130,7 +131,7 @@ export function MobileChatList({
         type: 'group' as const,
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage: localPreview?.lastMessage ?? group.last_message_content ?? null,
+        lastMessage: localPreview?.lastMessage ?? stripCombinedEnvelopeNullable(group.last_message_content),
         lastMessageTime: localPreview?.lastMessageTime ?? group.last_message_time ?? null,
         // 未读数只认 WS unreadSummary（按 last-read-seq 派生口径），不兜底 REST 的
         // group.unread_count（旧计数器列，口径分叉），与桌面端 UnifiedList 归一

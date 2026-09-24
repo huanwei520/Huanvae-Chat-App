@@ -43,6 +43,12 @@ import { mergeMessageList } from '../shared/mergeMessageList';
 import { pickSendingEchoIndex } from '../shared/wsEchoClaim';
 // 文本假阴性对账（与好友会话同口径）：增量同步不含自己发的消息，必须查历史
 import { probeSentText } from '../shared/sendFailureReconcile';
+// 组合消息（原消息快照 + 回复正文）：上行打包、入口拆包，见 combinedMessage.ts 文件头
+import {
+  buildCombinedMessageContent,
+  parseCombinedMessageContent,
+  type ReplySnapshot,
+} from '../shared/combinedMessage';
 import type { SendingMediaEntry } from '../../stores/sendingMediaStore';
 import type { WsNewMessage, WsMessageRecalled } from '../../types/websocket';
 
@@ -92,13 +98,18 @@ const LOCATE_WINDOW_BEFORE = 30;
 const LOCATE_WINDOW_AFTER = 30;
 
 function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
+  // 组合消息拆包（唯一 DB→UI 拆包点，群聊侧）：本地库存的是原样信封（与服务端一致，
+  // 重启后快照仍可用），这里拆成纯正文 + 随包快照，下游渲染/转发/多选全都无需感知信封。
+  const combined = local.content_type === 'text'
+    ? parseCombinedMessageContent(local.content)
+    : null;
   return {
     message_uuid: local.message_uuid,
     group_id: local.conversation_id,
     sender_id: local.sender_id,
     sender_nickname: local.sender_name || '',
     sender_avatar_url: resolveServerAvatarUrl(local.sender_avatar) || '',
-    message_content: local.content,
+    message_content: combined ? combined.text : local.content,
     message_type: local.content_type as GroupMessage['message_type'],
     file_uuid: local.file_uuid,
     file_url: local.file_url,
@@ -106,6 +117,7 @@ function localMessageToGroupMessage(local: LocalMessage): GroupMessage {
     image_width: local.image_width,
     image_height: local.image_height,
     reply_to: local.reply_to,
+    reply_snapshot: combined ? combined.reply : undefined,
     // 相册三件套：落库了但转换时丢掉等于白存，相册照样散成 N 条独立图片
     media_group_id: local.media_group_id,
     media_group_index: local.media_group_index,
@@ -533,7 +545,11 @@ export function useLocalGroupMessages(groupId: string | null) {
    *   乐观消息、HTTP 请求体、本地落库三处都要带上它，否则发出去的那一刻本端气泡不显示引用，
    *   或者重开会话后引用丢失（本地 DB 是重开时的唯一数据源）。
    */
-  const sendTextMessage = useCallback(async (content: string, replyTo?: string): Promise<void> => {
+  const sendTextMessage = useCallback(async (
+    content: string,
+    replyTo?: string,
+    replySnapshot?: ReplySnapshot,
+  ): Promise<void> => {
     if (!groupId || !content.trim() || !session) {
       return;
     }
@@ -542,6 +558,13 @@ export function useLocalGroupMessages(groupId: string | null) {
     const clientId = newLocalSendClientId();
     const tempUuid = clientId; // 临时 UUID 使用 clientId
     const tempSendTime = new Date().toISOString();
+
+    // 组合消息：引用回复时把原消息快照随正文一起上行（信封在 message_content 里，
+    // message_type/reply_to 等协议字段不变，服务端按不透明字符串中转）。
+    // 乐观消息与本地 UI 始终用纯正文 + reply_snapshot；信封只出现在 wire 与本地 DB。
+    const wireContent = replyTo && replySnapshot
+      ? buildCombinedMessageContent(content, replySnapshot)
+      : content;
 
     // 构建临时消息对象（乐观更新）
     const tempMessage: GroupMessage = {
@@ -556,6 +579,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       file_url: null,
       file_size: null,
       reply_to: replyTo ?? null,
+      reply_snapshot: replyTo ? replySnapshot : undefined,
       send_time: tempSendTime,
       is_recalled: false,
       seq: 0,
@@ -573,7 +597,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       // 调用 API 发送
       const response = await sendGroupMessage(api, {
         group_id: groupId,
-        message_content: content,
+        message_content: wireContent,
         message_type: 'text',
         // 非回复时留 undefined，JSON 序列化会整个丢掉这个 key（后端 reply_to 为可选字段）
         reply_to: replyTo,
@@ -600,7 +624,8 @@ export function useLocalGroupMessages(groupId: string | null) {
         sender_id: session.userId,
         sender_name: session.profile.user_nickname,
         sender_avatar: session.profile.user_avatar_url,
-        content,
+        // 本地库存原样信封（与服务端一致）：重启后转换拆包，快照依然可用
+        content: wireContent,
         content_type: 'text',
         file_uuid: null,
         file_url: null,
@@ -639,7 +664,8 @@ export function useLocalGroupMessages(groupId: string | null) {
           const hit = await probeSentText(api, {
             conversationType: 'group',
             targetId: groupId,
-            content,
+            // 服务端存的是 wire 正文（组合消息即信封）；必须用同形正文比对才对得上
+            content: wireContent,
             messageType: 'text',
             sendTimeIso: tempSendTime,
             userId: session.userId,
@@ -665,7 +691,7 @@ export function useLocalGroupMessages(groupId: string | null) {
             sender_id: session.userId,
             sender_name: session.profile.user_nickname,
             sender_avatar: session.profile.user_avatar_url,
-            content,
+            content: wireContent,
             content_type: 'text',
             file_uuid: null,
             file_url: null,
@@ -888,6 +914,14 @@ export function useLocalGroupMessages(groupId: string | null) {
 
     logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid, sender: wsMsg.sender_id });
 
+    // 组合消息拆包（唯一 WS→UI 拆包点，群聊侧）：回显认领与新增消息都用拆包后的纯正文，
+    // 否则信封与乐观消息的纯正文对不上，回显认领会落空、新消息气泡会显示裸 JSON。
+    const rawContent = wsMsg.content || wsMsg.preview || '';
+    const combined = wsMsg.message_type === 'text'
+      ? parseCombinedMessageContent(rawContent)
+      : null;
+    const plainContent = combined ? combined.text : rawContent;
+
     // 智能处理消息：
     // 1. 如果 message_uuid 已存在 → 更新 seq
     // 2. 如果是自己发送的且有 sendStatus='sending' → 替换为服务器确认的消息
@@ -912,7 +946,7 @@ export function useLocalGroupMessages(groupId: string | null) {
       // sending 兜底 > failed 仅精确修复）。
       if (wsMsg.sender_id === session.userId) {
         const sendingIndex = pickSendingEchoIndex(prev, {
-          content: wsMsg.content || wsMsg.preview || '',
+          content: plainContent,
           message_type: wsMsg.message_type,
         });
         if (sendingIndex >= 0) {
@@ -938,7 +972,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         sender_id: wsMsg.sender_id,
         sender_nickname: wsMsg.sender_nickname || '',
         sender_avatar_url: resolveServerAvatarUrl(wsMsg.sender_avatar_url) || '',
-        message_content: wsMsg.content || wsMsg.preview || '',
+        message_content: plainContent,
         message_type: wsMsg.message_type as GroupMessage['message_type'],
         file_uuid: wsMsg.file_uuid ?? null,
         file_url: wsMsg.file_url ?? null,
@@ -949,6 +983,7 @@ export function useLocalGroupMessages(groupId: string | null) {
         // 后端 ws_message.rs 注释明写「此前群消息的 reply_to 也未下发，本次补齐」，
         // App 侧一直没接上这一跳。
         reply_to: wsMsg.reply_to ?? null,
+        reply_snapshot: combined ? combined.reply : undefined,
         media_group_id: wsMsg.media_group_id ?? null,
         media_group_index: wsMsg.media_group_index ?? null,
         media_group_count: wsMsg.media_group_count ?? null,

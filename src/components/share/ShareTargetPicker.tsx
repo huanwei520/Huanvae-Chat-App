@@ -31,6 +31,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore } from '../../stores/chatStore';
 import { useLocalConversations } from '../../hooks/useLocalConversations';
 import { comparePinnedThenTime } from '../unified/conversationSort';
+import { stripCombinedEnvelopeNullable } from '../../chat/shared/combinedMessage';
 import { friendDisplayName } from '../../utils/friendName';
 import { formatMessageTime } from '../../utils/time';
 import { AvatarPlaceholder } from '../common/AvatarPlaceholder';
@@ -153,7 +154,7 @@ export function ShareTargetPicker({
       name: g.group_name,
       avatarUrl: g.group_avatar_url || null,
       uniqueKey: `group-${g.group_id}`,
-      lastMessage: p?.lastMessage ?? g.last_message_content ?? null,
+      lastMessage: p?.lastMessage ?? stripCombinedEnvelopeNullable(g.last_message_content),
       lastMessageTime: p?.lastMessageTime ?? g.last_message_time ?? null,
       isPinned: p?.isPinned ?? false,
     };

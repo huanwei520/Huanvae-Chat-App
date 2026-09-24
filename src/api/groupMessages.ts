@@ -6,6 +6,7 @@
 
 import type { ApiClient } from './client';
 import type { MessageSendStatus } from '../types/chat';
+import type { ReplySnapshot } from '../chat/shared/combinedMessage';
 
 // ============================================
 // 类型定义
@@ -34,6 +35,9 @@ export interface GroupMessage {
   /** 图片高度（像素），仅图片类型消息有值 */
   image_height?: number | null;
   reply_to: string | null;
+  /** 组合消息随包原消息快照（combinedMessage.ts 信封拆出；旧消息/非回复无此字段）。
+   *  仅客户端内存态：wire 侧它在 message_content 信封里，本地 DB 存原样信封、转换时拆出。 */
+  reply_snapshot?: ReplySnapshot | null;
   /** 媒体组（相册）ID —— 组内各项共享同一值，由客户端生成；非组内消息为 null。撤回不清空 */
   media_group_id?: string | null;
   /** 组内位次（0-based）；index=0 那条的 message_content 即整组 caption */

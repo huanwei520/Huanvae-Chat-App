@@ -31,6 +31,7 @@ import { useCardLiveStore } from '../stores/cardLiveStore';
 import { useShelfStore, isShelfItem } from '../stores/shelfStore';
 import { useControlSessionStore } from '../remote-control/sessionStore';
 import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
+import { stripCombinedEnvelope } from '../chat/shared/combinedMessage';
 import {
   isReadPositionsLoaded,
   getReadPositionsSnapshot,
@@ -96,7 +97,9 @@ export function getMessagePreviewText(
 ): string {
   switch (messageType) {
     case 'text':
-      return preview;
+      // 组合消息信封（combinedMessage.ts）可能随 WS 帧到达：会话卡片那一行只显示回复正文，
+      // 非信封文本原样返回，两不误。
+      return stripCombinedEnvelope(preview);
     case 'image':
       return '[图片]';
     case 'video':

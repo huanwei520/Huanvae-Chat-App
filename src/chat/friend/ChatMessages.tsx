@@ -42,7 +42,7 @@ import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import {
   buildReplyPreviewIndex,
-  resolveReplyQuote,
+  resolveReplyQuoteFromMessage,
   summarizeMessageForReply,
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
@@ -170,6 +170,9 @@ export function ChatMessages({
       messageUuid: message.message_uuid,
       senderName: displayNameOf(message),
       preview: summarizeMessageForReply(message),
+      // 组合消息快照的另外两件：类型 + 时间也在选中这一刻定格，发送时原样进信封
+      messageType: message.message_type,
+      sendTime: message.send_time,
     });
   }, [setReplyDraft, conversationType, friend.friend_id, displayNameOf]);
 
@@ -435,7 +438,7 @@ export function ChatMessages({
                     onDelete={() => onDelete?.(message.message_uuid)}
                     onEnterMultiSelect={onEnterMultiSelect}
                     readReceipt={readReceipt}
-                    replyQuote={resolveReplyQuote(replyPreviewIndex, message.reply_to)}
+                    replyQuote={resolveReplyQuoteFromMessage(replyPreviewIndex, message)}
                     onQuoteClick={handleQuoteClick}
                     onReply={handleReply}
                     isHighlighted={highlightedMessageId === message.message_uuid}
