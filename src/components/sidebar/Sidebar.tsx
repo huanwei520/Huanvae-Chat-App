@@ -5,7 +5,7 @@
  * - 固定区：消息、好友、群聊（高频核心操作，不可拖动）
  * - 钉住区（SidebarPinZone）：用户从"更多"面板拖出的工具项，图标常驻侧边栏
  * - 更多浮层（SidebarMorePanel）：未钉住的低频工具（文件/局域网互传/会议/小程序/
- *   机器人/低代码/VPN/股票），点击"更多"展开
+ *   机器人/低代码/VPN），点击"更多"展开
  * - 底部区：设置、退出
  *
  * 双区拖放（dnd-kit）：
@@ -111,14 +111,6 @@ const BotIcon = () => (
   </svg>
 );
 
-// 股票研究图标（K 线柱状 + 趋势线风格）
-const StockIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M7 15l3-4 3 3 4-6" />
-  </svg>
-);
-
 // "更多"按钮图标（三个圆点 · · ·）
 const MoreIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -140,7 +132,6 @@ interface SidebarProps {
     onMiniAppsClick: () => void;
     onBotsClick: () => void;
     onHuanvaeGuardClick: () => void;
-    onStocksClick: () => void;
     onSettingsClick: () => void;
     onLogout: () => void;
 }
@@ -238,7 +229,6 @@ export function Sidebar({
   onMiniAppsClick,
   onBotsClick,
   onHuanvaeGuardClick,
-  onStocksClick,
   onSettingsClick,
   onLogout,
 }: SidebarProps) {
@@ -329,7 +319,6 @@ export function Sidebar({
     miniapps: { icon: <MiniAppsIcon />, label: '小程序', onClick: onMiniAppsClick },
     bots: { icon: <BotIcon />, label: '机器人', onClick: onBotsClick },
     guard: { icon: <GuardIcon />, label: 'VPN 组网', onClick: onHuanvaeGuardClick },
-    stocks: { icon: <StockIcon />, label: '股票研究', onClick: onStocksClick },
   };
 
   // ---- dnd-kit 拖拽编排（标准多容器模式） ----

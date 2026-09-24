@@ -55,7 +55,6 @@ function renderSidebar() {
     onMiniAppsClick: vi.fn(),
     onBotsClick: vi.fn(),
     onHuanvaeGuardClick: vi.fn(),
-    onStocksClick: vi.fn(),
     onSettingsClick: vi.fn(),
     onLogout: vi.fn(),
   };
@@ -85,7 +84,7 @@ describe('Sidebar 钉住区', () => {
 
   it('localStorage 预置 pinned:["files","guard"] 时按序渲染 2 个钉住按钮', () => {
     mockedGetItem.mockReturnValue(
-      '{"pinned":["files","guard"],"more":["lan","meeting","miniapps","stocks"]}',
+      '{"pinned":["files","guard"],"more":["lan","meeting","miniapps"]}',
     );
     const { container } = renderSidebar();
 
@@ -93,9 +92,9 @@ describe('Sidebar 钉住区', () => {
     expect(pinnedTitles(container)).toEqual(['我的文件', 'VPN 组网']);
   });
 
-  it('点击 title=我的文件 的钉住按钮 → onFilesClick 恰一次，其余 6 个工具回调零调用', () => {
+  it('点击 title=我的文件 的钉住按钮 → onFilesClick 恰一次，其余 5 个工具回调零调用', () => {
     mockedGetItem.mockReturnValue(
-      '{"pinned":["files","guard"],"more":["lan","meeting","miniapps","stocks"]}',
+      '{"pinned":["files","guard"],"more":["lan","meeting","miniapps"]}',
     );
     const { fns } = renderSidebar();
 
@@ -107,12 +106,11 @@ describe('Sidebar 钉住区', () => {
     expect(fns.onMiniAppsClick).toHaveBeenCalledTimes(0);
     expect(fns.onBotsClick).toHaveBeenCalledTimes(0);
     expect(fns.onHuanvaeGuardClick).toHaveBeenCalledTimes(0);
-    expect(fns.onStocksClick).toHaveBeenCalledTimes(0);
   });
 
   it('预置含非法 key 的 pinned（["files","bogus"]）→ 清洗后只渲染 1 个钉住按钮', () => {
     mockedGetItem.mockReturnValue(
-      '{"pinned":["files","bogus"],"more":["lan","meeting","miniapps","guard","stocks"]}',
+      '{"pinned":["files","bogus"],"more":["lan","meeting","miniapps","guard"]}',
     );
     const { container } = renderSidebar();
 

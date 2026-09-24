@@ -23,7 +23,6 @@ import { MeetingPage } from './meeting';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { HuanvaeGuardPage } from './huanvaeGuard';
-import { StockPage } from './stocks';
 import { discoverEndpoints } from './services/discovery';
 import { initSecureProxy } from './services/secureProxy';
 import { installFaultCapture } from './services/faultReport';
@@ -68,15 +67,6 @@ function RootApp() {
     );
   }
 
-  // 股票研究页面（独立窗口，仅桌面端，包裹 ThemeProvider 以继承主题）
-  if (pathname === '/stocks') {
-    return (
-      <ThemeProvider>
-        <StockPage />
-      </ThemeProvider>
-    );
-  }
-
   // 会议内远程控制独立窗口（dev 门控：仅 VITE_DEV_CONTROL=1 构建可达该路由——
   // 窗口仅由 wsHandlers N2 分支的 dev 门控代码创建；生产构建本分支恒占位页）
   if (pathname === '/remote-control') {
@@ -112,7 +102,7 @@ function renderApp() {
 // 否则 resolveForSecureHttp() 返回 null → URL 主机不被改写为 IP → 连逻辑域名(发 SNI)→ 被阿里云 ICP 拦。
 // 缓存新鲜时仅一次磁盘读(无网络),阻塞渲染极短;主窗口由 App.tsx 登录/恢复链路自行发现,不在此列。
 const DATA_PLANE_SUBWINDOWS = new Set(
-  ['/meeting', '/media', '/huanvae-guard', '/stocks',
+  ['/meeting', '/media', '/huanvae-guard',
     // 会议内远程控制独立窗口（dev 门控面，设计 §4.2/§8.2；生产构建窗口不可达，路由分支 inert）
     '/remote-control'],
 );

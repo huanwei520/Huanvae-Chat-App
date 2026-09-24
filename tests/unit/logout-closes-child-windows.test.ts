@@ -1,7 +1,7 @@
 /**
  * 契约守门：子窗口生命周期必须跟随主会话
  *
- * 两条路径都要让所有非 main 子窗口（lan-transfer / stocks-research / miniapp-* 动态 /
+ * 两条路径都要让所有非 main 子窗口（lan-transfer / miniapp-* 动态 /
  * meeting / theme-editor / huanvae-guard / media）关闭：
  * - 登出：SessionContext.clearSession 开头 invoke('close_child_windows')（Rust 侧集中关窗，
  *   绕开前端 ACL 与动态 label 枚举问题）。

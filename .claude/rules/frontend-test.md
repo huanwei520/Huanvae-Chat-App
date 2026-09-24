@@ -748,7 +748,7 @@ await waitFor(() => {
 
 **产出层级 = e2e(L2.5-web)**：真前端 + 真跨实例后端；**无 Tauri 壳、无 secure_net TLS 面、本地 sqlite = 内存桩**。交付层级只能写 `e2e(L2.5-web)`，**禁写"L3 真机通过"**（完整 Tauri 壳 + 生产 TLS 属独立真机终验层，不在本门）。
 
-运行需注入 `E2E_PG_URL`（flow10/stocks 经它种子后端 PG）。**PUBLIC 仓红线**：库连接串 / e2e 账号一律运行时 env 注入，**绝不硬编码进 spec / config / 任何提交物**。
+运行需注入 `E2E_PG_URL`（flow10 经它种子后端 PG）。**PUBLIC 仓红线**：库连接串 / e2e 账号一律运行时 env 注入，**绝不硬编码进 spec / config / 任何提交物**。
 
 ### 触发面：改这些必跑 `pnpm e2e:real`（或声明豁免）
 

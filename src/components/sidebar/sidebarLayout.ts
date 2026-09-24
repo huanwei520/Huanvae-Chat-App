@@ -25,8 +25,7 @@ export type SidebarItemKey =
   | 'meeting'
   | 'miniapps'
   | 'bots'
-  | 'guard'
-  | 'stocks';
+  | 'guard';
 
 /** 全部工具项 key 的默认顺序（补缺时按此顺序追加到 more 末尾） */
 export const SIDEBAR_ITEM_KEYS: readonly SidebarItemKey[] = [
@@ -36,7 +35,6 @@ export const SIDEBAR_ITEM_KEYS: readonly SidebarItemKey[] = [
   'miniapps',
   'bots',
   'guard',
-  'stocks',
 ];
 
 /** 单个工具项配置（icon + 文案 + 点击动作） */
@@ -72,7 +70,7 @@ function isSidebarItemKey(value: unknown): value is SidebarItemKey {
  * - 不是 plain object、或 pinned/more 任一不是数组 → defaultLayout()
  * - 逐元素过滤：仅接受 SIDEBAR_ITEM_KEYS 中的字符串
  * - 跨区去重：同 key 先出现在 pinned 则留 pinned（pinned 优先）；同区重复留首个
- * - 7 个 key 中缺失的按 SIDEBAR_ITEM_KEYS 默认顺序补到 more 末尾
+ * - 6 个 key 中缺失的按 SIDEBAR_ITEM_KEYS 默认顺序补到 more 末尾
  */
 export function normalizeLayout(saved: unknown): SidebarLayout {
   if (typeof saved !== 'object' || saved === null || Array.isArray(saved)) {

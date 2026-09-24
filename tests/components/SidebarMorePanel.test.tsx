@@ -38,10 +38,9 @@ const LABELS: Record<SidebarItemKey, string> = {
   miniapps: '小程序',
   bots: '机器人',
   guard: 'VPN 组网',
-  stocks: '股票研究',
 };
 
-/** 构建 7 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
+/** 构建 6 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
 function buildItems() {
   const actions = {} as Record<SidebarItemKey, ReturnType<typeof vi.fn<() => void>>>;
   const items = {} as Record<SidebarItemKey, SidebarItemConfig>;
@@ -80,24 +79,24 @@ function itemLabels(): (string | null)[] {
 }
 
 describe('SidebarMorePanel', () => {
-  it('moreKeys 全 7 项按传入顺序渲染', () => {
+  it('moreKeys 全 6 项按传入顺序渲染', () => {
     renderPanel([...SIDEBAR_ITEM_KEYS]);
     expect(itemLabels()).toEqual([
-      '我的文件', '局域网互传', '视频会议', '小程序', '机器人', 'VPN 组网', '股票研究',
+      '我的文件', '局域网互传', '视频会议', '小程序', '机器人', 'VPN 组网',
     ]);
   });
 
   it('moreKeys 乱序子集时只渲染子集且顺序跟随', () => {
-    renderPanel(['stocks', 'files', 'lan']);
-    expect(itemLabels()).toEqual(['股票研究', '我的文件', '局域网互传']);
+    renderPanel(['meeting', 'files', 'lan']);
+    expect(itemLabels()).toEqual(['视频会议', '我的文件', '局域网互传']);
   });
 
   it('点击某项时 onItemClick 收到该项对应的 action 引用', () => {
     const { actions, onItemClick } = renderPanel([...SIDEBAR_ITEM_KEYS]);
 
-    fireEvent.click(screen.getByText('股票研究'));
+    fireEvent.click(screen.getByText('机器人'));
     expect(onItemClick).toHaveBeenCalledTimes(1);
-    expect(onItemClick).toHaveBeenCalledWith(actions.stocks);
+    expect(onItemClick).toHaveBeenCalledWith(actions.bots);
 
     fireEvent.click(screen.getByText('我的文件'));
     expect(onItemClick).toHaveBeenCalledTimes(2);

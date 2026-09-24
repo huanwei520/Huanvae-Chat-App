@@ -64,7 +64,7 @@ export interface HuanvaeGuardOverlayData {
  *    双端查测清单见阶段 2b 交付 §1.1）
  * 2. App 安卓侧的全屏页面全部是单窗口内覆盖页（MobileFilesPage / MobileLanTransferPage /
  *    MobileMeetingPage …，均由 MobileMain state + AnimatePresence 承载，无一路走 WebviewWindow）；
- *    桌面专属的 openLanTransferWindow/openStocksWindow 在移动壳里也从不被调用。Guard 页沿用
+ *    桌面专属的 openLanTransferWindow 在移动壳里也从不被调用。Guard 页沿用
  *    该既有形态，行为与 App 安卓整体一致。
  * 3. 数据面差异（localApi 回环 HTTP → 插件命令面）与载体无关，页面组件复用同一份
  *    （HuanvaeGuardPage 接 initialData 直传，桌面子窗口仍走 URL query，见 HuanvaeGuardPage.tsx）。

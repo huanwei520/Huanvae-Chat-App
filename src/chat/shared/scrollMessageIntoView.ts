@@ -10,7 +10,7 @@
  * **为什么手算 scrollTop 而不是 el.scrollIntoView**：scrollIntoView 会沿祖先链冒泡，
  * 让每一个可滚祖先都把目标元素往自己的可视区里对齐 —— 点引用块定位靠底部的消息时，
  * 表现为整个 App 被顶上去（左侧会话栏头像只剩半截、群聊顶栏被推出可视区）。
- * 写法与 UnifiedList.scrollKeyIntoView / StockSearchBox.scrollOptionIntoView 一致，
+ * 写法与 UnifiedList.scrollKeyIntoView 一致，
  * 规范见 .claude/rules/common.md「element.scrollIntoView() 会沿祖先链冒泡」。
  *
  * **为什么是瞬时滚，不做平滑过渡**：本函数只有一个调用方（useMainPage 的定位 effect），

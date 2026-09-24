@@ -36,8 +36,7 @@ allowed-tools: Read, Grep, Glob, Bash, Write
 **第 1 步 · 脚本注入通道判定**：从工程源码现查登录机制（`nl -ba` 原文行进 evidence）。
 关键判据——**分清「构建期常量」vs「运行时注入」**：构建期变量（本仓例：`isE2E()` = 构建期
 `VITE_E2E_BASE_URL`，`src/services/e2eMode.ts:14-16`）对**已安装的 release APK 恒无效**；
-e2e 测试账号随机生成（`e2e-real/helpers/backend-api.ts:3-10`）与 mock 假值
-（`e2e-real/stocks.spec.ts:22`）都只活在 Playwright 测试进程里。⇒ 已装机产物无脚本注入通道，
+e2e 测试账号随机生成（`e2e-real/helpers/backend-api.ts:3-10`）都只活在 Playwright 测试进程里。⇒ 已装机产物无脚本注入通道，
 这是可引用源码行证明的技术事实，不是「没找到」。
 
 **第 2 步 · 生产链可达性预探**（真实 UI 登录必然走生产后端，先证链路活着）：

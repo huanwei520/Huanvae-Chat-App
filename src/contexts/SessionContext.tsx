@@ -66,7 +66,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // 清除会话（同时移除会话锁和持久化数据）
   const clearSession = useCallback(async () => {
-    // 登出联动：关闭所有子窗口（股票/小程序/HG/会议等），避免残留窗口带着旧会话
+    // 登出联动：关闭所有子窗口（小程序/HG/会议等），避免残留窗口带着旧会话
     void invoke('close_child_windows');
 
     // 清空会话级内存缓存（消息缓存/群内屏蔽·特别关心·备注私有视图），避免切换账号后串数据。

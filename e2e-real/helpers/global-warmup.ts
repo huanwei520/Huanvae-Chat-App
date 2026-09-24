@@ -2,7 +2,7 @@
  * real-e2e(L2.5-web) globalSetup —— 预热两个 vite dev origin 的「按需源码转译」内存缓存。
  *
  * 背景：本 VM 共享盘(virtiofs)冷 IO 下,每次 `pnpm e2e:real` 起 fresh vite server,首个页面
- * 加载要按需转译整张静态模块图(main.tsx → App + StockPage + 全部静态 import),耗时约 35s;
+ * 加载要按需转译整张静态模块图(main.tsx → App + 全部静态 import),耗时约 35s;
  * 并发管线负载下偶发把页面加载顶到超时 / 触发 vite `504 (Outdated Optimize Dep)` → 首个真跑
  * 用例(尤其隔离 `--grep` 时的唯一用例)不稳。预热把这一次性冷启成本移到 globalSetup(受控、
  * 带 reload 重试),之后所有用例命中暖转译缓存 → 快且稳。**不改任何 src/ 产品代码,不改断言。**

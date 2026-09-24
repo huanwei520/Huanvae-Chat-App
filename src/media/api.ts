@@ -105,8 +105,7 @@ function saveMediaDataInternal(data: MediaStorageData): void {
  *
  * 🔴 为什么是「取走」而不是「读取」：这份 handoff 里带着完整的 accessToken，
  * 而 localStorage 是**按 origin 共享**且**落盘**的 —— 只读不删的话，令牌会一直躺在
- * 磁盘上直到下次被覆盖或用户卸载，同 origin 的任何其它 webview（主窗、主题编辑器、
- * 股票窗…）一句 `getItem` 就能读走。
+ * 磁盘上直到下次被覆盖或用户卸载，同 origin 的任何其它 webview（主窗、主题编辑器…）一句 `getItem` 就能读走。
  *
  * 做成「读+删」一个动作，是为了让「忘记清理」在结构上不可能发生 ——
  * 上一版把清理留给调用方（`clearMediaData` 写了、导出了、注释了「窗口关闭时调用」），

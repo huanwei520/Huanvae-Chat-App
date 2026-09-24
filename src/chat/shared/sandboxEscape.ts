@@ -14,7 +14,7 @@
  *
  * URL/签名编解码抽成纯函数(isSandboxEscapeAllowed / buildSandboxDataCheckString /
  * signSandboxInitData / buildSandboxWindowUrl),避开 WebviewWindow 静态方法的测试 mock 缺口,
- * 单测零 Tauri 依赖(对齐 stocks/window 先例)。
+ * 单测零 Tauri 依赖。
  */
 
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';

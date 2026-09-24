@@ -19,8 +19,7 @@ src/styles/
 │   └── reply-quote.css    # 群聊回复引用（气泡引用块 / 正在回复条 / 定位失败提示 / 高亮脉冲）
 ├── pages/                 # 页面特定样式
 │   ├── auth.css           # 认证页面
-│   ├── main.css           # 主页面
-│   └── stocks.css         # 股票研究页面（独立窗口）
+│   └── main.css           # 主页面
 │
 # 独立窗口样式（位于各自模块目录）
 ../meeting/styles.css      # 会议页面（独立窗口）

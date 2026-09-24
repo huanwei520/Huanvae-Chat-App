@@ -6,7 +6,7 @@
  *
  * klinecharts 是无框架依赖的 canvas 图表:init 到 div、applyNewData 推数据、dispose 清理。
  * 图表内部动画由 klinecharts 自绘(canvas),不占用 DOM 动画系统 → 单一所有权天然满足,
- * 不登记 animation-conflict 注册表(对齐 stocks/KLineChart 先例)。
+ * 不登记 animation-conflict 注册表。
  */
 
 import { useEffect, useMemo, useRef } from 'react';
