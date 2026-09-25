@@ -46,9 +46,15 @@ import { MeetingShareSheet, buildMeetingInviteText } from '../../meeting/compone
 import { resolveServerAvatarUrl } from '../../utils/avatar';
 import { AvatarPlaceholder } from '../../components/common/AvatarPlaceholder';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { MeetingBridge } from '../../remote-control/meetingBridge';
 import { isRemoteControlEnabled } from '../../remote-control/devGate';
-import { RC_REQUEST_CONTROL } from '../../remote-control/bus';
+import { RC_REQUEST_CONTROL, RC_REQUEST_RELEASE } from '../../remote-control/bus';
+import { useControlSessionStore } from '../../remote-control/sessionStore';
+import { ControlWindow } from '../../remote-control/ControlWindow';
+// 跨端帧通道角色接线（dstdrrek-2）：观看端 controller 角色随会话态挂拆
+// D4/D5（块 1790313105455-rt4p73av-1）：requestControllerRestore＝断链自愈探针入口
+import { requestControllerRestore, sendControlEnd, setSessionRole } from '../../remote-control/frameChannel';
 import { emit } from '@tauri-apps/api/event';
 import { PlatformBadge } from '../../meeting/components/PlatformBadge';
 // #7 目标能力门控（owner 2026-09-14 二次评审②）+ 移动端专属控制按钮（评审①）
@@ -276,6 +282,9 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
   const [showShareActions, setShowShareActions] = useState(false);
   // 复制结果 toast（「已复制会议链接」/「复制失败」），2s 自动消失
   const [shareToast, setShareToast] = useState<string | null>(null);
+  // 缺陷B（2026-09-19）：申请控制发出后的申请方可见反馈——此前 M1 上行成败用户
+  // 全然无感（服务端拒收时只有 console），是「点击申请控制无反应」体感的另一半。
+  const [controlNotice, setControlNotice] = useState<string | null>(null);
 
   // 屏幕共享：发起前敏感内容提示弹窗（Android MediaProjection 采集，UI 对齐桌面形态）
   const [showScreenShareConfirm, setShowScreenShareConfirm] = useState(false);
@@ -399,6 +408,96 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
     return () => clearTimeout(timer);
   }, [shareToast]);
 
+  // 缺陷B：控制会话状态机 → 申请方 toast。requesting＝M1 已上行；
+  // released+error＝服务端拒收（见 wsHandlers case 'error' 的相关性判定）；
+  // released+timeout＝对方 30s 未裁决。终态提示与 shareToast 同模式自动消失。
+  const controlState = useControlSessionStore((s) => s.state);
+  const controlReleaseReason = useControlSessionStore((s) => s.releaseReason);
+  useEffect(() => {
+    if (controlState === 'requesting') {
+      setControlNotice('已发出控制申请，等待对方响应…');
+    } else if (controlState === 'linking') {
+      setControlNotice('对方已授权，控制会话建立中…');
+    } else if (controlState === 'active') {
+      setControlNotice('控制会话已建立');
+    } else if (controlState === 'released' && controlReleaseReason === 'error') {
+      setControlNotice('控制申请未送达：服务端暂不支持远程控制信令');
+    } else if (controlState === 'released' && controlReleaseReason === 'timeout') {
+      setControlNotice('对方未响应控制申请（超时）');
+    }
+  }, [controlState, controlReleaseReason]);
+  useEffect(() => {
+    if (!controlNotice) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setControlNotice(null), 2600);
+    return () => clearTimeout(timer);
+  }, [controlNotice]);
+
+  // 跨端帧通道角色接线（dstdrrek-2）：移动端发起端=controller。linking 态挂角色
+  // （control-session DC 建成后对端 0x07 帧到达 → frameChannel.deliverFrame 内
+  // activate() 迁 active，修复 activate() 零调用者死端）；终态拆。
+  useEffect(() => {
+    if (controlState === 'linking' || controlState === 'active') {
+      setSessionRole('controller');
+    } else {
+      setSessionRole(null);
+    }
+  }, [controlState]);
+
+  // D4（块 1790313105455-rt4p73av-1）：信令面重连即触发控制端数据面自愈探针——
+  // 断链恢复后 control-session DC 不会自行复活（帧计数冻结于断前值实测根因），
+  // 须显式重建；这里不等 8s 周期看门狗（frameChannel 内），重连事件即刻重建。
+  const { onReconnected } = useWebSocket();
+  useEffect(() => {
+    if (controlState !== 'linking' && controlState !== 'active') { return undefined; }
+    return onReconnected(() => { requestControllerRestore(); });
+  }, [controlState, onReconnected]);
+
+  // D5-②（块 1790313105455-rt4p73av-1）：控制会话建立超时——linking 态 30s 内对端
+  // 帧未到（deliverFrame 未 activate）⇒ 判建立失败，呈现超时提示＋重试＋取消
+  // （w10-65/66/67/72：approved:true 已回却永卡「建立中」spinner，无超时无取消）。
+  // 重试＝重挂超时窗＋同源探针立即重建 DC；取消＝endControlNow（M3 撤销链）。
+  // 超时后仍保持 linking 态监听：若自愈探针后续成功（首帧到达），activate 照常
+  // 迁 active 进入控制视图。
+  const LINKING_TIMEOUT_MS = 30_000;
+  const [linkingTimedOut, setLinkingTimedOut] = useState(false);
+  const [linkingAttempt, setLinkingAttempt] = useState(0);
+  useEffect(() => {
+    if (controlState !== 'linking') {
+      setLinkingTimedOut(false);
+      return undefined;
+    }
+    setLinkingTimedOut(false);
+    const t = window.setTimeout(() => setLinkingTimedOut(true), LINKING_TIMEOUT_MS);
+    return () => { window.clearTimeout(t); };
+  }, [controlState, linkingAttempt]);
+  const retryControlEstablishment = useCallback(() => {
+    setLinkingAttempt((n) => n + 1); // 重挂 30s 超时窗
+    requestControllerRestore();      // D4 同源探针：立即重建 control-session DC
+  }, []);
+
+  /** 结束控制（dstdrrek-2 根修）：真页面点击 → 先经主窗发 M3（与桌面停止按钮
+   * 同链，pleibt4s §7.3 欠项的移动端臂），再本地终态。grant/request 真值源＝
+   * sessionStore（N2 advanceLinking 写入，服务器权威 id）；无 grant 只退本地视图
+   * 并留痕（演示链零 WS 属权时的旧行为）。 */
+  const endControlNow = useCallback(() => {
+    const st = useControlSessionStore.getState();
+    // dstdrrek-2 整改（U2）：数据面先行——在 control-session DC 上通知被控端
+    // （服务端 release 回执仅路由 sender 侧，被控端无信令可清横幅）。
+    sendControlEnd();
+    if (st.grantId) {
+      void emit(RC_REQUEST_RELEASE, {
+        grant_id: st.grantId,
+        request_id: st.requestId ?? '',
+        reason: 'revoked',
+      }).catch(() => undefined);
+    } else {
+      console.warn('[RemoteControl] 移动端结束控制：无 grant_id（M3 未发，仅本地终态）');
+    }
+    st.release('revoked');
+  }, []);
+
   // Android 返回键：共享确认弹窗 > 分享动作面板 > 退出聚焦
   useMobileBackHandler(() => {
     if (showScreenShareConfirm) {
@@ -476,6 +575,79 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
       <div className="mobile-meeting-loading">
         <div className="mobile-meeting-spinner" />
         <p>加载中...</p>
+      </div>
+    );
+  }
+
+  // 缺陷B（2026-09-20）：安卓发起端控制视图——授权后（linking，T7 建链中）/
+  // 建立后（active）在当前 WebView 内全屏渲染（Tauri Android 无多窗口，
+  // openRemoteControlWindow 静默失败的历史缺口）。linking 态展示建立中占位
+  // （daemon 部署后完成 T7 迁 active）；active 态帧面连本机 daemon 回环
+  // （ControlWindow 轮询 /control/frame，daemon 未部署时显示其内置「等待被控端
+  // 帧流」占位，既有降级路径，零新增）。桌面端零改动（桌面走独立窗）。
+  if (controlState === 'linking' || controlState === 'active') {
+    return (
+      <div className="mobile-meeting-page">
+        <header className="mobile-meeting-header">
+          <div className="mobile-meeting-info">
+            <h1>{controlState === 'active' ? '远程控制中' : '控制会话建立中'}</h1>
+            <span className="mobile-meeting-id">{roomName}</span>
+          </div>
+          <button
+            type="button"
+            className="mobile-control-btn end-call"
+            onClick={endControlNow}
+          >
+            结束控制
+          </button>
+        </header>
+        <main className="mobile-meeting-main" style={{ padding: 0 }}>
+          {controlState === 'active' ? (
+            <ControlWindow />
+          ) : (
+            <div className="mobile-meeting-loading">
+              <div className="mobile-meeting-spinner" />
+              {!linkingTimedOut ? (
+                <>
+                  <p>对方已授权，控制会话建立中…</p>
+                  {/* D5-②：建立期显式取消（此前仅头部「结束控制」，w10-65/66 证据面
+                      用户在 spinner 面无可达取消） */}
+                  <button
+                    type="button"
+                    className="mobile-control-btn"
+                    style={{ marginTop: 16 }}
+                    onClick={endControlNow}
+                  >
+                    取消控制
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>
+                    控制会话建立超时
+                    （{LINKING_TIMEOUT_MS / 1000} 秒未收到对端帧流，链路恢复后可重试）
+                  </p>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+                    <button
+                      type="button"
+                      className="mobile-control-btn"
+                      onClick={retryControlEstablishment}
+                    >
+                      重试建立
+                    </button>
+                    <button
+                      type="button"
+                      className="mobile-control-btn end-call"
+                      onClick={endControlNow}
+                    >
+                      取消控制
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </main>
       </div>
     );
   }
@@ -855,6 +1027,17 @@ export function MobileMeetingPage({ webrtc, roomName, onClose, onMinimize }: Mob
             transition={{ duration: 0.2 }}
           >
             <span className="meeting-share-toast">{shareToast}</span>
+          </motion.div>
+        )}
+        {controlNotice && (
+          <motion.div
+            className="meeting-share-toast-wrap"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <span className="meeting-share-toast">{controlNotice}</span>
           </motion.div>
         )}
       </AnimatePresence>
