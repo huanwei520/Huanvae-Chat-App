@@ -132,14 +132,19 @@ const controlledPeers = new Set<string>();
 /** 对端真实屏几何（controller 侧由 rc-meta 写入；坐标换算 screenW/H 真值源） */
 let peerScreen: { w: number; h: number } | null = null;
 
-// —— D5（块 1790313105455-rt4p73av-1）：被控端授权免选源——自取 display 轨跨会话复用 ——
+// —— D5（块 1790313105455-rt4p73av-1）：被控端授权免选源——display 轨跨会话复用 ——
 /**
- * 上次自取（acquireOwnCapture → getDisplayMedia）的 display 轨缓存。会话/泵拆除不再
- * stop 轨（旧行为 cap.owned → track.stop()）：下次授权直接复用既有轨，免除被控端
- * 每次「Choose what to share」重选（w10-69/70/71 实测：每授权重弹选源，D5-①）。
- * 轨被外部终结（用户经系统 UI 停止共享/设备变更）→ ended 事件清缓存，回落正常
- * getDisplayMedia 现选（首次授权仍需用户选一次，属系统约束）。仅本模块自取轨入
- * 缓存；会议共享轨（useWebRTC 所有，owned=false）生命周期不归本模块管。
+ * 上次授权在用的 display 轨缓存（自取 getDisplayMedia 轨 + 会议共享注入轨）。会话/泵
+ * 拆除不再 stop 轨（旧行为 cap.owned → track.stop()）：下次授权直接复用既有轨，免
+ * 除被控端每次「Choose what to share」重选（w10-69/70/71 实测：每授权重弹选源，
+ * D5-①）。
+ * 第7轮补测实证（rt4p73av-reauth 85LTJA 房）：卡面场景「会议共享→控制→结束→再授权」
+ * 走 attachLocalTrack 注入轨（owned=false），旧限定「仅自取轨入缓存」致重授权时缓
+ * 存空 → acquireOwnCapture 重弹选源器（win-r2-32-t3s.png 实拍）。修复：停泵时
+ * live 轨一律入缓存——cacheOwnTrack 本就不停轨，注入轨所有权仍在会议（toggleScreen
+ * Share stop 路径 track.stop() → ended 监听自动清缓存），重授权时泵复用缓存轨零选
+ * 源；真实失效（系统 UI 撤销/设备变更/换源）回落正常 getDisplayMedia 现选（首次
+ * 授权仍需用户选一次，属系统约束）。
  */
 let cachedOwnTrack: MediaStreamTrack | null = null;
 
@@ -832,11 +837,10 @@ function stopControlledPump(): void {
   }
   if (cap) {
     cap.video.srcObject = null;
-    if (cap.owned) {
-      // D5（块 1790313105455-rt4p73av-1）：自取 display 轨不再随泵停而 stop——
-      // 入缓存供下次授权免选复用（w10-69/70/71 每授权重弹选源缺陷）。
-      cacheOwnTrack(cap.track);
-    }
+    // D5（块 1790313105455-rt4p73av-1）：live display 轨一律入缓存供下次授权免选复用。
+    // 含会议共享注入轨（owned=false，第7轮补测卡面场景缺陷修复，见 cacheOwnTrack 上
+    // 方注释）：cacheOwnTrack 不停轨，所有权语义不变；ended/换源自动清缓存回落现选。
+    cacheOwnTrack(cap.track);
     capture = null;
   }
 }

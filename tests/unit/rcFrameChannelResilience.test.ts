@@ -402,4 +402,34 @@ describe('rt4p73av D5-①：被控端授权免选源（自取 display 轨跨会�
     releaseCachedOwnTrack();
     expect(issuedTracks[0].stop).toHaveBeenCalledTimes(1);
   });
+
+  it('第7轮补测卡面场景：会议共享注入轨（owned=false）停泵入缓存 ⇒ 再授权零 getDisplayMedia', async () => {
+    // 卡面链路（rt4p73av-reauth 85LTJA 实测）：会议共享先在用（attachLocalTrack 注入轨，
+    // useWebRTC 所有，非 getDisplayMedia 自取）→ 授权后泵推帧 → 结束控制停泵 →
+    // 再授权：修复前缓存空 → acquireOwnCapture 重弹选源器（win-r2-32-t3s.png 实证）
+    setSessionRole(null);
+    const meetingTrack = fakeTrack();
+    attachLocalTrack(meetingTrack); // 会议共享先于控制会话（role=null：不弹选源器）
+    await new Promise<void>((r) => { setTimeout(r, 20); }); // daemon 恢复探查窗口（无 grant ⇒ 不开泵）
+    expect(gdmCalls).toBe(0);
+
+    // 授权：DC open + 角色 controlled → 泵直接用注入轨（零 getDisplayMedia）
+    const ch = fakeDc();
+    attachChannel('peerX', ch);
+    setSessionRole('controlled');
+    await vi.waitFor(() => expect(isControlledPumpActive()).toBe(true));
+    expect(gdmCalls).toBe(0); // 注入轨直接用，弹选源器次数零
+
+    // 结束控制 → setSessionRole(null) → 停泵：注入轨应入缓存而非丢弃（修复点）
+    setSessionRole(null);
+    expect(isControlledPumpActive()).toBe(false);
+    expect(meetingTrack.stop).not.toHaveBeenCalled();
+
+    // 再授权：新 DC open → 泵重启复用注入轨，零 getDisplayMedia 新调用
+    setSessionRole('controlled');
+    attachChannel('peerX', fakeDc());
+    expect(isControlledPumpActive()).toBe(true);
+    expect(gdmCalls).toBe(0);
+    expect(meetingTrack.stop).not.toHaveBeenCalled();
+  });
 });
