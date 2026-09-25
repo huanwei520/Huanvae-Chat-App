@@ -112,9 +112,11 @@ jobs:
       fail-fast: false
       matrix:
         include:          # Windows x64
-          # v1.1.46：externalBin 的 daemon 携带限定 Android/Linux 腿（tauri.windows.conf.json
-          # 置空 externalBin）——msvc 形态 daemon 件缺位（块3 产品化范围），Windows 包与
-          # v1.1.45 同状态，构建恢复正常产出 exe+sig。
+          # externalBin 携带 msvc 形态 hv-control-daemon（src-tauri/tauri.windows.conf.json）。
+          # 历史：v1.1.46 因 msvc daemon 件缺位置空 externalBin（Windows 包与 v1.1.45 同状态）；
+          # v1.1.50 发布后（c72a9672）恢复携带——仓内 binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe
+          # 在库，NSIS 首携 daemon（L1 windows 腿必含断言绿，run 35372812578 的
+          # 『NSIS 包缺 hv-control-daemon*.exe』根因闭合）。
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ''

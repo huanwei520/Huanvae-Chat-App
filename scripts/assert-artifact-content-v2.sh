@@ -473,7 +473,8 @@ else
     filter_by_version() {
         local -a in=("$@") out=()
         local f
-        for f in "${in[@]}"; do
+        # bash3.2 兼容（v1.1.50 CI 同类实证）：set -u 下空数组 "${in[@]}" 展开 unbound。
+        for f in ${in[@]+"${in[@]}"}; do
             if [[ "$TARGET_VERSION" == "0.0.0" ]] || [[ "$(basename "$f")" == *_"$TARGET_VERSION"_* ]]; then
                 out+=("$f")
             else
@@ -483,24 +484,28 @@ else
         [[ ${#out[@]} -eq 0 ]] || printf '%s\n' "${out[@]}"
     }
 
-    NSIS_ARTIFACTS=($(filter_by_version "${NSIS_ALL[@]}"))
-    DEB_ARTIFACTS=($(filter_by_version "${DEB_ALL[@]}"))
-    APPIMAGE_ARTIFACTS=($(filter_by_version "${APPIMAGE_ALL[@]}"))
-    APK_ARTIFACTS=($(filter_by_version "${APK_ALL[@]}"))
-    DMG_ARTIFACTS=($(filter_by_version "${DMG_ALL[@]}"))
-    TARGZ_ARTIFACTS=($(filter_by_version "${TARGZ_ALL[@]}"))
-    ALL=("${NSIS_ARTIFACTS[@]}" "${DEB_ARTIFACTS[@]}" "${APPIMAGE_ARTIFACTS[@]}" "${APK_ARTIFACTS[@]}" "${DMG_ARTIFACTS[@]}" "${TARGZ_ARTIFACTS[@]}")
+    # bash3.2 兼容（x4u0befp 本地实证）：扫描模式在 macOS（/bin/bash=3.2）+ set -u 下，
+    # 空类型数组（如 linux 宿主 NSIS_ALL 为空）裸展开 "${arr[@]}" → unbound variable，
+    # 静态腿全绿后仍在汇总前 exit 1。与上方 EXPECT_ARGS 同款守卫：${arr[@]+"${arr[@]}"}。
+    # 非空时逐词展开语义与原写法一致（产物名本就经 $() 分词，不含空格）。
+    NSIS_ARTIFACTS=($(filter_by_version ${NSIS_ALL[@]+"${NSIS_ALL[@]}"}))
+    DEB_ARTIFACTS=($(filter_by_version ${DEB_ALL[@]+"${DEB_ALL[@]}"}))
+    APPIMAGE_ARTIFACTS=($(filter_by_version ${APPIMAGE_ALL[@]+"${APPIMAGE_ALL[@]}"}))
+    APK_ARTIFACTS=($(filter_by_version ${APK_ALL[@]+"${APK_ALL[@]}"}))
+    DMG_ARTIFACTS=($(filter_by_version ${DMG_ALL[@]+"${DMG_ALL[@]}"}))
+    TARGZ_ARTIFACTS=($(filter_by_version ${TARGZ_ALL[@]+"${TARGZ_ALL[@]}"}))
+    ALL=(${NSIS_ARTIFACTS[@]+"${NSIS_ARTIFACTS[@]}"} ${DEB_ARTIFACTS[@]+"${DEB_ARTIFACTS[@]}"} ${APPIMAGE_ARTIFACTS[@]+"${APPIMAGE_ARTIFACTS[@]}"} ${APK_ARTIFACTS[@]+"${APK_ARTIFACTS[@]}"} ${DMG_ARTIFACTS[@]+"${DMG_ARTIFACTS[@]}"} ${TARGZ_ARTIFACTS[@]+"${TARGZ_ARTIFACTS[@]}"})
     echo ""
     if [[ ${#ALL[@]} -eq 0 ]]; then
         info "本机 $BUNDLE_DIR 下无已构建安装包（本宿主不构建安装包，产物由 CI 构建）——产物腿对象数为 0；静态腿已真跑"
     else
         echo -e "${CYAN}产物腿：发现 ${#ALL[@]} 个本地产物，逐个核对${NC}"
-        for a in "${NSIS_ARTIFACTS[@]}"; do check_artifact "$a" exe; done
-        for a in "${DEB_ARTIFACTS[@]}"; do check_artifact "$a" deb; done
-        for a in "${APPIMAGE_ARTIFACTS[@]}"; do check_artifact "$a" appimage; done
-        for a in "${APK_ARTIFACTS[@]}"; do check_artifact "$a" apk; done
-        for a in "${DMG_ARTIFACTS[@]}"; do check_artifact "$a" dmg; done
-        for a in "${TARGZ_ARTIFACTS[@]}"; do check_artifact "$a" targz; done
+        for a in ${NSIS_ARTIFACTS[@]+"${NSIS_ARTIFACTS[@]}"}; do check_artifact "$a" exe; done
+        for a in ${DEB_ARTIFACTS[@]+"${DEB_ARTIFACTS[@]}"}; do check_artifact "$a" deb; done
+        for a in ${APPIMAGE_ARTIFACTS[@]+"${APPIMAGE_ARTIFACTS[@]}"}; do check_artifact "$a" appimage; done
+        for a in ${APK_ARTIFACTS[@]+"${APK_ARTIFACTS[@]}"}; do check_artifact "$a" apk; done
+        for a in ${DMG_ARTIFACTS[@]+"${DMG_ARTIFACTS[@]}"}; do check_artifact "$a" dmg; done
+        for a in ${TARGZ_ARTIFACTS[@]+"${TARGZ_ARTIFACTS[@]}"}; do check_artifact "$a" targz; done
     fi
 fi
 
