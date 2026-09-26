@@ -15,6 +15,7 @@
  */
 
 import { emit } from '@tauri-apps/api/event';
+import { detectPlatform } from '../utils/platform';
 import type { WsSystemNotification } from '../types/websocket';
 import {
   CONTROL_SESSION_CHANGED,
@@ -42,6 +43,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
   switch (msg.notification_type) {
     case 'control_session_requested': {
       const data = msg.data as unknown as ControlSessionRequestedData;
+      // 逐跳信令留证（2026-09-24 判官令）：被控端收到的 N1 原文（含 from.user_id 真实账号）。
+      console.warn(`[RC-SIG] RX-N1 ${JSON.stringify({ notification_type: msg.notification_type, request_id: data.request_id, from: data.from, meeting_ctx: data.meeting_ctx })}`);
       // ⑥回环胶水：dispatch 后转发 daemon（授权状态权威，§6.4）；daemon 为该申请
       // 签发 pending grant_id（§3.2 T4/T5）——随弹层载荷回传，共享端点「接受」时
       // 原样回填 M2.grant_id（grant_id 由共享端授权面签发，非客户端自造）。
@@ -65,6 +68,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
     }
     case 'control_session_decided': {
       const data = msg.data as unknown as ControlSessionDecidedData;
+      // 逐跳信令留证：申请者收到的 N2（approved+grant_id+by.user_id）。
+      console.warn(`[RC-SIG] RX-N2 ${JSON.stringify({ notification_type: msg.notification_type, request_id: data.request_id, grant_id: data.grant_id, approved: data.approved, by: data.by })}`);
       void controlIncoming({
         kind: 'control_session_decided',
         request_id: data.request_id,
@@ -72,9 +77,17 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
         approved: data.approved,
       });
       if (data.approved && data.grant_id) {
-        // T2：打开/聚焦独立控制窗口（getByLabel 单例先例）＋推进 Linking
+        // T2：推进 Linking（T7 语义：Active 仅由 daemon 在 P3 会话建立完成
+        // （offer/answer＋指纹锚定）后迁移，信令面不越权直达 active）。
         store.advanceLinking(data.request_id, data.grant_id);
-        void openRemoteControlWindow();
+        // 缺陷B（2026-09-20，安卓发起端控制窗缺失）：Tauri Android 为单 WebView，
+        // WebviewWindow 桌面多窗 API 在其上静默失败——平台条件化：仅桌面开窗；
+        // 安卓发起端在当前 WebView 内渲染「控制会话建立中」视图（见 MobileMeetingPage
+        // controlState==='linking' 分支），daemon 部署完成 T7 建链迁 active 后同
+        // 分支切换为帧流渲染（ControlWindow 轮询本机 daemon 回环 /control/frame）。
+        if (detectPlatform() !== 'android') {
+          void openRemoteControlWindow();
+        }
         void emit(RC_SESSION_STATE, {
           state: 'linking',
           grant_id: data.grant_id,
@@ -89,6 +102,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
     }
     case 'control_session_released': {
       const data = msg.data as unknown as ControlSessionReleasedData;
+      // 逐跳信令留证：双端收到的 N3（grant_id+reason）。
+      console.warn(`[RC-SIG] RX-N3 ${JSON.stringify({ notification_type: msg.notification_type, grant_id: data.grant_id, request_id: data.request_id, reason: data.reason })}`);
       void controlIncoming({
         kind: 'control_session_released',
         grant_id: data.grant_id,

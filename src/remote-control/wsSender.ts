@@ -21,6 +21,8 @@ export function registerControlSessionWsSender(s: ControlWsSender | null): void 
 /** 经主 WS 发送控制裁决上行帧（M1/M2/M3）。未注册/未连接时返回 false（调用方留痕）。 */
 export function sendControlSessionWs(payload: Record<string, unknown>): boolean {
   void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: `DBG3-send-entry type=${String((payload as { type?: string }).type)}` })).catch(() => undefined); // RC-DBG3
+  // 逐跳信令留证（2026-09-24 判官令）：M1 帧体含 target_user_id（真实账号），上行原文可复算。
+  console.warn(`[RC-SIG] TX ${JSON.stringify(payload)}`);
   if (!sender) {
     void import('@tauri-apps/api/core').then(({ invoke }) => invoke('rc_debug_marker', { marker: 'DBG4-sender-null' })).catch(() => undefined); // RC-DBG4
     console.warn('[RemoteControl] 主 WS 发送器未注册（未登录或 dev 门控关闭），丢弃上行帧');

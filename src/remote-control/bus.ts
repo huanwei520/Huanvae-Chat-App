@@ -31,6 +31,10 @@ export const RC_REQUEST_RELEASE = 'rc-request-release';
 export const CONTROL_SESSION_CHANGED = 'control-session-changed';
 /** 主窗 → remote-control 窗：会话状态推进 */
 export const RC_SESSION_STATE = 'rc-session-state';
+/** 被控端数据面释放通知（dstdrrek-2 整改 U2）：控制端在 DC 上发 rc-release 文本帧，
+ * 被控端 frameChannel 收到后转发本事件 —— meetingBridge 据此清横幅+disarm，
+ * 不再单赖 daemon 轮询（dev 无 daemon 时横幅永不撤的病历）。 */
+export const RC_PEER_RELEASED = 'rc-peer-released';
 
 export interface RcAuthRequestPayload {
   data: ControlSessionRequestedData;
