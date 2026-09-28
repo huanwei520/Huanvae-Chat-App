@@ -1,6 +1,6 @@
 ---
 name: android-screenshare-e2e
-description: 安卓屏幕共享（Tauri 自研 MediaProjection 插件 → canvas captureStream → 会议 WebRTC）实现与实测配方 — 插件三件套接线图（Plugin.kt 系统授权 startActivityForResult+@ActivityCallback / Service.kt FGS mediaProjection+createVirtualDisplay+ImageReader / Rust commands 面）、桌面 getDisplayMedia 形态四要素与 ternary 分流零回归法、双模拟器 adb 实测流程（screencap -p 帧缓冲 / uiauto 定点授权弹窗 / dumpsys FGS 判据 / pcdump RTP 统计 / logcat 帧计数判据）、三大坑（ImageReader 首帧停滞且自拷贝 dirty 化=假修复、track.stop() 不派发 ended 致原生停止桥成死代码、模拟器渲染器回收）、停止释放三判据与内容变更标记测试两条硬验收。要对安卓屏幕共享/原生采集/Tauri 安卓插件做开发或实测复核，先读本 skill 再动手。
+description: 安卓屏幕共享（Tauri 自研 MediaProjection 插件 → canvas captureStream → 会议 WebRTC）实现与实测配方 — 插件三件套接线图（Plugin.kt 系统授权 startActivityForResult+@ActivityCallback / Service.kt FGS mediaProjection+createVirtualDisplay+ImageReader / Rust commands 面）、桌面 getDisplayMedia 形态四要素与 ternary 分流零回归法、双模拟器 adb 实测流程（screencap -p 帧缓冲 / uiauto 定点授权弹窗 / dumpsys FGS 判据 / pcdump RTP 统计 / logcat 帧计数判据）、三大坑（ImageReader 首帧停滞且自拷贝 dirty 化=假修复、track.stop() 不派发 ended 致原生停止桥成死代码、模拟器渲染器回收；前两坑已于 2026-09-13 块 1d0t34vy 真修——首帧停滞真因=节流不排空 ImageReader 队列致生产者饿死〔订正旧归因〕、停止链已显式 stop；逐段打桩仪表与码率三档自适应标定见 §8）、停止释放三判据与内容变更标记测试两条硬验收。要对安卓屏幕共享/原生采集/Tauri 安卓插件做开发或实测复核，先读本 skill 再动手。
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash, Write
 ---
@@ -108,7 +108,7 @@ Kotlin   ScreenCapturePlugin.kt:50 captureStart
 - logcat 判定窗口纪律：全天 logcat 与验收窗口分开 grep（FATAL/ANR/tombstone），
   窗口外的历史崩溃也要如实披露并注明构建代次，原件入证据目录（18MB 也留）。
 
-## §5 三大坑（截至沉淀日均未真修，接手先看 §7）
+## §5 三大坑（坑①②已于 2026-09-13 块 1d0t34vy 真修，见各条「[2026-09-13 已修]」标注与 §7；坑③仍属环境抖动）
 
 1. **ImageReader/VirtualDisplay 首帧停滞**：MediaProjection 仅在屏幕**内容变化**时产帧，
    静屏零帧 → 9/9 会话 logcat 只有 `frame #1`，23s 会话从未到 %30 打点。
@@ -117,6 +117,16 @@ Kotlin   ScreenCapturePlugin.kt:50 captureStart
    它让编码器持续重发同一张画布（fps=10-11、约 360B/帧），造就「RTP 在流动」假象，
    内容从未更新。切勿再把它当成功案例引用。真修方向：改可持续出帧的采集路径
    （Surface 侧重挂载 / ImageWriter 侧泵），并以 §4 标记测试为硬验收。
+   **[2026-09-13 已修·根因订正]** 块 1d0t34vy 双模拟器逐段打桩定位：主导根因不在
+   「静屏零帧」而在**消费端饿死生产者**——`onImageAvailable` 的 fps 节流分支直接
+   `return` 不取图，SurfaceFlinger 60fps 持续向 `maxImages=4` 的 ImageReader 产帧 →
+   4 buffer 全占满 → 生产端 `dequeuBuffer` 永久阻塞 → 采集只出 `frame #1`（共享中
+   有内容变化也停摆，旧归因解释不了这一点；「静屏零帧」与消费端饿死可并存，本案
+   主因是后者）。修复（ScreenCaptureService.kt:230，commit 1353b548）：**每回调必
+   `acquireLatestImage()?.use {}` 排空，节流只控制是否发射**——「跳过发射」≠
+   「跳过获取」，任何 ImageReader 管线节流都必须先排空再决定发不发，无需换采集
+   路径。验收=§4 标记测试：修复后 B 端实收 A 的 HOME launcher 实时画面，LAN 直连
+   与 TURN relay 双路径 28-30fps 连续（证据 test-artifacts/1d0t34vy/）。
 2. **track.stop() 不派发 ended → 原生停止桥是死代码**：桥只注册了
    `track.addEventListener('ended', () => invoke(CMD.stop))`（androidScreenShare.ts:291-293），
    而 JS 侧 stop() 触发 readyState=ended 但**不派发 ended 事件**（WebRTC spec 行为）；
@@ -125,6 +135,11 @@ Kotlin   ScreenCapturePlugin.kt:50 captureStart
    （仅测试文件引用）→ captureStop 永不执行，Kotlin 完整释放链（:337/:341）走不到：
    虚拟显示驻留实测最长 37 分钟、状态栏投屏图标残留。修法：停止链显式调用
    stopAndroidScreenShare()，不得依赖 onended。
+   **[2026-09-13 已修]** `stopScreenShareInternal` 显式调 `stopAndroidScreenShare()`
+   （useWebRTC.ts:1424，幂等，桌面 no-op，commit 1353b548）。回归判据：停止前后
+   `adb logcat -d -s ScreenCaptureService | grep -c 'frame #'` 零增长（该块 r10 三轮
+   121→121/149→149/629→629，引其 code 交付实测）＋停止后 sender 帧归零
+   （其 data/probe-A-lanfix-stopped.json）。
 3. **模拟器渲染器回收**：共享 ~22s 后 WebView 渲染器进程被系统回收（logcat 可见渲染器
    重启 + Gralloc4 重初始化），SPA 重载回主页，但 Android 主进程与 FGS 存活。
    定性为模拟器资源压力环境抖动；长时间共享应降解码垃圾（ImageBitmap/OffscreenCanvas）。
@@ -144,9 +159,11 @@ Kotlin   ScreenCapturePlugin.kt:50 captureStart
 
 ## §7 现状与待修清单（2026-09-10 快照，接手必读）
 
-- [ ] 缺陷①首帧停滞：换采集路径，验收=§4 标记测试（B 端 N 秒内见 A 屏新内容）。
-- [ ] 缺陷②停止泄漏：useWebRTC stopScreenShareInternal 显式调 stopAndroidScreenShare()，
-      验收=§4 停止释放三判据。
+- [x] 缺陷①首帧停滞：已于 2026-09-13 块 1d0t34vy 真修——根因=节流不排空（订正本节旧归因），
+      修复=acquireLatestImage 每回调必排空（ScreenCaptureService.kt:230）；验收=§4 标记测试，
+      修复后 B 端实收 A 屏新内容（其 shots/lanfix-s3-B-home.png）。
+- [x] 缺陷②停止泄漏：已于 2026-09-13 块 1d0t34vy 修复——useWebRTC.ts:1424 显式调
+      stopAndroidScreenShare()；验收=停止释放三判据＋logcat 帧计数零增长三轮通过。
 - [ ] 凭据收口：删除/chmod 0600 `.meeting_r6.cmdout`，SUMS 重算。
 - [ ] 文档债：code/deliverable.md 补 frontmatter、mapping.md（截图→需求→实码）、
       「实时可见」表述按 R06/R07 事实改写、useWebRTC「唯一改动」表述更正（另有 8.2 在飞
@@ -157,3 +174,39 @@ Kotlin   ScreenCapturePlugin.kt:50 captureStart
   `logs/frontend-tests-full-r7.log`、review 证据目录 `logs-review-tests-full.log`；
   当日快照结论，测试面再变动须重跑）；授权弹窗/敏感提示/FGS 启动链合规且有截屏原件；
   截屏全为真实帧缓冲非占位。
+
+## §8 逐段打桩仪表与共享码率自适应（2026-09-13 块 1d0t34vy 增补；file:line 以 commit 1353b548 快照为准）
+
+**逐段打桩诊断法**（任何「对端卡住」类故障先分段计数再动手，禁止凭表象猜）：
+- 采集段：Kotlin 计数器（frameCount/throttleSkip/sendOk/sendFail/emitFail，每 30 帧 logcat 一条），
+  取证 `adb logcat -d -s ScreenCaptureService`；
+- 编码/收发/渲染段：`window.__hgSSPipe`（src/meeting/screenShareProbe.ts，419 行：sender/receiver
+  Δ 序列 bitrate/fps/qpSum/packetsLost/freezeCount/pli/nack/qualityLimitation/分辨率＋ICE path
+  快照；useWebRTC.ts 注入 `window.__hgPCs`）；渲染真值=`video.getVideoPlaybackQuality()
+  .presentedFrames` Δ（不信 fps 标称）；
+- 中继段：双端 candidate-pair 级 bytesSent/bytesRecv 同窗差分替代服务器内部计数（该块
+  relay-segment-counters.json：Δ入 12,829,030/30s≈3.42Mbps vs Δ出 14,574,964/30s≈3.89Mbps，
+  量级吻合即段通；凭据不可登生产服务器时的标准替代）；
+- 回归口径：logcat frame 计数单调增＋sendFail/emitFail=0＋对端 presentedFrames Δ 折算 fps
+  接近发射 fps。基线探针判「源头断流」：framesRcvd=1 且采集计数停摆 → 问题在采集段上游，
+  编码/网络/渲染全部排除，一次对账即二分定位。
+
+**码率三档自适应**（src/meeting/screenShareQuality.ts，239 行）：
+- 修复前基线：sender 不设 maxBitrate/degradationPreference → WebView 编码器默认 target≈600kbps
+  且 qualityLimitationReason=bandwidth，静态画面实跑仅 5-30kbps、分辨率 320x180↔1280x720 呼吸
+  （=「过糊」根因；先出基线数据再定标）；
+- 定标：low 500k / medium 1.2M / high 2.5M（:36-38）＋`degradationPreference='maintain-resolution'`
+  （:126-127，屏享保分辨率弃帧率，与摄像头通话相反）＋迟滞：丢包>8% 立即降、bandwidth 限速连续
+  3 窗降一档、丢包<1% 且非限速连续 6 窗升一档（降快升慢防振荡，常量 :61-64）；
+- 采集端配套：pumpFps 10→15（androidScreenShare.ts:206）、JPEG q60→70（:367）、竖幅
+  720×min(1920,720×纵横比)（useWebRTC.ts:1474-1481）；
+- 实测标定（其 data/adaptive-tc-samples.json，`adb root`+`tc qdisc tbf 800kbit` 受控瓶颈法）：
+  LAN 直连 565-1149kbps/28-30fps/720x1598；TURN 中继 440-519kbps/27-29fps；限带宽自动降档
+  target 2500→278-394，恢复回滞升档 394→710→2500。重标定只动常量区＋tc 法复测全曲线，勿散改调用点。
+
+**TUN/TURN 定性（防误判）**：Android 系统 WebView 的 WebRTC 不收集 VPN 接口候选（平台行为）——
+tun0 UP 且有 10.128.0.0/9 路由的同时，穷举双端候选 13+6 个 tun0 命中=0（其 hostonly-ice-audit-*.json）。
+会议媒体的「中继」路径实由 TURN relay 承载，卡死复现与修复验证都在 relay 路径完成。**别假设
+「VPN 接口存在=WebRTC 媒体走它」**，定性靠候选穷举 dump＋同窗接口状态对照；另注意信令类
+「没收到」先查前端 disabled 态（该块实测 guard 接受面板下拉框未选→按钮 disabled→假点击无效果
+伪装成服务端丢失，HuanvaeGuardPage.tsx:281,1398）。

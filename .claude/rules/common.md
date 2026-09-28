@@ -365,6 +365,26 @@ if messages_count != fts_count {
 - 历史消息从未入 FTS → 搜历史零命中
 - 修复后用 `'rebuild'` + COUNT 对比，FTS 与 messages 完全同步
 
+### SQLite FTS5 unicode61 分词器不切 CJK：「FTS 非空即跳过 LIKE」双轨短路会整体漏掉子串命中（2026-09-25 搜索查验块沉淀）
+
+**规则**：FTS5 `tokenize='unicode61'` 只按 Unicode 空白/标点切词——连续 CJK 串、CJK 夹字母数字串（如「中文abc测试」「sayhello123」）各自是**一个 token**。MATCH 短语查询只能命中「与查询词 token 对齐」的行；句中子串（「这是一个包含关键词测试的句子」搜「关键词」）FTS 必然搜不到。
+
+**致命组合**：查询侧写成「FTS 有命中就 return、FTS 空才回退 LIKE」（锚：`src-tauri/src/db/messages.rs` `search_messages` 内 `if !fts_results.is_empty() { return … }`，2026-09-25 快照 :536-543；该双轨行为另有测试固化 `like_fallback_when_fts_empty`，:1208 附近）——则只要 FTS 命中任意一条，LIKE 能救回的子串命中就被整体丢弃。用户观感即「搜索不会完整列出所有包含关键词的消息」。中文最高频场景：同一关键词在 A 消息被空格分隔（FTS 命中）而 B 消息嵌在句中（仅 LIKE 可见）→ B 必漏。与上一节 backfill 问题互补：那边是「索引没同步」，这边是「索引同步正常也漏」。
+
+**实测复现法**（不碰业务库）：`sqlite3 :memory:` 复刻生产 schema+trigger，构造样本后分跑 FTS MATCH 与 `LIKE '%词%'` 对比命中集合；再用 `fts5vocab` 虚拟表（`CREATE VIRTUAL TABLE v USING fts5vocab(<fts表>,'row')`）直接查看切词，实证「整句一个 token」。本块实验脚本存 pipeline 块 `1790367135169-2mnf7rct-3` code/evidence/03-搜索显示/fts_test.sql（可一键复跑）。
+
+**修复选项**：① 双轨改并集：FTS ∪ LIKE 去重（小；漏检立刻消除，大库 LIKE 全表扫描需护栏）；② FTS 命中数 < limit 才补 LIKE（中；性能可控但边界要测）；③ 重建 FTS 虚表用 `tokenize='trigram'`（SQLite ≥3.34）或自定义 CJK tokenizer（中；子串语义走索引、性能最好，<3 字符查询需回退，引入迁移）。推荐先①/②根治正确性，压测后再叠③。**改双轨制必须同步改 `like_fallback_when_fts_empty` 测试，否则 CI 会按旧行为打回。**
+
+### 消息 sender_name 写侧多路径覆盖不一 × 读侧回退不一 = ID 与昵称混显（2026-09-25 搜索查验块沉淀）
+
+**规则**：`sender_name` 是落库快照，写侧每条入库路径都要显式赋值，缺一处就落 NULL；读侧显示回退必须全局统一成一个 helper（昵称优先回退 id），不许各组件各写各的。
+
+**本仓实证写侧五路径覆盖不一**（2026-09-25 快照锚，行号会漂移以 grep 符号为准）：`src/services/historyService.ts` 好友历史映射 `sender_name: null`（恒空）vs 群历史 `sender_nickname || null`；`src/services/syncService.ts` sync DTO `sender_nickname?: string`（optional）落库 `|| null`；`src/contexts/wsHandlers.ts` 实时消息路径带昵称；本端发送路径（`useLocalGroupMessages`/`useLocalFriendMessages` 取 session.profile.user_nickname）恒有值。DTO 根因：好友消息 DTO（`src/types/chat.ts` Message 接口）没有 `sender_nickname` 字段（群消息 GroupMessage 才有）——服务端契约缺失。
+
+**读侧四处回退不一**：搜索结果两处 `sender_name ?? sender_id`（裸 ID 回退）、WS 提示 `sender_nickname || sender_id`、群聊前缀无昵称时返回空串（刻意不加 ID）、气泡渲染 `local.sender_name || ''`。同一用户「实时行有昵称 / 历史回填行 NULL」→ 列表内昵称与裸 ID 混排。
+
+**修复分层**：C1 读侧收口（单点 helper，小）；C2 存量 NULL 行回填（中，需迁移脚本）；C3 服务端补昵称字段（依赖服务端契约）；C4 读时经 profiles 解析（读放大）。注意与 `.claude/skills/reply-combo-message/SKILL.md` 的 sender_name 快照语义（信封快照禁带发送方视角）是两个不同域，不要混改。
+
 ## CSS 绝对定位浮层不能锚定到 overflow:auto 的父级
 
 ### 浮层会随父级滚动，导致用户滚动后浮层不可见
@@ -2084,6 +2104,14 @@ cat <file> >/dev/null; echo $?        # 0
 | 单文件 / 管道下游 | `/usr/bin/grep`（**不加 `-r`**） |
 | 非得递归遍历盘上文件 | `find … -type f -exec /usr/bin/grep …` 或 `/usr/bin/grep -r` **并显式判 `rc==2`** |
 
+**结论表述边界与 exitCode 记账（本仓 2026-09-26 收口块 6zkl61tt 增补）**：双形态跑完只解决「搜没搜到」，「结论怎么写」另有规范 ——
+下集结论必须带覆盖面边界：正面清单（已跟踪面 / +`--untracked` 未跟踪面 / `<commit>` 树快照面）+ 负面清单
+（.gitignore 排除面、node_modules、外部仓、他分支/他工作树未提交内容、历史中间提交面），措辞用
+「**在上述覆盖面内**零命中」，禁用无边界「全仓零命中」。零命中判据要落 verdict/acceptance JSON 的
+exitCode 字段时，裸 grep 的 rc=1 会被判「记账与复算不符」——用断言包装命令
+`…; rc=$?; test "$rc" -eq 1 && echo ZERO_HIT_ASSERT_OK`（零命中⇒整体 0，可复算），裸命令 rc=1 原文同文件保留。
+完整收口流程模板见 `.claude/skills/pipeline-closure-evidence/SKILL.md`。
+
 🔴 **待 leader 收口**：工作区根 `../.claude/CLAUDE.md:242` 那条表行的处方
 （「一律 `/usr/bin/grep` 或 `git grep`」）需按本节订正 —— 该文件不在本仓上界内，**本仓只记不改**。
 
@@ -2633,3 +2661,12 @@ presigned GET/PUT 是 SigV4 签名（MinIO 偏移容忍 ~15min），请求时间
 5. **候选断点先过「症状矛盾」过滤**：「文本消息正常」能同时排除 token 失效（sync 走同一 api client / 同一 auth_guard）与账号目录漂移（同库根 `data/{user_id}_{server}/`）；与症状矛盾的断点要显式标「排除」并写明矛盾点，不许留在清单里装候选。
 
 **一手来源**：块 1788276072694-2-img-app-receive code 交付（`/root/pipeline-lines/huanvae-chat-backend/blocks/1788276072694-2-img-app-receive/code/deliverable.md`，§1 三张链路表 / §2.2 断点清单 / §4 六组穷举原样输出）＋ review 交付（同目录 `review/`，六组穷举全部重跑、约百处 file:line 零漂移）＋ update 沉淀交付（同目录 `update/`）。
+
+## 🔴 追加（2026-09-14 · 块 `1789364064792-928444fe-1-全软件去SNI审计修复验证` 沉淀）：全软件网络路径审计的四条判据 —— **本节只追加在 EOF，不改上文任何一行**
+
+**SNI 审计基线本体**（6 个传输 profile 白名单、三分类判据、directIpUrl/pinned client 改造模式、复审计命令集）落在 [network-sni.md](network-sni.md)，本节只收**方法判据**，四条全部经该块 code/review 两层实测校准：
+
+1. **网络路径「无漏网」的枚举按出网原语、不按功能猜**：fetch / `new WebSocket` / XMLHttpRequest / invoke 网络命令名 / reqwest client 构造（`Client::builder`/`Client::new`/`acquire_client`）/ `connect_async` / TcpStream / UdpSocket / URL 字面量 / package.json 网络型依赖，逐一 grep 全输出落盘。**零命中必须双口径**（口A=plain `grep -rn` 含未跟踪与忽略面，口B=`git grep` 仅跟踪面；两口径一致方有判别力）**且带阳性对照**（同 pattern 打已知网络文件得非零命中，模式有效后零命中才可信）。本块实测：ureq 三仓双口径 0、`Client::new()` 双口径各 8 且全在 lan_transfer（局域网明文面=设计内）。
+2. **JS 出口必须追到 Rust 落点才算一条完整路径**：fetch/XHR 经 secureFetch/proxyRequestUrl 适配层、WS 经 rustWebSocket 漏斗 invoke 到 ws_proxy——最终 TLS 行为由 **Rust client 构造**决定，只看 JS 侧会误判「已去 SNI」。同样，行号锚点只在审计基准 SHA 内精确：本块写交付时 HEAD 已前移（fileCache directIpUrl 调用点 :203→:205），复用审计表前先对关键锚点 spot-check。
+3. **live 探测的「失败输出」会带假成功行**：`openssl s_client` 握手被 RST（`write:errno=104`）时仍打印 `Verify return code: 0 (ok)`——verify 状态与握手成败是两件事，判定必须看 errno 行与 subject 行有无，禁只 tail 尾几行（本块复审计首跑 tail 3 行误读「握手成功」，全量输出重跑才见 RST；curl 3 次重复均 rc=35 才定性稳定）。
+4. **串行窗口门控的 state 原文被调度器回收时**（前代块目录已删、execution.json 不可得），证据链五件套替代：①全文件系统 `find / -name execution.json` 穷举（唯一命中=本块）；②前代块 ID 全盘 grep 引用=零命中（无在飞锁/存档残留）；③产物佐证（前代写面文件 mtime 早于本块开工且此后不变＋前代构建产物在位）；④任务卡代际引用原文（卡面自记 leader 开工前现查结果）；⑤调度器派发行为本身=其双终态判定的执行结果（卡面规定门控未达由调度器唤醒，派发即判定）。另：零写入任务可在交付声明「门控所防双写实害结构性不存在」降险。改进建议给调度器：派发串行窗口块时把前代终态（state+时间戳+回收回执）写进卡面或 execution 侧档，worker 可直接出示 state 原文。

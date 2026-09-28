@@ -951,3 +951,90 @@ v1.1.50 首跑三平台 build 腿同日全红。四根因 + 验证记录全文�
 6. `generate-manifest` `needs: [build, build-android]`——任何 build 腿 L1 红 ⇒ latest.json /
    android-latest.json 不生成 ⇒ R2（store.huanvae.cn）与 GitHub /latest/download/ 双源 404
    ⇒ 客户端升级弹窗无源。用户报「没有更新提示」时先查这条链，别修客户端。
+
+## 🔴 v1.1.51 发布实例沉淀追加（2026-09-19 块 1789776550248-damleudd-1 update 层）：修复先行口径 / CI 全绿盯盘 / latest.json 链恢复 / 双端更新弹窗实拍
+
+> 本节为 EOF 追加，不改上文任何一行。素材来自本块 code/review 交付与 update 层亲手复验
+> （git ls-remote / CI jobs JSON / latest.json 实读 / 截图 file 实查，2026-09-19）。
+> 前代背景：块 1789725242281-kbj1q7n0-1（gen26）推 v1.1.50 全流程，终态 ESCALATED。
+
+### A. 前代 1.1.50 车 ESCALATED 卡点复盘 —— 「修复先行」是发版铁门槛，不是流程装饰
+
+前代车 bump 1.1.50 → push main+tag → 触发 run 35372812578 后连撞四类门禁：
+①断言脚本 bash3.2 崩（`declare -A`，macOS 自带 bash3.2 无关联数组）→ 4a413406；
+②macOS 无 `sha256sum` → 868599a8（退化 `shasum -a 256`）；③清理 `rm -rf` 吞错静默中止 → 2dc1a05c；
+④全角分号邻接变量名在 runner locale 下吞多字节字节 → 59a2b89c（详见上文 L1 v2 节）。
+脚本四连修后仍红在**产物内容断言**：NSIS 缺 hv-control-daemon（→c72a9672 首携 msvc 真件）、
+APK 缺 `lib/x86/libhg_android.so`（→97251102 撤销登记式收窄回四 ABI）。断言红 → generate-manifest
+被 skip → latest.json 未生成 → **更新弹窗链整个断源**，这正是它 ESCALATED 的实质。
+
+给后来者的三条硬结论：
+- **带已知红门禁的代码不许发版**。发版卡的开工门必须先验修复块的修复 commit 已是 main 祖先
+  （`git merge-base --is-ancestor <c> main && echo IN-MAIN`，对每个修复 commit 逐条跑，逐条留 OUT）。
+- **已推远端的 tag 永不重打**。v1.1.50 tag 已关联失败 CI 资产，正确做法是版本前移（1.1.51），
+  不删远端 tag/release；旧版本断链可由修复合入后**重跑该 tag 的工作流**补齐（v1.1.50 的 run
+  35402457198 于 2026-09-18T22:38Z 转绿、latest.json 补生成在案——前代断链最终闭环，无需动 tag）。
+- **发版工作在 main 的专属 worktree 做**，不碰脏检出的主工作区（本次用 rc19w/wt-mfjpd34r，
+  主工作区停留 fix/mi8hug16-ws-zombie-liveness 零触碰）。
+
+### B. v1.1.51 发版全程要点（每步 CMD+OUT 在案）
+
+1. **开工门**：六个修复 commit 逐条 `git merge-base --is-ancestor` 全 IN-MAIN
+   （c72a9672/97251102/4a413406/868599a8/2dc1a05c/59a2b89c）。
+2. **bump 按仓内 v1.1.50 惯例（`git show 5c8f0661 --stat` 对齐）**：恰 4 文件各 1 行 ——
+   package.json、src-tauri/tauri.conf.json、src-tauri/Cargo.toml、src-tauri/Cargo.lock（huanvae-chat-app 条目）。
+   提交 e9f23621 `chore(release): v1.1.51`，stat=4 files changed, 4(+)/4(-)，零越界改动。
+   **验收手法**：`git show <release-commit> --stat` 行数与前代逐文件比对；超出行数=夹带，停。
+3. **推送**：推前 `git ls-remote origin main refs/tags/v1.1.51`（确认 tag 不存在）→ `git push origin main`
+   → `git tag v1.1.51 && git push origin v1.1.51` → 推后再 ls-remote：main 与 tag 同指 e9f23621。
+   注：直连 github.com 可能 GnuTLS 失败，仓内 `release` remote（hk.gh-proxy.org 镜像）可用
+   （见上文补正 3）。
+4. **CI 盯盘**：Release run **35408914260**（event=push、head_branch=v1.1.51）六 job 全 success：
+   Quality Gate / build(macos-14) / build-android / build(windows-latest) / build(ubuntu-24.04) /
+   **generate-manifest（真执行非 skip）**。盯盘判据要看到 generate-manifest 的关键步骤级 success：
+   assert payload → Generate latest.json → Upload latest.json → Generate android-latest.json →
+   Upload android-latest.json → Upload to Cloudflare R2。原始 jobs JSON 存块 evidence。
+5. **下载核对**：latest.json version=1.1.51、pub_date=2026-09-19T00:47:03Z、五平台签名
+   432/432/416/432/432 全非空、URL 全指 v1.1.51 资产；**APK 实测下载 sha256
+   ddfb70d629a44981… 与 android-latest.json 清单逐字一致**（147,098,357B）；NSIS exe
+   sha256 824f08a8…复核一致；R2 自建源 store.huanvae.cn/update/huanvae-chat/{latest,android-latest}.json
+   均返回 1.1.51（双源在架）。
+
+### C. 更新弹窗两端实测结论 —— 桌面**非静默**，「passive」≠「无弹窗」
+
+**桌面端设计定性（以代码为准，src/update/）**：`useSilentUpdate.ts` 名字带 Silent 但文件头明示
+「此 Hook 仅负责触发检查，弹窗渲染由 App.tsx 统一处理」；App.tsx 挂 `useStartupUpdateCheck()`
+并渲染 `<UpdateToast/>`。`tauri.conf.json` 的 `installMode: "passive"`（updater 段）只作用于
+**安装环节**（装时免交互进度条），**不吞检查提示弹窗**。结论：桌面有可见更新弹窗，
+「静默更新无弹窗可截」的说法不成立，别拿 passive 当静默口径。
+
+弹窗形态（两端一致）：顶部灵动岛弹条「🚀 发现新版本 v1.1.51｜…」+「稍后」「更新」两按钮，含版本号。
+
+- **Android（emulator-5554）**：旧版渠道包 1.1.50（dumpsys 验 versionName=1.1.50/code=1001050）
+  → force-stop → logcat -c → `am start -n com.github.huanwei520.huanvae_chat_app/.MainActivity`
+  → **等 25~28s**（启动检查链有 5s 延迟：useStartupUpdateCheck → store.checkUpdate →
+  service.android.ts 查 R2/GitHub 清单，截早了弹条还没出）→ `adb exec-out screencap -p`。
+  原件 1080x2400（设备原生分辨率，adb 特征）。
+- **Windows（winserver-hg VM）**：装 NSIS 渠道版 1.1.50（注册表 Uninstall 键 DisplayVersion 验版本）。
+  三个实测坑：①SSH 里 `Start-Process` 会把 App 启进 **session 0**（控制台不可见，进程自行退出；
+  SSH 会话内 CopyFromScreen 截得全黑）——正确做法是建**交互式计划任务**把 App 启进控制台会话
+  （SessionId=1）；②VM 控制台显示器节电黑屏 → 经 VNC(127.0.0.1:1) `vncdo move` 注入一次输入唤醒；
+  ③唤醒+启动后 ~22s 再 `vncdo capture`。原件 1280x800（VM 控制台分辨率）。
+  另：VM 上 AppCrash_c000007f WER 报告经读 Report.wer 实为 `link.exe`（旧构建遗留），与本 App 无关，
+  别误报。
+
+**红线**：弹窗截图必须是设备/控制台级原件（adb screencap / VNC capture，分辨率即设备原生分辨率），
+禁止降级为 API 链路测试或纯 web 截图；截图含版本号才算数。实验后清理临时计划任务/脚本，
+App 实例留在控制台与接手时同态。
+
+### D. 本块证据索引（块 evidence，绝对路径前缀 /root/pipeline-lines/huanvae-chat-app/blocks/1789776550248-damleudd-1-推1.1.51发布并实拍更新弹窗/）
+
+| 证据 | 路径 |
+|---|---|
+| Android 弹窗实拍（code 层原件） | code/evidence/ui/android-update-toast-1.png |
+| Windows 弹窗实拍（code 层原件） | code/evidence/ui/win-update-toast-3.png |
+| Android 弹窗复现件（review 层独立重跑） | review/evidence/review-android-toast-recheck-0132Z.png |
+| Windows 弹窗复现件（review 层独立重跑） | review/evidence/review-win-toast-recheck-0133Z.png |
+| CI run/jobs 原始 JSON | code/evidence/ci-run-35408914260.json / -jobs.json |
+| v1.1.51 清单与资产 | code/evidence/v1151/（latest.json、android-latest.json、r2-*.json、v1151.apk、v1151-setup.exe、*.sig） |
+| v1.1.50 latest.json（前代断链闭环参照） | code/evidence/v1150-latest.json |
