@@ -40,6 +40,7 @@ import { useCallback, useState } from 'react';
 import { formatMessageTime } from '../../utils/time';
 import { formatFileSize } from '../../utils/format';
 import { isMobile } from '../../utils/platform';
+import { displaySenderName } from '../../utils/senderName';
 import { useFileCache } from '../../hooks/useFileCache';
 import { useSession } from '../../contexts/SessionContext';
 import { openMediaWindow } from '../../media';
@@ -60,6 +61,13 @@ interface ConversationSearchHitProps {
   layout: SearchHitLayout;
   /** 次级菜单里「定位到聊天消息」的动作（写定位请求 + 收面板） */
   onLocate: (message: LocalMessage) => void;
+  /**
+   * 发送者资料名解析（D4 昵称收口，可选）：落库 sender_name 为空时，HitBody 用它
+   * 回退到本地资料昵称，再不行兑底「未知用户」，绝不裸露 sender_id。
+   * 数据源由调用方给（群：members/memberRemarks；全局搜索：friends 列表），
+   * 组件自身不碰 store，保持纯 props 可测。
+   */
+  resolveProfileName?: (senderId: string) => string | null;
 }
 
 /** 文档类结果的行首图标（与消息气泡里的文件图标同款） */
@@ -93,13 +101,23 @@ function CoverPlayBadge() {
 }
 
 /** 行版式的文字块：发件人 / 时间 / 类型徽标 / 高亮正文 / 文件大小 */
-function HitBody({ message, query }: { message: LocalMessage; query: string }) {
+function HitBody({
+  message,
+  query,
+  resolveProfileName,
+}: {
+  message: LocalMessage;
+  query: string;
+  resolveProfileName?: (senderId: string) => string | null;
+}) {
   const badge = contentTypeBadge(message.content_type);
   return (
     <div className="conv-msg-search-hit-body">
       <div className="conv-msg-search-hit-meta">
         <span className="conv-msg-search-hit-sender">
-          {message.sender_name ?? message.sender_id}
+          {/* D4 昵称收口：落库 sender_name → 资料昵称 → 兑底「未知用户」，
+              不再 `?? sender_id` 裸露长 ID（存量空 sender_name 行由此收口） */}
+          {displaySenderName(message.sender_name, resolveProfileName?.(message.sender_id) ?? null)}
         </span>
         <span className="conv-msg-search-hit-time">{formatMessageTime(message.send_time)}</span>
         {badge && <span className="conv-msg-search-hit-badge">{badge}</span>}
@@ -121,6 +139,7 @@ function MediaHit({
   layout,
   onLocate,
   isVideo,
+  resolveProfileName,
 }: ConversationSearchHitProps & { isVideo: boolean }) {
   const { session } = useSession();
   const fileUuid = message.file_uuid ?? '';
@@ -264,7 +283,7 @@ function MediaHit({
         {...triggerProps}
       >
         {media}
-        <HitBody message={message} query={query} />
+        <HitBody message={message} query={query} resolveProfileName={resolveProfileName} />
         {menu}
       </li>
       {mobilePreview}
@@ -280,6 +299,7 @@ function PlainHit({
   query,
   onLocate,
   isFile,
+  resolveProfileName,
 }: ConversationSearchHitProps & { isFile: boolean }) {
   const { menuAnchor, closeMenu, triggerProps } = useSearchHitMenu();
 
@@ -292,7 +312,7 @@ function PlainHit({
       {...triggerProps}
     >
       {isFile && <DocumentIcon />}
-      <HitBody message={message} query={query} />
+      <HitBody message={message} query={query} resolveProfileName={resolveProfileName} />
       {menuAnchor && (
         <ConversationSearchHitMenu
           anchor={menuAnchor}

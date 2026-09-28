@@ -8,8 +8,9 @@
  *
  * mock：
  * - useGlobalMessageSearch → 稳定空结果（本地区无命中），隔离出发现区行为。
- *   🔴 同模块的 GLOBAL_SEARCH_LIMIT 也要在工厂里导出：被测组件 import 了它，
- *   漏掉会报 "No export is defined on the mock"（见 .claude/rules/frontend-test.md）。
+ *   🔴 同模块的 GLOBAL_SEARCH_MAX_HITS / GLOBAL_SEARCH_PAGE_SIZE 也要在工厂里导出：
+ *   被测组件 import 了它们，漏掉会报 "No export is defined on the mock"
+ *   （见 .claude/rules/frontend-test.md）。
  * - useDiscoverySearch → vi.fn，每个用例用 mockReturnValue 注入固定发现结果（引用稳定）
  *
  * 🔴 查询用词：段头固定叫「发现」，而「用户 / 群聊 / 机器人」现在是**页签**文案。
@@ -19,10 +20,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 
-const localSearchReturn = vi.hoisted(() => ({ groups: [], loading: false, error: null }));
+const localSearchReturn = vi.hoisted(() => ({ groups: [], loading: false, error: null, totalHits: 0, truncated: false }));
 vi.mock('../../src/hooks/useGlobalMessageSearch', () => ({
   useGlobalMessageSearch: () => localSearchReturn,
-  GLOBAL_SEARCH_LIMIT: 50,
+  GLOBAL_SEARCH_PAGE_SIZE: 200,
+  GLOBAL_SEARCH_MAX_HITS: 10000,
 }));
 
 const mockUseDiscoverySearch = vi.hoisted(() => vi.fn());

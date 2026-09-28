@@ -11,6 +11,9 @@
  *    SQL 层；只断言"调了"是无效断言 —— 参数丢了照样"调了"）
  * 7. **filter 内容没变时不重查**（调用方每次 render 新建一个字面量对象是常态，
  *    对象身份进 deps 会让 effect 每帧重跑、防抖永远等不到头）
+ * 8. **循环分页拉全量**：某页返回数 < 页大小即停；满页继续拉下一页（offset 递增）
+ * 9. **跨页去重**：同一 message_uuid 跨页重复只算一次（翻页期间新消息落库导致窗口错位的防御）
+ * 10. **触达防御上限**：每页都满页时 truncated=true，循环有界
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -22,7 +25,11 @@ vi.mock('../../src/db', () => ({
   searchMessages: mockSearchMessages,
 }));
 
-import { useGlobalMessageSearch } from '../../src/hooks/useGlobalMessageSearch';
+import {
+  useGlobalMessageSearch,
+  GLOBAL_SEARCH_PAGE_SIZE,
+  GLOBAL_SEARCH_MAX_HITS,
+} from '../../src/hooks/useGlobalMessageSearch';
 import type { MessageSearchFilter, SearchMessageResult } from '../../src/db';
 
 const buildHit = (
@@ -93,7 +100,7 @@ describe('useGlobalMessageSearch', () => {
     expect(mockSearchMessages).toHaveBeenCalledTimes(1);
     // 不传 filter ⇒ 第三参 undefined（db.searchMessages 内部再落成 null），
     // 与改造前"不限类型"的行为一致
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, undefined);
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', GLOBAL_SEARCH_PAGE_SIZE, undefined, 0);
   });
 
   it('rapid input: only the last query is searched (debounce)', async () => {
@@ -117,7 +124,7 @@ describe('useGlobalMessageSearch', () => {
     });
 
     expect(mockSearchMessages).toHaveBeenCalledTimes(1);
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('abc', 50, undefined);
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('abc', GLOBAL_SEARCH_PAGE_SIZE, undefined, 0);
   });
 
   it('groups results by conversation_id', async () => {
@@ -174,9 +181,9 @@ describe('useGlobalMessageSearch', () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, {
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', GLOBAL_SEARCH_PAGE_SIZE, {
       include_content_types: ['image'],
-    });
+    }, 0);
   });
 
   it('filter 变化触发重查，且带的是新 filter（切页签即换过滤条件）', async () => {
@@ -199,9 +206,9 @@ describe('useGlobalMessageSearch', () => {
     });
 
     expect(mockSearchMessages).toHaveBeenCalledTimes(2);
-    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', 50, {
+    expect(mockSearchMessages).toHaveBeenLastCalledWith('hello', GLOBAL_SEARCH_PAGE_SIZE, {
       exclude_content_types: ['image', 'video'],
-    });
+    }, 0);
   });
 
   it('filter 内容不变、只是每次 render 新建对象：不重查（否则防抖永远等不到头）', async () => {
@@ -226,6 +233,102 @@ describe('useGlobalMessageSearch', () => {
     });
 
     expect(mockSearchMessages).toHaveBeenCalledTimes(1);
+  });
+
+  // ------------------------------------------------------------------------
+  // 循环分页拉全量（单轨 LIKE + OFFSET 翻页；曾是一条 LIMIT 50 截断）
+  // ------------------------------------------------------------------------
+
+  /** 造 n 条互不相同的命中（uuid 递增，内容同） */
+  const buildHits = (from: number, count: number): SearchMessageResult[] =>
+    Array.from({ length: count }, (_, i) => buildHit(`m${from + i}`, 'conv-a-b', 'friend', 'Alice', `hit ${from + i}`));
+
+  it('满页后继续拉下一页（offset 递增），某页不足页大小即停，totalHits 全量', async () => {
+    mockSearchMessages.mockImplementation(async (_q: string, limit: number, _f: unknown, offset: number) => {
+      expect(limit).toBe(GLOBAL_SEARCH_PAGE_SIZE);
+      return offset === 0 ? buildHits(0, GLOBAL_SEARCH_PAGE_SIZE) : buildHits(GLOBAL_SEARCH_PAGE_SIZE, 5);
+    });
+    const { result } = renderHook(() => useGlobalMessageSearch('中文关键词'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockSearchMessages).toHaveBeenCalledTimes(2);
+    expect(mockSearchMessages).toHaveBeenNthCalledWith(1, '中文关键词', GLOBAL_SEARCH_PAGE_SIZE, undefined, 0);
+    expect(mockSearchMessages).toHaveBeenNthCalledWith(2, '中文关键词', GLOBAL_SEARCH_PAGE_SIZE, undefined, GLOBAL_SEARCH_PAGE_SIZE);
+    expect(result.current.totalHits).toBe(GLOBAL_SEARCH_PAGE_SIZE + 5);
+    expect(result.current.truncated).toBe(false);
+    expect(result.current.groups).toHaveLength(1);
+    expect(result.current.groups[0].hits).toHaveLength(GLOBAL_SEARCH_PAGE_SIZE + 5);
+  });
+
+  it('首页就不足页大小：只调一次即停', async () => {
+    mockSearchMessages.mockResolvedValue(buildHits(0, 3));
+    const { result } = renderHook(() => useGlobalMessageSearch('x'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mockSearchMessages).toHaveBeenCalledTimes(1);
+    expect(result.current.totalHits).toBe(3);
+    expect(result.current.truncated).toBe(false);
+  });
+
+  it('跨页去重：翻页期间窗口错位导致的重复 uuid 只算一次', async () => {
+    mockSearchMessages.mockImplementation(async (_q: string, _l: number, _f: unknown, offset: number) => {
+      if (offset === 0) {
+        return buildHits(0, GLOBAL_SEARCH_PAGE_SIZE); // m0..m199
+      }
+      // m199 又出现一次（新消息落库把窗口顶后移的典型形态）+ 一条新命中
+      return [...buildHits(GLOBAL_SEARCH_PAGE_SIZE - 1, 1), ...buildHits(GLOBAL_SEARCH_PAGE_SIZE, 1)];
+    });
+    const { result } = renderHook(() => useGlobalMessageSearch('x'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.totalHits).toBe(GLOBAL_SEARCH_PAGE_SIZE + 1);
+    expect(result.current.groups[0].hits.filter((h) => h.message.message_uuid === 'm199')).toHaveLength(1);
+  });
+
+  it('每页都满页：触防御上限后停，truncated=true（循环必须有界）', async () => {
+    let seq = 0;
+    mockSearchMessages.mockImplementation(async () => {
+      const page = buildHits(seq * GLOBAL_SEARCH_PAGE_SIZE, GLOBAL_SEARCH_PAGE_SIZE);
+      seq += 1;
+      return page;
+    });
+    const { result } = renderHook(() => useGlobalMessageSearch('x'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.truncated).toBe(true);
+    expect(result.current.totalHits).toBe(GLOBAL_SEARCH_MAX_HITS);
+    expect(mockSearchMessages).toHaveBeenCalledTimes(GLOBAL_SEARCH_MAX_HITS / GLOBAL_SEARCH_PAGE_SIZE);
+  });
+
+  it('翻页中途出错：error 填充、结果清空（不给半截结果装全量）', async () => {
+    mockSearchMessages.mockImplementation(async (_q: string, _l: number, _f: unknown, offset: number) => {
+      if (offset === 0) {
+        return buildHits(0, GLOBAL_SEARCH_PAGE_SIZE);
+      }
+      throw new Error('db gone mid-page');
+    });
+    const { result } = renderHook(() => useGlobalMessageSearch('x'));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.error).toBe('db gone mid-page');
+    expect(result.current.groups).toEqual([]);
+    expect(result.current.totalHits).toBe(0);
+    expect(result.current.truncated).toBe(false);
   });
 
   it('query cleared after results: groups reset, loading false', async () => {

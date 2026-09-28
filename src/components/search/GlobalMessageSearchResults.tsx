@@ -47,8 +47,8 @@
  * ⚠️ 解析复用 [`../../nfc/parser`] 的 `parseAction` —— 与贴 NFC 卡**同一条**解析，
  * 不另写一份正则（两份必漂，而漂了之后一边能进一边不能进，没有任何地方会报错）。
  *
- * - 本链路**没有翻页**（`db_search_messages` 无 offset，发现接口无 offset）：命中触顶时
- *   显式提示"只显示前 N 条"，不假装后面没有了
+ * - 本地链路已**循环分页拉全量**（`db_search_messages` 有 offset，前端 hook 翻页直到拉完；
+ *   发现接口仍无 offset，命中触顶时依旧显式提示"只显示前 N 条"，不假装后面没有了）
  */
 
 import { useMemo, useState } from 'react';
@@ -60,11 +60,12 @@ import { BotBadge } from '../common/BotBadge';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
+import { displaySenderName, profileDisplayName } from '../../utils/senderName';
 import { parseFriendIdFromConversationId } from '../../utils/conversationId';
 import { isBotUserId } from '../../api/bots';
 import {
   useGlobalMessageSearch,
-  GLOBAL_SEARCH_LIMIT,
+  GLOBAL_SEARCH_MAX_HITS,
   type MessageSearchGroup,
 } from '../../hooks/useGlobalMessageSearch';
 import { useDiscoverySearch } from '../../hooks/useDiscoverySearch';
@@ -189,6 +190,8 @@ export function GlobalMessageSearchResults({
     groups: searchGroups,
     loading: localLoading,
     error: localError,
+    totalHits,
+    truncated: localTruncated,
   } = useGlobalMessageSearch(onMessageTab && !joinPayload ? query : '', messageFilter);
   // 服务端发现搜索：与本地搜索独立降级（把 groups 重命名为 discGroups，避开 groups 这个 prop）
   const {
@@ -235,7 +238,7 @@ export function GlobalMessageSearchResults({
 
   // 注：query 为空时由外部 AnimatePresence 不渲染本组件（实现退出动画），
   // 此处不再 return null，保留 hook 调用顺序稳定。
-  const totalHits = searchGroups.reduce((n, g) => n + g.hits.length, 0);
+  // totalHits 由 hook 循环分页拉全量后如实给出（去重后的命中总数）。
 
   const motionProps = {
     variants,
@@ -328,9 +331,9 @@ export function GlobalMessageSearchResults({
         {searchGroups.map((group) =>
           isCoverGrid ? renderCoverGroup(group) : renderHitGroup(group),
         )}
-        {totalHits >= GLOBAL_SEARCH_LIMIT && (
+        {localTruncated && (
           <div className="global-msg-search-foot">
-            仅显示最近 {GLOBAL_SEARCH_LIMIT} 条，输入更精确的关键词可继续收窄
+            命中超过 {GLOBAL_SEARCH_MAX_HITS} 条，仅显示最近 {GLOBAL_SEARCH_MAX_HITS} 条，输入更精确的关键词可继续收窄
           </div>
         )}
       </>
@@ -536,7 +539,15 @@ export function GlobalMessageSearchResults({
                 )}
               </div>
               <div className="global-msg-search-meta">
-                {hit.message.sender_name ?? hit.message.sender_id}
+                {/* D4 昵称收口：落库 sender_name → 好友资料名 → 兑底「未知用户」，
+                    不再 `?? sender_id` 裸露长 ID（存量空 sender_name 行由此收口） */}
+                {displaySenderName(
+                  hit.message.sender_name,
+                  profileDisplayName(
+                    friendMap.get(hit.message.sender_id)?.friend_remark,
+                    friendMap.get(hit.message.sender_id)?.friend_nickname,
+                  ),
+                )}
                 <span className="global-msg-search-meta-sep">·</span>
                 {formatMessageTime(hit.message.send_time)}
               </div>

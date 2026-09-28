@@ -42,6 +42,7 @@ import { useChatStore } from '../../stores';
 import type { LocalMessage } from '../../db';
 import type { GroupMember } from '../../api/groups';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
+import { profileDisplayName } from '../../utils/senderName';
 import { ConversationSearchHit } from './ConversationSearchHit';
 import { MESSAGE_CATEGORY_TABS, type MessageCategory } from './messageCategory';
 import { useConversationMessageSearch } from './useConversationMessageSearch';
@@ -79,6 +80,29 @@ export function ConversationMessageSearch({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
+  const friends = useChatStore((s) => s.friends);
+
+  /**
+   * 发送者资料名回退（D4 昵称收口）：命中行 sender_name 为空时，HitBody 用它回退到
+   * 本地资料名，再不行由 displaySenderName 兑底「未知用户」，绝不裸露 sender_id。
+   * 数据源全部在内存/props 里（群成员列表、D7 备注、好友列表），零额外 IO。
+   * 口径与聊天窗一致：群成员备注 → 群昵称/用户昵称；非群成员再看好友备注/昵称。
+   */
+  const resolveProfileName = useCallback(
+    (senderId: string): string | null => {
+      const member = members?.find((m) => m.user_id === senderId);
+      if (member) {
+        const fromMember = profileDisplayName(
+          memberRemarks?.[senderId],
+          member.group_nickname || member.user_nickname,
+        );
+        if (fromMember) { return fromMember; }
+      }
+      const friend = friends.find((f) => f.friend_id === senderId);
+      return friend ? profileDisplayName(friend.friend_remark, friend.friend_nickname) : null;
+    },
+    [members, memberRemarks, friends],
+  );
 
   const isMemberTab = category === 'member';
   const { items, loading, loadingMore, error, hasMore, loadMore } =
@@ -250,6 +274,7 @@ export function ConversationMessageSearch({
                   query={trimmedQuery}
                   layout={isCoverGrid ? 'cover' : 'row'}
                   onLocate={handleLocate}
+                  resolveProfileName={resolveProfileName}
                 />
               ))}
 

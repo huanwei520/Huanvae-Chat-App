@@ -15,8 +15,9 @@
  *
  * mock 说明：
  * - useGlobalMessageSearch / useDiscoverySearch → vi.fn，逐用例注入（引用稳定）。
- *   🔴 mock 该 hook 模块时必须一并导出 GLOBAL_SEARCH_LIMIT —— 被测组件从同一模块 import 它，
- *   工厂里漏掉会报 "No export is defined on the mock"（见 .claude/rules/frontend-test.md）。
+ *   🔴 mock 该 hook 模块时必须一并导出 GLOBAL_SEARCH_MAX_HITS / GLOBAL_SEARCH_PAGE_SIZE ——
+ *   被测组件从同一模块 import 它们，工厂里漏掉会报 "No export is defined on the mock"
+ *   （见 .claude/rules/frontend-test.md）。
  * - ConversationSearchHit → 轻量替身。真组件自带 useFileCache / 独立预览窗 / portal，
  *   它的行为由 ConversationSearchHit.test.tsx 覆盖；这里要验的是**父组件的接线**
  *   （版式是不是 cover、onLocate 有没有接到 onSelectMessage）。
@@ -30,7 +31,8 @@ import type { SearchMessageResult } from '../../src/db';
 const mockUseGlobalMessageSearch = vi.hoisted(() => vi.fn());
 vi.mock('../../src/hooks/useGlobalMessageSearch', () => ({
   useGlobalMessageSearch: (q: string, f?: unknown) => mockUseGlobalMessageSearch(q, f),
-  GLOBAL_SEARCH_LIMIT: 50,
+  GLOBAL_SEARCH_PAGE_SIZE: 200,
+  GLOBAL_SEARCH_MAX_HITS: 10000,
 }));
 
 const mockUseDiscoverySearch = vi.hoisted(() => vi.fn());
@@ -121,11 +123,13 @@ const buildGroupResult = (hits: SearchMessageResult[]) => ({
   hits,
 });
 
-function setLocalHits(hits: SearchMessageResult[]) {
+function setLocalHits(hits: SearchMessageResult[], opts: { truncated?: boolean } = {}) {
   mockUseGlobalMessageSearch.mockReturnValue({
     groups: hits.length > 0 ? [buildGroupResult(hits)] : [],
     loading: false,
     error: null,
+    totalHits: hits.length,
+    truncated: opts.truncated ?? false,
   });
 }
 
@@ -311,26 +315,28 @@ describe('GlobalMessageSearchResults · 消息页签的结果渲染', () => {
     expect(hitArg.message.message_uuid).toBe('m1');
   });
 
-  it('命中数触顶 → 如实提示"只显示了前 N 条"（本链路无翻页，不能假装后面没有了）', () => {
-    setLocalHits(Array.from({ length: 50 }, (_, i) => buildHit(`m${i}`, 'text', `hit ${i}`)));
+  it('hook 报 truncated（触防御上限）→ 如实提示"仅显示最近 N 条"（不假装后面没有了）', () => {
+    setLocalHits(Array.from({ length: 50 }, (_, i) => buildHit(`m${i}`, 'text', `hit ${i}`)), {
+      truncated: true,
+    });
     renderResults();
-    expect(screen.getByText(/仅显示最近 50 条/)).toBeInTheDocument();
+    expect(screen.getByText(/仅显示最近 10000 条/)).toBeInTheDocument();
   });
 
-  it('命中数未触顶 → 不出现该提示（避免恒显示 = 没有信息量）', () => {
+  it('未触上限 → 不出现该提示（本地已循环分页拉全量，正常数据量恒拉完）', () => {
     setLocalHits([buildHit('m1', 'text', 'only one')]);
     renderResults();
     expect(screen.queryByText(/仅显示最近/)).toBeNull();
   });
 
   it('本地搜索加载中 / 出错各自有态，不落到空态', () => {
-    mockUseGlobalMessageSearch.mockReturnValue({ groups: [], loading: true, error: null });
+    mockUseGlobalMessageSearch.mockReturnValue({ groups: [], loading: true, error: null, totalHits: 0, truncated: false });
     renderResults();
     expect(screen.getByText(/搜索消息中/)).toBeInTheDocument();
     expect(screen.queryByText(/未找到包含/)).toBeNull();
 
     cleanup();
-    mockUseGlobalMessageSearch.mockReturnValue({ groups: [], loading: false, error: 'db crash' });
+    mockUseGlobalMessageSearch.mockReturnValue({ groups: [], loading: false, error: 'db crash', totalHits: 0, truncated: false });
     renderResults();
     expect(screen.getByText('db crash')).toBeInTheDocument();
     expect(screen.queryByText(/未找到包含/)).toBeNull();

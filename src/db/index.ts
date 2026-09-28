@@ -445,15 +445,19 @@ export async function saveMessagesSkipExisting(
  *
  * 不传 filter = 跨会话、不限类型（全局搜索）。
  * 传 filter 可限定单会话 + 按 content_type 筛选（会话内搜索的四类分页）。
+ * offset：分页起始偏移（省略 = 0）。Rust 侧单轨 LIKE + 确定性排序三元组，
+ * 任意 offset 窗口稳定，全量拉取靠调用方循环翻页（见 useGlobalMessageSearch）。
  */
 export function searchMessages(
   query: string,
   limit = 50,
   filter?: MessageSearchFilter,
+  offset = 0,
 ): Promise<SearchMessageResult[]> {
   return invoke<SearchMessageResult[]>('db_search_messages', {
     query,
     limit,
+    offset,
     filter: filter ?? null,
   });
 }
@@ -476,7 +480,7 @@ export interface ListConversationMessagesParams {
 /**
  * 会话内按分类浏览消息（关键词可选）— 调 Rust `db_list_conversation_messages`
  *
- * 与 `searchMessages` 的分工：那条是**跨会话全局**搜索、关键词必填、FTS5 短语；
+ * 与 `searchMessages` 的分工：那条是**跨会话全局**搜索、关键词必填、单轨 LIKE 子串匹配；
  * 这条是**单会话**内的分页浏览，**不给关键词就按分类按时间倒序列出全部**
  * （产品要求：点分类即出列表，不必先输入关键词），给了关键词就在该分类内再过滤。
  * 详细的「为什么不走 FTS」「排序为何是三元组」见 Rust 侧同名函数文档。

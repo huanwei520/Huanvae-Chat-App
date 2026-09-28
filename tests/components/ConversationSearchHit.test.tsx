@@ -82,7 +82,11 @@ const buildMessage = (overrides: Partial<LocalMessage> = {}): LocalMessage => ({
 
 function renderHit(
   message: LocalMessage,
-  opts: { layout?: 'row' | 'cover'; query?: string } = {},
+  opts: {
+    layout?: 'row' | 'cover';
+    query?: string;
+    resolveProfileName?: (senderId: string) => string | null;
+  } = {},
 ) {
   const onLocate = vi.fn();
   const view = render(
@@ -92,6 +96,7 @@ function renderHit(
         query={opts.query ?? ''}
         layout={opts.layout ?? 'row'}
         onLocate={onLocate}
+        resolveProfileName={opts.resolveProfileName}
       />
     </ul>,
   );
@@ -431,5 +436,48 @@ describe('ConversationSearchHit', () => {
         expect(screen.getByTestId('mobile-preview')).toBeInTheDocument();
       });
     });
+  });
+});
+
+// ============================================================================
+// C. 发送者名显示回退链（D4 昵称混显收口）
+//    契约：落库 sender_name → 资料昵称（resolveProfileName）→ 兜底「未知用户」；
+//    绝不渲染 sender_id（存量空 sender_name 行的读取层收口）
+// ============================================================================
+
+describe('ConversationSearchHit — 发送者名回退链（D4）', () => {
+  beforeEach(() => {
+    mockUseFileCache.mockReset();
+    mockUseFileCache.mockReturnValue({
+      src: PROXIED_SRC,
+      isLocal: false,
+      localPath: null,
+      presignedUrl: RAW_PRESIGNED,
+      openInFolder: vi.fn(),
+    });
+    mockOpenMediaWindow.mockReset();
+    mockIsMobile.mockReturnValue(false);
+  });
+
+  const senderText = () =>
+    document.querySelector('.conv-msg-search-hit-sender')?.textContent;
+
+  it('落库 sender_name 非空 → 原样显示', () => {
+    renderHit(buildMessage({ sender_name: 'Alice' }));
+    expect(senderText()).toBe('Alice');
+  });
+
+  it('sender_name 为空 + 有资料解析器 → 回退资料昵称', () => {
+    renderHit(buildMessage({ sender_name: null }), {
+      resolveProfileName: () => '李四',
+    });
+    expect(senderText()).toBe('李四');
+  });
+
+  it('sender_name 为空且无资料 → 兜底「未知用户」，绝不裸露 sender_id', () => {
+    renderHit(buildMessage({ sender_name: null }));
+    const text = senderText();
+    expect(text).toBe('未知用户');
+    expect(text).not.toContain('u1');
   });
 });

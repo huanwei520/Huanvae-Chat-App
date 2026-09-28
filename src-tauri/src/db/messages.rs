@@ -491,19 +491,31 @@ pub fn mark_message_recalled(message_uuid: &str) -> Result<(), String> {
 
 /// 搜索消息内容（含前后上下文）
 ///
-/// 双轨制：
-/// - 主路径 FTS5 MATCH 短语：性能最佳，处理大部分常规查询
-/// - Fallback LIKE %query%：当 FTS 返空时兜底（处理 unicode61 边界、FTS 索引同步延迟等场景）
+/// 单轨 LIKE 子串匹配 + LIMIT/OFFSET 全量分页：
+///
+/// 曾经是「FTS5 MATCH 为主、FTS 返空才回落 LIKE」的双轨制。但 FTS5 `unicode61`
+/// 不切分 CJK —— 一整段中文是一个 token，短语查询匹配不到句中片段；而双轨制里
+/// FTS 一旦有（部分）结果就不再走 LIKE，**漏掉的恰好全是中文命中**。现已改为一律
+/// LIKE `%query%` 子串匹配：语义即「包含这段文字」，中英文一致，无此类漏检。
+///
+/// 历史注记：旧实现的主路径函数 `fts_search` 已随双轨制一并删除（本文件与全仓
+/// 均无其定义或调用；`messages_fts` 虚表与同步触发器保留，但搜索不再依赖）——
+/// 全局唯一检索路径即下方 `like_search`。
+///
+/// 分页自洽也是单轨的理由：双轨制下同一组条件在不同 offset 上可能落到不同轨道，
+/// 翻页会重复/漏条；单轨 + 确定性排序三元组（见 `like_search`）才稳定。
+/// 与 `list_conversation_messages` 的取舍一致。
 ///
 /// 行为：
 /// - JOIN conversations 拿会话名 + 头像
 /// - 对每条命中，按 conversation_id + seq 取前后各 1 条作为上下文预览
 /// - 排除 is_deleted 和 is_recalled
 /// - 按 filter 限定会话 / content_type（见 `MessageSearchFilter`）
-/// - 按 send_time DESC 排序，限 limit 条
+/// - 按 send_time DESC（seq / message_uuid 决胜）排序，取 `[offset, offset+limit)` 窗口
 pub fn search_messages(
     query: &str,
     limit: i64,
+    offset: i64,
     filter: &MessageSearchFilter,
 ) -> Result<Vec<SearchMessageResult>, String> {
     let trimmed = query.trim();
@@ -511,7 +523,7 @@ pub fn search_messages(
         return Ok(Vec::new());
     }
 
-    with_db!(db, { search_messages_with_conn(db, trimmed, limit, filter) })
+    with_db!(db, { search_messages_with_conn(db, trimmed, limit, offset, filter) })
 }
 
 /// search_messages 的内部实现（接受 Connection 引用，便于单测使用 in-memory DB）
@@ -521,6 +533,7 @@ pub(crate) fn search_messages_with_conn(
     conn: &Connection,
     query: &str,
     limit: i64,
+    offset: i64,
     filter: &MessageSearchFilter,
 ) -> Result<Vec<SearchMessageResult>, String> {
     // include 显式给了空集 = "只要这 0 种类型" → 结果必然为空，直接短路
@@ -533,15 +546,9 @@ pub(crate) fn search_messages_with_conn(
         return Ok(Vec::new());
     }
 
-    // 主路径：FTS5 MATCH 短语查询
-    let fts_results = fts_search(conn, query, limit, filter)?;
-    if !fts_results.is_empty() {
-        return enrich_with_context(conn, fts_results);
-    }
-
-    // Fallback：LIKE 子串匹配（处理 FTS 索引未同步 / unicode61 分词边界等场景）
-    let like_results = like_search(conn, query, limit, filter)?;
-    enrich_with_context(conn, like_results)
+    // 单轨：只有 LIKE 这一条检索路径（双轨制漏检中文的根因见 `search_messages` 文档）
+    let results = like_search(conn, query, limit, offset, filter)?;
+    enrich_with_context(conn, results)
 }
 
 /// 把过滤条件编译成 SQL 片段（每条以 ` AND ` 起头）+ 顺序一致的绑定值
@@ -597,45 +604,6 @@ fn placeholders(n: usize) -> String {
     s
 }
 
-/// FTS5 MATCH 短语查询；返回 (LocalMessage, conv_name, conv_avatar) 列表
-fn fts_search(
-    conn: &Connection,
-    query: &str,
-    limit: i64,
-    filter: &MessageSearchFilter,
-) -> Result<Vec<(LocalMessage, String, Option<String>)>, String> {
-    // 转义查询里的双引号（FTS5 短语用 "" 表示一个 "）
-    let escaped = query.replace('"', "\"\"");
-    let fts_query = format!("\"{}\"", escaped);
-
-    let (filter_sql, filter_binds) = compile_filter(filter);
-    let sql = format!(
-        "SELECT m.message_uuid, m.conversation_id, m.conversation_type, m.sender_id,
-                m.sender_name, m.sender_avatar, m.content, m.content_type, m.file_uuid,
-                m.file_url, m.file_size, m.image_width, m.image_height,
-                m.seq, m.reply_to, m.is_recalled, m.is_deleted, m.send_time, m.created_at,
-                m.media_group_id, m.media_group_index, m.media_group_count,
-                c.name, c.avatar_url
-         FROM messages_fts
-         JOIN messages m ON m.rowid = messages_fts.rowid
-         LEFT JOIN conversations c ON c.id = m.conversation_id
-         WHERE messages_fts MATCH ?
-           AND m.is_deleted = 0
-           AND m.is_recalled = 0{}
-         ORDER BY m.send_time DESC
-         LIMIT ?",
-        filter_sql
-    );
-
-    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(fts_query)];
-    binds.extend(filter_binds);
-    binds.push(Box::new(limit));
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
-    collect_hits(&mut stmt, bind_refs.as_slice())
-}
-
 /// 把关键词编译成 `%…%` LIKE 模式（转义 SQLite 通配符，配 `ESCAPE '\'` 使用）
 fn like_pattern(query: &str) -> String {
     let escaped = query
@@ -645,11 +613,16 @@ fn like_pattern(query: &str) -> String {
     format!("%{}%", escaped)
 }
 
-/// LIKE %query% 兜底查询
+/// LIKE %query% 子串查询（全局搜索的**唯一**检索路径，见 `search_messages` 文档）
+///
+/// 排序三元组 `send_time DESC, seq DESC, message_uuid DESC`：只按 send_time 排序时，
+/// 同一秒的多条命中在两次分页查询里顺序可能不同，翻页就会重复/丢条；三元组唯一，
+/// LIMIT/OFFSET 窗口才确定（与 `list_conversation_messages` 同一手法）。
 fn like_search(
     conn: &Connection,
     query: &str,
     limit: i64,
+    offset: i64,
     filter: &MessageSearchFilter,
 ) -> Result<Vec<(LocalMessage, String, Option<String>)>, String> {
     let pattern = like_pattern(query);
@@ -667,14 +640,15 @@ fn like_search(
          WHERE m.content LIKE ? ESCAPE '\\'
            AND m.is_deleted = 0
            AND m.is_recalled = 0{}
-         ORDER BY m.send_time DESC
-         LIMIT ?",
+         ORDER BY m.send_time DESC, m.seq DESC, m.message_uuid DESC
+         LIMIT ? OFFSET ?",
         filter_sql
     );
 
     let mut binds: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(pattern)];
     binds.extend(filter_binds);
     binds.push(Box::new(limit));
+    binds.push(Box::new(offset));
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let bind_refs: Vec<&dyn rusqlite::ToSql> = binds.iter().map(|b| b.as_ref()).collect();
@@ -777,18 +751,19 @@ fn enrich_with_context(
 /// 会话内「按分类浏览 + 可选关键词过滤」的分页列表（Telegram 式查找）
 ///
 /// 与 [`search_messages`] 的分工：
-/// - `search_messages`：**跨会话全局**搜索，关键词**必填**，FTS5 短语为主路径
+/// - `search_messages`：**跨会话全局**搜索，关键词**必填**（同样单轨 LIKE + 分页）
 /// - 本函数：**单会话**内浏览，关键词**可选** —— 不给关键词就按分类按时间倒序列出全部
 ///   （产品要求：点「图片/视频/文件/全部」立刻出列表，不必先输入关键词），
 ///   给了关键词就在同一分类结果里再过滤
 ///
 /// ## 为什么关键词走 `LIKE %kw%` 而不是 FTS5
 ///
-/// 1. **分页必须自洽**。`search_messages` 是「FTS 命中为空则回落 LIKE」的双轨制；
-///    同一组条件在不同 offset 上可能落到不同轨道，翻页会重复/漏条。单轨 LIKE 的
-///    LIMIT/OFFSET 才是确定的。
+/// 1. **分页必须自洽**。双轨制（FTS 优先、返空才回落 LIKE）下同一组条件在不同
+///    offset 上可能落到不同轨道，翻页会重复/漏条。单轨 LIKE 的 LIMIT/OFFSET 才是
+///    确定的 —— `search_messages` 也已按同一理由改成单轨 LIKE（并修掉了双轨制
+///    漏检中文的问题）。
 /// 2. **中文子串**。FTS5 `unicode61` 不切分 CJK，一整段中文是一个 token，短语查询
-///    匹配不到句中片段 —— `search_messages` 挂 LIKE 兜底正是为此。会话内查找几乎
+///    匹配不到句中片段 —— 全局搜索漏检中文的根因即此。会话内查找几乎
 ///    全是「记得其中几个字」，LIKE 才是对的语义。
 /// 3. 扫描量有界：`conversation_id` 把范围钉死在单个会话内。
 ///
@@ -1167,7 +1142,7 @@ mod tests {
     fn fts_hit_text_message() {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "hello world", "text", 1, "2026-05-11T01:00:00Z");
-        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.message_uuid, "m1");
     }
@@ -1176,8 +1151,8 @@ mod tests {
     fn single_char_hit() {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "1", "text", 1, "2026-05-11T01:00:00Z");
-        let results = search_messages_with_conn(&conn, "1", 50, &MessageSearchFilter::default()).unwrap();
-        assert_eq!(results.len(), 1, "单字符 '1' 应命中（FTS 或 LIKE fallback）");
+        let results = search_messages_with_conn(&conn, "1", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(results.len(), 1, "单字符 '1' 应命中（LIKE 子串匹配）");
     }
 
     #[test]
@@ -1185,7 +1160,7 @@ mod tests {
         let conn = setup_test_db();
         insert_msg(&conn, "m1", "c1", "photo.png", "image", 1, "2026-05-11T01:00:00Z");
         insert_msg(&conn, "m2", "c1", "video.mp4", "video", 2, "2026-05-11T02:00:00Z");
-        let results = search_messages_with_conn(&conn, "photo", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "photo", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.content_type, "image");
     }
@@ -1199,14 +1174,15 @@ mod tests {
         conn.execute("UPDATE messages SET is_deleted=1 WHERE message_uuid='m2'", []).unwrap();
         conn.execute("UPDATE messages SET is_recalled=1 WHERE message_uuid='m3'", []).unwrap();
 
-        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1, "已撤回 + 已删除的消息应排除");
         assert_eq!(results[0].message.message_uuid, "m1");
     }
 
     #[test]
-    fn like_fallback_when_fts_empty() {
-        // 模拟"FTS 索引为空但 messages 有数据"的场景：删掉 trigger 然后手工插入
+    fn hits_when_fts_index_missing_or_stale() {
+        // 模拟「FTS 索引为空但 messages 有数据」的场景（无 trigger，FTS 不灌数据）：
+        // 单轨 LIKE 的检索不依赖 FTS 索引同步状态 —— 双轨制时代这需要兜底，现在天然成立。
         let conn = Connection::open_in_memory().unwrap();
         // 仅建 messages + conversations + FTS（无 trigger）
         conn.execute(
@@ -1237,8 +1213,8 @@ mod tests {
         // 插入消息但不灌 FTS（trigger 缺失）
         insert_msg(&conn, "m1", "c1", "lonely message", "text", 1, "2026-05-11T01:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "lonely", 50, &MessageSearchFilter::default()).unwrap();
-        assert_eq!(results.len(), 1, "FTS 空时 LIKE fallback 应命中");
+        let results = search_messages_with_conn(&conn, "lonely", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(results.len(), 1, "FTS 索引缺失/过期不影响 LIKE 命中");
     }
 
     #[test]
@@ -1247,7 +1223,7 @@ mod tests {
         insert_msg(&conn, "m1", "c1", "anything", "text", 1, "2026-05-11T01:00:00Z");
 
         // FTS 主路径与 LIKE 兜底都搜不到时，返回空 Vec（非 None / 非 Error）
-        let results = search_messages_with_conn(&conn, "nonexistent", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "nonexistent", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 0, "无命中的 query 应返回空 Vec");
     }
 
@@ -1258,7 +1234,7 @@ mod tests {
         insert_msg(&conn, "m2", "c1", "hello middle", "text", 2, "2026-05-11T02:00:00Z");
         insert_msg(&conn, "m3", "c1", "last message", "text", 3, "2026-05-11T03:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "middle", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "middle", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].context_before.as_deref(), Some("first message"));
         assert_eq!(results[0].context_after.as_deref(), Some("last message"));
@@ -1271,7 +1247,7 @@ mod tests {
         insert_msg(&conn, "m2", "c1", "hello B", "text", 2, "2026-05-11T02:00:00Z");
         insert_msg(&conn, "m3", "c1", "hello C", "text", 3, "2026-05-11T03:00:00Z");
 
-        let results = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(results.len(), 3);
         // 最新的在前
         assert_eq!(results[0].message.message_uuid, "m3");
@@ -1305,10 +1281,10 @@ mod tests {
         insert_msg(&conn, "m2", "c2", "hello there", "text", 1, "2026-05-11T02:00:00Z");
 
         // 不过滤：两个会话都命中
-        let all = search_messages_with_conn(&conn, "hello", 50, &MessageSearchFilter::default()).unwrap();
+        let all = search_messages_with_conn(&conn, "hello", 50, 0, &MessageSearchFilter::default()).unwrap();
         assert_eq!(all.len(), 2, "无过滤时应跨会话命中");
 
-        let scoped = search_messages_with_conn(&conn, "hello", 50, &in_conversation("c1")).unwrap();
+        let scoped = search_messages_with_conn(&conn, "hello", 50, 0, &in_conversation("c1")).unwrap();
         assert_eq!(scoped.len(), 1);
         assert_eq!(scoped[0].message.message_uuid, "m1");
         assert_eq!(scoped[0].message.conversation_id, "c1");
@@ -1322,16 +1298,16 @@ mod tests {
         insert_msg(&conn, "m3", "c1", "target.mp4", "video", 3, "2026-05-11T03:00:00Z");
         insert_msg(&conn, "m4", "c1", "target.zip", "file", 4, "2026-05-11T04:00:00Z");
 
-        let images = search_messages_with_conn(&conn, "target", 50, &include_types(&["image"])).unwrap();
+        let images = search_messages_with_conn(&conn, "target", 50, 0, &include_types(&["image"])).unwrap();
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].message.message_uuid, "m2");
 
-        let videos = search_messages_with_conn(&conn, "target", 50, &include_types(&["video"])).unwrap();
+        let videos = search_messages_with_conn(&conn, "target", 50, 0, &include_types(&["video"])).unwrap();
         assert_eq!(videos.len(), 1);
         assert_eq!(videos[0].message.message_uuid, "m3");
 
         // 多值 IN：文件类可包含多个 content_type
-        let files = search_messages_with_conn(&conn, "target", 50, &include_types(&["file", "audio"])).unwrap();
+        let files = search_messages_with_conn(&conn, "target", 50, 0, &include_types(&["file", "audio"])).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].message.message_uuid, "m4");
     }
@@ -1351,7 +1327,7 @@ mod tests {
             ),
             ..Default::default()
         };
-        let texts = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
+        let texts = search_messages_with_conn(&conn, "target", 50, 0, &filter).unwrap();
         let uuids: Vec<&str> = texts.iter().map(|r| r.message.message_uuid.as_str()).collect();
         assert_eq!(texts.len(), 3, "文字类 = 非文件类（含 card 与未知类型）");
         assert!(uuids.contains(&"m1"));
@@ -1370,23 +1346,23 @@ mod tests {
             include_content_types: Some(Vec::new()),
             ..Default::default()
         };
-        let results = search_messages_with_conn(&conn, "hello", 50, &filter).unwrap();
+        let results = search_messages_with_conn(&conn, "hello", 50, 0, &filter).unwrap();
         assert_eq!(results.len(), 0);
     }
 
     #[test]
-    fn filter_also_applies_on_like_fallback_path() {
+    fn filter_also_applies_on_like_path() {
         let conn = setup_test_db();
-        // unicode61 把 "prefixbcdesuffix" 切成单个 token，短语 "bcde" 匹配不到 →
-        // 走 LIKE fallback。此处验证 fallback 路径同样受 filter 约束。
+        // unicode61 把 "prefixbcdesuffix" 切成单个 token，FTS 短语 "bcde" 匹配不到 ——
+        // 双轨制时代这正是漏检形态。验证 LIKE 这唯一路径同样受 filter 约束。
         insert_msg(&conn, "m1", "c1", "prefixbcdesuffix", "text", 1, "2026-05-11T01:00:00Z");
         insert_msg(&conn, "m2", "c2", "prefixbcdesuffix", "text", 1, "2026-05-11T02:00:00Z");
 
-        let unfiltered = search_messages_with_conn(&conn, "bcde", 50, &MessageSearchFilter::default()).unwrap();
-        assert_eq!(unfiltered.len(), 2, "前置条件：该 query 只能由 LIKE fallback 命中");
+        let unfiltered = search_messages_with_conn(&conn, "bcde", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(unfiltered.len(), 2, "前置条件：该 query 只能由 LIKE 子串命中");
 
-        let scoped = search_messages_with_conn(&conn, "bcde", 50, &in_conversation("c2")).unwrap();
-        assert_eq!(scoped.len(), 1, "LIKE fallback 路径也必须应用会话过滤");
+        let scoped = search_messages_with_conn(&conn, "bcde", 50, 0, &in_conversation("c2")).unwrap();
+        assert_eq!(scoped.len(), 1, "LIKE 路径也必须应用会话过滤");
         assert_eq!(scoped[0].message.message_uuid, "m2");
     }
 
@@ -1403,9 +1379,140 @@ mod tests {
             exclude_content_types: None,
             sender_id: None,
         };
-        let results = search_messages_with_conn(&conn, "target", 50, &filter).unwrap();
+        let results = search_messages_with_conn(&conn, "target", 50, 0, &filter).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].message.message_uuid, "m1");
+    }
+
+    // ------------------------------------------------------------------
+    // 单轨 LIKE：中文关键词全量命中 + 全量分页（双轨制时代漏检的回归钉）
+    // ------------------------------------------------------------------
+
+    /// 「FTS 有结果但 LIKE 更全」的双轨制漏检形态 —— 本块改造的核心回归钉。
+    ///
+    /// unicode61 把每段连续中文当成一个 token：
+    /// - content 恰为关键词本身（"吃饭了吗"）→ FTS 短语能命中；
+    /// - 关键词嵌在更长中文串里（"你吃饭了吗"）→ FTS 短语命中不到。
+    /// 双轨制下 FTS 返回非空就不再走 LIKE，于是后几条**全部漏检**；
+    /// 单轨 LIKE 语义 = 子串包含，两种分布必须全量命中。
+    #[test]
+    fn chinese_keyword_hits_even_when_fts_would_return_partial() {
+        let conn = setup_test_db();
+        // m1：FTS 能命中的形态（整条消息 = 关键词本身）
+        insert_msg(&conn, "m1", "c1", "吃饭了吗", "text", 1, "2026-05-11T01:00:00Z");
+        // m2/m3：FTS 命中不到的形态（关键词是更长中文串的子串）
+        insert_msg(&conn, "m2", "c1", "你吃饭了吗", "text", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "走一起去吃饭了吗", "text", 3, "2026-05-11T03:00:00Z");
+        // m4：不含关键词的干扰项，不许混入
+        insert_msg(&conn, "m4", "c1", "今天天气不错", "text", 4, "2026-05-11T04:00:00Z");
+
+        let results = search_messages_with_conn(&conn, "吃饭了吗", 50, 0, &MessageSearchFilter::default()).unwrap();
+        let uuids: Vec<&str> = results.iter().map(|r| r.message.message_uuid.as_str()).collect();
+        assert_eq!(uuids, vec!["m3", "m2", "m1"], "中文关键词必须全量命中（按时间倒序），干扰项不混入");
+    }
+
+    /// 被英文/数字夹着的中文片段（FTS 会把 "v2发布计划定稿" 切成
+    /// v2 / 发布计划定稿 两个 token，搜「发布」在 FTS 下命中不到）—— 同样必须子串命中。
+    #[test]
+    fn chinese_substring_next_to_ascii_hits() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "v2发布计划定稿了", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "项目周报已同步", "text", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "meeting at 3pm", "text", 3, "2026-05-11T03:00:00Z");
+
+        let by_publish = search_messages_with_conn(&conn, "发布", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(by_publish.len(), 1);
+        assert_eq!(by_publish[0].message.message_uuid, "m1");
+
+        let by_project = search_messages_with_conn(&conn, "项目", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(by_project.len(), 1);
+        assert_eq!(by_project[0].message.message_uuid, "m2");
+    }
+
+    /// LIKE 命中超过一页：LIMIT/OFFSET 翻页必须无重无漏，并集完整
+    #[test]
+    fn search_paginates_by_limit_offset_without_overlap() {
+        let conn = setup_test_db();
+        for i in 0..5 {
+            insert_msg(
+                &conn,
+                &format!("m{}", i),
+                "c1",
+                &format!("项目进度{}", i),
+                "text",
+                i + 1,
+                &format!("2026-05-11T0{}:00:00Z", i),
+            );
+        }
+
+        let page1 = search_messages_with_conn(&conn, "项目", 2, 0, &MessageSearchFilter::default()).unwrap();
+        let page2 = search_messages_with_conn(&conn, "项目", 2, 2, &MessageSearchFilter::default()).unwrap();
+        let page3 = search_messages_with_conn(&conn, "项目", 2, 4, &MessageSearchFilter::default()).unwrap();
+
+        let mut all: Vec<&str> = page1
+            .iter()
+            .chain(page2.iter())
+            .map(|r| r.message.message_uuid.as_str())
+            .collect();
+        all.extend(page3.iter().map(|r| r.message.message_uuid.as_str()));
+        all.sort_unstable();
+        assert_eq!(all, vec!["m0", "m1", "m2", "m3", "m4"], "翻页并集完整、无重复");
+        assert_eq!(page3.len(), 1, "最后一页不足 limit → 前端据此判拉完");
+    }
+
+    /// 同一 send_time 的多条命中：排序三元组（send_time, seq, message_uuid）
+    /// 保证两页并集完整、两两不相交（只按 send_time 排序时顺序不定，翻页必炸）
+    #[test]
+    fn search_pagination_stable_with_send_time_ties() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "ma", "c1", "项目同秒A", "text", 1, "2026-05-11T05:00:00Z");
+        insert_msg(&conn, "mb", "c1", "项目同秒B", "text", 2, "2026-05-11T05:00:00Z");
+        insert_msg(&conn, "mc", "c1", "项目同秒C", "text", 3, "2026-05-11T05:00:00Z");
+
+        let page1 = search_messages_with_conn(&conn, "项目", 2, 0, &MessageSearchFilter::default()).unwrap();
+        let page2 = search_messages_with_conn(&conn, "项目", 2, 2, &MessageSearchFilter::default()).unwrap();
+
+        let mut all: Vec<&str> = page1.iter().map(|r| r.message.message_uuid.as_str()).collect();
+        all.extend(page2.iter().map(|r| r.message.message_uuid.as_str()));
+        all.sort_unstable();
+        assert_eq!(all, vec!["ma", "mb", "mc"], "分页并集完整、无重复");
+    }
+
+    /// offset 越过末尾 = 空页（前端分页循环靠「页返回数 < 页大小」判终止）
+    #[test]
+    fn search_offset_past_end_returns_empty() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "项目只有一个", "text", 1, "2026-05-11T01:00:00Z");
+
+        let results = search_messages_with_conn(&conn, "项目", 2, 1, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(results.len(), 0, "offset 越过命中总数应返回空页");
+    }
+
+    /// LIKE 通配符必须转义：用户输入含 % _ \ 时语义不得漂移成通配
+    #[test]
+    fn search_keyword_wildcards_are_escaped() {
+        let conn = setup_test_db();
+        insert_msg(&conn, "m1", "c1", "100% 完成", "text", 1, "2026-05-11T01:00:00Z");
+        insert_msg(&conn, "m2", "c1", "毫不相干", "text", 2, "2026-05-11T02:00:00Z");
+        insert_msg(&conn, "m3", "c1", "snake_case 变量", "text", 3, "2026-05-11T03:00:00Z");
+        // 未转义 `_` 会把它当单字符通配匹配进来（语义漂移的诱饵行）
+        insert_msg(&conn, "m4", "c1", "snake0case 诱饵", "text", 4, "2026-05-11T04:00:00Z");
+        insert_msg(&conn, "m5", "c1", "日志路径 C:\\dir\\log", "text", 5, "2026-05-11T05:00:00Z");
+
+        // '%' 字面量：不得变成「任意后缀」把 m2 捞进来
+        let pct = search_messages_with_conn(&conn, "100%", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(pct.len(), 1);
+        assert_eq!(pct[0].message.message_uuid, "m1");
+
+        // '_' 字面量：不得当单字符通配把 m4 捞进来
+        let under = search_messages_with_conn(&conn, "snake_case", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(under.len(), 1);
+        assert_eq!(under[0].message.message_uuid, "m3");
+
+        // '\' 字面量
+        let bs = search_messages_with_conn(&conn, "C:\\dir", 50, 0, &MessageSearchFilter::default()).unwrap();
+        assert_eq!(bs.len(), 1);
+        assert_eq!(bs[0].message.message_uuid, "m5");
     }
 
     // ------------------------------------------------------------------
