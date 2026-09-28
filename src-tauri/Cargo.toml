@@ -242,3 +242,12 @@ tauri-plugin-android-package-install = "2.0.1"
 # 见 lib.rs `#[cfg(target_os = "android")]` builder 段；工程在本仓内 path 依赖）
 tauri-plugin-hg-guard = { path = "tauri-plugin-hg-guard" }
 tauri-plugin-screen-capture = { path = "tauri-plugin-screen-capture" }
+
+# ============================================
+# 测试专属依赖
+# ============================================
+# 仅 Linux 桌面测试需要：tauri `test` feature 提供 MockRuntime/mock_builder，
+# 使「插件真实 builder + configure_client 闭包」可在无显示器环境下跑出真实 ClientHello。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dev-dependencies]
+tauri = { version = "2.11.1", features = ["protocol-asset", "tray-icon", "test"] }
+tauri-plugin-updater = "2.10.1"
