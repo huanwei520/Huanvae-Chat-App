@@ -197,6 +197,20 @@ export function stopTunnel(): Promise<ApiResponse<void>> {
  * 守护进程对「同值重推」是幂等防御的（不重置退避、不唤醒 socket），所以这里可以放心节流重试。
  * 键名与 `ControlCredentials` 线格式一致（daemon.rs 的 `UpdateCredentialsRequest`）。
  */
+/**
+ * 凭据推送失败是否等于「守护进程不认识这个端点」（404 = 守护进程早于
+ * 凭据推送端点发布，gtcy072z 的 App 半边对着它推是死路）。
+ *
+ * 🔴 这是自愈链「最后一跳断链」的唯一可观测信号：localFetch 对非 JSON 响应体
+ * 降级成 `{ success:false, error: 'HTTP <status>' }`，axum 对未挂载路由回 404
+ * 空 body，所以旧守护进程给出的形态恒为 `HTTP 404`。调用方据此把日志从
+ * 「未生效」升级成「守护进程过旧，请修复服务」，否则用户拿着一条永久横幅
+ * 和一条无效日志，永远到不了「升级守护进程」这唯一出口。
+ */
+export function credentialsEndpointMissing(error?: string): boolean {
+  return typeof error === 'string' && error.includes('404');
+}
+
 export function updateControlCredentials(params: {
   access_token: string;
   refresh_token?: string;

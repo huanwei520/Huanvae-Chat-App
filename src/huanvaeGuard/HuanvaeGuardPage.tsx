@@ -329,6 +329,11 @@ export default function HuanvaeGuardPage({ initialData }: HuanvaeGuardPageProps 
       });
       if (r.success) {
         addLog('已向守护进程同步最新令牌，配置热更新继续');
+      } else if (localApi.credentialsEndpointMissing(r.error)) {
+        // 404 = 守护进程早于凭据推送端点发布（gtcy072z Guard 半边 acfb104 之前的
+        // 二进制）：自愈链在最后一跳结构性断链，推多少次都没用。必须把唯一的出口
+        // （升级守护进程）告诉用户，而不是留一条「未生效」日志对着一永久横幅。
+        addLog('守护进程版本过旧，不支持令牌推送：请点「修复服务」升级守护进程，修复后重连隧道');
       } else {
         // 守护进程无活跃控制面（隧道已断）时落到这里：记一行即可，不是错误
         addLog(`令牌同步未生效：${r.error ?? '未知原因'}`);
