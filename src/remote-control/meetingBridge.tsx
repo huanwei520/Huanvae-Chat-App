@@ -14,16 +14,21 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { emit, listen } from '@tauri-apps/api/event';
-import { controlArm, controlDisarm, controlKillswitch } from './api';
+import { controlArm, controlDisarm, controlKillswitch, controlStatus } from './api';
 import {
   CONTROL_SESSION_CHANGED,
   RC_AUTH_DECISION,
   RC_AUTH_REQUEST,
+  RC_PEER_RELEASED,
   RC_REQUEST_CONTROL,
   type ControlSessionChangedPayload,
   type RcAuthRequestPayload,
 } from './bus';
 import { isDevControl } from './devGate';
+// 跨端帧通道角色接线（dstdrrek-2）：被控端 controlled 角色随「正在被控制」横幅挂拆；
+// 角色在位即开采集泵（共享轨为帧源，useWebRTC attachLocalTrack 已注入）
+// zmhyvb6n 整改（U2）：isPeerSessionActive=control-session DC 活性（纯数据面，daemon 无关）
+import { getRole, isPeerSessionActive, setSessionRole } from './frameChannel';
 // #7 目标能力门控（owner 2026-09-14 二次评审②）：不可被控端不挂授权弹层
 import { detectPlatform, isControllablePlatform } from '../utils/platform';
 import ControlAuthPopup from './ControlAuthPopup';
@@ -49,6 +54,12 @@ export interface MeetingBridgeProps {
   /** 是否正在屏幕共享（模拟共享开始/停止按钮的禁用态用） */
   screenSharing: boolean;
 }
+
+/** zmhyvb6n 整改（U2）：横幅不依赖 daemon 的摬死窗口。横幅在位期间若 control-session DC
+ *  曾建链后又持续断开达此时长，判定控制端已离开（崩溃/强杀不发 rc-release 的场景），
+ *  横幅自动撤下——不查本机 daemon（dev/无 daemon 环境此前永久残留的病历）。
+ *  15s 覆盖 ICE 重连/重协商间隙（正常会话 DC 全程在位，不会误清）。 */
+export const RC_BANNER_STALE_MS = 15_000;
 
 function uuidLike(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) { return crypto.randomUUID(); }
@@ -95,6 +106,25 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
 
   useEffect(() => setSharingOn(screenSharing), [screenSharing]);
 
+  // —— dstdrrek-2 整改（U1）：被控端 App 重启后的会话恢复 ——
+  // 横幅是组件本地态，重启后归零；daemon 若仍持活跃 grant（生产桌面端
+  // hv-control-daemon 常驻），挂载时探查一次补回横幅——角色接线由下方
+  // controlledByName effect 自动跟上（采集泵随 attachLocalTrack/角色就绪开跑）。
+  // daemon 缺席（dev 构建）静默跳过，行为与此前一致。
+  useEffect(() => {
+    if (!controllableEnd) { return; }
+    let stopped = false;
+    void controlStatus()
+      .then((s) => {
+        if (!stopped && s?.grant_state === 'active') {
+          setControlledByName('对方');
+        }
+      })
+      .catch(() => undefined);
+    return () => { stopped = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // —— 主窗 → meeting 窗：授权请求展示（真实 N1 路径）——
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -119,6 +149,17 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
   // "routed to sender devices" 行），被控端收不到 M3/N3，横幅无信令可清。
   // 以 daemon grant 状态为准轮询兜底：授权消失/Released ⇒ 清横幅＋拆本机链。
   // daemon 不可达（status=null）保守不清，避免 daemon 重启误清活跃会话。
+  // dstdrrek-2 整改（U2）补数据面主路：控制端释放前在 control-session DC 上发
+  // rc-release 文本帧 ⇒ frameChannel 转发 RC_PEER_RELEASED ⇒ 此处即时清横幅，
+  // 不再单赖 daemon 轮询（dev 无 daemon 时横幅永不撤的病历）。
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    listen<{ reason?: string }>(RC_PEER_RELEASED, () => {
+      setControlledByName(null);
+      void controlDisarm().catch(() => undefined);
+    }).then((fn) => { un = fn; }).catch(() => undefined);
+    return () => { un?.(); };
+  }, []);
   useEffect(() => {
     if (!controlledByName) { return; }
     let stopped = false;
@@ -137,6 +178,48 @@ export function MeetingBridge({ screenSharing }: MeetingBridgeProps) {
     const t = setInterval(poll, 4000);
     void poll();
     return () => { stopped = true; clearInterval(t); };
+  }, [controlledByName]);
+
+  // —— zmhyvb6n 整改（U2）：横幅摬死看门狗（不依赖本机 daemon 的兜底清理）——
+  // daemon 轮询在无 daemon 环境静默失败（controlStatus 返回 null 直接 return，
+  // 见上 effect），rc-release 文本帧也只在控制端体面释放时才发；控制端崩溃/
+  // 强杀时两路都不可达 → 横幅永久残留。这里改用数据面活性（frameChannel
+  // isPeerSessionActive：control-session DC 是否有 open 通道）判死：曾建链
+  // （seenActive）后持续断开达 RC_BANNER_STALE_MS ⇒ 判定控制端已离开，
+  // 清横幅＋fire-and-forget disarm（无 daemon 时失败无害）。从建链过但未建链
+  // 期间不清（等链路建立/daemon 轮询/用户急停收尾），正常会话 DC 全程在位
+  // 不会误清。dev 环境可触发（零 daemon 依赖）。
+  useEffect(() => {
+    if (!controlledByName) { return; }
+    let stopped = false;
+    let seenActive = isPeerSessionActive();
+    let lastActiveAt = Date.now();
+    const t = setInterval(() => {
+      if (stopped) { return; }
+      if (isPeerSessionActive()) {
+        seenActive = true;
+        lastActiveAt = Date.now();
+        return;
+      }
+      if (seenActive && Date.now() - lastActiveAt >= RC_BANNER_STALE_MS) {
+        stopped = true;
+        clearInterval(t);
+        setControlledByName(null);
+        void import('./api').then(({ controlDisarm }) => controlDisarm()).catch(() => undefined);
+      }
+    }, 1000);
+    return () => { stopped = true; clearInterval(t); };
+  }, [controlledByName]);
+
+  // 被控端帧通道角色（dstdrrek-2）：横幅在位=本机正被控制 → controlled（采集泵
+  // 就绪，等 control-session DC open 即发帧）；横幅撤下且当前角色仍是 controlled
+  // 才拆（不误伤同窗可能存在的 controller 角色）。
+  useEffect(() => {
+    if (controlledByName) {
+      setSessionRole('controlled');
+    } else if (getRole() === 'controlled') {
+      setSessionRole(null);
+    }
   }, [controlledByName]);
 
   // —— 授权裁决：meeting 窗 → 主窗（主窗发 M2）＋本地演示推进 ——

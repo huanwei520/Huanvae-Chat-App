@@ -13,7 +13,7 @@
  * @module remote-control/ControlWindow
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   controlFrameUrl,
   controlInput,
@@ -30,6 +30,13 @@ import {
   type FrameGeometry,
 } from './coordinates';
 import type { ControlDaemonStatus } from './types';
+// 跨端帧通道（本块 dstdrrek-2）：会话在位时帧源=对端 0x07 帧流（DC），不再轮询本机回环
+import {
+  getPeerScreen,
+  getStats,
+  subscribeFrames,
+  type RcFrame,
+} from './frameChannel';
 import './remote-control.css';
 
 /** 帧轮询间隔（测试面默认档目标 8fps，§7.1；daemon 缺席时降频探活） */
@@ -49,6 +56,10 @@ export type LinkState = 'probing' | 'connected' | 'down';
 /** 连续失败多少次才宣告 down（3 次 ≈ ≥3s 连续不可达；单次抖动到不了 3） */
 export const LINK_DOWN_STREAK = 3;
 
+/** D4（块 1790313105455-rt4p73av-1）：对端帧流停滞判阈值。泵 3fps（CAPTURE_FPS）
+ *  ⇒ 5s ≈ 15 帧缺失；拥塞护栏丢帧抖动到不了 5s，不误翻红。 */
+export const RC_FRAME_STALL_MS = 5_000;
+
 /** 探活一轮后的链路状态迁移（纯函数；tests/remote-control-link-state.test.ts 覆盖） */
 export function nextLinkState(prev: LinkState, ok: boolean, failStreak: number): LinkState {
   if (ok) { return 'connected'; }
@@ -65,10 +76,56 @@ export function ControlWindow() {
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null);
   const [droppedKeys, setDroppedKeys] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
+  // —— 跨端会话帧面（dstdrrek-2）：true = 对端 0x07 帧流在位，canvas 渲染 + 停回环轮询 ——
+  const [peerMode, setPeerMode] = useState(false);
+  const [peerFrameCount, setPeerFrameCount] = useState(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const peerModeRef = useRef(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLImageElement>(null);
   const heldKeysRef = useRef<Set<number>>(new Set());
   const geometryRef = useRef<FrameGeometry | null>(null);
+
+  // —— 跨端帧订阅（对端真实画面；断链根修：控制窗帧源不再走 127.0.0.1 回环）——
+  // D4：同步记帧到达时刻——停滞（断链）期状态条置红＋断开提示（此前 peerMode 一旦
+  // 置位恒亮绿点，帧冻结 26 仍显示「帧流中」，ae6fbn0x 实测证据）。
+  const lastFrameAtRef = useRef(0);
+  const [peerStalled, setPeerStalled] = useState(false);
+  useEffect(() => {
+    const draw = (f: RcFrame) => {
+      setPeerMode(true);
+      peerModeRef.current = true;
+      setPeerStalled(false);
+      lastFrameAtRef.current = Date.now();
+      setFrameSize({ w: f.width, h: f.height });
+      setPeerFrameCount(getStats().framesIn);
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = f.width;
+        canvas.height = f.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // 拷贝出定长 ArrayBuffer 视图（TS ArrayBufferLike 域防御）
+          const clamped = new Uint8ClampedArray(f.rgba);
+          ctx.putImageData(new ImageData(clamped, f.width, f.height), 0, 0);
+        }
+      }
+    };
+    return subscribeFrames(draw);
+  }, []);
+
+  // —— D4：帧流停滞看门（peerMode 在位时每秒检查；≥RC_FRAME_STALL_MS 无帧 ⇒ 置红）——
+  useEffect(() => {
+    if (!peerMode) {
+      setPeerStalled(false);
+      return undefined;
+    }
+    const t = window.setInterval(() => {
+      const last = lastFrameAtRef.current;
+      setPeerStalled(last > 0 && Date.now() - last > RC_FRAME_STALL_MS);
+    }, 1_000);
+    return () => { window.clearInterval(t); };
+  }, [peerMode]);
 
   // —— 状态巡检（兼探活；probing/connected/down 三态去抖，不因单次超时翻「未连接」）——
   useEffect(() => {
@@ -103,44 +160,58 @@ export function ControlWindow() {
   }, []);
 
   // —— 帧轮询（cache-bust；daemon 404/不可达 → 回退占位态）——
+  // ⚠️ 遗留面（dstdrrek-2）：仅无跨端会话时运行（单机回环演示链）；跨端会话在位
+  // （对端 0x07 帧到达置 peerModeRef）即停——本机回环帧不得冒充对端屏。
   useEffect(() => {
     let stopped = false;
+    let t: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
-      if (stopped) { return; }
+      if (stopped || peerModeRef.current) {
+        if (t !== null) {
+          clearInterval(t);
+          t = null;
+        }
+        return;
+      }
       const probe = new Image();
       probe.onload = () => {
-        if (stopped) { return; }
+        if (stopped || peerModeRef.current) { return; }
         setFrameUrl(controlFrameUrl());
         setFrameSize({ w: probe.naturalWidth, h: probe.naturalHeight });
         setLastError(null);
       };
       probe.onerror = () => {
-        if (stopped) { return; }
+        if (stopped || peerModeRef.current) { return; }
         setFrameUrl((prev) => (prev === null ? null : prev));
       };
       probe.src = controlFrameUrl();
     };
     tick();
-    const t = setInterval(tick, FRAME_POLL_MS);
+    t = setInterval(tick, FRAME_POLL_MS);
     return () => {
       stopped = true;
-      clearInterval(t);
+      if (t !== null) {
+        clearInterval(t);
+      }
     };
   }, []);
 
   // —— 几何维护（container × frame × screen）——
+  // screen 几何真值源（dstdrrek-2）：跨端会话 = 被控端 rc-meta 报的真实屏几何；
+  // 无会话遗留面 = daemon status.screen（或帧尺寸兑底）。
   const refreshGeometry = useCallback(() => {
     const vp = viewportRef.current;
     if (!vp || !frameSize) { return; }
+    const peerScreen = peerMode ? getPeerScreen() : null;
     geometryRef.current = {
       containerW: vp.clientWidth,
       containerH: vp.clientHeight,
       frameW: frameSize.w,
       frameH: frameSize.h,
-      screenW: status?.screen?.width ?? frameSize.w,
-      screenH: status?.screen?.height ?? frameSize.h,
+      screenW: peerScreen?.w ?? status?.screen?.width ?? frameSize.w,
+      screenH: peerScreen?.h ?? status?.screen?.height ?? frameSize.h,
     };
-  }, [frameSize, status]);
+  }, [frameSize, status, peerMode]);
 
   useEffect(() => {
     refreshGeometry();
@@ -223,20 +294,67 @@ export function ControlWindow() {
   const grantState = (status?.grant_state as string | undefined) ?? null;
   const loopback = `127.0.0.1:${resolveControlPort()}`;
 
-  // 状态栏链路展示（三态；data-testid 供 e2e 断言，与截图 OCR 双通道验证）
+  // 状态栏链路展示（三态 + 跨端会话帧面；data-testid 供 e2e 断言，与截图 OCR 双通道验证）
   let linkDotClass = ''; // probing：中性点，不亮成功/告警色
-  if (link === 'down') {
+  if (peerMode && peerStalled) {
+    // D4（块 1790313105455-rt4p73av-1）：断链期不再亮绿点——置红＋断开提示
+    linkDotClass = 'rc-window__dot--down';
+  } else if (peerMode) {
+    linkDotClass = 'rc-window__dot--ok'; // 跨端 0x07 帧流在位 = 数据面建链实证
+  } else if (link === 'down') {
     linkDotClass = 'rc-window__dot--down';
   } else if (link === 'connected') {
     linkDotClass = armed ? 'rc-window__dot--ok' : 'rc-window__dot--warn';
   }
   let linkText: string;
-  if (link === 'probing') {
+  if (peerMode) {
+    linkText = peerStalled
+      ? `对端帧流中断（≥${RC_FRAME_STALL_MS / 1000}s 无帧，断链自愈探针进行中） · 帧 ${peerFrameCount} · 注入 ${getStats().inputsOut}`
+      : `对端帧流中（control-session DC · FrameSlice 0x07） · 帧 ${peerFrameCount} · 注入 ${getStats().inputsOut}`;
+  } else if (link === 'probing') {
     linkText = `正在连接控制 daemon（${loopback}）…`;
   } else if (link === 'connected') {
     linkText = `daemon 已连接 · ${armed ? '受戒(armed)' : '未受戒'}${grantState ? ` · grant=${grantState}` : ''}${status?.inject_count !== undefined ? ` · 注入 ${status.inject_count}` : ''}${status?.frame_count !== undefined ? ` · 帧 ${status.frame_count}` : ''}`;
   } else {
     linkText = `控制 daemon 未连接（回环 ${loopback}，自动重试中，见设计 §7.3）`;
+  }
+
+  // 帧面三分支（dstdrrek-2）：跨端 0x07 帧（canvas）→ 回环遗留面（img）→ 占位
+  let frameContent: ReactNode;
+  if (peerMode) {
+    frameContent = (
+      <canvas
+        ref={canvasRef}
+        className="rc-window__frame"
+        aria-label="被控端屏幕帧流（对端 DC 帧源）"
+        data-testid="rc-peer-frame"
+      />
+    );
+  } else if (frameUrl && frameSize) {
+    frameContent = (
+      <img
+        ref={frameRef}
+        className="rc-window__frame"
+        src={frameUrl}
+        alt="被控端屏幕帧流"
+        draggable={false}
+      />
+    );
+  } else {
+    frameContent = (
+      <div className="rc-window__placeholder">
+        <h3>等待被控端帧流</h3>
+        <p>
+          本窗口为 remote-control 独立控制窗口（label=`remote-control`）。
+          <br />
+          跨端会话帧源＝control-session DataChannel 上的 FrameSlice(0x07)
+          对端真实画面（设计 §7.1；dstdrrek-2 前的本机回环轮询旧面已摘除）。
+          <br />
+          无跨端会话时回退本机 daemon 回环帧端点（GET /control/frame，
+          单机演示遗留面）。
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -265,28 +383,7 @@ export function ControlWindow() {
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
       >
-        {frameUrl && frameSize ? (
-          <img
-            ref={frameRef}
-            className="rc-window__frame"
-            src={frameUrl}
-            alt="被控端屏幕帧流"
-            draggable={false}
-          />
-        ) : (
-          <div className="rc-window__placeholder">
-            <h3>等待被控端帧流</h3>
-            <p>
-              本窗口为 remote-control 独立控制窗口（label=`remote-control`）。
-              <br />
-              帧流来自本机控制 daemon 的回环帧端点（GET /control/frame，设计 §7.1/§7.3）。
-              <br />
-              daemon（块 A hv-control-daemon）未运行或未受戒时显示此占位——
-              <br />
-              建链/指纹锚定/帧分片协议见设计 §5.1/§7.1。
-            </p>
-          </div>
-        )}
+        {frameContent}
         <div className="rc-window__hint">
           点击/移动＝注入（0x06 InputEvent） · Esc 释放焦点
         </div>

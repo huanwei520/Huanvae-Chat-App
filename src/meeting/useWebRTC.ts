@@ -66,6 +66,15 @@ import {
   getSelectedAudioInputId,
   setSelectedAudioInputId,
 } from './audioDevices';
+// 跨端帧通道（本块 dstdrrek-2）：control-session DC + FrameSlice(0x07)/InputEvent(0x06)
+import {
+  CONTROL_SESSION_CHANNEL,
+  attachChannel,
+  detachChannel,
+  handleChannelData,
+  attachLocalTrack,
+  registerControlChannelRebuilder, // D4（块 1790313105455-rt4p73av-1）：断链自愈重建钩子
+} from '../remote-control/frameChannel';
 
 // 1d0t34vy 诊断仪表：全局探针注册（被动注册零开销；仅显式 __hgSSPipe.start() 才采样）
 getScreenSharePipeProbe();
@@ -769,6 +778,47 @@ export function useWebRTC(): UseWebRTCReturn {
    * - impolite 侧建单条 DataChannel（保证至少一条 m-line 可协商）；polite 侧仅监听
    * - pc 创建即把当前已开启的媒体一次性加入，触发 onnegotiationneeded → makeOffer
    */
+  /** DataChannel 接线（speaking-status 广播 + control-session 跨端帧通道）。
+   *  D4（块 1790313105455-rt4p73av-1）：从 createPeerConnection 内嵌闭包提出为
+   *  独立回调——断链自愈重建 DC 时复用同一接线（初始建链与重建路径不同源接线
+   *  会漂移）。行为与提取前逐行等价。 */
+  const wireChannelFor = useCallback((peerId: string, channel: RTCDataChannel) => {
+    if (channel.label === 'speaking-status') {
+      channel.onopen = () => {
+        dataChannelsRef.current.set(peerId, channel);
+      };
+      channel.onclose = () => {
+        dataChannelsRef.current.delete(peerId);
+      };
+      channel.onmessage = (e) => {
+        handleDataChannelMessage(peerId, e.data);
+      };
+    } else if (channel.label === CONTROL_SESSION_CHANNEL) {
+      attachChannel(peerId, channel);
+      channel.onmessage = (e) => {
+        handleChannelData(peerId, e.data);
+      };
+    }
+  }, [handleDataChannelMessage]);
+
+  /** D4（块 1790313105455-rt4p73av-1）：断链自愈——为已知被控端重建 control-session DC。
+   *  传输层 failed/恢复后旧 DC 恒 closed（ICE restart 只恢复媒体面，DC 不会自行
+   *  复活）：frameChannel 控制端看门狗（信令重连/网络 online 事件 + 周期探针）
+   *  经本钩子 createDataChannel → onnegotiationneeded → makeOffer 重协商；对端
+   *  ondatachannel 收获同 label 新通道 → attachChannel onOpen（resume 宣告/泵
+   *  重启）。PC 已拆除（参与者重同步流程接管）或已关闭时 no-op。 */
+  const rebuildControlChannel = useCallback((peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId);
+    if (!pc || pc.connectionState === 'closed' || pc.signalingState === 'closed') { return; }
+    wireChannelFor(peerId, pc.createDataChannel(CONTROL_SESSION_CHANNEL, { ordered: true }));
+  }, [wireChannelFor]);
+
+  // D4：向 frameChannel 注册重建钩子（控制端断链看门狗的执行臂；卸载时注销）
+  useEffect(() => {
+    registerControlChannelRebuilder(rebuildControlChannel);
+    return () => { registerControlChannelRebuilder(null); };
+  }, [rebuildControlChannel]);
+
   const createPeerConnection = useCallback((peerId: string, polite: boolean): RTCPeerConnection => {
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
     peerConnectionsRef.current.set(peerId, pc);
@@ -890,6 +940,11 @@ export function useWebRTC(): UseWebRTCReturn {
     };
 
     // DataChannel 单侧：仅 impolite 侧建，polite 侧监听
+    // control-session（跨端帧通道，本块新增）：同模式单侧建立；二进制域拉
+    // FrameSlice(0x07)/InputEvent(0x06)（frameChannel.ts，线格式对齐 hv-protocol）。
+    const wireChannel = (channel: RTCDataChannel) => {
+      wireChannelFor(peerId, channel);
+    };
     if (!polite) {
       const dataChannel = pc.createDataChannel('speaking-status', { ordered: true });
       dataChannel.onopen = () => {
@@ -901,20 +956,10 @@ export function useWebRTC(): UseWebRTCReturn {
       dataChannel.onmessage = (event) => {
         handleDataChannelMessage(peerId, event.data);
       };
+      wireChannel(pc.createDataChannel(CONTROL_SESSION_CHANNEL, { ordered: true }));
     } else {
       pc.ondatachannel = (event) => {
-        const channel = event.channel;
-        if (channel.label === 'speaking-status') {
-          channel.onopen = () => {
-            dataChannelsRef.current.set(peerId, channel);
-          };
-          channel.onclose = () => {
-            dataChannelsRef.current.delete(peerId);
-          };
-          channel.onmessage = (e) => {
-            handleDataChannelMessage(peerId, e.data);
-          };
-        }
+        wireChannel(event.channel);
       };
     }
 
@@ -945,6 +990,7 @@ export function useWebRTC(): UseWebRTCReturn {
     getTransceiverRefs,
     makeOffer,
     handleDataChannelMessage,
+    wireChannelFor,
     reclassifyStreams,
     addMicTransceiver,
     addCameraTransceiver,
@@ -962,6 +1008,7 @@ export function useWebRTC(): UseWebRTCReturn {
     }
     transceiverMapRef.current.delete(peerId);
     dataChannelsRef.current.delete(peerId);
+    detachChannel(peerId); // 跨端帧通道 DC 同步注销（dstdrrek-2）
     mediaTypeMapsRef.current.delete(peerId);
     remoteStreamsRef.current.delete(peerId);
     politeRef.current.delete(peerId);
@@ -1190,6 +1237,7 @@ export function useWebRTC(): UseWebRTCReturn {
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((t) => t.stop());
       screenStreamRef.current = null;
+      attachLocalTrack(null); // 跨端帧通道采集源随共享轨停止（dstdrrek-2）
     }
     setLocalStream(null);
     setMediaState({ micEnabled: false, cameraEnabled: false, screenSharing: false });
@@ -1427,6 +1475,7 @@ export function useWebRTC(): UseWebRTCReturn {
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((t) => t.stop());
       screenStreamRef.current = null;
+      attachLocalTrack(null); // 跨端帧通道采集源随共享停止拆除（dstdrrek-2）
     }
 
     setLocalStream((prev) => {
@@ -1492,6 +1541,9 @@ export function useWebRTC(): UseWebRTCReturn {
           });
         })();
         screenStreamRef.current = stream;
+        // 跨端帧通道（dstdrrek-2）：共享轨同时是被控端帧采集源（系统已授权的真实
+        // 采集；无共享轨时 frameChannel 才自取 getDisplayMedia）
+        attachLocalTrack(stream.getVideoTracks()[0] ?? null);
         const track = stream.getVideoTracks()[0];
 
         // 告知编码器这是动态内容，优先帧率

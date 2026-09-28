@@ -43,6 +43,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
   switch (msg.notification_type) {
     case 'control_session_requested': {
       const data = msg.data as unknown as ControlSessionRequestedData;
+      // 逐跳信令留证（2026-09-24 判官令）：被控端收到的 N1 原文（含 from.user_id 真实账号）。
+      console.warn(`[RC-SIG] RX-N1 ${JSON.stringify({ notification_type: msg.notification_type, request_id: data.request_id, from: data.from, meeting_ctx: data.meeting_ctx })}`);
       // ⑥回环胶水：dispatch 后转发 daemon（授权状态权威，§6.4）；daemon 为该申请
       // 签发 pending grant_id（§3.2 T4/T5）——随弹层载荷回传，共享端点「接受」时
       // 原样回填 M2.grant_id（grant_id 由共享端授权面签发，非客户端自造）。
@@ -66,6 +68,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
     }
     case 'control_session_decided': {
       const data = msg.data as unknown as ControlSessionDecidedData;
+      // 逐跳信令留证：申请者收到的 N2（approved+grant_id+by.user_id）。
+      console.warn(`[RC-SIG] RX-N2 ${JSON.stringify({ notification_type: msg.notification_type, request_id: data.request_id, grant_id: data.grant_id, approved: data.approved, by: data.by })}`);
       void controlIncoming({
         kind: 'control_session_decided',
         request_id: data.request_id,
@@ -98,6 +102,8 @@ export function handleControlSessionNotification(msg: WsSystemNotification): boo
     }
     case 'control_session_released': {
       const data = msg.data as unknown as ControlSessionReleasedData;
+      // 逐跳信令留证：双端收到的 N3（grant_id+reason）。
+      console.warn(`[RC-SIG] RX-N3 ${JSON.stringify({ notification_type: msg.notification_type, grant_id: data.grant_id, request_id: data.request_id, reason: data.reason })}`);
       void controlIncoming({
         kind: 'control_session_released',
         grant_id: data.grant_id,

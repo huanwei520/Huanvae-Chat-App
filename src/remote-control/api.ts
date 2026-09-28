@@ -7,9 +7,10 @@
  *   controlIncoming(ev) POST /control/incoming   裁决事件转发（App dispatch 后，§6.4 daemon 权威）
  *   controlStatus()     GET  /control/status     状态巡检
  *   controlKillswitch() POST /control/killswitch 本地急停（§5.4）
- * 数据面辅助（块 A daemon 同源端点；帧渲染 §7.1 / 输入上行 §7.2）：
- *   controlFrameUrl()   GET  /control/frame
- *   controlInput(ev)    POST /control/input
+ * 数据面（帧渲染 §7.1 / 输入上行 §7.2；本块 dstdrrek-2 起会话在位时走
+ * control-session DC 对端寻址，回环端点仅剩单机演示链与被控端注入汇）：
+ *   controlFrameUrl()   GET  /control/frame（遗留面，仅无会话时）
+ *   controlInput(ev)    0x06 InputEvent（会话→DC；无会话→POST /control/input）
  *
  * 刻意沿用 plugin-http（不迁 secure_http）：回环明文 http(127.0.0.1)，无 TLS、
  * 非后端数据面调用——huanvaeGuard localApi.ts 同款判例（注释原文见该文件头）。
@@ -19,11 +20,20 @@
 
 import { fetch } from '@tauri-apps/plugin-http';
 import type { ControlDaemonStatus, ControlIncomingEvent, ControlInputEvent } from './types';
+// 跨端帧通道（本块 dstdrrek-2）：0x06 上行优先走会话对端（DC），回环仅剩本地 daemon 标准件
+import { isPeerSessionActive, sendInput } from './frameChannel';
 
 /**
- * 控制 daemon 回环控制端口默认值。
+ * 本机 daemon 回环控制端口默认值。
  * 块 A（hv-control-daemon）定型后如端口有出入以 A 块为准；本键可被
  * localStorage `rc.control.port` 覆盖（多实例/自定义部署口）。
+ *
+ * 🔴 寻址语义（本块 dstdrrek-2 收口）：该基址**仅**用于「本机 daemon 标准件」
+ * 控制面（arm/disarm/incoming/status/killswitch）与被控端注入汇——bind_policy
+ * 回环约束（设计 §5.4③）语义内。跨端数据面（控制窗帧流/点击移动上行）不再
+ * 走本基址：controlInput()/ControlWindow 帧源在会话在位时改走 control-session
+ * DataChannel 对端寻址（frameChannel.ts）。前代断链（4r2sli2c deliverable 6.5①：
+ * baseUrl() 硬编码 127.0.0.1 ⇒ 控制窗帧=本机回环非对端屏）由此根除。
  */
 export const DEFAULT_CONTROL_PORT = 19290;
 const PORT_KEY = 'rc.control.port';
@@ -39,7 +49,8 @@ export function resolveControlPort(): number {
   }
 }
 
-function baseUrl(): string {
+/** 本机 daemon 回环基址（语义见 DEFAULT_CONTROL_PORT 注：仅标准件控制面/注入汇） */
+function localDaemonBase(): string {
   return `http://127.0.0.1:${resolveControlPort()}`;
 }
 
@@ -53,7 +64,7 @@ type LoopbackFetchInit = {
 };
 
 function postJson(path: string, body?: unknown): Promise<Response> {
-  return fetch(`${baseUrl()}${path}`, {
+  return fetch(`${localDaemonBase()}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -104,7 +115,7 @@ export async function controlIncoming(ev: ControlIncomingEvent): Promise<Control
 /** GET /control/status —— 状态巡检（兼探活；daemon 不可达返回 null） */
 export async function controlStatus(): Promise<ControlDaemonStatus | null> {
   try {
-    const resp = await fetch(`${baseUrl()}/control/status`, { connectTimeout: 1500 } as LoopbackFetchInit);
+    const resp = await fetch(`${localDaemonBase()}/control/status`, { connectTimeout: 1500 } as LoopbackFetchInit);
     if (!resp.ok) { return null; }
     return (await resp.json()) as ControlDaemonStatus;
   } catch {
@@ -121,14 +132,37 @@ export async function controlKillswitch(): Promise<boolean> {
   }
 }
 
-/** GET /control/frame —— 帧端点 URL（供 <img> 轮询；cache-bust 由调用方拼 query） */
+/**
+ * GET /control/frame —— 帧端点 URL（供 <img> 轮询；cache-bust 由调用方拼 query）。
+ *
+ * ⚠️ 遗留面（本块 dstdrrek-2 标注）：仅单机回环演示链使用。跨端会话的帧源是
+ * control-session DC 上的 FrameSlice(0x07)（frameChannel.subscribeFrames），
+ * ControlWindow 在会话在位时不再轮询本端点——本机回环帧冒充对端屏的旧断链面
+ * 已从跨端路径摘除。
+ */
 export function controlFrameUrl(cacheBust?: number): string {
   const t = cacheBust ?? Date.now();
-  return `${baseUrl()}/control/frame?t=${t}`;
+  return `${localDaemonBase()}/control/frame?t=${t}`;
 }
 
-/** POST /control/input —— 上行 0x06 域输入事件（§7.2；daemon 组帧经 P3 会话上行） */
-export async function controlInput(ev: ControlInputEvent): Promise<boolean> {
+/**
+ * POST /control/input —— 上行 0x06 域输入事件（§7.2）。
+ *
+ * 寻址（本块 dstdrrek-2 会话化收口）：会话在位时优先经 control-session DC 直达
+ * 会话对端（跨端点击/移动注入的真路径）；无会话时才落本机 daemon 回环（单机
+ * 演示链遗留面，跨端拓扑永不触达）。postLocalInput 为本机回环投递原语，仅供
+ * 被控端注入汇（frameChannel.relayInjection）使用——被控端把自己的对端输入
+ * 落到本机注入标准件，不属于跨端寻址。
+ */
+export function controlInput(ev: ControlInputEvent): Promise<boolean> {
+  if (isPeerSessionActive()) {
+    return Promise.resolve(sendInput(ev));
+  }
+  return postLocalInput(ev);
+}
+
+/** POST 本机 daemon /control/input（回环投递原语；被控端注入汇专用） */
+export async function postLocalInput(ev: ControlInputEvent): Promise<boolean> {
   try {
     return (await postJson('/control/input', ev)).ok;
   } catch {
