@@ -167,6 +167,10 @@ fn build_tls_config(extra_ca_pem: Option<&str>) -> Result<Arc<rustls::ClientConf
         .with_custom_certificate_verifier(verifier)
         .with_client_auth_cert(client_certs, client_key)
         .map_err(|e| format!("客户端证书配置失败: {e}"))?;
+    // 全软件去 SNI（owner 928444fe「全部去掉」）：rustls 默认发 SNI，关死。数据面目标是
+    // IP 字面量（本就不发），此处兜住任何域名形态的 WS 回退。
+    let mut config = config;
+    config.enable_sni = false;
     Ok(Arc::new(config))
 }
 

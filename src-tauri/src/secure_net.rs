@@ -74,6 +74,9 @@ fn build_client(
 ) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .use_rustls_tls()
+        // 全软件去 SNI（owner 928444fe「全部去掉」）：reqwest 默认 `tls_sni(true)` 会发 SNI，
+        // 关死。IP 字面量目标本就不发 SNI（rustls 对 IP 略过扩展），此处兜住域名目标。
+        .tls_sni(false)
         .timeout(Duration::from_secs(timeout_secs))
         .pool_max_idle_per_host(5);
     if http1_only {

@@ -9,7 +9,15 @@
 
 import type { MiniApp } from '../api/miniapps';
 import type { GroupJoinSource } from '../api/groups';
+import { secureHttp } from '../services/secureFetch';
 import type { NfcAction } from './types';
+
+/** http/request 执行器的最小响应形状（真 `Response` 结构上可赋值） */
+export interface HttpFetchResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+}
 
 export interface ExecuteContext {
   /** 触发移动端 iframe 启动小程序（MobileMain 提供 setMiniAppLaunching） */
@@ -24,11 +32,32 @@ export interface ExecuteContext {
    * 让上层填等于把"这次到底算哪条来源"交给一个离现场更远的地方决定。
    */
   openGroupDetail: (groupId: string, source: GroupJoinSource) => void;
-  /** http 请求执行器（默认走 plugin-http；测试可注入 mock） */
+  /** http 请求执行器（默认走本仓 secure_http；测试可注入 mock） */
   httpFetch?: (
     url: string,
     init: { method: string; headers?: Record<string, string>; body?: string },
-  ) => Promise<Response>;
+  ) => Promise<HttpFetchResponse>;
+}
+
+/**
+ * 默认 http/request 执行器：走本仓 `secure_http`（Rust 侧 `tls_sni(false)`）。
+ *
+ * 不用 `@tauri-apps/plugin-http` 的 `fetch` —— 该插件 Rust 端自建 `reqwest::ClientBuilder`
+ * （`tauri-plugin-http-2.5.9/src/commands.rs:231`），会按 reqwest 默认 `tls_sni(true)` 发 SNI，
+ * 本仓无法为其注入 `configure_client`（owner 928444fe「全部去掉」禁止任何 SNI）。
+ */
+async function defaultHttpFetch(
+  url: string,
+  init: { method: string; headers?: Record<string, string>; body?: string },
+): Promise<HttpFetchResponse> {
+  const resp = await secureHttp({
+    method: init.method,
+    url,
+    headers: init.headers,
+    body: init.body ?? null,
+    pin_ca: false,
+  });
+  return { ok: resp.ok, status: resp.status, statusText: '' };
 }
 
 /** 按 action.kind 派发执行；失败抛错由调用方 catch 显示 */
@@ -50,12 +79,7 @@ export async function dispatch(action: NfcAction, ctx: ExecuteContext): Promise<
   }
 
   if (action.kind === 'http/request') {
-    const fetchFn =
-      ctx.httpFetch ??
-      (async (url, init) => {
-        const { fetch } = await import('@tauri-apps/plugin-http');
-        return fetch(url, init);
-      });
+    const fetchFn = ctx.httpFetch ?? defaultHttpFetch;
     const init: { method: string; headers?: Record<string, string>; body?: string } = {
       method: action.method,
     };

@@ -87,6 +87,8 @@ fn target() -> std::sync::MutexGuard<'static, Option<ProxyTarget>> {
 fn build_proxy_client(connect_secs: u64, read_idle_secs: u64) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .use_rustls_tls()
+        // 全软件去 SNI（owner 928444fe「全部去掉」）：关掉 reqwest 默认的 tls_sni(true)。
+        .tls_sni(false)
         .connect_timeout(Duration::from_secs(connect_secs))
         .read_timeout(Duration::from_secs(read_idle_secs))
         .pool_max_idle_per_host(5)
