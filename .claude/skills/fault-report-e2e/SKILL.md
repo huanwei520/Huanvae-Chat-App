@@ -87,3 +87,61 @@ App 端加密必须与服务器同构，任一差异=解密失败。构造：
 6. **合入与发版解耦**：合入 commit 只带功能文件；版本号/tag/发布动作归发布单。证据三线=版本字段 grep 原值（package.json / tauri.conf.json / Cargo.toml）+ `git ls-remote --tags` 前后 diff 零新增 + 基点..HEAD 无 `.github/workflows` 变更。
 7. **门禁计数跨期对账锚专项**：全量用例数随 main 漂移（dg80pf1a-2 时 4458→合入后 4461，系 main 侧新增用例），可比对锚=faultReport 专项 71/71；`git ls-remote` 偶发 GnuTLS RC=128 为瞬时网络抖动，原样重试即成（本块 tags 现查首跑即中）。
 8. **集合计数防「动作加总冒充文件全集」**：两 commit 触达文件并集=28 个（71883a69 28 文件＋11db47f4 仅改其中 config.ts 1 行；变更动作 29 次但不同文件 28）——报「N 个文件」前先 `git diff --name-only <基点>..<HEAD> | wc -l` 对账，勿把逐 commit 计数连加（atsafbg2 update v1 即把 28+1 误报成「29 个文件」）。
+
+## §8 多线修复批量合入本地 main 的发版前口径（lik80p7i 实测沉淀，2026-09-29）
+
+场景：**7+1 条已验收修复线**（部分=已提交分支，部分=共享工作树未提交改动）要在发版前合并进本地
+`refs/heads/main` 并过门禁，但**发布动作（tag/push/上传/切渠道/release.sh）留待 owner 确认卡**。
+§7 覆盖单条功能重放；本节覆盖**多线批量合入 + 版本派生 + 门禁登记**的增量口径，与 §7 互补不重复。
+块实证：`/root/pipeline-lines/huanvae-chat-app/blocks/1790619639024-lik80p7i-1-核对修复线合入本地主线过门禁/`
+（main `2c3e590f`→`015e18fd`，v1.1.53，前端四门+Rust 三门 exit 全 0）。
+
+1. **合并门顺序：先核对→再合并→后 bump**。切勿在已 bump/已 tag 的树上开合并门：前代 `nmh7ib86`
+   即因 main 已有 `5c8f0661 chore(release): v1.1.50` 且 tag 已 push 固化而卡死 10 轮。开工首步实测
+   「目标 tag 远端不存在」+「最新 release tag」，再动合并。
+2. **按线拆 commit 的切分口径**：一条线触达文件互不重叠→各成独立 commit；**多线共用的命令注册点
+   /模块声明文件**（本例 `src-tauri/src/lib.rs` 同属 ②搜索 offset / ⑤去SNI / ⑥rc_inject 三线）
+   无法切成不重叠 commit→**单列一个 commit 并在 message 正文逐项标注归属线**，不留归属不明的混合提交。
+   门禁红→绿的**零行为修订单独成 commit**（本例 `015e18fd` clippy doc 补空行、`c0a147a8` 更新源补≥2条），
+   便于日后二分。
+3. **同修复多落点查重去重（双口径）**：祖先口径 `git merge-base --is-ancestor <sha> refs/heads/main && echo IN-MAIN`
+   逐 commit 跑；内容口径 `git show <sha1> | git patch-id --stable` 与 `<sha2>` 比对——相同即语义等价、
+   合入幂等（本例 ⑥ 分支 `c19406c9` ≡ main `861e5032`，patch-id `371680d5…`）。**`--stable` 必加**，
+   否则空白差异误判不同。**要点**：同一修复可能**部分**已在 main（本例 ⑦ 一半在 main、一半在工作树），
+   须按**文件落点** `git diff --name-only <base> refs/heads/main | grep <path>` 逐件判，不能「分支没 merge 就全合」。
+4. **auto-version 版本派生 + 四文件一致的机器可核对写法**：版本只能由
+   `bash scripts/linux/auto-version.sh --json` 只读派生（输出 `AUTO_VERSION: latest=… target=… action=…`，
+   `EXIT=0`），禁猜禁跳位。三处（+Cargo.lock）用 `git show refs/heads/main:<path>` 取值（**禁用工作区文件**）：
+   `package.json` / `src-tauri/tauri.conf.json`（各 grep `"version"`）、`src-tauri/Cargo.toml`（grep `^version`）、
+   `src-tauri/Cargo.lock`（grep -A1 `name = "huanvae-chat-app"`）。bump commit 惯例对齐仓内
+   `git show 5c8f0661 --stat`：**恰 4 文件各 1 行**，stat 超行=夹带，停。`release-config.txt` 同步
+   VERSION+MESSAGE，**不跑 release.sh**。
+5. **门禁「跳过项登记 ≠ 通过」的登记式口径**：前端四门按 `package.json` 既有脚本**原样跑**，不改脚本/不过滤用例；
+   Rust 侧口径锚=仓内既有门禁定义 `scripts/linux/test-all.sh:728`（`cargo test --lib`），**锚点必须取
+   `git show refs/heads/main:scripts/linux/test-all.sh` 侧 blob**——若引工作树脏文件，blob 哈希与 main 侧不同
+   （本例 review 第 1 次 REJECT 实录：工作树 blob `4802ea0d` ≠ main `9270fb00`）⇒ 锚不可核。整包 `cargo test`
+   会连带 `tests/local_e2e.rs` 3 例（需本机 `127.0.0.1:18080` 后端集群），该 3 例不属仓内门禁口径且非本块引入
+   （`git diff --name-only <base> refs/heads/main | grep local_e2e` 零命中）→如实登记 **env-BLOCKED（非跳过、
+   非通过）**，覆盖性由 `cargo test --lib`（含搜索 7 例）+ 去 SNI 专项（7+3 例）补齐。
+6. **零远端写的「前后快照反证法」**（比自述「没 push」硬）：开工前后各拍
+   `git ls-remote --heads origin` / `--tags origin` / `git tag -l | sort` / `git status --porcelain=v1`，
+   收工逐字 `diff` 期望 IDENTICAL（本例四组全 IDENTICAL，origin/main 前后同为 `976b0198`）。
+   **同法反证「未触碰共享工作树」**：`porcelain` 前后 149 行逐字一致 + `git rev-parse HEAD` 前后同值
+   （本例工作树停留 `6bba968a` 分支，而 main=`015e18fd`，二者不同）。
+7. **main 侧正向锚点必须显式 `refs/heads/main`，禁用工作区 HEAD**：工作树 HEAD 指向分支时会得出错误结论
+   （本例 HEAD=`6bba968a` ≠ main=`015e18fd`）。所有「已在 main」声称写成
+   `git show refs/heads/main:<path>` / `git merge-base --is-ancestor <sha> refs/heads/main`。
+   配套：核心结论配**行首字面 `verify: <单行命令>`** 指向冻结证据文件（生成后不改 + `sha256sum -c MANIFEST.sha256`）——
+   review 第 2 次 REJECT 的直接原因即「核心结论无判官侧可复跑锚点」。
+8. **冲突解决「归属可证」比「冲突已解」重要**：若冲突文件相对一侧是**纯增量/严格子集**，取超集侧即无损
+   （本例 `wsHandlers.ts` diff 的 deletions 全为分支侧缺 main 内容→取 **ours(main)** 无损；
+   `MobileMeetingPage.tsx` deletions=3/additions=104 纯增量→取 **theirs(6bba968a)** 无损）。
+   若两侧各有独立语义增删（真冲突）→**停下报告**，不得擅取舍（可能改已验收结论）。
+9. **纳/剔账三件**：①untracked 交付件按**白名单**复制入库并落清单（本例 33 项）；②**二进制件按既有策略**——
+   `src-tauri/binaries/*` 若工作树为旧件，保留 main 已验收件，证明=`git diff --name-only <base> refs/heads/main |
+   grep '^src-tauri/binaries/'` 空输出 + sha256 逐字节同；③**密钥零入库核查**
+   `git diff --name-only <base> refs/heads/main | grep -E '\.(pem|key|jks)$'` 空输出，gitignored 构建期钥匙
+   （`app-client.key.pem`）只复制进隔离 worktree 不入库。剔除项=证据/scratch/worktree/媒体目录、CI 旧件、dev 环境改动。
+10. **门禁证据=命令原文+完整输出全文+exit 码，摘要不构成证据**：交付以「Test Files 397 passed」等摘要行
+    替代完整终端原文会被判不可复算（review 第 1/2 次 REJECT 实录）。8 份 `gates/*.log` 完整落盘，末行显式
+    `EXITCODE=0`，核心声称配行首 `verify:` 行指向冻结文件。
