@@ -58,6 +58,7 @@
  */
 
 use super::discovery::get_event_sender;
+use super::lan_client;
 use super::protocol::*;
 use super::speed::SpeedTracker;
 use super::{emit_lan_event, get_lan_transfer_state};
@@ -331,7 +332,7 @@ pub async fn cancel_file_transfer(file_id: &str) -> Result<(), TransferError> {
                     keep_partial: false,
                 };
                 
-                let client = reqwest::Client::new();
+                let client = lan_client();
                 match client
                     .post(&cancel_url)
                     .json(&request)
@@ -491,7 +492,7 @@ pub async fn send_connection_request(device_id: &str) -> Result<String, Transfer
         target_device.ip_address, target_device.port
     );
 
-    let client = reqwest::Client::new();
+    let client = lan_client();
     let response = client
         .post(&url)
         .json(&request_device)
@@ -691,7 +692,7 @@ async fn do_request_peer_connection(device_id: &str) -> Result<String, TransferE
     println!("[LanTransfer]   超时: 5 秒");
 
     let start_time = std::time::Instant::now();
-    let client = reqwest::Client::new();
+    let client = lan_client();
     let response = client
         .post(&url)
         .json(&RequestBody { from_device })
@@ -823,7 +824,7 @@ pub async fn respond_peer_connection(
     println!("[LanTransfer]   超时: 10 秒");
 
     let start_time = std::time::Instant::now();
-    let client = reqwest::Client::new();
+    let client = lan_client();
     let _ = client
         .post(&url)
         .json(&ResponseBody {
@@ -906,7 +907,7 @@ pub async fn disconnect_peer(connection_id: &str) -> Result<(), TransferError> {
             conn.peer_device.ip_address, conn.peer_device.port
         );
 
-        let client = reqwest::Client::new();
+        let client = lan_client();
         let _ = client
             .post(&url)
             .json(&DisconnectBody {
@@ -1252,7 +1253,7 @@ async fn prepare_and_start_batch(
         from_device,
     };
 
-    let client = reqwest::Client::new();
+    let client = lan_client();
     let batch_prepare_result = client
         .post(&batch_prepare_url)
         .json(&batch_prepare_request)
@@ -1679,7 +1680,7 @@ async fn do_file_transfer_with_resume_parallel(
         target_device.port
     );
 
-    let client = reqwest::Client::new();
+    let client = lan_client();
 
     // 1. 发送准备上传请求
     let prepare_url = format!("{}/api/prepare-upload", base_url);

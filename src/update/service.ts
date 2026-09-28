@@ -20,9 +20,26 @@
  * @updated 2026-01-27 使用 NSIS EXE 更新
  */
 
-import { check, type Update } from '@tauri-apps/plugin-updater';
+import { Update } from '@tauri-apps/plugin-updater';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { relaunch } from '@tauri-apps/plugin-process';
+
+/**
+ * 去 SNI 更新检查的线格式（对齐 `@tauri-apps/plugin-updater` 的 `UpdateMetadata`）。
+ *
+ * 走本仓命令 `updater_check_nosni`（Rust 侧 `webview.updater_builder().configure_client(|b| b.tls_sni(false))`）
+ * 而非插件的 JS `check()`——插件的 check 命令不设 `configure_client`，会用 reqwest 默认
+ * `tls_sni(true)` 发 SNI（owner 928444fe「全部去掉」禁止）。返回的 rid 仍注册在 webview
+ * resource table，后续 `download`/`install` 命令照常按 rid 取用。
+ */
+interface UpdateMetadataWire {
+  rid: number;
+  currentVersion: string;
+  version: string;
+  date?: string;
+  body?: string;
+  rawJson: Record<string, unknown>;
+}
 
 // ============================================
 // 类型定义
@@ -78,8 +95,11 @@ export type ProgressCallback = (progress: DownloadProgress) => void;
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
   try {
-    // 使用默认 target，Tauri 自动根据平台匹配
-    const update = await check();
+    // 去 SNI：走本仓 `updater_check_nosni`（见 UpdateMetadataWire 注释），不用插件 JS `check()`。
+    const metadata = await invoke<UpdateMetadataWire | null>('updater_check_nosni');
+    const update = metadata
+      ? new Update(metadata as ConstructorParameters<typeof Update>[0])
+      : null;
 
     if (update) {
       // eslint-disable-next-line no-console

@@ -39,6 +39,7 @@
  */
 
 use super::config;
+use super::lan_client;
 use super::discovery::get_event_sender;
 use super::protocol::*;
 use super::resume::get_resume_manager;
@@ -1113,7 +1114,7 @@ async fn handle_peer_connection_request(
             last_seen: Utc::now().to_rfc3339(),
         };
 
-        let client = reqwest::Client::new();
+        let client = lan_client();
         let send_result = client
             .post(&url)
             .json(&AcceptResponseBody {

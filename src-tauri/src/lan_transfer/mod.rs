@@ -63,6 +63,18 @@ pub use protocol::{
     TransferSession, TransferTask,
 };
 
+/// 局域网互传的出站 HTTP client 的**唯一构造点**。
+///
+/// LAN 传输目标是 `http://<peer-ip>:<port>`（明文，无 TLS 面，故本就不发 SNI），
+/// 但为满足 owner 928444fe「全部去掉」的零残留口径，这里仍显式 `tls_sni(false)`：
+/// 全仓不留任何一个带 reqwest 默认 `tls_sni(true)` 的 client 构造点。
+pub(crate) fn lan_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .tls_sni(false)
+        .build()
+        .expect("Failed to build LAN transfer HTTP client")
+}
+
 // ============================================================================
 // 全局 AppHandle 管理
 // ============================================================================

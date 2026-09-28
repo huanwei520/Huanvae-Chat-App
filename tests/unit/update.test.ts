@@ -2,16 +2,21 @@
  * 更新服务单元测试
  *
  * 测试更新检查功能，包括：
- * - Windows 使用 MSI 更新目标
- * - 其他平台使用默认目标
+ * - 去 SNI 更新检查（走本仓命令 `updater_check_nosni`，不用插件 JS `check()`）
+ * - 线格式到插件 `Update` 的桥接
  *
- * @updated 2026-01-25 简化为仅 MSI 更新
+ * @updated 2026-09-27 去 SNI：check 走本仓 `updater_check_nosni`
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/plugin-updater', () => ({
+  Update: class {
+    constructor(metadata: Record<string, unknown>) {
+      Object.assign(this, metadata);
+    }
+  },
   check: vi.fn(),
 }));
 
@@ -34,6 +39,12 @@ vi.mock('@tauri-apps/api/core', () => ({
   },
 }));
 
+const UpdateMock = class {
+  constructor(metadata: Record<string, unknown>) {
+    Object.assign(this, metadata);
+  }
+};
+
 describe('Update Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,11 +55,19 @@ describe('Update Service', () => {
   });
 
   describe('update check', () => {
-    it('should call check() without target parameter (use default NSIS)', async () => {
-      // 所有平台使用默认 target，Tauri 自动匹配
+    it('去 SNI：checkForUpdates 走本仓命令 updater_check_nosni（不再调插件 JS check()）', async () => {
       vi.resetModules();
+      const invokeMock = vi.fn().mockResolvedValue(null);
+      vi.doMock('@tauri-apps/api/core', () => ({
+        invoke: invokeMock,
+        Channel: class {
+          onmessage: ((msg: unknown) => void) | null = null;
+          id = 1;
+        },
+      }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockResolvedValue(null),
+        Update: UpdateMock,
+        check: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-process', () => ({
         relaunch: vi.fn(),
@@ -57,9 +76,10 @@ describe('Update Service', () => {
       const service = await import('../../src/update/service');
       await service.checkForUpdates();
 
+      // 走的是本仓去 SNI 命令，且插件 JS check() 不再被调用（插件 check 不设 configure_client，会发 SNI）
+      expect(invokeMock).toHaveBeenCalledWith('updater_check_nosni');
       const { check: checkMock } = await import('@tauri-apps/plugin-updater');
-      // check() 应该被无参数调用
-      expect(checkMock).toHaveBeenCalledWith();
+      expect(checkMock).not.toHaveBeenCalled();
     });
   });
 
@@ -70,10 +90,15 @@ describe('Update Service', () => {
         platform: vi.fn().mockResolvedValue('linux'),
       }));
       vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn(),
+        invoke: vi.fn().mockResolvedValue(null),
+        Channel: class {
+          onmessage: ((msg: unknown) => void) | null = null;
+          id = 1;
+        },
       }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockResolvedValue(null),
+        Update: UpdateMock,
+        check: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-process', () => ({
         relaunch: vi.fn(),
@@ -87,10 +112,14 @@ describe('Update Service', () => {
     });
 
     it('should return update info when update is available', async () => {
-      const mockUpdate = {
+      // 去 SNI 命令返回的线格式（对齐 @tauri-apps/plugin-updater 的 UpdateMetadata）
+      const metadata = {
+        rid: 7,
+        currentVersion: '1.0.25',
         version: '1.0.26',
         body: 'New features',
         date: '2026-01-24',
+        rawJson: {},
       };
 
       vi.resetModules();
@@ -98,10 +127,15 @@ describe('Update Service', () => {
         platform: vi.fn().mockResolvedValue('linux'),
       }));
       vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn(),
+        invoke: vi.fn().mockResolvedValue(metadata),
+        Channel: class {
+          onmessage: ((msg: unknown) => void) | null = null;
+          id = 1;
+        },
       }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockResolvedValue(mockUpdate),
+        Update: UpdateMock,
+        check: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-process', () => ({
         relaunch: vi.fn(),
@@ -122,10 +156,15 @@ describe('Update Service', () => {
         platform: vi.fn().mockResolvedValue('linux'),
       }));
       vi.doMock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn(),
+        invoke: vi.fn().mockRejectedValue(new Error('network error')),
+        Channel: class {
+          onmessage: ((msg: unknown) => void) | null = null;
+          id = 1;
+        },
       }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
-        check: vi.fn().mockRejectedValue(new Error('network error')),
+        Update: UpdateMock,
+        check: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-process', () => ({
         relaunch: vi.fn(),
@@ -147,8 +186,13 @@ describe('Update Service', () => {
       }));
       vi.doMock('@tauri-apps/api/core', () => ({
         invoke: vi.fn(),
+        Channel: class {
+          onmessage: ((msg: unknown) => void) | null = null;
+          id = 1;
+        },
       }));
       vi.doMock('@tauri-apps/plugin-updater', () => ({
+        Update: UpdateMock,
         check: vi.fn(),
       }));
       vi.doMock('@tauri-apps/plugin-process', () => ({

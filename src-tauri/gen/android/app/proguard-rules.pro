@@ -12,6 +12,12 @@
 #   public *;
 #}
 
+# 通知深链 JS 桥（MainActivity$DeepLinkBridge，window.HuanvaeDeepLink）：
+# release 构建 isMinifyEnabled=true，未 keep 会被 R8 裁掉/改名，前端调用全部 undefined
+-keepclassmembers class com.github.huanwei520.huanvae_chat_app.MainActivity$* {
+  @android.webkit.JavascriptInterface <methods>;
+}
+
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
 #-keepattributes SourceFile,LineNumberTable

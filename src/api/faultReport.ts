@@ -13,6 +13,7 @@
  */
 
 import type { ApiClient } from './client';
+import { secureHttp } from '../services/secureFetch';
 import type { FaultEnvelope } from '../services/faultReport/crypto';
 import { FAULT_REPORT_ENDPOINT, FAULT_REPORT_DEBUG_ENDPOINT, FAULT_REPORT_DEBUG_TOKEN } from '../services/faultReport/config';
 
@@ -35,19 +36,31 @@ export function submitFaultReport(
   return api.post<FaultReportSubmitResponse>(FAULT_REPORT_ENDPOINT, envelope as unknown as Record<string, unknown>);
 }
 
-/** 联调专用：WebView fetch 直连本地实例（明文回环，仅联调构建可达此分支） */
+/** 联调专用：经本仓 `secure_http` 直连本地实例（明文回环，仅联调构建可达此分支）。
+ *
+ * 不用 webview 原生 `fetch`：那会走 webview 网络栈（WebView2/WebKit），
+ * TLS 面由浏览器控制、发不发 SNI 本仓管不着（owner 928444fe「全部去掉」）。
+ * `secure_http` 走 Rust 侧 `secure_net::build_client`（已 `tls_sni(false)`）。 */
 async function submitViaDebugEndpoint(envelope: FaultEnvelope): Promise<FaultReportSubmitResponse> {
   const endpoint = FAULT_REPORT_DEBUG_ENDPOINT as string;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (FAULT_REPORT_DEBUG_TOKEN) {
     headers['Authorization'] = `Bearer ${FAULT_REPORT_DEBUG_TOKEN}`;
   }
-  const resp = await fetch(`${endpoint}/api/fault-reports`, {
+  const resp = await secureHttp({
     method: 'POST',
+    url: `${endpoint}/api/fault-reports`,
     headers,
     body: JSON.stringify(envelope),
+    pin_ca: false,
   });
-  const body = (await resp.json().catch(() => ({}))) as {
+  const body = (() => {
+    try {
+      return JSON.parse(resp.body || '{}');
+    } catch {
+      return {};
+    }
+  })() as {
     success?: boolean;
     data?: FaultReportSubmitResponse;
     error?: string;

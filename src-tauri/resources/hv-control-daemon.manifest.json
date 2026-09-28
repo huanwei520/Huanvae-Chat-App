@@ -1,0 +1,55 @@
+{
+  "component": "hv-control-daemon",
+  "purpose": "hv-control-daemon 随包件 SHA256 manifest（bl0d10qj-1 新增独立件）——供 assert-daemon-content.sh 自验与管线 L1 v2 清单（3224uyx1-1）消费；对应 tauri.windows.conf.json / tauri.macos.conf.json externalBin 接线（1d0t34vy-3『二进制构建完成≠随包发货』缺环的本环收口）",
+  "generated_at_utc": "2026-09-15T21:35:00Z",
+  "source_repo": "HuanvaeRemote",
+  "source_repo_head": "80842cc8969389fdc0bdcb396a8ee0f80234d6a7",
+  "source_repo_dirty": true,
+  "source_repo_dirty_note": "hv-control-daemon 源(crates/hv-control-demo)与 workspace 增量为前代块未提交 working-tree 态；构建锚以文件级 SHA256 钉死（双端构建机逐字节复核对账一致）",
+  "build_anchor": {
+    "workspace_cargo_toml_sha256": "bac78423f262a10c85bfc141e90de5475aa9581f41062bb2c5e6665b6d8e8573",
+    "workspace_cargo_lock_sha256": "5d4ba8844e19eb4e8a0786e6758c51a3b94d82b088d80524e018e7cff7c8ff54",
+    "crate_cargo_toml_sha256": "c2d963b61a9deb264b8a6448020b2672758bbbae3b13446478e5473fa6959f71",
+    "daemon_rs_sha256": "ef9921471b58d0cf9696ac5be8cafc4481a4fc8fb8feb88fc2a7014e4f0d21b7"
+  },
+  "rustc": "1.98.1 (48a229cea 2026-09-01) —— 双端同版",
+  "artifacts": [
+    {
+      "path": "src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe",
+      "target": "x86_64-pc-windows-msvc",
+      "format": "PE32+ executable (console) x86-64",
+      "bytes": 1044992,
+      "sha256": "4c1b1000576df473b39aa6b53fe785e619efcd51372440398df79299b95c1c63",
+      "built_at_utc": "2026-09-15T21:27:00Z",
+      "builder": {
+        "host": "Windows 构建宿主（winserver-hg；ssh 目标经 $HG_WIN_BUILD_HOST 注入，值不落盘）",
+        "rustc": "1.98.1 (48a229cea 2026-09-01)",
+        "toolchain": "stable-x86_64-pc-windows-gnu (host) + rust-std x86_64-pc-windows-msvc + VS BuildTools 17.14 / MSVC 14.44.35207",
+        "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
+        "notes": "libsodium-sys 0.2.7 build.rs 以 build-script host cfg 选预编译库（gnu-host 交叉 msvc 时误选 mingw 件名），以 SODIUM_LIB_DIR 指向 msvc/x64/Release/v142 预编译 libsodium.lib（复制为 sodium.lib 对齐 build.rs 的 gnu-host 命名分支）解决；构建日志/源锚在 test-artifacts-bl0d10qj1/logs/",
+        "smoke_on_windows": "usage 缺参 exit=1；--bind 非回环 → BIND-POLICY-REJECTED exit=2（真实 Windows 实机可执行实证）"
+      }
+    },
+    {
+      "path": "src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin",
+      "target": "aarch64-apple-darwin",
+      "format": "Mach-O 64-bit executable arm64",
+      "bytes": 1198400,
+      "sha256": "0c5cc6bcb88dd3026e2dd0164989fd7d7c18ea6ed2bd83cb4565cb1157e3949c",
+      "built_at_utc": "2026-09-15T21:06:00Z",
+      "builder": {
+        "host": "macOS VM（arm64，Darwin 25.5.0 / macOS 26.5；ssh 别名见 root/.ssh/config，值不落盘）",
+        "rustc": "1.98.1 (48a229cea 2026-09-01)",
+        "toolchain": "stable-aarch64-apple-darwin",
+        "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin",
+        "codesign_flags": "codesign -f -s - 显式重签（adhoc，CodeDirectory v=20400 flags=0x2(adhoc) hashes=73+2 location=embedded）——沿 hg-macos 判例：linker-signed 形态 launchd 可能拒绝",
+        "notes": "git 依赖经 CARGO_NET_GIT_FETCH_WITH_CLI=true + gh-proxy insteadOf 拉取；构建日志在 test-artifacts-bl0d10qj1/logs/"
+      }
+    }
+  ],
+  "in_package": {
+    "windows": "NSIS 安装后 externalBin 件名 hv-control-daemon.exe（tauri 按三元组剥落后缀），与仓内 msvc 件字节一致",
+    "macos": ".app/Contents/MacOS/hv-control-daemon，与仓内 apple-darwin 件字节一致"
+  },
+  "known_limitation": "daemon 被控端采集/注入后端为 X11(hv-demo-x11/x11rb)；Windows/macOS 桌面原生采集替换（'hv-demo-x11 后端替换'）为 commit 165f4cde/06e52282 明记的『块3 产品化范围』欠项，不在本块写面。两平台 daemon 运行面（arm/grant/控制面/会话通道）不变，X11 connect 失败时按 exit=1 如实退出——全链实测中以 Linux(X11) 为被控端、Windows/macOS 为发起端+随包在位实证"
+}

@@ -202,24 +202,44 @@ pub fn get_app_version(app: AppHandle) -> String {
     version
 }
 
+/// A21 更新检查 JSON 的 client（`fetch_update_json` 用）。
+///
+/// 全软件去 SNI（owner 928444fe「全部去掉」）：reqwest 默认 `tls_sni(true)`，关死。
+/// 抽成独立函数是为了让请求级测试能拿到**生产同一个** client 去抓 ClientHello。
+fn update_json_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .tls_sni(false)
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+}
+
+/// A21 APK 分片下载的 client（`download_apk` 用）。同 `update_json_client`，额外带
+/// h2 流控窗口与建连上界（理由见 `download_apk` 内注释）。
+///
+/// cfg 与 `APK_CONNECT_TIMEOUT` 一致（该 const 只在 android 或测试构建里存在）。
+#[cfg(any(target_os = "android", test))]
+fn apk_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .tls_sni(false)
+        .connect_timeout(APK_CONNECT_TIMEOUT)
+        .http2_initial_stream_window_size(4 * 1024 * 1024)
+        .http2_initial_connection_window_size(8 * 1024 * 1024)
+        .build()
+}
+
 /// 获取更新检测 JSON
 ///
 /// 从指定 URL 获取版本信息 JSON，支持超时设置
 #[tauri::command]
 pub async fn fetch_update_json(url: String, timeout_secs: u64) -> Result<String, String> {
-    use std::time::Duration;
-
     println!("[Android Update] fetch_update_json 开始");
     println!("[Android Update] URL: {}", url);
     println!("[Android Update] 超时: {} 秒", timeout_secs);
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| {
-            eprintln!("[Android Update] 创建 HTTP 客户端失败: {}", e);
-            format!("创建 HTTP 客户端失败: {}", e)
-        })?;
+    let client = update_json_client(timeout_secs).map_err(|e| {
+        eprintln!("[Android Update] 创建 HTTP 客户端失败: {}", e);
+        format!("创建 HTTP 客户端失败: {}", e)
+    })?;
 
     println!("[Android Update] 发送请求...");
     let response = client
@@ -801,15 +821,10 @@ pub async fn download_apk(
     //
     // `connect_timeout` 是本次补的短板之一：在它之前安卓侧**没有建连上界**，
     // 建连挂死只能干等单片 120s 超时。与桌面 `CONNECT_TIMEOUT` 取同值，别另发明参数。
-    let client = reqwest::Client::builder()
-        .connect_timeout(APK_CONNECT_TIMEOUT)
-        .http2_initial_stream_window_size(4 * 1024 * 1024)
-        .http2_initial_connection_window_size(8 * 1024 * 1024)
-        .build()
-        .map_err(|e| {
-            eprintln!("[Android Update] 创建 HTTP 客户端失败: {}", e);
-            format!("创建 HTTP 客户端失败: {}", e)
-        })?;
+    let client = apk_client().map_err(|e| {
+        eprintln!("[Android Update] 创建 HTTP 客户端失败: {}", e);
+        format!("创建 HTTP 客户端失败: {}", e)
+    })?;
 
     // 落盘路径要在探测**之前**准备好：分片下载需要先预分配文件再并发按偏移写。
     let cache_dir = app
@@ -1296,5 +1311,188 @@ mod tests {
         assert!(err.contains("完整性校验失败"), "实际: {err}");
 
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+
+/// 请求级去 SNI 验证（owner 928444fe「全部去掉」）：抓**生产同一个** client 发出的
+/// 真实 ClientHello，断言无 `server_name(0)` 扩展。
+///
+/// 主机名用 `127.0.0.1.nip.io`（公共 DNS → 127.0.0.1）：**是域名**，必走 SNI 判定分支
+/// （IP 字面量本就略过 SNI，用 IP 测等于没测）。对照组证明解析器有判别力。
+#[cfg(test)]
+mod nosni_tests {
+    use super::{apk_client, update_json_client};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+/// 解析 TLS ClientHello 扩展，找 server_name(type 0) 与 ALPN(16)。
+fn parse_client_hello(buf: &[u8]) -> Option<Hello> {
+    if buf.len() < 9 || buf[0] != 0x16 {
+        return None;
+    }
+    let rec_len = u16::from_be_bytes([buf[3], buf[4]]) as usize;
+    let hs = buf.get(5..5 + rec_len)?;
+    if hs[0] != 0x01 {
+        return None;
+    }
+    let hs_len = ((hs[1] as usize) << 16) | ((hs[2] as usize) << 8) | hs[3] as usize;
+    let body = hs.get(4..4 + hs_len)?;
+    let mut p = 0usize;
+    p += 2;
+    p += 32;
+    let sid_len = *body.get(p)? as usize;
+    p += 1 + sid_len;
+    let cs_len = u16::from_be_bytes([*body.get(p)?, *body.get(p + 1)?]) as usize;
+    p += 2 + cs_len;
+    let comp_len = *body.get(p)? as usize;
+    p += 1 + comp_len;
+    let ext_total = u16::from_be_bytes([*body.get(p)?, *body.get(p + 1)?]) as usize;
+    p += 2;
+    let exts = body.get(p..p + ext_total)?;
+
+    let mut has_sni = false;
+    let mut sni_name = None;
+    let mut alpn = Vec::new();
+    let mut q = 0usize;
+    while q + 4 <= exts.len() {
+        let etype = u16::from_be_bytes([exts[q], exts[q + 1]]);
+        let elen = u16::from_be_bytes([exts[q + 2], exts[q + 3]]) as usize;
+        let edata = exts.get(q + 4..q + 4 + elen)?;
+        match etype {
+            0 => {
+                has_sni = true;
+                if edata.len() >= 5 {
+                    let nlen = u16::from_be_bytes([edata[3], edata[4]]) as usize;
+                    sni_name = edata
+                        .get(5..5 + nlen)
+                        .map(|b| String::from_utf8_lossy(b).to_string());
+                }
+            }
+            16 => {
+                let mut r = 2usize;
+                while r < edata.len() {
+                    let l = edata[r] as usize;
+                    if r + 1 + l > edata.len() {
+                        break;
+                    }
+                    alpn.push(String::from_utf8_lossy(&edata[r + 1..r + 1 + l]).to_string());
+                    r += 1 + l;
+                }
+            }
+            _ => {}
+        }
+        q += 4 + elen;
+    }
+    Some(Hello { len: buf.len(), has_sni, sni_name, alpn })
+}
+
+/// 起一个只抓一次握手的监听器，返回 (port, recv)。
+fn spawn_hello_catcher() -> (u16, mpsc::Receiver<Hello>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let _ = sock.set_read_timeout(Some(Duration::from_secs(5)));
+            let mut buf = vec![0u8; 8192];
+            let mut total = 0usize;
+            for _ in 0..2 {
+                match sock.read(&mut buf[total..]) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        total += n;
+                        if total >= 5 {
+                            let rec_len = u16::from_be_bytes([buf[3], buf[4]]) as usize;
+                            if total >= 5 + rec_len {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let _ = sock.write_all(&[0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28]);
+            let _ = sock.flush();
+            drop(sock);
+            if let Some(h) = parse_client_hello(&buf[..total]) {
+                let _ = tx.send(h);
+            }
+        }
+    });
+    (port, rx)
+}
+
+fn assert_no_sni(label: &str, hello: &Hello) {
+    println!(
+        "[{label}] ClientHello len={} has_sni={} sni_name={:?} alpn={:?}",
+        hello.len, hello.has_sni, hello.sni_name, hello.alpn
+    );
+    assert!(!hello.has_sni, "[{label}] ClientHello 仍带 server_name 扩展: {:?}", hello.sni_name);
+}
+
+/// 对照组：reqwest 默认（`tls_sni(true)`）必须被抓到 SNI（排除断言恒真的假阴性）。
+fn control_default_client_sends_sni() {
+    let (port, rx) = spawn_hello_catcher();
+    let url = format!("https://{DOMAIN_HOST}:{port}/");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let res = rt.block_on(async {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+    });
+    println!("[control tls_sni=true] 结果（预期 Err，证书不被信任）: {:?}", res.is_err());
+    let h = rx.recv_timeout(Duration::from_secs(5)).expect("control ClientHello");
+    println!(
+        "[control tls_sni=true] ClientHello len={} has_sni={} sni_name={:?} alpn={:?}",
+        h.len, h.has_sni, h.sni_name, h.alpn
+    );
+    assert!(h.has_sni, "对照组必须抓得到 SNI 扩展，否则本文件的断言无判别力");
+}
+
+struct Hello {
+    len: usize,
+    has_sni: bool,
+    sni_name: Option<String>,
+    alpn: Vec<String>,
+}
+
+const DOMAIN_HOST: &str = "127.0.0.1.nip.io";
+
+    /// 更新检查 JSON 的 client → 必须无 SNI。
+    #[test]
+    fn android_update_json_client_sends_no_sni_for_domain_host() {
+        let (port, rx) = spawn_hello_catcher();
+        let url = format!("https://{DOMAIN_HOST}:{port}/android-latest.json");
+        let client = update_json_client(5).expect("build client");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let res = rt.block_on(async { client.get(&url).send().await });
+        println!("[android_update::update_json_client] 结果（预期 Err，证书不被信任）: {:?}", res.is_err());
+        let h = rx.recv_timeout(Duration::from_secs(5)).expect("ClientHello");
+        assert_no_sni("android_update::update_json_client", &h);
+    }
+
+    /// APK 分片下载的 client → 必须无 SNI。
+    #[test]
+    fn android_apk_client_sends_no_sni_for_domain_host() {
+        let (port, rx) = spawn_hello_catcher();
+        let url = format!("https://{DOMAIN_HOST}:{port}/app.apk");
+        let client = apk_client().expect("build client");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let res = rt.block_on(async { client.get(&url).send().await });
+        println!("[android_update::apk_client] 结果（预期 Err，证书不被信任）: {:?}", res.is_err());
+        let h = rx.recv_timeout(Duration::from_secs(5)).expect("ClientHello");
+        assert_no_sni("android_update::apk_client", &h);
+    }
+
+    #[test]
+    fn control_default_reqwest_client_sends_sni_and_is_detected() {
+        control_default_client_sends_sni();
     }
 }
