@@ -27,7 +27,7 @@
  * - 使用 layout="position" 处理位置变化（发送完成后自动平滑移动）
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, memo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { SessionInfo } from '../../components/common/Avatar';
 import { formatMessageTime } from '../../utils/time';
@@ -61,12 +61,12 @@ interface MessageBubbleProps {
   isMultiSelectMode?: boolean;
   /** 是否被选中 */
   isSelected?: boolean;
-  /** 选中/取消选中回调 */
-  onToggleSelect?: () => void;
-  /** 撤回消息回调 */
-  onRecall?: () => void;
-  /** 删除消息回调 */
-  onDelete?: () => void;
+  /** 选中/取消选中回调（参数 = 本条消息 uuid；气泡自己补 uuid，列表层好给稳定引用） */
+  onToggleSelect?: (messageUuid: string) => void;
+  /** 撤回消息回调（参数 = 本条消息 uuid） */
+  onRecall?: (messageUuid: string) => void;
+  /** 删除消息回调（参数 = 本条消息 uuid） */
+  onDelete?: (messageUuid: string) => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
   /** 已读回执：仅**我发出的最新一条**已送达消息传入 isRead（对方是否已读）；更早的自己消息 /
@@ -125,7 +125,7 @@ function canRecallMessage(message: Message, isOwn: boolean): boolean {
   return now - sendTime < twoMinutes;
 }
 
-export function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   message,
   isOwn,
   session,
@@ -280,7 +280,7 @@ export function MessageBubble({
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (isMultiSelectMode && onToggleSelect) {
       e.stopPropagation(); // 阻止冒泡到 message-row，避免重复触发
-      onToggleSelect();
+      onToggleSelect(message.message_uuid);
       return;
     }
 
@@ -295,7 +295,7 @@ export function MessageBubble({
         lastTapTimeRef.current = now;
       }
     }
-  }, [isMultiSelectMode, onToggleSelect, message.message_type]);
+  }, [isMultiSelectMode, onToggleSelect, message.message_type, message.message_uuid]);
 
   // 关闭菜单
   const handleCloseMenu = useCallback(() => {
@@ -304,19 +304,19 @@ export function MessageBubble({
 
   // 处理撤回
   const handleRecall = useCallback(() => {
-    onRecall?.();
-  }, [onRecall]);
+    onRecall?.(message.message_uuid);
+  }, [onRecall, message.message_uuid]);
 
   // 处理删除
   const handleDelete = useCallback(() => {
-    onDelete?.();
-  }, [onDelete]);
+    onDelete?.(message.message_uuid);
+  }, [onDelete, message.message_uuid]);
 
   // 进入多选模式
   const handleEnterMultiSelect = useCallback(() => {
     onEnterMultiSelect?.();
-    onToggleSelect?.(); // 同时选中当前消息
-  }, [onEnterMultiSelect, onToggleSelect]);
+    onToggleSelect?.(message.message_uuid); // 同时选中当前消息
+  }, [onEnterMultiSelect, onToggleSelect, message.message_uuid]);
 
   // 设为回复目标
   const handleReply = useCallback(() => {
@@ -365,8 +365,8 @@ export function MessageBubble({
     if (!isMultiSelectMode) { return; }
     // 阻止事件冒泡
     e.stopPropagation();
-    onToggleSelect?.();
-  }, [isMultiSelectMode, onToggleSelect]);
+    onToggleSelect?.(message.message_uuid);
+  }, [isMultiSelectMode, onToggleSelect, message.message_uuid]);
 
   // 元信息（时间戳 + 已读状态槽）—— 结构固定，只是**落点**按消息形态分三处：
   //   ① 文本气泡 ⇒ 内联在文末右下（`.bubble-metafoot`，类 Telegram）
@@ -597,4 +597,4 @@ export function MessageBubble({
       )}
     </>
   );
-}
+});

@@ -28,6 +28,12 @@
  *   （成因见 src-tauri/src/db/messages.rs save_messages_skip_existing 的文档注释）
  * - 2026-08-21: 好友分支的 is_recalled 由写死 false 改为原样落库；同批订正本文件头部
  *   那句「响应不包含 is_recalled」的错误陈述（它正是当初写死 false 的依据）
+ * - 2026-09-26: sender_name 收口到 resolveSenderName（src/utils/senderName.ts，D4 昵称混显）。
+ *   好友分支原先写死 null、群分支是 `sender_nickname || null`，两条路径各写各的。
+ *   契约核实：backend-docs 不在本仓，以类型差异为据 —— 好友历史 GET /api/messages 的
+ *   Message（src/types/chat.ts）**没有** sender_nickname 字段，群历史的 GroupMessage
+ *   （src/types/chat.ts / src/api/groupMessages.ts）有且必填 ⇒ 好友分支的服务端昵称恒缺席，
+ *   回退链取本地好友资料昵称（自己发的取 selfNickname，即登录 profile 昵称）。
  */
 
 import type { ApiClient } from '../api/client';
@@ -36,6 +42,7 @@ import { getMessages } from '../api/messages';
 import { getGroupMessages, type GroupMessage } from '../api/groupMessages';
 import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
+import { resolveSenderName } from '../utils/senderName';
 import type { Message } from '../types/chat';
 
 // 每批次加载的消息数量
@@ -78,6 +85,9 @@ async function ensureConversationExists(
  * @param targetType - 'friend' 或 'group'
  * @param currentUserId - 当前用户 ID（用于生成好友会话 ID）
  * @param onProgress - 进度回调
+ * @param selfNickname - 当前用户昵称（登录 profile；可选）。好友历史接口不下发
+ *   sender_nickname，自己发的那些行靠它回退；不传则自己那部分行 sender_name 为 null，
+ *   显示层经 displaySenderName 兑底，不会裸露 ID。
  */
 export async function loadAllHistoryMessages(
   api: ApiClient,
@@ -85,10 +95,27 @@ export async function loadAllHistoryMessages(
   targetType: 'friend' | 'group',
   currentUserId: string,
   onProgress: (progress: string) => void,
+  selfNickname?: string | null,
 ): Promise<{ totalLoaded: number }> {
   let totalLoaded = 0;
   let hasMore = true;
   let beforeTime: string | undefined;
+
+  // 本地好友资料昵称索引（整个加载过程只查一次本地库，逐条消息复用；
+  // 纯本地 SQLite 读取，不引入网络请求）。查失败不影响加载本体 —— 退回旧行为（空值）。
+  const friendNicknames = new Map<string, string>();
+  try {
+    for (const f of await db.getFriends()) {
+      const nick = f.nickname?.trim();
+      if (nick) { friendNicknames.set(f.friend_id, nick); }
+    }
+  } catch (err) {
+    console.warn('[HistoryService] 读取本地好友资料失败，sender_name 昵称回退不可用:', err);
+  }
+  const profileNicknameOf = (senderId: string): string | null =>
+    senderId === currentUserId
+      ? selfNickname?.trim() || null
+      : friendNicknames.get(senderId) ?? null;
 
   // 生成正确的 conversation_id
   const conversationId = targetType === 'friend'
@@ -126,32 +153,40 @@ export async function loadAllHistoryMessages(
         // 本地库里没有的那些历史消息（换设备/清库后全量拉历史）被插成未撤回 ⇒
         // MessageBubble 不走撤回占位分支，把「[消息已撤回]」当普通文本气泡渲染出来。
         // 群分支（下方）一直是对的，两个分支曾经不一致。
-        const localMessages = messages.map((msg: Message) => ({
-          message_uuid: msg.message_uuid,
-          conversation_id: conversationId,
-          conversation_type: 'friend' as const,
-          sender_id: msg.sender_id,
-          sender_name: null,
-          sender_avatar: null,
-          content: msg.message_content,
-          content_type: msg.message_type,
-          file_uuid: msg.file_uuid,
-          file_url: msg.file_url,
-          file_size: msg.file_size,
-          image_width: msg.image_width ?? null,
-          image_height: msg.image_height ?? null,
-          seq: msg.seq || 0,
-          // 引用回复与相册三件套必须从服务端消息原样落库：
-          // 消息列表是 DB-first 的，这里丢了，历史加载出来的消息就没有引用块、
-          // 相册也会散成 N 条独立图片（private reply 自 migration 036 起后端已支持）
-          reply_to: msg.reply_to ?? null,
-          media_group_id: msg.media_group_id ?? null,
-          media_group_index: msg.media_group_index ?? null,
-          media_group_count: msg.media_group_count ?? null,
-          is_recalled: msg.is_recalled ?? false,
-          is_deleted: false,
-          send_time: msg.send_time,
-        }));
+        const localMessages = messages.map((msg: Message) => {
+          // 契约核实（2026-09-26，D4）：GET /api/messages 的 Message 类型**无** sender_nickname
+          // 字段（群历史的 GroupMessage 才有）。运行时仍宽松读一次 —— 服务端未来若补发，
+          // 昵称优先链不变；当下恒 undefined，回退链取本地资料。
+          const serverNickname = (msg as Message & { sender_nickname?: string }).sender_nickname;
+          return {
+            message_uuid: msg.message_uuid,
+            conversation_id: conversationId,
+            conversation_type: 'friend' as const,
+            sender_id: msg.sender_id,
+            // 🔴 昵称统一收口（resolveSenderName）：与群分支/syncService/wsHandlers 同一 helper，
+            // 禁止回退各写各的三元表达式。
+            sender_name: resolveSenderName(serverNickname, profileNicknameOf(msg.sender_id)),
+            sender_avatar: null,
+            content: msg.message_content,
+            content_type: msg.message_type,
+            file_uuid: msg.file_uuid,
+            file_url: msg.file_url,
+            file_size: msg.file_size,
+            image_width: msg.image_width ?? null,
+            image_height: msg.image_height ?? null,
+            seq: msg.seq || 0,
+            // 引用回复与相册三件套必须从服务端消息原样落库：
+            // 消息列表是 DB-first 的，这里丢了，历史加载出来的消息就没有引用块、
+            // 相册也会散成 N 条独立图片（private reply 自 migration 036 起后端已支持）
+            reply_to: msg.reply_to ?? null,
+            media_group_id: msg.media_group_id ?? null,
+            media_group_index: msg.media_group_index ?? null,
+            media_group_count: msg.media_group_count ?? null,
+            is_recalled: msg.is_recalled ?? false,
+            is_deleted: false,
+            send_time: msg.send_time,
+          };
+        });
 
         // eslint-disable-next-line no-await-in-loop
         await db.saveMessagesSkipExisting(localMessages);
@@ -191,7 +226,9 @@ export async function loadAllHistoryMessages(
           conversation_id: conversationId,
           conversation_type: 'group' as const,
           sender_id: msg.sender_id,
-          sender_name: msg.sender_nickname || null,
+          // 🔴 昵称统一收口（resolveSenderName）：与好友分支/syncService/wsHandlers 同一 helper；
+          // 群历史契约必发 sender_nickname，资料回退只在服务端异常给空时兜住。
+          sender_name: resolveSenderName(msg.sender_nickname, profileNicknameOf(msg.sender_id)),
           sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
           content: msg.message_content,
           content_type: msg.message_type,

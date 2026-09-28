@@ -26,6 +26,7 @@ import * as db from '../db';
 import { getFriendConversationId } from '../utils/conversationId';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { friendDisplayName } from '../utils/friendName';
+import { resolveSenderName, displaySenderName } from '../utils/senderName';
 import { useChatStore } from '../stores/chatStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
 import { useShelfStore, isShelfItem } from '../stores/shelfStore';
@@ -438,6 +439,11 @@ export async function saveMessageToLocal(msg: WsNewMessage, currentUserId: strin
       ? getFriendConversationId(currentUserId, msg.source_id)
       : msg.source_id;
 
+    // 🔴 sender_name 昵称统一收口（resolveSenderName，D4 昵称混显）：服务端昵称优先，
+    // 本地好友资料昵称回退，最后空值。与 historyService / syncService 同一 helper，
+    // 禁止回退各写各的三元表达式。资料源 = chatStore.friends（内存同步读，零 IO/网络）。
+    const wsFriend = useChatStore.getState().friends.find(f => f.friend_id === msg.sender_id);
+
     // 构建本地消息对象
     // 使用 content（完整内容）而非 preview（预览）
     const localMessage: Omit<db.LocalMessage, 'created_at'> = {
@@ -445,7 +451,7 @@ export async function saveMessageToLocal(msg: WsNewMessage, currentUserId: strin
       conversation_id: conversationId,
       conversation_type: msg.source_type,
       sender_id: msg.sender_id,
-      sender_name: msg.sender_nickname || null,
+      sender_name: resolveSenderName(msg.sender_nickname, wsFriend?.friend_nickname ?? null),
       sender_avatar: resolveServerAvatarUrl(msg.sender_avatar_url) || null,
       content: msg.content || msg.preview || '',
       content_type: msg.message_type,
@@ -669,8 +675,10 @@ export function handleWebSocketMessage(
             // 群消息使用"群聊"作为标题，好友消息无群名
             const groupName = msg.source_type === 'group' ? '群聊' : undefined;
 
-            // 私聊新消息：用本地好友备注/昵称解析发送者名 + 取特别关心标记（强提醒）
-            let senderName = msg.sender_nickname || msg.sender_id;
+            // 私聊新消息：用本地好友备注/昵称解析发送者名 + 取特别关心标记（强提醒）。
+            // 🔴 初值经 displaySenderName 收口（D4）：昵称缺失时兑底「未知用户」，
+            // 绝不裸露 sender_id（通知横幅是系统级 UI，裸 ID 直接出 App 外）。
+            let senderName = displaySenderName(msg.sender_nickname);
             let isSpecialCare = false;
             if (msg.source_type === 'friend') {
               const friend = useChatStore.getState().friends.find(

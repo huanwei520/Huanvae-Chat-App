@@ -40,11 +40,13 @@ import { avatarAnchorKeys, senderNameAnchorKeys, runTightKeys, type SenderRunNod
 import { GroupReadListModal } from './GroupReadListModal';
 import { useChatStore } from '../../stores';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
+import { displaySenderName, profileDisplayName } from '../../utils/senderName';
 import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import {
   buildReplyPreviewIndex,
   resolveReplyQuote,
   summarizeMessageForReply,
+  type ResolvedReplyQuote,
 } from '../shared/replyPreview';
 import { groupConversationKey } from '../shared/conversationKey';
 import { groupMessagesIntoAlbums } from '../shared/mediaGroup';
@@ -179,10 +181,19 @@ export function GroupChatMessages({
   const setPendingScrollToMessageId = useChatStore((s) => s.setPendingScrollToMessageId);
   const highlightedMessageId = useChatStore((s) => s.highlightedMessageId);
 
-  // 发送者在本群对我显示的名字（备注优先），气泡与引用块共用同一口径
+  const friends = useChatStore((s) => s.friends);
+  // 发送者在本群对我显示的名字（备注优先），气泡与引用块共用同一口径。
+  // D4 昵称收口：落库昵称/备注都缺席时回退本地好友资料名 → 兑底「未知用户」，
+  // 引用块不再出现空发送者名（更不会裸露 sender_id）。
   const displayNameOf = useCallback(
-    (m: GroupMessage) => groupMemberDisplayName(groupRemarks?.[m.sender_id], m.sender_nickname),
-    [groupRemarks],
+    (m: GroupMessage) => {
+      const friend = friends.find((f) => f.friend_id === m.sender_id);
+      return displaySenderName(
+        groupMemberDisplayName(groupRemarks?.[m.sender_id], m.sender_nickname),
+        friend ? profileDisplayName(friend.friend_remark, friend.friend_nickname) : null,
+      );
+    },
+    [groupRemarks, friends],
   );
 
   // uuid → 引用预览 索引。数据源是当前已加载的全部消息（含 loadMore 拉回的历史）——
@@ -195,6 +206,22 @@ export function GroupChatMessages({
   // 相册折叠：同一 media_group_id 的 N 条消息折叠成一个渲染节点。
   // 折叠只压缩不重排，相册占据它在倒序列表里首次出现的位置。
   const renderNodes = useMemo(() => groupMessagesIntoAlbums(sortedMessages), [sortedMessages]);
+
+  // 引用块内容的稳定引用层：每条消息的 ResolvedReplyQuote 在这里一次性 resolve，
+  // 气泡（memo 化）拿到的是同一对象引用 —— 父层因无关状态重渲染时引用块不会跟着重建。
+  // 键 = 渲染层 stableKey（相册 = album-<groupId>，与下方 map 的 key 同源）
+  const resolvedQuotes = useMemo(() => {
+    const map = new Map<string, ResolvedReplyQuote | null>();
+    for (const node of renderNodes) {
+      const m = node.kind === 'album' ? node.items[0] : node.message;
+      if (!m) { continue; }
+      map.set(
+        node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
+        resolveReplyQuote(replyPreviewIndex, m.reply_to),
+      );
+    }
+    return map;
+  }, [renderNodes, replyPreviewIndex]);
 
   // 会话媒体序列（全屏预览左右切上一张 / 下一张的数据面）。
   // 从 renderNodes 摊平：相册内部已按 media_group_index 升序，与网格里眼睛看到的一致；
@@ -257,11 +284,46 @@ export function GroupChatMessages({
   // 没有 groupId 就建不出草稿 —— 与其给个点了没反应的菜单项，不如让气泡把「回复」整项藏掉
   const onReplyOrUndefined = groupId ? handleReply : undefined;
 
+  // 已读回执对象的稳定引用层：只属于「我发出的最新一条」，旧写法在 map 里每渲染重建整份
+  // readers 数组（展开新对象），是 memo 化气泡上的最后一处身份漂移源。提升到这里按数据 memo，
+  // map 内只做引用传递；字段与展开逻辑逐字不变，仅「何时重建」从每渲染变为数据变化时。
+  const latestReadReceipt = useMemo<
+    { text: string | null; readers: GroupReader[] } | undefined
+  >(() => {
+    if (latestOwnReceiptId === null) { return undefined; }
+    const anchor = renderNodes
+      .map((node) => (node.kind === 'album' ? node.items[0] : node.message))
+      .find((m) => m?.message_uuid === latestOwnReceiptId);
+    if (!anchor) { return undefined; }
+    const text = groupReadReceiptText(anchor.seq, countReaders(anchor.seq, anchor.sender_id), memberCount - 1);
+    // D7：已读者显示名套用我设的私有备注（备注→群昵称/原显示名），覆盖头像堆叠 tooltip + 名单弹层
+    const readers = readersAt(anchor.seq, anchor.sender_id).map((r) => ({
+      ...r,
+      displayName: groupMemberDisplayName(groupRemarks?.[r.userId], r.displayName),
+    }));
+    return { text, readers };
+  }, [latestOwnReceiptId, renderNodes, memberCount, countReaders, readersAt, groupRemarks]);
+
   // 点击引用块：复用全局搜索那条定位通路（useMainPage 监听 pendingScrollToMessageId，
   // 负责拉历史 + 滚动 + 高亮 + 找不到时给降级提示），不另造一套滚动机制。
   const handleQuoteClick = useCallback((targetUuid: string) => {
     setPendingScrollToMessageId(targetUuid);
   }, [setPendingScrollToMessageId]);
+
+  // 气泡回调的稳定引用：GroupMessageBubble 已 memo 化，这里把「谁补 uuid」接住 ——
+  // 气泡自己带 uuid 回调，本层无需在 map 里给每条新建闭包（旧写法是全列表重渲染的放大器）。
+  const handleBubbleToggleSelect = useCallback(
+    (uuid: string) => { onToggleSelect?.(uuid); },
+    [onToggleSelect],
+  );
+  const handleBubbleRecall = useCallback(
+    (uuid: string) => { onRecall?.(uuid); },
+    [onRecall],
+  );
+  const handleBubbleDelete = useCallback(
+    (uuid: string) => { onDelete?.(uuid); },
+    [onDelete],
+  );
 
   // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
   // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。
@@ -428,27 +490,17 @@ export function GroupChatMessages({
                 // 已读态只挂「我发出的最新一条」（含文案 + 已读者名单）：已读人数排除发送者，
                 // 应读 = member_count − 1；无人已读时 groupReadReceiptText 给 null ⇒ 气泡隐藏已读部分。
                 // 资格判定（自己发的 / 未撤回 / 已送达）已在 latestOwnReceiptUuid 内做过，这里只比对锚点；
-                // 发送中/失败仍由 bubble 内状态槽按 sendStatus 显示，不受此门控影响。
-                let readReceipt: { text: string | null; readers: GroupReader[] } | undefined;
-                if (message.message_uuid === latestOwnReceiptId) {
-                  const text = groupReadReceiptText(message.seq, countReaders(message.seq, message.sender_id), memberCount - 1);
-                  // D7：已读者显示名套用我设的私有备注（备注→群昵称/原显示名），覆盖头像堆叠 tooltip + 名单弹层
-                  const readers = readersAt(message.seq, message.sender_id).map((r) => ({
-                    ...r,
-                    displayName: groupMemberDisplayName(groupRemarks?.[r.userId], r.displayName),
-                  }));
-                  readReceipt = { text, readers };
-                }
-
-                // 引用块内容：非回复消息为 null（不渲染），原消息不在窗口内则给占位（仍可点）
-                const replyQuote = resolveReplyQuote(replyPreviewIndex, message.reply_to);
+                // 对象本体由 latestReadReceipt 按数据 memo（稳定引用，memo 化气泡的前提），这里只做引用传递。
+                const readReceipt = message.message_uuid === latestOwnReceiptId
+                  ? latestReadReceipt
+                  : undefined;
 
                 return (
                   <GroupMessageBubble
                     key={stableKey}
                     message={message}
                     isOwn={isOwn}
-                    replyQuote={replyQuote}
+                    replyQuote={resolvedQuotes.get(stableKey) ?? null}
                     onQuoteClick={handleQuoteClick}
                     onReply={onReplyOrUndefined}
                     isHighlighted={highlightedMessageId === message.message_uuid}
@@ -461,9 +513,9 @@ export function GroupChatMessages({
                     tightBelow={tightKeys.has(stableKey)}
                     isMultiSelectMode={isMultiSelectMode}
                     isSelected={isSelected}
-                    onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
-                    onRecall={() => onRecall?.(message.message_uuid)}
-                    onDelete={() => onDelete?.(message.message_uuid)}
+                    onToggleSelect={handleBubbleToggleSelect}
+                    onRecall={handleBubbleRecall}
+                    onDelete={handleBubbleDelete}
                     onEnterMultiSelect={onEnterMultiSelect}
                     isAdmin={isAdmin}
                     readReceipt={readReceipt}

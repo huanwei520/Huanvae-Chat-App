@@ -28,6 +28,7 @@
  */
 
 import { useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import type { ResolvedReplyQuote } from '../shared/replyPreview';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { isMobile } from '../../utils/platform';
 import { useScrollKeyboardControls } from '../shared/useScrollKeyboardControls';
@@ -179,6 +180,21 @@ export function ChatMessages({
     setPendingScrollToMessageId(targetUuid);
   }, [setPendingScrollToMessageId]);
 
+  // 气泡回调的稳定引用：MessageBubble 已 memo 化，这里把「谁补 uuid」接住 ——
+  // 气泡自己带 uuid 回调，本层无需在 map 里给每条新建闭包（旧写法是全列表重渲染的放大器）。
+  const handleBubbleToggleSelect = useCallback(
+    (uuid: string) => { onToggleSelect?.(uuid); },
+    [onToggleSelect],
+  );
+  const handleBubbleRecall = useCallback(
+    (uuid: string) => { onRecall?.(uuid); },
+    [onRecall],
+  );
+  const handleBubbleDelete = useCallback(
+    (uuid: string) => { onDelete?.(uuid); },
+    [onDelete],
+  );
+
   // 消息去重 + 排序：按 message_uuid 去重后按时间倒序（新→旧）。
   // column-reverse 把 index 0（最新）放在视觉底部；发送中的消息排在 index 0（视觉最底）。
   const sortedMessages = useMemo(() => {
@@ -244,6 +260,22 @@ export function ChatMessages({
     ),
     [renderNodes, session.userId],
   );
+
+  // 引用块内容的稳定引用层：每条消息的 ResolvedReplyQuote 在这里一次性 resolve，
+  // 气泡（memo 化）拿到的是同一对象引用 —— 父层因无关状态重渲染时引用块不会跟着重建。
+  // 键 = 渲染层 stableKey（相册 = album-<groupId>，与下方 map 的 key 同源）
+  const resolvedQuotes = useMemo(() => {
+    const map = new Map<string, ResolvedReplyQuote | null>();
+    for (const node of renderNodes) {
+      const m = node.kind === 'album' ? node.items[0] : node.message;
+      if (!m) { continue; }
+      map.set(
+        node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
+        resolveReplyQuote(replyPreviewIndex, m.reply_to),
+      );
+    }
+    return map;
+  }, [renderNodes, replyPreviewIndex]);
 
   // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
   // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。
@@ -430,12 +462,12 @@ export function ChatMessages({
                     friend={friend}
                     isMultiSelectMode={isMultiSelectMode}
                     isSelected={isSelected}
-                    onToggleSelect={() => onToggleSelect?.(message.message_uuid)}
-                    onRecall={() => onRecall?.(message.message_uuid)}
-                    onDelete={() => onDelete?.(message.message_uuid)}
+                    onToggleSelect={handleBubbleToggleSelect}
+                    onRecall={handleBubbleRecall}
+                    onDelete={handleBubbleDelete}
                     onEnterMultiSelect={onEnterMultiSelect}
                     readReceipt={readReceipt}
-                    replyQuote={resolveReplyQuote(replyPreviewIndex, message.reply_to)}
+                    replyQuote={resolvedQuotes.get(stableKey) ?? null}
                     onQuoteClick={handleQuoteClick}
                     onReply={handleReply}
                     isHighlighted={highlightedMessageId === message.message_uuid}

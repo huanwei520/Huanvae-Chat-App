@@ -8,6 +8,7 @@ import type { ApiClient } from '../api/client';
 import * as db from '../db';
 import type { ConversationType, LocalConversation, LocalMessage } from '../db';
 import { conversationPreviewText } from '../chat/shared/messagePreviewText';
+import { resolveSenderName } from '../utils/senderName';
 
 // ============================================================================
 // 类型定义
@@ -114,18 +115,23 @@ const SYNC_MAX_PAGE_ITERATIONS = 500;
  * **本仓踩过的坑就在这个函数存在的理由里**：同一份映射原先在增量同步、分页续拉两处各抄一遍，
  * 谁漏一个字段谁那条路径就静默丢字段（reply_to / 相册三件套都这么丢过）。收成一处后
  * "加一个字段"只有一个地方要改。
+ *
+ * @param profileNickname 本地资料昵称回退（好友会话传对方的本地好友昵称，拿不到传 null）。
+ *   sender_name 统一经 resolveSenderName 收口（D4 昵称混显）：服务端昵称优先、资料回退、
+ *   最后空值 —— 与 historyService / wsHandlers 同一 helper，禁止回退各写各的三元表达式。
  */
 function toLocalMessage(
   msg: ServerMessage,
   conversationId: string,
   conversationType: ConversationType,
+  profileNickname?: string | null,
 ): Omit<LocalMessage, 'created_at'> {
   return {
     message_uuid: msg.message_uuid,
     conversation_id: conversationId,
     conversation_type: conversationType,
     sender_id: msg.sender_id,
-    sender_name: msg.sender_nickname || null,
+    sender_name: resolveSenderName(msg.sender_nickname, profileNickname),
     sender_avatar: msg.sender_avatar_url || null,
     content: msg.message_content,
     content_type: msg.message_type,
@@ -242,6 +248,24 @@ export class SyncService {
    */
   private backfilledConversations: Set<string> = new Set();
 
+  /**
+   * 本地好友资料昵称索引（每次同步操作加载一次，逐条消息复用；纯本地 SQLite 读取，
+   * 不引入网络请求）。sender_name 昵称回退的数据源，见 src/utils/senderName.ts。
+   * 查失败只降级（空索引 ⇒ 回退不可用，行为同旧版空值），不拖崩同步。
+   */
+  private async loadFriendNicknameIndex(): Promise<Map<string, string>> {
+    const index = new Map<string, string>();
+    try {
+      for (const f of await db.getFriends()) {
+        const nick = f.nickname?.trim();
+        if (nick) { index.set(f.friend_id, nick); }
+      }
+    } catch (error) {
+      console.warn('[Sync] 读取本地好友资料失败，sender_name 昵称回退不可用', error);
+    }
+    return index;
+  }
+
   constructor(api: ApiClient) {
     this.api = api;
   }
@@ -337,6 +361,9 @@ export class SyncService {
       // framer-motion layout="position" 检测到新数组引用进行测量后跑动画）
       const localLastSeqByConvId = new Map(conversations.map(c => [c.id, c.last_seq]));
 
+      // sender_name 昵称回退索引：整轮同步只查一次本地好友表（见 loadFriendNicknameIndex）
+      const friendNicknames = await this.loadFriendNicknameIndex();
+
       for (const convResult of syncedConversations) {
         // 仅保留 seq > 本地 last_seq 的消息；服务端理应已按 last_seq 过滤，
         // 这里是防御性兜底（若服务端 bug / 客户端 last_seq 漂移仍能保护）
@@ -363,7 +390,12 @@ export class SyncService {
 
           // 转换并保存消息（仅真正的新消息）
           const localMessages: Omit<LocalMessage, 'created_at'>[] = newMessages.map(msg =>
-            toLocalMessage(msg, convResult.conversation_id, convResult.conversation_type));
+            toLocalMessage(
+              msg,
+              convResult.conversation_id,
+              convResult.conversation_type,
+              friendNicknames.get(msg.sender_id) ?? null,
+            ));
 
           // eslint-disable-next-line no-await-in-loop
           await db.saveMessages(localMessages);
@@ -400,6 +432,7 @@ export class SyncService {
             convResult.conversation_id,
             convResult.conversation_type,
             convResult.latest_seq,
+            friendNicknames,
           );
         }
 
@@ -432,7 +465,7 @@ export class SyncService {
       }
 
       // 存量字段回填：与上面的增量同步无关，失败不影响本次同步结果（内部自吞异常）
-      await this.backfillLegacyFields(conversations);
+      await this.backfillLegacyFields(conversations, friendNicknames);
 
       this.updateState({ isSyncing: false, lastSyncTime: new Date() });
       return { updatedConversations, newMessagesCount };
@@ -468,7 +501,10 @@ export class SyncService {
    * 单独发一次请求而不是把主同步请求的 `last_seq` 直接调小：服务端 sync 单会话上限 100 条，
    * 调小起点会把真正的新消息挤出这一批。
    */
-  private async backfillLegacyFields(conversations: LocalConversation[]): Promise<void> {
+  private async backfillLegacyFields(
+    conversations: LocalConversation[],
+    friendNicknames: Map<string, string>,
+  ): Promise<void> {
     const targets = conversations.filter(
       conv => conv.last_seq > 0 && !this.backfilledConversations.has(conv.id),
     );
@@ -501,7 +537,12 @@ export class SyncService {
 
         // eslint-disable-next-line no-await-in-loop
         await db.saveMessagesSkipExisting(
-          legacy.map(msg => toLocalMessage(msg, convResult.conversation_id, convResult.conversation_type)),
+          legacy.map(msg => toLocalMessage(
+            msg,
+            convResult.conversation_id,
+            convResult.conversation_type,
+            friendNicknames.get(msg.sender_id) ?? null,
+          )),
         );
       }
     } catch (error) {
@@ -537,6 +578,7 @@ export class SyncService {
     conversationId: string,
     conversationType: ConversationType,
     lastSeq: number,
+    friendNicknames: Map<string, string>,
   ): Promise<number> {
     let currentSeq = lastSeq;
     let hasMore = true;
@@ -584,7 +626,12 @@ export class SyncService {
 
       // 保存消息
       const localMessages: Omit<LocalMessage, 'created_at'>[] = newMessages.map(msg =>
-        toLocalMessage(msg, conversationId, conversationType));
+        toLocalMessage(
+          msg,
+          conversationId,
+          conversationType,
+          friendNicknames.get(msg.sender_id) ?? null,
+        ));
 
       // eslint-disable-next-line no-await-in-loop
       await db.saveMessages(localMessages);

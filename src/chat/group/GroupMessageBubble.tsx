@@ -43,7 +43,7 @@
  * 再标一遍自己的名字是纯噪音，参照图里的 telegram 也不标。
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, memo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatMessageTime } from '../../utils/time';
 import { MessageContextMenu } from '../shared/MessageContextMenu';
@@ -70,6 +70,7 @@ import {
 } from '../../api/groups';
 import { isMobile } from '../../utils/platform';
 import { groupMemberDisplayName } from '../../utils/groupRemark';
+import { displaySenderName, profileDisplayName } from '../../utils/senderName';
 import { friendChatTarget } from '../../utils/chatTarget';
 import { GroupRemarkInputModal } from './GroupRemarkInputModal';
 import { ReplyQuote } from '../shared/ReplyQuote';
@@ -89,12 +90,12 @@ interface GroupMessageBubbleProps {
   isMultiSelectMode?: boolean;
   /** 是否被选中 */
   isSelected?: boolean;
-  /** 选中/取消选中回调 */
-  onToggleSelect?: () => void;
-  /** 撤回消息回调 */
-  onRecall?: () => void;
-  /** 删除消息回调 */
-  onDelete?: () => void;
+  /** 选中/取消选中回调（参数 = 本条消息 uuid；气泡自己补 uuid，列表层好给稳定引用） */
+  onToggleSelect?: (messageUuid: string) => void;
+  /** 撤回消息回调（参数 = 本条消息 uuid） */
+  onRecall?: (messageUuid: string) => void;
+  /** 删除消息回调（参数 = 本条消息 uuid） */
+  onDelete?: (messageUuid: string) => void;
   /** 进入多选模式回调 */
   onEnterMultiSelect?: () => void;
   /** 当前用户是否为管理员/群主（可撤回任意消息） */
@@ -182,7 +183,7 @@ function canRecallMessage(message: GroupMessage, isOwn: boolean, isAdmin: boolea
 // 群聊已读回执（仅自己消息，统一状态槽：时钟/红叹号/绿双勾+N人已读+头像堆叠）
 import { GroupReadReceipt } from './GroupReadReceipt';
 
-export function GroupMessageBubble({
+export const GroupMessageBubble = memo(function GroupMessageBubble({
   message,
   isOwn,
   isMultiSelectMode = false,
@@ -274,11 +275,11 @@ export function GroupMessageBubble({
   // 多选切换选中，否则看资料
   const activateAvatar = useCallback(() => {
     if (isMultiSelectMode) {
-      onToggleSelect?.();
+      onToggleSelect?.(message.message_uuid);
       return;
     }
     openProfileView(message.sender_id);
-  }, [isMultiSelectMode, onToggleSelect, openProfileView, message.sender_id]);
+  }, [isMultiSelectMode, onToggleSelect, openProfileView, message.sender_id, message.message_uuid]);
 
   // 单击成员头像 → 看公开资料；双击 → 进私聊（好友才有私聊，非好友/自己回退看资料）
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
@@ -394,8 +395,17 @@ export function GroupMessageBubble({
     }
   }, [api, groupId, isOwn, message.sender_id, setGroupMemberRemarkLocal]);
 
-  // 发送者在本群对我显示的名字：备注优先，否则用消息携带的发送者名（群昵称/用户昵称）
-  const senderDisplayName = groupMemberDisplayName(senderRemark, message.sender_nickname);
+  // 发送者在本群对我显示的名字（D4 昵称混显收口）：
+  // 落库昵称/备注（groupMemberDisplayName）→ 本地好友资料名（备注→昵称，chatStore 内存读）
+  // → 兑底「未知用户」。昵称与资料都缺席时绝不裸露 sender_id，也不留空白节点。
+  const senderProfileName = useMemo(() => {
+    const friend = friends.find((f) => f.friend_id === message.sender_id);
+    return friend ? profileDisplayName(friend.friend_remark, friend.friend_nickname) : null;
+  }, [friends, message.sender_id]);
+  const senderDisplayName = displaySenderName(
+    groupMemberDisplayName(senderRemark, message.sender_nickname),
+    senderProfileName,
+  );
 
   // 气泡内顶部那行昵称的显示门控 —— 三条**与**关系，任一不成立就不画：
   //  ① showName：本条是「同一人连发那一组」里最旧的一条（锚点由列表层 O(n) 算，单条自成一组恒 true）
@@ -490,7 +500,7 @@ export function GroupMessageBubble({
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (isMultiSelectMode && onToggleSelect) {
       e.stopPropagation(); // 阻止冒泡到 message-row，避免重复触发
-      onToggleSelect();
+      onToggleSelect(message.message_uuid);
       return;
     }
 
@@ -505,7 +515,7 @@ export function GroupMessageBubble({
         lastTapTimeRef.current = now;
       }
     }
-  }, [isMultiSelectMode, onToggleSelect, message.message_type]);
+  }, [isMultiSelectMode, onToggleSelect, message.message_type, message.message_uuid]);
 
   // 关闭菜单
   const handleCloseMenu = useCallback(() => {
@@ -514,19 +524,19 @@ export function GroupMessageBubble({
 
   // 处理撤回
   const handleRecall = useCallback(() => {
-    onRecall?.();
-  }, [onRecall]);
+    onRecall?.(message.message_uuid);
+  }, [onRecall, message.message_uuid]);
 
   // 处理删除
   const handleDelete = useCallback(() => {
-    onDelete?.();
-  }, [onDelete]);
+    onDelete?.(message.message_uuid);
+  }, [onDelete, message.message_uuid]);
 
   // 进入多选模式
   const handleEnterMultiSelect = useCallback(() => {
     onEnterMultiSelect?.();
-    onToggleSelect?.();
-  }, [onEnterMultiSelect, onToggleSelect]);
+    onToggleSelect?.(message.message_uuid);
+  }, [onEnterMultiSelect, onToggleSelect, message.message_uuid]);
 
   // 回复本条消息（右键/长按菜单触发）
   const handleReply = useCallback(() => {
@@ -577,8 +587,8 @@ export function GroupMessageBubble({
     if (!isMultiSelectMode) { return; }
     // 阻止事件冒泡
     e.stopPropagation();
-    onToggleSelect?.();
-  }, [isMultiSelectMode, onToggleSelect]);
+    onToggleSelect?.(message.message_uuid);
+  }, [isMultiSelectMode, onToggleSelect, message.message_uuid]);
 
   // 元信息（时间戳 + 已读状态槽）—— 结构固定，只是**落点**按消息形态分三处，与私聊逐字同口径：
   //   ① 文本气泡（含被屏蔽占位）⇒ 内联在文末右下（`.bubble-metafoot`，类 Telegram）
@@ -895,7 +905,7 @@ export function GroupMessageBubble({
         <MobileMessageFullPreview
           isOpen={showFullPreview}
           content={message.message_content}
-          senderName={message.sender_nickname}
+          senderName={senderDisplayName}
           sendTime={formatMessageTime(message.send_time)}
           onClose={() => setShowFullPreview(false)}
         />
@@ -904,11 +914,11 @@ export function GroupMessageBubble({
       {/* D7 群内私有备注输入弹窗（右键「设置备注」触发） */}
       <GroupRemarkInputModal
         isOpen={remarkModalOpen}
-        memberName={message.sender_nickname}
+        memberName={senderDisplayName}
         currentRemark={senderRemark ?? ''}
         onSave={handleSaveRemark}
         onClose={() => setRemarkModalOpen(false)}
       />
     </>
   );
-}
+});

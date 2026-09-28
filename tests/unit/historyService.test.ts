@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
   getLatestMessage: vi.fn(),
   updateConversationLastSeq: vi.fn(),
+  getFriends: vi.fn(),
   getMessages: vi.fn(),
   getGroupMessages: vi.fn(),
 }));
@@ -39,6 +40,8 @@ vi.mock('../../src/db', () => ({
   getConversation: mocks.getConversation,
   getLatestMessage: mocks.getLatestMessage,
   updateConversationLastSeq: mocks.updateConversationLastSeq,
+  // sender_name 昵称回退链（D4）读本地好友资料；默认空列表 = 回退不可用，行为同旧版
+  getFriends: mocks.getFriends,
 }));
 
 vi.mock('../../src/api/messages', () => ({
@@ -59,6 +62,7 @@ describe('historyService 历史加载使用 saveMessagesSkipExisting（防回归
     mocks.getConversation.mockResolvedValue({ id: 'conv-x', last_seq: 0 });
     mocks.getLatestMessage.mockResolvedValue(null);
     mocks.updateConversationLastSeq.mockResolvedValue(undefined);
+    mocks.getFriends.mockResolvedValue([]);
     mocks.getMessages.mockReset();
     mocks.getGroupMessages.mockReset();
   });
@@ -185,6 +189,7 @@ describe('historyService 把服务端 is_recalled 原样落库（idx=54 回归�
     mocks.getConversation.mockResolvedValue({ id: 'conv-x', last_seq: 0 });
     mocks.getLatestMessage.mockResolvedValue(null);
     mocks.updateConversationLastSeq.mockResolvedValue(undefined);
+    mocks.getFriends.mockResolvedValue([]);
     mocks.getMessages.mockReset();
     mocks.getGroupMessages.mockReset();
   });
