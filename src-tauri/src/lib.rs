@@ -40,6 +40,8 @@ mod content_hash;
 mod db;
 mod device_info;
 mod download;
+// 会议内远程控式——被控端原生输入注入兜底（Windows SendInput FFI；dstdrrek-2）
+mod rc_inject;
 // 故障记录检测：Rust 侧追加层采集（脱敏环形缓冲 + log 门面 + 设备/机器码命令面）
 mod fault_report;
 mod lan_transfer;
@@ -314,6 +316,57 @@ async fn updater_sharded_install() -> Result<(), String> {
     Err("移动端不使用桌面更新器".to_string())
 }
 
+/// 桌面更新检查（去 SNI 版，替换 `@tauri-apps/plugin-updater` 的 JS `check()`）。
+///
+/// 插件 JS `check()` 走 `plugin:updater|check`，其 Rust 端用 `webview.updater_builder()`
+/// 且**不设** `configure_client`，即用 reqwest 默认 `tls_sni(true)` → 会发 SNI。
+/// 本命令用同一 builder，但注入 `.configure_client(|b| b.tls_sni(false))`（插件公开钩子，
+/// `tauri-plugin-updater-2.10.1/src/updater.rs:298`），得到**不发 SNI**的检查客户端；
+/// 返回的 `Update` 同样注册进 webview resource table，后续 `download`/`install` 命令照常按 rid 取用。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+async fn updater_check_nosni<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+) -> Result<Option<serde_json::Value>, String> {
+    use tauri::Manager as _;
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = webview
+        .updater_builder()
+        .configure_client(|b| b.tls_sni(false))
+        .build()
+        .map_err(|e| format!("构建更新器失败: {e}"))?;
+    let Some(update) = updater.check().await.map_err(|e| format!("检查更新失败: {e}"))? else {
+        return Ok(None);
+    };
+    // 先取字段（`Update` 随后被移进 resource table）。
+    let current_version = update.current_version.clone();
+    let version = update.version.clone();
+    let body = update.body.clone();
+    let raw_json = update.raw_json.clone();
+    let date = update.date.map(|d| {
+        chrono::DateTime::from_timestamp(d.unix_timestamp(), 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default()
+    });
+    let rid = webview.resources_table().add(update);
+    let meta = serde_json::json!({
+        "rid": rid,
+        "currentVersion": current_version,
+        "version": version,
+        "date": date,
+        "body": body,
+        "rawJson": raw_json,
+    });
+    Ok(Some(meta))
+}
+
+/// 去 SNI 更新检查（移动端存根）——移动端走 android_update，不用桌面 updater。
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+async fn updater_check_nosni() -> Result<Option<serde_json::Value>, String> {
+    Err("移动端不使用桌面更新器".to_string())
+}
+
 // ============================================================================
 // 移动端本地视频 URL Commands
 // ============================================================================
@@ -510,13 +563,15 @@ fn db_save_messages_skip_existing(messages: Vec<LocalMessage>) -> Result<(), Str
 ///
 /// `filter` 省略 / null = 跨会话、不限类型（全局搜索）；
 /// 传入时可限定单会话 + 按 content_type 白/黑名单筛选（会话内搜索的四类分页）。
+/// `offset` 省略 / null = 0（向后兼容：不传的老调用方拿到同样的第一页）。
 #[tauri::command]
 fn db_search_messages(
     query: String,
     limit: i64,
+    offset: Option<i64>,
     filter: Option<db::MessageSearchFilter>,
 ) -> Result<Vec<db::SearchMessageResult>, String> {
-    db::search_messages(&query, limit, &filter.unwrap_or_default())
+    db::search_messages(&query, limit, offset.unwrap_or(0), &filter.unwrap_or_default())
 }
 
 /// 会话内按分类浏览消息（关键词可选）+ LIMIT/OFFSET 分页
@@ -1134,6 +1189,7 @@ pub fn run() {
             get_windows_installer_type,
             // 自建分片并发下载器（桌面端真实现 / 移动端存根）
             updater_sharded_install,
+            updater_check_nosni,
             // HuanvaeGuard：macOS LaunchDaemon 首次安装 + 修复（其他平台占位返回 false）
             hg_ensure_installed,
             hg_repair,
@@ -1143,6 +1199,8 @@ pub fn run() {
             // 设备信息
             device_info::get_mac_address_cmd,
             device_info::rc_debug_marker,
+            // 会议内远程控式：被控端原生输入注入兜底（dstdrrek-2）
+            rc_inject::rc_inject_input,
             // 局域网传输（基础）
             lan_transfer::start_lan_transfer_service,
             lan_transfer::stop_lan_transfer_service,
