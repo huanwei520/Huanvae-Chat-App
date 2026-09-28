@@ -77,8 +77,13 @@ function toPreviewText(contentType: string | null, content: string | null): stri
  * - 系统消息（入群/退群等）本身已含主语且无真实发送者 → 不加前缀
  * - 自己发的 → 「我: 」（多人会话里「最后说话的是不是我」本身就是有效信息，
  *   与 Telegram「You:」/ QQ「我:」一致；不加前缀则无法与"昵称缺失的他人消息"区分）
- * - 发送者不可辨（未带昵称的同步路径写入 sender_name=null）→ 不加前缀，
- *   而非退化成裸用户 ID（ID 对用户无意义，且会挤掉本就有限的预览宽度）
+ * - 发送者不可辨 → 不加前缀，而非退化成裸用户 ID（ID 对用户无意义，且会挤掉本就有限的预览宽度）。
+ *   【D4 保留策略·理由】写入侧已统一走 resolveSenderName（src/utils/senderName.ts）昵称回退，
+ *   新落库的行 sender_name 为空只剩「服务端、资料双缺席」一种情况；存量空值行也由显示层
+ *   displaySenderName 兑底。本预览是 SQL 行直读的热路径（getConversationPreviews 只回
+ *   msg_sender_name，不带资料），在这里再接一层资料查询要么加跨表 JOIN、要么引入 store 依赖，
+ *   换来的只是前缀从「无」变「未知用户:」—— 而空串前缀本就不裸露 ID，不构成 D4 要修的问题，
+ *   故保留不加前缀。
  */
 function groupSenderPrefix(row: db.ConversationWithPreview, currentUserId: string): string {
   if (row.msg_content_type === 'system') { return ''; }
