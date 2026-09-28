@@ -24,7 +24,7 @@
  * - 面板极窄（< 120px）时自动隐藏
  */
 
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback, memo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { useChatStore } from '../../stores';
@@ -189,6 +189,205 @@ function RoleBadge({ role }: { role?: 'owner' | 'admin' | 'member' }) {
         </motion.span>
       )}
     </AnimatePresence>
+  );
+}
+
+// ============================================
+// 单张会话卡片（memo 化）
+// ============================================
+// 旧实现里卡片 JSX 由 renderCardContent/renderCards 两个内联函数在 UnifiedList 渲染期逐卡执行，
+// 任何无关状态（pinMenu 开关、键盘光标 activeKey、isListFocused、friendPresence 单人变线）都会
+// 让全部卡片子树重渲染 —— 与卡片入场/排序动画抢主线程。抽成 React.memo 后：
+//  - 全部 props 为原始值/稳定引用（卡片对象来自 useMemo、回调来自 useCallback）；
+//  - 卡片顺序变化时 layoutKey 必变 → layoutDependency prop 变 → memo 必不命中 →
+//    framer-motion 的测量/投影照常发生，排序滑动动画不受影响；
+//  - tab 切换守卫窗口切换 layoutEnabled → 同样必重渲染（守卫语义不变）。
+// DOM 输出逐字节一致 —— memo 只是跳过「输出必然相同」的重渲染。
+interface ConversationCardProps {
+  card: UnifiedCard;
+  /** 消息 tab（控制 [群聊] 标记显示） */
+  isChatTab: boolean;
+  /** 好友 tab（预览位显示 @ID） */
+  isFriendsTab: boolean;
+  /** 群聊 tab（控制角色徽章显示） */
+  isGroupTab: boolean;
+  /** 好友/bot 在线状态（原始值下放，替代旧写法每卡读整个 friendPresence map） */
+  friendOnline: boolean;
+  isSelected: boolean;
+  isKbdActive: boolean;
+  /** 排序滑动动画开关（tab 切换守卫窗口内 false = 不传 layout） */
+  layoutEnabled: boolean;
+  /** 卡片实际顺序签名（layoutDependency，顺序真变时才重测量） */
+  layoutDependency: string;
+  onSelect: (card: UnifiedCard) => void;
+  onCardContextMenu: (e: React.MouseEvent, card: UnifiedCard) => void;
+}
+
+const ConversationCard = memo(function ConversationCard({
+  card,
+  isChatTab,
+  isFriendsTab,
+  isGroupTab,
+  friendOnline,
+  isSelected,
+  isKbdActive,
+  layoutEnabled,
+  layoutDependency,
+  onSelect,
+  onCardContextMenu,
+}: ConversationCardProps) {
+  const isFriendLike = card.type === 'friend' || card.type === 'bot';
+
+  return (
+    <motion.div
+      data-conv-key={card.uniqueKey}
+      className={`conversation-item${isFriendLike && (card.data as Friend).is_blacklisted ? ' blacklisted' : ''}${isKbdActive ? ' conversation-item--kbd-active' : ''}`}
+      onClick={() => onSelect(card)}
+      onContextMenu={(e) => onCardContextMenu(e, card)}
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      layout={layoutEnabled ? 'position' : false}
+      layoutDependency={layoutDependency}
+      transition={cardTransition}
+    >
+      {/* 选中指示器：使用 layoutId 实现跨卡片的平滑动画 */}
+      {isSelected && (
+        <motion.div
+          layoutId="selected-border"
+          className="conversation-selected-border"
+          style={{ borderRadius: 14 }}
+          transition={{
+            type: 'spring',
+            stiffness: 500,
+            damping: 35,
+          }}
+        />
+      )}
+      <ConversationCardContent
+        card={card}
+        isChatTab={isChatTab}
+        isFriendsTab={isFriendsTab}
+        isGroupTab={isGroupTab}
+        friendOnline={friendOnline}
+      />
+    </motion.div>
+  );
+});
+
+/** 卡片内容（头像 + 名称/徽标行 + 预览/未读行）——原 renderCardContent 本体，逻辑逐字不变 */
+function ConversationCardContent({
+  card,
+  isChatTab,
+  isFriendsTab,
+  isGroupTab,
+  friendOnline,
+}: {
+  card: UnifiedCard;
+  isChatTab: boolean;
+  isFriendsTab: boolean;
+  isGroupTab: boolean;
+  friendOnline: boolean;
+}) {
+  // friend / bot 卡共享 Friend 数据与私聊交互（在线点、拉黑/关心标记）
+  const isFriendLike = card.type === 'friend' || card.type === 'bot';
+
+  return (
+    <>
+      {/* 列表内头像不是独立控件：点它与点卡片其余部分一样进会话（不再开资料页）。
+          因此不挂 onClick/onKeyDown/role/tabIndex/aria-label —— 点击直接冒泡到卡片 onClick。
+          若让头像保留独立焦点却做和卡片相同的事，键盘用户会多出一个语义重复的 Tab 停靠点。
+          style 里的 position:relative 仅为在线绿点定位所需，不表示可交互。 */}
+      <div className="conv-avatar" style={isFriendLike ? { position: 'relative' } : undefined}>
+        {isFriendLike ? (
+          <FriendAvatar friend={card.data as Friend} />
+        ) : (
+          <GroupAvatar group={card.data as Group} />
+        )}
+        {/* 好友在线绿点 */}
+        {friendOnline && (
+          <span
+            className="conv-online-dot"
+            title="在线"
+            style={{
+              position: 'absolute',
+              right: 0,
+              bottom: 0,
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: 'var(--presence-online)',
+              border: '2px solid var(--presence-dot-ring)',
+              boxSizing: 'border-box',
+            }}
+          />
+        )}
+      </div>
+      <div className="conv-info">
+        <div className="conv-header">
+          <span className="conv-name">
+            {/* 消息页显示 [群聊] 标记 */}
+            {isChatTab && card.type === 'group' && (
+              <span className="conv-tag">[群聊]</span>
+            )}
+            {/* 特别关心好友：名字前 ⭐ 标记 */}
+            {isFriendLike && (card.data as Friend).is_special_care && (
+              <span className="conv-special-care-star" title="特别关心">⭐</span>
+            )}
+            {/* 名字文本：独立容器负责省略号，悬停显示完整名字 */}
+            <span className="conv-name-text" title={card.name}>
+              {card.name}
+            </span>
+            {/* Bot 徽标：静态呈现（无动画），统一走公共 BotBadge 组件 */}
+            {card.type === 'bot' && <BotBadge />}
+            {/* 已拉黑标签 */}
+            {isFriendLike && (card.data as Friend).is_blacklisted && (
+              <span className="conv-blacklist-tag">已拉黑</span>
+            )}
+            {/* 群聊页显示角色标签 */}
+            {isGroupTab && card.type === 'group' && (
+              <RoleBadge role={card.role} />
+            )}
+          </span>
+          {card.lastMessageTime && (
+            <span className="conv-time">
+              {formatMessageTime(card.lastMessageTime)}
+            </span>
+          )}
+        </div>
+        <div className="conv-footer">
+          <span
+            className="conv-preview"
+            title={
+              isFriendsTab && isFriendLike
+                ? `@${card.id}`
+                : card.lastMessage || undefined
+            }
+          >
+            {/* 好友页显示 ID，其他显示最后消息 */}
+            {isFriendsTab && isFriendLike
+              ? `@${card.id}`
+              : card.lastMessage || '暂无消息'
+            }
+          </span>
+          {/* 置顶图钉标识 */}
+          {card.isPinned && (
+            <span
+              className="conv-pin-flag"
+              title="已置顶"
+              style={{ color: 'var(--text-muted)', display: 'inline-flex', flexShrink: 0 }}
+            >
+              <PinFlagIcon />
+            </span>
+          )}
+          {/* 未读红点：始终渲染，通过 CSS 控制显示，避免 layout 动画抖动 */}
+          <span className={`conv-unread ${card.unreadCount > 0 ? 'visible' : 'hidden'}`}>
+            {formatUnreadCount(card.unreadCount)}
+          </span>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -364,24 +563,25 @@ export function UnifiedList({
   }, [selectedTarget]);
 
   // 处理卡片点击：group 直出；friend/bot 卡的 data 都是 Friend，
-  // 由 friendChatTarget 按 bot_ 前缀分派目标类型
-  const handleCardClick = (card: UnifiedCard) => {
+  // 由 friendChatTarget 按 bot_ 前缀分派目标类型。
+  // useCallback 稳定引用：memo 化的 ConversationCard 依赖它避免无谓重渲染。
+  const handleCardClick = useCallback((card: UnifiedCard) => {
     if (card.type === 'group') {
       onSelectTarget({ type: 'group', data: card.data as Group });
     } else {
       onSelectTarget(friendChatTarget(card.data as Friend));
     }
-  };
+  }, [onSelectTarget]);
 
   // ============================================
   // 会话置顶右键菜单（AI 卡片不参与：无本地会话行）
   // ============================================
   const [pinMenu, setPinMenu] = useState<{ card: UnifiedCard; x: number; y: number } | null>(null);
 
-  const handleCardContextMenu = (e: React.MouseEvent, card: UnifiedCard) => {
+  const handleCardContextMenu = useCallback((e: React.MouseEvent, card: UnifiedCard) => {
     e.preventDefault();
     setPinMenu({ card, x: e.clientX, y: e.clientY });
-  };
+  }, []);
 
   const handleTogglePin = async () => {
     if (!pinMenu) { return; }
@@ -511,158 +711,34 @@ export function UnifiedList({
     }
   };
 
-  // 渲染卡片内容
-  const renderCardContent = (card: UnifiedCard) => {
-    const isChatTab = activeTab === 'chat';
-    const isGroupTab = activeTab === 'group';
-
-    // friend / bot 卡共享 Friend 数据与私聊交互（在线点、拉黑/关心标记）
-    const isFriendLike = card.type === 'friend' || card.type === 'bot';
-    const friendOnline = isFriendLike && !!friendPresence[card.id]?.online;
-
-    return (
-      <>
-        {/* 列表内头像不是独立控件：点它与点卡片其余部分一样进会话（不再开资料页）。
-            因此不挂 onClick/onKeyDown/role/tabIndex/aria-label —— 点击直接冒泡到卡片 onClick。
-            若让头像保留独立焦点却做和卡片相同的事，键盘用户会多出一个语义重复的 Tab 停靠点。
-            style 里的 position:relative 仅为在线绿点定位所需，不表示可交互。 */}
-        <div className="conv-avatar" style={isFriendLike ? { position: 'relative' } : undefined}>
-          {isFriendLike ? (
-            <FriendAvatar friend={card.data as Friend} />
-          ) : (
-            <GroupAvatar group={card.data as Group} />
-          )}
-          {/* 好友在线绿点 */}
-          {friendOnline && (
-            <span
-              className="conv-online-dot"
-              title="在线"
-              style={{
-                position: 'absolute',
-                right: 0,
-                bottom: 0,
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: 'var(--presence-online)',
-                border: '2px solid var(--presence-dot-ring)',
-                boxSizing: 'border-box',
-              }}
-            />
-          )}
-        </div>
-        <div className="conv-info">
-          <div className="conv-header">
-            <span className="conv-name">
-              {/* 消息页显示 [群聊] 标记 */}
-              {isChatTab && card.type === 'group' && (
-                <span className="conv-tag">[群聊]</span>
-              )}
-              {/* 特别关心好友：名字前 ⭐ 标记 */}
-              {isFriendLike && (card.data as Friend).is_special_care && (
-                <span className="conv-special-care-star" title="特别关心">⭐</span>
-              )}
-              {/* 名字文本：独立容器负责省略号，悬停显示完整名字 */}
-              <span className="conv-name-text" title={card.name}>
-                {card.name}
-              </span>
-              {/* Bot 徽标：静态呈现（无动画），统一走公共 BotBadge 组件 */}
-              {card.type === 'bot' && <BotBadge />}
-              {/* 已拉黑标签 */}
-              {isFriendLike && (card.data as Friend).is_blacklisted && (
-                <span className="conv-blacklist-tag">已拉黑</span>
-              )}
-              {/* 群聊页显示角色标签 */}
-              {isGroupTab && card.type === 'group' && (
-                <RoleBadge role={card.role} />
-              )}
-            </span>
-            {card.lastMessageTime && (
-              <span className="conv-time">
-                {formatMessageTime(card.lastMessageTime)}
-              </span>
-            )}
-          </div>
-          <div className="conv-footer">
-            <span
-              className="conv-preview"
-              title={
-                activeTab === 'friends' && isFriendLike
-                  ? `@${card.id}`
-                  : card.lastMessage || undefined
-              }
-            >
-              {/* 好友页显示 ID，其他显示最后消息 */}
-              {activeTab === 'friends' && isFriendLike
-                ? `@${card.id}`
-                : card.lastMessage || '暂无消息'
-              }
-            </span>
-            {/* 置顶图钉标识 */}
-            {card.isPinned && (
-              <span
-                className="conv-pin-flag"
-                title="已置顶"
-                style={{ color: 'var(--text-muted)', display: 'inline-flex', flexShrink: 0 }}
-              >
-                <PinFlagIcon />
-              </span>
-            )}
-            {/* 未读红点：始终渲染，通过 CSS 控制显示，避免 layout 动画抖动 */}
-            <span className={`conv-unread ${card.unreadCount > 0 ? 'visible' : 'hidden'}`}>
-              {formatUnreadCount(card.unreadCount)}
-            </span>
-          </div>
-        </div>
-      </>
-    );
-  };
-
   // 渲染卡片列表（不包含 loading/error/empty 状态）
   // 关键设计：仅在非 tab 切换窗口期启用 layout="position"。
   // - tab 切换窗口期（isTabSwitching=true）：不传 layout，避免 popLayout + 全量 key 替换
   //   场景下 exit 元素清理触发的 LayoutGroup 二次测量（视觉上"切换完成后向下弹动"）
   // - 非切换期：layout="position" + layoutDependency={layoutKey}，保留同 tab 内卡片
   //   排序变化（如新消息推到顶部）时的平滑滑动动画
-  const layoutProps = isTabSwitching ? {} : { layout: 'position' as const, layoutDependency: layoutKey };
+  // 卡片本体是 memo 化的 ConversationCard（见其文件头注释）：原始 props + 稳定回调，
+  // 无关状态变化（pinMenu/键盘光标/聚焦/单人在线）不再逐卡重渲染。
   const renderCards = () => {
     if (loading || error || filteredCards.length === 0) {
       return null;
     }
-    return filteredCards.map((card) => {
-      const isSelected = card.uniqueKey === selectedKey;
-
-      return (
-        <motion.div
-          key={card.uniqueKey}
-          data-conv-key={card.uniqueKey}
-          className={`conversation-item${(card.type === 'friend' || card.type === 'bot') && (card.data as Friend).is_blacklisted ? ' blacklisted' : ''}${isListFocused && card.uniqueKey === activeKey ? ' conversation-item--kbd-active' : ''}`}
-          onClick={() => handleCardClick(card)}
-          onContextMenu={(e) => handleCardContextMenu(e, card)}
-          variants={cardVariants}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          {...layoutProps}
-          transition={cardTransition}
-        >
-          {/* 选中指示器：使用 layoutId 实现跨卡片的平滑动画 */}
-          {isSelected && (
-            <motion.div
-              layoutId="selected-border"
-              className="conversation-selected-border"
-              style={{ borderRadius: 14 }}
-              transition={{
-                type: 'spring',
-                stiffness: 500,
-                damping: 35,
-              }}
-            />
-          )}
-          {renderCardContent(card)}
-        </motion.div>
-      );
-    });
+    return filteredCards.map((card) => (
+      <ConversationCard
+        key={card.uniqueKey}
+        card={card}
+        isChatTab={activeTab === 'chat'}
+        isFriendsTab={activeTab === 'friends'}
+        isGroupTab={activeTab === 'group'}
+        friendOnline={(card.type === 'friend' || card.type === 'bot') && !!friendPresence[card.id]?.online}
+        isSelected={card.uniqueKey === selectedKey}
+        isKbdActive={isListFocused && card.uniqueKey === activeKey}
+        layoutEnabled={!isTabSwitching}
+        layoutDependency={layoutKey}
+        onSelect={handleCardClick}
+        onCardContextMenu={handleCardContextMenu}
+      />
+    ));
   };
 
   // 渲染状态覆盖层（loading/error/empty 使用绝对定位，不影响卡片布局）
@@ -773,7 +849,8 @@ export function UnifiedList({
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                {...layoutProps}
+                layout={!isTabSwitching ? 'position' : false}
+                layoutDependency={layoutKey}
                 transition={cardTransition}
               >
                 {selectedKey === 'ai-assistant' && (

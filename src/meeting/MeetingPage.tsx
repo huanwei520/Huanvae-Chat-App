@@ -59,6 +59,8 @@ import { PlatformBadge } from './components/PlatformBadge';
 // #7 目标能力门控（owner 2026-09-14 二次评审②）：胶囊/右键菜单/授权弹窗共用同一判据
 import { isControllablePlatform } from '../utils/platform';
 import { RC_REQUEST_CONTROL, RC_REQUEST_RELEASE, RC_SESSION_STATE } from '../remote-control/bus';
+// 跨端帧通道角色接线（dstdrrek-2）：观看端 controller 角色随 rcGrant 镜像挂拆
+import { sendControlEnd, setSessionRole } from '../remote-control/frameChannel';
 import { resolveServerAvatarUrl } from '../utils/avatar';
 import { AvatarPlaceholder } from '../components/common/AvatarPlaceholder';
 import './styles.css';
@@ -711,8 +713,12 @@ export default function MeetingPage() {
     }>(RC_SESSION_STATE, (ev) => {
       if (ev.payload?.state === 'linking' && ev.payload.grant_id) {
         setRcGrant({ grantId: ev.payload.grant_id, requestId: ev.payload.request_id ?? '' });
+        // 桌面观看端=controller：control-session DC 建成后对端 0x07 帧到达 →
+        // frameChannel.deliverFrame 内 activate()（本会话窗 store 实例；dstdrrek-2）
+        setSessionRole('controller');
       } else if (ev.payload?.state === 'released' || ev.payload?.state === 'error') {
         setRcGrant(null);
+        setSessionRole(null);
       }
     }).then((fn) => {
       if (cancelled) { fn(); } else { un = fn; }
@@ -724,6 +730,9 @@ export default function MeetingPage() {
   }, []);
   const revokeControlNow = useCallback(() => {
     void rcDbgInvoke('rc_debug_marker', { marker: 'DBG1-onclick' }).catch(() => undefined); // RC-DBG1
+    // dstdrrek-2 整改（U2）：数据面先行——在 control-session DC 上通知被控端
+    // （服务端 release 回执仅路由 sender 侧，被控端无信令可清横幅）。
+    sendControlEnd();
     const st = useControlSessionStore.getState();
     const grantId = rcGrant?.grantId ?? st.grantId;
     if (!grantId) {

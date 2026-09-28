@@ -959,6 +959,9 @@ export function useChatMenu({
         (progress) => {
           setHistoryProgress(progress);
         },
+        // 好友历史接口不下发 sender_nickname，自己发的那些行靠登录 profile 昵称回退
+        // （sender_name 统一收口见 src/utils/senderName.ts）
+        session.profile.user_nickname,
       );
 
       setSuccess('聊天记录加载完成');
