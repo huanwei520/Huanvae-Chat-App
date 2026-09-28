@@ -18,7 +18,7 @@
  * - 在消息列表顶部显示同步进度横幅
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 import { useMainPage } from '../../hooks/useMainPage';
 import { useInitialSync } from '../../hooks/useInitialSync';
@@ -27,6 +27,8 @@ import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useChatStore } from '../../stores/chatStore';
 import { requestNotificationPermission, initNotificationChannels } from '../../services/notificationService';
+import { takePendingDeepLink, registerDeepLinkPoke } from '../../services/deepLinkService';
+import { friendChatTarget } from '../../utils/chatTarget';
 import { useAutoUpdateCheckAndroid } from '../../update/useSilentUpdate.android';
 
 // 组件导入
@@ -246,6 +248,53 @@ export function MobileMain() {
       handleEnterMeeting();
     }
   }, [pendingMeetingJoin, handleEnterMeeting]);
+
+  // ============================================
+  // 通知会话深链（Android，C2/C3）：热启动 poke + 冷启动 boot-pull，统一消费入口
+  // ============================================
+  // 取走（take-once，原生侧原子）→ 在好友/群列表里解析目标 → 走 handleSelectTarget
+  // 正常开聊链路（setChatTarget/setActiveChat/markRead 全套）→ 切到聊天视图。
+  // 目标已不在列表（好友被删/退群）时丢弃深链，不跳空会话。
+  const consumeDeepLink = useCallback(() => {
+    const dl = takePendingDeepLink();
+    if (!dl) { return; }
+    console.warn('[MobileMain] 消费通知深链:', dl.sourceType, dl.sourceId);
+    const store = useChatStore.getState();
+    if (dl.sourceType === 'friend') {
+      const friend = store.friends.find((f) => f.friend_id === dl.sourceId);
+      if (!friend) {
+        console.warn('[MobileMain] 深链会话不在好友列表，丢弃:', dl.sourceId);
+        return;
+      }
+      page.handleSelectTarget(friendChatTarget(friend));
+    } else {
+      const group = store.groups.find((g) => g.group_id === dl.sourceId);
+      if (!group) {
+        console.warn('[MobileMain] 深链会话不在群列表，丢弃:', dl.sourceId);
+        return;
+      }
+      page.handleSelectTarget({ type: 'group', data: group });
+    }
+    nav.enterChat();
+  }, [page, nav]);
+
+  // page.handleSelectTarget 每次渲染都是新引用，poke 回调只注册一次，
+  // 经 ref 转发拿最新闭包（同 useMainPage 的 messageInputRef 惯例）
+  const consumeDeepLinkRef = useRef(consumeDeepLink);
+  consumeDeepLinkRef.current = consumeDeepLink;
+
+  // 热启动（C2）：MainActivity onNewIntent → evaluateJavascript poke
+  useEffect(() => {
+    registerDeepLinkPoke(() => consumeDeepLinkRef.current());
+  }, []);
+
+  // 冷启动（C3）：登录后本组件才 mount，好友/群本地列表加载完即可消费
+  // （重复触发无害：取不走第二次）
+  useEffect(() => {
+    if (!page.friendsLoading && !page.groupsLoading) {
+      consumeDeepLinkRef.current();
+    }
+  }, [page.friendsLoading, page.groupsLoading]);
 
   // 处理移动端手势返回
   const handleMobileBack = useCallback(() => {

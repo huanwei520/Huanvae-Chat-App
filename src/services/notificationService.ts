@@ -35,6 +35,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isMobile } from '../utils/platform';
 import { conversationPreviewText } from '../chat/shared/messagePreviewText';
+import { getDeepLinkBridge, type NotificationDeepLink } from './deepLinkService';
 
 // ============================================
 // Android 通知渠道
@@ -224,6 +225,13 @@ export interface NotificationOptions {
   icon?: string;
   /** 通知渠道 ID（移动端使用） */
   channelId?: string;
+  /**
+   * 会话深链（移动端）：点击通知直达对应会话所需的最小字段集。
+   * 仅移动端生效：走 MainActivity 原生桥发布（插件 sendNotification 的点击
+   * intent 带不上自定义 extra，见 deepLinkService 头注释）；桥不可用或发布
+   * 失败时回退插件无深链路径（通知不丢，只是不跳转）。桌面端忽略。
+   */
+  deepLink?: NotificationDeepLink;
 }
 
 /**
@@ -240,6 +248,21 @@ export async function notify(options: NotificationOptions): Promise<void> {
 
   try {
     if (isMobile()) {
+      // 移动端：带会话深链的通知优先走原生桥（点击通知可直达会话）。
+      // 桥不可用（WebView 桥未注入的极早期）或发布失败时回退插件路径。
+      if (options.deepLink) {
+        const bridge = getDeepLinkBridge();
+        const posted = bridge?.postMessageNotification(
+          options.title,
+          options.body,
+          options.channelId || MESSAGE_CHANNEL_ID,
+          JSON.stringify(options.deepLink),
+        ) ?? false;
+        if (posted) {
+          return;
+        }
+        console.warn('[Notification] 原生深链通知不可用，回退无深链通知');
+      }
       // 移动端：使用通知渠道
       sendNotification({
         title: options.title,
@@ -396,8 +419,14 @@ export async function notifyNewMessage(params: NewMessageNotificationParams): Pr
     body = preview;
   }
 
-  // 移动端使用消息渠道（自动播放 water.mp3）
-  await notify({ title, body, channelId: MESSAGE_CHANNEL_ID });
+  // 移动端使用消息渠道（自动播放 water.mp3）+ 会话深链（点击通知直达会话）。
+  // 深链载荷是最小字段集：路由只要来源类型 + 来源 ID，不带消息内容。
+  await notify({
+    title,
+    body,
+    channelId: MESSAGE_CHANNEL_ID,
+    deepLink: { sourceType, sourceId },
+  });
 }
 
 // ============================================

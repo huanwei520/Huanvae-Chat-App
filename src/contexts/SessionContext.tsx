@@ -21,6 +21,9 @@ import { removeSessionLock } from '../services/sessionLock';
 import { persistSession, clearPersistedSession } from '../services/sessionPersist';
 import { destroySyncService } from '../services/syncService';
 import { clearVideoPosterSessionCache } from '../services/videoPoster';
+import { clearPendingDeepLink } from '../services/deepLinkService';
+import { shouldSyncToDaemon, syncToDaemon } from '../huanvaeGuard/daemonCredentialSync';
+import { isMobile } from '../utils/platform';
 import { getTokenExpiresAt } from '../utils/jwt';
 import { useChatStore } from '../stores/chatStore';
 import { useCardLiveStore } from '../stores/cardLiveStore';
@@ -46,6 +49,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 用 ref 保存会话信息，以便在 clearSession 时能够访问
   const sessionRef = useRef<Session | null>(null);
 
+  // guard 守护进程凭据静默同步（401 自愈链的主窗口半边，gtcy072z 补强）。
+  // 背景：推送链原先只挂在 VPN 页窗口 —— 页面没开时主窗口每次续期广播没有任何人
+  // 消费，守护进程拿着死令牌撞 401 横幅（owner 2026-09-26 20:30 实拍复发根因之一）。
+  // 这里在令牌生命周期的两个源头（setSession / updateTokens）直接过线，不依赖任何子窗口。
+  // 门控与页面侧同构：安卓/iOS 不推（插件会话文件轨，无本地 HTTP 控制面）；空令牌不推；
+  // 推送是本地回环 fire-and-forget，失败只落日志，绝不影响会话主流程。日志不得含令牌值。
+  const pushGuardCredentials = useCallback((accessToken: string, refreshToken: string) => {
+    if (!shouldSyncToDaemon(accessToken, isMobile())) { return; }
+    void syncToDaemon(accessToken, refreshToken).then((r) => {
+      if (r.ok) { return; }
+      if (r.endpointMissing) {
+        // 守护进程早于凭据推送端点发布（404）：自愈链最后一跳结构性断链，
+        // 指向唯一出口 —— 升级守护进程，而不是笼统的「未生效」
+        console.warn('[Session] guard 守护进程版本过旧（无凭据推送端点），令牌同步跳过：请在 VPN 页「修复服务」升级守护进程后重连隧道');
+        return;
+      }
+      console.warn('[Session] guard 令牌推送未生效:', r.error ?? '未知原因');
+    });
+  }, []);
+
   // 设置会话（同时持久化到本地，移动端）
   const setSession = useCallback((newSession: Session) => {
     sessionRef.current = newSession;
@@ -55,7 +78,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     persistSession(newSession).catch((error) => {
       console.warn('[Session] 持久化失败:', error);
     });
-  }, []);
+
+    // guard 守护进程凭据静默同步（见 pushGuardCredentials）：登录拿到的第一对令牌
+    // 也要过线给守护进程 —— 重登撤销旧 refresh token 后，守护进程那对是第一批死令牌
+    pushGuardCredentials(newSession.accessToken, newSession.refreshToken);
+  }, [pushGuardCredentials]);
 
   // 恢复会话（不触发持久化，用于从存储恢复已有会话）
   const restoreSessionFromStorage = useCallback((restoredSession: Session) => {
@@ -79,6 +106,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // 跨账号复用就是把上一个账号的封面路径递给下一个账号的 <img>。
     // 挂在同一条收敛点上覆盖全部登出路径（见 services/videoPoster 的缓存注释）。
     clearVideoPosterSessionCache();
+
+    // 通知会话深链暂存槽同理：A 账号收到的通知深链滞留在 MainActivity 静态槽，
+    // 不清就会在 B 账号登录后跳进 A 账号的会话。桌面端无桥，no-op。
+    clearPendingDeepLink();
 
     // 销毁持有旧 API 引用的全局同步服务，防止重新登录后复用旧 token
     destroySyncService();
@@ -126,9 +157,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     emit('session:tokens-updated', { accessToken, refreshToken }).catch((error) => {
       console.warn('[Session] 跨窗口 token 广播失败:', error);
     });
-  }, []);
+
+    // guard 守护进程凭据静默同步：窗口事件不出进程（到不了独立服务进程），
+    // 守护进程那份令牌只有本地 HTTP 这一条路（guard-token-resync skill §0 铁律）
+    pushGuardCredentials(accessToken, refreshToken);
+  }, [pushGuardCredentials]);
 
   // 创建 API 客户端（仅在有会话时）
+  const autoReloginInFlightRef = useRef(false);
   //
   // 🔴 依赖**只有 serverUrl**，不是整个 session（2026-08-21，外部审计 idx=53）。
   //
@@ -155,10 +191,38 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         updateTokens(newAccessToken, newRefreshToken);
       },
       onSessionExpired: () => {
-        clearSession();
+        // 401→refresh→再401 的「自动重登腿」（块 1790430647659-tu14ytyn-1 验收②）：
+        // 有已保存账号则静默重登（performAutoRelogin），成功即 setSession ——
+        // pushGuardCredentials 随 setSession 把新令牌送达 guard 守护进程，拉取链自愈、
+        // 横幅自清；失败才回退旧行为 clearSession（登出）。
+        // 动态 import：避免把 tauri http 插件模块图拖进单测环境。
+        const cur = sessionRef.current;
+        if (!cur || autoReloginInFlightRef.current) {
+          if (!cur) { clearSession(); }
+          return;
+        }
+        autoReloginInFlightRef.current = true;
+        void import('../services/autoRelogin')
+          .then(async m => {
+            const r = await m.performAutoRelogin(cur.serverUrl, cur.userId);
+            console.warn('[Session] 会话过期自动重登成功（新令牌已随 setSession 静默同步 guard 守护进程）:', r.userId);
+            setSession({
+              serverUrl: r.serverUrl,
+              userId: r.userId,
+              accessToken: r.accessToken,
+              refreshToken: r.refreshToken,
+              profile: m.resolveAvatar(r.profile) as Session['profile'],
+              avatarPath: r.avatarPath,
+            });
+          })
+          .catch(err => {
+            console.warn('[Session] 自动重登失败，回退登出:', err);
+            clearSession();
+          })
+          .finally(() => { autoReloginInFlightRef.current = false; });
       },
     });
-  }, [serverUrl, updateTokens, clearSession]);
+  }, [serverUrl, updateTokens, clearSession, setSession]);
 
   // 响应其他 Tauri 窗口（HuanvaeGuard 等）对当前 token 的请求
   // 场景：HG 窗口刚打开时 URL 里的 token 可能已过期（例如笔记本睡眠后），
