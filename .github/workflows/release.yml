@@ -314,6 +314,16 @@ jobs:
             echo "✅ Copied icon to /opt/huanvae-chat/"
           fi
           
+          # 搬移 usr/bin 内其余可执行件（tauri externalBin，如 hv-control-daemon）到 /opt
+          # 修复 v1.1.53 渠道 deb 缺 daemon 根因：此前只搬主程序，下方 rm -rf usr/bin 会把
+          # externalBin 产物一并误删（tauri deb 的 externalBin 落点同在 usr/bin）
+          shopt -s nullglob
+          for extra_bin in "$WORK_DIR"/usr/bin/*; do
+            mv "$extra_bin" "$WORK_DIR/opt/huanvae-chat/"
+            echo "✅ Moved externalBin $(basename "$extra_bin") to /opt/huanvae-chat/"
+          done
+          shopt -u nullglob
+          
           # 清理空的 bin 目录
           rm -rf "$WORK_DIR/usr/bin"
           
