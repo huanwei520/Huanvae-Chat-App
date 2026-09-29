@@ -23,6 +23,8 @@ import {
 import { isDevControl } from './devGate';
 import {
   BUTTON_LEFT,
+  BUTTON_WHEEL_DOWN,
+  BUTTON_WHEEL_UP,
   domButtonsToMask,
   domKeyToKeysym,
   makeInputEvent,
@@ -277,6 +279,29 @@ export function ControlWindow() {
     }
   }, []);
 
+  // —— 滚轮捕获（块 pz3oo1tp：滚轮此前完全未捕获——owner 复测项硬缺口）——
+  // 滚轮是瞬时事件（无按住态），编码为 buttons bit3(上)/bit4(下) 的单发 0x06
+  // （既有 buttons 域空闲位，非新协议域；被控端消费见 rc_inject.rs Windows 臂；
+  // daemon 标准件映射缺口已在 coordinates.ts 登记为产品级待裁决项）。
+  // React 17+ 对 wheel 在根节点按 passive 挂载，JSX onWheel 无法 preventDefault
+  // （控制窗自身会跟着滚）——改在 viewport 元素上挂非 passive 原生监听。
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) { return undefined; }
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const geo = geometryRef.current;
+      if (!geo) { return; }
+      const rect = vp.getBoundingClientRect();
+      const p = mapClientToScreen(e.clientX - rect.left, e.clientY - rect.top, geo);
+      if (!p) { return; } // letterbox 黑边/帧外越界拒绝（§7.2 同语义）
+      const mask = e.deltaY < 0 ? BUTTON_WHEEL_UP : BUTTON_WHEEL_DOWN;
+      void controlInput(makeInputEvent(p.x, p.y, mask, heldKeysRef.current));
+    };
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => { vp.removeEventListener('wheel', onWheel); };
+  }, []);
+
   // —— dev 门控键位触发（测试自动化，仅 VITE_DEV_CONTROL=1 渲染）：在视口元素上
   //    派发真实 KeyboardEvent，走与物理键盘完全相同的既有捕获链
   //    （onKeyDown → domKeyToKeysym → POST /control/input）。
@@ -382,6 +407,7 @@ export function ControlWindow() {
         onPointerUp={onPointerUp}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {frameContent}
         <div className="rc-window__hint">

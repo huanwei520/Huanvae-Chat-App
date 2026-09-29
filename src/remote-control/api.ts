@@ -21,7 +21,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import type { ControlDaemonStatus, ControlIncomingEvent, ControlInputEvent } from './types';
 // 跨端帧通道（本块 dstdrrek-2）：0x06 上行优先走会话对端（DC），回环仅剩本地 daemon 标准件
-import { isPeerSessionActive, sendInput } from './frameChannel';
+import { isPeerSessionActive, isStandaloneControlWindow, sendInput } from './frameChannel';
 
 /**
  * 本机 daemon 回环控制端口默认值。
@@ -148,14 +148,24 @@ export function controlFrameUrl(cacheBust?: number): string {
 /**
  * POST /control/input —— 上行 0x06 域输入事件（§7.2）。
  *
- * 寻址（本块 dstdrrek-2 会话化收口）：会话在位时优先经 control-session DC 直达
- * 会话对端（跨端点击/移动注入的真路径）；无会话时才落本机 daemon 回环（单机
- * 演示链遗留面，跨端拓扑永不触达）。postLocalInput 为本机回环投递原语，仅供
- * 被控端注入汇（frameChannel.relayInjection）使用——被控端把自己的对端输入
- * 落到本机注入标准件，不属于跨端寻址。
+ * 寻址（dstdrrek-2 会话化收口 + 🔴 本块 pz3oo1tp 修复①「注入 0/零反应」根因）：
+ * - DC 属主上下文（meeting 窗/移动端单 WebView）+ 会话在位 → control-session DC 直达
+ *   会话对端（跨端点击/移动注入的真路径）；
+ * - 桌面独立控制窗（isStandaloneControlWindow）→ rc-input-up 桥回 meeting 窗转发。
+ *   旧实现仅判 isPeerSessionActive()——独立窗上下文 channels 属 meeting 窗，本窗恒
+ *   false ⇒ 每次点击都误落 postLocalInput 把跨端输入 POST 到**控制端本机** daemon
+ *   （缺席/未受戒即丢），0x06 永不入 DC ⇒ 被控端零反应且 inputsOut 恒 0（owner
+ *   「帧 0 · 注入 0」截图实证）。meeting 窗侧桥在无会话时落本机回环保单机演示链
+ *   （frameChannel.ensureInputUpBridge else 臂）。
+ * - 其余（浏览器/无 Tauri 宿主的遗留面）→ 本机 daemon 回环。
+ * postLocalInput 为本机回环投递原语，仅供被控端注入汇（frameChannel.relayInjection）
+ * 与单机演示兜底使用——不属于跨端寻址。
  */
 export function controlInput(ev: ControlInputEvent): Promise<boolean> {
   if (isPeerSessionActive()) {
+    return Promise.resolve(sendInput(ev));
+  }
+  if (isStandaloneControlWindow()) {
     return Promise.resolve(sendInput(ev));
   }
   return postLocalInput(ev);
