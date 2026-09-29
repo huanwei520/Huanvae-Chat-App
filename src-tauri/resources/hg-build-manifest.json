@@ -1,11 +1,12 @@
 {
-  "source_repo_commit": "b1d7c8df4a9bbd362b99122ac4a9aae631145bb0",
+  "source_repo_commit": "067f6ff2d07f6b7dbe43e966c3d6e86de33a1efd",
   "source_repo_dirty": false,
   "source_repo_dirty_files": [],
-  "built_at_utc": "2026-09-15T20:54:04Z",
+  "built_at_utc": "2026-09-27T20:45:00Z",
   "leg_provenance": {
-    "macos": "scripts/build-hg-binaries.sh @ macos-14 GH runner (run 35003209658, CI log archived; unchanged since v1.1.48)",
-    "windows": "rebuilt 2026-09-15 on Windows build host from same source anchor b1d7c8df (source verified via host-side git archive byte-exact extraction + daemon.rs:672 assertion), recipe: rustup gnu self-contained PATH + C:/w64devkit/w64devkit gcc/dlltool explicit linker (cargo build --release -p hg-windows --target x86_64-pc-windows-gnu). Reason: v1.1.48 shipped windows artifact 6bc85eb0 (built 18:14Z via ps1 pipeline) crashed at startup on winserver-hg (sc start 1053, WER Event 1000 ntdll c0000005); replacement c9c27c7f smoke-verified in SCM service slot before shipping: sc start -> STATE 4 RUNNING (pid 4024), API 127.0.0.1:19198 listening, HEARTBEAT ok"
+    "macos": "343lqreg 归集件（块 1790533059582-343lqreg-1，MANIFEST=/work/HuanvaeGuard/release-artifacts/2026-09-27-lockext/MANIFEST.md v3.2，构建自未经修改的 main 树 067f6ff，macOS runner 真实构建+真实起动冒烟），owner 2026-09-29 明令采件不重建",
+    "windows": "343lqreg 归集件 hg-windows-0.2.9-x86_64-pc-windows-msvc.exe（同上 MANIFEST；真实命令面 SCM/standalone 冒烟：WMI ReturnValue=0→ALIVE→127.0.0.1:19198 LISTENING→KILLED-CLEAN，evidence/10 §四），owner 2026-09-29 明令采件不重建；target 按归集口径更正为 x86_64-pc-windows-msvc",
+    "android": "保留 v1.1.48 既有锚 b1d7c8df 构建的 libhg_android.so（343lqreg 归集无 Android 件；sidecar 为仓内预构建件经 jniLibs 约定进包，本块未触碰）"
   },
   "artifacts": [
     {
@@ -13,17 +14,29 @@
       "crate": "hg-macos",
       "target": "aarch64-apple-darwin",
       "arch": "arm64",
-      "sha256": "617f9d02281939ec907017c4db6258052d2b1af3a0cffea9b87c174dd34f5e94",
-      "codesign_flags": "CodeDirectory v=20400 size=36490 flags=0x2(adhoc) hashes=1134+2 location=embedded"
+      "sha256": "a181beb79b8f8d0a58da41b747893eded57dff2e3f1ff0815ef45b198a85db85",
+      "codesign_flags": "CodeDirectory v=20400 size=36490 flags=0x2(adhoc) hashes=1134+2 location=embedded",
+      "size": 4864032,
+      "provenance": "343lqreg 归集 hg-macos-0.2.9-aarch64-apple-darwin"
     },
     {
       "path": "src-tauri/resources/HuanvaeGuard/huanvaeguard-svc.exe",
       "crate": "hg-windows",
-      "target": "x86_64-pc-windows-gnu",
+      "target": "x86_64-pc-windows-msvc",
       "pe_machine": "x86-64",
-      "sha256": "c9c27c7fcae753541f7940e7fae8c31ef3d4095840e679591aa441b078d6ab9e",
+      "sha256": "36aa4aed6f8cfe9e761810a98290077b967ca614479eaa4f63f5c598657d912a",
       "superseded_sha256_1_1_48": "6bc85eb0533160edc8374d91cceb400024937310262faff31a3afcb331e7f644",
-      "codesign_flags": ""
+      "codesign_flags": "",
+      "size": 6395904,
+      "provenance": "343lqreg 归集 hg-windows-0.2.9-x86_64-pc-windows-msvc.exe"
     }
-  ]
+  ],
+  "procurement": {
+    "block": "1790533059582-343lqreg-1",
+    "manifest": "/work/HuanvaeGuard/release-artifacts/2026-09-27-lockext/MANIFEST.md",
+    "manifest_version": "v3.2 (2026-09-27T20:45Z)",
+    "authorized_by": "owner 2026-09-29 d65t6r3i 卡：不重建 hg 三平台 App 内置件（采 343lqreg 归集件）",
+    "replaced_at": "2026-09-29T05:56Z",
+    "note": "Linux hg-cli/hg-agent 两件不在 App 打包落点（tauri.conf resources 仅映射 HuanvaeGuard/* 与 HuanvaeGuard-macos/*，Android sidecar 走 jniLibs）；HuanvaeGuard-android/libhg_android.so 与 wintun.dll 本块未触碰"
+  }
 }
