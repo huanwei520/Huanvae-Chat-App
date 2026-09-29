@@ -245,39 +245,63 @@ export function ControlWindow() {
   const onPointerUp = useCallback((e: React.PointerEvent) => emitPointer(e), [emitPointer]);
 
   // —— 键盘捕获：按下集合快照（0x06 keys 域）＋最小键位表（表外丢弃计数留痕，§7.2）——
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    e.preventDefault();
-    const sym = domKeyToKeysym(e.key);
+  //  块 pz3oo1tp 修复③配套：捕获核心抽成 sendKey 供双路复用——
+  //  React onKeyDown（需焦点）＋ window 级捕获（不依赖焦点）。
+  //  焦点缺失成因：onPointerDown preventDefault 阻止了 mousedown 的默认聚焦，
+  //  视口 div 拿不到键盘焦点 → 物理键盘事件只落到 document/body，React 处理器永不触发。
+  const sendKey = useCallback((key: string, isDown: boolean) => {
+    const sym = domKeyToKeysym(key);
     if (sym === null) {
-      setDroppedKeys((n) => n + 1);
+      if (isDown) { setDroppedKeys((n) => n + 1); }
       return;
     }
-    heldKeysRef.current.add(sym);
+    if (isDown) { heldKeysRef.current.add(sym); } else { heldKeysRef.current.delete(sym); }
     const geo = geometryRef.current;
     const vp = viewportRef.current;
     if (geo && vp) {
       const rect = vp.getBoundingClientRect();
-      const hover = mapClientToScreen(
-        (e as unknown as { clientX?: number }).clientX ?? rect.width / 2,
-        (e as unknown as { clientY?: number }).clientY ?? rect.height / 2,
-        geo,
-      );
+      const hover = mapClientToScreen(rect.width / 2, rect.height / 2, geo);
       void controlInput(
         makeInputEvent(hover?.x ?? 0, hover?.y ?? 0, 0, heldKeysRef.current),
       );
     }
   }, []);
 
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.preventDefault();
+    sendKey(e.key, true);
+  }, [sendKey]);
+
   const onKeyUp = useCallback((e: React.KeyboardEvent) => {
     e.preventDefault();
-    const sym = domKeyToKeysym(e.key);
-    if (sym === null) { return; }
-    heldKeysRef.current.delete(sym);
-    const geo = geometryRef.current;
-    if (geo) {
-      void controlInput(makeInputEvent(0, 0, 0, heldKeysRef.current));
-    }
-  }, []);
+    sendKey(e.key, false);
+  }, [sendKey]);
+
+  //  window 级键盘捕获（不依赖 div 焦点）：仅信任真实输入（isTrusted，dev 派发的
+  //  合成事件仍走 React 链避免双发）；输入框聚焦时让位（演示 URL 输入不受劫持）。
+  useEffect(() => {
+    const isFormTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el || !el.tagName) { return false; }
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true;
+    };
+    const kd = (e: KeyboardEvent) => {
+      if (!e.isTrusted || isFormTarget(e.target)) { return; }
+      e.preventDefault();
+      sendKey(e.key, true);
+    };
+    const ku = (e: KeyboardEvent) => {
+      if (!e.isTrusted || isFormTarget(e.target)) { return; }
+      e.preventDefault();
+      sendKey(e.key, false);
+    };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    return () => {
+      window.removeEventListener('keydown', kd);
+      window.removeEventListener('keyup', ku);
+    };
+  }, [sendKey]);
 
   // —— 滚轮捕获（块 pz3oo1tp：滚轮此前完全未捕获——owner 复测项硬缺口）——
   // 滚轮是瞬时事件（无按住态），编码为 buttons bit3(上)/bit4(下) 的单发 0x06
