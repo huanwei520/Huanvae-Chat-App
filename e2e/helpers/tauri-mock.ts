@@ -196,6 +196,30 @@ export function tauriMockScript(options: TauriMockOptions = {}): string {
           // 流式（AI SSE）——e2e 不驱动它，返回空
           if (cmd === 'secure_http_stream') return null;
 
+          // ── plugin:http（@tauri-apps/plugin-http，huanvaeGuard/localApi.ts 回环 fetch）──
+          // 🔴 形状必须对，否则**整页饿死**（2026-09-29 d65t6r3i 根因，@gate 登录 3 用例全红元凶）：
+          // guard 凭据推送链（setSession → pushGuardCredentials → syncToDaemon →
+          // localApi.updateControlCredentials → plugin-http fetch http://127.0.0.1:<port>）
+          // 已挂进登录链。e2e 浏览器里 plugin-http 走本 mock 的 invoke，若未建模返回 null：
+          // fetch_send 解构 null 抛 TypeError / fetch_read_body 返回 null 会变成 Uint8Array(0)，
+          // plugin-http 以「最后一字节===1」为流终止信号（见其 dist-js readChunk），
+          // undefined≠1 ⇒ ReadableStream.pull 永不 close ⇒ 纯微任务无限分配（~70MB/s、
+          // CDP 网络零请求）⇒ 渲染进程主线程饿死 ⇒ tab 被 Chromium 杀死 ⇒ 测试超时。
+          // 修复：按真实协议给形状，走 502（对齐旧版「回环走到 = 可见地失败」哲学）：
+          // localApi 降级为 {success:false,error:'HTTP 502'}，syncToDaemon 打一条 warn 单次终止。
+          if (cmd === 'plugin:http|fetch') return 101; // rid（数字）
+          if (cmd === 'plugin:http|fetch_send') {
+            return {
+              status: 502,
+              statusText: 'Bad Gateway (e2e-mock: loopback refused)',
+              url: '',
+              headers: [],
+              rid: 102,
+            };
+          }
+          if (cmd === 'plugin:http|fetch_read_body') return [1]; // 末字节 1 = 流终止信号
+          if (cmd.startsWith('plugin:http|fetch_cancel')) return null;
+
           // 应用启动 / 全局配置
           const startupMocks = {
             'get_app_config': { theme: 'light', language: 'zh-CN' },
