@@ -23,6 +23,8 @@ import {
 import { isDevControl } from './devGate';
 import {
   BUTTON_LEFT,
+  BUTTON_WHEEL_DOWN,
+  BUTTON_WHEEL_UP,
   domButtonsToMask,
   domKeyToKeysym,
   makeInputEvent,
@@ -243,38 +245,85 @@ export function ControlWindow() {
   const onPointerUp = useCallback((e: React.PointerEvent) => emitPointer(e), [emitPointer]);
 
   // —— 键盘捕获：按下集合快照（0x06 keys 域）＋最小键位表（表外丢弃计数留痕，§7.2）——
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    e.preventDefault();
-    const sym = domKeyToKeysym(e.key);
+  //  块 pz3oo1tp 修复③配套：捕获核心抽成 sendKey 供双路复用——
+  //  React onKeyDown（需焦点）＋ window 级捕获（不依赖焦点）。
+  //  焦点缺失成因：onPointerDown preventDefault 阻止了 mousedown 的默认聚焦，
+  //  视口 div 拿不到键盘焦点 → 物理键盘事件只落到 document/body，React 处理器永不触发。
+  const sendKey = useCallback((key: string, isDown: boolean) => {
+    const sym = domKeyToKeysym(key);
     if (sym === null) {
-      setDroppedKeys((n) => n + 1);
+      if (isDown) { setDroppedKeys((n) => n + 1); }
       return;
     }
-    heldKeysRef.current.add(sym);
+    if (isDown) { heldKeysRef.current.add(sym); } else { heldKeysRef.current.delete(sym); }
     const geo = geometryRef.current;
     const vp = viewportRef.current;
     if (geo && vp) {
       const rect = vp.getBoundingClientRect();
-      const hover = mapClientToScreen(
-        (e as unknown as { clientX?: number }).clientX ?? rect.width / 2,
-        (e as unknown as { clientY?: number }).clientY ?? rect.height / 2,
-        geo,
-      );
+      const hover = mapClientToScreen(rect.width / 2, rect.height / 2, geo);
       void controlInput(
         makeInputEvent(hover?.x ?? 0, hover?.y ?? 0, 0, heldKeysRef.current),
       );
     }
   }, []);
 
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.preventDefault();
+    sendKey(e.key, true);
+  }, [sendKey]);
+
   const onKeyUp = useCallback((e: React.KeyboardEvent) => {
     e.preventDefault();
-    const sym = domKeyToKeysym(e.key);
-    if (sym === null) { return; }
-    heldKeysRef.current.delete(sym);
-    const geo = geometryRef.current;
-    if (geo) {
-      void controlInput(makeInputEvent(0, 0, 0, heldKeysRef.current));
-    }
+    sendKey(e.key, false);
+  }, [sendKey]);
+
+  //  window 级键盘捕获（不依赖 div 焦点）：仅信任真实输入（isTrusted，dev 派发的
+  //  合成事件仍走 React 链避免双发）；输入框聚焦时让位（演示 URL 输入不受劫持）。
+  useEffect(() => {
+    const isFormTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el || !el.tagName) { return false; }
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true;
+    };
+    const kd = (e: KeyboardEvent) => {
+      if (!e.isTrusted || isFormTarget(e.target)) { return; }
+      e.preventDefault();
+      sendKey(e.key, true);
+    };
+    const ku = (e: KeyboardEvent) => {
+      if (!e.isTrusted || isFormTarget(e.target)) { return; }
+      e.preventDefault();
+      sendKey(e.key, false);
+    };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    return () => {
+      window.removeEventListener('keydown', kd);
+      window.removeEventListener('keyup', ku);
+    };
+  }, [sendKey]);
+
+  // —— 滚轮捕获（块 pz3oo1tp：滚轮此前完全未捕获——owner 复测项硬缺口）——
+  // 滚轮是瞬时事件（无按住态），编码为 buttons bit3(上)/bit4(下) 的单发 0x06
+  // （既有 buttons 域空闲位，非新协议域；被控端消费见 rc_inject.rs Windows 臂；
+  // daemon 标准件映射缺口已在 coordinates.ts 登记为产品级待裁决项）。
+  // React 17+ 对 wheel 在根节点按 passive 挂载，JSX onWheel 无法 preventDefault
+  // （控制窗自身会跟着滚）——改在 viewport 元素上挂非 passive 原生监听。
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) { return undefined; }
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const geo = geometryRef.current;
+      if (!geo) { return; }
+      const rect = vp.getBoundingClientRect();
+      const p = mapClientToScreen(e.clientX - rect.left, e.clientY - rect.top, geo);
+      if (!p) { return; } // letterbox 黑边/帧外越界拒绝（§7.2 同语义）
+      const mask = e.deltaY < 0 ? BUTTON_WHEEL_UP : BUTTON_WHEEL_DOWN;
+      void controlInput(makeInputEvent(p.x, p.y, mask, heldKeysRef.current));
+    };
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => { vp.removeEventListener('wheel', onWheel); };
   }, []);
 
   // —— dev 门控键位触发（测试自动化，仅 VITE_DEV_CONTROL=1 渲染）：在视口元素上
@@ -382,6 +431,7 @@ export function ControlWindow() {
         onPointerUp={onPointerUp}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {frameContent}
         <div className="rc-window__hint">

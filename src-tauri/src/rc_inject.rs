@@ -5,7 +5,8 @@
 //! 时经本命令落地（Windows：user32 SendInput/SetCursorPos FFI，std-only 零新依赖）。
 //!
 //! 语义对齐 daemon §7.2 mapping：事件为**状态快照**（x/y 屏幕绝对坐标；buttons
-//! bit0 左/bit1 右/bit2 中；keys=按下键码集合快照）——本模块维护 held 差分：
+//! bit0 左/bit1 右/bit2 中；bit3 上滚/bit4 下滚（块 pz3oo1tp，瞬时事件不入快照）；
+//! keys=按下键码集合快照）——本模块维护 held 差分：
 //! 新按下的键/键发 down，快照里消失的发 up，指针位移 SetCursorPos。
 //!
 //! 键码域：前端 domKeyToKeysym 的 X11 keysym 低 16 位（coordinates.ts KEY_TABLE）
@@ -22,7 +23,7 @@ pub struct RcInjectEvent {
     pub x: u32,
     /// 屏幕绝对坐标 Y
     pub y: u32,
-    /// buttons 位掩码：bit0 左 / bit1 右 / bit2 中（coordinates.ts 同域）
+    /// buttons 位掩码：bit0 左 / bit1 右 / bit2 中 / bit3 上滚 / bit4 下滚（coordinates.ts 同域）
     pub buttons: u8,
     /// 按下键码集合快照（X11 keysym 低 16 位）
     #[serde(default)]
@@ -79,6 +80,9 @@ mod imp {
     const MOUSEEVENTF_RIGHTUP: u32 = 0x0010;
     const MOUSEEVENTF_MIDDLEDOWN: u32 = 0x0020;
     const MOUSEEVENTF_MIDDLEUP: u32 = 0x0040;
+    const MOUSEEVENTF_WHEEL: u32 = 0x0800;
+    /// Windows 滚轮一格的标准化增量（WINUSER/WHEEL_DELTA）
+    const WHEEL_DELTA: i32 = 120;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
 
     fn mouse_event(flags: u32) -> bool {
@@ -106,6 +110,26 @@ mod imp {
                     w_vk: vk,
                     w_scan: 0,
                     dw_flags: if up { KEYEVENTF_KEYUP } else { 0 },
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
+        unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) == 1 }
+    }
+
+    /// 滚轮瞬时事件（块 pz3oo1tp：delta>0 上滚 / <0 下滚；MOUSEEVENTF_WHEEL，
+    /// mouse_data 携带 WHEEL_DELTA 标准化增量，负号表方向）
+    #[allow(dead_code)]
+    fn wheel_event(delta: i32) -> bool {
+        let input = Input {
+            r#type: INPUT_MOUSE,
+            u: InputUnion {
+                mi: MouseInput {
+                    dx: 0,
+                    dy: 0,
+                    mouse_data: delta as u32,
+                    dw_flags: MOUSEEVENTF_WHEEL,
                     time: 0,
                     extra_info: 0,
                 },
@@ -159,6 +183,22 @@ mod imp {
         }
         let mut errors: usize = 0;
         let mut st = held().lock().map_err(|_| "held state poisoned")?;
+        // 1.5) 滚轮瞬时事件（块 pz3oo1tp：bit3 上滚 / bit4 下滚——App ControlWindow
+        //      onWheel 单发；瞬时语义不入 held 快照态，无按住/抬起配对）。
+        //      注意：daemon 标准件（HuanvaeRemote mapping.rs）不认 bit3/4，Windows 上
+        //      daemon 注入汇不可用（X11-only）⇒ 实际滚轮必经本臂落地。
+        let wheel = if ev.buttons & 0x08 != 0 {
+            Some(WHEEL_DELTA)
+        } else if ev.buttons & 0x10 != 0 {
+            Some(-WHEEL_DELTA)
+        } else {
+            None
+        };
+        if let Some(delta) = wheel {
+            if !wheel_event(delta) {
+                errors += 1;
+            }
+        }
         // 2) 按键差分（down：快照有而 held 无；up：held 有而快照无）
         for vk in ev.keys.iter().filter_map(|s| keysym_to_vk(*s)) {
             if !st.keys.contains(&vk) {

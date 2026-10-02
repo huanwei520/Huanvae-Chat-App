@@ -78,6 +78,15 @@ export function mapClientToScreen(
 export const BUTTON_LEFT = 1 << 0;
 export const BUTTON_RIGHT = 1 << 1;
 export const BUTTON_MIDDLE = 1 << 2;
+/**
+ * 滚轮瞬时位（bit3 上滚 / bit4 下滚；0x06 buttons 域既有 u8 的空闲位，**非新协议域**）。
+ * 消费方：被控端原生兜底 rc_inject.rs（Windows SendInput MOUSEEVENTF_WHEEL，本仓内）。
+ * 缺口（产品级，待总监裁决）：hv-control-daemon 标准件 XTEST 映射（HuanvaeRemote 仓
+ * hv-demo-x11 mapping.rs bit_to_x_button）仅认 bit0–bit2，bit3/4 会落空——Linux 被控端
+ * 滚轮需 daemon 仓同轮改造（X Button4/Button5），本块不动他仓。
+ */
+export const BUTTON_WHEEL_UP = 1 << 3;
+export const BUTTON_WHEEL_DOWN = 1 << 4;
 
 /** DOM MouseEvent.buttons 已是同序位掩码（bit0 左/bit1 右/bit2 中），仅裁 u8 域 */
 export function domButtonsToMask(buttons: number): number {

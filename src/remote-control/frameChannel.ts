@@ -214,6 +214,19 @@ export function isPeerSessionActive(): boolean {
   return false;
 }
 
+/**
+ * 本上下文是否为桌面端独立控制窗（无 DC 属主权 + Tauri 宿主）。
+ *
+ * 🔴 块 pz3oo1tp 根因定界（owner 2026-09-30「共享全屏后控制零反应」报告）：桌面端控制
+ * 窗是独立 WebView（label=remote-control，main.tsx /remote-control 路由），control-session
+ * DC 与 channels Map 都属 meeting 窗上下文（useWebRTC attachChannel）——本窗的
+ * isPeerSessionActive() **恒 false**，不能作为本窗跨端会话判据。控制窗输入上行寻址
+ * 应以本函数为准（api.controlInput 据此走 rc-input-up 桥，而非误投本机回环 daemon）。
+ */
+export function isStandaloneControlWindow(): boolean {
+  return !dcOwner && hasTauri();
+}
+
 export function getRole(): ControlRole | null {
   return role;
 }
@@ -411,6 +424,10 @@ export function subscribeFrames(cb: (f: RcFrame) => void): () => void {
         listen<{ w: number; h: number; seq: number; rgbaB64: string }>(RC_FRAME_DATA, (ev) => {
           const rgba = base64ToBytes(ev.payload.rgbaB64);
           if (rgba && rgba.length === ev.payload.w * ev.payload.h * 4) {
+            // 🔴 块 pz3oo1tp 修复②（「帧 0」半边根因）：桥接交付此前不入账——独立控制窗的
+            // 帧计数恒 0（DC 直连重组路径在 ingestSlice 处 framesIn+=1，桥接路径漏同源
+            // 计数），状态条「对端帧流中 · 帧 0」即此（owner 截图实证）。与直连同口径记账。
+            stats.framesIn += 1;
             for (const sink of frameSinks) {
               sink({ seq: ev.payload.seq, width: ev.payload.w, height: ev.payload.h, rgba });
             }
@@ -459,6 +476,15 @@ function ensureInputUpBridge(): void {
         if (isPeerSessionActive()) {
           sendBinary(encodeInputEvent(ev.payload));
           stats.inputsOut += 1;
+        } else {
+          // 🔴 块 pz3oo1tp 修复①配套：独立控制窗的上行现在会走 rc-input-up 桥到本窗
+          // （api.controlInput 的 isStandaloneControlWindow 分支）；本窗无跨端会话时
+          // 落本机 daemon 回环——保住单机演示链（旧实现由独立窗自投 postLocalInput，
+          // 现该路径已收归本桥，此处不接则单机演示输入断链）。动态 import 防静态环
+          // （api.ts 静态 import 本模块）。
+          void import('./api')
+            .then(({ postLocalInput }) => postLocalInput(ev.payload))
+            .catch(() => undefined);
         }
       }),
     )
