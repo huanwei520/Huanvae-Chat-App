@@ -44,7 +44,7 @@ import { displaySenderName, profileDisplayName } from '../../utils/senderName';
 import { shouldPlayEnter, panelFadeTransition } from '../shared/animations';
 import {
   buildReplyPreviewIndex,
-  resolveReplyQuote,
+  resolveReplyQuoteFromMessage,
   summarizeMessageForReply,
   type ResolvedReplyQuote,
 } from '../shared/replyPreview';
@@ -197,7 +197,8 @@ export function GroupChatMessages({
   );
 
   // uuid → 引用预览 索引。数据源是当前已加载的全部消息（含 loadMore 拉回的历史）——
-  // 后端不下发被引用消息的内容快照，只能本地反查；查不到时引用块显示「未加载，点击定位」占位。
+  // 组合消息（combinedMessage）让每条回复自带原消息快照：反查命中优先用本地值（能反映撤回等
+  // 最新状态），落空时用随包快照兑底，两者皆无（旧消息）才显示「未加载」占位。
   const replyPreviewIndex = useMemo(
     () => buildReplyPreviewIndex(messages, displayNameOf),
     [messages, displayNameOf],
@@ -217,11 +218,11 @@ export function GroupChatMessages({
       if (!m) { continue; }
       map.set(
         node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
-        resolveReplyQuote(replyPreviewIndex, m.reply_to),
+        resolveReplyQuoteFromMessage(replyPreviewIndex, m, currentUserId),
       );
     }
     return map;
-  }, [renderNodes, replyPreviewIndex]);
+  }, [renderNodes, replyPreviewIndex, currentUserId]);
 
   // 会话媒体序列（全屏预览左右切上一张 / 下一张的数据面）。
   // 从 renderNodes 摊平：相册内部已按 media_group_index 升序，与网格里眼睛看到的一致；
@@ -277,7 +278,11 @@ export function GroupChatMessages({
       conversationKey: groupConversationKey(groupId),
       messageUuid: message.message_uuid,
       senderName: displayNameOf(message),
+      senderId: message.sender_id,
       preview: summarizeMessageForReply(message),
+      // 组合消息快照的另外两件：类型 + 时间也在选中这一刻定格，发送时原样进信封
+      messageType: message.message_type,
+      sendTime: message.send_time,
     });
   }, [groupId, setReplyDraft, displayNameOf]);
 

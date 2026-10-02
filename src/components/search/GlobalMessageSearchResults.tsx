@@ -72,6 +72,7 @@ import { useDiscoverySearch } from '../../hooks/useDiscoverySearch';
 import type { SearchMessageResult } from '../../db';
 import type { Friend, Group } from '../../types/chat';
 import { highlightMatch } from './highlightMatch';
+import { stripCombinedEnvelope } from '../../chat/shared/combinedMessage';
 import { ConversationSearchHit } from './ConversationSearchHit';
 import {
   GLOBAL_SEARCH_TABS,
@@ -139,13 +140,15 @@ interface GlobalMessageSearchResultsProps {
 
 /** 非文本类型消息加类型图标前缀（「消息」页签里混着文档 / 语音，靠它一眼分辨） */
 function decorateContentByType(contentType: string, content: string): string {
+  // 组合消息信封（combinedMessage.ts）：搜索命中的引用回复只显示回复正文，不吐裸 JSON
+  const plain = contentType === 'text' ? stripCombinedEnvelope(content) : content;
   switch (contentType) {
     case 'file':
-      return `📁 ${content}`;
+      return `📁 ${plain}`;
     case 'audio':
-      return `🎵 ${content}`;
+      return `🎵 ${plain}`;
     default:
-      return content;
+      return plain;
   }
 }
 

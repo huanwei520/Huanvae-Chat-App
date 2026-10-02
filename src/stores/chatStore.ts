@@ -66,10 +66,16 @@ export interface ReplyDraft {
   conversationKey: string;
   /** 被回复消息的 UUID，发送时作为 reply_to 提交给后端 */
   messageUuid: string;
-  /** 被回复者显示名（群聊已套用群内私有备注） */
+  /** 被回复者显示名（发送方视角：自己的消息叫「我」，群聊已套用群内私有备注）。仅供本地「正在回复」条显示 */
   senderName: string;
+  /** 被回复消息的 sender_id（组合消息快照的跨端身份锚点；接收端据此把「我」本地化） */
+  senderId: string;
   /** 被回复消息的单行摘要 */
   preview: string;
+  /** 被回复消息的类型（组合消息快照字段；发送时原样进信封） */
+  messageType: string;
+  /** 被回复消息的发送时间 ISO（组合消息快照字段；发送时原样进信封） */
+  sendTime: string;
 }
 
 /** 禁言信息 */

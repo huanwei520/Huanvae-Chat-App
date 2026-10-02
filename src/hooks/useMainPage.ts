@@ -563,18 +563,37 @@ export function useMainPage() {
     const replyTo = draftKey && replyDraft?.conversationKey === draftKey
       ? replyDraft.messageUuid
       : undefined;
+    // 组合消息快照（owner 2026-09-24 定案）：发引用回复时把原消息「发送者/摘要/类型/时间/uuid」
+    // 随回复正文一起打包上行，接收端不再依赖本地加载过原消息才能显示引用内容。
+    // 草稿里的四件全是选中回复那一刻的定格值，不在此处反查（原消息可能已翻出窗口）。
+    const replySnapshot = replyTo && replyDraft
+      ? {
+        reply_to: replyDraft.messageUuid,
+        // sender_name 必须是**对端可直接渲染**的名字：草稿里的 senderName 是发送方视角
+        // （私聊里自己的消息叫「我」），原样发给对端会把对方收到的引用错标成「我」。
+        // 自己的消息 → 换上自己的账号昵称；别人的消息 → 草稿值本身就是原始名字，直接用。
+        // 接收端另有 sender_id 做「我」的本地化，双保险。
+        sender_name: replyDraft.senderId === session?.userId
+          ? (session?.profile?.user_nickname ?? replyDraft.senderName)
+          : replyDraft.senderName,
+        sender_id: replyDraft.senderId,
+        summary: replyDraft.preview,
+        message_type: replyDraft.messageType,
+        send_time: replyDraft.sendTime,
+      }
+      : undefined;
     // 先清草稿再 await：发送是异步的，不先清会让「正在回复」条在整个网络往返期间挂着，
     // 用户以为没发出去而重复点发送。
     if (replyDraft) { setReplyDraft(null); }
 
     if (isFriendLikeTarget(chatTarget)) {
-      await sendFriendMessage(content, replyTo);
+      await sendFriendMessage(content, replyTo, replySnapshot);
       updateLastMessage('friend', chatTarget.data.friend_id, content, 'text', timestamp);
     } else {
-      await sendGroupMessage(content, replyTo);
+      await sendGroupMessage(content, replyTo, replySnapshot);
       updateLastMessage('group', chatTarget.data.group_id, content, 'text', timestamp);
     }
-  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft]);
+  }, [messageInput, chatTarget, sendFriendMessage, sendGroupMessage, updateLastMessage, ai, draftKey, replyDraft, setReplyDraft, session]);
 
   // ============================================
   // 文件上传

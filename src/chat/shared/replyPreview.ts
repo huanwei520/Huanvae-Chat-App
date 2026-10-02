@@ -19,6 +19,7 @@
 
 // 同为纯模块（groupCard.ts 只 import 一个 type），不破坏本文件「零 React / 零 Tauri」的约束
 import { GROUP_CARD_PREVIEW_TEXT } from './groupCard';
+import type { ReplySnapshot } from './combinedMessage';
 
 /** 引用摘要最大字符数（超出截断加省略号） */
 export const REPLY_PREVIEW_MAX_LEN = 60;
@@ -144,4 +145,41 @@ export function resolveReplyQuote(
     return { senderName: null, text: REPLY_UNRESOLVED_TEXT, resolved: false };
   }
   return { senderName: hit.senderName, text: hit.text, resolved: true };
+}
+
+/** resolveReplyQuoteFromMessage 入参的最小形状（GroupMessage / Message 都满足） */
+export interface ReplyQuoteSource {
+  reply_to?: string | null;
+  /** 随组合消息带来的原消息快照（combinedMessage.ts 信封拆出），旧消息没有该字段 */
+  reply_snapshot?: ReplySnapshot | null;
+}
+
+/**
+ * 解析引用块内容：本地反查优先，随包快照兜底
+ *
+ * 组合消息（combinedMessage.ts）让每条回复自带原消息快照，本地没加载原消息也能显示真实内容。
+ * 优先级（owner 定案 ③「本地已加载沿用现逻辑，快照兜底」）：
+ * 1. 本地窗口反查命中 → 用本地值（它能反映**最新**状态，如原消息刚被撤回 → 「消息已撤回」）；
+ * 2. 反查落空但随包快照存在且与 reply_to 对得上 → 直接渲染快照（占位条从此消失）；
+ * 3. 都没有（旧消息 / 快照字段失配）→ 原占位行为，零变化。
+ */
+export function resolveReplyQuoteFromMessage(
+  index: ReadonlyMap<string, ReplyPreviewEntry> | undefined,
+  message: ReplyQuoteSource,
+  currentUserId?: string,
+): ResolvedReplyQuote | null {
+  const local = resolveReplyQuote(index, message.reply_to);
+  if (local?.resolved) {
+    return local;
+  }
+  const snapshot = message.reply_snapshot;
+  if (message.reply_to && snapshot && snapshot.reply_to === message.reply_to) {
+    // sender_name 是发送方视角的名字：快照带 sender_id 且命中本端用户时，本地化为「我」，
+    // 否则原样渲染（它本来就是原始昵称，不是「我」——发送端已做过一次转换）。
+    const senderName = snapshot.sender_id && currentUserId && snapshot.sender_id === currentUserId
+      ? '我'
+      : snapshot.sender_name;
+    return { senderName, text: snapshot.summary, resolved: true };
+  }
+  return local;
 }

@@ -43,7 +43,7 @@ import { useChatStore } from '../../stores';
 import { friendDisplayName } from '../../utils/friendName';
 import {
   buildReplyPreviewIndex,
-  resolveReplyQuote,
+  resolveReplyQuoteFromMessage,
   summarizeMessageForReply,
 } from '../shared/replyPreview';
 import { friendConversationKey } from '../shared/conversationKey';
@@ -170,7 +170,11 @@ export function ChatMessages({
       conversationKey: friendConversationKey(conversationType, friend.friend_id),
       messageUuid: message.message_uuid,
       senderName: displayNameOf(message),
+      senderId: message.sender_id,
       preview: summarizeMessageForReply(message),
+      // 组合消息快照的另外两件：类型 + 时间也在选中这一刻定格，发送时原样进信封
+      messageType: message.message_type,
+      sendTime: message.send_time,
     });
   }, [setReplyDraft, conversationType, friend.friend_id, displayNameOf]);
 
@@ -271,11 +275,11 @@ export function ChatMessages({
       if (!m) { continue; }
       map.set(
         node.kind === 'album' ? `album-${node.groupId}` : getStableKey(m),
-        resolveReplyQuote(replyPreviewIndex, m.reply_to),
+        resolveReplyQuoteFromMessage(replyPreviewIndex, m, session.userId),
       );
     }
     return map;
-  }, [renderNodes, replyPreviewIndex]);
+  }, [renderNodes, replyPreviewIndex, session.userId]);
 
   // 滚动处理：仅检测"接近顶部（最旧）"以触发加载更多。
   // column-reverse 坐标：滚动原点在底部，离底距离 = |scrollTop|；到顶距离 = 总可滚距离 − 离底距离。

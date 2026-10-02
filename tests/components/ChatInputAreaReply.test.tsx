@@ -71,7 +71,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于当前群：显示被回复者与摘要', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Alice', preview: '被引用的原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -83,7 +83,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('点「取消回复」清空 store 草稿并收起该条', async () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '被引用的原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Alice', preview: '被引用的原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -99,7 +99,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于别的群：当前会话不显示（跨会话闸）', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { conversationKey: 'group:g-OTHER', messageUuid: 'm-1', senderName: 'Alice', preview: '别群的原文' },
+      replyDraft: { conversationKey: 'group:g-OTHER', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Alice', preview: '别群的原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -111,7 +111,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于群、当前是私聊：不显示（跨会话闸对不同会话类型同样生效）', () => {
     useChatStore.setState({
       chatTarget: { type: 'friend', data: FRIEND },
-      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Alice', preview: '原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -124,7 +124,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于当前私聊会话：正常显示回复条', () => {
     useChatStore.setState({
       chatTarget: { type: 'friend', data: FRIEND },
-      replyDraft: { conversationKey: 'friend:f-1', messageUuid: 'm-1', senderName: 'Bob', preview: '私聊被引用的原文' },
+      replyDraft: { conversationKey: 'friend:f-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Bob', preview: '私聊被引用的原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -138,7 +138,7 @@ describe('ChatInputArea — 「正在回复」条', () => {
   it('草稿属于当前 bot 会话：正常显示回复条（key 前缀 bot: 而非 friend:）', () => {
     useChatStore.setState({
       chatTarget: { type: 'bot', data: FRIEND },
-      replyDraft: { conversationKey: 'bot:f-1', messageUuid: 'm-1', senderName: 'Bot', preview: 'bot 的原文' },
+      replyDraft: { conversationKey: 'bot:f-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Bot', preview: 'bot 的原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
     });
 
     renderInput();
@@ -151,7 +151,7 @@ describe('chatStore — 切会话清回复草稿', () => {
   it('setChatTarget 清空 replyDraft / highlightedMessageId / messageJumpNotice', () => {
     useChatStore.setState({
       chatTarget: { type: 'group', data: GROUP },
-      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderName: 'Alice', preview: '原文' },
+      replyDraft: { conversationKey: 'group:g-1', messageUuid: 'm-1', senderId: 'u-x', senderName: 'Alice', preview: '原文', messageType: "text", sendTime: "2026-01-01T00:00:00Z" },
       highlightedMessageId: 'm-9',
       messageJumpNotice: '原消息不在本地记录中，无法定位',
     });

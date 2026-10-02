@@ -35,6 +35,9 @@ export interface Message {
   receiver_id: string;
   message_content: string;
   message_type: MessageType;
+  /** 组合消息随包原消息快照（combinedMessage.ts 信封拆出；旧消息/非回复无此字段）。
+   *  仅客户端内存态：wire 侧它在 message_content 信封里，本地 DB 存原样信封、转换时拆出。 */
+  reply_snapshot?: ReplySnapshot | null;
   file_uuid: string | null;
   file_url: string | null;
   file_size: number | null;
@@ -109,6 +112,10 @@ export interface Conversation {
 // 群聊相关类型
 // ============================================
 
+// ReplySnapshot 与本文件零依赖：combinedMessage.ts 是纯模块（不 import 任何业务类型），
+// 反向只 import 它的 type，无循环。
+import type { ReplySnapshot } from '../chat/shared/combinedMessage';
+
 /** 群聊基本信息 */
 export interface Group {
   group_id: string;
@@ -140,6 +147,9 @@ export interface GroupMessage {
   /** 媒体高度（像素），图片/视频类型消息有值 */
   image_height?: number | null;
   reply_to: string | null;
+  /** 组合消息随包原消息快照（combinedMessage.ts 信封拆出；旧消息/非回复无此字段）。
+   *  ⚠️ 本文件与 api/groupMessages.ts 各有一份 GroupMessage（仓内已知坑），改动须两处同步。 */
+  reply_snapshot?: ReplySnapshot | null;
   /** 媒体组（相册）ID —— 组内各项共享同一值，由客户端生成；非组内消息为 null。撤回不清空 */
   media_group_id?: string | null;
   /** 组内位次（0-based）；index=0 那条的 message_content 即整组 caption */

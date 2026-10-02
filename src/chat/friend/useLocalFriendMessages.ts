@@ -40,6 +40,12 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { getFriendConversationId } from '../../utils/conversationId';
 import { mergeMessageList } from '../shared/mergeMessageList';
 import { pickSendingEchoIndex } from '../shared/wsEchoClaim';
+// 组合消息（原消息快照 + 回复正文）：上行打包、入口拆包，见 combinedMessage.ts 文件头
+import {
+  buildCombinedMessageContent,
+  parseCombinedMessageContent,
+  type ReplySnapshot,
+} from '../shared/combinedMessage';
 // 文本假阴性对账：HTTP 响应丢在回程、服务端已受理的那条，靠历史查询认领
 // （增量同步不含自己发的消息，实测确认，详见该模块文件头）
 import { probeSentText } from '../shared/sendFailureReconcile';
@@ -95,11 +101,16 @@ function logError(action: string, error: unknown) {
  * 将本地消息转换为 UI Message 类型
  */
 function localMessageToMessage(local: LocalMessage, friendId: string): Message {
+  // 组合消息拆包（唯一 DB→UI 拆包点，私聊侧）：本地库存的是原样信封（与服务端一致，
+  // 重启后快照仍可用），这里拆成纯正文 + 随包快照，下游渲染/转发/多选全都无需感知信封。
+  const combined = local.content_type === 'text'
+    ? parseCombinedMessageContent(local.content)
+    : null;
   return {
     message_uuid: local.message_uuid,
     sender_id: local.sender_id,
     receiver_id: local.sender_id === friendId ? local.conversation_id : friendId,
-    message_content: local.content,
+    message_content: combined ? combined.text : local.content,
     message_type: local.content_type as Message['message_type'],
     file_uuid: local.file_uuid,
     file_url: local.file_url,
@@ -109,6 +120,7 @@ function localMessageToMessage(local: LocalMessage, friendId: string): Message {
     // reply_to 与相册三件套必须一路带到 UI：落库了但转换时丢掉，
     // 等于白存 —— 从 DB 读出来的消息照样没有引用块、相册照样散架
     reply_to: local.reply_to,
+    reply_snapshot: combined ? combined.reply : undefined,
     media_group_id: local.media_group_id,
     media_group_index: local.media_group_index,
     media_group_count: local.media_group_count,
@@ -595,7 +607,11 @@ export function useLocalFriendMessages(friendId: string | null) {
   // 发送文本消息（乐观更新）
   // ============================================
 
-  const sendTextMessage = useCallback(async (content: string, replyTo?: string): Promise<void> => {
+  const sendTextMessage = useCallback(async (
+    content: string,
+    replyTo?: string,
+    replySnapshot?: ReplySnapshot,
+  ): Promise<void> => {
     if (!friendId || !content.trim() || !session) {
       return;
     }
@@ -608,6 +624,13 @@ export function useLocalFriendMessages(friendId: string | null) {
     const tempUuid = clientId; // 临时 UUID 使用 clientId
     const tempSendTime = new Date().toISOString();
 
+    // 组合消息：引用回复时把原消息快照随正文一起上行（信封在 message_content 里，
+    // message_type/reply_to 等协议字段不变，服务端按不透明字符串中转）。
+    // 乐观消息与本地 UI 始终用纯正文 + reply_snapshot；信封只出现在 wire 与本地 DB。
+    const wireContent = replyTo && replySnapshot
+      ? buildCombinedMessageContent(content, replySnapshot)
+      : content;
+
     // 构建临时消息对象（乐观更新）
     const tempMessage: Message = {
       message_uuid: tempUuid,
@@ -619,6 +642,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       file_url: null,
       file_size: null,
       reply_to: replyTo ?? null,
+      reply_snapshot: replyTo ? replySnapshot : undefined,
       send_time: tempSendTime,
       seq: 0,
       is_recalled: false,
@@ -636,7 +660,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       // 调用 API 发送
       const response = await sendMessage(api, {
         receiver_id: friendId,
-        message_content: content,
+        message_content: wireContent,
         message_type: 'text',
         // 非回复时留 undefined，JSON 序列化会整个丢掉这个 key（后端 reply_to 为可选字段）
         reply_to: replyTo,
@@ -663,7 +687,8 @@ export function useLocalFriendMessages(friendId: string | null) {
         sender_id: session.userId,
         sender_name: session.profile.user_nickname,
         sender_avatar: session.profile.user_avatar_url,
-        content,
+        // 本地库存原样信封（与服务端一致）：重启后转换拆包，快照依然可用
+        content: wireContent,
         content_type: 'text',
         file_uuid: null,
         file_url: null,
@@ -705,7 +730,8 @@ export function useLocalFriendMessages(friendId: string | null) {
           const hit = await probeSentText(api, {
             conversationType: 'friend',
             targetId: friendId,
-            content,
+            // 服务端存的是 wire 正文（组合消息即信封）；必须用同形正文比对才对得上
+            content: wireContent,
             messageType: 'text',
             sendTimeIso: tempSendTime,
             userId: session.userId,
@@ -731,7 +757,7 @@ export function useLocalFriendMessages(friendId: string | null) {
             sender_id: session.userId,
             sender_name: session.profile.user_nickname,
             sender_avatar: session.profile.user_avatar_url,
-            content,
+            content: wireContent,
             content_type: 'text',
             file_uuid: null,
             file_url: null,
@@ -961,6 +987,14 @@ export function useLocalFriendMessages(friendId: string | null) {
 
     logLocal('收到 WebSocket 新消息', { uuid: wsMsg.message_uuid, sender: wsMsg.sender_id });
 
+    // 组合消息拆包（唯一 WS→UI 拆包点，私聊侧）：回显认领与新增消息都用拆包后的纯正文，
+    // 否则信封与乐观消息的纯正文对不上，回显认领会落空、新消息气泡会显示裸 JSON。
+    const rawContent = wsMsg.content || wsMsg.preview || '';
+    const combined = wsMsg.message_type === 'text'
+      ? parseCombinedMessageContent(rawContent)
+      : null;
+    const plainContent = combined ? combined.text : rawContent;
+
     // 调试：检查 WebSocket 消息中是否包含尺寸信息
     if (wsMsg.message_type === 'image' || wsMsg.message_type === 'video') {
       // eslint-disable-next-line no-console
@@ -998,7 +1032,7 @@ export function useLocalFriendMessages(friendId: string | null) {
       // chat/shared/wsEchoClaim.ts）：sending 精确 > sending 兜底 > failed 仅精确修复。
       if (wsMsg.sender_id === session.userId) {
         const sendingIndex = pickSendingEchoIndex(prev, {
-          content: wsMsg.content || wsMsg.preview || '',
+          content: plainContent,
           message_type: wsMsg.message_type,
         });
         if (sendingIndex >= 0) {
@@ -1024,7 +1058,7 @@ export function useLocalFriendMessages(friendId: string | null) {
         message_uuid: wsMsg.message_uuid,
         sender_id: wsMsg.sender_id,
         receiver_id: session.userId,
-        message_content: wsMsg.content || wsMsg.preview || '',
+        message_content: plainContent,
         message_type: wsMsg.message_type as Message['message_type'],
         file_uuid: wsMsg.file_uuid ?? null,
         file_url: wsMsg.file_url ?? null,
@@ -1034,6 +1068,7 @@ export function useLocalFriendMessages(friendId: string | null) {
         // 实时推送同样要带：不带的话对方回复/发相册时，我这边**当场**就渲染不出
         // 引用块与网格（重启后更没有，因为落库那段也曾经在丢）
         reply_to: wsMsg.reply_to ?? null,
+        reply_snapshot: combined ? combined.reply : undefined,
         media_group_id: wsMsg.media_group_id ?? null,
         media_group_index: wsMsg.media_group_index ?? null,
         media_group_count: wsMsg.media_group_count ?? null,

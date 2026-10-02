@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from '../contexts/SessionContext';
 import { parseFriendIdFromConversationId } from '../utils/conversationId';
 import { GROUP_CARD_PREVIEW_TEXT } from '../chat/shared/groupCard';
+import { stripCombinedEnvelope } from '../chat/shared/combinedMessage';
 import * as db from '../db';
 
 const PREVIEW_CHANGED_EVENT = 'conversation-previews-changed';
@@ -67,7 +68,9 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 /** 将 content_type + content 转为用户可读的预览文本 */
 function toPreviewText(contentType: string | null, content: string | null): string | null {
   if (!contentType || content === null) { return null; }
-  return CONTENT_TYPE_MAP[contentType] ?? content;
+  // text 型可能是组合消息信封（combinedMessage.ts）：会话列表只显示回复正文，不吐裸 JSON
+  const plain = contentType === 'text' ? stripCombinedEnvelope(content) : content;
+  return CONTENT_TYPE_MAP[contentType] ?? plain;
 }
 
 /**

@@ -36,6 +36,7 @@ import { ListLoading, ListError, ListEmpty } from '../common/ListStates';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { friendChatTarget } from '../../utils/chatTarget';
+import { stripCombinedEnvelopeNullable } from '../../chat/shared/combinedMessage';
 import { isBotUserId } from '../../api/bots';
 import { BotBadge } from '../common/BotBadge';
 import { cardVariants, cardTransition } from '../../constants/listAnimations';
@@ -466,7 +467,7 @@ export function UnifiedList({
         type: 'group',
         name: group.group_name,
         avatarUrl: group.group_avatar_url,
-        lastMessage: localPreview?.lastMessage ?? group.last_message_content ?? null,
+        lastMessage: localPreview?.lastMessage ?? stripCombinedEnvelopeNullable(group.last_message_content),
         lastMessageTime: localPreview?.lastMessageTime ?? group.last_message_time ?? null,
         // 未读数只认 WS unreadSummary（按 last-read-seq 派生口径）；派生为 0 的群在快照里
         // 没有条目，不能兜底 REST 的 group.unread_count（旧计数器列，口径分叉且点击清不掉）

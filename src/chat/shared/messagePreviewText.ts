@@ -24,6 +24,7 @@
  */
 
 import { GROUP_CARD_PREVIEW_TEXT } from './groupCard';
+import { stripCombinedEnvelope } from './combinedMessage';
 
 /**
  * 正文本身就是给人看的、可以直接当预览的类型。
@@ -58,7 +59,12 @@ export function conversationPreviewText(
   content: string | null | undefined,
 ): string {
   if (messageType && RAW_CONTENT_TYPES.has(messageType)) {
-    return content || UNKNOWN_MESSAGE_PREVIEW_TEXT;
+    // text 型 content 可能是组合消息信封（combinedMessage.ts，引用回复随包原消息快照）：
+    // 会话列表只显示回复正文。非信封原样返回；system 不可能是信封，不付解析成本。
+    const plain = messageType === 'text' && content !== null && content !== undefined
+      ? stripCombinedEnvelope(content)
+      : content;
+    return plain || UNKNOWN_MESSAGE_PREVIEW_TEXT;
   }
   return MESSAGE_PREVIEW_TEXT[messageType ?? ''] ?? UNKNOWN_MESSAGE_PREVIEW_TEXT;
 }

@@ -20,6 +20,7 @@ import {
   REPLY_UNRESOLVED_TEXT,
   buildReplyPreviewIndex,
   resolveReplyQuote,
+  resolveReplyQuoteFromMessage,
   summarizeMessageForReply,
   truncateReplyText,
 } from '../../src/chat/shared/replyPreview';
@@ -190,5 +191,90 @@ describe('resolveReplyQuote', () => {
       text: REPLY_UNRESOLVED_TEXT,
       resolved: false,
     });
+  });
+});
+
+// ============================================================================
+// resolveReplyQuoteFromMessage —— 组合消息随包快照兜底（combinedMessage 改造）
+// ============================================================================
+
+describe('resolveReplyQuoteFromMessage', () => {
+  const index = buildReplyPreviewIndex(
+    [makeMessage({ message_uuid: 'target', sender_nickname: 'Alice', message_content: '被引用的原文' })],
+    (m) => m.sender_nickname,
+  );
+  const snapshot = {
+    reply_to: 'old-uuid',
+    sender_name: 'Bob',
+    summary: '很早的原消息',
+    message_type: 'text',
+    send_time: '2025-01-01T00:00:00Z',
+  };
+
+  it('本地反查命中：优先本地值（能反映撤回等最新状态），快照被忽略', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'target',
+      reply_snapshot: { ...snapshot, reply_to: 'target', sender_name: '快照里的名字', summary: '快照里的摘要' },
+    });
+    expect(out).toEqual({ senderName: 'Alice', text: '被引用的原文', resolved: true });
+  });
+
+  it('本地落空 + 随包快照在：直接渲染快照，resolved=true（占位条消失）', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: snapshot,
+    });
+    expect(out).toEqual({ senderName: 'Bob', text: '很早的原消息', resolved: true });
+  });
+
+  it('旧消息（无快照）本地落空：占位行为与原来完全一致', () => {
+    const out = resolveReplyQuoteFromMessage(index, { reply_to: 'old-uuid' });
+    expect(out).toEqual({ senderName: null, text: REPLY_UNRESOLVED_TEXT, resolved: false });
+  });
+
+  it('快照 reply_to 与消息 reply_to 失配：视为不可信，回落占位', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: { ...snapshot, reply_to: '另一个uuid' },
+    });
+    expect(out).toEqual({ senderName: null, text: REPLY_UNRESOLVED_TEXT, resolved: false });
+  });
+
+  it('快照 reply_to 为 null（异常数据）：不崩溃，回落占位', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: null,
+    });
+    expect(out).toEqual({ senderName: null, text: REPLY_UNRESOLVED_TEXT, resolved: false });
+  });
+
+  it('非回复消息返回 null（不渲染引用块），带不带快照都一样', () => {
+    expect(resolveReplyQuoteFromMessage(index, { reply_to: null, reply_snapshot: snapshot })).toBeNull();
+    expect(resolveReplyQuoteFromMessage(index, {})).toBeNull();
+  });
+
+  // 跨端「我」本地化：快照 sender_name 是发送方视角，接收端按 sender_id 与本地 userId 判定
+  it('快照 sender_id 命中本端 userId：senderName 本地化为「我」', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: { ...snapshot, sender_name: 'Alice', sender_id: 'me-1' },
+    }, 'me-1');
+    expect(out).toEqual({ senderName: '我', text: '很早的原消息', resolved: true });
+  });
+
+  it('快照 sender_id 是别人：原样渲染 sender_name，不可本地化为「我」', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: { ...snapshot, sender_name: 'Alice', sender_id: 'other-1' },
+    }, 'me-1');
+    expect(out).toEqual({ senderName: 'Alice', text: '很早的原消息', resolved: true });
+  });
+
+  it('旧信封无 sender_id：原样渲染 sender_name（兼容首版组合消息）', () => {
+    const out = resolveReplyQuoteFromMessage(index, {
+      reply_to: 'old-uuid',
+      reply_snapshot: snapshot,
+    }, 'me-1');
+    expect(out).toEqual({ senderName: 'Bob', text: '很早的原消息', resolved: true });
   });
 });
