@@ -1552,3 +1552,43 @@
     pointer-events: auto;
   }
 }
+
+/* ============================================
+   屏幕共享独立窗口（块 pvmk3dxq：分享框独立窗口化）
+   选项控件复用上方 .setting-* 类；此处仅补独立窗整页布局与状态提示。
+   ============================================ */
+
+.screen-share-settings-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.screen-share-window-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: linear-gradient(
+    180deg,
+    var(--white-alpha-97) 0%,
+    var(--white-alpha-95) 100%
+  );
+}
+
+.screen-share-window-page .screen-share-settings-panel {
+  width: 100%;
+  max-width: 380px;
+}
+
+.screen-share-window-note {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.setting-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

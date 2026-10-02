@@ -20,6 +20,7 @@ import { WebSocketProvider } from './contexts/WebSocketContext';
 import { ThemeProvider, ThemeEditorPage } from './theme';
 import App from './App';
 import { MeetingPage } from './meeting';
+import { ScreenShareWindowPage } from './meeting/ScreenShareWindowPage';
 import { MediaPreviewPage } from './media';
 import { LanTransferPage } from './lanTransfer';
 import { HuanvaeGuardPage } from './huanvaeGuard';
@@ -41,6 +42,13 @@ function RootApp() {
   // 会议页面（独立窗口，不需要 Session）
   if (pathname === '/meeting') {
     return <MeetingPage />;
+  }
+
+  // 屏幕共享设置独立窗口（桌面端，块 pvmk3dxq）：分享选择 UI 不再嵌在会议窗内，
+  // 以独立系统窗口呈现；与会议窗经 screenShareWindow.ts 事件通道同步（纯 UI+事件，
+  // 无后端数据面调用，不进 DATA_PLANE_SUBWINDOWS）。移动端无 WebviewWindow，此路由不可达。
+  if (pathname === '/screen-share') {
+    return <ScreenShareWindowPage />;
   }
 
   // 媒体预览页面（独立窗口，认证信息通过 localStorage 传递）

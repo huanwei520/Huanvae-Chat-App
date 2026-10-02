@@ -76,6 +76,27 @@ import {
   registerControlChannelRebuilder, // D4（块 1790313105455-rt4p73av-1）：断链自愈重建钩子
 } from '../remote-control/frameChannel';
 
+// 档位类型/映射/可用性判定单一事实源（块 pvmk3dxq 抽出，供会议窗弹窗与独立分享窗口共用）；
+// 此处 re-export 保持既有导入方（MeetingPage 等）零改动。
+import {
+  RESOLUTION_MAP,
+  type ScreenShareSettings,
+} from './screenShareSettings';
+
+/**
+ * 最近一次屏幕共享发起失败的原始错误（诊断遥测，块 pvmk3dxq）。
+ * 纯记录：AbortError/unknown 被既有 parseMediaError 抑制不进 mediaError 时，
+ * 独立分享窗口的 RESULT 通道仍可回传真实原因。桌面采集分支语义零改动。
+ */
+export let lastScreenShareError: string | null = null;
+export {
+  RESOLUTION_MAP,
+  getAvailableResolutions,
+  type ScreenShareFrameRate,
+  type ScreenShareResolution,
+  type ScreenShareSettings,
+} from './screenShareSettings';
+
 // 1d0t34vy 诊断仪表：全局探针注册（被动注册零开销；仅显式 __hgSSPipe.start() 才采样）
 getScreenSharePipeProbe();
 
@@ -127,25 +148,6 @@ interface TransceiverRefs {
   screen: RTCRtpTransceiver | null;
 }
 
-/** 屏幕共享分辨率选项 */
-export type ScreenShareResolution = '1080p' | '2k' | '4k';
-
-/** 屏幕共享帧率选项 */
-export type ScreenShareFrameRate = 60 | 120;
-
-/** 屏幕共享设置 */
-export interface ScreenShareSettings {
-  resolution: ScreenShareResolution;
-  frameRate: ScreenShareFrameRate;
-}
-
-/** 分辨率映射 */
-export const RESOLUTION_MAP: Record<ScreenShareResolution, { width: number; height: number }> = {
-  '1080p': { width: 1920, height: 1080 },
-  '2k': { width: 2560, height: 1440 },
-  '4k': { width: 3840, height: 2160 },
-};
-
 /** 重连回调：重新加入房间，返回新的 ws token + ICE 服务器 */
 export type RejoinFn = () => Promise<{ token: string; iceServers: IceServer[] } | null>;
 
@@ -162,20 +164,9 @@ const MAX_RECONNECT_ATTEMPTS = 6;
 /** ICE 持续 disconnected 多久后触发 restartIce */
 const ICE_DISCONNECT_RESTART_MS = 3_000;
 
-/**
- * 获取可用的屏幕共享分辨率选项
- * 根据显示器实际分辨率过滤，避免设置超出显示器能力的分辨率
- */
-export function getAvailableResolutions(): ScreenShareResolution[] {
-  const screenWidth = window.screen.width * (window.devicePixelRatio || 1);
-  const screenHeight = window.screen.height * (window.devicePixelRatio || 1);
-
-  const all: ScreenShareResolution[] = ['1080p', '2k', '4k'];
-  return all.filter((res) => {
-    const { width, height } = RESOLUTION_MAP[res];
-    return width <= screenWidth && height <= screenHeight;
-  });
-}
+// ============================================
+// 常量
+// ============================================
 
 /** Hook 返回值 */
 export interface UseWebRTCReturn {
@@ -1504,6 +1495,8 @@ export function useWebRTC(): UseWebRTCReturn {
       await stopScreenShareInternal();
     } else {
       try {
+        // 诊断遥测（块 pvmk3dxq）：发起前清空上次错误记录（纯记录，不改语义）
+        lastScreenShareError = null;
         const resolution = settings?.resolution ?? '1080p';
         const frameRate = settings?.frameRate ?? 60;
         const { width, height } = RESOLUTION_MAP[resolution];
@@ -1572,6 +1565,8 @@ export function useWebRTC(): UseWebRTCReturn {
         setMediaError(null);
         sendMediaState(next);
       } catch (err) {
+        // 诊断遥测（块 pvmk3dxq）：原始错误名+消息供跨窗口诊断（独立分享窗 RESULT 回传）
+        lastScreenShareError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
         const mediaErr = parseMediaError(err, 'screen');
         // AbortError 表示用户取消，不显示错误
         if (mediaErr.message && mediaErr.reason !== 'unknown') {

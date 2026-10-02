@@ -28,8 +28,22 @@ import {
   type ScreenShareResolution,
   type ScreenShareFrameRate,
   getAvailableResolutions,
-  RESOLUTION_MAP,
+  lastScreenShareError,
 } from './useWebRTC';
+import { ScreenShareSettingsPanel } from './components/ScreenShareSettingsPanel';
+import {
+  openScreenShareWindow,
+  closeScreenShareWindow,
+  SCREEN_SHARE_EV_CONFIRM,
+  SCREEN_SHARE_EV_RESULT,
+  SCREEN_SHARE_EV_STATE,
+  SCREEN_SHARE_POLL_INTERVAL_MS,
+  SCREEN_SHARE_POLL_MAX_TRIES,
+  type ScreenShareConfirmPayload,
+  type ScreenShareResultPayload,
+  type ScreenShareStatePayload,
+} from './screenShareWindow';
+import { isDesktop } from '../utils/platform';
 import { loadMeetingData, clearMeetingData, joinRoom, type MeetingWindowData, type IceServer } from './api';
 import { getMeetingIdentity } from './identity';
 import {
@@ -419,7 +433,7 @@ export default function MeetingPage() {
   const [showParticipants, setShowParticipants] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // 屏幕共享设置弹窗
+  // 屏幕共享设置弹窗（非桌面/独立窗创建失败时的窗内兑底）
   const [showScreenShareSettings, setShowScreenShareSettings] = useState(false);
   const [screenShareResolution, setScreenShareResolution] = useState<ScreenShareResolution>('1080p');
   const [screenShareFrameRate, setScreenShareFrameRate] = useState<ScreenShareFrameRate>(60);
@@ -438,6 +452,11 @@ export default function MeetingPage() {
   const availableResolutions = getAvailableResolutions();
 
   const webrtc = useWebRTC();
+  // 独立分享窗口事件监听用最新引用（监听器只挂一次，读值走 ref 免闭包过期）
+  const webrtcRef = useRef(webrtc);
+  webrtcRef.current = webrtc;
+  // 独立分享窗口 pending 态：窗口开着且共享尚未发起（destroyed 时按取消清态）
+  const shareWindowPendingRef = useRef(false);
 
   // 会议中热切换麦克风（桌面端会议窗）：设置面板在主窗改动 → 本窗 storage 事件到达此处
   // → switchAudioInputDevice（失败回滚旧设备并经 mediaError 如实呈现）。
@@ -855,8 +874,20 @@ export default function MeetingPage() {
       void import('../remote-control/api')
         .then(({ controlDisarm }) => controlDisarm())
         .catch(() => undefined);
+    } else if (isDesktop()) {
+      // 未共享：桌面端弹出**独立分享窗口**（块 pvmk3dxq：分享框不再绑死会议窗内）；
+      // 创建失败（非 Tauri 环境/异常）回退窗内弹窗。destroyed=用户取消（共享未发起）。
+      shareWindowPendingRef.current = true;
+      void openScreenShareWindow(() => {
+        shareWindowPendingRef.current = false;
+      }).then((ok) => {
+        if (!ok) {
+          shareWindowPendingRef.current = false;
+          setShowScreenShareSettings(true);
+        }
+      });
     } else {
-      // 未共享，显示设置弹窗
+      // 非桌面兑底：窗内设置弹窗（安卓会议本不走本组件，此支路为防御）
       setShowScreenShareSettings(true);
     }
   }, [webrtc]);
@@ -876,6 +907,65 @@ export default function MeetingPage() {
       .then(({ controlArm }) => controlArm())
       .catch(() => undefined);
   }, [webrtc, screenShareResolution, screenShareFrameRate]);
+
+  // 独立分享窗口事件通道（块 pvmk3dxq）：CONFIRM=独立窗点「开始共享」→本窗执行起始链
+  // （toggleScreenShare + R25 controlArm，与 handleStartScreenShare 同一语义），
+  // 然后轮询 mediaState 判定成败 → RESULT 回传独立窗（started=本窗关独立窗）。
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void listen<ScreenShareConfirmPayload>(SCREEN_SHARE_EV_CONFIRM, (event) => {
+      if (disposed) { return; }
+      const settings: ScreenShareSettings = {
+        resolution: event.payload.resolution,
+        frameRate: event.payload.frameRate,
+      };
+      void webrtcRef.current.toggleScreenShare(settings);
+      // 远控 R25 语义原样：被控端共享开始＝挂受理（arm，幂等）
+      void import('../remote-control/api')
+        .then(({ controlArm }) => controlArm())
+        .catch(() => undefined);
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries += 1;
+        if (webrtcRef.current.mediaState.screenSharing) {
+          clearInterval(timer);
+          const result: ScreenShareResultPayload = { status: 'started' };
+          void emit(SCREEN_SHARE_EV_RESULT, result).catch(() => undefined);
+          void closeScreenShareWindow();
+        } else if (tries >= SCREEN_SHARE_POLL_MAX_TRIES) {
+          clearInterval(timer);
+          const reason = webrtcRef.current.mediaError?.message;
+          const detail = lastScreenShareError
+            ?? (reason ? `mediaError: ${reason}` : 'no_error_recorded');
+          const result: ScreenShareResultPayload = {
+            status: 'failed',
+            message: reason ?? '未开始共享（可能在系统选择器中取消），可调整后重试',
+            detail,
+          };
+          void emit(SCREEN_SHARE_EV_RESULT, result).catch(() => undefined);
+        }
+      }, SCREEN_SHARE_POLL_INTERVAL_MS);
+    }).then((un) => { if (disposed) { un(); } else { unlisteners.push(un); } });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((un) => un());
+    };
+  }, []);
+
+  // 共享状态同步（块 pvmk3dxq）：本窗共享态变化 → 广播给独立分享窗口
+  //（分享窗收 sharing=true 即自关；sharing=false 时分享窗保持可重试态）
+  useEffect(() => {
+    const payload: ScreenShareStatePayload = { sharing: webrtc.mediaState.screenSharing };
+    void emit(SCREEN_SHARE_EV_STATE, payload).catch(() => undefined);
+  }, [webrtc.mediaState.screenSharing]);
+
+  // 会议窗卸载（离开会议/窗口关闭）时收掉仍开着的独立分享窗口，不留孤儿窗
+  useEffect(() => {
+    return () => {
+      void closeScreenShareWindow();
+    };
+  }, []);
 
   if (!meetingData) {
     return (
@@ -1278,61 +1368,16 @@ export default function MeetingPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h3>屏幕共享设置</h3>
-
-              <div className="setting-group">
-                <label>分辨率</label>
-                <div className="setting-options">
-                  {(['1080p', '2k', '4k'] as ScreenShareResolution[]).map((res) => {
-                    const isAvailable = availableResolutions.includes(res);
-                    const { width, height } = RESOLUTION_MAP[res];
-                    const labelMap = { '1080p': '1080p', '2k': '2K', '4k': '4K' };
-                    const label = labelMap[res];
-                    return (
-                      <button
-                        key={res}
-                        className={`setting-option ${screenShareResolution === res ? 'active' : ''} ${!isAvailable ? 'disabled' : ''}`}
-                        onClick={() => isAvailable && setScreenShareResolution(res)}
-                        disabled={!isAvailable}
-                        title={!isAvailable ? '超出显示器分辨率' : `${width}×${height}`}
-                      >
-                        {label} ({width}×{height})
-                        {!isAvailable && <span className="option-hint">不可用</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="setting-group">
-                <label>帧率</label>
-                <div className="setting-options">
-                  {([60, 120] as ScreenShareFrameRate[]).map((fps) => (
-                    <button
-                      key={fps}
-                      className={`setting-option ${screenShareFrameRate === fps ? 'active' : ''}`}
-                      onClick={() => setScreenShareFrameRate(fps)}
-                    >
-                      {fps} FPS
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="setting-actions">
-                <button
-                  className="setting-cancel"
-                  onClick={() => setShowScreenShareSettings(false)}
-                >
-                  取消
-                </button>
-                <button
-                  className="setting-confirm"
-                  onClick={handleStartScreenShare}
-                >
-                  开始共享
-                </button>
-              </div>
+              {/* 选项 UI 与独立分享窗口共用同一面板（单一事实源，块 pvmk3dxq） */}
+              <ScreenShareSettingsPanel
+                resolution={screenShareResolution}
+                frameRate={screenShareFrameRate}
+                availableResolutions={availableResolutions}
+                onResolutionChange={(res) => setScreenShareResolution(res)}
+                onFrameRateChange={(fps) => setScreenShareFrameRate(fps)}
+                onConfirm={handleStartScreenShare}
+                onCancel={() => setShowScreenShareSettings(false)}
+              />
             </motion.div>
           </motion.div>
         )}
