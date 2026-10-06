@@ -43,7 +43,10 @@
       "sha256": "f34f5b2ec43e7d8e9ae2e7ad14e96759e53913f0418069bb4778bb0ac40e616d",
       "built_at_utc": "2026-10-06T04:50:00Z",
       "gate_markers": {
-        "require": ["desktop backend unavailable", "BIND-POLICY-REJECTED"],
+        "require": [
+          "desktop backend unavailable",
+          "BIND-POLICY-REJECTED"
+        ],
         "forbid": []
       },
       "builder": {
@@ -59,22 +62,25 @@
       "path": "src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin",
       "target": "aarch64-apple-darwin",
       "format": "Mach-O 64-bit executable arm64",
-      "bytes": 1210208,
-      "sha256": "e6193671fb15f8e20a5c90e4c24deb4396cd01bdb43fa3810e5b8b3f54ded526",
-      "built_at_utc": "2026-10-06T05:44:00Z",
+      "bytes": 1210224,
+      "sha256": "8100d0ca83f5a5fd10372cd087194beddad7b9843499bc388db0eabd02d15475",
+      "built_at_utc": "2026-10-06T05:55:00Z",
       "gate_markers": {
-        "require": ["desktop backend unavailable", "BIND-POLICY-REJECTED"],
+        "require": [
+          "desktop backend unavailable",
+          "BIND-POLICY-REJECTED"
+        ],
         "forbid": []
       },
       "builder": {
-        "host": "macOS 固定机 10.128.0.9（arm64，Darwin 25.5.0 / macOS 26.5；块 xfu0nh5q-1 第2轮整改用）；Rust 工具链在 ~/.cargo/bin（非交互 PATH 不含，s2-1 时 which cargo 为空系此因），源码锚定检出 /private/var/root/4r2sli2c-src（四 build_anchor 件逐一命中后拷入本块工作区 /private/var/root/xfu0nh5q/src）",
+        "host": "macOS 固定机 10.128.0.9（arm64，Darwin 25.5.0 / macOS 26.5）——构建执行块=1791241251453-fmuq6rousefe405s2-1 第10轮（commit e5abbbde，工作区 /private/var/root/fmuq6r9/）；本块 xfu0nh5q-1 独立复建同锚同补丁件 e6193671…/1210208B（真机 smoke 全绿）留证于 code-evidence/，双分支采纳 e5abbbde 锚定件收敛（构建路径元数据差异致非位对位复现，沿 s2-1 Windows 件同现象）",
         "rustc": "1.98.1 (48a229cea 2026-09-01)",
         "toolchain": "stable-aarch64-apple-darwin（host 原生，rustup target 已装）",
         "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin",
         "build_log_exit": "BUILD_RC=0（42.69s，热缓存）",
         "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a；patch -p0 干跑+实跑两文件全净落)；补丁后源锚 daemon_rs=50f8ca8d…，control_rs=0e469d40…",
         "codesign_flags": "codesign -f -s - 显式重签（adhoc，Mach-O thin arm64）——沿 hg-macos 判例",
-        "smoke_on_macos": "真机(macOS 26.5 arm64, DISPLAY 空) 实证功能欠项已闭环：启动存活（WARNING lazy-backend 降级非 exit=1）→ healthz 200 'ok' → status 200 → arm 200 {armed:true} → frame 500 显式错误'capture failed: desktop backend unavailable: $DISPLAY…'且进程存活 → 0.0.0.0:19295 exit=2 BIND-POLICY-REJECTED → killswitch 200 优雅退出零残留（全原始输出见块交付书§3.3）"
+        "smoke_on_macos": "s2-1 第10轮真机 30/30 全套（见 e5abbbde 交付书）；本块独立复建件真机 smoke：启动存活(WARNING 惰性后端降级非 exit=1)+healthz/status/arm 200+frame 500 显式错误不退出+0.0.0.0 exit=2+killswitch 优雅清零（审计日志原件 code-evidence/macos-smoke-daemon-audit.log）"
       }
     }
   ],
@@ -83,5 +89,5 @@
     "macos": ".app/Contents/MacOS/hv-control-daemon，与仓内 apple-darwin 件字节一致"
   },
   "known_limitation": "daemon 被控端采集/注入后端为 X11(hv-demo-x11/x11rb)；Windows/macOS 桌面原生采集替换（'hv-demo-x11 后端替换'）为 commit 165f4cde/06e52282 明记的『块3 产品化范围』欠项，不在本块写面。**2026-10-06 起（rebuild_2026_10_06）**：X11 不可用不再导致整体退出——两平台 daemon 运行面（arm/grant/控制面/会话通道）实机可服务，采集/注入端点返回明确错误并按调用审计留痕；全链实测仍以 Linux(X11) 为被控端、Windows/macOS 为发起端+随包在位实证。",
-  "known_gap": "**2026-10-06（块 xfu0nh5q-1 第2轮整改）macOS 件功能欠项已闭环**：aarch64-apple-darwin 已用同一 defect3-fix 补丁在 macOS 固定机重建（e6193671…/1210208B，真机 smoke：无 X11 下控制面 200 可服务+显式错误不退出+exit=2 红线不变），known_gap 消除；v1.1.54 已发安装包仍携旧件，随下一版发布自然更新。"
+  "known_gap": "**2026-10-06 macOS 件功能欠项已闭环**：aarch64-apple-darwin 已由 s2-1 第10轮（e5abbbde）与本块（xfu0nh5q-1 第2轮，独立复建 e6193671…）双双用同一 defect3-fix 补丁重建，功能欠项消除；v1.1.54 已发安装包仍携旧件，随下一版发布自然更新。"
 }
