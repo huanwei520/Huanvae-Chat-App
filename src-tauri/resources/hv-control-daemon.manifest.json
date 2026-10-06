@@ -82,6 +82,27 @@
         "codesign_flags": "codesign -f -s - 显式重签（adhoc，Mach-O thin arm64）——沿 hg-macos 判例",
         "smoke_on_macos": "s2-1 第10轮真机 30/30 全套（见 e5abbbde 交付书）；本块独立复建件真机 smoke：启动存活(WARNING 惰性后端降级非 exit=1)+healthz/status/arm 200+frame 500 显式错误不退出+0.0.0.0 exit=2+killswitch 优雅清零（审计日志原件 code-evidence/macos-smoke-daemon-audit.log）"
       }
+    },
+    {
+      "path": "src-tauri/binaries/hv-control-daemon-x86_64-unknown-linux-gnu",
+      "target": "x86_64-unknown-linux-gnu",
+      "format": "ELF 64-bit LSB executable x86-64",
+      "bytes": 1353144,
+      "sha256": "f02786fe8b2e3797fd657fee8e71b2e42d3bdb3de52331a23f98165270cbe15e",
+      "built_at_utc": "2026-09-14T23:15:00Z",
+      "gate_markers": {
+        "require": [
+          "BIND-POLICY-REJECTED"
+        ],
+        "forbid": []
+      },
+      "builder": {
+        "host": "仓内现态锚定（=main 树内件，deb/AppImage 腿分发件）",
+        "rustc": "见前代构建记录",
+        "toolchain": "linux-gnu 宿主",
+        "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-unknown-linux-gnu",
+        "notes": "X11 为其原生后端，X11-only 形态在 Linux 桌面为正确行为（DEFECT-3 仅指 Windows/macOS 形态混入）；补锚目的=deb 腿内容核查有哈希可依（xfu0nh5q-1 第4轮）。deb repack 语义（externalBin 搬移至 /opt）属 h67s8pvv-1 在飞写面，其分支删除搬移块之裁处见 acceptance.json unmet"
+      }
     }
   ],
   "in_package": {

@@ -12,7 +12,7 @@
 #   1) 接线腿：tauri.windows.conf.json / tauri.macos.conf.json 的 externalBin 已填
 #      binaries/hv-control-daemon（防"件在仓里但包不带"的缺环复发）；
 #   2) 仓内件腿：manifest.artifacts[] 逐一存在 + sha256 复算一致；
-#   3) 解包腿：对给定安装包解包（NSIS→7z / .app.tar.gz→tar / DMG→7z 尽力），
+#   3) 解包腿：对给定安装包解包（NSIS→7z / .app.tar.gz→tar / DMG→7z 尽力 / deb→ar+tar），
 #      找 hv-control-daemon* 并按平台对 manifest 期望哈希逐一复算。
 #
 # ## 用法
@@ -179,7 +179,22 @@ if ! $BINS_ONLY; then
                     # 与 v2 清单同口径：7z 对 HFS/APFS 支持参差，解不开如实 WARN（不冒充通过）
                     warn "[DMG] 本机解包器无法解此 DMG（.app.tar.gz 才是 macOS 可靠核对对象）"
                 fi ;;
-            *) fail "不认识的安装包扩展名: $a（支持 .exe/.tar.gz/.dmg）" ;;
+            *.deb)  # Debian 包（xfu0nh5q-1 第4轮增补腿：deb 缺 daemon 静默发货的防线——
+                    # 如 release.yml deb-repack externalBin 搬移块被删/失效，deb 内缺件本腿拦截）
+                if ! command -v ar >/dev/null 2>&1; then
+                    fail "本机无 ar（binutils）—— fail-closed"
+                else
+                    ( cd "$work" && ar x "$a" ) || { fail "ar 解 deb 失败 —— fail-closed"; continue; }
+                    data=$(ls "$work"/data.tar.* 2>/dev/null | head -1)
+                    if [[ -z "$data" ]]; then fail "deb 内无 data.tar.* —— fail-closed"; continue; fi
+                    mkdir -p "$work/deb-root"
+                    if tar xf "$data" -C "$work/deb-root" --no-same-owner 2>/dev/null; then
+                        verify_unpacked_daemon "$work/deb-root" "$(want_sha_for x86_64-unknown-linux-gnu)" "deb/Linux" 'hv-control-daemon*'
+                    else
+                        fail "data.tar 解包失败 —— fail-closed"
+                    fi
+                fi ;;
+            *) fail "不认识的安装包扩展名: $a（支持 .exe/.tar.gz/.dmg/.deb）" ;;
         esac
         rm -rf "$work"
     done
