@@ -1,1 +1,0 @@
-bash -n scripts/build-hv-control-binaries.sh => 语法 OK, RC=0

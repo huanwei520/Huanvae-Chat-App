@@ -1,5 +1,0 @@
-$ for s in "desktop backend unavailable" "hv-control-demo" "x11rb"; do printf "strings msvc.exe | grep -cF %s => " "$s"; strings src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe | grep -cF "$s"; done
-  desktop backend unavailable => 3
-  hv-control-demo => 7
-  x11rb => 9
-RC=0
