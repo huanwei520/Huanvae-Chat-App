@@ -15,7 +15,7 @@
   "rustc": "1.98.1 (48a229cea 2026-09-01) —— 双端同版",
   "rebuild_2026_10_06": {
     "reason": "块 1791241251453-fmuq6rousefe405s2-1（三链路真机实测）在 Windows 实机复现：随包 hv-control-daemon.exe 启动即退（X11 后端连接在启动路径上无条件执行，无 DISPLAY 即 exit=1）——与 known_limitation 自述的『两平台 daemon 运行面（arm/grant/控制面/会话通道）不变』不符；且 origin/main 上 `bash scripts/assert-daemon-content.sh` 本身 FAIL（仓内 windows/macos 两件哈希与上一版 manifest 记录不符：期望 windows 4c1b1000576df473b39aa6b53fe785e619efcd51372440398df79299b95c1c63 / macos 0c5cc6bcb88dd3026e2dd0164989fd7d7c18ea6ed2bd83cb4565cb1157e3949c），随包内容门禁为红。",
-    "fix": "crates/hv-control-demo/src/bin/hv-control-daemon.rs 引入 BackendSlot（惰性连接 + 可失败）：X11 后端不可用时不再整体退出，控制面（arm/disarm/incoming/status/killswitch，回环 HTTP）与 P3 会话通道（grant/握手/审计）继续服务；采集（GET /control/frame）与注入（POST /control/input）按调用返回明确错误并审计留痕（inject-refused）。绑定策略红线不变（0.0.0.0/[::] 仍在 OS bind 之前 exit=2 拒绝）。\n\n另修控制面稳定性缺陷（同批真机实测发现）：crates/hv-control-demo/src/control.rs 的手写 HTTP server 监听套接字设非阻塞（:220）但 accept 后未置回阻塞——Windows 上 accept() 返回的套接字继承非阻塞态，连接处理线程偶发 WouldBlock 导致请求被丢（客户端见 curl(56)『Connection was aborted』）。修法：两处 accept 后 set_nonblocking(false)。实测：修前 GET/POST 各 50 次失败 5-10 次（ok=40/50、45/50）；修后 50/50 + 50/50 全成功。同机 PowerShell HttpListener 对照 50/50 全成功 → 定位在 daemon 而非平台。\n\n补丁原文随包在 src-tauri/resources/hv-control-daemon.defect3-fix.patch（sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a，含两个文件）。",
+    "fix": "crates/hv-control-demo/src/bin/hv-control-daemon.rs 引入 BackendSlot（惰性连接 + 可失败）：X11 后端不可用时不再整体退出，控制面（arm/disarm/incoming/status/killswitch，回环 HTTP）与 P3 会话通道（grant/握手/审计）继续服务；采集（GET /control/frame）与注入（POST /control/input）按调用返回明确错误并审计留痕（inject-refused）。绑定策略红线不变（0.0.0.0/[::] 仍在 OS bind 之前 exit=2 拒绝）。\n\n另修控制面稳定性缺陷（同批真机实测发现）：crates/hv-control-demo/src/control.rs 的手写 HTTP server 监听套接字设非阻塞（:220）但 accept 后未置回阻塞——Windows 上 accept() 返回的套接字继承非阻塞态，连接处理线程偶发 WouldBlock 导致请求被丢（客户端见 curl(56)『Connection was aborted』）。修法：两处 accept 后 set_nonblocking(false)。实测：修前 GET/POST 各 50 次失败 5-10 次（ok=40/50、45/50）；修后 50/50 + 50/50 全成功。同机 PowerShell HttpListener 对照 50/50 全成功 → 定位在 daemon 而非平台。\n\n补丁 sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a（含两个文件；补丁为守护进程源码修改材料、不随本仓分发——谱系以此哈希锚定，原件存修复轮块 xfu0nh5q-1 证据档 code-evidence/hv-control-daemon.defect3-fix.patch）。",
     "source_anchor_equivalence": "重建机 HuanvaeRemote HEAD b4777ba1925556df6de2343dba6796e24a332759 的 crates/vendor 与 manifest 原锚 80842cc8 的 crates/hv-control-demo 逐字节一致（git diff 空）；四个 build_anchor 件 SHA256 复算与原锚记录逐一相同（复算命令见块交付书）。",
     "builder_host": "Windows 11 VM（环境池 windows 实例 192.168.122.74），rustc 1.98.1 x86_64-pc-windows-msvc（host 即 msvc，无需交叉）",
     "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
@@ -54,7 +54,7 @@
         "rustc": "1.98.1 (48a229cea 2026-09-01)",
         "toolchain": "host x86_64-pc-windows-msvc（rustc 默认 host 即 msvc，无交叉链）",
         "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
-        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a；含 hv-control-daemon.rs 后端惰性化 + control.rs accept 阻塞态复位)",
+        "source_patch": "defect3-fix 补丁 sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a（含 hv-control-daemon.rs 后端惰性化 + control.rs accept 阻塞态复位；原文不随仓分发，谱系以此哈希锚定）",
         "smoke_on_windows": "控制面真机可服务 + 稳定性 2×50/50 实证见 rebuild_2026_10_06.smoke_on_windows_device（11 条 HTTP/退出码/计数原文）；修复前同源构建实机表现为 '[daemon] X11 backend connect failed: $DISPLAY variable not set and no value was provided explicitly' + exit=1"
       }
     },
@@ -78,7 +78,7 @@
         "toolchain": "stable-aarch64-apple-darwin（host 原生，rustup target 已装）",
         "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin",
         "build_log_exit": "BUILD_RC=0（42.69s，热缓存）",
-        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a；patch -p0 干跑+实跑两文件全净落)；补丁后源锚 daemon_rs=50f8ca8d…，control_rs=0e469d40…",
+        "source_patch": "defect3-fix 补丁 sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a（patch -p0 干跑+实跑两文件全净落；原文不随仓分发，谱系以此哈希锚定）；补丁后源锚 daemon_rs=50f8ca8d…，control_rs=0e469d40…",
         "codesign_flags": "codesign -f -s - 显式重签（adhoc，Mach-O thin arm64）——沿 hg-macos 判例",
         "smoke_on_macos": "s2-1 第10轮真机 30/30 全套（见 e5abbbde 交付书）；本块独立复建件真机 smoke：启动存活(WARNING 惰性后端降级非 exit=1)+healthz/status/arm 200+frame 500 显式错误不退出+0.0.0.0 exit=2+killswitch 优雅清零（审计日志原件 code-evidence/macos-smoke-daemon-audit.log）"
       }

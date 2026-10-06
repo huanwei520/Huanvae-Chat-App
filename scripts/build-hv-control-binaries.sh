@@ -12,7 +12,7 @@
 # ## 用法
 #   scripts/build-hv-control-binaries.sh --src <HuanvaeRemote 检出根> \
 #        [--target x86_64-pc-windows-msvc|aarch64-apple-darwin|<rust 三元组>] \
-#        [--patch <patch 文件>]        # 默认 src-tauri/resources/hv-control-daemon.defect3-fix.patch
+#        [--patch <patch 文件>]        # defect3-fix 补丁须显式指定（sha256 419aa4180147…53a2a，谱系见 manifest）
 #        [--no-patch]                  # 不打补丁（构建未修复形态，产出必须人工登记，不得直接入 binaires/）
 #        [--out <目录>]                # 产物输出目录（默认 dist-hv-control-daemon/）
 #        [--sign]                      # macOS 件 codesign -f -s -（默认开启 when --target *-apple-darwin）
@@ -32,16 +32,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ROOT/src-tauri/resources/hv-control-daemon.manifest.json"
-PATCH_DEFAULT="$ROOT/src-tauri/resources/hv-control-daemon.defect3-fix.patch"
+PATCH_DEFAULT=""
 
-SRC="" ; TARGET="" ; PATCH="$PATCH_DEFAULT" ; OUT=""
+SRC="" ; TARGET="" ; PATCH="$PATCH_DEFAULT" ; OUT="" ; NOPATCH=""
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --src) SRC="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --patch) PATCH="$2"; shift 2 ;;
-    --no-patch) PATCH="" ; shift ;;
+    --no-patch) NOPATCH=1; PATCH="" ; shift ;;
     --out) OUT="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "未知参数: $1"; usage 1 ;;
@@ -80,10 +80,15 @@ check_anchor crate_cargo_toml_sha256     "crates/hv-control-demo/Cargo.toml"
 
 # ---------- 2) 补丁 ----------
 info "2/6 补丁应用（patch -p0 于源码根）"
+if [[ -z "$PATCH" && -z "$NOPATCH" ]]; then
+  fail "未显式选择补丁策略：分发件必须 --patch <defect3-fix 补丁>（sha256 419aa4180147…53a2a，谱系见 manifest）；--no-patch 产出禁止入 src-tauri/binaries/"
+fi
 if [[ -z "$PATCH" ]]; then
   info "  --no-patch：跳过（⚠ 未修复形态，产出不得直接入 src-tauri/binaries/）"
 else
   [[ -s "$PATCH" ]] || fail "补丁不存在: $PATCH"
+  # patch 在 $SRC 子壳内执行，补丁路径须绝对化（相对路径在 cd 后失效）
+  case "$PATCH" in /*) ;; *) PATCH="$PWD/${PATCH#./}" ;; esac
   ( cd "$SRC" && patch -p0 --dry-run < "$PATCH" >/dev/null 2>&1 ) || fail "补丁干跑失败（是否已打过？重复应用请改用已含补丁的检出）"
   ( cd "$SRC" && patch -p0 < "$PATCH" )
   sha_src_daemon="$(sha "$SRC/crates/hv-control-demo/src/bin/hv-control-daemon.rs")"
