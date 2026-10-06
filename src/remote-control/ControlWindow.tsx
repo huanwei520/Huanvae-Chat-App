@@ -74,6 +74,8 @@ export function ControlWindow() {
   const [link, setLink] = useState<LinkState>('probing');
   /** 连续探活失败计数（成功即归零；达 LINK_DOWN_STREAK 才判 down） */
   const failStreakRef = useRef(0);
+  /** 跨窗桥接来的被控端物理屏几何（独立控制窗无 DC，rc-meta 到不了本窗——随帧下发） */
+  const [bridgedPeerScreen, setBridgedPeerScreen] = useState<{ w: number; h: number } | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null);
   const [droppedKeys, setDroppedKeys] = useState(0);
@@ -100,6 +102,11 @@ export function ControlWindow() {
       setPeerStalled(false);
       lastFrameAtRef.current = Date.now();
       setFrameSize({ w: f.width, h: f.height });
+      // fmuq6rousefe405s2-1 DEFECT-2 修复：跨窗桥接帧携带被控端物理屏几何，
+      // 本窗（独立控制窗无 DC 属主身份）据此建立正确注入域。
+      if (f.screenW && f.screenH) {
+        setBridgedPeerScreen({ w: f.screenW, h: f.screenH });
+      }
       setPeerFrameCount(getStats().framesIn);
       const canvas = canvasRef.current;
       if (canvas) {
@@ -204,7 +211,7 @@ export function ControlWindow() {
   const refreshGeometry = useCallback(() => {
     const vp = viewportRef.current;
     if (!vp || !frameSize) { return; }
-    const peerScreen = peerMode ? getPeerScreen() : null;
+    const peerScreen = (peerMode ? getPeerScreen() : null) ?? bridgedPeerScreen;
     geometryRef.current = {
       containerW: vp.clientWidth,
       containerH: vp.clientHeight,
@@ -213,7 +220,7 @@ export function ControlWindow() {
       screenW: peerScreen?.w ?? status?.screen?.width ?? frameSize.w,
       screenH: peerScreen?.h ?? status?.screen?.height ?? frameSize.h,
     };
-  }, [frameSize, status, peerMode]);
+  }, [frameSize, status, peerMode, bridgedPeerScreen]);
 
   useEffect(() => {
     refreshGeometry();
