@@ -1,7 +1,7 @@
 {
   "component": "hv-control-daemon",
   "purpose": "hv-control-daemon 随包件 SHA256 manifest（bl0d10qj-1 新增独立件）——供 assert-daemon-content.sh 自验与管线 L1 v2 清单（3224uyx1-1）消费；对应 tauri.windows.conf.json / tauri.macos.conf.json externalBin 接线（1d0t34vy-3『二进制构建完成≠随包发货』缺环的本环收口）",
-  "generated_at_utc": "2026-09-15T21:35:00Z",
+  "generated_at_utc": "2026-10-06T05:10:00Z",
   "source_repo": "HuanvaeRemote",
   "source_repo_head": "80842cc8969389fdc0bdcb396a8ee0f80234d6a7",
   "source_repo_dirty": true,
@@ -13,28 +13,53 @@
     "daemon_rs_sha256": "ef9921471b58d0cf9696ac5be8cafc4481a4fc8fb8feb88fc2a7014e4f0d21b7"
   },
   "rustc": "1.98.1 (48a229cea 2026-09-01) —— 双端同版",
+  "rebuild_2026_10_06": {
+    "reason": "块 1791241251453-fmuq6rousefe405s2-1（三链路真机实测）在 Windows 实机复现：随包 hv-control-daemon.exe 启动即退（X11 后端连接在启动路径上无条件执行，无 DISPLAY 即 exit=1）——与 known_limitation 自述的『两平台 daemon 运行面（arm/grant/控制面/会话通道）不变』不符；且 origin/main 上 `bash scripts/assert-daemon-content.sh` 本身 FAIL（仓内 windows/macos 两件哈希与上一版 manifest 记录不符：期望 windows 4c1b1000576df473b39aa6b53fe785e619efcd51372440398df79299b95c1c63 / macos 0c5cc6bcb88dd3026e2dd0164989fd7d7c18ea6ed2bd83cb4565cb1157e3949c），随包内容门禁为红。",
+    "fix": "crates/hv-control-demo/src/bin/hv-control-daemon.rs 引入 BackendSlot（惰性连接 + 可失败）：X11 后端不可用时不再整体退出，控制面（arm/disarm/incoming/status/killswitch，回环 HTTP）与 P3 会话通道（grant/握手/审计）继续服务；采集（GET /control/frame）与注入（POST /control/input）按调用返回明确错误并审计留痕（inject-refused）。绑定策略红线不变（0.0.0.0/[::] 仍在 OS bind 之前 exit=2 拒绝）。\n\n另修控制面稳定性缺陷（同批真机实测发现）：crates/hv-control-demo/src/control.rs 的手写 HTTP server 监听套接字设非阻塞（:220）但 accept 后未置回阻塞——Windows 上 accept() 返回的套接字继承非阻塞态，连接处理线程偶发 WouldBlock 导致请求被丢（客户端见 curl(56)『Connection was aborted』）。修法：两处 accept 后 set_nonblocking(false)。实测：修前 GET/POST 各 50 次失败 5-10 次（ok=40/50、45/50）；修后 50/50 + 50/50 全成功。同机 PowerShell HttpListener 对照 50/50 全成功 → 定位在 daemon 而非平台。\n\n补丁原文随包在 src-tauri/resources/hv-control-daemon.defect3-fix.patch（sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a，含两个文件）。",
+    "source_anchor_equivalence": "重建机 HuanvaeRemote HEAD b4777ba1925556df6de2343dba6796e24a332759 的 crates/vendor 与 manifest 原锚 80842cc8 的 crates/hv-control-demo 逐字节一致（git diff 空）；四个 build_anchor 件 SHA256 复算与原锚记录逐一相同（复算命令见块交付书）。",
+    "builder_host": "Windows 11 VM（环境池 windows 实例 192.168.122.74），rustc 1.98.1 x86_64-pc-windows-msvc（host 即 msvc，无需交叉）",
+    "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
+    "build_log_exit": "EXITCODE=0（增量 24.79s；全量 6m43s）",
+    "smoke_on_windows_device": [
+      "GET /control/healthz -> 200 ok",
+      "GET /control/status -> 200 {\"armed\":false,\"killswitch\":false,\"inject_count\":0,\"frame_count\":0,\"uptime_ms\":6509,\"grant\":null,\"grant_id\":null,\"grant_state\":null,\"screen\":{\"width\":0,\"height\":0}}",
+      "POST /control/arm -> 200 {\"armed\":true}",
+      "GET /control/frame -> 500 'capture failed: desktop backend unavailable: $DISPLAY variable not set and no value was provided explicitly'（显式错误，不再整体退出）",
+      "POST /control/input（armed + 合法载荷）-> 423 {\"error\":\"desktop backend unavailable: $DISPLAY variable not set and no value was provided explicitly\"}，审计行 inject-refused；进程存活",
+      "POST /control/killswitch -> 200 {\"status\":\"killswitch-tripped\",\"capture\":\"halted\",\"input\":\"halted\",\"http\":\"shutting-down\"}；随后进程数 0、监听端口数 0（零残留）",
+      "--bind 0.0.0.0:19290 -> exit=2 '[daemon] BIND-POLICY-REJECTED: ... wildcard/unspecified address \"0.0.0.0:19290\" is forbidden'",
+      "稳定性：GET /control/status 连续 2×50 次（纯 cmd 循环调 curl）-> run1 ok=50 fail=0、run2 ok=50 fail=0（control.rs 稳定性修复前为 ok=40/50、45/50）",
+      "对照：同机同法打点 PowerShell HttpListener（127.0.0.1:19299）-> 50/50 全成功，排除平台侧原因",
+      "启动 stderr：'[daemon] WARNING: desktop backend unavailable ($DISPLAY variable not set and no value was provided explicitly); control plane (arm/disarm/incoming/status/killswitch) and P3 session channel continue serving; capture/inject endpoints return explicit errors'",
+      "同源修复前件（C:\\orig-daemon-x11.exe.bak，即随包件备份）同机起始：'[daemon] X11 backend connect failed: $DISPLAY variable not set and no value was provided explicitly' + EXITCODE=1"
+    ]
+  },
   "artifacts": [
     {
       "path": "src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe",
       "target": "x86_64-pc-windows-msvc",
       "format": "PE32+ executable (console) x86-64",
-      "bytes": 1044992,
-      "sha256": "4c1b1000576df473b39aa6b53fe785e619efcd51372440398df79299b95c1c63",
-      "built_at_utc": "2026-09-15T21:27:00Z",
+      "bytes": 1053696,
+      "sha256": "f34f5b2ec43e7d8e9ae2e7ad14e96759e53913f0418069bb4778bb0ac40e616d",
+      "built_at_utc": "2026-10-06T04:50:00Z",
+      "gate_markers": {
+        "require": ["desktop backend unavailable", "BIND-POLICY-REJECTED"],
+        "forbid": []
+      },
       "builder": {
-        "host": "Windows 构建宿主（winserver-hg；ssh 目标经 $HG_WIN_BUILD_HOST 注入，值不落盘）",
+        "host": "Windows 11 VM（环境池 windows 实例，块 1791241251453-fmuq6rousefe405s2-1 租用；ssh 目标为池分配 IP，值不落盘）",
         "rustc": "1.98.1 (48a229cea 2026-09-01)",
-        "toolchain": "stable-x86_64-pc-windows-gnu (host) + rust-std x86_64-pc-windows-msvc + VS BuildTools 17.14 / MSVC 14.44.35207",
+        "toolchain": "host x86_64-pc-windows-msvc（rustc 默认 host 即 msvc，无交叉链）",
         "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
-        "notes": "libsodium-sys 0.2.7 build.rs 以 build-script host cfg 选预编译库（gnu-host 交叉 msvc 时误选 mingw 件名），以 SODIUM_LIB_DIR 指向 msvc/x64/Release/v142 预编译 libsodium.lib（复制为 sodium.lib 对齐 build.rs 的 gnu-host 命名分支）解决；构建日志/源锚在 test-artifacts-bl0d10qj1/logs/",
-        "smoke_on_windows": "usage 缺参 exit=1；--bind 非回环 → BIND-POLICY-REJECTED exit=2（真实 Windows 实机可执行实证）"
+        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 419aa4180147948ad9a08e0e543487891ff1f5328359b6025f93a2b86ec3e04a；含 hv-control-daemon.rs 后端惰性化 + control.rs accept 阻塞态复位)",
+        "smoke_on_windows": "控制面真机可服务 + 稳定性 2×50/50 实证见 rebuild_2026_10_06.smoke_on_windows_device（11 条 HTTP/退出码/计数原文）；修复前同源构建实机表现为 '[daemon] X11 backend connect failed: $DISPLAY variable not set and no value was provided explicitly' + exit=1"
       }
     },
     {
       "path": "src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin",
       "target": "aarch64-apple-darwin",
       "format": "Mach-O 64-bit executable arm64",
-      "bytes": 1198400,
+      "bytes": 1209536,
       "sha256": "0c5cc6bcb88dd3026e2dd0164989fd7d7c18ea6ed2bd83cb4565cb1157e3949c",
       "built_at_utc": "2026-09-15T21:06:00Z",
       "builder": {
@@ -51,5 +76,6 @@
     "windows": "NSIS 安装后 externalBin 件名 hv-control-daemon.exe（tauri 按三元组剥落后缀），与仓内 msvc 件字节一致",
     "macos": ".app/Contents/MacOS/hv-control-daemon，与仓内 apple-darwin 件字节一致"
   },
-  "known_limitation": "daemon 被控端采集/注入后端为 X11(hv-demo-x11/x11rb)；Windows/macOS 桌面原生采集替换（'hv-demo-x11 后端替换'）为 commit 165f4cde/06e52282 明记的『块3 产品化范围』欠项，不在本块写面。两平台 daemon 运行面（arm/grant/控制面/会话通道）不变，X11 connect 失败时按 exit=1 如实退出——全链实测中以 Linux(X11) 为被控端、Windows/macOS 为发起端+随包在位实证"
+  "known_limitation": "daemon 被控端采集/注入后端为 X11(hv-demo-x11/x11rb)；Windows/macOS 桌面原生采集替换（'hv-demo-x11 后端替换'）为 commit 165f4cde/06e52282 明记的『块3 产品化范围』欠项，不在本块写面。**2026-10-06 起（rebuild_2026_10_06）**：X11 不可用不再导致整体退出——两平台 daemon 运行面（arm/grant/控制面/会话通道）实机可服务，采集/注入端点返回明确错误并按调用审计留痕；全链实测仍以 Linux(X11) 为被控端、Windows/macOS 为发起端+随包在位实证。",
+  "known_gap": "aarch64-apple-darwin 件仍为 2026-09-15 锚定版本（X11-only 启动即退形态，功能欠项）；macOS 重建需 macOS 构建宿主，登记为待办。**2026-10-06（块 xfu0nh5q-1）**：树内件已回填为 manifest 锚定的 0c5cc6bc 字节（此前 origin/main 树内 0b53715b 与 manifest 锚 0c5cc6bc 漂移、assert-daemon-content.sh macos 腿红——哈希一致性已修复，功能欠项仍在）；bytes 字段按实际文件修正为 1209536。"
 }

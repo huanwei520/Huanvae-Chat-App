@@ -193,6 +193,15 @@ jobs:
           APP_CLIENT_KEY_PEM_BASE64: ${{ secrets.APP_CLIENT_KEY_PEM_BASE64 }}
         run: echo "$APP_CLIENT_KEY_PEM_BASE64" | openssl base64 -d -A > src-tauri/resources/app-client.key.pem
 
+      # hv-control-daemon 构建正确性防错闸（xfu0nh5q-1，DEFECT-3 收口）：打包前
+      # fail-closed 校验 binaries/ 内 daemon 件 —— manifest 锚定哈希/大小/构建特征
+      # 标记 + 二进制真实格式 vs 文件名目标三元组（PE/ELF/Mach-O，含 MSVC/MinGW
+      # 节区判别，拦 cp msvc→gnu 类改名混入）。FAIL = 本腿不发件。与
+      # tauri.conf.json beforeBundleCommand 同闸双保险（本地/CI 各一道）。
+      - name: Verify hv-control-daemon build gate (target-triple + manifest anchors)
+        shell: bash
+        run: bash scripts/verify-daemon-build.sh
+
       # 构建 Tauri 应用
       - name: Build Tauri App
         id: tauri-build
