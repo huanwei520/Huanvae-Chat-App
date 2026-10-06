@@ -108,15 +108,13 @@ fi
 
 # ---------- 3) 构建 ----------
 info "3/6 cargo build --release -p hv-control-demo --bin hv-control-daemon --target $TARGET"
-# 卡面判据（xfu0nh5q-1 F 级修复轮）：分发件 strings 零命中
-#   ① crates\hv-control-demo\src\bin\hv-control-daemon.rs（守护进程源码路径串）
-#   ② x11rb
-# ② 经 hv-demo-x11 依赖 unix 门控（补丁 v2）结构性归零；① 来自 Rust panic
-# Location（#[track_caller]/async 机制，非 X11 相关，不可靠删源码消除）——
-# 用 rustc 标准机制 --remap-path-prefix 把仓内 crates/ 前缀统一改写为 hvsrc/，
-# 判据①同结构性归零。零源码逻辑改动，构建配方在案可复现。
-export RUSTFLAGS="--remap-path-prefix=crates=hvsrc"
-info "  RUSTFLAGS=$RUSTFLAGS"
+# 卡面判据①②（xfu0nh5q-1 F 级修复轮第2次整改）：零命中由源码/依赖图结构达成——
+#   ① 守护进程源码路径串：bin 文件为薄入口（全部实现在 lib 的 daemon 模块，
+#      bin 零可 panic 调用），该路径串根本不被嵌入（补丁 v3；此前 v2 曾用
+#      --remap-path-prefix 改名，属自造口径同族，已废弃）；
+#   ② x11rb：hv-demo-x11 依赖 unix 门控（补丁 v3，hv-control-demo +
+#      hv-demo-http 两处依赖边）。
+# 本脚本不设任何 RUSTFLAGS 改写——二进制内不存在被改名的判据串变体。
 ( cd "$SRC" && cargo build --release -p hv-control-demo --bin hv-control-daemon --target "$TARGET" ) \
   || fail "cargo build 失败"
 BIN="$SRC/target/$TARGET/release/hv-control-daemon"

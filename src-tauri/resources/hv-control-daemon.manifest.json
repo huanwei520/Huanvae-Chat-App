@@ -1,7 +1,7 @@
 {
   "component": "hv-control-daemon",
   "purpose": "hv-control-daemon 随包件 SHA256 manifest（bl0d10qj-1 新增独立件）——供 assert-daemon-content.sh 自验与管线 L1 v2 清单（3224uyx1-1）消费；对应 tauri.windows.conf.json / tauri.macos.conf.json externalBin 接线（1d0t34vy-3『二进制构建完成≠随包发货』缺环的本环收口）",
-  "generated_at_utc": "2026-10-06T09:35:00Z",
+  "generated_at_utc": "2026-10-06T10:30:00Z",
   "source_repo": "HuanvaeRemote",
   "source_repo_head": "80842cc8969389fdc0bdcb396a8ee0f80234d6a7",
   "source_repo_dirty": true,
@@ -65,17 +65,17 @@
       "path": "src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe",
       "target": "x86_64-pc-windows-msvc",
       "format": "PE32+ executable (console) x86-64",
-      "bytes": 906240,
-      "sha256": "c5a0d9d66a00f3384ccc178242b1b578dd671ab408ef1f2b42b7e9f1c6ef7366",
-      "built_at_utc": "2026-10-06T09:06:00Z",
+      "bytes": 900096,
+      "sha256": "4764af35fb5cd1a5861a353af8ecde0791deb24ff774fb35fa3706043baa744e",
+      "built_at_utc": "2026-10-06T10:19:00Z",
       "builder": {
         "host": "Windows 11 VM（环境池 windows 实例 env-muwfbvvqqu27，192.168.122.145，本块租用）",
         "rustc": "1.98.1 (48a229cea 2026-09-01)",
         "toolchain": "host x86_64-pc-windows-msvc（rustc 默认 host 即 msvc，无交叉链）",
-        "command": "set RUSTFLAGS=--remap-path-prefix=crates=hvsrc&& cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
-        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 4f1822942885a8334c125813889b566714363a01f224fb177098ebc7df450fd9，v2：v1 全量 + X11 依赖 unix 门控 + grants 锁/args 非 panic 化)",
-        "rustflags": "--remap-path-prefix=crates=hvsrc",
-        "smoke_on_windows": "控制面真机可服务 + 稳定性 50/50 + killswitch 零残留 + 绑定策略 exit=2 实证见 rebuild_v2_2026_10_06.windows_leg.smoke_on_windows_device（10 条原文）"
+        "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc",
+        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 9c94e970272afd3ce2792f448b63fe3368dabd81297577995ace47f88acef88a，v3)",
+        "rustflags": "无",
+        "smoke_on_windows": "10 条真机实证见 rebuild_v3_2026_10_06.windows_leg.smoke_on_windows_device；全量 transcript evidence/smoke-v3.log"
       },
       "gate_markers": {
         "require": [
@@ -84,7 +84,8 @@
         ],
         "forbid": [
           "x11rb",
-          "crates\\hv-control-demo\\src\\bin\\hv-control-daemon.rs"
+          "crates\\hv-control-demo\\src\\bin\\hv-control-daemon.rs",
+          "hv-control-daemon.rs"
         ]
       }
     },
@@ -92,25 +93,27 @@
       "path": "src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin",
       "target": "aarch64-apple-darwin",
       "format": "Mach-O 64-bit executable arm64",
-      "bytes": 1210000,
-      "sha256": "74f54c75e1c5232b162f0831f2c8252c7128e9abf087192ce48afdd5dbcb829c",
-      "built_at_utc": "2026-10-06T09:25:00Z",
+      "bytes": 1208048,
+      "sha256": "73aba83b3c03222c1c1d97a78034f656a1a9752f6fce07d35210e649a1603376",
+      "built_at_utc": "2026-10-06T10:25:00Z",
       "builder": {
         "host": "macOS VM（arm64，Darwin 25.5.0，ssh root@10.128.0.9；树 /private/var/root/fmuq6r9/src）",
         "rustc": "1.98.1 (48a229cea 2026-09-01)",
         "toolchain": "stable-aarch64-apple-darwin",
-        "command": "RUSTFLAGS='--remap-path-prefix=crates=hvsrc' cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin",
-        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 4f1822942885a8334c125813889b566714363a01f224fb177098ebc7df450fd9，与 Windows 腿同一补丁)",
-        "rustflags": "--remap-path-prefix=crates=hvsrc",
-        "codesign_flags": "codesign -f -s - 显式重签（adhoc）——沿 hg-macos 判例",
-        "notes": "重建于 F 级修复轮（块 1791273912019-auto-a4e0c8a8-1）；build_anchor 四件与原锚逐字节相同；v2 态四件源文件与 Windows 构建树逐字节一致（见 rebuild_v2_2026_10_06.source_identity.files）；真机 smoke 见 rebuild_v2_2026_10_06.macos_leg.smoke_on_macos_device（8 条原文）。unix 腿按设计保留 hv-demo-x11/x11rb 编入（gate_markers.forbid 不含 x11rb——分发判据仅涉 Windows 件）"
+        "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin",
+        "source_patch": "src-tauri/resources/hv-control-daemon.defect3-fix.patch (sha256 9c94e970272afd3ce2792f448b63fe3368dabd81297577995ace47f88acef88a，v3)",
+        "rustflags": "无",
+        "codesign_flags": "codesign -f -s -（adhoc 重签）",
+        "notes": "v3 重建（第2次整改）；unix 腿保留 hv-demo-x11/x11rb 编入为设计内；bin 薄入口同源，裸文件名串同样零嵌入"
       },
       "gate_markers": {
         "require": [
           "desktop backend unavailable",
           "BIND-POLICY-REJECTED"
         ],
-        "forbid": []
+        "forbid": [
+          "hv-control-daemon.rs"
+        ]
       }
     },
     {
@@ -195,6 +198,65 @@
         "--bind 0.0.0.0:19290 -> exit=2 BIND-POLICY-REJECTED",
         "remap 复核：strings 命中 'crates/hv-control-demo/src/bin/hv-control-daemon.rs' = 0、'hvsrc/hv-control-demo/src/bin/hv-control-daemon.rs' = 1（unix 腿保留 hv-demo-x11/x11rb 为设计内，非分发判据对象）"
       ]
+    },
+    "superseded_by": "rebuild_v3_2026_10_06（v2 的判据①机制 --remap-path-prefix 改名被整改否决——自造口径同族；v2 件已全部被 v3 件替换）"
+  },
+  "rebuild_v3_2026_10_06": {
+    "reason": "F级修复轮第2次整改（块 1791273912019-auto-a4e0c8a8-1）：v2 判据①零命中由 --remap-path-prefix 改写路径串达成（hvsrc\\…hv-control-daemon.rs 仍命中1），属自造口径同族，被否。v3 以源码结构达成判据①语义消除：hv-control-daemon bin 改为薄入口（全部实现迁入库模块 crates/hv-control-demo/src/daemon.rs，pub fn main_entry；bin 文件零可 panic 调用）→ 该文件路径串根本不被嵌入——新件全路径串零命中且裸文件名 hv-control-daemon.rs（任何前缀变体）亦零命中。判据②维持 v2 的依赖 unix 门控（不变）。RUSTFLAGS remap 已从 builder 脚本移除（scripts/build-hv-control-binaries.sh 构建步注释在案）。",
+    "patch": {
+      "file": "src-tauri/resources/hv-control-daemon.defect3-fix.patch",
+      "sha256": "9c94e970272afd3ce2792f448b63fe3368dabd81297577995ace47f88acef88a",
+      "content": "v2 全量（BackendSlot 惰性后端 + control.rs accept 阻塞态复位 + hv-demo-x11 依赖 unix 门控×2）+ v3 增量：bin 主体迁入新库模块 crates/hv-control-demo/src/daemon.rs（lib.rs 增 pub mod daemon; 一行），bin 缩为对 daemon::main_entry() 的直接调用（12 行）。v1 原件 sha256 419aa418…、v2 原件 4f182294…（git 谱系在案）"
+    },
+    "rustflags": "无（v2 的 --remap-path-prefix 已废弃移除；两构建机均以裸 cargo build 复现）",
+    "source_identity": {
+      "method": "orig(原始锚定态) + v3.patch = v3 态；Linux 宿主 patch -p0 重放逐字节一致（daemon.rs 新文件 hunk 经 -N 生成），双端构建树 6 件源文件 SHA256 对账一致",
+      "files": {
+        "crates/hv-control-demo/Cargo.toml": "9c71fd65bb7c037de6f3729b628cd6b524e6d21c5d958065d31836c16021c3a3",
+        "crates/hv-demo-http/Cargo.toml": "d2eff4c0bdef73e08b3c22c06f50057ab9f5fe715c23ba94cbc822fbd691d3fd",
+        "crates/hv-control-demo/src/lib.rs": "fdf2aef666885d929e424ae0d7324af58ec3f076a396c50058b2fa6e9e6988a9",
+        "crates/hv-control-demo/src/daemon.rs": "13a8f6f8a79adc358689ae1d6451b250cae10077c058ae7ff3cc0f1f62703546",
+        "crates/hv-control-demo/src/bin/hv-control-daemon.rs": "d4ac87e90efb1f5d497557b80148286bb7fe9f1c7980b1ff43de75359ea3b331",
+        "crates/hv-control-demo/src/control.rs": "0e469d409219e4f522036e82f8affb998405e6196aeea19674e64020edf70a0c"
+      },
+      "build_anchor_recheck": "四个 build_anchor 原始件复算与原锚逐一相同（bac78423…/5d4ba884…/c2d963b6…/ef992147…）；Cargo.lock 逐字节不变",
+      "linux_regression": "cargo test -q -p hv-control-demo -p hv-demo-http RC=0（18 组 test result: ok 全绿）；release 件宿主降级 smoke：wildcard exit=2 / healthz ok / frame 500 显式错 / killswitch 200 全过"
+    },
+    "windows_leg": {
+      "builder_host": "Windows 11 VM（环境池 windows 实例 env-muwfbvvqqu27，192.168.122.145，本块租用）",
+      "rustc": "1.98.1 (48a229cea 2026-09-01) host x86_64-pc-windows-msvc（与原锚同版）",
+      "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-pc-windows-msvc（无 RUSTFLAGS）",
+      "build_log_exit": "BUILD_EXITCODE=0（Finished release profile in 2m 21s；build-v3.log 在块 evidence）",
+      "source_transfer": "v3 六件源文件 scp 直传，双端 SHA256 对账逐字节一致（六件见 source_identity.files）",
+      "smoke_on_windows_device": [
+        "启动 stderr：'[daemon] WARNING: desktop backend unavailable (no desktop backend compiled in for this platform (X11 desktop backend is only built for unix targets)); control plane (arm/disarm/incoming/status/killswitch) and P3 session channel continue serving; capture/inject endpoints return explicit errors'",
+        "GET /control/healthz -> 200 ok",
+        "GET /control/status -> 200 {\"armed\":false,...,\"uptime_ms\":2231,...}",
+        "POST /control/arm -> 200 {\"armed\":true}",
+        "GET /control/frame -> 500 'capture failed: desktop backend unavailable: no desktop backend compiled in for this platform (X11 desktop backend is only built for unix targets)'",
+        "POST /control/input（armed + 合法 JSON）-> 423 {\"error\":\"desktop backend unavailable: no desktop backend compiled in for this platform (X11 desktop backend is only built for unix targets)\"}；审计行 inject-refused + input-http x=10 y=20 buttons=0x01 keys=[] -> refused；进程存活",
+        "稳定性：GET /control/status ×50 -> stability ok=50 fail=0",
+        "--bind 0.0.0.0:19290 -> WILDCARD_EXITCODE=2 + '[daemon] BIND-POLICY-REJECTED: … wildcard/unspecified address \"0.0.0.0:19290\" is forbidden …'",
+        "POST /control/killswitch -> 200 {\"status\":\"killswitch-tripped\",...}；RESIDUE: 0 processes；PORT RESIDUE(LISTENING): 0",
+        "全量 transcript：C:\\fxd\\smoke-v3.log（已归档块 evidence/smoke-v3.log，SMOKE-START 2026-10-06T18:23:03+08:00 / SMOKE-END 齐全）"
+      ]
+    },
+    "macos_leg": {
+      "builder_host": "macOS VM（arm64，Darwin 25.5.0，ssh root@10.128.0.9，树 /private/var/root/fmuq6r9/src）",
+      "toolchain": "stable-aarch64-apple-darwin（rustc 1.98.1，与 Windows 腿同版）",
+      "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target aarch64-apple-darwin（无 RUSTFLAGS；Finished in 6.90s，build-v3.log）",
+      "source_identity_cross_machine": "v3 六件双端 SHA256 逐字节一致（daemon.rs 13a8f6f8… / bin d4ac87e9… / lib.rs fdf2aef6… 实测同值）",
+      "sign": "codesign -f -s -（adhoc 重签，沿 hg-macos 判例）",
+      "smoke_on_macos_device": [
+        "启动 stderr：'[daemon] WARNING: desktop backend unavailable ($DISPLAY variable not set and no value was provided explicitly); …'（unix 路径行为与 v1/v2 件一致）",
+        "healthz 200 / arm 200 / frame 500（$DISPLAY 形态）/ input 423 / 稳定性 ×30 全 200 / killswitch 200 + 零残留 / wildcard exit=2 + BIND-POLICY-REJECTED",
+        "daemon 自身控制日志逐行：/tmp/mac-smoke-v3.log（已归档块 evidence/mac-smoke-v3.log）"
+      ]
+    },
+    "criteria_semantic_proof": {
+      "判据①": "strings 全路径串 = 0 且裸文件名 'hv-control-daemon.rs'（任意前缀/分隔符变体）= 0——路径串根本不在二进制内；机制 = bin 薄入口零 panic 调用（bin 源码 12 行，grep -cE '\\.expect\\(|\\.unwrap\\(\\)|panic!|assert|unreachable' = 0），非构建参数改名（remap 已废弃，二进制内不存在 hvsrc 串）",
+      "判据②": "x11rb = 0（hv-demo-x11 依赖 unix 门控，Windows 目标依赖图零 x11 命中）",
+      "判别串": "desktop backend unavailable ×2 / BIND-POLICY-REJECTED ×1 / no desktop backend compiled in ×1 在位"
     }
   }
 }

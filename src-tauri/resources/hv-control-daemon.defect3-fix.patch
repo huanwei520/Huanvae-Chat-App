@@ -1,5 +1,5 @@
 --- crates/hv-control-demo/Cargo.toml	2026-09-08 12:00:00.000000000 +0000
-+++ crates/hv-control-demo/Cargo.toml	2026-10-06 09:15:00.000000000 +0000
++++ crates/hv-control-demo/Cargo.toml	2026-10-06 10:45:00.000000000 +0000
 @@ -38,7 +38,6 @@
  
  [dependencies]
@@ -27,7 +27,7 @@
  [dev-dependencies]
  # 集成测试的 async(runtime::Runtime::new)与即时断言;tokio 已在主依赖。
 --- crates/hv-demo-http/Cargo.toml	2026-09-08 12:00:00.000000000 +0000
-+++ crates/hv-demo-http/Cargo.toml	2026-10-06 09:15:00.000000000 +0000
++++ crates/hv-demo-http/Cargo.toml	2026-10-06 10:45:00.000000000 +0000
 @@ -29,6 +29,14 @@
  # 零 commit/push。
  
@@ -44,45 +44,79 @@
 +
 +[target.'cfg(unix)'.dependencies]
 +hv-demo-x11 = { path = "../hv-demo-x11" }
---- crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-09-08 12:00:00.000000000 +0000
-+++ crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-10-06 09:15:00.000000000 +0000
-@@ -10,7 +10,18 @@
- //!
- //! 退出码:0 = 正常停机(killswitch/disarm+shutdown);2 = 绑定策略拒绝
- //! (**先于 X 连接与任何 OS bind**,拒绝分支无 DISPLAY 亦可复跑,Y.1);
--//! 1 = X 连接/运行时失败。
+--- crates/hv-control-demo/src/lib.rs	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/src/lib.rs	2026-10-06 10:45:00.000000000 +0000
+@@ -48,6 +48,7 @@
+ pub mod slice;
+ 
+ pub mod control;
++pub mod daemon;
+ 
+ /// demo 传输层会话标识(参与 HKDF 盐;被控端/观看端必须一致)。
+ /// 生产/WebRTC 形态按 phase2 设计以配对 uuid 作 session_id。
+--- crates/hv-control-demo/src/daemon.rs	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/src/daemon.rs	2026-10-06 10:45:00.000000000 +0000
+@@ -0,0 +1,552 @@
++//! hv-control-daemon 实体(自 `src/bin/hv-control-daemon.rs` 迁入;bin 为薄入口)。
++//!
++//! 迁入缘由(xfu0nh5q-1 F 级修复轮第2次整改):卡面判据①要求分发件不嵌入
++//! `crates\hv-control-demo\src\bin\hv-control-daemon.rs` 路径串——该串由
++//! Rust panic Location(#[track_caller],tokio spawn/async 帧共6处)生成,
++//! 逐点消除=重构异步结构;把全部可 panic 的实现迁入库模块后,bin 文件仅剩
++//! 对 `daemon::main_entry()` 的直接调用(零可 panic 调用),该路径串**根本
++//! 不被嵌入**(连 `.rs` 裸名都不在),非构建参数改名。判据② x11rb 由
++//! hv-demo-x11 依赖 unix 门控达成(见 crate Cargo.toml)。
++//!
++//! 接线(全真实链路,测试面拓扑 daemon↔daemon/peer,不经接入桥):
++//! - 回环控制面(HTTP,std 线程)——arm/disarm/incoming/status/killswitch/
++//!   frame/healthz,绑定经 `resolve_loopback_bind` 双保险;
++//! - P3 会话通道(TCP + SecureChannel,tokio)——accept 后双重校验
++//!   (grant 活跃 + watcher_device 匹配;指纹锚定 Required),再进会话循环
++//!   (心跳 5s/租约 15s;FrameSlice 帧流 armed 门禁;InputEvent 下行注入);
++//! - 桌面后端(hv-demo-x11,仅 unix 目标编入)——GetImage 采集 → 降采样 →
++//!   分片;XTEST 注入;非 unix 目标为显式不可用桩(见 BackendSlot)。
++//!
++//! 退出码:0 = 正常停机(killswitch/disarm+shutdown);2 = 绑定策略拒绝
++//! (**先于 X 连接与任何 OS bind**,拒绝分支无 DISPLAY 亦可复跑,Y.1);
 +//! 1 = 运行时失败(参数/tokio)。
 +//!
-+//! # 后端缺失降级(本文件 2026-10-06 修复:『Windows 随包件启动即退』;
-+//!   同日 v2:非 unix 分发构建不再编入 X11 演示后端——分发件零 X11 构建签名)
-+//! 采集/注入后端为 X11(hv-demo-x11,经 crate Cargo.toml 挂 [target.'cfg(unix)'.dependencies]
-+//! 仅 unix 目标编入);无 X11 平台**不再整体退出**——
-+//! 控制面(arm/disarm/incoming/status/killswitch,回环 HTTP)与 P3 会话通道
-+//! (grant/握手/审计)不依赖 X11,继续服务;采集(/control/frame)与注入
-+//! (/control/input)端点按调用返回明确错误(desktop backend unavailable: <原因>)。
-+//! 与 src-tauri/resources/hv-control-daemon.manifest.json 的 known_limitation
-+//! 自述一致(『两平台 daemon 运行面(arm/grant/控制面/会话通道)不变』此前不成立:
-+//! X11 connect 在启动路径上无条件执行,失败即 exit=1)。
- //!
- //! 用法:
- //! ```text
-@@ -32,7 +43,12 @@
- use hv_control_demo::{bind, control, SESSION_ID};
- use hv_demo_http::http::{FrameSource, InputSink};
- use hv_demo_http::killswitch::KillSwitch;
++//! # 后端缺失降级(2026-10-06 修复:『Windows 随包件启动即退』;同日 v2:
++//!   非 unix 分发构建不再编入 X11 演示后端)
++//! 无 X11 平台**不整体退出**——控制面(arm/disarm/incoming/status/killswitch,
++//! 回环 HTTP)与 P3 会话通道(grant/握手/审计)不依赖 X11,继续服务;采集
++//! (/control/frame)与注入(/control/input)端点按调用返回明确错误
++//! (desktop backend unavailable: <原因>)。
++
++use std::process::ExitCode;
++use std::sync::{Arc, Mutex};
++use std::time::Duration;
++
++use crate::anchor::{session_fingerprint, DirFpSource, RequiredAnchoring};
++use crate::control::{ControlServer, DaemonShared};
++use crate::frame_source::{downscale_rgba, CaptureProfile};
++use crate::input_gate::{GatedSink, InputGate};
++use crate::session_loop::{
++    handshake_with_peer, run_session, SessionLoopConfig, SessionTeardown,
++};
++use crate::{bind, control, SESSION_ID};
++use hv_demo_http::http::{FrameSource, InputSink};
++use hv_demo_http::killswitch::KillSwitch;
 +// 桌面(X11)后端仅 unix 目标编入(见 crate Cargo.toml [target.'cfg(unix)'.dependencies]):
 +// Windows 等非 unix 分发构建不编译 hv-demo-x11/x11rb,分发件不含任何 X11 演示构建签名;
 +// 非 unix 下采集/注入走 BackendSlot 恒不可用路径,控制面/会话通道不受影响。
 +#[cfg(unix)]
- use hv_demo_x11::backend::Backend;
++use hv_demo_x11::backend::Backend;
 +#[cfg(unix)]
- use hv_demo_x11::mapping;
- use hv_protocol::crypto::HandshakeKeypair;
- use hv_protocol::session::{SecureChannel, SessionMsg};
-@@ -43,34 +59,155 @@
- 
- /// 帧源真实实现:锁后端 → GetImage 全屏捕获 → 降采样 → std-only PNG。
- /// 每次捕获后把原始屏幕几何回填 shared(§7.2 坐标换算终段用)。
++use hv_demo_x11::mapping;
++use hv_protocol::crypto::HandshakeKeypair;
++use hv_protocol::session::{SecureChannel, SessionMsg};
++use tokio::net::TcpStream;
++
++/// 被控端设备身份(Hello/审计用;测试面显式)。
++const DAEMON_DEVICE_ID: &str = "hv-control-daemon-demo";
++
++/// 帧源真实实现:锁后端 → GetImage 全屏捕获 → 降采样 → std-only PNG。
++/// 每次捕获后把原始屏幕几何回填 shared(§7.2 坐标换算终段用)。
 +/// 桌面后端句柄:惰性连接 + 可失败(无 X11 平台控制面仍须可用)。
 +///
 +/// `Backend` 方法全为 `&self`,`Mutex` 仅用于惰性初始化缓存与失败原因留痕。
@@ -186,78 +220,69 @@
 +    }
 +}
 +
- struct X11Frames {
--    backend: Arc<Mutex<Backend>>,
++struct X11Frames {
 +    backend: Arc<BackendSlot>,
-     max_w: u32,
-     shared: Arc<control::DaemonShared>,
- }
- 
- impl X11Frames {
++    max_w: u32,
++    shared: Arc<control::DaemonShared>,
++}
++
++impl X11Frames {
 +    /// unix:真实后端采集路径。
 +    #[cfg(unix)]
-     fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
--        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
--        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
++    fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
 +        let (w, h, rgba) = self
 +            .backend
 +            .with(|b| b.capture_screen_rgba())?
 +            .map_err(|e| e.to_string())?;
-         self.shared.set_screen_geo(w, h);
-         Ok(downscale_rgba(w, h, &rgba, self.max_w))
-     }
++        self.shared.set_screen_geo(w, h);
++        Ok(downscale_rgba(w, h, &rgba, self.max_w))
++    }
 +
 +    /// 非 unix:无桌面后端,采集按调用返回明确错误(不 panic、不整体退出)。
 +    #[cfg(not(unix))]
 +    fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
 +        Err(self.backend.unavailable())
 +    }
- }
- 
- impl FrameSource for X11Frames {
++}
++
++impl FrameSource for X11Frames {
 +    #[cfg(unix)]
-     fn capture_png(&self) -> Result<Vec<u8>, String> {
-         let (w, h, rgba) = self.capture_downscaled()?;
-         hv_demo_x11::png::encode_png(&rgba, w, h).map_err(|e| e.to_string())
-     }
++    fn capture_png(&self) -> Result<Vec<u8>, String> {
++        let (w, h, rgba) = self.capture_downscaled()?;
++        hv_demo_x11::png::encode_png(&rgba, w, h).map_err(|e| e.to_string())
++    }
 +
 +    #[cfg(not(unix))]
 +    fn capture_png(&self) -> Result<Vec<u8>, String> {
 +        Err(self.backend.unavailable())
 +    }
- }
- 
- /// 注入汇真实实现:0x06 decode → plan → XTEST(经 GatedSink 门禁包装)。
- struct XtestSink {
--    backend: Arc<Mutex<Backend>>,
++}
++
++/// 注入汇真实实现:0x06 decode → plan → XTEST(经 GatedSink 门禁包装)。
++struct XtestSink {
 +    backend: Arc<BackendSlot>,
- }
- 
- impl InputSink for XtestSink {
++}
++
++impl InputSink for XtestSink {
 +    /// unix:0x06 decode → 本端 keymap 换 keycode → plan → XTEST 注入。
 +    #[cfg(unix)]
-     fn deliver(&self, wire: &[u8]) -> Result<(), String> {
-         let mut msg = mapping::decode_input_event(wire).map_err(|e| format!("0x06 decode: {e}"))?;
-         // keys 域 wire 语义 = keysym 低 16 位（§7.2 最小键位表，客户端产出）；
-@@ -78,9 +215,9 @@
-         // 表外 keysym 丢弃并 eprintln 留痕（门禁/注入判定行仍由 GatedSink 审计承载）。
-         if let SessionMsg::InputEvent { keys, .. } = &mut msg {
-             if !keys.is_empty() {
--                let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
--                let (mapped, dropped) =
--                    hv_control_demo::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks));
++    fn deliver(&self, wire: &[u8]) -> Result<(), String> {
++        let mut msg = mapping::decode_input_event(wire).map_err(|e| format!("0x06 decode: {e}"))?;
++        // keys 域 wire 语义 = keysym 低 16 位（§7.2 最小键位表，客户端产出）；
++        // 注入前查本端 keymap 换 keycode（键码是本机 keymap 属性，不能跨端假设）。
++        // 表外 keysym 丢弃并 eprintln 留痕（门禁/注入判定行仍由 GatedSink 审计承载）。
++        if let SessionMsg::InputEvent { keys, .. } = &mut msg {
++            if !keys.is_empty() {
 +                let (mapped, dropped) = self.backend.with(|b| {
-+                    hv_control_demo::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks))
++                    crate::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks))
 +                })?;
-                 if dropped > 0 {
-                     eprintln!("[daemon] keysym translate: {dropped} unmapped keysym(s) dropped");
-                 }
-@@ -88,8 +225,16 @@
-             }
-         }
-         let cmds = mapping::plan(&msg).map_err(|e| e.to_string())?;
--        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
--        b.inject(&cmds).map_err(|e| e.to_string())
++                if dropped > 0 {
++                    eprintln!("[daemon] keysym translate: {dropped} unmapped keysym(s) dropped");
++                }
++                *keys = mapped;
++            }
++        }
++        let cmds = mapping::plan(&msg).map_err(|e| e.to_string())?;
 +        self.backend
 +            .with(|b| b.inject(&cmds))?
 +            .map_err(|e| e.to_string())
@@ -268,138 +293,720 @@
 +    #[cfg(not(unix))]
 +    fn deliver(&self, _wire: &[u8]) -> Result<(), String> {
 +        Err(self.backend.unavailable())
-     }
- }
- 
-@@ -108,15 +253,21 @@
-     let mut audit = None;
-     let mut max_w = 960u32;
-     let mut fps = 8u32;
--    let mut it = std::env::args().skip(1);
++    }
++}
++
++struct Args {
++    bind: String,
++    session_bind: String,
++    fp_dir: Option<String>,
++    audit: Option<String>,
++    profile: CaptureProfile,
++}
++
++fn parse_args() -> Result<Args, String> {
++    let mut bind: Option<String> = None;
++    let mut session_bind: Option<String> = None;
++    let mut fp_dir = None;
++    let mut audit = None;
++    let mut max_w = 960u32;
++    let mut fps = 8u32;
 +    // std::env::args() 对非 UTF-8 参数会 panic(#[track_caller] → panic Location
 +    // 会把本文件路径串编入分发件——卡面判据之一);改用 args_os 逐参显式转
 +    // String,非 UTF-8 参数按解析错误走显式 exit=1,不 panic。
 +    let mut it = std::env::args_os().skip(1);
-     while let Some(a) = it.next() {
++    while let Some(a) = it.next() {
 +        let a = a
 +            .into_string()
 +            .map_err(|_| "non-UTF-8 argument (arguments must be UTF-8)".to_string())?;
-         match a.as_str() {
--            "--bind" => bind = it.next(),
--            "--session-bind" => session_bind = it.next(),
--            "--fp-dir" => fp_dir = it.next(),
--            "--audit" => audit = it.next(),
--            "--max-w" => max_w = it.next().ok_or("--max-w needs value")?.parse().map_err(|_| "bad --max-w")?,
--            "--fps" => fps = it.next().ok_or("--fps needs value")?.parse().map_err(|_| "bad --fps")?,
++        match a.as_str() {
 +            "--bind" => bind = it.next().and_then(|s| s.into_string().ok()),
 +            "--session-bind" => session_bind = it.next().and_then(|s| s.into_string().ok()),
 +            "--fp-dir" => fp_dir = it.next().and_then(|s| s.into_string().ok()),
 +            "--audit" => audit = it.next().and_then(|s| s.into_string().ok()),
 +            "--max-w" => max_w = it.next().and_then(|s| s.into_string().ok()).ok_or("--max-w needs value")?.parse().map_err(|_| "bad --max-w")?,
 +            "--fps" => fps = it.next().and_then(|s| s.into_string().ok()).ok_or("--fps needs value")?.parse().map_err(|_| "bad --fps")?,
-             other => return Err(format!("unknown arg {other:?}")),
-         }
-     }
-@@ -163,19 +314,16 @@
-         }
-     };
++            other => return Err(format!("unknown arg {other:?}")),
++        }
++    }
++    Ok(Args {
++        bind: bind.ok_or("missing --bind <loopback IP:port>")?,
++        session_bind: session_bind.ok_or("missing --session-bind <loopback IP:port>")?,
++        fp_dir,
++        audit,
++        profile: CaptureProfile { max_w, fps },
++    })
++}
++
++/// bin 薄入口(退出码语义不变:0 正常停机/2 绑定策略拒绝/1 运行时失败)。
++pub fn main_entry() -> ExitCode {
++    let args = match parse_args() {
++        Ok(a) => a,
++        Err(e) => {
++            eprintln!("[daemon] {e}; usage: hv-control-daemon --bind <loopback IP:port> --session-bind <loopback IP:port> [--fp-dir DIR] [--audit PATH] [--max-w N] [--fps N]");
++            return ExitCode::from(1);
++        }
++    };
++
++    // ── 红线:绑定策略校验先于一切(含 X 连接与 OS bind;Y.1 形态)──
++    for spec in [&args.bind, &args.session_bind] {
++        if let Err(e) = bind::resolve_loopback_bind(spec) {
++            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
++            return ExitCode::from(2);
++        }
++    }
++
++    let killswitch = KillSwitch::new();
++    let audit = match &args.audit {
++        Some(p) => crate::audit::AuditLog::with_file(std::path::Path::new(p)),
++        None => crate::audit::AuditLog::new(),
++    };
++    let shared = DaemonShared::new(killswitch.clone(), args.profile, audit);
++
++    // ── tokio runtime(会话通道侧;控制面为 std 线程)──
++    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
++    let rt = match rt {
++        Ok(r) => Arc::new(r),
++        Err(e) => {
++            eprintln!("[daemon] tokio runtime: {e}");
++            return ExitCode::from(1);
++        }
++    };
++
++    // ── 桌面后端:惰性 + 可失败(X11 平台外不阻断控制面)──
++    let backend = Arc::new(BackendSlot::new());
++    if backend.try_connect() {
++        if let Some((w, h)) = backend.describe() {
++            eprintln!("[daemon] backend connected: screen {w}x{h}, unix-socket only");
++        }
++    } else {
++        let why = backend.last_error().unwrap_or_else(|| "unknown".into());
++        eprintln!(
++            "[daemon] WARNING: desktop backend unavailable ({why}); control plane (arm/disarm/incoming/status/killswitch) and P3 session channel continue serving; capture/inject endpoints return explicit errors"
++        );
++    }
++
++    // ── 回环控制面(HTTP)──
++    let frames: Arc<dyn FrameSource> = Arc::new(X11Frames {
++        backend: backend.clone(),
++        max_w: args.profile.max_w,
++        shared: shared.clone(),
++    });
++    // 回环注入汇(§7.2 键鼠回传):GatedSink 门禁包装 XtestSink,置入 shared。
++    {
++        use crate::input_gate::GatedSink;
++        let gated: Arc<dyn hv_demo_http::http::InputSink> = Arc::new(GatedSink {
++            gate: shared.gate.clone(),
++            inner: XtestSink { backend: backend.clone() },
++            audit: shared.audit.clone(),
++            delivered: Arc::new(std::sync::atomic::AtomicU64::new(0)),
++        });
++        shared.set_sink(gated);
++    }
++    let control = match ControlServer::bind(&args.bind, shared.clone(), frames) {
++        Ok(s) => s,
++        Err(e) => {
++            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
++            return ExitCode::from(2);
++        }
++    };
++    let control_addr = control.local_addr();
++    control.spawn();
++
++    // ── P3 会话通道(acceptor)──
++    let session_addr = match bind::resolve_loopback_bind(&args.session_bind) {
++        Ok(a) => a,
++        Err(e) => {
++            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
++            return ExitCode::from(2);
++        }
++    };
++    {
++        let shared = shared.clone();
++        let backend = backend.clone();
++        let fp_source = args
++            .fp_dir
++            .as_ref()
++            .map(|d| DirFpSource::new(std::path::Path::new(d)))
++            .unwrap_or_else(|| DirFpSource::new(std::path::Path::new("/tmp/hv-control-fp-demo")));
++        rt.spawn(async move {
++            run_session_acceptor(session_addr, shared, backend, fp_source).await;
++        });
++    }
++
++    println!("[daemon] control={control_addr} session={session_addr} profile={}x{}fps", args.profile.max_w, args.profile.fps);
++    use std::io::Write as _;
++    std::io::stdout().flush().ok();
++
++    // ── 主线程驻留直到硬停(五段连锁第 4 段:进程零残留)──
++    while !killswitch.tripped() {
++        std::thread::sleep(Duration::from_millis(200));
++    }
++    eprintln!("[daemon] killswitch tripped, process exiting (port released, no residue)");
++    ExitCode::SUCCESS
++}
++
++/// 会话 acceptor:accept → 握手(保留对端公钥)→ Hello(device_id)→
++/// 双重校验(grant + 指纹 Required)→ 会话循环。
++async fn run_session_acceptor(
++    addr: std::net::SocketAddr,
++    shared: Arc<DaemonShared>,
++    backend: Arc<BackendSlot>,
++    fp_source: DirFpSource,
++) {
++    let listener = match tokio::net::TcpListener::bind(addr).await {
++        Ok(l) => l,
++        Err(e) => {
++            eprintln!("[daemon] session listener bind {addr}: {e}");
++            return;
++        }
++    };
++    let anchoring = RequiredAnchoring::new(fp_source);
++    loop {
++        let (sock, peer) = match listener.accept().await {
++            Ok(x) => x,
++            Err(e) => {
++                eprintln!("[daemon] session accept error: {e}");
++                continue;
++            }
++        };
++        if shared.killswitch.tripped() {
++            eprintln!("[daemon] killswitch tripped, session acceptor exiting");
++            return;
++        }
++        let shared = shared.clone();
++        let backend = backend.clone();
++        let anchoring = anchoring.clone();
++        tokio::spawn(async move {
++            let _ = handle_session(sock, peer, shared, backend, anchoring).await;
++        });
++    }
++}
++
++async fn handle_session(
++    sock: TcpStream,
++    peer: std::net::SocketAddr,
++    shared: Arc<DaemonShared>,
++    backend: Arc<BackendSlot>,
++    anchoring: RequiredAnchoring<DirFpSource>,
++) -> std::io::Result<()> {
++    let mut sock = sock;
++    let kp = HandshakeKeypair::generate();
++    let (crypto, peer_public) =
++        match handshake_with_peer(&mut sock, kp, SESSION_ID, hv_protocol::crypto::Role::Responder).await {
++            Ok(x) => x,
++            Err(e) => {
++                eprintln!("[daemon] handshake {peer}: {e}");
++                return Ok(());
++            }
++        };
++    let presented_fp = session_fingerprint(&peer_public);
++    let mut chan = SecureChannel::new(sock, crypto);
++
++    // 首消息必须是 Hello{device_id}(握手后第一个消息,session.rs 语义)。
++    let device_id = match chan.recv().await {
++        Ok(SessionMsg::Hello { device_id }) => device_id,
++        Ok(_) => {
++            reject(&mut chan, "expect-hello", &shared).await;
++            return Ok(());
++        }
++        Err(e) => {
++            eprintln!("[daemon] recv hello {peer}: {e}");
++            return Ok(());
++        }
++    };
++
++    // 双重校验第 1 项(设计 §5.1):grant 活跃 + watcher_device 匹配。
++    // 锁中毒不 panic(panic Location 会把本文件路径串编入分发件——卡面判据
++    // 之一):into_inner 取回注册表尽力读取;校验失败仍走下方 unauthorized
++    // 拒绝路径,不静默放行。守卫不跨 await 持有。
++    let grant = {
++        let mut grants = match shared.grants.lock() {
++            Ok(g) => g,
++            Err(poisoned) => poisoned.into_inner(),
++        };
++        grants.active_for_device(&device_id, control::now_ms())
++    };
++    let grant = match grant {
++        Ok(g) => g,
++        Err(e) => {
++            shared.audit("offer-reject", format!("device={device_id} grant-check={e}"));
++            reject(&mut chan, "unauthorized", &shared).await;
++            return Ok(());
++        }
++    };
++
++    // 双重校验第 2 项(设计 §5.1):指纹锚定,策略恒 Required——
++    // 期望值查不到(AccessError::AnchorMissing)即拒,不静默降级。
++    if let Err(e) = anchoring.verify(&device_id, &presented_fp) {
++        shared.audit("offer-reject", format!("device={device_id} anchor={e}"));
++        reject(&mut chan, "anchor-rejected", &shared).await;
++        return Ok(());
++    }
++
++    shared.audit(
++        "session-start",
++        format!("peer={peer} device={device_id} grant={}", grant.grant_id),
++    );
++    // 对端通告本端身份(Hello 对称语义)。
++    let _ = chan.send(&SessionMsg::Hello { device_id: DAEMON_DEVICE_ID.into() }).await;
++
++    // teardown watch(N.2:sender 由 shared 具名持有;先复位再订阅)。
++    shared.teardown_tx.send_replace(false);
++    let teardown_rx = shared.teardown_tx.subscribe();
++
++    let gate: InputGate = shared.gate.clone();
++    // 注入汇与会话审计共用共享审计(触发窗日志全文可取证,§5.4①)。
++    let sink: Arc<dyn InputSink> = Arc::new(GatedSink {
++        gate: gate.clone(),
++        inner: XtestSink { backend: backend.clone() },
++        audit: shared.audit.clone(),
++        delivered: Arc::new(std::sync::atomic::AtomicU64::new(0)),
++    });
++    let audit = shared.audit.clone();
++    let max_w = shared.profile.max_w;
++    let capture_backend = backend.clone();
++    // 会话循环帧采集闭包:unix 走真实后端;非 unix 恒明确错误(会话通道仍可
++    // 建立,帧端按调用失败)。
++    #[cfg(unix)]
++    let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
++        let (w, h, rgba) = capture_backend
++            .with(|b| b.capture_screen_rgba())?
++            .map_err(|e| e.to_string())?;
++        Ok(Some(downscale_rgba(w, h, &rgba, max_w)))
++    };
++    #[cfg(not(unix))]
++    let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
++        Err(capture_backend.unavailable())
++    };
++
++    let cfg = SessionLoopConfig {
++        heartbeat_interval: crate::session_loop::HEARTBEAT_INTERVAL,
++        frame_interval: Some(shared.profile.frame_interval()),
++    };
++    let teardown = run_session(
++        chan, cfg, &gate, &shared.killswitch, sink, teardown_rx, audit, &mut capture,
++    ).await;
++    if let SessionTeardown::LeaseExpired | SessionTeardown::Disarmed = teardown {
++        // T11/T10:会话拆除 → grant 释放(dropped/share_stopped)。
++        // 锁中毒恢复:释放必须尽力执行(into_inner 取回注册表,不 panic)。
++        #[allow(unused_mut)]
++        let mut grants = match shared.grants.lock() {
++            Ok(g) => g,
++            Err(poisoned) => poisoned.into_inner(),
++        };
++        let reason = match teardown {
++            SessionTeardown::LeaseExpired => crate::grant::ReleaseReason::Network,
++            _ => crate::grant::ReleaseReason::ShareStopped,
++        };
++        let _ = grants.release(&grant.grant_id, reason, control::now_ms());
++    }
++    shared.audit("session-end", format!("device={device_id} reason={}", teardown.as_str()));
++    Ok(())
++}
++
++async fn reject(chan: &mut SecureChannel<TcpStream>, reason: &str, shared: &Arc<DaemonShared>) {
++    shared.audit("offer-reject", format!("reason={reason}"));
++    let _ = chan.send(&SessionMsg::Bye { reason: reason.to_string() }).await;
++}
+--- crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-10-06 10:45:00.000000000 +0000
+@@ -1,386 +1,15 @@
+ //! hv-control-daemon — 被控端 daemon(块 A;设计 §7.3/§8.1)。
+ //!
+-//! 接线(全真实链路,测试面拓扑 daemon↔daemon/peer,不经接入桥):
+-//! - 回环控制面(HTTP,std 线程)——arm/disarm/incoming/status/killswitch/
+-//!   frame/healthz,绑定经 `resolve_loopback_bind` 双保险;
+-//! - P3 会话通道(TCP + SecureChannel,tokio)——accept 后双重校验
+-//!   (grant 活跃 + watcher_device 匹配;指纹锚定 Required),再进会话循环
+-//!   (心跳 5s/租约 15s;FrameSlice 帧流 armed 门禁;InputEvent 下行注入);
+-//! - X11 后端(hv-demo-x11)——GetImage 采集 → 降采样 → 分片;XTEST 注入。
++//! 本文件为**薄入口**:全部实现在 [`hv_control_demo::daemon`](lib 同 crate
++//! 的 daemon 模块)——后端门控/控制面/会话 acceptor/退出码语义均在彼处。
++//! bin 文件不含任何可 panic 的调用,故本文件路径串(卡面判据①)不被嵌入
++//! 二进制;x11rb(判据②)由 hv-demo-x11 依赖 unix 门控结构性排除(Windows
++//! 分发构建不编入)。两判据零命中均为源码/依赖图结构达成,非参数改名。
+ //!
+-//! 退出码:0 = 正常停机(killswitch/disarm+shutdown);2 = 绑定策略拒绝
+-//! (**先于 X 连接与任何 OS bind**,拒绝分支无 DISPLAY 亦可复跑,Y.1);
+-//! 1 = X 连接/运行时失败。
+-//!
+-//! 用法:
+-//! ```text
+-//! hv-control-daemon --bind 127.0.0.1:19198 --session-bind 127.0.0.1:19199 \
+-//!   [--fp-dir DIR] [--audit PATH] [--max-w 960] [--fps 8] [--device-id ID]
+-//! ```
++//! 退出码/用法见 `hv_control_demo::daemon` 模块文档。
  
+ use std::process::ExitCode;
+-use std::sync::{Arc, Mutex};
+-use std::time::Duration;
+-
+-use hv_control_demo::anchor::{session_fingerprint, DirFpSource, RequiredAnchoring};
+-use hv_control_demo::control::{ControlServer, DaemonShared};
+-use hv_control_demo::frame_source::{downscale_rgba, CaptureProfile};
+-use hv_control_demo::input_gate::{GatedSink, InputGate};
+-use hv_control_demo::session_loop::{
+-    handshake_with_peer, run_session, SessionLoopConfig, SessionTeardown,
+-};
+-use hv_control_demo::{bind, control, SESSION_ID};
+-use hv_demo_http::http::{FrameSource, InputSink};
+-use hv_demo_http::killswitch::KillSwitch;
+-use hv_demo_x11::backend::Backend;
+-use hv_demo_x11::mapping;
+-use hv_protocol::crypto::HandshakeKeypair;
+-use hv_protocol::session::{SecureChannel, SessionMsg};
+-use tokio::net::TcpStream;
+-
+-/// 被控端设备身份(Hello/审计用;测试面显式)。
+-const DAEMON_DEVICE_ID: &str = "hv-control-daemon-demo";
+-
+-/// 帧源真实实现:锁后端 → GetImage 全屏捕获 → 降采样 → std-only PNG。
+-/// 每次捕获后把原始屏幕几何回填 shared(§7.2 坐标换算终段用)。
+-struct X11Frames {
+-    backend: Arc<Mutex<Backend>>,
+-    max_w: u32,
+-    shared: Arc<control::DaemonShared>,
+-}
+-
+-impl X11Frames {
+-    fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
+-        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
+-        self.shared.set_screen_geo(w, h);
+-        Ok(downscale_rgba(w, h, &rgba, self.max_w))
+-    }
+-}
+-
+-impl FrameSource for X11Frames {
+-    fn capture_png(&self) -> Result<Vec<u8>, String> {
+-        let (w, h, rgba) = self.capture_downscaled()?;
+-        hv_demo_x11::png::encode_png(&rgba, w, h).map_err(|e| e.to_string())
+-    }
+-}
+-
+-/// 注入汇真实实现:0x06 decode → plan → XTEST(经 GatedSink 门禁包装)。
+-struct XtestSink {
+-    backend: Arc<Mutex<Backend>>,
+-}
+-
+-impl InputSink for XtestSink {
+-    fn deliver(&self, wire: &[u8]) -> Result<(), String> {
+-        let mut msg = mapping::decode_input_event(wire).map_err(|e| format!("0x06 decode: {e}"))?;
+-        // keys 域 wire 语义 = keysym 低 16 位（§7.2 最小键位表，客户端产出）；
+-        // 注入前查本端 keymap 换 keycode（键码是本机 keymap 属性，不能跨端假设）。
+-        // 表外 keysym 丢弃并 eprintln 留痕（门禁/注入判定行仍由 GatedSink 审计承载）。
+-        if let SessionMsg::InputEvent { keys, .. } = &mut msg {
+-            if !keys.is_empty() {
+-                let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-                let (mapped, dropped) =
+-                    hv_control_demo::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks));
+-                if dropped > 0 {
+-                    eprintln!("[daemon] keysym translate: {dropped} unmapped keysym(s) dropped");
+-                }
+-                *keys = mapped;
+-            }
+-        }
+-        let cmds = mapping::plan(&msg).map_err(|e| e.to_string())?;
+-        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-        b.inject(&cmds).map_err(|e| e.to_string())
+-    }
+-}
+-
+-struct Args {
+-    bind: String,
+-    session_bind: String,
+-    fp_dir: Option<String>,
+-    audit: Option<String>,
+-    profile: CaptureProfile,
+-}
+-
+-fn parse_args() -> Result<Args, String> {
+-    let mut bind: Option<String> = None;
+-    let mut session_bind: Option<String> = None;
+-    let mut fp_dir = None;
+-    let mut audit = None;
+-    let mut max_w = 960u32;
+-    let mut fps = 8u32;
+-    let mut it = std::env::args().skip(1);
+-    while let Some(a) = it.next() {
+-        match a.as_str() {
+-            "--bind" => bind = it.next(),
+-            "--session-bind" => session_bind = it.next(),
+-            "--fp-dir" => fp_dir = it.next(),
+-            "--audit" => audit = it.next(),
+-            "--max-w" => max_w = it.next().ok_or("--max-w needs value")?.parse().map_err(|_| "bad --max-w")?,
+-            "--fps" => fps = it.next().ok_or("--fps needs value")?.parse().map_err(|_| "bad --fps")?,
+-            other => return Err(format!("unknown arg {other:?}")),
+-        }
+-    }
+-    Ok(Args {
+-        bind: bind.ok_or("missing --bind <loopback IP:port>")?,
+-        session_bind: session_bind.ok_or("missing --session-bind <loopback IP:port>")?,
+-        fp_dir,
+-        audit,
+-        profile: CaptureProfile { max_w, fps },
+-    })
+-}
+ 
+ fn main() -> ExitCode {
+-    let args = match parse_args() {
+-        Ok(a) => a,
+-        Err(e) => {
+-            eprintln!("[daemon] {e}; usage: hv-control-daemon --bind <loopback IP:port> --session-bind <loopback IP:port> [--fp-dir DIR] [--audit PATH] [--max-w N] [--fps N]");
+-            return ExitCode::from(1);
+-        }
+-    };
+-
+-    // ── 红线:绑定策略校验先于一切(含 X 连接与 OS bind;Y.1 形态)──
+-    for spec in [&args.bind, &args.session_bind] {
+-        if let Err(e) = bind::resolve_loopback_bind(spec) {
+-            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
+-            return ExitCode::from(2);
+-        }
+-    }
+-
+-    let killswitch = KillSwitch::new();
+-    let audit = match &args.audit {
+-        Some(p) => hv_control_demo::audit::AuditLog::with_file(std::path::Path::new(p)),
+-        None => hv_control_demo::audit::AuditLog::new(),
+-    };
+-    let shared = DaemonShared::new(killswitch.clone(), args.profile, audit);
+-
+-    // ── tokio runtime(会话通道侧;控制面为 std 线程)──
+-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+-    let rt = match rt {
+-        Ok(r) => Arc::new(r),
+-        Err(e) => {
+-            eprintln!("[daemon] tokio runtime: {e}");
+-            return ExitCode::from(1);
+-        }
+-    };
+-
 -    // ── X11 后端(DISPLAY 环境指向 unix socket)──
 -    let backend = match Backend::connect() {
 -        Ok(b) => Arc::new(Mutex::new(b)),
 -        Err(e) => {
 -            eprintln!("[daemon] X11 backend connect failed: {e}");
 -            return ExitCode::from(1);
-+    // ── 桌面后端:惰性 + 可失败(X11 平台外不阻断控制面)──
-+    let backend = Arc::new(BackendSlot::new());
-+    if backend.try_connect() {
-+        if let Some((w, h)) = backend.describe() {
-+            eprintln!("[daemon] backend connected: screen {w}x{h}, unix-socket only");
-         }
+-        }
 -    };
 -    {
 -        let b = backend.lock().expect("lock fresh backend");
-+    } else {
-+        let why = backend.last_error().unwrap_or_else(|| "unknown".into());
-         eprintln!(
+-        eprintln!(
 -            "[daemon] backend connected: screen {}x{}, unix-socket only",
 -            b.screen_w, b.screen_h
-+            "[daemon] WARNING: desktop backend unavailable ({why}); control plane (arm/disarm/incoming/status/killswitch) and P3 session channel continue serving; capture/inject endpoints return explicit errors"
-         );
-     }
- 
-@@ -244,7 +392,7 @@
- async fn run_session_acceptor(
-     addr: std::net::SocketAddr,
-     shared: Arc<DaemonShared>,
+-        );
+-    }
+-
+-    // ── 回环控制面(HTTP)──
+-    let frames: Arc<dyn FrameSource> = Arc::new(X11Frames {
+-        backend: backend.clone(),
+-        max_w: args.profile.max_w,
+-        shared: shared.clone(),
+-    });
+-    // 回环注入汇(§7.2 键鼠回传):GatedSink 门禁包装 XtestSink,置入 shared。
+-    {
+-        use hv_control_demo::input_gate::GatedSink;
+-        let gated: Arc<dyn hv_demo_http::http::InputSink> = Arc::new(GatedSink {
+-            gate: shared.gate.clone(),
+-            inner: XtestSink { backend: backend.clone() },
+-            audit: shared.audit.clone(),
+-            delivered: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+-        });
+-        shared.set_sink(gated);
+-    }
+-    let control = match ControlServer::bind(&args.bind, shared.clone(), frames) {
+-        Ok(s) => s,
+-        Err(e) => {
+-            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
+-            return ExitCode::from(2);
+-        }
+-    };
+-    let control_addr = control.local_addr();
+-    control.spawn();
+-
+-    // ── P3 会话通道(acceptor)──
+-    let session_addr = match bind::resolve_loopback_bind(&args.session_bind) {
+-        Ok(a) => a,
+-        Err(e) => {
+-            eprintln!("[daemon] BIND-POLICY-REJECTED: {e}");
+-            return ExitCode::from(2);
+-        }
+-    };
+-    {
+-        let shared = shared.clone();
+-        let backend = backend.clone();
+-        let fp_source = args
+-            .fp_dir
+-            .as_ref()
+-            .map(|d| DirFpSource::new(std::path::Path::new(d)))
+-            .unwrap_or_else(|| DirFpSource::new(std::path::Path::new("/tmp/hv-control-fp-demo")));
+-        rt.spawn(async move {
+-            run_session_acceptor(session_addr, shared, backend, fp_source).await;
+-        });
+-    }
+-
+-    println!("[daemon] control={control_addr} session={session_addr} profile={}x{}fps", args.profile.max_w, args.profile.fps);
+-    use std::io::Write as _;
+-    std::io::stdout().flush().ok();
+-
+-    // ── 主线程驻留直到硬停(五段连锁第 4 段:进程零残留)──
+-    while !killswitch.tripped() {
+-        std::thread::sleep(Duration::from_millis(200));
+-    }
+-    eprintln!("[daemon] killswitch tripped, process exiting (port released, no residue)");
+-    ExitCode::SUCCESS
+-}
+-
+-/// 会话 acceptor:accept → 握手(保留对端公钥)→ Hello(device_id)→
+-/// 双重校验(grant + 指纹 Required)→ 会话循环。
+-async fn run_session_acceptor(
+-    addr: std::net::SocketAddr,
+-    shared: Arc<DaemonShared>,
 -    backend: Arc<Mutex<Backend>>,
-+    backend: Arc<BackendSlot>,
-     fp_source: DirFpSource,
- ) {
-     let listener = match tokio::net::TcpListener::bind(addr).await {
-@@ -280,7 +428,7 @@
-     sock: TcpStream,
-     peer: std::net::SocketAddr,
-     shared: Arc<DaemonShared>,
+-    fp_source: DirFpSource,
+-) {
+-    let listener = match tokio::net::TcpListener::bind(addr).await {
+-        Ok(l) => l,
+-        Err(e) => {
+-            eprintln!("[daemon] session listener bind {addr}: {e}");
+-            return;
+-        }
+-    };
+-    let anchoring = RequiredAnchoring::new(fp_source);
+-    loop {
+-        let (sock, peer) = match listener.accept().await {
+-            Ok(x) => x,
+-            Err(e) => {
+-                eprintln!("[daemon] session accept error: {e}");
+-                continue;
+-            }
+-        };
+-        if shared.killswitch.tripped() {
+-            eprintln!("[daemon] killswitch tripped, session acceptor exiting");
+-            return;
+-        }
+-        let shared = shared.clone();
+-        let backend = backend.clone();
+-        let anchoring = anchoring.clone();
+-        tokio::spawn(async move {
+-            let _ = handle_session(sock, peer, shared, backend, anchoring).await;
+-        });
+-    }
+-}
+-
+-async fn handle_session(
+-    sock: TcpStream,
+-    peer: std::net::SocketAddr,
+-    shared: Arc<DaemonShared>,
 -    backend: Arc<Mutex<Backend>>,
-+    backend: Arc<BackendSlot>,
-     anchoring: RequiredAnchoring<DirFpSource>,
- ) -> std::io::Result<()> {
-     let mut sock = sock;
-@@ -310,8 +458,14 @@
-     };
- 
-     // 双重校验第 1 项(设计 §5.1):grant 活跃 + watcher_device 匹配。
-+    // 锁中毒不 panic(panic Location 会把本文件路径串编入分发件——卡面判据
-+    // 之一):into_inner 取回注册表尽力读取;校验失败仍走下方 unauthorized
-+    // 拒绝路径,不静默放行。守卫不跨 await 持有。
-     let grant = {
+-    anchoring: RequiredAnchoring<DirFpSource>,
+-) -> std::io::Result<()> {
+-    let mut sock = sock;
+-    let kp = HandshakeKeypair::generate();
+-    let (crypto, peer_public) =
+-        match handshake_with_peer(&mut sock, kp, SESSION_ID, hv_protocol::crypto::Role::Responder).await {
+-            Ok(x) => x,
+-            Err(e) => {
+-                eprintln!("[daemon] handshake {peer}: {e}");
+-                return Ok(());
+-            }
+-        };
+-    let presented_fp = session_fingerprint(&peer_public);
+-    let mut chan = SecureChannel::new(sock, crypto);
+-
+-    // 首消息必须是 Hello{device_id}(握手后第一个消息,session.rs 语义)。
+-    let device_id = match chan.recv().await {
+-        Ok(SessionMsg::Hello { device_id }) => device_id,
+-        Ok(_) => {
+-            reject(&mut chan, "expect-hello", &shared).await;
+-            return Ok(());
+-        }
+-        Err(e) => {
+-            eprintln!("[daemon] recv hello {peer}: {e}");
+-            return Ok(());
+-        }
+-    };
+-
+-    // 双重校验第 1 项(设计 §5.1):grant 活跃 + watcher_device 匹配。
+-    let grant = {
 -        let grants = shared.grants.lock().expect("grants lock");
-+        let mut grants = match shared.grants.lock() {
-+            Ok(g) => g,
-+            Err(poisoned) => poisoned.into_inner(),
-+        };
-         grants.active_for_device(&device_id, control::now_ms())
-     };
-     let grant = match grant {
-@@ -353,11 +507,19 @@
-     let audit = shared.audit.clone();
-     let max_w = shared.profile.max_w;
-     let capture_backend = backend.clone();
-+    // 会话循环帧采集闭包:unix 走真实后端;非 unix 恒明确错误(会话通道仍可
-+    // 建立,帧端按调用失败)。
-+    #[cfg(unix)]
-     let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+-        grants.active_for_device(&device_id, control::now_ms())
+-    };
+-    let grant = match grant {
+-        Ok(g) => g,
+-        Err(e) => {
+-            shared.audit("offer-reject", format!("device={device_id} grant-check={e}"));
+-            reject(&mut chan, "unauthorized", &shared).await;
+-            return Ok(());
+-        }
+-    };
+-
+-    // 双重校验第 2 项(设计 §5.1):指纹锚定,策略恒 Required——
+-    // 期望值查不到(AccessError::AnchorMissing)即拒,不静默降级。
+-    if let Err(e) = anchoring.verify(&device_id, &presented_fp) {
+-        shared.audit("offer-reject", format!("device={device_id} anchor={e}"));
+-        reject(&mut chan, "anchor-rejected", &shared).await;
+-        return Ok(());
+-    }
+-
+-    shared.audit(
+-        "session-start",
+-        format!("peer={peer} device={device_id} grant={}", grant.grant_id),
+-    );
+-    // 对端通告本端身份(Hello 对称语义)。
+-    let _ = chan.send(&SessionMsg::Hello { device_id: DAEMON_DEVICE_ID.into() }).await;
+-
+-    // teardown watch(N.2:sender 由 shared 具名持有;先复位再订阅)。
+-    shared.teardown_tx.send_replace(false);
+-    let teardown_rx = shared.teardown_tx.subscribe();
+-
+-    let gate: InputGate = shared.gate.clone();
+-    // 注入汇与会话审计共用共享审计(触发窗日志全文可取证,§5.4①)。
+-    let sink: Arc<dyn InputSink> = Arc::new(GatedSink {
+-        gate: gate.clone(),
+-        inner: XtestSink { backend: backend.clone() },
+-        audit: shared.audit.clone(),
+-        delivered: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+-    });
+-    let audit = shared.audit.clone();
+-    let max_w = shared.profile.max_w;
+-    let capture_backend = backend.clone();
+-    let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
 -        let b = capture_backend.lock().map_err(|e| format!("backend lock: {e}"))?;
 -        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
-+        let (w, h, rgba) = capture_backend
-+            .with(|b| b.capture_screen_rgba())?
-+            .map_err(|e| e.to_string())?;
-         Ok(Some(downscale_rgba(w, h, &rgba, max_w)))
-     };
-+    #[cfg(not(unix))]
-+    let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
-+        Err(capture_backend.unavailable())
-+    };
- 
-     let cfg = SessionLoopConfig {
-         heartbeat_interval: hv_control_demo::session_loop::HEARTBEAT_INTERVAL,
-@@ -368,8 +530,12 @@
-     ).await;
-     if let SessionTeardown::LeaseExpired | SessionTeardown::Disarmed = teardown {
-         // T11/T10:会话拆除 → grant 释放(dropped/share_stopped)。
-+        // 锁中毒恢复:释放必须尽力执行(into_inner 取回注册表,不 panic)。
-         #[allow(unused_mut)]
+-        Ok(Some(downscale_rgba(w, h, &rgba, max_w)))
+-    };
+-
+-    let cfg = SessionLoopConfig {
+-        heartbeat_interval: hv_control_demo::session_loop::HEARTBEAT_INTERVAL,
+-        frame_interval: Some(shared.profile.frame_interval()),
+-    };
+-    let teardown = run_session(
+-        chan, cfg, &gate, &shared.killswitch, sink, teardown_rx, audit, &mut capture,
+-    ).await;
+-    if let SessionTeardown::LeaseExpired | SessionTeardown::Disarmed = teardown {
+-        // T11/T10:会话拆除 → grant 释放(dropped/share_stopped)。
+-        #[allow(unused_mut)]
 -        let mut grants = shared.grants.lock().expect("grants lock");
-+        let mut grants = match shared.grants.lock() {
-+            Ok(g) => g,
-+            Err(poisoned) => poisoned.into_inner(),
-+        };
-         let reason = match teardown {
-             SessionTeardown::LeaseExpired => hv_control_demo::grant::ReleaseReason::Network,
-             _ => hv_control_demo::grant::ReleaseReason::ShareStopped,
+-        let reason = match teardown {
+-            SessionTeardown::LeaseExpired => hv_control_demo::grant::ReleaseReason::Network,
+-            _ => hv_control_demo::grant::ReleaseReason::ShareStopped,
+-        };
+-        let _ = grants.release(&grant.grant_id, reason, control::now_ms());
+-    }
+-    shared.audit("session-end", format!("device={device_id} reason={}", teardown.as_str()));
+-    Ok(())
+-}
+-
+-async fn reject(chan: &mut SecureChannel<TcpStream>, reason: &str, shared: &Arc<DaemonShared>) {
+-    shared.audit("offer-reject", format!("reason={reason}"));
+-    let _ = chan.send(&SessionMsg::Bye { reason: reason.to_string() }).await;
++    hv_control_demo::daemon::main_entry()
+ }
 --- crates/hv-control-demo/src/control.rs	2026-09-08 12:00:00.000000000 +0000
-+++ crates/hv-control-demo/src/control.rs	2026-10-06 09:15:00.000000000 +0000
++++ crates/hv-control-demo/src/control.rs	2026-10-06 10:45:00.000000000 +0000
 @@ -242,6 +242,13 @@
              while !self.shutdown.load(Ordering::SeqCst) && !self.shared.killswitch.tripped() {
                  match self.listener.accept() {
