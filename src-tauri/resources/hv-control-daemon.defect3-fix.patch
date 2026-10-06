@@ -1,14 +1,62 @@
---- crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-09-08 13:23:21.123016126 +0000
-+++ /tmp/fmuq/patch/hv-control-daemon.rs	2026-10-06 04:33:56.439284689 +0000
-@@ -10,7 +10,16 @@
+--- crates/hv-control-demo/Cargo.toml	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/Cargo.toml	2026-10-06 09:15:00.000000000 +0000
+@@ -38,7 +38,6 @@
+ 
+ [dependencies]
+ hv-protocol = { path = "../hv-protocol" }
+-hv-demo-x11 = { path = "../hv-demo-x11" }
+ hv-demo-http = { path = "../hv-demo-http" }
+ bytes = { workspace = true }
+ tokio = { workspace = true }
+@@ -47,5 +46,17 @@
+ sha2 = "0.10"
+ uuid = { workspace = true }
+ 
++# 桌面(X11)后端仅 unix 目标编入(xfu0nh5q-1 缺陷判据:Windows 分发件不得含
++# X11 演示构建签名——strings 命中 x11rb 或守护进程源码路径串即判「混入」)。非 unix 目标(Windows)下
++# hv-control-daemon 的采集/注入端点走显式「desktop backend unavailable」
++# 错误路径,控制面/会话通道不变;hv-control-peer(观看端测试客户端)引用
++# hv-demo-x11::mapping 常量,随本依赖成为 unix-only 可构建(Windows 分发不
++# 构建 peer,无影响)。依赖图本身零变化(Cargo.lock 目标无关,不改动)。
++# 注:hv-demo-http(hv-control-demo 的依赖)对 hv-demo-x11 的同款门控见本补丁
++# 对 crates/hv-demo-http/Cargo.toml 的 hunk——两处合才使 Windows 构建完
++# 全摘除 hv-demo-x11/x11rb。
++[target.'cfg(unix)'.dependencies]
++hv-demo-x11 = { path = "../hv-demo-x11" }
++
+ [dev-dependencies]
+ # 集成测试的 async(runtime::Runtime::new)与即时断言;tokio 已在主依赖。
+--- crates/hv-demo-http/Cargo.toml	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-demo-http/Cargo.toml	2026-10-06 09:15:00.000000000 +0000
+@@ -29,6 +29,14 @@
+ # 零 commit/push。
+ 
+ [dependencies]
+-hv-demo-x11 = { path = "../hv-demo-x11" }
++# 桌面(X11)后端仅 unix 目标编入(xfu0nh5q-1 缺陷判据:Windows 分发件不得含
++# X11 演示构建签名)。本 crate 的库(bind_policy/http/input/killswitch)零
++# hv_demo_x11 引用(仅 bin/b3-demo-server.rs 用);门控后 Windows 目标下本
++# crate 库照常编译(hv-control-daemon 依赖链经过本库),仅 b3-demo-server
++# bin 与测试面成为 unix-only(Windows 分发不构建它们,无影响)。与
++# hv-control-demo/Cargo.toml 的同款门控合才生效。
+ hv-protocol = { path = "../hv-protocol" }
+ bytes = "1"
++
++[target.'cfg(unix)'.dependencies]
++hv-demo-x11 = { path = "../hv-demo-x11" }
+--- crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-10-06 09:15:00.000000000 +0000
+@@ -10,7 +10,18 @@
  //!
  //! 退出码:0 = 正常停机(killswitch/disarm+shutdown);2 = 绑定策略拒绝
  //! (**先于 X 连接与任何 OS bind**,拒绝分支无 DISPLAY 亦可复跑,Y.1);
 -//! 1 = X 连接/运行时失败。
 +//! 1 = 运行时失败(参数/tokio)。
 +//!
-+//! # 后端缺失降级(本文件 2026-10-06 修复:『Windows 随包件启动即退』)
-+//! 采集/注入后端为 X11(hv-demo-x11);Windows/macOS 无 X11 时**不再整体退出**——
++//! # 后端缺失降级(本文件 2026-10-06 修复:『Windows 随包件启动即退』;
++//!   同日 v2:非 unix 分发构建不再编入 X11 演示后端——分发件零 X11 构建签名)
++//! 采集/注入后端为 X11(hv-demo-x11,经 crate Cargo.toml 挂 [target.'cfg(unix)'.dependencies]
++//! 仅 unix 目标编入);无 X11 平台**不再整体退出**——
 +//! 控制面(arm/disarm/incoming/status/killswitch,回环 HTTP)与 P3 会话通道
 +//! (grant/握手/审计)不依赖 X11,继续服务;采集(/control/frame)与注入
 +//! (/control/input)端点按调用返回明确错误(desktop backend unavailable: <原因>)。
@@ -18,7 +66,20 @@
  //!
  //! 用法:
  //! ```text
-@@ -43,16 +52,80 @@
+@@ -32,7 +43,12 @@
+ use hv_control_demo::{bind, control, SESSION_ID};
+ use hv_demo_http::http::{FrameSource, InputSink};
+ use hv_demo_http::killswitch::KillSwitch;
++// 桌面(X11)后端仅 unix 目标编入(见 crate Cargo.toml [target.'cfg(unix)'.dependencies]):
++// Windows 等非 unix 分发构建不编译 hv-demo-x11/x11rb,分发件不含任何 X11 演示构建签名;
++// 非 unix 下采集/注入走 BackendSlot 恒不可用路径,控制面/会话通道不受影响。
++#[cfg(unix)]
+ use hv_demo_x11::backend::Backend;
++#[cfg(unix)]
+ use hv_demo_x11::mapping;
+ use hv_protocol::crypto::HandshakeKeypair;
+ use hv_protocol::session::{SecureChannel, SessionMsg};
+@@ -43,34 +59,155 @@
  
  /// 帧源真实实现:锁后端 → GetImage 全屏捕获 → 降采样 → std-only PNG。
  /// 每次捕获后把原始屏幕几何回填 shared(§7.2 坐标换算终段用)。
@@ -26,16 +87,30 @@
 +///
 +/// `Backend` 方法全为 `&self`,`Mutex` 仅用于惰性初始化缓存与失败原因留痕。
 +struct BackendSlot {
++    #[cfg(unix)]
 +    inner: Mutex<Option<Backend>>,
 +    err: Mutex<Option<String>>,
 +}
 +
 +impl BackendSlot {
++    #[cfg(unix)]
 +    fn new() -> Self {
 +        Self { inner: Mutex::new(None), err: Mutex::new(None) }
 +    }
 +
++    /// 非 unix 目标:无可编入的桌面后端,原因固定留痕(控制面/会话通道不受影响)。
++    #[cfg(not(unix))]
++    fn new() -> Self {
++        Self {
++            err: Mutex::new(Some(
++                "no desktop backend compiled in for this platform (X11 desktop backend is only built for unix targets)"
++                    .into(),
++            )),
++        }
++    }
++
 +    /// 建立/复用后端连接;成功返回 true。已连接时幂等返回 true。
++    #[cfg(unix)]
 +    fn try_connect(&self) -> bool {
 +        if self.inner.lock().map(|g| g.is_some()).unwrap_or(false) {
 +            return true;
@@ -60,7 +135,23 @@
 +        }
 +    }
 +
++    /// 非 unix 目标:恒不可用(无可编入后端)。
++    #[cfg(not(unix))]
++    fn try_connect(&self) -> bool {
++        false
++    }
++
++    /// 非 unix:采集/注入端点统一错误串(含门禁特征标记「desktop backend unavailable」)。
++    #[cfg(not(unix))]
++    fn unavailable(&self) -> String {
++        format!(
++            "desktop backend unavailable: {}",
++            self.last_error().unwrap_or_else(|| "unknown".into())
++        )
++    }
++
 +    /// 借出后端执行 `f`;后端不可用(无 X11/连接失败)返回明确错误,不 panic。
++    #[cfg(unix)]
 +    fn with<R>(&self, f: impl FnOnce(&Backend) -> R) -> Result<R, String> {
 +        if !self.try_connect() {
 +            let why = self
@@ -82,6 +173,17 @@
 +    fn last_error(&self) -> Option<String> {
 +        self.err.lock().ok().and_then(|g| g.clone())
 +    }
++
++    /// 已连接时返回屏幕几何(启动横幅用);非 unix 恒 None(无可编入后端)。
++    #[cfg(unix)]
++    fn describe(&self) -> Option<(u16, u16)> {
++        self.with(|b| (b.screen_w, b.screen_h)).ok()
++    }
++
++    #[cfg(not(unix))]
++    fn describe(&self) -> Option<(u16, u16)> {
++        None
++    }
 +}
 +
  struct X11Frames {
@@ -92,6 +194,8 @@
  }
  
  impl X11Frames {
++    /// unix:真实后端采集路径。
++    #[cfg(unix)]
      fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
 -        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
 -        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
@@ -102,7 +206,26 @@
          self.shared.set_screen_geo(w, h);
          Ok(downscale_rgba(w, h, &rgba, self.max_w))
      }
-@@ -67,7 +140,7 @@
++
++    /// 非 unix:无桌面后端,采集按调用返回明确错误(不 panic、不整体退出)。
++    #[cfg(not(unix))]
++    fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
++        Err(self.backend.unavailable())
++    }
+ }
+ 
+ impl FrameSource for X11Frames {
++    #[cfg(unix)]
+     fn capture_png(&self) -> Result<Vec<u8>, String> {
+         let (w, h, rgba) = self.capture_downscaled()?;
+         hv_demo_x11::png::encode_png(&rgba, w, h).map_err(|e| e.to_string())
+     }
++
++    #[cfg(not(unix))]
++    fn capture_png(&self) -> Result<Vec<u8>, String> {
++        Err(self.backend.unavailable())
++    }
+ }
  
  /// 注入汇真实实现:0x06 decode → plan → XTEST(经 GatedSink 门禁包装)。
  struct XtestSink {
@@ -111,7 +234,12 @@
  }
  
  impl InputSink for XtestSink {
-@@ -78,9 +151,9 @@
++    /// unix:0x06 decode → 本端 keymap 换 keycode → plan → XTEST 注入。
++    #[cfg(unix)]
+     fn deliver(&self, wire: &[u8]) -> Result<(), String> {
+         let mut msg = mapping::decode_input_event(wire).map_err(|e| format!("0x06 decode: {e}"))?;
+         // keys 域 wire 语义 = keysym 低 16 位（§7.2 最小键位表，客户端产出）；
+@@ -78,9 +215,9 @@
          // 表外 keysym 丢弃并 eprintln 留痕（门禁/注入判定行仍由 GatedSink 审计承载）。
          if let SessionMsg::InputEvent { keys, .. } = &mut msg {
              if !keys.is_empty() {
@@ -124,7 +252,7 @@
                  if dropped > 0 {
                      eprintln!("[daemon] keysym translate: {dropped} unmapped keysym(s) dropped");
                  }
-@@ -88,8 +161,9 @@
+@@ -88,8 +225,16 @@
              }
          }
          let cmds = mapping::plan(&msg).map_err(|e| e.to_string())?;
@@ -133,10 +261,46 @@
 +        self.backend
 +            .with(|b| b.inject(&cmds))?
 +            .map_err(|e| e.to_string())
++    }
++
++    /// 非 unix:无桌面后端可注入,按调用返回明确错误(先于任何载荷解析,从严拒绝;
++    /// GatedSink 门禁判定行/审计留痕不变)。
++    #[cfg(not(unix))]
++    fn deliver(&self, _wire: &[u8]) -> Result<(), String> {
++        Err(self.backend.unavailable())
      }
  }
  
-@@ -163,19 +237,17 @@
+@@ -108,15 +253,21 @@
+     let mut audit = None;
+     let mut max_w = 960u32;
+     let mut fps = 8u32;
+-    let mut it = std::env::args().skip(1);
++    // std::env::args() 对非 UTF-8 参数会 panic(#[track_caller] → panic Location
++    // 会把本文件路径串编入分发件——卡面判据之一);改用 args_os 逐参显式转
++    // String,非 UTF-8 参数按解析错误走显式 exit=1,不 panic。
++    let mut it = std::env::args_os().skip(1);
+     while let Some(a) = it.next() {
++        let a = a
++            .into_string()
++            .map_err(|_| "non-UTF-8 argument (arguments must be UTF-8)".to_string())?;
+         match a.as_str() {
+-            "--bind" => bind = it.next(),
+-            "--session-bind" => session_bind = it.next(),
+-            "--fp-dir" => fp_dir = it.next(),
+-            "--audit" => audit = it.next(),
+-            "--max-w" => max_w = it.next().ok_or("--max-w needs value")?.parse().map_err(|_| "bad --max-w")?,
+-            "--fps" => fps = it.next().ok_or("--fps needs value")?.parse().map_err(|_| "bad --fps")?,
++            "--bind" => bind = it.next().and_then(|s| s.into_string().ok()),
++            "--session-bind" => session_bind = it.next().and_then(|s| s.into_string().ok()),
++            "--fp-dir" => fp_dir = it.next().and_then(|s| s.into_string().ok()),
++            "--audit" => audit = it.next().and_then(|s| s.into_string().ok()),
++            "--max-w" => max_w = it.next().and_then(|s| s.into_string().ok()).ok_or("--max-w needs value")?.parse().map_err(|_| "bad --max-w")?,
++            "--fps" => fps = it.next().and_then(|s| s.into_string().ok()).ok_or("--fps needs value")?.parse().map_err(|_| "bad --fps")?,
+             other => return Err(format!("unknown arg {other:?}")),
+         }
+     }
+@@ -163,19 +314,16 @@
          }
      };
  
@@ -149,8 +313,7 @@
 +    // ── 桌面后端:惰性 + 可失败(X11 平台外不阻断控制面)──
 +    let backend = Arc::new(BackendSlot::new());
 +    if backend.try_connect() {
-+        let geo = backend.with(|b| (b.screen_w, b.screen_h)).ok();
-+        if let Some((w, h)) = geo {
++        if let Some((w, h)) = backend.describe() {
 +            eprintln!("[daemon] backend connected: screen {w}x{h}, unix-socket only");
          }
 -    };
@@ -165,7 +328,7 @@
          );
      }
  
-@@ -244,7 +316,7 @@
+@@ -244,7 +392,7 @@
  async fn run_session_acceptor(
      addr: std::net::SocketAddr,
      shared: Arc<DaemonShared>,
@@ -174,7 +337,7 @@
      fp_source: DirFpSource,
  ) {
      let listener = match tokio::net::TcpListener::bind(addr).await {
-@@ -280,7 +352,7 @@
+@@ -280,7 +428,7 @@
      sock: TcpStream,
      peer: std::net::SocketAddr,
      shared: Arc<DaemonShared>,
@@ -183,9 +346,29 @@
      anchoring: RequiredAnchoring<DirFpSource>,
  ) -> std::io::Result<()> {
      let mut sock = sock;
-@@ -354,8 +426,9 @@
+@@ -310,8 +458,14 @@
+     };
+ 
+     // 双重校验第 1 项(设计 §5.1):grant 活跃 + watcher_device 匹配。
++    // 锁中毒不 panic(panic Location 会把本文件路径串编入分发件——卡面判据
++    // 之一):into_inner 取回注册表尽力读取;校验失败仍走下方 unauthorized
++    // 拒绝路径,不静默放行。守卫不跨 await 持有。
+     let grant = {
+-        let grants = shared.grants.lock().expect("grants lock");
++        let mut grants = match shared.grants.lock() {
++            Ok(g) => g,
++            Err(poisoned) => poisoned.into_inner(),
++        };
+         grants.active_for_device(&device_id, control::now_ms())
+     };
+     let grant = match grant {
+@@ -353,11 +507,19 @@
+     let audit = shared.audit.clone();
      let max_w = shared.profile.max_w;
      let capture_backend = backend.clone();
++    // 会话循环帧采集闭包:unix 走真实后端;非 unix 恒明确错误(会话通道仍可
++    // 建立,帧端按调用失败)。
++    #[cfg(unix)]
      let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
 -        let b = capture_backend.lock().map_err(|e| format!("backend lock: {e}"))?;
 -        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
@@ -194,9 +377,29 @@
 +            .map_err(|e| e.to_string())?;
          Ok(Some(downscale_rgba(w, h, &rgba, max_w)))
      };
++    #[cfg(not(unix))]
++    let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
++        Err(capture_backend.unavailable())
++    };
  
---- crates/hv-control-demo/src/control.rs	2026-09-08 12:12:19.958608484 +0000
-+++ /tmp/fmuq/patch/control.rs	2026-10-06 04:47:14.670747538 +0000
+     let cfg = SessionLoopConfig {
+         heartbeat_interval: hv_control_demo::session_loop::HEARTBEAT_INTERVAL,
+@@ -368,8 +530,12 @@
+     ).await;
+     if let SessionTeardown::LeaseExpired | SessionTeardown::Disarmed = teardown {
+         // T11/T10:会话拆除 → grant 释放(dropped/share_stopped)。
++        // 锁中毒恢复:释放必须尽力执行(into_inner 取回注册表,不 panic)。
+         #[allow(unused_mut)]
+-        let mut grants = shared.grants.lock().expect("grants lock");
++        let mut grants = match shared.grants.lock() {
++            Ok(g) => g,
++            Err(poisoned) => poisoned.into_inner(),
++        };
+         let reason = match teardown {
+             SessionTeardown::LeaseExpired => hv_control_demo::grant::ReleaseReason::Network,
+             _ => hv_control_demo::grant::ReleaseReason::ShareStopped,
+--- crates/hv-control-demo/src/control.rs	2026-09-08 12:00:00.000000000 +0000
++++ crates/hv-control-demo/src/control.rs	2026-10-06 09:15:00.000000000 +0000
 @@ -242,6 +242,13 @@
              while !self.shutdown.load(Ordering::SeqCst) && !self.shared.killswitch.tripped() {
                  match self.listener.accept() {
