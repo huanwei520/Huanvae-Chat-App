@@ -184,7 +184,9 @@ if ! $BINS_ONLY; then
                 if ! command -v ar >/dev/null 2>&1; then
                     fail "本机无 ar（binutils）—— fail-closed"
                 else
-                    ( cd "$work" && ar x "$a" ) || { fail "ar 解 deb 失败 —— fail-closed"; continue; }
+                    # ar 在 $work 子壳内解包，包件路径须绝对化（相对路径在 cd 后失效——第6轮 errata 修复）
+                    case "$a" in /*) a_abs="$a" ;; *) a_abs="$PWD/${a#./}" ;; esac
+                    ( cd "$work" && ar x "$a_abs" ) || { fail "ar 解 deb 失败 —— fail-closed"; continue; }
                     data=$(ls "$work"/data.tar.* 2>/dev/null | head -1)
                     if [[ -z "$data" ]]; then fail "deb 内无 data.tar.* —— fail-closed"; continue; fi
                     mkdir -p "$work/deb-root"
