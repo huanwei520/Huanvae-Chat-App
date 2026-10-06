@@ -126,7 +126,7 @@
         "rustc": "见前代构建记录",
         "toolchain": "linux-gnu 宿主",
         "command": "cargo build --release -p hv-control-demo --bin hv-control-daemon --target x86_64-unknown-linux-gnu",
-        "notes": "X11 为其原生后端，X11-only 形态在 Linux 桌面为正确行为（DEFECT-3 仅指 Windows/macOS 形态混入）；补锚目的=deb 腿内容核查有哈希可依（xfu0nh5q-1 第4轮）。deb repack 语义（externalBin 搬移至 /opt）属 h67s8pvv-1 在飞写面，其分支删除搬移块之裁处见 acceptance.json unmet"
+        "notes": "X11 为其原生后端，X11-only 形态在 Linux 桌面为正确行为（DEFECT-3 仅指 Windows/macOS 形态混入）；补锚目的=deb 腿内容核查有哈希可依（xfu0nh5q-1 第4轮）。deb repack 语义（externalBin 搬移至 /opt）属 h67s8pvv-1 在飞写面，其分支删除搬移块之裁处见 acceptance.json director_handoff"
       }
     }
   ],
