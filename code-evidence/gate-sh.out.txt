@@ -1,0 +1,28 @@
+
+════════ hv-control-daemon 构建正确性防错闸（verify-daemon-build） ════════
+
+腿1 ▶ manifest 本体
+  [GATE] ✓ manifest 存在且可解析
+
+腿2 ▶ manifest 锚定件（存在性 + bytes + sha256 + gate_markers）
+  [GATE] ✓ [x86_64-pc-windows-msvc] src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe sha256/bytes/markers 全一致 (f34f5b2ec43e…, 1053696B)
+  [GATE] ✓ [aarch64-apple-darwin] src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin sha256/bytes/markers 全一致 (8100d0ca83f5…, 1210224B)
+  [GATE] ✓ [x86_64-unknown-linux-gnu] src-tauri/binaries/hv-control-daemon-x86_64-unknown-linux-gnu sha256/bytes/markers 全一致 (f02786fe8b2e…, 1353144B)
+
+腿3 ▶ 二进制格式 vs 目标三元组（错目标构建改名混入拦截；覆盖 binaries/ 全部 daemon 件）
+  [GATE] ✓ hv-control-daemon-aarch64-apple-darwin Mach-O cputype=0x100000c
+  [GATE] ✓ hv-control-daemon-aarch64-linux-android ELF e_machine=0xb7
+  [GATE] ✓ hv-control-daemon-armv7-linux-androideabi ELF e_machine=0x28
+  [GATE] ✓ hv-control-daemon-i686-linux-android ELF e_machine=0x3
+  [GATE] ✓ hv-control-daemon-x86_64-apple-darwin Mach-O cputype=0x1000007
+  [GATE] ✓ hv-control-daemon-x86_64-linux-android ELF e_machine=0x3e
+  [GATE] ✓ hv-control-daemon-x86_64-pc-windows-msvc.exe PE64 machine=0x8664 节区=[.text,.rdata,.data,.pdata,.reloc]
+  [GATE] ✓ hv-control-daemon-x86_64-unknown-linux-gnu ELF e_machine=0x3e
+
+腿4 ▶ externalBin 接线（件在仓里还必须真随包）
+  [GATE] ✓ tauri.conf.json: externalBin 含 hv-control-daemon
+  [GATE] ✓ tauri.windows.conf.json: externalBin 含 hv-control-daemon
+  [GATE] ✓ tauri.macos.conf.json: externalBin 含 hv-control-daemon
+
+GRAND: hv-control-daemon 构建正确性防错闸全绿（rc=0）
+RC=0

@@ -1,0 +1,5 @@
+$ sha256sum src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin src-tauri/binaries/hv-control-daemon-x86_64-unknown-linux-gnu
+f34f5b2ec43e7d8e9ae2e7ad14e96759e53913f0418069bb4778bb0ac40e616d  src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe
+8100d0ca83f5a5fd10372cd087194beddad7b9843499bc388db0eabd02d15475  src-tauri/binaries/hv-control-daemon-aarch64-apple-darwin
+f02786fe8b2e3797fd657fee8e71b2e42d3bdb3de52331a23f98165270cbe15e  src-tauri/binaries/hv-control-daemon-x86_64-unknown-linux-gnu
+RC=0

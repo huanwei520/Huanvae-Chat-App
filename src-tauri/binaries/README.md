@@ -4,9 +4,9 @@ binaries/hv-control-daemon-<target-triple> 随包 daemon 件（tauri bundle.exte
 ## 产物来源（唯一合法链路，2026-10-06 起）
 1. 标准构建：scripts/build-hv-control-binaries.sh —— 源锚核验（对照
    src-tauri/resources/hv-control-daemon.manifest.json build_anchor 四件）→ 应用
-   defect3-fix 补丁（--patch <文件> 显式指定，补丁 sha256=419aa4180147…53a2a
-   谱系锚定在 manifest；或 --no-patch，产出禁止直接入位）→ cargo build →
-   macOS 件 adhoc 重签 → 指纹/特征标记复核 → 防错闸 → manifest 回填指引。
+   defect3-fix 补丁（默认仓内 src-tauri/resources/hv-control-daemon.defect3-fix.patch，
+   sha256=419aa4180147…53a2a；--patch 可覆盖；--no-patch 产出禁止直接入位）→
+   cargo build → macOS 件 adhoc 重签 → 指纹/特征标记复核 → 防错闸 → manifest 回填指引。
 2. 构建宿主：windows-msvc 件必须在 Windows 宿主原生构建（Linux 交叉 msvc 不受
    支持，libsodium-sys 选库分支错配）；apple-darwin 件在 macOS 宿主构建；详见
    manifest 各 artifact 的 builder 记录。

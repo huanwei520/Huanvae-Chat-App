@@ -1,0 +1,9 @@
+$ sha256sum 旧件(=v1.1.54渠道安装器内 daemon) 新件(=仓内修复件)
+a907df122fdffd3e68f4ef783f5c89fe1f50a36a082eb3fd6188a4b576d02ec4  code-evidence/released-v1.1.54-win-hv-control-daemon.exe
+f34f5b2ec43e7d8e9ae2e7ad14e96759e53913f0418069bb4778bb0ac40e616d  src-tauri/binaries/hv-control-daemon-x86_64-pc-windows-msvc.exe
+
+$ 卡面缺陷签名串+判别标记 同命令新旧对照：for sig in ...; do strings <f> | grep -cF "$sig"; done
+  crates\hv-control-demo\src\bin\hv-control-daemon.rs 旧件=1 新件=1
+  x11rb                                         旧件=9 新件=9
+  desktop backend unavailable                   旧件=0 新件=3
+RC=0

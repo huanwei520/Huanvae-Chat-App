@@ -83,6 +83,9 @@ export interface RcFrame {
   width: number;
   height: number;
   rgba: Uint8Array;
+  /** 被控端物理屏几何（rc-meta 真值；跨窗桥接时随帧携带，fmuq6rousefe405s2-1 DEFECT-2 修复） */
+  screenW?: number;
+  screenH?: number;
 }
 
 /** 计数器（e2e 取证面：帧/输入跨端计数的 grep 实证源） */
@@ -255,6 +258,10 @@ export function attachChannel(peerId: string, ch: RTCDataChannel): void {
   const onOpen = (): void => {
     // 被控端通道就绪即报屏几何+开泵（controller 端坐标换算的 screenW/H 真值）
     if (role === 'controlled') {
+      // fmuq6rousefe405s2-1 DEFECT-2 修复配套：泵已在跑（先接受控制/重协商新 DC）时
+      // startControlledPump 早退不会再发 meta——新通道永远拿不到屏几何，控制端回退
+      // frameW(≤960) 域 → 坐标压缩。通道开即补发一次（幂等，多发无害）。
+      sendMeta();
       void startControlledPump();
     } else if (role === 'controller') {
       // zmhyvb6n 整改（U1）：被控端重启/重协商后新 DC 就绪，controller 对**已知
@@ -421,7 +428,7 @@ export function subscribeFrames(cb: (f: RcFrame) => void): () => void {
     tauriBridgeReady = true;
     void import('@tauri-apps/api/event')
       .then(({ listen }) =>
-        listen<{ w: number; h: number; seq: number; rgbaB64: string }>(RC_FRAME_DATA, (ev) => {
+        listen<{ w: number; h: number; seq: number; rgbaB64: string; screenW?: number; screenH?: number }>(RC_FRAME_DATA, (ev) => {
           const rgba = base64ToBytes(ev.payload.rgbaB64);
           if (rgba && rgba.length === ev.payload.w * ev.payload.h * 4) {
             // 🔴 块 pz3oo1tp 修复②（「帧 0」半边根因）：桥接交付此前不入账——独立控制窗的
@@ -429,7 +436,17 @@ export function subscribeFrames(cb: (f: RcFrame) => void): () => void {
             // 计数），状态条「对端帧流中 · 帧 0」即此（owner 截图实证）。与直连同口径记账。
             stats.framesIn += 1;
             for (const sink of frameSinks) {
-              sink({ seq: ev.payload.seq, width: ev.payload.w, height: ev.payload.h, rgba });
+              sink({
+                seq: ev.payload.seq,
+                width: ev.payload.w,
+                height: ev.payload.h,
+                rgba,
+                // fmuq6rousefe405s2-1 DEFECT-2 修复：独立控制窗拿不到本窗 rc-meta
+                // （meta 由 DC 属主会议窗接收）→ 屏几何随帧桥接下发，否则坐标换算
+                // 回退 frameSize(≤960×600) 域，注入点击压缩在被控屏左上。
+                screenW: ev.payload.screenW,
+                screenH: ev.payload.screenH,
+              });
             }
           }
         }),
@@ -626,6 +643,7 @@ function deliverFrame(f: RcFrame): void {
   }
   // 桌面独立控制窗桥接（仅 DC 属主上下文转发；独立窗自己是桥接消费端）
   if (dcOwner && hasTauri()) {
+    const screen = getPeerScreen();
     void import('@tauri-apps/api/event')
       .then(({ emit }) =>
         emit(RC_FRAME_DATA, {
@@ -633,6 +651,10 @@ function deliverFrame(f: RcFrame): void {
           h: f.height,
           seq: f.seq,
           rgbaB64: bytesToBase64(f.rgba),
+          // fmuq6rousefe405s2-1 DEFECT-2 修复：被控端物理屏几何随帧一并下发，独立
+          // 控制窗的 mapClientToScreen 才有正确注入域（此前恒回退 frameSize）。
+          screenW: screen?.w ?? 0,
+          screenH: screen?.h ?? 0,
         }),
       )
       .catch(() => undefined);
@@ -643,10 +665,18 @@ function deliverFrame(f: RcFrame): void {
 
 function sendMeta(): void {
   if (!capture) { return; }
+  // fmuq6rousefe405s2-1 实测 DEFECT-2 修复：rc-meta 的 screenW/H 是控制端坐标换算
+  // 的注入域真值源（被控端 rc_inject.rs SetCursorPos 按物理屏绝对像素注入）。
+  // 此前误报采集轨 videoWidth/videoHeight（CAPTURE_MAX_W=960 降采样后），控制端
+  // 注入域被钉在 960×600 → 点击压缩在被控屏左上 75%、右/下缘不可控（5 点对实测拟合）。
+  // 改报本机物理屏几何（CSS 屏尺寸 × DPR = SetCursorPos 物理像素域）；取不到回退采集轨尺寸。
+  const dpr = window.devicePixelRatio || 1;
+  const physW = Math.round(window.screen.width * dpr);
+  const physH = Math.round(window.screen.height * dpr);
   const meta = {
     t: 'rc-meta',
-    screenW: capture.srcW,
-    screenH: capture.srcH,
+    screenW: physW > 0 ? physW : capture.srcW,
+    screenH: physH > 0 ? physH : capture.srcH,
     maxW: CAPTURE_MAX_W,
     fps: CAPTURE_FPS,
   };

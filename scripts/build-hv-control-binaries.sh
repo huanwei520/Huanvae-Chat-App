@@ -12,7 +12,7 @@
 # ## 用法
 #   scripts/build-hv-control-binaries.sh --src <HuanvaeRemote 检出根> \
 #        [--target x86_64-pc-windows-msvc|aarch64-apple-darwin|<rust 三元组>] \
-#        [--patch <patch 文件>]        # defect3-fix 补丁须显式指定（sha256 419aa4180147…53a2a，谱系见 manifest）
+#        [--patch <patch 文件>]        # 默认 src-tauri/resources/hv-control-daemon.defect3-fix.patch（sha256 419aa4180147…53a2a，随 main 合入在仓）
 #        [--no-patch]                  # 不打补丁（构建未修复形态，产出必须人工登记，不得直接入 binaires/）
 #        [--out <目录>]                # 产物输出目录（默认 dist-hv-control-daemon/）
 #        [--sign]                      # macOS 件 codesign -f -s -（默认开启 when --target *-apple-darwin）
@@ -32,7 +32,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ROOT/src-tauri/resources/hv-control-daemon.manifest.json"
-PATCH_DEFAULT=""
+PATCH_DEFAULT="$ROOT/src-tauri/resources/hv-control-daemon.defect3-fix.patch"
 
 SRC="" ; TARGET="" ; PATCH="$PATCH_DEFAULT" ; OUT="" ; NOPATCH=""
 usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -81,7 +81,7 @@ check_anchor crate_cargo_toml_sha256     "crates/hv-control-demo/Cargo.toml"
 # ---------- 2) 补丁 ----------
 info "2/6 补丁应用（patch -p0 于源码根）"
 if [[ -z "$PATCH" && -z "$NOPATCH" ]]; then
-  fail "未显式选择补丁策略：分发件必须 --patch <defect3-fix 补丁>（sha256 419aa4180147…53a2a，谱系见 manifest）；--no-patch 产出禁止入 src-tauri/binaries/"
+  fail "未显式选择补丁策略：分发件默认用仓内 defect3-fix 补丁（--patch 可覆盖）；--no-patch 产出禁止入 src-tauri/binaries/"
 fi
 if [[ -z "$PATCH" ]]; then
   info "  --no-patch：跳过（⚠ 未修复形态，产出不得直接入 src-tauri/binaries/）"

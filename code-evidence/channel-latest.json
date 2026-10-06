@@ -1,0 +1,27 @@
+{
+  "version": "1.1.54",
+  "notes": "Huanvae Chat v1.1.54 更新\n\n查看完整更新日志: https://github.com/huanwei520/Huanvae-Chat-App/releases/tag/v1.1.54",
+  "pub_date": "2026-10-04T20:11:22Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUHh0OUt2TmdXQ2JBYWJCUDkrQzVVeTI4dzhNM29lcUdHR2hYNER1ZnRrdUFQQThCWmVxMGl0aGhHOSt3UXgyNVN4WDJORDFmUUJLN1FwMVJJQUd5R0FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTQ0MTA5CWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjEuNTRfeDY0LXNldHVwLmV4ZQpJUXFhMEhJVFlxNERBTDZocWxQK0haK2IxUVlWYWwwTVRteTl5UERRQjdZa1B4d1ZJcW1rUTVYVklRcHFOVU8xSkNUd0EyQTF3dUpMNWVLUlJJSmFDQT09Cg==",
+      "url": "https://store.huanvae.cn/update/huanvae-chat/v1.1.54/Huanvae-Chat-App_1.1.54_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUHh0OUt2TmdXQ2JBYWJCUDkrQzVVeTI4dzhNM29lcUdHR2hYNER1ZnRrdUFQQThCWmVxMGl0aGhHOSt3UXgyNVN4WDJORDFmUUJLN1FwMVJJQUd5R0FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTQ0MTA5CWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjEuNTRfeDY0LXNldHVwLmV4ZQpJUXFhMEhJVFlxNERBTDZocWxQK0haK2IxUVlWYWwwTVRteTl5UERRQjdZa1B4d1ZJcW1rUTVYVklRcHFOVU8xSkNUd0EyQTF3dUpMNWVLUlJJSmFDQT09Cg==",
+      "url": "https://store.huanvae.cn/update/huanvae-chat/v1.1.54/Huanvae-Chat-App_1.1.54_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUDl6cFpkdTd0VC9uQjhEaXAyNkZRQm5UN3NKVHNVMTVjVG0yOTZtdFgxTWE4Z25VM3FOU1JKMndqRDUwNUs4WkNOMFBhVEFIbmJPRWlsQW55ZStQVmdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTQzNzQ2CWZpbGU6SHVhbnZhZS1DaGF0LUFwcC5hcHAudGFyLmd6CmpHbk56RERqN3FUaXZYMk1IQ3RFdWtJQnA2M1pleXc5bE9yTGFYTlh5c0FwSVpSVUczZzVob3ZXYjcyMzRCZjZhQy9XUG9palJJYkVtdDB5cWhmTUFBPT0K",
+      "url": "https://store.huanvae.cn/update/huanvae-chat/v1.1.54/Huanvae-Chat-App_aarch64.app.tar.gz"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUCtSUGRHWmtxUUd3azRLejVIRlh4TlUwUVBDamRla2FWdWtHQmJVeUpTZVdZTzloWmYxVWwvRFIrTGltU29QWlNVRFpad3FwQ3l5b3ExaEU0SGtmVXc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTQzOTMwCWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjEuNTRfYW1kNjQuQXBwSW1hZ2UKL3FjbjBzM01OY08zdFVYN1AyeFI1NFV4OTcvc2pYK25SS1lMcFdQbGRmSm13R1RiZFE1dXAyZUNob2htTzdZUm1WNXBtbkxsc1Q3VEkrUDlkWktNQWc9PQo=",
+      "url": "https://store.huanvae.cn/update/huanvae-chat/v1.1.54/Huanvae-Chat-App_1.1.54_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSYWRScXBEOE9SUCtSUGRHWmtxUUd3azRLejVIRlh4TlUwUVBDamRla2FWdWtHQmJVeUpTZVdZTzloWmYxVWwvRFIrTGltU29QWlNVRFpad3FwQ3l5b3ExaEU0SGtmVXc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMTQzOTMwCWZpbGU6SHVhbnZhZS1DaGF0LUFwcF8xLjEuNTRfYW1kNjQuQXBwSW1hZ2UKL3FjbjBzM01OY08zdFVYN1AyeFI1NFV4OTcvc2pYK25SS1lMcFdQbGRmSm13R1RiZFE1dXAyZUNob2htTzdZUm1WNXBtbkxsc1Q3VEkrUDlkWktNQWc9PQo=",
+      "url": "https://store.huanvae.cn/update/huanvae-chat/v1.1.54/Huanvae-Chat-App_1.1.54_amd64.AppImage"
+    }
+  }
+}

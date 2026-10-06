@@ -1,0 +1,64 @@
+# 手动 Windows NSIS 构建（仅 workflow artifact，不建 Release / 不传 R2 / 不发 webhook）
+#
+# 用途：修复分支的设备级复测需要官方同构 Windows 安装包，但完整 release.yml 在
+# 分支上 dispatch 会按 ref_name 创建 GitHub Release 并触发 R2 分发与通知——不可接受。
+# 本 workflow 复刻 release.yml build 腿（windows-latest / x86_64-pc-windows-msvc）
+# 的构建步骤，产物只走 actions/upload-artifact，零分发副作用。
+# 随 fmuq6rousefe405s2-1 DEFECT-2 修复验证引入；使命完成后可删。
+
+name: Build Windows Artifact (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # 与 release.yml 一致：数据面 mTLS 客户端私钥（gitignored，build 期用）
+      - name: Write mTLS client key
+        env:
+          APP_CLIENT_KEY_PEM_BASE64: ${{ secrets.APP_CLIENT_KEY_PEM_BASE64 }}
+        run: echo "$APP_CLIENT_KEY_PEM_BASE64" | openssl base64 -d -A > src-tauri/resources/app-client.key.pem
+
+      # 只构建（无 tagName → tauri-action 不创建 Release）
+      - name: Build Tauri App (no release)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload NSIS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-devbuild
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+          if-no-files-found: error
