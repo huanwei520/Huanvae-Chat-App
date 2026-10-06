@@ -1,0 +1,221 @@
+--- crates/hv-control-demo/src/bin/hv-control-daemon.rs	2026-09-08 13:23:21.123016126 +0000
++++ /tmp/fmuq/patch/hv-control-daemon.rs	2026-10-06 04:33:56.439284689 +0000
+@@ -10,7 +10,16 @@
+ //!
+ //! 退出码:0 = 正常停机(killswitch/disarm+shutdown);2 = 绑定策略拒绝
+ //! (**先于 X 连接与任何 OS bind**,拒绝分支无 DISPLAY 亦可复跑,Y.1);
+-//! 1 = X 连接/运行时失败。
++//! 1 = 运行时失败(参数/tokio)。
++//!
++//! # 后端缺失降级(本文件 2026-10-06 修复:『Windows 随包件启动即退』)
++//! 采集/注入后端为 X11(hv-demo-x11);Windows/macOS 无 X11 时**不再整体退出**——
++//! 控制面(arm/disarm/incoming/status/killswitch,回环 HTTP)与 P3 会话通道
++//! (grant/握手/审计)不依赖 X11,继续服务;采集(/control/frame)与注入
++//! (/control/input)端点按调用返回明确错误(desktop backend unavailable: <原因>)。
++//! 与 src-tauri/resources/hv-control-daemon.manifest.json 的 known_limitation
++//! 自述一致(『两平台 daemon 运行面(arm/grant/控制面/会话通道)不变』此前不成立:
++//! X11 connect 在启动路径上无条件执行,失败即 exit=1)。
+ //!
+ //! 用法:
+ //! ```text
+@@ -43,16 +52,80 @@
+ 
+ /// 帧源真实实现:锁后端 → GetImage 全屏捕获 → 降采样 → std-only PNG。
+ /// 每次捕获后把原始屏幕几何回填 shared(§7.2 坐标换算终段用)。
++/// 桌面后端句柄:惰性连接 + 可失败(无 X11 平台控制面仍须可用)。
++///
++/// `Backend` 方法全为 `&self`,`Mutex` 仅用于惰性初始化缓存与失败原因留痕。
++struct BackendSlot {
++    inner: Mutex<Option<Backend>>,
++    err: Mutex<Option<String>>,
++}
++
++impl BackendSlot {
++    fn new() -> Self {
++        Self { inner: Mutex::new(None), err: Mutex::new(None) }
++    }
++
++    /// 建立/复用后端连接;成功返回 true。已连接时幂等返回 true。
++    fn try_connect(&self) -> bool {
++        if self.inner.lock().map(|g| g.is_some()).unwrap_or(false) {
++            return true;
++        }
++        match Backend::connect() {
++            Ok(b) => {
++                if let Ok(mut g) = self.inner.lock() {
++                    *g = Some(b);
++                }
++                if let Ok(mut e) = self.err.lock() {
++                    *e = None;
++                }
++                true
++            }
++            Err(e) => {
++                let msg = e.to_string();
++                if let Ok(mut m) = self.err.lock() {
++                    *m = Some(msg);
++                }
++                false
++            }
++        }
++    }
++
++    /// 借出后端执行 `f`;后端不可用(无 X11/连接失败)返回明确错误,不 panic。
++    fn with<R>(&self, f: impl FnOnce(&Backend) -> R) -> Result<R, String> {
++        if !self.try_connect() {
++            let why = self
++                .err
++                .lock()
++                .ok()
++                .and_then(|g| g.clone())
++                .unwrap_or_else(|| "connect failed".into());
++            return Err(format!("desktop backend unavailable: {why}"));
++        }
++        let g = self.inner.lock().map_err(|e| format!("backend lock: {e}"))?;
++        let b = g
++            .as_ref()
++            .ok_or_else(|| "desktop backend unavailable".to_string())?;
++        Ok(f(b))
++    }
++
++    /// 当前连接失败原因(已连接则 None)。
++    fn last_error(&self) -> Option<String> {
++        self.err.lock().ok().and_then(|g| g.clone())
++    }
++}
++
+ struct X11Frames {
+-    backend: Arc<Mutex<Backend>>,
++    backend: Arc<BackendSlot>,
+     max_w: u32,
+     shared: Arc<control::DaemonShared>,
+ }
+ 
+ impl X11Frames {
+     fn capture_downscaled(&self) -> Result<(u32, u32, Vec<u8>), String> {
+-        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
++        let (w, h, rgba) = self
++            .backend
++            .with(|b| b.capture_screen_rgba())?
++            .map_err(|e| e.to_string())?;
+         self.shared.set_screen_geo(w, h);
+         Ok(downscale_rgba(w, h, &rgba, self.max_w))
+     }
+@@ -67,7 +140,7 @@
+ 
+ /// 注入汇真实实现:0x06 decode → plan → XTEST(经 GatedSink 门禁包装)。
+ struct XtestSink {
+-    backend: Arc<Mutex<Backend>>,
++    backend: Arc<BackendSlot>,
+ }
+ 
+ impl InputSink for XtestSink {
+@@ -78,9 +151,9 @@
+         // 表外 keysym 丢弃并 eprintln 留痕（门禁/注入判定行仍由 GatedSink 审计承载）。
+         if let SessionMsg::InputEvent { keys, .. } = &mut msg {
+             if !keys.is_empty() {
+-                let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-                let (mapped, dropped) =
+-                    hv_control_demo::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks));
++                let (mapped, dropped) = self.backend.with(|b| {
++                    hv_control_demo::keys::translate_keysym_keys(keys, &|ks| b.keysym_to_keycode(ks))
++                })?;
+                 if dropped > 0 {
+                     eprintln!("[daemon] keysym translate: {dropped} unmapped keysym(s) dropped");
+                 }
+@@ -88,8 +161,9 @@
+             }
+         }
+         let cmds = mapping::plan(&msg).map_err(|e| e.to_string())?;
+-        let b = self.backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-        b.inject(&cmds).map_err(|e| e.to_string())
++        self.backend
++            .with(|b| b.inject(&cmds))?
++            .map_err(|e| e.to_string())
+     }
+ }
+ 
+@@ -163,19 +237,17 @@
+         }
+     };
+ 
+-    // ── X11 后端(DISPLAY 环境指向 unix socket)──
+-    let backend = match Backend::connect() {
+-        Ok(b) => Arc::new(Mutex::new(b)),
+-        Err(e) => {
+-            eprintln!("[daemon] X11 backend connect failed: {e}");
+-            return ExitCode::from(1);
++    // ── 桌面后端:惰性 + 可失败(X11 平台外不阻断控制面)──
++    let backend = Arc::new(BackendSlot::new());
++    if backend.try_connect() {
++        let geo = backend.with(|b| (b.screen_w, b.screen_h)).ok();
++        if let Some((w, h)) = geo {
++            eprintln!("[daemon] backend connected: screen {w}x{h}, unix-socket only");
+         }
+-    };
+-    {
+-        let b = backend.lock().expect("lock fresh backend");
++    } else {
++        let why = backend.last_error().unwrap_or_else(|| "unknown".into());
+         eprintln!(
+-            "[daemon] backend connected: screen {}x{}, unix-socket only",
+-            b.screen_w, b.screen_h
++            "[daemon] WARNING: desktop backend unavailable ({why}); control plane (arm/disarm/incoming/status/killswitch) and P3 session channel continue serving; capture/inject endpoints return explicit errors"
+         );
+     }
+ 
+@@ -244,7 +316,7 @@
+ async fn run_session_acceptor(
+     addr: std::net::SocketAddr,
+     shared: Arc<DaemonShared>,
+-    backend: Arc<Mutex<Backend>>,
++    backend: Arc<BackendSlot>,
+     fp_source: DirFpSource,
+ ) {
+     let listener = match tokio::net::TcpListener::bind(addr).await {
+@@ -280,7 +352,7 @@
+     sock: TcpStream,
+     peer: std::net::SocketAddr,
+     shared: Arc<DaemonShared>,
+-    backend: Arc<Mutex<Backend>>,
++    backend: Arc<BackendSlot>,
+     anchoring: RequiredAnchoring<DirFpSource>,
+ ) -> std::io::Result<()> {
+     let mut sock = sock;
+@@ -354,8 +426,9 @@
+     let max_w = shared.profile.max_w;
+     let capture_backend = backend.clone();
+     let mut capture = move || -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+-        let b = capture_backend.lock().map_err(|e| format!("backend lock: {e}"))?;
+-        let (w, h, rgba) = b.capture_screen_rgba().map_err(|e| e.to_string())?;
++        let (w, h, rgba) = capture_backend
++            .with(|b| b.capture_screen_rgba())?
++            .map_err(|e| e.to_string())?;
+         Ok(Some(downscale_rgba(w, h, &rgba, max_w)))
+     };
+ 
+--- crates/hv-control-demo/src/control.rs	2026-09-08 12:12:19.958608484 +0000
++++ /tmp/fmuq/patch/control.rs	2026-10-06 04:47:14.670747538 +0000
+@@ -242,6 +242,13 @@
+             while !self.shutdown.load(Ordering::SeqCst) && !self.shared.killswitch.tripped() {
+                 match self.listener.accept() {
+                     Ok((stream, _peer)) => {
++                        // Windows: accept() 返回的套接字继承监听器的非阻塞状态
++                        // （Unix 不继承）。连接处理线程按阻塞语义实现
++                        // （read_until / write_all 一次成功）；不置回阻塞态则偶发
++                        // WouldBlock → 请求被丢、客户端见 curl(56)『Connection was
++                        // aborted』（真机实测 ~10-20%：GET/POST x50 各 5-10 次失败，
++                        // 同机 HttpListener 对照 50/50 全成功）。
++                        let _ = stream.set_nonblocking(false);
+                         let shared = self.shared.clone();
+                         let frames = self.frames.clone();
+                         // 每连接一线程;帧源 Arc 共享(FrameSource: Send+Sync)。
+@@ -264,6 +271,7 @@
+                 while Instant::now() < deadline {
+                     match self.listener.accept() {
+                         Ok((stream, _peer)) => {
++                            let _ = stream.set_nonblocking(false);
+                             let shared = self.shared.clone();
+                             let frames = self.frames.clone();
+                             std::thread::spawn(move || {
