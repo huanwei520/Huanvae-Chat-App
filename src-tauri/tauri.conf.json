@@ -7,7 +7,7 @@
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
-    "beforeBundleCommand": "bash scripts/verify-daemon-build.sh",
+    "beforeBundleCommand": "node scripts/verify-daemon-build.mjs",
     "frontendDist": "../dist"
   },
   "app": {
