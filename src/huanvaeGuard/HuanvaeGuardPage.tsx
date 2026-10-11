@@ -88,9 +88,21 @@ interface GroupInviteDisplay {
   expiresAt: string;
 }
 
+// 设备在线状态本地化映射 —— 逐态对照契约真值源
+// /work/Huanvae-Chat-Rust/docs/hg-online-status-contract.md §1：
+//   值域 = 客户端可声明三态 online/reconnecting/offline
+//        + 服务端作证态 lost（WS 断连/超时兜底，客户端不可报）
+//        + 服务端管理态 locked（lock 安全加固，客户端不可声明）。
+// 上面五值缺一不可：服务端会把三态之外的 lost/locked 原样下发到列表，
+// 缺条目就会把英文原文直接透传给用户（缺陷 DEF-1/DEF-2 根因；
+// 本块 OBS-2 实测复现：真机失联态徽标裸英文「lost」）。
+// unknown 是客户端本机兜底键（d.status 为 null 时替换，见列表渲染处）。
 const STATUS_LABELS: Record<string, string> = {
   online: '在线',
+  reconnecting: '重连中',
   offline: '离线',
+  lost: '失联',
+  locked: '已锁定',
   unknown: '未知',
 };
 
@@ -146,7 +158,9 @@ const REPAIR_BACKOFF_MS = [500, 1000, 2000, 4000] as const;
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
 function localizeStatus(status: string): string {
-  return STATUS_LABELS[status] ?? status;
+  // 未知态一律给中文兜底，不得把服务端英文原值透传给用户（契约值域之外的
+  // 万一出现，宁可显示「未知状态」也不能裸露英文枚举；本块 OBS-2 同源缺陷面）。
+  return STATUS_LABELS[status] ?? '未知状态';
 }
 
 function localizeLinkSource(source: string): string {
