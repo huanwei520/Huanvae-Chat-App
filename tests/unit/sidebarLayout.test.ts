@@ -111,6 +111,26 @@ describe('normalizeLayout', () => {
     });
   });
 
+  it('旧版(6-key 无 ai)全量 more 布局升级迁移：ai 追加到 more 末尾、pinned 保持（块 1792465686977-647uggj7-1 testharness）', () => {
+    // 升级前用户持久化的布局恰好是旧 6 key 全量 more；normalize 后老项顺序不变，ai 补尾
+    const result = normalizeLayout({
+      pinned: [],
+      more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'guard'],
+    });
+    expect(result).toEqual({
+      pinned: [],
+      more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'guard', 'ai'],
+    });
+  });
+
+  it('ai 跨区重复（同 key 在 pinned 与 more）时留 pinned、more 不再出现（块 1792465686977-647uggj7-1 testharness）', () => {
+    const result = normalizeLayout({ pinned: ['ai'], more: ['ai', 'files'] });
+    expect(result).toEqual({
+      pinned: ['ai'],
+      more: ['files', 'lan', 'meeting', 'miniapps', 'bots', 'guard'],
+    });
+  });
+
   it('合法完整双区布局往返不变', () => {
     const input: SidebarLayout = {
       pinned: ['lan', 'files'],
