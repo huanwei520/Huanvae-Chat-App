@@ -136,6 +136,7 @@ export function Main() {
           page.handleTabChange(tab);
         }}
         onAvatarClick={() => page.setShowProfileModal(true)}
+        onAiAssistantClick={() => page.handleSelectTarget({ type: 'ai' })}
         onFilesClick={() => setShowFilesModal(true)}
         onLanTransferClick={handleLanTransferClick}
         onMeetingClick={() => setShowMeetingModal(true)}
@@ -173,7 +174,6 @@ export function Main() {
               onSelectTarget={page.handleSelectTarget}
               unreadSummary={page.unreadSummary}
               panelWidth={page.panelWidth}
-              aiConversationTitle={page.aiConversationTitle}
               syncNotification={syncNotification}
               onSyncDismiss={clearNotification}
               onSyncRetry={triggerSync}

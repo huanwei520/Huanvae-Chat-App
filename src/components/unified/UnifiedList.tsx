@@ -13,10 +13,9 @@
  * - 在搜索框下方显示消息同步进度
  * - 同步完成后自动淡出
  *
- * AI 卡片：
- * - 置顶显示在消息 Tab 列表第一位
- * - 与普通卡片统一由同一个 AnimatePresence mode="popLayout" 管理退场动画
- * - 通过 aiConversationTitle 动态显示当前会话标题，无会话时显示默认文案
+ * AI 助手入口：
+ * - 曾固定置顶在消息 Tab 列表第一位，已按 10/20 owner 令移除——列表只按用户置顶+时间排序
+ * - 入口收纳在侧边栏「更多功能」面板（sidebarLayout.ts 的 'ai' 工具项，点击打开 AI 会话）
  *
  * 添加按钮：
  * - 位于搜索框右侧，用于添加好友/群聊
@@ -28,7 +27,6 @@ import { useMemo, useState, useEffect, useRef, useCallback, memo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../common/Avatar';
 import { useChatStore } from '../../stores';
-import { AIAvatar } from '../common/AIAvatar';
 import { SearchBox } from '../common/SearchBox';
 import { SyncStatusBanner } from '../common/SyncStatusBanner';
 import type { SyncNotification } from '../../hooks/useInitialSync';
@@ -108,8 +106,6 @@ interface UnifiedListProps {
   unreadSummary: UnreadSummary | null;
   /** 面板宽度 */
   panelWidth?: number;
-  /** AI 当前会话标题（可选） */
-  aiConversationTitle?: string | null;
   /** 同步通知（可选） */
   syncNotification?: SyncNotification | null;
   /** 通知消失回调（可选） */
@@ -410,7 +406,6 @@ export function UnifiedList({
   onSelectTarget,
   unreadSummary,
   panelWidth = 280,
-  aiConversationTitle,
   syncNotification,
   onSyncDismiss: _onSyncDismiss,
   onSyncRetry,
@@ -575,7 +570,7 @@ export function UnifiedList({
   }, [onSelectTarget]);
 
   // ============================================
-  // 会话置顶右键菜单（AI 卡片不参与：无本地会话行）
+  // 会话置顶右键菜单（用户手动置顶任意会话卡；列表无代码固定卡）
   // ============================================
   const [pinMenu, setPinMenu] = useState<{ card: UnifiedCard; x: number; y: number } | null>(null);
 
@@ -605,12 +600,11 @@ export function UnifiedList({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [isListFocused, setIsListFocused] = useState(false);
 
-  // 可导航项的有序 key 列表（与渲染顺序一致：AI 卡片置顶仅 chat tab，其后为筛选后的卡片）
+  // 可导航项的有序 key 列表（与渲染顺序一致：普通卡片按置顶+时间排序，无固定卡）
   const navKeys = useMemo((): string[] => {
     if (loading || error) { return []; }
-    const keys = activeTab === 'chat' ? ['ai-assistant'] : [];
-    return keys.concat(filteredCards.map((c) => c.uniqueKey));
-  }, [loading, error, activeTab, filteredCards]);
+    return filteredCards.map((c) => c.uniqueKey);
+  }, [loading, error, filteredCards]);
 
   // 将指定 key 的卡片滚动到容器可视区：手动调 scrollTop，
   // 避免 scrollIntoView 沿祖先链冒泡导致外层一并滚动
@@ -654,10 +648,6 @@ export function UnifiedList({
 
   // 打开指定 key 的会话（复用点击打开逻辑）
   const openByKey = (key: string) => {
-    if (key === 'ai-assistant') {
-      onSelectTarget({ type: 'ai' });
-      return;
-    }
     const card = filteredCards.find((c) => c.uniqueKey === key);
     if (card) { handleCardClick(card); }
   };
@@ -772,9 +762,7 @@ export function UnifiedList({
         </motion.div>
       );
     }
-    // 消息 Tab 有 AI 卡片置顶，即使没有好友/群聊也不应显示空状态覆盖层
-    // 否则绝对定位的覆盖层（z-index: 5）会遮挡 AI 卡片的点击事件
-    if (filteredCards.length === 0 && activeTab !== 'chat') {
+    if (filteredCards.length === 0) {
       return (
         <motion.div
           key="empty-overlay"
@@ -837,51 +825,9 @@ export function UnifiedList({
             {renderOverlay()}
           </AnimatePresence>
 
-          {/* 卡片列表：AI 卡片 + 普通卡片统一由同一个 AnimatePresence 管理退场动画 */}
+          {/* 卡片列表：普通卡片统一由同一个 AnimatePresence 管理退场动画
+              （AI 助手固定置顶卡已移除，入口迁至侧边栏「更多功能」面板） */}
           <AnimatePresence mode="popLayout">
-            {/* AI 助手置顶卡片（仅消息 Tab） */}
-            {activeTab === 'chat' && !loading && !error && (
-              <motion.div
-                key="ai-assistant"
-                data-conv-key="ai-assistant"
-                className={`conversation-item${isListFocused && activeKey === 'ai-assistant' ? ' conversation-item--kbd-active' : ''}`}
-                onClick={() => onSelectTarget({ type: 'ai' })}
-                variants={cardVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                layout={!isTabSwitching ? 'position' : false}
-                layoutDependency={layoutKey}
-                transition={cardTransition}
-              >
-                {selectedKey === 'ai-assistant' && (
-                  <motion.div
-                    layoutId="selected-border"
-                    className="conversation-selected-border"
-                    style={{ borderRadius: 14 }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                  />
-                )}
-                <div className="conv-avatar">
-                  <AIAvatar />
-                </div>
-                <div className="conv-info">
-                  <div className="conv-header">
-                    <span className="conv-name">
-                      <span className="conv-name-text" title="AI 助手">AI 助手</span>
-                    </span>
-                  </div>
-                  <div className="conv-footer">
-                    <span
-                      className="conv-preview"
-                      title={aiConversationTitle || undefined}
-                    >
-                      {aiConversationTitle || '有什么可以帮你的？'}
-                    </span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
             {renderCards()}
           </AnimatePresence>
         </motion.div>

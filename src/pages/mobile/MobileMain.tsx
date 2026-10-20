@@ -429,6 +429,10 @@ export function MobileMain() {
           setShowProfilePage(true);
           nav.closeDrawer();
         }}
+        onAiAssistantClick={() => {
+          page.handleSelectTarget({ type: 'ai' });
+          nav.enterChat();
+        }}
         onFilesClick={() => {
           setShowFilesPage(true);
           nav.closeDrawer();
@@ -547,7 +551,6 @@ export function MobileMain() {
                       selectedTarget={page.chatTarget}
                       onSelectTarget={handleSelectTarget}
                       unreadSummary={page.unreadSummary}
-                      aiConversationTitle={page.aiConversationTitle}
                     />
                   </motion.div>
                 ) : (

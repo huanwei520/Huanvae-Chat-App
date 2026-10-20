@@ -49,6 +49,7 @@ function renderSidebar() {
   const fns = {
     onTabChange: vi.fn(),
     onAvatarClick: vi.fn(),
+    onAiAssistantClick: vi.fn(),
     onFilesClick: vi.fn(),
     onLanTransferClick: vi.fn(),
     onMeetingClick: vi.fn(),
@@ -92,7 +93,7 @@ describe('Sidebar 钉住区', () => {
     expect(pinnedTitles(container)).toEqual(['我的文件', 'VPN 组网']);
   });
 
-  it('点击 title=我的文件 的钉住按钮 → onFilesClick 恰一次，其余 5 个工具回调零调用', () => {
+  it('点击 title=我的文件 的钉住按钮 → onFilesClick 恰一次，其余 6 个工具回调零调用', () => {
     mockedGetItem.mockReturnValue(
       '{"pinned":["files","guard"],"more":["lan","meeting","miniapps"]}',
     );
@@ -101,6 +102,7 @@ describe('Sidebar 钉住区', () => {
     fireEvent.click(screen.getByTitle('我的文件'));
 
     expect(fns.onFilesClick).toHaveBeenCalledTimes(1);
+    expect(fns.onAiAssistantClick).toHaveBeenCalledTimes(0);
     expect(fns.onLanTransferClick).toHaveBeenCalledTimes(0);
     expect(fns.onMeetingClick).toHaveBeenCalledTimes(0);
     expect(fns.onMiniAppsClick).toHaveBeenCalledTimes(0);

@@ -100,6 +100,7 @@ describe('MobileDrawer — 本人头像 a11y', () => {
         session={session}
         onClose={vi.fn()}
         onProfileClick={onProfileClick}
+        onAiAssistantClick={vi.fn()}
         onFilesClick={vi.fn()}
         onLanTransferClick={vi.fn()}
         onMiniAppsClick={vi.fn()}

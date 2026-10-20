@@ -92,7 +92,7 @@ function chatTree(unreadSummary: UnreadSummary) {
   );
 }
 
-/** 读出 DOM 中卡片渲染顺序（data-conv-key，含置顶 AI 卡） */
+/** 读出 DOM 中卡片渲染顺序（data-conv-key，列表无固定卡，仅普通会话卡） */
 function domOrder(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll<HTMLElement>('[data-conv-key]'))
     .map((n) => n.dataset.convKey!);
@@ -108,8 +108,8 @@ describe('chat tab 点击带红点卡 → 顺序不变 + 徽标消失（缺陷�
     expect(midBadgeBefore.classList.contains('visible')).toBe(true);
     expect(midBadgeBefore.textContent).toBe('5');
 
-    // 纯时间降序：AI 置顶，其后 new(03-05) > mid(03-03) > old(03-01)
-    expect(orderBefore).toEqual(['ai-assistant', 'friend-new', 'friend-mid', 'friend-old']);
+    // 纯时间降序：new(03-05) > mid(03-03) > old(03-01)，无固定 AI 卡
+    expect(orderBefore).toEqual(['friend-new', 'friend-mid', 'friend-old']);
 
     // 模拟点击 mid 卡 → markRead → 该卡未读归零（其余不变）
     rerender(chatTree(summary(0)));

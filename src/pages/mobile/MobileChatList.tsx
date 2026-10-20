@@ -10,7 +10,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FriendAvatar, GroupAvatar } from '../../components/common/Avatar';
-import { AIAvatar } from '../../components/common/AIAvatar';
 import { formatMessageTime } from '../../utils/time';
 import { friendDisplayName } from '../../utils/friendName';
 import { friendChatTarget } from '../../utils/chatTarget';
@@ -42,8 +41,6 @@ interface MobileChatListProps {
   onSelectTarget: (target: ChatTarget) => void;
   /** 未读消息摘要 */
   unreadSummary: UnreadSummary | null;
-  /** AI 当前会话标题（可选） */
-  aiConversationTitle?: string | null;
 }
 
 // 列表入场编排：容器只做 stagger 编排（无视觉属性），卡片 opacity+y 进场。
@@ -81,7 +78,6 @@ export function MobileChatList({
   searchQuery,
   onSelectTarget,
   unreadSummary,
-  aiConversationTitle,
 }: MobileChatListProps) {
   // 使用本地会话预览（与桌面端 UnifiedList 一致的方式）
   const { getFriendPreview, getGroupPreview, initialized } = useLocalConversations();
@@ -234,25 +230,6 @@ export function MobileChatList({
       >
         {/* 下载进度卡片 - 与消息卡片同级，始终在最顶部 */}
         <MobileDownloadCard />
-
-        {/* AI 助手置顶卡片（始终渲染，不受好友/群聊数据影响） */}
-        <div
-          className="mobile-contact-card"
-          onClick={() => onSelectTarget({ type: 'ai' })}
-        >
-          <div className="mobile-contact-avatar" style={{ width: 44, height: 44 }}>
-            <AIAvatar />
-          </div>
-          <div className="mobile-contact-info" style={{ flex: 1 }}>
-            <div className="mobile-contact-name">AI 助手</div>
-            <div
-              className="mobile-contact-role"
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {aiConversationTitle || '有什么可以帮你的？'}
-            </div>
-          </div>
-        </div>
 
         <AnimatePresence>
           {sortedCards.map((card) => {
