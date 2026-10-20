@@ -97,3 +97,69 @@ coverage/
 # 实测临时写的一次性取证工具，只在本机复用、不随版本发出去；文件本身保留在工作树上不删，
 # 仍是 cargo example target、仍在 clippy --all-targets 扫描面内。
 /src-tauri/examples/gb_resume_harness.rs
+# ═══ 10/20 pre-merge runtime-sync·一次性归类(块散件治理) ═══
+# 构建产物/安装包
+dist-e2e/
+dist-rvw-e2e/
+appx/
+app.tar.gz
+*.deb
+test-results/
+playwright-report/
+playwright-report-real/
+tessdata/
+.buildtmp/
+.cache/
+.DS_Store
+dump.rdb
+# 块临时目录/证据
+test-artifacts*
+wt-*/
+.block-evidence/
+evidence/
+artifacts/
+b12sxey0-verify/
+atsafbg2/
+apptest4-regress/
+e2e-real/
+# 运行痕迹/临时探针
+lan-logcat.txt
+tls-layer.txt
+mtA.txt
+X-frames.tsv
+X-shot-on.png
+keys/
+probe-ws/
+hgstat/
+.rw-test
+VM-COORDINATION.md
+# 历史临时目录名(块ID片段/随机串)
+wd2hhqn0/
+fmv2/
+qi88ytk6/
+pvmk3dxp/
+pz3oo1tp/
+j1wt/
+pleibt4s/
+rc19w/
+rc29w/
+x4u0befp/
+worktrees/
+code/
+data/
+1
+undefined
+rt4p73av/
+pvmk3dxq/
+w92.png
+v68-layout.png
+r.png
+d1-08.png
+nm91.png
+nm92.png
+# src-tauri 运行时资源(二进制/私钥/平台副本不入库)
+src-tauri/binaries/
+src-tauri/resources/app-client.key.pem
+src-tauri/resources/*.manifest.json
+src-tauri/gen/android/app/src/main/assets/HuanvaeGuard*/
+target-mobileua/
