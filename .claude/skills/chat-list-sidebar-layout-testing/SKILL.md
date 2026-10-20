@@ -69,3 +69,12 @@ npx vitest run tests/components/UnifiedListPinned.test.tsx \
   tests/unit/sidebarLayout.test.ts --maxWorkers=3
 ```
 全量回归：`npx vitest run --maxWorkers=3`（407 文件/4457 用例基线，~87s）。
+
+## 六、update 层增量（第 6 类耦合面·残留归类·双端扩展边界·「走不通」双端查测）
+
+> 来源：同块 update 层第 2 次执行沉淀（2026-10-20），判官反馈「三问/覆盖面上界/落点 file:line/mTLS 无查测」四缺项整改的领域增量。
+
+- **固定卡耦合面第 6 类＝专用展示 prop 链，拆除必须扫到生产端**：基线 `git grep -n aiConversationTitle <基线commit> -- src` 命中 11 行跨 5 文件（UnifiedList.tsx :19/:112/:413/:877/:879、MobileChatList.tsx :46/:84/:252、useMainPage.ts:1130、Main.tsx:176、MobileMain.tsx:550）。本块只删了消费端（组件 props＋两处传参），生产端 useMainPage.ts:1130 成孤儿字段（HEAD 全仓唯一命中）——拆链以基线枚举起步、终态以 `git grep -c '<prop>' -- src`=0 收口，非 0 即孤儿（登记清理，勿静默）。
+- **删完不是命中越少越好，残留按五类归类再判**：A 会话页已打开后的 key 派生/选中高亮（`chatTarget.type === 'ai' ? 'ai-assistant'`）、B 会话页顶栏标题、C AI 功能本体（API/头像/类型注释）、D 新入口（sidebarLayout/Sidebar/MobileDrawer）、E 整改说明注释；只有命中 §一 删除点模式（key 注入/固定分支/固定卡 JSX/豁免/权重）才算残留。
+- **sidebarLayout 的移动端边界（双端扩展易漏点）**：SIDEBAR_ITEM_KEYS 消费端仅桌面系（sidebarLayout.ts 本体、SidebarMorePanel.tsx:27 及 3 个测试件；Sidebar.tsx 经多行 import + moreItems Record 间接消费、单行 `grep import` 会漏多行 import）；MobileDrawer.tsx 对 sidebarLayout 零依赖（grep rc=1）——移动抽屉工具面是平行 UI（无钉住区交互），新增工具项桌面三步扩展后**必须另在 MobileDrawer 菜单加同款项**，否则双端入口不同步。
+- **「某路径走不通」结论的双端查测法（mTLS 实例）**：仓库侧实证＝`ls src-tauri/resources/ | grep client`（仅 app-client.cert.pem 1265B）＋`git show <HEAD>:src-tauri/resources/app-client.key.pem`（fatal: path does not exist＝私钥构建机注入、git 不跟踪）；服务端侧（生产 nginx ssl_verify_client）不在本仓且沙箱无路由 ⇒ 标注「未验证·转述」并引 RESCUE 存档 standardTries 原文（nginx 400『No required SSL certificate was sent』）。禁一句「mTLS 阻断」无锚结论。
