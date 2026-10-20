@@ -4,7 +4,7 @@
  * 锁定契约（src/pages/mobile/MobileChatList.tsx `.mobile-contact-avatar`）：
  * - v1.1.25 起与桌面 UnifiedList 同口径：**列表内头像不是独立控件**，
  *   点它与点卡片其余部分一样「进会话」，不再开资料页。
- * - 所有分支（好友 / 群 / 置顶 AI）头像都无 role / tabIndex / aria-label / 键盘处理 / 焦点环，
+ * - 所有分支（好友 / 群）头像都无 role / tabIndex / aria-label / 键盘处理 / 焦点环，
  *   点击直接冒泡到卡片 —— 不存在「能聚焦却按了没反应」的元素。
  *
  * 依赖本地会话预览 / 会话上下文 / 下载卡 / 搜索浮层，均 mock 掉，只保留卡片结构；
@@ -86,9 +86,9 @@ describe('MobileChatList — 会话卡头像 a11y', () => {
     expect(avatar).not.toHaveAttribute('aria-label');
   });
 
-  it('群卡 / 置顶 AI 卡头像同样无 role/tabIndex/aria-label', () => {
+  it('群卡头像同样无 role/tabIndex/aria-label', () => {
     const { container } = renderChatList();
-    for (const name of ['群一', 'AI 助手']) {
+    for (const name of ['群一']) {
       const avatar = avatarInCard(container, name);
       expect(avatar).not.toHaveAttribute('role');
       expect(avatar).not.toHaveAttribute('tabindex');

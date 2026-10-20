@@ -165,8 +165,8 @@ async function renderMobile(): Promise<(name: string) => string> {
     />,
   );
   await waitFor(() => {
-    // 置顶 AI 卡恒在，故等到普通会话卡也进来（AI 卡 + 7 张会话卡）
-    expect(container.querySelectorAll('.mobile-contact-card').length).toBeGreaterThan(1);
+    // 列表无固定 AI 卡，等 mock 预览行加载并渲染出会话卡（本用例仅 mock 1 行）
+    expect(container.querySelectorAll('.mobile-contact-card').length).toBeGreaterThan(0);
   });
   return (name: string) => {
     const cards = Array.from(container.querySelectorAll('.mobile-contact-card'));

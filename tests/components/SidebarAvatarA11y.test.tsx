@@ -40,6 +40,7 @@ function renderSidebar() {
       activeTab="chat"
       onTabChange={vi.fn()}
       onAvatarClick={onAvatarClick}
+      onAiAssistantClick={vi.fn()}
       onFilesClick={vi.fn()}
       onLanTransferClick={vi.fn()}
       onMeetingClick={vi.fn()}

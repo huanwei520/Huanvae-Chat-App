@@ -2,7 +2,7 @@
  * SidebarMorePanel 测试（dnd-kit 双区拖放的 "more" 区，受控组件）
  *
  * 覆盖：
- * 1. moreKeys 全 8 项按传入顺序渲染
+ * 1. moreKeys 全 7 项按传入顺序渲染
  * 2. moreKeys 乱序子集 → 只渲染子集且顺序跟随
  * 3. 点击某项 → onItemClick 收到该项的 action（精确引用）
  * 4. 标题「更多功能」与提示「拖到侧边栏可钉住」
@@ -32,6 +32,7 @@ import {
 } from '../../src/components/sidebar/sidebarLayout';
 
 const LABELS: Record<SidebarItemKey, string> = {
+  ai: 'AI 助手',
   files: '我的文件',
   lan: '局域网互传',
   meeting: '视频会议',
@@ -40,7 +41,7 @@ const LABELS: Record<SidebarItemKey, string> = {
   guard: 'VPN 组网',
 };
 
-/** 构建 6 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
+/** 构建 7 项 mock items + 每项独立的 onClick spy（icon 为空 span，不参与 textContent） */
 function buildItems() {
   const actions = {} as Record<SidebarItemKey, ReturnType<typeof vi.fn<() => void>>>;
   const items = {} as Record<SidebarItemKey, SidebarItemConfig>;
@@ -79,10 +80,10 @@ function itemLabels(): (string | null)[] {
 }
 
 describe('SidebarMorePanel', () => {
-  it('moreKeys 全 6 项按传入顺序渲染', () => {
+  it('moreKeys 全 7 项按传入顺序渲染', () => {
     renderPanel([...SIDEBAR_ITEM_KEYS]);
     expect(itemLabels()).toEqual([
-      '我的文件', '局域网互传', '视频会议', '小程序', '机器人', 'VPN 组网',
+      'AI 助手', '我的文件', '局域网互传', '视频会议', '小程序', '机器人', 'VPN 组网',
     ]);
   });
 

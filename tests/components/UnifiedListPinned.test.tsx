@@ -4,7 +4,8 @@
  * 覆盖三点（真实组件渲染，mock 体系沿用 UnifiedListBotCard.test.tsx 同款
  * useLocalConversations / SessionContext mock；db 模块用 importOriginal 局部覆写
  * setConversationPinned，避免破坏树内其他 db 消费方）：
- *  ① chat tab 置顶分层：置顶卡（时间更旧）排在所有未置顶卡之前
+ *  ① chat tab 置顶分层：置顶卡（时间更旧）排在所有未置顶卡之前；列表无代码固定的
+ *     AI 助手卡（入口已迁至侧边栏「更多功能」，防固定卡回彏）
  *  ② 置顶卡渲染 .conv-pin-flag 图钉标识，未置顶卡不渲染
  *  ③ 右键卡片弹出置顶菜单，点「置顶 / 取消置顶」调用 db.setConversationPinned
  *     且参数正确（好友卡 conv id 经 getFriendConversationId 生成、群卡直用 group_id）
@@ -133,9 +134,9 @@ describe('UnifiedList 会话置顶', () => {
     const keys = Array.from(container.querySelectorAll('[data-conv-key]')).map(
       (el) => (el as HTMLElement).dataset.convKey,
     );
-    // AI 卡固定置顶第一位；alice 置顶分层在前（尽管 2026-01-01 最旧）；
+    // 列表无固定 AI 卡；alice 置顶分层在前（尽管 2026-01-01 最旧）；
     // 未置顶层 bob(2026-03-01) > g1(2026-02-01) 时间降序
-    expect(keys).toEqual(['ai-assistant', 'friend-alice', 'friend-bob', 'group-g1']);
+    expect(keys).toEqual(['friend-alice', 'friend-bob', 'group-g1']);
   });
 
   it('置顶卡渲染 conv-pin-flag 图钉标识，未置顶卡不渲染', () => {
@@ -183,12 +184,9 @@ describe('UnifiedList 会话置顶', () => {
     expect(setConversationPinnedMock).toHaveBeenLastCalledWith('g1', 'group', '群一', true);
   });
 
-  it('AI 卡片不挂右键菜单（无本地会话行，不参与置顶）', () => {
+  it('列表不再有固定置顶的 AI 助手卡（入口已迁至侧边栏「更多功能」）', () => {
     const { container } = renderList();
 
-    fireEvent.contextMenu(container.querySelector('[data-conv-key="ai-assistant"]')!);
-    expect(screen.queryByText('置顶')).toBeNull();
-    expect(screen.queryByText('取消置顶')).toBeNull();
-    expect(setConversationPinnedMock).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-conv-key="ai-assistant"]')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@
  *
  * 从左侧滑出，包含：
  * - 顶部：用户头像和信息
- * - 菜单：我的文件、局域网互传、小程序、机器人、视频会议、设置
+ * - 菜单：AI 助手、我的文件、局域网互传、小程序、机器人、视频会议、设置
  * - 底部：退出登录
  *
  * 注意：
@@ -34,6 +34,13 @@ const SettingsIcon = () => (
       strokeLinejoin="round"
       d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
     />
+  </svg>
+);
+
+// AI 助手图标（光芒 sparkle，与桌面 Sidebar.tsx AiAssistantIcon 同一路径，视觉一致）
+const AiAssistantIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
   </svg>
 );
 
@@ -159,6 +166,8 @@ interface MobileDrawerProps {
   onClose: () => void;
   /** 头像点击回调（打开个人资料） */
   onProfileClick: () => void;
+  /** AI 助手点击回调（打开 AI 会话；置顶卡已移除，入口收纳在抽屉工具面） */
+  onAiAssistantClick: () => void;
   /** 我的文件点击回调 */
   onFilesClick: () => void;
   /** 局域网互传点击回调 */
@@ -182,6 +191,7 @@ export function MobileDrawer({
   session,
   onClose,
   onProfileClick,
+  onAiAssistantClick,
   onFilesClick,
   onLanTransferClick,
   onMiniAppsClick,
@@ -237,6 +247,18 @@ export function MobileDrawer({
 
         {/* 菜单列表 */}
         <nav className="mobile-drawer-menu">
+          {/* AI 助手（会话置顶卡已移除，入口与桌面同口径收纳进工具面） */}
+          <div
+            className="mobile-drawer-item"
+            onClick={() => {
+              onAiAssistantClick();
+              onClose();
+            }}
+          >
+            <AiAssistantIcon />
+            <span>AI 助手</span>
+          </div>
+
           {/* 我的文件 */}
           <div
             className="mobile-drawer-item"

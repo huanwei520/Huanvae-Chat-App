@@ -171,10 +171,15 @@ test('流程2：注册/登录黄金路径（UI 驱动，ORIGIN_A）', async ({ b
   await ws.waitConnected();
   expect(ws.url()).toContain('/ws?token=');
 
-  // 列表渲染成功：AI 助手置顶卡可见
-  await expect(page.locator('[data-conv-key="ai-assistant"]')).toBeVisible({
+  // 列表渲染成功：聊天列表不再有固定置顶的 AI 助手卡（入口已迁至侧边栏「更多功能」）
+  await expect(page.locator('[data-conv-key="ai-assistant"]')).toHaveCount(0, {
     timeout: 10_000,
   });
+  // 点侧边栏「更多功能」→ 浮层面板内有 AI 助手入口
+  await page.getByTitle('更多功能').click();
+  await expect(
+    page.locator('.more-panel-item', { hasText: 'AI 助手' }),
+  ).toBeVisible({ timeout: 5_000 });
 
   await context.close();
 });

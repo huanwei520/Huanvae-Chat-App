@@ -129,12 +129,13 @@ describe('UnifiedList 会话列表键盘导航', () => {
     expect(onSelectTarget).toHaveBeenCalledWith({ type: 'friend', data: f2 });
   });
 
-  it('消息(chat) Tab 下首个光标是置顶 AI 卡片，Enter 打开 AI 会话', () => {
+  it('消息(chat) Tab 下首个光标是排序首位的会话卡，Enter 打开该会话', () => {
     const { list, onSelectTarget } = renderList({ activeTab: 'chat' });
     fireEvent.focus(list);
     fireEvent.keyDown(list, { key: 'ArrowDown' });
     fireEvent.keyDown(list, { key: 'Enter' });
-    expect(onSelectTarget).toHaveBeenCalledWith({ type: 'ai' });
+    // 列表无固定 AI 卡，光标落在排序首位的普通会话卡上
+    expect(onSelectTarget).toHaveBeenCalledWith({ type: 'friend', data: f1 });
   });
 
   it('ArrowDown 调用 preventDefault（防页面滚动）', () => {

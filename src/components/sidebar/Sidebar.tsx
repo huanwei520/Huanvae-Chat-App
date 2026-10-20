@@ -4,7 +4,7 @@
  * 采用"核心固定 + 可钉工具 + 更多收纳"三层布局：
  * - 固定区：消息、好友、群聊（高频核心操作，不可拖动）
  * - 钉住区（SidebarPinZone）：用户从"更多"面板拖出的工具项，图标常驻侧边栏
- * - 更多浮层（SidebarMorePanel）：未钉住的低频工具（文件/局域网互传/会议/小程序/
+ * - 更多浮层（SidebarMorePanel）：未钉住的低频工具（AI 助手/文件/局域网互传/会议/小程序/
  *   机器人/低代码/VPN），点击"更多"展开
  * - 底部区：设置、退出
  *
@@ -111,6 +111,13 @@ const BotIcon = () => (
   </svg>
 );
 
+// AI 助手图标（光芒 sparkle，stroke 风格与同级图标一致）
+const AiAssistantIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+  </svg>
+);
+
 // "更多"按钮图标（三个圆点 · · ·）
 const MoreIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -126,6 +133,7 @@ interface SidebarProps {
     isSettingsOpen?: boolean;
     onTabChange: (tab: NavTab) => void;
     onAvatarClick: () => void;
+    onAiAssistantClick: () => void;
     onFilesClick: () => void;
     onLanTransferClick: () => void;
     onMeetingClick: () => void;
@@ -223,6 +231,7 @@ export function Sidebar({
   isSettingsOpen = false,
   onTabChange,
   onAvatarClick,
+  onAiAssistantClick,
   onFilesClick,
   onLanTransferClick,
   onMeetingClick,
@@ -313,6 +322,7 @@ export function Sidebar({
 
   // 全部工具项定义（分区与顺序由 layout 状态决定）
   const moreItems: Record<SidebarItemKey, SidebarItemConfig> = {
+    ai: { icon: <AiAssistantIcon />, label: 'AI 助手', onClick: onAiAssistantClick },
     files: { icon: <FolderIcon />, label: '我的文件', onClick: onFilesClick },
     lan: { icon: <LanTransferIcon />, label: '局域网互传', onClick: onLanTransferClick },
     meeting: { icon: <VideoMeetingIcon />, label: '视频会议', onClick: onMeetingClick },
